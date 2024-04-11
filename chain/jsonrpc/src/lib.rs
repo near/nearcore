@@ -1,6 +1,5 @@
 #![doc = include_str!("../README.md")]
 
-use actix::{Addr, MailboxError};
 use actix_cors::Cors;
 use actix_web::http::header;
 use actix_web::HttpRequest;
@@ -9,13 +8,16 @@ use api::RpcRequest;
 pub use api::{RpcFrom, RpcInto};
 use futures::Future;
 use futures::FutureExt;
+use near_async::actix::ActixResult;
+use near_async::messaging::{
+    AsyncSendError, AsyncSender, CanSend, MessageWithCallback, SendAsync, Sender,
+};
 use near_chain_configs::GenesisConfig;
 use near_client::{
-    ClientActor, DebugStatus, GetBlock, GetBlockProof, GetChunk, GetClientConfig,
-    GetExecutionOutcome, GetGasPrice, GetMaintenanceWindows, GetNetworkInfo,
-    GetNextLightClientBlock, GetProtocolConfig, GetReceipt, GetStateChanges,
-    GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, ProcessTxRequest,
-    ProcessTxResponse, Query, Status, TxStatus, ViewClientActor,
+    DebugStatus, GetBlock, GetBlockProof, GetChunk, GetClientConfig, GetExecutionOutcome,
+    GetGasPrice, GetMaintenanceWindows, GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig,
+    GetReceipt, GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
+    ProcessTxRequest, ProcessTxResponse, Query, Status, TxStatus,
 };
 use near_client_primitives::types::GetSplitStorageInfo;
 pub use near_jsonrpc_client as client;
@@ -30,10 +32,9 @@ use near_jsonrpc_primitives::types::split_storage::{
 use near_jsonrpc_primitives::types::transactions::{
     RpcSendTransactionRequest, RpcTransactionResponse,
 };
+use near_network::debug::GetDebugStatus;
 use near_network::tcp;
-use near_network::PeerManagerActor;
 use near_o11y::metrics::{prometheus, Encoder, TextEncoder};
-use near_o11y::{WithSpanContext, WithSpanContextExt};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight};
@@ -219,10 +220,55 @@ fn process_query_response(
     }
 }
 
+#[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
+pub struct ClientSenderForRpc(
+    AsyncSender<DebugStatus, ActixResult<DebugStatus>>,
+    AsyncSender<GetClientConfig, ActixResult<GetClientConfig>>,
+    AsyncSender<GetNetworkInfo, ActixResult<GetNetworkInfo>>,
+    AsyncSender<ProcessTxRequest, ActixResult<ProcessTxRequest>>,
+    AsyncSender<Status, ActixResult<Status>>,
+    Sender<ProcessTxRequest>,
+    #[cfg(feature = "test_features")] Sender<near_client::NetworkAdversarialMessage>,
+    #[cfg(feature = "test_features")]
+    AsyncSender<
+        near_client::NetworkAdversarialMessage,
+        ActixResult<near_client::NetworkAdversarialMessage>,
+    >,
+    #[cfg(feature = "sandbox")]
+    AsyncSender<
+        near_client_primitives::types::SandboxMessage,
+        ActixResult<near_client_primitives::types::SandboxMessage>,
+    >,
+);
+
+#[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
+pub struct ViewClientSenderForRpc(
+    AsyncSender<GetBlock, ActixResult<GetBlock>>,
+    AsyncSender<GetBlockProof, ActixResult<GetBlockProof>>,
+    AsyncSender<GetChunk, ActixResult<GetChunk>>,
+    AsyncSender<GetExecutionOutcome, ActixResult<GetExecutionOutcome>>,
+    AsyncSender<GetGasPrice, ActixResult<GetGasPrice>>,
+    AsyncSender<GetMaintenanceWindows, ActixResult<GetMaintenanceWindows>>,
+    AsyncSender<GetNextLightClientBlock, ActixResult<GetNextLightClientBlock>>,
+    AsyncSender<GetProtocolConfig, ActixResult<GetProtocolConfig>>,
+    AsyncSender<GetReceipt, ActixResult<GetReceipt>>,
+    AsyncSender<GetSplitStorageInfo, ActixResult<GetSplitStorageInfo>>,
+    AsyncSender<GetStateChanges, ActixResult<GetStateChanges>>,
+    AsyncSender<GetStateChangesInBlock, ActixResult<GetStateChangesInBlock>>,
+    AsyncSender<GetValidatorInfo, ActixResult<GetValidatorInfo>>,
+    AsyncSender<GetValidatorOrdered, ActixResult<GetValidatorOrdered>>,
+    AsyncSender<Query, ActixResult<Query>>,
+    AsyncSender<TxStatus, ActixResult<TxStatus>>,
+    #[cfg(feature = "test_features")] Sender<near_client::NetworkAdversarialMessage>,
+);
+
+#[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
+pub struct PeerManagerSenderForRpc(AsyncSender<GetDebugStatus, ActixResult<GetDebugStatus>>);
+
 struct JsonRpcHandler {
-    client_addr: Addr<ClientActor>,
-    view_client_addr: Addr<ViewClientActor>,
-    peer_manager_addr: Option<Addr<PeerManagerActor>>,
+    client_sender: ClientSenderForRpc,
+    view_client_sender: ViewClientSenderForRpc,
+    peer_manager_sender: PeerManagerSenderForRpc,
     polling_config: RpcPollingConfig,
     genesis_config: GenesisConfig,
     enable_debug_rpc: bool,
@@ -427,47 +473,44 @@ impl JsonRpcHandler {
         })
     }
 
-    async fn client_send<M, T, E, F>(&self, msg: M) -> Result<T, E>
+    async fn client_send<M, R: Send + 'static, F: Send + 'static, E>(&self, msg: M) -> Result<R, E>
     where
-        ClientActor: actix::Handler<WithSpanContext<M>>,
-        M: actix::Message<Result = Result<T, F>> + Send + 'static,
-        M::Result: Send,
+        ClientSenderForRpc: CanSend<MessageWithCallback<M, Result<R, F>>>,
         E: RpcFrom<F>,
-        E: RpcFrom<actix::MailboxError>,
+        E: RpcFrom<AsyncSendError>,
     {
-        self.client_addr
-            .send(msg.with_span_context())
+        self.client_sender
+            .send_async(msg)
             .await
             .map_err(RpcFrom::rpc_from)?
             .map_err(RpcFrom::rpc_from)
     }
 
-    async fn view_client_send<M, T, E, F>(&self, msg: M) -> Result<T, E>
+    async fn view_client_send<M, T: Send + 'static, E, F: Send + 'static>(
+        &self,
+        msg: M,
+    ) -> Result<T, E>
     where
-        ViewClientActor: actix::Handler<WithSpanContext<M>>,
-        M: actix::Message<Result = Result<T, F>> + Send + 'static,
-        M::Result: Send,
+        ViewClientSenderForRpc: CanSend<MessageWithCallback<M, Result<T, F>>>,
         E: RpcFrom<F>,
-        E: RpcFrom<actix::MailboxError>,
+        E: RpcFrom<AsyncSendError>,
     {
-        self.view_client_addr
-            .send(msg.with_span_context())
+        self.view_client_sender
+            .send_async(msg)
             .await
             .map_err(RpcFrom::rpc_from)?
             .map_err(RpcFrom::rpc_from)
     }
 
-    async fn peer_manager_send<M, T, E>(&self, msg: M) -> Result<T, E>
+    async fn peer_manager_send<M, T: Send + 'static, E: Send + 'static>(
+        &self,
+        msg: M,
+    ) -> Result<T, E>
     where
-        PeerManagerActor: actix::Handler<M>,
-        M: actix::Message<Result = T> + Send + 'static,
-        M::Result: Send,
-        E: RpcFrom<actix::MailboxError>,
+        PeerManagerSenderForRpc: CanSend<MessageWithCallback<M, T>>,
+        E: RpcFrom<AsyncSendError>,
     {
-        match &self.peer_manager_addr {
-            Some(peer_manager_addr) => peer_manager_addr.send(msg).await.map_err(RpcFrom::rpc_from),
-            None => Err(RpcFrom::rpc_from(MailboxError::Closed)),
-        }
+        self.peer_manager_sender.send_async(msg).await.map_err(RpcFrom::rpc_from)
     }
 
     async fn send_tx_async(
@@ -476,14 +519,11 @@ impl JsonRpcHandler {
     ) -> CryptoHash {
         let tx = request_data.signed_transaction;
         let hash = tx.get_hash();
-        self.client_addr.do_send(
-            ProcessTxRequest {
-                transaction: tx,
-                is_forwarded: false,
-                check_only: false, // if we set true here it will not actually send the transaction
-            }
-            .with_span_context(),
-        );
+        self.client_sender.send(ProcessTxRequest {
+            transaction: tx,
+            is_forwarded: false,
+            check_only: false, // if we set true here it will not actually send the transaction
+        });
         hash
     }
 
@@ -556,7 +596,7 @@ impl JsonRpcHandler {
                 .await;
                 match tx_status_result.clone() {
                     Ok(result) => {
-                        if result.status >= finality {
+                        if tx_execution_status_meets_expectations(&finality, &result.status) {
                             break Ok(result.into())
                         }
                         // else: No such transaction recorded on chain yet
@@ -612,11 +652,8 @@ impl JsonRpcHandler {
         let tx_hash = tx.get_hash();
         let signer_account_id = tx.transaction.signer_id.clone();
         let response = self
-            .client_addr
-            .send(
-                ProcessTxRequest { transaction: tx, is_forwarded: false, check_only }
-                    .with_span_context(),
-            )
+            .client_sender
+            .send_async(ProcessTxRequest { transaction: tx, is_forwarded: false, check_only })
             .await
             .map_err(RpcFrom::rpc_from)?;
 
@@ -677,7 +714,8 @@ impl JsonRpcHandler {
     > {
         self.send_tx(RpcSendTransactionRequest {
             signed_transaction: request_data.signed_transaction,
-            wait_until: TxExecutionStatus::Final,
+            // Will be ignored, broadcast_tx_commit is not aligned with existing enum
+            wait_until: Default::default(),
         })
         .await
     }
@@ -1088,23 +1126,19 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateResponse,
         near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateError,
     > {
-        self.client_addr
-            .send(
-                near_client_primitives::types::SandboxMessage::SandboxPatchState(
-                    patch_state_request.records,
-                )
-                .with_span_context(),
-            )
+        self.client_sender
+            .send_async(near_client_primitives::types::SandboxMessage::SandboxPatchState(
+                patch_state_request.records,
+            ))
             .await
             .map_err(RpcFrom::rpc_from)?;
 
         timeout(self.polling_config.polling_timeout, async {
             loop {
                 let patch_state_finished = self
-                    .client_addr
-                    .send(
-                        near_client_primitives::types::SandboxMessage::SandboxPatchStateStatus {}
-                            .with_span_context(),
+                    .client_sender
+                    .send_async(
+                        near_client_primitives::types::SandboxMessage::SandboxPatchStateStatus {},
                     )
                     .await;
                 if let Ok(
@@ -1131,13 +1165,10 @@ impl JsonRpcHandler {
     > {
         use near_client_primitives::types::SandboxResponse;
 
-        self.client_addr
-            .send(
-                near_client_primitives::types::SandboxMessage::SandboxFastForward(
-                    fast_forward_request.delta_height,
-                )
-                .with_span_context(),
-            )
+        self.client_sender
+            .send_async(near_client_primitives::types::SandboxMessage::SandboxFastForward(
+                fast_forward_request.delta_height,
+            ))
             .await
             .map_err(RpcFrom::rpc_from)?;
 
@@ -1146,10 +1177,9 @@ impl JsonRpcHandler {
         timeout(Duration::from_secs(60 * 60), async {
             loop {
                 let fast_forward_finished = self
-                    .client_addr
-                    .send(
-                        near_client_primitives::types::SandboxMessage::SandboxFastForwardStatus {}
-                            .with_span_context(),
+                    .client_sender
+                    .send_async(
+                        near_client_primitives::types::SandboxMessage::SandboxFastForwardStatus {},
                     )
                     .await;
 
@@ -1183,83 +1213,36 @@ impl JsonRpcHandler {
 #[cfg(feature = "test_features")]
 impl JsonRpcHandler {
     async fn adv_disable_header_sync(&self, _params: Value) -> Result<Value, RpcError> {
-        actix::spawn(
-            self.client_addr
-                .send(
-                    near_client::NetworkAdversarialMessage::AdvDisableHeaderSync
-                        .with_span_context(),
-                )
-                .map(|_| ()),
-        );
-        actix::spawn(
-            self.view_client_addr
-                .send(
-                    near_client::NetworkAdversarialMessage::AdvDisableHeaderSync
-                        .with_span_context(),
-                )
-                .map(|_| ()),
-        );
+        self.client_sender.send(near_client::NetworkAdversarialMessage::AdvDisableHeaderSync);
+        self.view_client_sender.send(near_client::NetworkAdversarialMessage::AdvDisableHeaderSync);
         Ok(Value::String(String::new()))
     }
 
     async fn adv_disable_doomslug(&self, _params: Value) -> Result<Value, RpcError> {
-        actix::spawn(
-            self.client_addr
-                .send(
-                    near_client::NetworkAdversarialMessage::AdvDisableDoomslug.with_span_context(),
-                )
-                .map(|_| ()),
-        );
-        actix::spawn(
-            self.view_client_addr
-                .send(
-                    near_client::NetworkAdversarialMessage::AdvDisableDoomslug.with_span_context(),
-                )
-                .map(|_| ()),
-        );
+        self.client_sender.send(near_client::NetworkAdversarialMessage::AdvDisableDoomslug);
+        self.view_client_sender.send(near_client::NetworkAdversarialMessage::AdvDisableDoomslug);
         Ok(Value::String(String::new()))
     }
 
     async fn adv_produce_blocks(&self, params: Value) -> Result<Value, RpcError> {
         let (num_blocks, only_valid) = crate::api::Params::parse(params)?;
-        actix::spawn(
-            self.client_addr
-                .send(
-                    near_client::NetworkAdversarialMessage::AdvProduceBlocks(
-                        num_blocks, only_valid,
-                    )
-                    .with_span_context(),
-                )
-                .map(|_| ()),
-        );
+        self.client_sender
+            .send(near_client::NetworkAdversarialMessage::AdvProduceBlocks(num_blocks, only_valid));
         Ok(Value::String(String::new()))
     }
 
     async fn adv_switch_to_height(&self, params: Value) -> Result<Value, RpcError> {
         let (height,) = crate::api::Params::parse(params)?;
-        actix::spawn(
-            self.client_addr
-                .send(
-                    near_client::NetworkAdversarialMessage::AdvSwitchToHeight(height)
-                        .with_span_context(),
-                )
-                .map(|_| ()),
-        );
-        actix::spawn(
-            self.view_client_addr
-                .send(
-                    near_client::NetworkAdversarialMessage::AdvSwitchToHeight(height)
-                        .with_span_context(),
-                )
-                .map(|_| ()),
-        );
+        self.client_sender.send(near_client::NetworkAdversarialMessage::AdvSwitchToHeight(height));
+        self.view_client_sender
+            .send(near_client::NetworkAdversarialMessage::AdvSwitchToHeight(height));
         Ok(Value::String(String::new()))
     }
 
     async fn adv_get_saved_blocks(&self, _params: Value) -> Result<Value, RpcError> {
         match self
-            .client_addr
-            .send(near_client::NetworkAdversarialMessage::AdvGetSavedBlocks.with_span_context())
+            .client_sender
+            .send_async(near_client::NetworkAdversarialMessage::AdvGetSavedBlocks)
             .await
         {
             Ok(result) => match result {
@@ -1272,11 +1255,8 @@ impl JsonRpcHandler {
 
     async fn adv_check_store(&self, _params: Value) -> Result<Value, RpcError> {
         match self
-            .client_addr
-            .send(
-                near_client::NetworkAdversarialMessage::AdvCheckStorageConsistency
-                    .with_span_context(),
-            )
+            .client_sender
+            .send_async(near_client::NetworkAdversarialMessage::AdvCheckStorageConsistency)
             .await
         {
             Ok(result) => match result {
@@ -1479,9 +1459,9 @@ async fn display_debug_html(
 pub fn start_http(
     config: RpcConfig,
     genesis_config: GenesisConfig,
-    client_addr: Addr<ClientActor>,
-    view_client_addr: Addr<ViewClientActor>,
-    peer_manager_addr: Option<Addr<PeerManagerActor>>,
+    client_sender: ClientSenderForRpc,
+    view_client_sender: ViewClientSenderForRpc,
+    peer_manager_sender: PeerManagerSenderForRpc,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
 ) -> Vec<(&'static str, actix_web::dev::ServerHandle)> {
     let RpcConfig {
@@ -1501,9 +1481,9 @@ pub fn start_http(
         App::new()
             .wrap(get_cors(&cors_allowed_origins))
             .app_data(web::Data::new(JsonRpcHandler {
-                client_addr: client_addr.clone(),
-                view_client_addr: view_client_addr.clone(),
-                peer_manager_addr: peer_manager_addr.clone(),
+                client_sender: client_sender.clone(),
+                view_client_sender: view_client_sender.clone(),
+                peer_manager_sender: peer_manager_sender.clone(),
                 polling_config,
                 genesis_config: genesis_config.clone(),
                 enable_debug_rpc,
@@ -1579,4 +1559,30 @@ pub fn start_http(
     }
 
     servers
+}
+
+fn tx_execution_status_meets_expectations(
+    expected: &TxExecutionStatus,
+    actual: &TxExecutionStatus,
+) -> bool {
+    match expected {
+        TxExecutionStatus::None => true,
+        TxExecutionStatus::Included => actual != &TxExecutionStatus::None,
+        TxExecutionStatus::ExecutedOptimistic => [
+            TxExecutionStatus::ExecutedOptimistic,
+            TxExecutionStatus::Executed,
+            TxExecutionStatus::Final,
+        ]
+        .contains(actual),
+        TxExecutionStatus::IncludedFinal => [
+            TxExecutionStatus::IncludedFinal,
+            TxExecutionStatus::Executed,
+            TxExecutionStatus::Final,
+        ]
+        .contains(actual),
+        TxExecutionStatus::Executed => {
+            [TxExecutionStatus::Executed, TxExecutionStatus::Final].contains(actual)
+        }
+        TxExecutionStatus::Final => actual == &TxExecutionStatus::Final,
+    }
 }

@@ -1,25 +1,33 @@
 use std::{collections::HashSet, sync::Arc};
 
-use near_async::messaging::CanSend;
-use near_chain::{ChainGenesis, Provenance};
+use near_async::{
+    messaging::CanSend,
+    time::{FakeClock, Utc},
+};
+use near_chain::Provenance;
 use near_chain_configs::Genesis;
+use near_chunks::{
+    test_loop::ShardsManagerResendChunkRequests, CHUNK_REQUEST_SWITCH_TO_FULL_FETCH,
+};
 use near_client::test_utils::TestEnv;
 use near_network::{
     shards_manager::ShardsManagerRequestFromNetwork,
     types::{NetworkRequests, PeerManagerMessageRequest},
 };
 use near_o11y::testonly::init_test_logger;
+use near_primitives::utils::from_timestamp;
 use near_primitives::{
     shard_layout::ShardLayout,
     types::{AccountId, EpochId, ShardId},
 };
-use nearcore::config::GenesisExt;
+use near_primitives_core::{checked_feature, version::PROTOCOL_VERSION};
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use tracing::log::debug;
 
 struct AdversarialBehaviorTestData {
     num_validators: usize,
     env: TestEnv,
+    clock: FakeClock,
 }
 
 const EPOCH_LENGTH: u64 = 20;
@@ -33,9 +41,11 @@ impl AdversarialBehaviorTestData {
 
         let accounts: Vec<AccountId> =
             (0..num_clients).map(|i| format!("test{}", i).parse().unwrap()).collect();
+        let clock = FakeClock::new(Utc::UNIX_EPOCH);
         let mut genesis = Genesis::test(accounts, num_validators as u64);
         {
             let config = &mut genesis.config;
+            config.genesis_time = from_timestamp(clock.now_utc().unix_timestamp_nanos() as u64);
             config.epoch_length = epoch_length;
             config.shard_layout = ShardLayout::v1_test();
             config.num_block_producer_seats_per_shard = vec![
@@ -49,25 +59,29 @@ impl AdversarialBehaviorTestData {
             config.block_producer_kickout_threshold = 50;
             config.chunk_producer_kickout_threshold = 50;
         }
-        let chain_genesis = ChainGenesis::new(&genesis);
-        let env = TestEnv::builder(chain_genesis)
+        let env = TestEnv::builder(&genesis.config)
+            .clock(clock.clock())
             .clients_count(num_clients)
             .validator_seats(num_validators as usize)
-            .real_epoch_managers(&genesis.config)
             .track_all_shards()
             .nightshade_runtimes(&genesis)
             .build();
 
-        AdversarialBehaviorTestData { num_validators, env }
+        AdversarialBehaviorTestData { num_validators, env, clock }
     }
 
-    fn process_one_peer_message(&mut self, client_id: usize, requests: NetworkRequests) {
+    fn process_one_peer_message(
+        &mut self,
+        client_id: usize,
+        requests: NetworkRequests,
+    ) -> Option<NetworkRequests> {
         match requests {
             NetworkRequests::PartialEncodedChunkRequest { .. } => {
                 self.env.process_partial_encoded_chunk_request(
                     client_id,
                     PeerManagerMessageRequest::NetworkRequests(requests),
                 );
+                None
             }
             NetworkRequests::PartialEncodedChunkMessage { account_id, partial_encoded_chunk } => {
                 self.env.shards_manager(&account_id).send(
@@ -75,42 +89,39 @@ impl AdversarialBehaviorTestData {
                         partial_encoded_chunk.into(),
                     ),
                 );
+                None
             }
             NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
                 self.env.shards_manager(&account_id).send(
                     ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(forward),
                 );
+                None
             }
-            NetworkRequests::Challenge(_) => {
-                // challenges not enabled.
-            }
-            NetworkRequests::ChunkEndorsement(_) => {
-                // TODO(#10265).
-            }
-            NetworkRequests::ChunkStateWitness(_, _) => {
-                // TODO(#10265).
-            }
-            _ => {
-                panic!("Unexpected network request: {:?}", requests);
-            }
+            _ => Some(requests),
         }
     }
 
     fn process_all_actor_messages(&mut self) {
         loop {
+            // Force trigger any chunk request retries.
+            // NOTE(hpmv): Additionally dial time forward to trigger a full fetch. Why? Probably
+            // because during epoch transitions we don't exactly get this correct. But honestly,
+            // I don't know what I'm doing and it doesn't matter for the test.
+            self.clock.advance(CHUNK_REQUEST_SWITCH_TO_FULL_FETCH);
+            for i in 0..self.num_validators {
+                self.env.shards_manager_adapters[i].send(ShardsManagerResendChunkRequests);
+            }
             let mut any_message_processed = false;
             for i in 0..self.num_validators {
-                if let Some(msg) = self.env.network_adapters[i].pop() {
-                    any_message_processed = true;
-                    match msg {
-                        PeerManagerMessageRequest::NetworkRequests(requests) => {
-                            self.process_one_peer_message(i, requests);
-                        }
-                        _ => {
-                            panic!("Unexpected message: {:?}", msg);
-                        }
+                let network_adapter = self.env.network_adapters[i].clone();
+                any_message_processed |= network_adapter.handle_filtered(|request| match request {
+                    PeerManagerMessageRequest::NetworkRequests(requests) => {
+                        self.process_one_peer_message(i, requests).map(|ignored_request| {
+                            PeerManagerMessageRequest::NetworkRequests(ignored_request)
+                        })
                     }
-                }
+                    _ => Some(request),
+                });
             }
             for i in 0..self.env.clients.len() {
                 any_message_processed |= self.env.process_shards_manager_responses(i);
@@ -180,6 +191,9 @@ fn test_non_adversarial_case() {
             assert_eq!(&accepted_blocks[0], block.header().hash());
             assert_eq!(test.env.clients[i].chain.head().unwrap().height, height);
         }
+
+        test.process_all_actor_messages();
+        test.env.propagate_chunk_state_witnesses_and_endorsements(false);
     }
 
     // Sanity check that the final chain head is what we expect
@@ -202,6 +216,8 @@ fn test_non_adversarial_case() {
 fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
     mut test: AdversarialBehaviorTestData,
 ) {
+    let uses_stateless_validation =
+        checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION);
     let epoch_manager = test.env.clients[0].epoch_manager.clone();
     let bad_chunk_producer =
         test.env.clients[7].validator_signer.as_ref().unwrap().validator_id().clone();
@@ -239,8 +255,22 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
                 if &chunk_producer == &bad_chunk_producer {
                     invalid_chunks_in_this_block.insert(shard_id);
                     if !epochs_seen_invalid_chunk.contains(&epoch_id) {
-                        this_block_should_be_skipped = true;
                         epochs_seen_invalid_chunk.insert(epoch_id.clone());
+
+                        // This is the first block with invalid chunks in the current epoch.
+                        // In pre-stateless validation protocol the first block with invalid chunks
+                        // was skipped.
+                        // In the old protocol, chunks are first included in the block and then the block
+                        // is validated. This means that this block, which includes an invalid chunk,
+                        // will be invalid and it should be skipped. Once this happens, the malicious
+                        // chunk producer is banned for the whole epoch and no blocks are skipped until
+                        // we reach the next epoch.
+                        // With stateless validation the block usually isn't skipped. Chunk validators
+                        // won't send chunk endorsements for this chunk, which means that it won't be
+                        // included in the block at all.
+                        if !uses_stateless_validation {
+                            this_block_should_be_skipped = true;
+                        }
                     }
                 }
             }
@@ -304,6 +334,8 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
                 assert_eq!(test.env.clients[i].chain.head().unwrap().height, height);
             }
         }
+        test.process_all_actor_messages();
+        test.env.propagate_chunk_state_witnesses_and_endorsements(true);
         last_block_skipped = this_block_should_be_skipped;
     }
 

@@ -24,14 +24,18 @@ pub mod migrations;
 pub mod missing_chunks;
 pub mod orphan;
 pub mod resharding;
+pub mod runtime;
 mod state_request_tracker;
 pub mod state_snapshot_actor;
+mod stateless_validation;
 mod store;
 pub mod store_validator;
 pub mod test_utils;
 pub mod types;
 pub mod validate;
 
+pub mod rayon_spawner;
+pub mod sharding;
 #[cfg(test)]
 mod tests;
 mod update_shard;

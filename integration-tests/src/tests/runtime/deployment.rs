@@ -5,7 +5,6 @@ use near_primitives::transaction::{Action, DeployContractAction, SignedTransacti
 use near_primitives::types::AccountId;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::FinalExecutionStatus;
-use nearcore::config::GenesisExt;
 
 const ONE_NEAR: u128 = 10u128.pow(24);
 

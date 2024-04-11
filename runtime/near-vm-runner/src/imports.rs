@@ -48,6 +48,12 @@
 //! `for_each_available_import` takes care to invoke `M!` only for currently
 //! available imports.
 
+#[cfg(any(
+    feature = "wasmer0_vm",
+    feature = "wasmer2_vm",
+    feature = "near_vm",
+    feature = "wasmtime_vm"
+))]
 macro_rules! call_with_name {
     ( $M:ident => @in $mod:ident : $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] > ) => {
         $M!($mod / $func : $func < [ $( $arg_name : $arg_type ),* ] -> [ $( $returns ),* ] >)
@@ -67,6 +73,12 @@ macro_rules! imports {
         $( @as $name:ident : )?
         $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >,)*
     ) => {
+        #[cfg(any(
+            feature = "wasmer0_vm",
+            feature = "wasmer2_vm",
+            feature = "near_vm",
+            feature = "wasmtime_vm"
+        ))]
         macro_rules! for_each_available_import {
             ($config:expr, $M:ident) => {$(
                 $(#[cfg(feature = $feature_name)])?
@@ -222,6 +234,24 @@ imports! {
         beneficiary_id_ptr: u64
     ] -> []>,
     // #######################
+    // # Promise API yield/resume #
+    // #######################
+    #[yield_resume_host_functions] promise_yield_create<[
+        method_name_len: u64,
+        method_name_ptr: u64,
+        arguments_len: u64,
+        arguments_ptr: u64,
+        gas: u64,
+        gas_weight: u64,
+        register_id: u64
+    ] -> [u64]>,
+    #[yield_resume_host_functions] promise_yield_resume<[
+        data_id_len: u64,
+        data_id_ptr: u64,
+        payload_len: u64,
+        payload_ptr: u64
+    ] -> [u32]>,
+    // #######################
     // # Promise API results #
     // #######################
     promise_results_count<[] -> [u64]>,
@@ -253,15 +283,15 @@ imports! {
     // #############
     // # BLS12-381 #
     // #############
-    bls12381_p1_sum<[value_len: u64, value_ptr: u64, register_id: u64] -> [u64]>,
-    bls12381_p2_sum<[value_len: u64, value_ptr: u64, register_id: u64] -> [u64]>,
-    bls12381_p1_multiexp<[value_len: u64, value_ptr: u64, register_id: u64] -> [u64]>,
-    bls12381_p2_multiexp<[value_len: u64, value_ptr: u64, register_id: u64] -> [u64]>,
-    bls12381_map_fp_to_g1<[value_len: u64, value_ptr: u64, register_id: u64] -> [u64]>,
-    bls12381_map_fp2_to_g2<[value_len: u64, value_ptr: u64, register_id: u64] -> [u64]>,
-    bls12381_pairing_check<[value_len: u64, value_ptr: u64] -> [u64]>,
-    bls12381_p1_decompress<[value_len: u64, value_ptr: u64, register_id: u64] -> [u64]>,
-    bls12381_p2_decompress<[value_len: u64, value_ptr: u64, register_id: u64] -> [u64]>,
+    ##["protocol_feature_bls12381"] bls12381_p1_sum<[value_len: u64, value_ptr: u64, register_id: u64] -> [u64]>,
+    ##["protocol_feature_bls12381"] bls12381_p2_sum<[value_len: u64, value_ptr: u64, register_id: u64] -> [u64]>,
+    ##["protocol_feature_bls12381"] bls12381_p1_multiexp<[value_len: u64, value_ptr: u64, register_id: u64] -> [u64]>,
+    ##["protocol_feature_bls12381"] bls12381_p2_multiexp<[value_len: u64, value_ptr: u64, register_id: u64] -> [u64]>,
+    ##["protocol_feature_bls12381"] bls12381_map_fp_to_g1<[value_len: u64, value_ptr: u64, register_id: u64] -> [u64]>,
+    ##["protocol_feature_bls12381"] bls12381_map_fp2_to_g2<[value_len: u64, value_ptr: u64, register_id: u64] -> [u64]>,
+    ##["protocol_feature_bls12381"] bls12381_pairing_check<[value_len: u64, value_ptr: u64] -> [u64]>,
+    ##["protocol_feature_bls12381"] bls12381_p1_decompress<[value_len: u64, value_ptr: u64, register_id: u64] -> [u64]>,
+    ##["protocol_feature_bls12381"] bls12381_p2_decompress<[value_len: u64, value_ptr: u64, register_id: u64] -> [u64]>,
 
     // #############
     // #  Sandbox  #
@@ -659,7 +689,7 @@ pub(crate) mod wasmtime {
     }
 
     thread_local! {
-        static CALLER_CONTEXT: UnsafeCell<*mut c_void> = UnsafeCell::new(0 as *mut c_void);
+        static CALLER_CONTEXT: UnsafeCell<*mut c_void> = const { UnsafeCell::new(core::ptr::null_mut()) };
     }
 
     pub(crate) fn link<'a, 'b>(
@@ -718,6 +748,12 @@ pub(crate) mod wasmtime {
 
 /// Constant-time string equality, work-around for `"foo" == "bar"` not working
 /// in const context yet.
+#[cfg(any(
+    feature = "wasmer0_vm",
+    feature = "wasmer2_vm",
+    feature = "near_vm",
+    feature = "wasmtime_vm"
+))]
 const fn str_eq(s1: &str, s2: &str) -> bool {
     let s1 = s1.as_bytes();
     let s2 = s2.as_bytes();

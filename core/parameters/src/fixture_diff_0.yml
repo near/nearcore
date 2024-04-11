@@ -1,0 +1,12 @@
+# Comment line
+registrar_account_id: { old: "registrar", new: "near" }
+min_allowed_top_level_account_length: { old: 32, new: 32_000 }
+wasm_regular_op_cost: { new: 3_856_371 }
+burnt_gas_reward: {
+    old: { numerator: 1_000_000, denominator: 300 },
+    new: { numerator: 2_000_000, denominator: 500 },
+}
+wasm_storage_read_base: {
+    old: { gas: 50_000_000_000, compute: 100_000_000_000 },
+    new: { gas: 50_000_000_000, compute: 200_000_000_000 },
+}

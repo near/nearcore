@@ -13,15 +13,14 @@ workspace = true
 
 [dependencies]
 actix-rt.workspace = true
-futures.workspace = true
 once_cell.workspace = true
 
 near-store.workspace = true
 
 [features]
 nightly = [
-  "nightly_protocol",
   "near-store/nightly",
+  "nightly_protocol",
 ]
 nightly_protocol = [
   "near-store/nightly_protocol",

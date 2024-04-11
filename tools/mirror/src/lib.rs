@@ -162,7 +162,7 @@ fn put_target_nonce(
     public_key: &PublicKey,
     nonce: &LatestTargetNonce,
 ) -> anyhow::Result<()> {
-    tracing::debug!(target: "mirror", "storing {:?} in DB for ({}, {:?})", &nonce, account_id, public_key);
+    tracing::trace!(target: "mirror", "storing {:?} in DB for ({}, {:?})", &nonce, account_id, public_key);
     let db_key = nonce_col_key(account_id, public_key);
     db.put_cf(
         db.cf_handle(DBCol::Nonces.name()).unwrap(),
@@ -196,7 +196,7 @@ fn put_pending_outcome(
     id: CryptoHash,
     access_keys: HashSet<(AccountId, PublicKey)>,
 ) -> anyhow::Result<()> {
-    tracing::debug!(target: "mirror", "storing {:?} in DB for {:?}", &access_keys, &id);
+    tracing::trace!(target: "mirror", "storing {:?} in DB for {:?}", &access_keys, &id);
     Ok(db.put_cf(
         db.cf_handle(DBCol::AccessKeyOutcomes.name()).unwrap(),
         &borsh::to_vec(&id).unwrap(),
@@ -205,7 +205,7 @@ fn put_pending_outcome(
 }
 
 fn delete_pending_outcome(db: &DB, id: &CryptoHash) -> anyhow::Result<()> {
-    tracing::debug!(target: "mirror", "deleting {:?} from DB", &id);
+    tracing::trace!(target: "mirror", "deleting {:?} from DB", &id);
     Ok(db.delete_cf(
         db.cf_handle(DBCol::AccessKeyOutcomes.name()).unwrap(),
         &borsh::to_vec(&id).unwrap(),
@@ -479,6 +479,7 @@ struct TxMirror<T: ChainAccess> {
     target_min_block_production_delay: Duration,
     tracked_shards: Vec<ShardId>,
     secret: Option<[u8; crate::secret::SECRET_LEN]>,
+    default_extra_key: SecretKey,
 }
 
 fn open_db<P: AsRef<Path>>(home: P, config: &NearConfig) -> anyhow::Result<DB> {
@@ -882,6 +883,7 @@ impl<T: ChainAccess> TxMirror<T> {
         .context("failed to start target chain indexer")?;
         let (target_view_client, target_client) = target_indexer.client_actors();
         let target_stream = target_indexer.streamer();
+        let default_extra_key = crate::key_mapping::default_extra_key(secret.as_ref());
 
         Ok(Self {
             source_chain_access,
@@ -892,9 +894,11 @@ impl<T: ChainAccess> TxMirror<T> {
             target_genesis_height: target_config.genesis.config.genesis_height,
             target_min_block_production_delay: target_config
                 .client_config
-                .min_block_production_delay,
+                .min_block_production_delay
+                .unsigned_abs(),
             tracked_shards: target_config.config.tracked_shards,
             secret,
+            default_extra_key,
         })
     }
 
@@ -1034,7 +1038,7 @@ impl<T: ChainAccess> TxMirror<T> {
         }
         if account_created && !full_key_added {
             actions.push(Action::AddKey(Box::new(AddKeyAction {
-                public_key: crate::key_mapping::EXTRA_KEY.public_key(),
+                public_key: self.default_extra_key.public_key(),
                 access_key: AccessKey::full_access(),
             })));
         }
@@ -1176,7 +1180,7 @@ impl<T: ChainAccess> TxMirror<T> {
                             target: "mirror", "trying to prepare a transaction with the default extra key for {} because no full access key for {} in the source chain is known at block {}",
                             &provenance, &target_signer_id, &block_hash,
                         );
-                        crate::key_mapping::EXTRA_KEY
+                        self.default_extra_key.clone()
                     }
                 }
             }
@@ -1229,7 +1233,7 @@ impl<T: ChainAccess> TxMirror<T> {
         }
         if account_created && !full_key_added {
             target_actions.push(Action::AddKey(Box::new(AddKeyAction {
-                public_key: crate::key_mapping::EXTRA_KEY.public_key(),
+                public_key: self.default_extra_key.public_key(),
                 access_key: AccessKey::full_access(),
             })));
         }
@@ -1292,7 +1296,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 Err(ChainError::Other(e)) => return Err(e),
             };
 
-            if let ReceiptEnum::Action(r) = &receipt.receipt {
+            if let ReceiptEnum::Action(r) | ReceiptEnum::PromiseYield(r) = &receipt.receipt {
                 if (provenance.is_create_account() && receipt.predecessor_id == receipt.receiver_id)
                     || (!provenance.is_create_account()
                         && receipt.predecessor_id != receipt.receiver_id)
@@ -1406,7 +1410,7 @@ impl<T: ChainAccess> TxMirror<T> {
         tracker: &mut crate::chain_tracker::TxTracker,
         txs: &mut Vec<TargetChainTx>,
     ) -> anyhow::Result<()> {
-        if let ReceiptEnum::Action(r) = &receipt.receipt {
+        if let ReceiptEnum::Action(r) | ReceiptEnum::PromiseYield(r) = &receipt.receipt {
             if r.actions.iter().any(|a| matches!(a, Action::FunctionCall(_))) {
                 self.add_function_call_keys(
                     tracker,
@@ -1696,7 +1700,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 }
                 // If we don't have any upcoming sets of transactions to send already built, we probably fell behind in the source
                 // chain and can't fetch the transactions. Check if we have them now here.
-                _ = tokio::time::sleep(Duration::from_millis(200)), if tracker.num_blocks_queued() == 0 => {
+                _ = tokio::time::sleep(std::time::Duration::from_millis(200)), if tracker.num_blocks_queued() == 0 => {
                     self.queue_txs(&mut tracker, target_head, true).await?;
                 }
             };
@@ -1759,7 +1763,8 @@ impl<T: ChainAccess> TxMirror<T> {
         let last_stored_height = get_last_source_height(&self.db)?;
         let last_height = last_stored_height.unwrap_or(self.target_genesis_height - 1);
 
-        let next_heights = self.source_chain_access.init(last_height, CREATE_ACCOUNT_DELTA).await?;
+        let next_heights =
+            self.source_chain_access.init(last_height, CREATE_ACCOUNT_DELTA + 1).await?;
 
         if next_heights.is_empty() {
             anyhow::bail!("no new blocks after #{}", last_height);

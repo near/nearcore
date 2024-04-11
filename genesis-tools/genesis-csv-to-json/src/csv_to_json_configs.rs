@@ -1,15 +1,14 @@
-use near_chain_configs::{Genesis, GenesisConfig};
-use near_primitives::types::{Balance, NumShards, ShardId};
-use near_primitives::utils::get_num_seats_per_shard;
-use near_primitives::version::PROTOCOL_VERSION;
-use nearcore::config::{
-    Config, BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD, CONFIG_FILENAME,
+use near_chain_configs::{
+    Genesis, GenesisConfig, BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
     EXPECTED_EPOCH_LENGTH, FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE, GENESIS_CONFIG_FILENAME,
-    INITIAL_GAS_LIMIT, MAX_INFLATION_RATE, MIN_GAS_PRICE, NODE_KEY_FILE, NUM_BLOCKS_PER_YEAR,
+    INITIAL_GAS_LIMIT, MAX_INFLATION_RATE, MIN_GAS_PRICE, NEAR_BASE, NUM_BLOCKS_PER_YEAR,
     NUM_BLOCK_PRODUCER_SEATS, PROTOCOL_REWARD_RATE, PROTOCOL_UPGRADE_STAKE_THRESHOLD,
     TRANSACTION_VALIDITY_PERIOD,
 };
-use nearcore::NEAR_BASE;
+use near_primitives::types::{Balance, NumShards, ShardId};
+use near_primitives::utils::get_num_seats_per_shard;
+use near_primitives::version::PROTOCOL_VERSION;
+use nearcore::config::{Config, CONFIG_FILENAME, NODE_KEY_FILE};
 use std::collections::HashSet;
 use std::fs::File;
 use std::path::Path;

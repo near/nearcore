@@ -58,7 +58,7 @@ impl ProofVerifier {
                     return if &key != nib {
                         expected.is_none()
                     } else {
-                        expected.map_or(false, |expected| value == expected)
+                        expected.is_some_and(|expected| value == expected)
                     };
                 }
                 RawTrieNode::Extension(node_key, child_hash) => {
@@ -85,7 +85,7 @@ impl ProofVerifier {
                 }
                 RawTrieNode::BranchWithValue(value, children) => {
                     if key.is_empty() {
-                        return expected.map_or(false, |exp| value == exp);
+                        return expected.is_some_and(|exp| value == exp);
                     }
                     match children[key.at(0)] {
                         Some(ref child_hash) => {
@@ -360,7 +360,7 @@ fn test_view_state_too_large() {
     set_account(
         &mut state_update,
         alice_account(),
-        &Account::new(0, 0, CryptoHash::default(), 50_001),
+        &Account::new(0, 0, 0, CryptoHash::default(), 50_001, PROTOCOL_VERSION),
     );
     let trie_viewer = TrieViewer::new(Some(50_000), None);
     let result = trie_viewer.view_state(&state_update, &alice_account(), b"", false);
@@ -375,7 +375,7 @@ fn test_view_state_with_large_contract() {
     set_account(
         &mut state_update,
         alice_account(),
-        &Account::new(0, 0, sha256(&contract_code), 50_001),
+        &Account::new(0, 0, 0, sha256(&contract_code), 50_001, PROTOCOL_VERSION),
     );
     state_update.set(TrieKey::ContractCode { account_id: alice_account() }, contract_code);
     let trie_viewer = TrieViewer::new(Some(50_000), None);

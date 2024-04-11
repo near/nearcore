@@ -1,14 +1,11 @@
-use std::io;
-
-use chrono::DateTime;
-use chrono::Utc;
-
+use near_async::time::Utc;
 use near_primitives::block::BlockValidityError;
 use near_primitives::challenge::{ChunkProofs, ChunkState};
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::shard_layout::ShardLayoutError;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
+use std::io;
 
 #[derive(thiserror::Error, Debug)]
 pub enum QueryError {
@@ -76,10 +73,10 @@ pub enum Error {
     ChunksMissing(Vec<ShardChunkHeader>),
     /// Block time is before parent block time.
     #[error("Invalid Block Time: block time {1} before previous {0}")]
-    InvalidBlockPastTime(DateTime<Utc>, DateTime<Utc>),
+    InvalidBlockPastTime(Utc, Utc),
     /// Block time is from too much in the future.
     #[error("Invalid Block Time: Too far in the future: {0}")]
-    InvalidBlockFutureTime(DateTime<Utc>),
+    InvalidBlockFutureTime(Utc),
     /// Block height is invalid (not previous + 1).
     #[error("Invalid Block Height {0}")]
     InvalidBlockHeight(BlockHeight),
@@ -134,8 +131,10 @@ pub enum Error {
     /// Invalid chunk state.
     #[error("Invalid Chunk State")]
     InvalidChunkState(Box<ChunkState>),
-    #[error("Invalid Chunk State Witness")]
-    InvalidChunkStateWitness,
+    #[error("Invalid Chunk State Witness: {0}")]
+    InvalidChunkStateWitness(String),
+    #[error("Invalid Chunk Endorsement")]
+    InvalidChunkEndorsement,
     /// Invalid chunk mask
     #[error("Invalid Chunk Mask")]
     InvalidChunkMask,
@@ -270,7 +269,8 @@ impl Error {
             | Error::InvalidChunk
             | Error::InvalidChunkProofs(_)
             | Error::InvalidChunkState(_)
-            | Error::InvalidChunkStateWitness
+            | Error::InvalidChunkStateWitness(_)
+            | Error::InvalidChunkEndorsement
             | Error::InvalidChunkMask
             | Error::InvalidStateRoot
             | Error::InvalidTxRoot
@@ -315,7 +315,7 @@ impl Error {
     }
 
     /// Some blockchain errors are reported in the prometheus metrics. In such cases a report might
-    /// contain a label that specifies the type of error that has occured. For example when the node
+    /// contain a label that specifies the type of error that has occurred. For example when the node
     /// receives a block with an invalid signature this would be reported as:
     ///  `near_num_invalid_blocks{error="invalid_signature"}`.
     /// This function returns the value of the error label for a specific instance of Error.
@@ -343,7 +343,8 @@ impl Error {
             Error::InvalidChunk => "invalid_chunk",
             Error::InvalidChunkProofs(_) => "invalid_chunk_proofs",
             Error::InvalidChunkState(_) => "invalid_chunk_state",
-            Error::InvalidChunkStateWitness => "invalid_chunk_state_witness",
+            Error::InvalidChunkStateWitness(_) => "invalid_chunk_state_witness",
+            Error::InvalidChunkEndorsement => "invalid_chunk_endorsement",
             Error::InvalidChunkMask => "invalid_chunk_mask",
             Error::InvalidStateRoot => "invalid_state_root",
             Error::InvalidTxRoot => "invalid_tx_root",

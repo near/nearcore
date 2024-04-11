@@ -194,6 +194,13 @@ class BaseNode(object):
         cmd = (os.path.join(near_root, binary_name), '--home', node_dir, 'run')
         return cmd + make_boot_nodes_arg(boot_node)
 
+    def get_command_for_subprogram(self,
+                                   cmd: tuple,
+                                   near_root,
+                                   node_dir,
+                                   binary_name='neard'):
+        return (os.path.join(near_root, binary_name), '--home', node_dir) + cmd
+
     def addr_with_pk(self) -> str:
         pk_hash = self.node_key.pk.split(':')[1]
         host, port = self.addr()
@@ -247,6 +254,12 @@ class BaseNode(object):
         if verbose:
             logger.info(status)
         return status
+
+    def get_metrics(self, timeout: float = 4):
+        r = requests.get("http://%s:%s/metrics" % self.rpc_addr(),
+                         timeout=timeout)
+        r.raise_for_status()
+        return r.content
 
     def get_latest_block(self, **kw) -> BlockId:
         sync_info = self.get_status(**kw)['sync_info']
@@ -451,23 +464,36 @@ class LocalNode(BaseNode):
               boot_node: BootNode = None,
               skip_starting_proxy=False,
               extra_env: typing.Dict[str, str] = dict()):
-        if self._proxy_local_stopped is not None:
-            while self._proxy_local_stopped.value != 2:
-                logger.info(f'Waiting for previous proxy instance to close')
-                time.sleep(1)
-
-        env = os.environ.copy()
-        env["RUST_BACKTRACE"] = "1"
-        env["RUST_LOG"] = "actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn," + env.get(
-            "RUST_LOG", "debug")
-        env.update(extra_env)
-
         cmd = self._get_command_line(
             self.near_root,
             self.node_dir,
             boot_node,
             self.binary_name,
         )
+
+        if self._proxy_local_stopped is not None:
+            while self._proxy_local_stopped.value != 2:
+                logger.info(f'Waiting for previous proxy instance to close')
+                time.sleep(1)
+
+        self.run_cmd(cmd=cmd, extra_env=extra_env)
+
+        if not skip_starting_proxy:
+            self.start_proxy_if_needed()
+
+        try:
+            self.wait_for_rpc(10)
+        except:
+            logger.error(
+                '=== failed to start node, rpc is not ready in 10 seconds')
+
+    def run_cmd(self, *, cmd: tuple, extra_env: typing.Dict[str, str] = dict()):
+
+        env = os.environ.copy()
+        env["RUST_BACKTRACE"] = "1"
+        env["RUST_LOG"] = "actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn," + env.get(
+            "RUST_LOG", "debug")
+        env.update(extra_env)
         node_dir = pathlib.Path(self.node_dir)
         self.stdout_name = node_dir / 'stdout'
         self.stderr_name = node_dir / 'stderr'
@@ -479,15 +505,6 @@ class LocalNode(BaseNode):
                                              stderr=stderr,
                                              env=env)
         self._pid = self._process.pid
-
-        if not skip_starting_proxy:
-            self.start_proxy_if_needed()
-
-        try:
-            self.wait_for_rpc(10)
-        except:
-            logger.error(
-                '=== failed to start node, rpc does not ready in 10 seconds')
 
     def kill(self, *, gentle=False):
         """Kills the process.  If `gentle` sends SIGINT before killing."""

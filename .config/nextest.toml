@@ -7,12 +7,6 @@ slow-timeout = { period = "10m", terminate-after = 3 }
 retries = 0
 threads-required = 2
 
-[[profile.default.overrides]]
-filter = 'package(style-tests)'
-slow-timeout = { period = "120s", terminate-after = 5 }
-retries = 0
-threads-required = 4
-
 # Unfortunately no support for inheriting profiles yet:
 # https://github.com/nextest-rs/nextest/issues/387
 [profile.ci]
@@ -28,9 +22,3 @@ filter = 'test(test_full_estimator)'
 slow-timeout = { period = "10m", terminate-after = 3 }
 retries = 0
 threads-required = 2
-
-[[profile.ci.overrides]]
-filter = 'package(style-tests)'
-slow-timeout = { period = "120s", terminate-after = 5 }
-retries = 0
-threads-required = 4

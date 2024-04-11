@@ -94,7 +94,7 @@ impl EncodedChunksCacheEntry {
             });
         }
 
-        for receipt in partial_encoded_chunk.receipts.iter() {
+        for receipt in partial_encoded_chunk.prev_outgoing_receipts.iter() {
             let shard_id = receipt.1.to_shard_id;
             self.receipts.entry(shard_id).or_insert_with(|| receipt.clone());
         }
@@ -309,7 +309,7 @@ mod tests {
         cache.merge_in_partial_encoded_chunk(&PartialEncodedChunkV2 {
             header: header1.clone(),
             parts: vec![],
-            receipts: vec![],
+            prev_outgoing_receipts: vec![],
         });
         assert_eq!(
             cache.get_incomplete_chunks(&CryptoHash::default()).unwrap(),
@@ -329,7 +329,7 @@ mod tests {
         let mut cache = EncodedChunksCache::new();
         let header = create_chunk_header(1, 0);
         let partial_encoded_chunk =
-            PartialEncodedChunkV2 { header: header, parts: vec![], receipts: vec![] };
+            PartialEncodedChunkV2 { header: header, parts: vec![], prev_outgoing_receipts: vec![] };
         cache.merge_in_partial_encoded_chunk(&partial_encoded_chunk);
         assert!(!cache.height_map.is_empty());
 

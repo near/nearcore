@@ -267,7 +267,7 @@ fn main() -> Result<()> {
     let _subscriber = near_o11y::default_subscriber(env_filter, &Default::default()).global();
     let opts: Opts = Opts::parse();
 
-    let home_dir = opts.home_dir.unwrap_or(near_indexer::get_default_home());
+    let home_dir = opts.home_dir.unwrap_or_else(near_indexer::get_default_home);
 
     match opts.subcmd {
         SubCommand::Run => {

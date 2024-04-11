@@ -48,14 +48,16 @@ impl ShardTries {
                         let receipt = Receipt::try_from_slice(&value).map_err(|err| {
                             StorageError::StorageInconsistentState(format!(
                                 "invalid delayed receipt {:?}, err: {}",
-                                value,
-                                err.to_string(),
+                                value, err,
                             ))
                         })?;
                         insert_receipts.push((*index, receipt));
                     }
                     None => {}
                 },
+                TrieKey::YieldedPromiseQueueIndices => {}
+                TrieKey::YieldedPromiseQueueEntry { .. } => todo!(),
+                TrieKey::PromiseYieldReceipt { .. } => todo!(),
                 TrieKey::Account { account_id }
                 | TrieKey::ContractCode { account_id }
                 | TrieKey::AccessKey { account_id, .. }

@@ -504,8 +504,8 @@ def redownload_neard(nodes, binary_url):
     pmap(
         lambda node: node.machine.
         run('sudo -u ubuntu -i',
-            input='wget -O /home/ubuntu/neard {}; chmod +x /home/ubuntu/neard'.
-            format(binary_url)), nodes)
+            input='wget -O /home/ubuntu/neard "{}"; chmod +x /home/ubuntu/neard'
+            .format(binary_url)), nodes)
 
 
 # Check /home/ubuntu/neard.upgrade to see whether the amend-genesis command is
@@ -796,7 +796,7 @@ def create_and_upload_genesis_file_from_empty_genesis(
     RPC_BALANCE = (10**1) * ONE_NEAR
     TREASURY_ACCOUNT = 'test.near'
     TREASURY_BALANCE = (10**7) * ONE_NEAR
-    LOAD_TESTER_BALANCE = (10**4) * ONE_NEAR
+    LOAD_TESTER_BALANCE = (10**8) * ONE_NEAR
 
     SKYWARD_CONTRACT_BALANCE = (10**6) * ONE_NEAR
     TOKEN1_BALANCE = (10**6) * ONE_NEAR
@@ -872,33 +872,31 @@ def create_and_upload_genesis_file_from_empty_genesis(
                 }
             }
         })
-        for i in range(NUM_ACCOUNTS):
-            load_testing_account = load_testing_account_id(
-                validator.account_id, i)
-            logger.info(f'Adding load testing account {load_testing_account}')
-            records.append({
-                'Account': {
-                    'account_id': load_testing_account,
-                    'account': {
-                        'amount': str(LOAD_TESTER_BALANCE),
-                        'locked': str(0),
-                        'code_hash': '11111111111111111111111111111111',
-                        'storage_usage': 0,
-                        'version': 'V1'
-                    }
-                }
-            })
-            records.append({
-                'AccessKey': {
-                    'account_id': load_testing_account,
-                    'public_key': PUBLIC_KEY,
-                    'access_key': {
-                        'nonce': 0,
-                        'permission': 'FullAccess'
-                    }
-                }
-            })
 
+    load_testing_account = 'loadtester'
+    logger.info(f'Adding load testing account {load_testing_account}')
+    records.append({
+        'Account': {
+            'account_id': load_testing_account,
+            'account': {
+                'amount': str(LOAD_TESTER_BALANCE),
+                'locked': str(0),
+                'code_hash': '11111111111111111111111111111111',
+                'storage_usage': 0,
+                'version': 'V1'
+            }
+        }
+    })
+    records.append({
+        'AccessKey': {
+            'account_id': load_testing_account,
+            'public_key': PUBLIC_KEY,
+            'access_key': {
+                'nonce': 0,
+                'permission': 'FullAccess'
+            }
+        }
+    })
     genesis_config['validators'] = []
     seats = compute_seats(stakes, num_seats)
     seats_taken = 0
@@ -934,8 +932,10 @@ def create_and_upload_genesis_file_from_empty_genesis(
     genesis_config['num_block_producer_seats_per_shard'] = [int(num_seats)] * 4
 
     genesis_config['records'] = records
-    for node in [node for (node, _) in validator_node_and_stakes] + rpc_nodes:
-        upload_json(node, '/home/ubuntu/.near/genesis.json', genesis_config)
+    pmap(
+        lambda node: upload_json(node, '/home/ubuntu/.near/genesis.json',
+                                 genesis_config),
+        [node for (node, _) in validator_node_and_stakes] + rpc_nodes)
 
 
 def download_and_read_json(node, filename):
@@ -1029,6 +1029,13 @@ def update_config_file(
         json.dump(config_json, f, indent=2)
 
 
+def upload_config(node, config_json, overrider):
+    copied_config = json.loads(json.dumps(config_json))
+    if overrider:
+        overrider(node, copied_config)
+    upload_json(node, '/home/ubuntu/.near/config.json', copied_config)
+
+
 def create_and_upload_config_file_from_default(nodes, chain_id, overrider=None):
     nodes[0].machine.run(
         'rm -rf /home/ubuntu/.near-tmp && mkdir /home/ubuntu/.near-tmp && /home/ubuntu/neard --home /home/ubuntu/.near-tmp init --chain-id {}'
@@ -1048,21 +1055,23 @@ def create_and_upload_config_file_from_default(nodes, chain_id, overrider=None):
     if 'telemetry' in config_json:
         config_json['telemetry']['endpoints'] = []
 
-    for node in nodes:
-        copied_config = json.loads(json.dumps(config_json))
-        if overrider:
-            overrider(node, copied_config)
-        upload_json(node, '/home/ubuntu/.near/config.json', copied_config)
+    pmap(lambda node: upload_config(node, config_json, overrider), nodes)
 
 
-def update_existing_config_file(nodes, overrider=None):
-    for node in nodes:
-        config_json = download_and_read_json(
-            nodes[0],
-            '/home/ubuntu/.near/config.json',
-        )
-        overrider(node, config_json)
-        upload_json(node, '/home/ubuntu/.near/config.json', config_json)
+def update_existing_config_file(node, overrider=None):
+    config_json = download_and_read_json(
+        node,
+        '/home/ubuntu/.near/config.json',
+    )
+    overrider(node, config_json)
+    upload_json(node, '/home/ubuntu/.near/config.json', config_json)
+
+
+def update_existing_config_files(nodes, overrider=None):
+    pmap(
+        lambda node: update_existing_config_file(node, overrider=overrider),
+        nodes,
+    )
 
 
 def start_nodes(nodes, upgrade_schedule=None):
@@ -1089,8 +1098,8 @@ def neard_start_script(node, upgrade_schedule=None, epoch_height=None):
     return '''
         sudo mv /home/ubuntu/near.log /home/ubuntu/near.log.1 2>/dev/null
         sudo mv /home/ubuntu/near.upgrade.log /home/ubuntu/near.upgrade.log.1 2>/dev/null
-        sudo rm -rf /home/ubuntu/.near/data
         tmux new -s near -d bash
+        sudo rm -rf /home/ubuntu/neard.log
         tmux send-keys -t near 'RUST_BACKTRACE=full RUST_LOG=debug,actix_web=info {neard_binary} run 2>&1 | tee -a {neard_binary}.log' C-m
     '''.format(neard_binary=shlex.quote(neard_binary))
 

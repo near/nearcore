@@ -1,4 +1,10 @@
 use crate::accounts_data::AccountDataError;
+use crate::client::{
+    AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
+    BlockResponse, ChunkEndorsementMessage, ChunkStateWitnessMessage, ProcessTxRequest,
+    RecvChallenge, StateRequestHeader, StateRequestPart, StateResponse, TxStatusRequest,
+    TxStatusResponse,
+};
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::config::PEERS_RESPONSE_MAX_PEERS;
@@ -13,6 +19,7 @@ use crate::peer::stream;
 use crate::peer::tracker::Tracker;
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::{NetworkState, PRUNE_EDGES_AFTER};
+#[cfg(test)]
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_manager_actor::MAX_TIER2_PEERS;
 use crate::private_actix::{RegisterPeerError, SendMessage};
@@ -28,9 +35,10 @@ use crate::types::{
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, ActorContext as _, ActorFutureExt as _, AsyncContext as _};
 use lru::LruCache;
+use near_async::messaging::SendAsync;
 use near_async::time;
 use near_crypto::Signature;
-use near_o11y::{handler_debug_span, log_assert, OpenTelemetrySpanExt, WithSpanContext};
+use near_o11y::{handler_debug_span, log_assert, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -225,11 +233,15 @@ impl PeerActor {
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
     ) -> anyhow::Result<(actix::Addr<Self>, HandshakeSignal)> {
+        #[cfg(test)]
         let stream_id = stream.id();
-        match Self::spawn_inner(clock, stream, force_encoding, network_state.clone()) {
+        #[cfg(test)]
+        let network_state_clone = network_state.clone();
+        match Self::spawn_inner(clock, stream, force_encoding, network_state) {
             Ok(it) => Ok(it),
             Err(reason) => {
-                network_state.config.event_sink.push(Event::ConnectionClosed(
+                #[cfg(test)]
+                network_state_clone.config.event_sink.send(Event::ConnectionClosed(
                     ConnectionClosedEvent { stream_id, reason: reason.clone() },
                 ));
                 Err(reason.into())
@@ -671,6 +683,8 @@ impl PeerActor {
 
         let start_time = self.clock.now();
 
+        #[cfg(test)]
+        let edge_clone = edge.clone();
         // Here we stop processing any PeerActor events until PeerManager
         // decides whether to accept the connection or not: ctx.wait makes
         // the actor event loop poll on the future until it completes before
@@ -679,7 +693,6 @@ impl PeerActor {
             let network_state = self.network_state.clone();
             let clock = self.clock.clone();
             let conn = conn.clone();
-            let edge = edge.clone();
             async move { network_state.register(&clock,edge,conn).await }
         })
             .map(move |res, act: &mut PeerActor, ctx| {
@@ -791,9 +804,10 @@ impl PeerActor {
                             act.sync_snapshot_hosts();
                         }
 
-                        act.network_state.config.event_sink.push(Event::HandshakeCompleted(HandshakeCompletedEvent{
+                        #[cfg(test)]
+                        act.network_state.config.event_sink.send(Event::HandshakeCompleted(HandshakeCompletedEvent{
                             stream_id: act.stream_id,
-                            edge,
+                            edge: edge_clone,
                             tier: conn.tier,
                         }));
                     },
@@ -923,84 +937,101 @@ impl PeerActor {
         msg_hash: CryptoHash,
         body: RoutedMessageBody,
     ) -> Result<Option<RoutedMessageBody>, ReasonForBan> {
-        let _span = tracing::trace_span!(
-            target: "network",
-            "receive_routed_message",
-            "type" = <&RoutedMessageBody as Into<&'static str>>::into(&body)
-        )
-        .entered();
-        Ok(match body {
-            RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => network_state
-                .client
-                .tx_status_request(account_id, tx_hash)
-                .await
-                .map(|v| RoutedMessageBody::TxStatusResponse(*v)),
-            RoutedMessageBody::TxStatusResponse(tx_result) => {
-                network_state.client.tx_status_response(tx_result).await;
-                None
-            }
-            RoutedMessageBody::StateResponse(info) => {
-                network_state.client.state_response(StateResponseInfo::V1(info)).await;
-                None
-            }
-            RoutedMessageBody::BlockApproval(approval) => {
-                network_state.client.block_approval(approval, peer_id).await;
-                None
-            }
-            RoutedMessageBody::ForwardTx(transaction) => {
-                network_state.client.transaction(transaction, /*is_forwarded=*/ true).await;
-                None
-            }
-            RoutedMessageBody::PartialEncodedChunkRequest(request) => {
-                network_state.shards_manager_adapter.send(
-                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
-                        partial_encoded_chunk_request: request,
-                        route_back: msg_hash,
-                    },
-                );
-                None
-            }
-            RoutedMessageBody::PartialEncodedChunkResponse(response) => {
-                network_state.shards_manager_adapter.send(
-                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
-                        partial_encoded_chunk_response: response,
-                        received_time: clock.now().into(),
-                    },
-                );
-                None
-            }
-            RoutedMessageBody::VersionedPartialEncodedChunk(chunk) => {
-                network_state
-                    .shards_manager_adapter
-                    .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(chunk));
-                None
-            }
-            RoutedMessageBody::PartialEncodedChunkForward(msg) => {
-                network_state
-                    .shards_manager_adapter
-                    .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(msg));
-                None
-            }
-            RoutedMessageBody::ReceiptOutcomeRequest(_) => {
-                // Silently ignore for the time being.  We’ve been still
-                // sending those messages at protocol version 56 so we
-                // need to wait until 59 before we can remove the
-                // variant completely.
-                None
-            }
-            RoutedMessageBody::ChunkStateWitness(witness) => {
-                network_state.client.chunk_state_witness(witness).await;
-                None
-            }
-            RoutedMessageBody::ChunkEndorsement(_) => {
-                // TODO(#10265): Handle chunk approvals.
-                None
-            }
-            body => {
-                tracing::error!(target: "network", "Peer received unexpected message type: {:?}", body);
-                None
-            }
-        })
+        let body_type: &'static str = (&body).into();
+        let result = async {
+            Ok(match body {
+                RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => network_state
+                    .client
+                    .send_async(TxStatusRequest { tx_hash, signer_account_id: account_id })
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|response| RoutedMessageBody::TxStatusResponse(*response)),
+                RoutedMessageBody::TxStatusResponse(tx_result) => {
+                    network_state.client.send_async(TxStatusResponse(tx_result.into())).await.ok();
+                    None
+                }
+                RoutedMessageBody::StateResponse(info) => {
+                    network_state
+                        .client
+                        .send_async(StateResponse(StateResponseInfo::V1(info).into()))
+                        .await
+                        .ok();
+                    None
+                }
+                RoutedMessageBody::BlockApproval(approval) => {
+                    network_state.client.send_async(BlockApproval(approval, peer_id)).await.ok();
+                    None
+                }
+                RoutedMessageBody::ForwardTx(transaction) => {
+                    network_state
+                        .client
+                        .send_async(ProcessTxRequest {
+                            transaction,
+                            is_forwarded: true,
+                            check_only: false,
+                        })
+                        .await
+                        .ok();
+                    None
+                }
+                RoutedMessageBody::PartialEncodedChunkRequest(request) => {
+                    network_state.shards_manager_adapter.send(
+                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
+                            partial_encoded_chunk_request: request,
+                            route_back: msg_hash,
+                        },
+                    );
+                    None
+                }
+                RoutedMessageBody::PartialEncodedChunkResponse(response) => {
+                    network_state.shards_manager_adapter.send(
+                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
+                            partial_encoded_chunk_response: response,
+                            received_time: clock.now().into(),
+                        },
+                    );
+                    None
+                }
+                RoutedMessageBody::VersionedPartialEncodedChunk(chunk) => {
+                    network_state
+                        .shards_manager_adapter
+                        .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(chunk));
+                    None
+                }
+                RoutedMessageBody::PartialEncodedChunkForward(msg) => {
+                    network_state.shards_manager_adapter.send(
+                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(msg),
+                    );
+                    None
+                }
+                RoutedMessageBody::ChunkStateWitness(witness) => {
+                    network_state.client.send_async(ChunkStateWitnessMessage(witness)).await.ok();
+                    None
+                }
+                RoutedMessageBody::ChunkEndorsement(endorsement) => {
+                    network_state
+                        .client
+                        .send_async(ChunkEndorsementMessage(endorsement))
+                        .await
+                        .ok();
+                    None
+                }
+                body => {
+                    tracing::error!(target: "network", "Peer received unexpected message type: {:?}", body);
+                    None
+                }
+            })
+        };
+        // DO NOT turn this into a scoped .entered() span, because that is incompatible
+        // with async fns.
+        result
+            .instrument(tracing::trace_span!(
+                target: "network",
+                "receive_routed_message",
+                "type" = body_type,
+            ))
+            .await
     }
 
     fn receive_message(
@@ -1010,13 +1041,15 @@ impl PeerActor {
         msg: PeerMessage,
     ) {
         let _span = tracing::trace_span!(target: "network", "receive_message").entered();
-        // This is a fancy way to clone the message iff event_sink is non-null.
-        // If you have a better idea on how to achieve that, feel free to improve this.
-        let message_processed_event = self
-            .network_state
-            .config
-            .event_sink
-            .delayed_push(|| Event::MessageProcessed(conn.tier, msg.clone()));
+        #[cfg(test)]
+        let message_processed_event = {
+            let sink = self.network_state.config.event_sink.clone();
+            let msg = msg.clone();
+            let tier = conn.tier;
+            move || {
+                sink.send(Event::MessageProcessed(tier, msg));
+            }
+        };
         let was_requested = match &msg {
             PeerMessage::Block(block) => {
                 self.network_state.txns_since_last_block.store(0, Ordering::Release);
@@ -1038,71 +1071,110 @@ impl PeerActor {
         let clock = self.clock.clone();
         let network_state = self.network_state.clone();
         let peer_id = conn.peer_info.id.clone();
-        ctx.spawn(wrap_future(async move {
+        let handling_future = async move {
             Ok(match msg {
                 PeerMessage::Routed(msg) => {
                     let msg_hash = msg.hash();
-                    Self::receive_routed_message(&clock, &network_state, peer_id, msg_hash, msg.msg.body).await?.map(
-                        |body| {
-                            PeerMessage::Routed(network_state.sign_message(
-                                &clock,
-                                RawRoutedMessage { target: PeerIdOrHash::Hash(msg_hash), body },
-                            ))
-                        },
+                    Self::receive_routed_message(
+                        &clock,
+                        &network_state,
+                        peer_id,
+                        msg_hash,
+                        msg.msg.body,
                     )
+                    .await?
+                    .map(|body| {
+                        PeerMessage::Routed(network_state.sign_message(
+                            &clock,
+                            RawRoutedMessage { target: PeerIdOrHash::Hash(msg_hash), body },
+                        ))
+                    })
                 }
-                PeerMessage::BlockRequest(hash) => {
-                    network_state.client.block_request(hash).await.map(|b|PeerMessage::Block(*b))
-                }
-                PeerMessage::BlockHeadersRequest(hashes) => {
-                    network_state.client.block_headers_request(hashes).await.map(PeerMessage::BlockHeaders)
-                }
+                PeerMessage::BlockRequest(hash) => network_state
+                    .client
+                    .send_async(BlockRequest(hash))
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|block| PeerMessage::Block(*block)),
+                PeerMessage::BlockHeadersRequest(hashes) => network_state
+                    .client
+                    .send_async(BlockHeadersRequest(hashes))
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(PeerMessage::BlockHeaders),
                 PeerMessage::Block(block) => {
-                    network_state.client.block(block, peer_id, was_requested).await;
+                    network_state
+                        .client
+                        .send_async(BlockResponse { block, peer_id, was_requested })
+                        .await
+                        .ok();
                     None
                 }
                 PeerMessage::Transaction(transaction) => {
-                    network_state.client.transaction(transaction, /*is_forwarded=*/ false).await;
+                    network_state
+                        .client
+                        .send_async(ProcessTxRequest {
+                            transaction,
+                            is_forwarded: false,
+                            check_only: false,
+                        })
+                        .await
+                        .ok();
                     None
                 }
                 PeerMessage::BlockHeaders(headers) => {
-                    network_state.client.block_headers(headers, peer_id).await?;
+                    if let Ok(Err(ban_reason)) = network_state
+                        .client
+                        .send_async(BlockHeadersResponse(headers, peer_id))
+                        .await
+                    {
+                        return Err(ban_reason);
+                    }
                     None
                 }
                 PeerMessage::Challenge(challenge) => {
-                    network_state.client.challenge(challenge).await;
+                    network_state.client.send_async(RecvChallenge(challenge)).await.ok();
                     None
                 }
                 PeerMessage::StateRequestHeader(shard_id, sync_hash) => network_state
                     .client
-                    .state_request_header(shard_id, sync_hash)
-                    .await?
-                    .map(PeerMessage::VersionedStateResponse),
+                    .send_async(StateRequestHeader { shard_id, sync_hash })
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|response| PeerMessage::VersionedStateResponse(*response.0)),
                 PeerMessage::StateRequestPart(shard_id, sync_hash, part_id) => network_state
                     .client
-                    .state_request_part(shard_id, sync_hash, part_id)
-                    .await?
-                    .map(PeerMessage::VersionedStateResponse),
+                    .send_async(StateRequestPart { shard_id, sync_hash, part_id })
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|response| PeerMessage::VersionedStateResponse(*response.0)),
                 PeerMessage::VersionedStateResponse(info) => {
-                        //TODO: Route to state sync actor.
-                    network_state.client.state_response(info).await;
+                    //TODO: Route to state sync actor.
+                    network_state.client.send_async(StateResponse(info.into())).await.ok();
                     None
                 }
                 msg => {
                     tracing::error!(target: "network", "Peer received unexpected type: {:?}", msg);
                     None
                 }
-            })}.in_current_span())
-            .map(|res, act: &mut PeerActor, ctx| {
+            })
+        };
+        ctx.spawn(wrap_future(handling_future.in_current_span()).map(
+            |res, act: &mut PeerActor, ctx| {
                 match res {
                     // TODO(gprusak): make sure that for routed messages we drop routeback info correctly.
                     Ok(Some(resp)) => act.send_message_or_log(&resp),
                     Ok(None) => {}
                     Err(ban_reason) => act.stop(ctx, ClosingReason::Ban(ban_reason)),
                 }
+                #[cfg(test)]
                 message_processed_event();
-            }),
-        );
+            },
+        ));
     }
 
     fn handle_msg_ready(
@@ -1118,12 +1190,15 @@ impl PeerActor {
         )
         .entered();
 
-        // Clones message iff someone is listening on the sink. Should be in tests only.
-        let message_processed_event = self
-            .network_state
-            .config
-            .event_sink
-            .delayed_push(|| Event::MessageProcessed(conn.tier, peer_msg.clone()));
+        #[cfg(test)]
+        let message_processed_event = {
+            let sink = self.network_state.config.event_sink.clone();
+            let msg = peer_msg.clone();
+            let tier = conn.tier;
+            move || {
+                sink.send(Event::MessageProcessed(tier, msg));
+            }
+        };
 
         match peer_msg {
             PeerMessage::Disconnect(d) => {
@@ -1164,6 +1239,7 @@ impl PeerActor {
                         direct_peers,
                     }));
                 }
+                #[cfg(test)]
                 message_processed_event();
             }
             PeerMessage::PeersResponse(PeersResponse { peers, direct_peers }) => {
@@ -1190,6 +1266,7 @@ impl PeerActor {
                     &self.clock,
                     direct_peers.into_iter().filter(|peer_info| peer_info.id != node_id),
                 );
+                #[cfg(test)]
                 message_processed_event();
             }
             PeerMessage::RequestUpdateNonce(edge_info) => {
@@ -1217,6 +1294,7 @@ impl PeerActor {
                             }
                         }
                     };
+                    #[cfg(test)]
                     message_processed_event();
                 }));
             }
@@ -1227,6 +1305,7 @@ impl PeerActor {
                 ctx.spawn(wrap_future(async move {
                     Self::handle_sync_routing_table(&clock, &network_state, conn.clone(), rtu)
                         .await;
+                    #[cfg(test)]
                     message_processed_event();
                 }));
             }
@@ -1236,6 +1315,7 @@ impl PeerActor {
                 let network_state = self.network_state.clone();
                 ctx.spawn(wrap_future(async move {
                     Self::handle_distance_vector(&clock, &network_state, conn.clone(), dv).await;
+                    #[cfg(test)]
                     message_processed_event();
                 }));
             }
@@ -1265,6 +1345,7 @@ impl PeerActor {
                 }
                 // Early exit, if there is no data in the message.
                 if msg.accounts_data.is_empty() {
+                    #[cfg(test)]
                     message_processed_event();
                     return;
                 }
@@ -1280,6 +1361,7 @@ impl PeerActor {
                             AccountDataError::SingleAccountMultipleData => ReasonForBan::Abusive,
                         }));
                     }
+                    #[cfg(test)]
                     message_processed_event();
                 }));
             }
@@ -1287,6 +1369,7 @@ impl PeerActor {
                 metrics::SYNC_SNAPSHOT_HOSTS.with_label_values(&["received"]).inc();
                 // Early exit, if there is no data in the message.
                 if msg.hosts.is_empty() {
+                    #[cfg(test)]
                     message_processed_event();
                     return;
                 }
@@ -1303,6 +1386,7 @@ impl PeerActor {
                             | SnapshotHostInfoError::DuplicatePeerId => ReasonForBan::Abusive,
                         }));
                     }
+                    #[cfg(test)]
                     message_processed_event();
                 }));
             }
@@ -1331,7 +1415,8 @@ impl PeerActor {
                 if let Some(&t) = self.routed_message_cache.get(&key) {
                     if now <= t + DROP_DUPLICATED_MESSAGES_PERIOD {
                         metrics::MessageDropped::Duplicate.inc(&msg.body);
-                        self.network_state.config.event_sink.push(Event::RoutedMessageDropped);
+                        #[cfg(test)]
+                        self.network_state.config.event_sink.send(Event::RoutedMessageDropped);
                         tracing::debug!(target: "network", "Dropping duplicated message from {} to {:?}", msg.author, msg.target);
                         return;
                     }
@@ -1371,11 +1456,15 @@ impl PeerActor {
                             );
                             // TODO(gprusak): deprecate Event::Ping/Pong in favor of
                             // MessageProcessed.
-                            self.network_state.config.event_sink.push(Event::Ping(ping.clone()));
+                            #[cfg(test)]
+                            self.network_state.config.event_sink.send(Event::Ping(ping.clone()));
+                            #[cfg(test)]
                             message_processed_event();
                         }
-                        RoutedMessageBody::Pong(pong) => {
-                            self.network_state.config.event_sink.push(Event::Pong(pong.clone()));
+                        RoutedMessageBody::Pong(_pong) => {
+                            #[cfg(test)]
+                            self.network_state.config.event_sink.send(Event::Pong(_pong.clone()));
+                            #[cfg(test)]
                             message_processed_event();
                         }
                         _ => self.receive_message(ctx, &conn, PeerMessage::Routed(msg)),
@@ -1384,7 +1473,8 @@ impl PeerActor {
                     if msg.decrease_ttl() {
                         self.network_state.send_message_to_peer(&self.clock, conn.tier, msg);
                     } else {
-                        self.network_state.config.event_sink.push(Event::RoutedMessageDropped);
+                        #[cfg(test)]
+                        self.network_state.config.event_sink.send(Event::RoutedMessageDropped);
                         tracing::warn!(target: "network", ?msg, from = ?conn.peer_info.id, "Message dropped because TTL reached 0.");
                         metrics::ROUTED_MESSAGE_DROPPED
                             .with_label_values(&[msg.body_variant()])
@@ -1402,38 +1492,45 @@ impl PeerActor {
         conn: Arc<connection::Connection>,
         rtu: RoutingTableUpdate,
     ) {
-        let _span = tracing::trace_span!(target: "network", "handle_sync_routing_table").entered();
-        if let Err(ban_reason) = network_state.add_edges(&clock, rtu.edges.clone()).await {
-            conn.stop(Some(ban_reason));
-        }
+        let result = async {
+            if let Err(ban_reason) = network_state.add_edges(&clock, rtu.edges.clone()).await {
+                conn.stop(Some(ban_reason));
+            }
 
-        // Also pass the edges to the V2 routing table
-        if let Err(ban_reason) = network_state
-            .update_routes(&clock, NetworkTopologyChange::EdgeNonceRefresh(rtu.edges))
+            // Also pass the edges to the V2 routing table
+            if let Err(ban_reason) = network_state
+                .update_routes(&clock, NetworkTopologyChange::EdgeNonceRefresh(rtu.edges))
+                .await
+            {
+                conn.stop(Some(ban_reason));
+            }
+
+            // For every announce we received, we fetch the last announce with the same account_id
+            // that we already broadcasted. Client actor will both verify signatures of the received announces
+            // as well as filter out those which are older than the fetched ones (to avoid overriding
+            // a newer announce with an older one).
+            let old = network_state
+                .account_announcements
+                .get_broadcasted_announcements(rtu.accounts.iter().map(|a| &a.account_id));
+            let accounts: Vec<(AnnounceAccount, Option<EpochId>)> = rtu
+                .accounts
+                .into_iter()
+                .map(|aa| {
+                    let id = aa.account_id.clone();
+                    (aa, old.get(&id).map(|old| old.epoch_id.clone()))
+                })
+                .collect();
+            match network_state.client.send_async(AnnounceAccountRequest(accounts)).await {
+                Ok(Err(ban_reason)) => conn.stop(Some(ban_reason)),
+                Ok(Ok(accounts)) => network_state.add_accounts(accounts).await,
+                Err(_) => {}
+            }
+        };
+        // DO NOT turn this into a scoped .entered() span, because that is incompatible
+
+        result
+            .instrument(tracing::trace_span!(target: "network", "handle_sync_routing_table"))
             .await
-        {
-            conn.stop(Some(ban_reason));
-        }
-
-        // For every announce we received, we fetch the last announce with the same account_id
-        // that we already broadcasted. Client actor will both verify signatures of the received announces
-        // as well as filter out those which are older than the fetched ones (to avoid overriding
-        // a newer announce with an older one).
-        let old = network_state
-            .account_announcements
-            .get_broadcasted_announcements(rtu.accounts.iter().map(|a| &a.account_id));
-        let accounts: Vec<(AnnounceAccount, Option<EpochId>)> = rtu
-            .accounts
-            .into_iter()
-            .map(|aa| {
-                let id = aa.account_id.clone();
-                (aa, old.get(&id).map(|old| old.epoch_id.clone()))
-            })
-            .collect();
-        match network_state.client.announce_account(accounts).await {
-            Err(ban_reason) => conn.stop(Some(ban_reason)),
-            Ok(accounts) => network_state.add_accounts(accounts).await,
-        }
     }
 
     async fn handle_distance_vector(
@@ -1442,19 +1539,26 @@ impl PeerActor {
         conn: Arc<connection::Connection>,
         distance_vector: DistanceVector,
     ) {
-        let _span = tracing::trace_span!(target: "network", "handle_distance_vector").entered();
+        let result = async {
+            if conn.peer_info.id != distance_vector.root {
+                conn.stop(Some(ReasonForBan::InvalidDistanceVector));
+                return;
+            }
 
-        if conn.peer_info.id != distance_vector.root {
-            conn.stop(Some(ReasonForBan::InvalidDistanceVector));
-            return;
-        }
+            if let Err(ban_reason) = network_state
+                .update_routes(
+                    &clock,
+                    NetworkTopologyChange::PeerAdvertisedDistances(distance_vector),
+                )
+                .await
+            {
+                conn.stop(Some(ban_reason));
+            }
+        };
 
-        if let Err(ban_reason) = network_state
-            .update_routes(&clock, NetworkTopologyChange::PeerAdvertisedDistances(distance_vector))
-            .await
-        {
-            conn.stop(Some(ban_reason));
-        }
+        // DO NOT turn this into a scoped .entered() span, because that is incompatible
+        // with async fns.
+        result.instrument(tracing::trace_span!(target: "network", "handle_distance_vector")).await
     }
 }
 
@@ -1484,10 +1588,11 @@ impl actix::Actor for PeerActor {
         {
             self.send_handshake(handshake_spec.clone());
         }
+        #[cfg(test)]
         self.network_state
             .config
             .event_sink
-            .push(Event::HandshakeStarted(HandshakeStartedEvent { stream_id: self.stream_id }));
+            .send(Event::HandshakeStarted(HandshakeStartedEvent { stream_id: self.stream_id }));
     }
 
     fn stopping(&mut self, _: &mut Self::Context) -> actix::Running {
@@ -1526,7 +1631,8 @@ impl actix::Actor for PeerActor {
                 // TODO(gprusak): reporting ConnectionClosed event is quite scattered right now and
                 // it is very ugly: it may happen here, in spawn_inner, or in NetworkState::unregister().
                 // Centralize it, once we get rid of actix.
-                self.network_state.config.event_sink.push(Event::ConnectionClosed(
+                #[cfg(test)]
+                self.network_state.config.event_sink.send(Event::ConnectionClosed(
                     ConnectionClosedEvent {
                         stream_id: self.stream_id,
                         reason: self.closing_reason.clone().unwrap_or(ClosingReason::Unknown),

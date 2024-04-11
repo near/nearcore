@@ -59,7 +59,7 @@ pub fn resolve_imports(
                 return Err(LinkError::Import(
                     module.to_string(),
                     field.to_string(),
-                    ImportError::UnknownImport(import_extern()),
+                    ImportError::UnknownImport(import_extern()).into(),
                 ));
             }
         };
@@ -147,7 +147,7 @@ pub fn resolve_imports(
                     return Err(LinkError::Import(
                         module.to_string(),
                         field.to_string(),
-                        ImportError::IncompatibleType(import_extern(), export_extern()),
+                        ImportError::IncompatibleType(import_extern(), export_extern()).into(),
                     ));
                 }
                 table_imports
@@ -182,7 +182,7 @@ pub fn resolve_imports(
                 return Err(LinkError::Import(
                     module.to_string(),
                     field.to_string(),
-                    ImportError::IncompatibleType(import_extern(), export_extern()),
+                    ImportError::IncompatibleType(import_extern(), export_extern()).into(),
                 ));
             }
         }

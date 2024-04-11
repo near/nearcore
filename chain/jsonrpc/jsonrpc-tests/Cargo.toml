@@ -20,6 +20,7 @@ borsh.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
+near-async.workspace = true
 near-chain-configs.workspace = true
 near-crypto.workspace = true
 near-primitives.workspace = true
@@ -36,7 +37,8 @@ near-actix-test-utils.workspace = true
 [features]
 test_features = ["near-jsonrpc/test_features"]
 nightly = [
-  "nightly_protocol",
+  "near-actix-test-utils/nightly",
+  "near-async/nightly",
   "near-chain-configs/nightly",
   "near-client/nightly",
   "near-jsonrpc-primitives/nightly",
@@ -45,8 +47,11 @@ nightly = [
   "near-o11y/nightly",
   "near-primitives/nightly",
   "near-store/nightly",
+  "nightly_protocol",
 ]
 nightly_protocol = [
+  "near-actix-test-utils/nightly_protocol",
+  "near-async/nightly_protocol",
   "near-chain-configs/nightly_protocol",
   "near-client/nightly_protocol",
   "near-jsonrpc-primitives/nightly_protocol",
@@ -55,5 +60,8 @@ nightly_protocol = [
   "near-o11y/nightly_protocol",
   "near-primitives/nightly_protocol",
   "near-store/nightly_protocol",
+]
+statelessnet_protocol = [
+  "near-primitives/statelessnet_protocol",
 ]
 sandbox = ["near-jsonrpc/sandbox"]

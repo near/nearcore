@@ -1,5 +1,7 @@
+use crate::client::{ClientSenderForNetwork, SetNetworkInfo};
 use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
+use crate::network_protocol;
 use crate::network_protocol::SyncSnapshotHosts;
 use crate::network_protocol::{
     Disconnect, Edge, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage, RoutedMessageBody,
@@ -17,13 +19,12 @@ use crate::types::{
     NetworkResponses, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType,
     SetChainInfo, SnapshotHostInfo,
 };
-use crate::{client, network_protocol};
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, AsyncContext as _};
 use anyhow::Context as _;
-use near_async::messaging::Sender;
+use near_async::messaging::{SendAsync, Sender};
 use near_async::time;
-use near_o11y::{handler_debug_span, handler_trace_span, OpenTelemetrySpanExt, WithSpanContext};
+use near_o11y::{handler_debug_span, handler_trace_span, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -181,7 +182,8 @@ impl actix::Actor for PeerManagerActor {
         // Periodically prints bandwidth stats for each peer.
         self.report_bandwidth_stats_trigger(ctx, REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL);
 
-        self.state.config.event_sink.push(Event::PeerManagerStarted);
+        #[cfg(test)]
+        self.state.config.event_sink.send(Event::PeerManagerStarted);
     }
 
     /// Try to gracefully disconnect from connected peers.
@@ -203,7 +205,7 @@ impl PeerManagerActor {
         clock: time::Clock,
         store: Arc<dyn near_store::db::Database>,
         config: config::NetworkConfig,
-        client: Arc<dyn client::Client>,
+        client: ClientSenderForNetwork,
         shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
         genesis_id: GenesisId,
     ) -> anyhow::Result<actix::Addr<Self>> {
@@ -251,7 +253,8 @@ impl PeerManagerActor {
                             panic!("failed to start listening on server_addr={server_addr:?} e={e:?}")
                         }
                     };
-                    state.config.event_sink.push(Event::ServerStarted);
+                    #[cfg(test)]
+                    state.config.event_sink.send(Event::ServerStarted);
                     arbiter.spawn({
                         let clock = clock.clone();
                         let state = state.clone();
@@ -324,7 +327,8 @@ impl PeerManagerActor {
                                     }
                                 });
 
-                                state.config.event_sink.push(Event::ReconnectLoopSpawned(peer_info));
+                                #[cfg(test)]
+                                state.config.event_sink.send(Event::ReconnectLoopSpawned(peer_info));
                             }
                         }
                     }
@@ -640,10 +644,11 @@ impl PeerManagerActor {
                 }
             }));
 
+            #[cfg(test)]
             self.state
                 .config
                 .event_sink
-                .push(Event::ReconnectLoopSpawned(conn_info.peer_info.clone()));
+                .send(Event::ReconnectLoopSpawned(conn_info.peer_info.clone()));
         }
     }
 
@@ -708,7 +713,10 @@ impl PeerManagerActor {
         // TODO(gprusak): just spawn a loop.
         let state = self.state.clone();
         ctx.spawn(wrap_future(
-            async move { state.client.network_info(network_info).await }.instrument(
+            async move {
+                state.client.send_async(SetNetworkInfo(network_info)).await.ok();
+            }
+            .instrument(
                 tracing::trace_span!(target: "network", "push_network_info_trigger_future"),
             ),
         ));
@@ -968,11 +976,11 @@ impl PeerManagerActor {
                 }
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::ChunkEndorsement(approval) => {
+            NetworkRequests::ChunkEndorsement(target, endorsement) => {
                 self.state.send_message_to_account(
                     &self.clock,
-                    &approval.target,
-                    RoutedMessageBody::ChunkEndorsement(approval.endorsement),
+                    &target,
+                    RoutedMessageBody::ChunkEndorsement(endorsement),
                 );
                 NetworkResponses::NoResponse
             }

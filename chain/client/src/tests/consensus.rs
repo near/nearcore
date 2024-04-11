@@ -5,10 +5,11 @@ use actix::System;
 use near_chain::test_utils::ValidatorSchedule;
 use rand::{thread_rng, Rng};
 
-use crate::adapter::{BlockApproval, BlockResponse};
 use crate::test_utils::{setup_mock_all_validators, ActorHandlesForTesting};
 use near_actix_test_utils::run_actix;
+use near_async::time::Clock;
 use near_chain::Block;
+use near_network::client::{BlockApproval, BlockResponse};
 use near_network::types::PeerInfo;
 use near_network::types::{NetworkRequests, NetworkResponses, PeerManagerMessageRequest};
 use near_o11y::testonly::init_integration_logger;
@@ -68,6 +69,7 @@ fn test_consensus_with_epoch_switches() {
         let delayed_blocks = Arc::new(RwLock::new(vec![]));
 
         let (_, conn, _) = setup_mock_all_validators(
+            Clock::real(),
             vs,
             key_pairs.clone(),
             true,
@@ -79,6 +81,7 @@ fn test_consensus_with_epoch_switches() {
             archive,
             epoch_sync_enabled,
             false,
+            None,
             Box::new(move |_, from_whom: AccountId, msg: &PeerManagerMessageRequest| {
                 let mut all_blocks: RwLockWriteGuard<BTreeMap<BlockHeight, Block>> =
                     all_blocks.write().unwrap();

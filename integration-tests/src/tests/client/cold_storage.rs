@@ -1,5 +1,5 @@
 use borsh::BorshDeserialize;
-use near_chain::{ChainGenesis, Provenance};
+use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
@@ -11,6 +11,7 @@ use near_primitives::sharding::{PartialEncodedChunk, ShardChunk};
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
+use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::AccountId;
 use near_store::cold_storage::{
     copy_all_data_to_cold, test_cold_genesis_update, test_get_store_initial_writes,
@@ -20,7 +21,6 @@ use near_store::metadata::DbKind;
 use near_store::metadata::DB_VERSION;
 use near_store::test_utils::create_test_node_storage_with_cold;
 use near_store::{DBCol, Store, COLD_HEAD_KEY, HEAD_KEY};
-use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::{cold_storage::spawn_cold_store_loop, NearConfig};
 use std::collections::HashSet;
@@ -31,14 +31,14 @@ fn check_key(first_store: &Store, second_store: &Store, col: DBCol, key: &[u8]) 
     let pretty_key = near_fmt::StorageKey(key);
     tracing::debug!("Checking {:?} {:?}", col, pretty_key);
 
-    let first_res = first_store.get(col, key);
-    let second_res = second_store.get(col, key);
+    let first_res = first_store.get(col, key).unwrap();
+    let second_res = second_store.get(col, key).unwrap();
 
     if col == DBCol::PartialChunks {
         tracing::debug!("{:?}", first_store.get_ser::<PartialEncodedChunk>(col, key));
     }
 
-    assert_eq!(first_res.unwrap(), second_res.unwrap(), "col: {:?} key: {:?}", col, pretty_key);
+    assert_eq!(first_res, second_res, "col: {:?} key: {:?}", col, pretty_key);
 }
 
 fn check_iter(
@@ -63,6 +63,47 @@ fn check_iter(
     num_checks
 }
 
+fn test0() -> AccountId {
+    "test0".parse().unwrap()
+}
+
+fn test1() -> AccountId {
+    "test1".parse().unwrap()
+}
+
+fn create_tx_send_money(
+    nonce: u64,
+    signer: &InMemorySigner,
+    block_hash: CryptoHash,
+) -> SignedTransaction {
+    SignedTransaction::send_money(nonce, test0(), test1(), signer, 1, block_hash)
+}
+
+fn create_tx_deploy_contract(
+    height: u64,
+    signer: &InMemorySigner,
+    block_hash: CryptoHash,
+) -> SignedTransaction {
+    let code = near_test_contracts::rs_contract().to_vec();
+    let action = DeployContractAction { code };
+    let action = Action::DeployContract(action);
+    SignedTransaction::from_actions(height, test0(), test0(), signer, vec![action], block_hash)
+}
+
+fn create_tx_function_call(
+    nonce: u64,
+    signer: &InMemorySigner,
+    block_hash: CryptoHash,
+) -> SignedTransaction {
+    let action = Action::FunctionCall(Box::new(FunctionCallAction {
+        method_name: "write_random_value".to_string(),
+        args: vec![],
+        gas: 100_000_000_000_000,
+        deposit: 0,
+    }));
+    SignedTransaction::from_actions(nonce, test0(), test0(), signer, vec![action], block_hash)
+}
+
 /// Deploying test contract and calling write_random_value 5 times every block for 4 epochs.
 /// Also doing 5 send transactions every block.
 /// 4 epochs, because this test does not cover gc behaviour.
@@ -76,97 +117,53 @@ fn test_storage_after_commit_of_cold_update() {
     let epoch_length = 5;
     let max_height = epoch_length * 4;
 
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-
+    let mut genesis = Genesis::test(vec![test0(), test1()], 1);
     genesis.config.epoch_length = epoch_length;
-    let mut chain_genesis = ChainGenesis::test();
-    chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(chain_genesis)
-        .real_epoch_managers(&genesis.config)
-        .nightshade_runtimes(&genesis)
-        .build();
+    genesis.config.min_gas_price = 0;
+    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
-    let (store, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+    let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+    let cold_db = storage.cold_db().unwrap();
 
-    let mut last_hash = *env.clients[0].chain.genesis().hash();
-
-    test_cold_genesis_update(&*store.cold_db().unwrap(), &env.clients[0].runtime_adapter.store())
-        .unwrap();
+    test_cold_genesis_update(&cold_db, &env.clients[0].runtime_adapter.store()).unwrap();
 
     let state_reads = test_get_store_reads(DBCol::State);
-    let state_changes_reads = test_get_store_reads(DBCol::StateChanges);
 
-    for h in 1..max_height {
-        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-        if h == 1 {
-            let tx = SignedTransaction::from_actions(
-                h,
-                "test0".parse().unwrap(),
-                "test0".parse().unwrap(),
-                &signer,
-                vec![Action::DeployContract(DeployContractAction {
-                    code: near_test_contracts::rs_contract().to_vec(),
-                })],
-                last_hash,
-            );
+    let mut last_hash = *env.clients[0].chain.genesis().hash();
+    for height in 1..max_height {
+        let signer = InMemorySigner::from_seed(test0(), KeyType::ED25519, "test0");
+        if height == 1 {
+            let tx = create_tx_deploy_contract(height, &signer, last_hash);
             assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
         }
         // Don't send transactions in last two blocks. Because on last block production a chunk from
         // the next block will be produced and information about these transactions will be written
         // into db. And it is a PAIN to filter it out, especially for Receipts.
-        if h + 2 < max_height {
+        if height + 2 < max_height {
             for i in 0..5 {
-                let tx = SignedTransaction::from_actions(
-                    h * 10 + i,
-                    "test0".parse().unwrap(),
-                    "test0".parse().unwrap(),
-                    &signer,
-                    vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                        method_name: "write_random_value".to_string(),
-                        args: vec![],
-                        gas: 100_000_000_000_000,
-                        deposit: 0,
-                    }))],
-                    last_hash,
-                );
+                let tx = create_tx_function_call(height * 10 + i, &signer, last_hash);
                 assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
             }
             for i in 0..5 {
-                let tx = SignedTransaction::send_money(
-                    h * 10 + i,
-                    "test0".parse().unwrap(),
-                    "test1".parse().unwrap(),
-                    &signer,
-                    1,
-                    last_hash,
-                );
+                let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
                 assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
             }
         }
 
-        let block = env.clients[0].produce_block(h).unwrap().unwrap();
+        let block = env.clients[0].produce_block(height).unwrap().unwrap();
         env.process_block(0, block.clone(), Provenance::PRODUCED);
 
-        update_cold_db(
-            &*store.cold_db().unwrap(),
-            &env.clients[0].runtime_adapter.store(),
-            &env.clients[0]
-                .epoch_manager
-                .get_shard_layout(
-                    &env.clients[0].epoch_manager.get_epoch_id_from_prev_block(&last_hash).unwrap(),
-                )
-                .unwrap(),
-            &h,
-        )
-        .unwrap();
+        let client = &env.clients[0];
+        let client_store = client.runtime_adapter.store();
+        let epoch_id = client.epoch_manager.get_epoch_id_from_prev_block(&last_hash).unwrap();
+        let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        update_cold_db(cold_db, &client_store, &shard_layout, &height, 4).unwrap();
 
         last_hash = *block.hash();
     }
 
     // assert that we don't read State from db, but from TrieChanges
     assert_eq!(state_reads, test_get_store_reads(DBCol::State));
-    // assert that we don't read StateChanges from db again after iter_prefix
-    assert_eq!(state_changes_reads, test_get_store_reads(DBCol::StateChanges));
 
     // We still need to filter out one chunk
     let mut no_check_rules: Vec<Box<dyn Fn(DBCol, &Box<[u8]>, &Box<[u8]>) -> bool>> = vec![];
@@ -199,21 +196,19 @@ fn test_storage_after_commit_of_cold_update() {
     }));
 
     for col in DBCol::iter() {
-        if col.is_cold() {
-            let num_checks = check_iter(
-                &env.clients[0].runtime_adapter.store(),
-                &store.get_cold_store().unwrap(),
-                col,
-                &no_check_rules,
-            );
-            // assert that this test actually checks something
-            // apart from StateChangesForSplitStates and StateHeaders, that are empty
-            assert!(
-                col == DBCol::StateChangesForSplitStates
-                    || col == DBCol::StateHeaders
-                    || num_checks > 0
-            );
+        if !col.is_cold() {
+            continue;
         }
+        let client_store = env.clients[0].runtime_adapter.store();
+        let cold_store = &storage.get_cold_store().unwrap();
+        let num_checks = check_iter(client_store, cold_store, col, &no_check_rules);
+        // assert that this test actually checks something
+        // apart from StateChangesForSplitStates and StateHeaders, that are empty
+        assert!(
+            col == DBCol::StateChangesForSplitStates
+                || col == DBCol::StateHeaders
+                || num_checks > 0
+        );
     }
 }
 
@@ -226,30 +221,23 @@ fn test_cold_db_head_update() {
     let epoch_length = 5;
     let max_height = epoch_length * 10;
 
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-
+    let mut genesis = Genesis::test(vec![test0(), test1()], 1);
     genesis.config.epoch_length = epoch_length;
-    let mut chain_genesis = ChainGenesis::test();
-    chain_genesis.epoch_length = epoch_length;
-    let (store, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
-    let hot_store = &store.get_hot_store();
-    let cold_store = &store.get_cold_store().unwrap();
-    let mut env = TestEnv::builder(chain_genesis)
+    let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+    let hot_store = &storage.get_hot_store();
+    let cold_store = &storage.get_cold_store().unwrap();
+    let cold_db = storage.cold_db().unwrap();
+    let mut env = TestEnv::builder(&genesis.config)
         .stores(vec![hot_store.clone()])
-        .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .build();
 
-    for h in 1..max_height {
-        env.produce_block(0, h);
-        update_cold_head(&*store.cold_db().unwrap(), &env.clients[0].runtime_adapter.store(), &h)
-            .unwrap();
+    for height in 1..max_height {
+        env.produce_block(0, height);
+        let client_store = env.clients[0].runtime_adapter.store();
+        update_cold_head(&cold_db, &client_store, &height).unwrap();
 
-        let head = &env.clients[0]
-            .runtime_adapter
-            .store()
-            .get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)
-            .unwrap();
+        let head = &client_store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY).unwrap();
         let cold_head_in_hot = hot_store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY).unwrap();
         let cold_head_in_cold = cold_store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY).unwrap();
 
@@ -271,47 +259,34 @@ fn test_cold_db_copy_with_height_skips() {
 
     let skips = HashSet::from([1, 4, 5, 7, 11, 14, 16, 19]);
 
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-
+    let mut genesis = Genesis::test(vec![test0(), test1()], 1);
     genesis.config.epoch_length = epoch_length;
-    let mut chain_genesis = ChainGenesis::test();
-    chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(chain_genesis)
-        .real_epoch_managers(&genesis.config)
-        .nightshade_runtimes(&genesis)
-        .build();
+    genesis.config.min_gas_price = 0;
+    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+    let cold_db = storage.cold_db().unwrap();
+
+    test_cold_genesis_update(&cold_db, &env.clients[0].runtime_adapter.store()).unwrap();
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
-
-    test_cold_genesis_update(&*storage.cold_db().unwrap(), &env.clients[0].runtime_adapter.store())
-        .unwrap();
-
-    for h in 1..max_height {
-        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    for height in 1..max_height {
+        let signer = InMemorySigner::from_seed(test0(), KeyType::ED25519, "test0");
         // It is still painful to filter out transactions in last two blocks.
         // So, as block 19 is skipped, blocks 17 and 18 shouldn't contain any transactions.
         // So, we shouldn't send any transactions between block 17 and the previous block.
         // And as block 16 is skipped, the previous block to 17 is 15.
         // Therefore, no transactions after block 15.
-        if h < 16 {
+        if height < 16 {
             for i in 0..5 {
-                let tx = SignedTransaction::send_money(
-                    h * 10 + i,
-                    "test0".parse().unwrap(),
-                    "test1".parse().unwrap(),
-                    &signer,
-                    1,
-                    last_hash,
-                );
+                let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
                 assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
             }
         }
 
         let block = {
-            if !skips.contains(&h) {
-                let block = env.clients[0].produce_block(h).unwrap().unwrap();
+            if !skips.contains(&height) {
+                let block = env.clients[0].produce_block(height).unwrap().unwrap();
                 env.process_block(0, block.clone(), Provenance::PRODUCED);
                 Some(block)
             } else {
@@ -319,18 +294,11 @@ fn test_cold_db_copy_with_height_skips() {
             }
         };
 
-        update_cold_db(
-            &*storage.cold_db().unwrap(),
-            &env.clients[0].runtime_adapter.store(),
-            &env.clients[0]
-                .epoch_manager
-                .get_shard_layout(
-                    &env.clients[0].epoch_manager.get_epoch_id_from_prev_block(&last_hash).unwrap(),
-                )
-                .unwrap(),
-            &h,
-        )
-        .unwrap();
+        let client = &env.clients[0];
+        let epoch_id = client.epoch_manager.get_epoch_id_from_prev_block(&last_hash).unwrap();
+        let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        update_cold_db(&cold_db, &client.runtime_adapter.store(), &shard_layout, &height, 1)
+            .unwrap();
 
         if block.is_some() {
             last_hash = *block.unwrap().hash();
@@ -360,12 +328,9 @@ fn test_cold_db_copy_with_height_skips() {
 
     for col in DBCol::iter() {
         if col.is_cold() && col != DBCol::ChunkHashesByHeight {
-            let num_checks = check_iter(
-                &env.clients[0].runtime_adapter.store(),
-                &storage.get_cold_store().unwrap(),
-                col,
-                &no_check_rules,
-            );
+            let client_store = env.clients[0].runtime_adapter.store();
+            let cold_store = storage.get_cold_store().unwrap();
+            let num_checks = check_iter(&client_store, &cold_store, col, &no_check_rules);
             // assert that this test actually checks something
             // apart from StateChangesForSplitStates and StateHeaders, that are empty
             assert!(
@@ -389,59 +354,37 @@ fn test_initial_copy_to_cold(batch_size: usize) {
     let epoch_length = 5;
     let max_height = epoch_length * 4;
 
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-
+    let mut genesis = Genesis::test(vec![test0(), test1()], 1);
     genesis.config.epoch_length = epoch_length;
-    let mut chain_genesis = ChainGenesis::test();
-    chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(chain_genesis)
-        .real_epoch_managers(&genesis.config)
-        .nightshade_runtimes(&genesis)
-        .build();
+    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
-    let (store, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Archive);
+    let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Archive);
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
-
-    for h in 1..max_height {
-        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    for height in 1..max_height {
+        let signer = InMemorySigner::from_seed(test0(), KeyType::ED25519, "test0");
         for i in 0..5 {
-            let tx = SignedTransaction::send_money(
-                h * 10 + i,
-                "test0".parse().unwrap(),
-                "test1".parse().unwrap(),
-                &signer,
-                1,
-                last_hash,
-            );
+            let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
             assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
         }
 
-        let block = env.clients[0].produce_block(h).unwrap().unwrap();
+        let block = env.clients[0].produce_block(height).unwrap().unwrap();
         env.process_block(0, block.clone(), Provenance::PRODUCED);
         last_hash = *block.hash();
     }
 
     let keep_going = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
 
-    copy_all_data_to_cold(
-        (*store.cold_db().unwrap()).clone(),
-        &env.clients[0].runtime_adapter.store(),
-        batch_size,
-        &keep_going,
-    )
-    .unwrap();
+    let cold_db = storage.cold_db().unwrap();
+    let cold_store = storage.get_cold_store().unwrap();
+    let client_store = env.clients[0].runtime_adapter.store();
+    copy_all_data_to_cold(cold_db.clone(), &client_store, batch_size, &keep_going).unwrap();
 
     for col in DBCol::iter() {
         if !col.is_cold() {
             continue;
         }
-        let num_checks = check_iter(
-            &env.clients[0].runtime_adapter.store(),
-            &store.get_cold_store().unwrap(),
-            col,
-            &vec![],
-        );
+        let num_checks = check_iter(&client_store, &cold_store, col, &vec![]);
         // StateChangesForSplitStates and StateHeaders are empty
         if col == DBCol::StateChangesForSplitStates || col == DBCol::StateHeaders {
             continue;
@@ -485,20 +428,16 @@ fn test_cold_loop_on_gc_boundary() {
 
     let epoch_length = 5;
 
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-
+    let mut genesis = Genesis::test(vec![test0(), test1()], 1);
     genesis.config.epoch_length = epoch_length;
-    let mut chain_genesis = ChainGenesis::test();
-    chain_genesis.epoch_length = epoch_length;
 
-    let (store, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
-    let hot_store = &store.get_hot_store();
-    let cold_store = &store.get_cold_store().unwrap();
-    let mut env = TestEnv::builder(chain_genesis)
+    let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+    let hot_store = &storage.get_hot_store();
+    let cold_store = &storage.get_cold_store().unwrap();
+    let mut env = TestEnv::builder(&genesis.config)
         .archive(true)
         .save_trie_changes(true)
         .stores(vec![hot_store.clone()])
-        .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .build();
 
@@ -506,47 +445,33 @@ fn test_cold_loop_on_gc_boundary() {
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
 
-    for h in 1..height_delta {
-        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    for height in 1..height_delta {
+        let signer = InMemorySigner::from_seed(test0(), KeyType::ED25519, "test0");
         for i in 0..5 {
-            let tx = SignedTransaction::send_money(
-                h * 10 + i,
-                "test0".parse().unwrap(),
-                "test1".parse().unwrap(),
-                &signer,
-                1,
-                last_hash,
-            );
+            let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
             assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
         }
 
-        let block = env.clients[0].produce_block(h).unwrap().unwrap();
+        let block = env.clients[0].produce_block(height).unwrap().unwrap();
         env.process_block(0, block.clone(), Provenance::PRODUCED);
         last_hash = *block.hash();
     }
 
     let keep_going = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
 
-    copy_all_data_to_cold((*store.cold_db().unwrap()).clone(), &hot_store, 1000000, &keep_going)
-        .unwrap();
+    let cold_db = storage.cold_db().unwrap();
+    copy_all_data_to_cold(cold_db.clone(), &hot_store, 1000000, &keep_going).unwrap();
 
-    update_cold_head(&*store.cold_db().unwrap(), &hot_store, &(height_delta - 1)).unwrap();
+    update_cold_head(cold_db, &hot_store, &(height_delta - 1)).unwrap();
 
-    for h in height_delta..height_delta * 2 {
-        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    for height in height_delta..height_delta * 2 {
+        let signer = InMemorySigner::from_seed(test0(), KeyType::ED25519, "test0");
         for i in 0..5 {
-            let tx = SignedTransaction::send_money(
-                h * 10 + i,
-                "test0".parse().unwrap(),
-                "test1".parse().unwrap(),
-                &signer,
-                1,
-                last_hash,
-            );
+            let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
             assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
         }
 
-        let block = env.clients[0].produce_block(h).unwrap().unwrap();
+        let block = env.clients[0].produce_block(height).unwrap().unwrap();
         env.process_block(0, block.clone(), Provenance::PRODUCED);
         last_hash = *block.hash();
     }
@@ -571,8 +496,8 @@ fn test_cold_loop_on_gc_boundary() {
     near_config.client_config = env.clients[0].config.clone();
     near_config.config.save_trie_changes = Some(true);
 
-    let epoch_manager = EpochManager::new_arc_handle(store.get_hot_store(), &genesis.config);
-    spawn_cold_store_loop(&near_config, &store, epoch_manager).unwrap();
+    let epoch_manager = EpochManager::new_arc_handle(storage.get_hot_store(), &genesis.config);
+    spawn_cold_store_loop(&near_config, &storage, epoch_manager).unwrap();
     std::thread::sleep(std::time::Duration::from_secs(1));
 
     let end_cold_head =

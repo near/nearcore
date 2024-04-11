@@ -1,3 +1,4 @@
+use near_async::messaging::AsyncSendError;
 use serde_json::Value;
 
 use near_jsonrpc_primitives::errors::RpcParseError;
@@ -20,14 +21,14 @@ impl RpcRequest for RpcSandboxFastForwardRequest {
     }
 }
 
-impl RpcFrom<actix::MailboxError> for RpcSandboxPatchStateError {
-    fn rpc_from(error: actix::MailboxError) -> Self {
+impl RpcFrom<AsyncSendError> for RpcSandboxPatchStateError {
+    fn rpc_from(error: AsyncSendError) -> Self {
         Self::InternalError { error_message: error.to_string() }
     }
 }
 
-impl RpcFrom<actix::MailboxError> for RpcSandboxFastForwardError {
-    fn rpc_from(error: actix::MailboxError) -> Self {
+impl RpcFrom<AsyncSendError> for RpcSandboxFastForwardError {
+    fn rpc_from(error: AsyncSendError) -> Self {
         Self::InternalError { error_message: error.to_string() }
     }
 }

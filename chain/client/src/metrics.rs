@@ -1,8 +1,8 @@
 use near_o11y::metrics::{
-    exponential_buckets, try_create_counter, try_create_gauge, try_create_histogram,
-    try_create_histogram_vec, try_create_int_counter, try_create_int_counter_vec,
-    try_create_int_gauge, try_create_int_gauge_vec, Counter, Gauge, Histogram, HistogramVec,
-    IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
+    exponential_buckets, linear_buckets, try_create_counter, try_create_gauge,
+    try_create_histogram, try_create_histogram_vec, try_create_int_counter,
+    try_create_int_counter_vec, try_create_int_gauge, try_create_int_gauge_vec, Counter, Gauge,
+    Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
 };
 use once_cell::sync::Lazy;
 
@@ -21,6 +21,18 @@ pub(crate) static CHUNK_PRODUCED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
     )
     .unwrap()
 });
+
+pub(crate) static PRODUCED_CHUNKS_SOME_POOL_TRANSACTIONS_DIDNT_FIT: Lazy<IntCounterVec> = Lazy::new(
+    || {
+        try_create_int_counter_vec(
+        "near_produced_chunks_some_pool_transactions_didnt_fit",
+        "Total number of produced chunks where some transactions from the pool didn't fit in the chunk \
+        (since starting this node). The limited_by label specifies which limit was hit.",
+        &["shard_id", "limited_by"],
+    )
+    .unwrap()
+    },
+);
 
 pub(crate) static IS_VALIDATOR: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge(
@@ -471,7 +483,7 @@ pub(crate) static STATE_SYNC_EXTERNAL_PARTS_DONE: Lazy<IntCounterVec> = Lazy::ne
     try_create_int_counter_vec(
         "near_state_sync_external_parts_done_total",
         "Number of parts retrieved from external storage",
-        &["shard_id"],
+        &["shard_id", "type"],
     )
     .unwrap()
 });
@@ -480,7 +492,7 @@ pub(crate) static STATE_SYNC_EXTERNAL_PARTS_FAILED: Lazy<IntCounterVec> = Lazy::
     try_create_int_counter_vec(
         "near_state_sync_external_parts_failed_total",
         "Failed retrieval attempts from external storage",
-        &["shard_id"],
+        &["shard_id", "type"],
     )
     .unwrap()
 });
@@ -489,7 +501,7 @@ pub(crate) static STATE_SYNC_EXTERNAL_PARTS_REQUEST_DELAY: Lazy<HistogramVec> = 
     try_create_histogram_vec(
         "near_state_sync_external_parts_request_delay_sec",
         "Latency of state part requests to external storage",
-        &["shard_id"],
+        &["shard_id", "type"],
         Some(exponential_buckets(0.001, 2.0, 20).unwrap()),
     )
     .unwrap()
@@ -500,7 +512,7 @@ pub(crate) static STATE_SYNC_EXTERNAL_PARTS_SIZE_DOWNLOADED: Lazy<IntCounterVec>
         try_create_int_counter_vec(
             "near_state_sync_external_parts_size_downloaded_bytes_total",
             "Bytes downloaded from an external storage",
-            &["shard_id"],
+            &["shard_id", "type"],
         )
         .unwrap()
     });
@@ -509,7 +521,7 @@ pub(crate) static STATE_SYNC_DUMP_PUT_OBJECT_ELAPSED: Lazy<HistogramVec> = Lazy:
     try_create_histogram_vec(
         "near_state_sync_dump_put_object_elapsed_sec",
         "Latency of writes to external storage",
-        &["shard_id", "result"],
+        &["shard_id", "result", "type"],
         Some(exponential_buckets(0.001, 1.6, 25).unwrap()),
     )
     .unwrap()
@@ -539,6 +551,86 @@ pub(crate) static SYNC_REQUIREMENT_CURRENT: Lazy<IntGaugeVec> = Lazy::new(|| {
         "near_sync_requirements_current",
         "The latest SyncRequirement",
         &["state"],
+    )
+    .unwrap()
+});
+
+pub(crate) static SHADOW_CHUNK_VALIDATION_FAILED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
+    try_create_int_counter(
+        "near_shadow_chunk_validation_failed_total",
+        "Shadow chunk validation failures count",
+    )
+    .unwrap()
+});
+
+pub(crate) static CHUNK_STATE_WITNESS_VALIDATION_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_chunk_state_witness_validation_time",
+        "State witness validation latency in seconds",
+        &["shard_id"],
+        Some(exponential_buckets(0.01, 2.0, 12).unwrap()),
+    )
+    .unwrap()
+});
+
+pub(crate) static CHUNK_STATE_WITNESS_TOTAL_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_chunk_state_witness_total_size",
+        "Stateless validation state witness size in bytes",
+        &["shard_id"],
+        Some(exponential_buckets(1000.0, 2.0, 20).unwrap()),
+    )
+    .unwrap()
+});
+
+pub(crate) static ORPHAN_CHUNK_STATE_WITNESSES_TOTAL_COUNT: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_orphan_chunk_state_witness_total_count",
+        "Total number of orphaned chunk state witnesses that were saved for later processing",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub(crate) static ORPHAN_CHUNK_STATE_WITNESS_POOL_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_orphan_chunk_state_witness_pool_size",
+        "Number of orphaned witnesses kept in OrphanStateWitnessPool (by shard_id)",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub(crate) static ORPHAN_CHUNK_STATE_WITNESS_POOL_MEMORY_USED: Lazy<IntGaugeVec> =
+    Lazy::new(|| {
+        try_create_int_gauge_vec(
+            "near_orphan_chunk_state_witness_pool_memory_used",
+            "Memory in bytes consumed by the OrphanStateWitnessPool (by shard_id)",
+            &["shard_id"],
+        )
+        .unwrap()
+    });
+
+pub(crate) static BLOCK_PRODUCER_ENDORSED_STAKE_RATIO: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_block_producer_endorsed_stake_ratio",
+        "Ratio (the value is between 0.0 and 1.0) of the endorsed stake for the produced block",
+        &["shard_id"],
+        Some(linear_buckets(0.0, 0.05, 20).unwrap()),
+    )
+    .unwrap()
+});
+
+pub(crate) static BLOCK_PRODUCER_MISSING_ENDORSEMENT_COUNT: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_block_producer_missing_endorsement_count",
+        "Number of validators from which the block producer has not received endorsements",
+        &["shard_id"],
+        Some({
+            let mut buckets = vec![0.0, 1.0, 2.0, 3.0, 4.0];
+            buckets.append(&mut exponential_buckets(5.0, 1.5, 10).unwrap());
+            buckets
+        }),
     )
     .unwrap()
 });

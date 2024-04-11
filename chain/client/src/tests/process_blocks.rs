@@ -1,6 +1,6 @@
 use crate::test_utils::TestEnv;
 use assert_matches::assert_matches;
-use near_chain::{test_utils, ChainGenesis, Provenance};
+use near_chain::{test_utils, Provenance};
 use near_crypto::vrf::Value;
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
@@ -18,7 +18,7 @@ use std::sync::Arc;
 /// if the second block is not requested
 #[test]
 fn test_not_process_height_twice() {
-    let mut env = TestEnv::builder(ChainGenesis::test()).build();
+    let mut env = TestEnv::default_builder().mock_epoch_managers().build();
     let block = env.clients[0].produce_block(1).unwrap().unwrap();
     // modify the block and resign it
     let mut duplicate_block = block.clone();
@@ -53,7 +53,7 @@ fn test_not_process_height_twice() {
 /// Test that if a block contains chunks with invalid shard_ids, the client will return error.
 #[test]
 fn test_bad_shard_id() {
-    let mut env = TestEnv::builder(ChainGenesis::test()).num_shards(4).build();
+    let mut env = TestEnv::default_builder().num_shards(4).mock_epoch_managers().build();
     let prev_block = env.clients[0].produce_block(1).unwrap().unwrap();
     env.process_block(0, prev_block, Provenance::PRODUCED);
     let mut block = env.clients[0].produce_block(2).unwrap().unwrap(); // modify the block and resign it
@@ -98,12 +98,12 @@ fn test_bad_shard_id() {
 /// Test that if a block's content (vrf_value) is corrupted, the invalid block will not affect the node's block processing
 #[test]
 fn test_bad_block_content_vrf() {
-    let mut env = TestEnv::builder(ChainGenesis::test()).num_shards(4).build();
+    let mut env = TestEnv::default_builder().num_shards(4).mock_epoch_managers().build();
     let prev_block = env.clients[0].produce_block(1).unwrap().unwrap();
     env.process_block(0, prev_block, Provenance::PRODUCED);
     let block = env.clients[0].produce_block(2).unwrap().unwrap();
     let mut bad_block = block.clone();
-    bad_block.get_mut().body.vrf_value = Value([0u8; 32]);
+    bad_block.set_vrf_value(Value([0u8; 32]));
 
     let err = env.clients[0]
         .receive_block_impl(
@@ -122,7 +122,7 @@ fn test_bad_block_content_vrf() {
 /// Test that if a block's signature is corrupted, the invalid block will not affect the node's block processing
 #[test]
 fn test_bad_block_signature() {
-    let mut env = TestEnv::builder(ChainGenesis::test()).num_shards(4).build();
+    let mut env = TestEnv::default_builder().num_shards(4).mock_epoch_managers().build();
     let prev_block = env.clients[0].produce_block(1).unwrap().unwrap();
     env.process_block(0, prev_block, Provenance::PRODUCED);
     let block = env.clients[0].produce_block(2).unwrap().unwrap();

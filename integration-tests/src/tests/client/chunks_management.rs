@@ -2,8 +2,9 @@ use crate::test_helpers::heavy_test;
 use actix::System;
 use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
-use near_async::time;
+use near_async::time::{self, Clock};
 use near_chain::test_utils::ValidatorSchedule;
+use near_chain_configs::{ChunkDistributionNetworkConfig, ChunkDistributionUris};
 use near_chunks::{
     CHUNK_REQUEST_RETRY, CHUNK_REQUEST_SWITCH_TO_FULL_FETCH, CHUNK_REQUEST_SWITCH_TO_OTHERS,
 };
@@ -17,6 +18,8 @@ use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
+use near_primitives_core::checked_feature;
+use near_primitives_core::version::PROTOCOL_VERSION;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
@@ -32,13 +35,25 @@ struct Test {
 
 impl Test {
     fn run(self) {
-        heavy_test(move || run_actix(async move { self.run_impl() }))
+        // TODO(#10506): Fix test to handle stateless validation
+        if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+            return;
+        }
+        heavy_test(move || run_actix(async move { self.run_impl(None) }))
+    }
+
+    fn run_with_chunk_distribution_network(self, config: ChunkDistributionNetworkConfig) {
+        // TODO(#10506): Fix test to handle stateless validation
+        if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+            return;
+        }
+        heavy_test(move || run_actix(async move { self.run_impl(Some(config)) }))
     }
 
     /// Runs block producing client and stops after network mock received seven blocks
     /// Confirms that the blocks form a chain (which implies the chunks are distributed).
     /// Confirms that the number of messages transmitting the chunks matches the expected number.
-    fn run_impl(self) {
+    fn run_impl(self, chunk_distribution_config: Option<ChunkDistributionNetworkConfig>) {
         init_test_logger();
 
         let connectors: Arc<RwLock<Vec<ActorHandlesForTesting>>> = Arc::new(RwLock::new(vec![]));
@@ -100,6 +115,7 @@ impl Test {
         let mut partial_chunk_request_msgs = 0;
 
         let (_, conn, _) = setup_mock_all_validators(
+            Clock::real(),
             vs,
             key_pairs,
             true,
@@ -111,6 +127,7 @@ impl Test {
             archive,
             epoch_sync_enabled,
             false,
+            chunk_distribution_config,
             Box::new(move |_, from_whom: AccountId, msg: &PeerManagerMessageRequest| {
                 let msg = msg.as_network_requests_ref();
                 match msg {
@@ -309,6 +326,67 @@ fn chunks_produced_and_distributed_one_val_per_shard() {
         block_timeout: CHUNK_REQUEST_RETRY * 15,
     }
     .run()
+}
+
+// Nothing the chunk distribution config can do should break chunk distribution
+// because we always fallback on the p2p mechanism. This test runs with a config
+// where `enabled: false`.
+#[test]
+fn chunks_produced_and_distributed_chunk_distribution_network_disabled() {
+    let config = ChunkDistributionNetworkConfig {
+        enabled: false,
+        uris: ChunkDistributionUris { set: String::new(), get: String::new() },
+    };
+    Test {
+        validator_groups: 4,
+        chunk_only_producers: false,
+        drop_to_4_from: &[],
+        drop_all_chunk_forward_msgs: false,
+        block_timeout: CHUNK_REQUEST_RETRY * 15,
+    }
+    .run_with_chunk_distribution_network(config)
+}
+
+// Nothing the chunk distribution config can do should break chunk distribution
+// because we always fallback on the p2p mechanism. This test runs with a config
+// where the URIs are not real endpoints.
+#[test]
+fn chunks_produced_and_distributed_chunk_distribution_network_wrong_urls() {
+    let config = ChunkDistributionNetworkConfig {
+        enabled: false,
+        uris: ChunkDistributionUris {
+            set: "http://www.fake-set-url.com".into(),
+            get: "http://www.fake-get-url.com".into(),
+        },
+    };
+    Test {
+        validator_groups: 4,
+        chunk_only_producers: false,
+        drop_to_4_from: &[],
+        drop_all_chunk_forward_msgs: false,
+        block_timeout: CHUNK_REQUEST_RETRY * 15,
+    }
+    .run_with_chunk_distribution_network(config)
+}
+
+// Nothing the chunk distribution config can do should break chunk distribution
+// because we always fallback on the p2p mechanism. This test runs with a config
+// where the `get` URI points at a random http server (therefore it does not
+// return valid chunks).
+#[test]
+fn chunks_produced_and_distributed_chunk_distribution_network_incorrect_get_return() {
+    let config = ChunkDistributionNetworkConfig {
+        enabled: false,
+        uris: ChunkDistributionUris { set: String::new(), get: "https://www.google.com".into() },
+    };
+    Test {
+        validator_groups: 4,
+        chunk_only_producers: false,
+        drop_to_4_from: &[],
+        drop_all_chunk_forward_msgs: false,
+        block_timeout: CHUNK_REQUEST_RETRY * 15,
+    }
+    .run_with_chunk_distribution_network(config)
 }
 
 #[test]

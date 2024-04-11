@@ -1,6 +1,6 @@
 use crate::metrics::flat_state_metrics;
 use near_o11y::metrics::{IntCounter, IntGauge};
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::{shard_layout::ShardUId, types::BlockHeight};
 
 use super::FlatStorageStatus;
 
@@ -14,21 +14,21 @@ pub(crate) struct FlatStorageMetrics {
 }
 
 impl FlatStorageMetrics {
-    pub(crate) fn new(shard_id: ShardId) -> Self {
-        let shard_id_label = shard_id.to_string();
+    pub(crate) fn new(shard_uid: ShardUId) -> Self {
+        let shard_uid_label = shard_uid.to_string();
         Self {
             flat_head_height: flat_state_metrics::FLAT_STORAGE_HEAD_HEIGHT
-                .with_label_values(&[&shard_id_label]),
+                .with_label_values(&[&shard_uid_label]),
             distance_to_head: flat_state_metrics::FLAT_STORAGE_DISTANCE_TO_HEAD
-                .with_label_values(&[&shard_id_label]),
+                .with_label_values(&[&shard_uid_label]),
             hops_to_head: flat_state_metrics::FLAT_STORAGE_HOPS_TO_HEAD
-                .with_label_values(&[&shard_id_label]),
+                .with_label_values(&[&shard_uid_label]),
             cached_deltas: flat_state_metrics::FLAT_STORAGE_CACHED_DELTAS
-                .with_label_values(&[&shard_id_label]),
+                .with_label_values(&[&shard_uid_label]),
             cached_changes_num_items: flat_state_metrics::FLAT_STORAGE_CACHED_CHANGES_NUM_ITEMS
-                .with_label_values(&[&shard_id_label]),
+                .with_label_values(&[&shard_uid_label]),
             cached_changes_size: flat_state_metrics::FLAT_STORAGE_CACHED_CHANGES_SIZE
-                .with_label_values(&[&shard_id_label]),
+                .with_label_values(&[&shard_uid_label]),
         }
     }
 
@@ -64,21 +64,21 @@ pub struct FlatStorageCreationMetrics {
 }
 
 impl FlatStorageCreationMetrics {
-    pub fn new(shard_id: ShardId) -> Self {
-        let shard_id_label = shard_id.to_string();
+    pub fn new(shard_uid: ShardUId) -> Self {
+        let shard_uid_label = shard_uid.to_string();
         Self {
             status: flat_state_metrics::FLAT_STORAGE_CREATION_STATUS
-                .with_label_values(&[&shard_id_label]),
+                .with_label_values(&[&shard_uid_label]),
             flat_head_height: flat_state_metrics::FLAT_STORAGE_HEAD_HEIGHT
-                .with_label_values(&[&shard_id_label]),
+                .with_label_values(&[&shard_uid_label]),
             remaining_state_parts: flat_state_metrics::FLAT_STORAGE_CREATION_REMAINING_STATE_PARTS
-                .with_label_values(&[&shard_id_label]),
+                .with_label_values(&[&shard_uid_label]),
             fetched_state_parts: flat_state_metrics::FLAT_STORAGE_CREATION_FETCHED_STATE_PARTS
-                .with_label_values(&[&shard_id_label]),
+                .with_label_values(&[&shard_uid_label]),
             fetched_state_items: flat_state_metrics::FLAT_STORAGE_CREATION_FETCHED_STATE_ITEMS
-                .with_label_values(&[&shard_id_label]),
+                .with_label_values(&[&shard_uid_label]),
             threads_used: flat_state_metrics::FLAT_STORAGE_CREATION_THREADS_USED
-                .with_label_values(&[&shard_id_label]),
+                .with_label_values(&[&shard_uid_label]),
         }
     }
 

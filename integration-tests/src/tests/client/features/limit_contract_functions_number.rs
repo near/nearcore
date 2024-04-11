@@ -1,6 +1,5 @@
 use crate::tests::client::process_blocks::deploy_test_contract;
 use assert_matches::assert_matches;
-use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_parameters::RuntimeConfigStore;
@@ -9,9 +8,9 @@ use near_primitives::errors::{
 };
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::FinalExecutionStatus;
-use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
+#[allow(dead_code)]
 fn verify_contract_limits_upgrade(
     feature: ProtocolFeature,
     function_limit: u32,
@@ -28,9 +27,7 @@ fn verify_contract_limits_upgrade(
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = old_protocol_version;
-        let chain_genesis = ChainGenesis::new(&genesis);
-        let mut env = TestEnv::builder(chain_genesis)
-            .real_epoch_managers(&genesis.config)
+        let mut env = TestEnv::builder(&genesis.config)
             .nightshade_runtimes_with_runtime_config_store(
                 &genesis,
                 vec![RuntimeConfigStore::new(None)],
@@ -73,6 +70,8 @@ fn verify_contract_limits_upgrade(
 }
 
 // Check that we can't call a contract exceeding functions number limit after upgrade.
+// Disabled in nightly due to https://github.com/near/nearcore/issues/8590
+#[cfg(all(not(feature = "nightly"), not(feature = "statelessnet_protocol")))]
 #[test]
 fn test_function_limit_change() {
     verify_contract_limits_upgrade(
@@ -84,6 +83,8 @@ fn test_function_limit_change() {
 }
 
 // Check that we can't call a contract exceeding functions number limit after upgrade.
+// Disabled in nightly due to https://github.com/near/nearcore/issues/8590
+#[cfg(all(not(feature = "nightly"), not(feature = "statelessnet_protocol")))]
 #[test]
 fn test_local_limit_change() {
     verify_contract_limits_upgrade(

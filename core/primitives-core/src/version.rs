@@ -123,13 +123,26 @@ pub enum ProtocolFeature {
     FixContractLoadingCost,
     #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
     RejectBlocksWithOutdatedProtocolVersions,
+    /// Allows creating an account with a non refundable balance to cover storage costs.
+    /// NEP: https://github.com/near/NEPs/pull/491
+    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+    NonRefundableBalance,
+    // NEP: https://github.com/near/NEPs/pull/488
+    #[cfg(feature = "protocol_feature_bls12381")]
+    BLS12381,
     RestrictTla,
     /// Increases the number of chunk producers.
     TestnetFewerBlockProducers,
-    /// Enables chunk validation which is introduced with stateless validation.
-    /// NEP: https://github.com/near/NEPs/pull/509
-    ChunkValidation,
+    /// Enables stateless validation which is introduced in https://github.com/near/NEPs/pull/509
+    StatelessValidationV0,
     EthImplicitAccounts,
+
+    // Stateless validation: lower block and chunk validator kickout percent from 90 to 50.
+    LowerValidatorKickoutPercentForDebugging,
+    // Stateless validation: single shard tracking.
+    SingleShardTracking,
+    // Stateless validation: state witness size limits.
+    StateWitnessSizeLimit,
 }
 
 impl ProtocolFeature {
@@ -177,6 +190,12 @@ impl ProtocolFeature {
             | ProtocolFeature::TestnetFewerBlockProducers
             | ProtocolFeature::SimpleNightshadeV2 => 64,
 
+            // StatelessNet features
+            ProtocolFeature::StatelessValidationV0 => 80,
+            ProtocolFeature::LowerValidatorKickoutPercentForDebugging => 81,
+            ProtocolFeature::SingleShardTracking => 82,
+            ProtocolFeature::StateWitnessSizeLimit => 83,
+
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
             ProtocolFeature::FixStakingThreshold => 126,
@@ -184,8 +203,11 @@ impl ProtocolFeature {
             ProtocolFeature::FixContractLoadingCost => 129,
             #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
             ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
-            ProtocolFeature::ChunkValidation => 137,
             ProtocolFeature::EthImplicitAccounts => 138,
+            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+            ProtocolFeature::NonRefundableBalance => 140,
+            #[cfg(feature = "protocol_feature_bls12381")]
+            ProtocolFeature::BLS12381 => 141,
         }
     }
 }
@@ -193,12 +215,15 @@ impl ProtocolFeature {
 /// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 64;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 65;
 
 /// Largest protocol version supported by the current binary.
-pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
+pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "statelessnet_protocol") {
+    // Current StatelessNet protocol version.
+    83
+} else if cfg!(feature = "nightly_protocol") {
     // On nightly, pick big enough version to support all features.
-    139
+    141
 } else {
     // Enable all stable features.
     STABLE_PROTOCOL_VERSION

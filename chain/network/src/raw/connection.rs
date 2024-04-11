@@ -573,7 +573,7 @@ impl PeerStream {
         // and they must have come before a partial frame.
         // So the Instant::now() is not quite correct, since the time was really in the past,
         // but this is prob not so important
-        Ok((len as usize, first_byte_time.unwrap_or(Instant::now())))
+        Ok((len as usize, first_byte_time.unwrap_or_else(Instant::now)))
     }
 
     // Reads from the socket until there is at least one full PeerMessage available.

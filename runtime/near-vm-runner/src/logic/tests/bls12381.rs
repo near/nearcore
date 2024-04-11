@@ -19,7 +19,7 @@ mod tests {
     const R_MINUS_1: &str = "73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000000";
 
     const TESTS_ITERATIONS: usize = 100;
-    const MAX_N_PAIRING: usize = 105;
+    const MAX_N_PAIRING: usize = 15;
 
     macro_rules! run_bls12381_fn {
         ($fn_name:ident, $buffer:expr, $expected_res:expr) => {{
@@ -45,8 +45,8 @@ mod tests {
     impl G1Operations {
         const POINT_LEN: usize = 96;
         const MAX_N_SUM: usize = 675;
-        const MAX_N_MULTIEXP: usize = 500;
-        const MAX_N_MAP: usize = 500;
+        const MAX_N_MULTIEXP: usize = 125;
+        const MAX_N_MAP: usize = 150;
         const MAX_N_DECOMPRESS: usize = 500;
 
         fn get_random_fp<R: Rng + ?Sized>(rng: &mut R) -> Fq {
@@ -66,8 +66,8 @@ mod tests {
     impl G2Operations {
         const POINT_LEN: usize = 192;
         const MAX_N_SUM: usize = 338;
-        const MAX_N_MULTIEXP: usize = 250;
-        const MAX_N_MAP: usize = 250;
+        const MAX_N_MULTIEXP: usize = 75;
+        const MAX_N_MAP: usize = 75;
         const MAX_N_DECOMPRESS: usize = 250;
 
         fn get_random_fp<R: Rng + ?Sized>(rng: &mut R) -> Fq2 {
@@ -746,7 +746,7 @@ mod tests {
                     assert_eq!(res1, res2);
 
                     // P + P + ... + P = N * P
-                    let n = rng.gen_range(0..200);
+                    let n = rng.gen_range(0..$GOp::MAX_N_MULTIEXP);
                     let res1 = $GOp::get_multiexp(&vec![(Fr::one(), p.clone()); n as usize]);
                     let res2 = $GOp::get_multiexp(&vec![(Fr::from(n as u8), p.clone())]);
                     assert_eq!(res1, res2);

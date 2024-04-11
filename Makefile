@@ -90,6 +90,10 @@ sandbox-release: neard-sandbox-release
 neard-sandbox-release:
 	cargo build -p neard --features sandbox --release
 
+statelessnet-release: NEAR_RELEASE_BUILD=release
+statelessnet-release:
+	cargo build -p neard --release --features statelessnet_protocol
+
 
 .PHONY: docker-nearcore docker-nearcore-nightly release neard debug
 .PHONY: perf-release perf-debug nightly-release nightly-debug assertions-release sandbox

@@ -1,3 +1,4 @@
+use near_async::messaging::AsyncSendError;
 use serde_json::Value;
 
 use near_client_primitives::types::QueryError;
@@ -86,8 +87,8 @@ fn parse_path_data(path: String, data: String) -> Result<RpcQueryRequest, RpcPar
     Ok(RpcQueryRequest { request, block_reference: BlockReference::latest() })
 }
 
-impl RpcFrom<actix::MailboxError> for RpcQueryError {
-    fn rpc_from(error: actix::MailboxError) -> Self {
+impl RpcFrom<AsyncSendError> for RpcQueryError {
+    fn rpc_from(error: AsyncSendError) -> Self {
         Self::InternalError { error_message: error.to_string() }
     }
 }

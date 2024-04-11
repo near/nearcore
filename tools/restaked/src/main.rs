@@ -1,8 +1,9 @@
 use clap::{Arg, Command};
+use near_chain_configs::BLOCK_PRODUCER_KICKOUT_THRESHOLD;
 use near_crypto::{InMemorySigner, KeyFile};
 use near_o11y::tracing::{error, info};
 use near_primitives::views::CurrentEpochValidatorInfo;
-use nearcore::config::{Config, BLOCK_PRODUCER_KICKOUT_THRESHOLD, CONFIG_FILENAME};
+use nearcore::config::{Config, CONFIG_FILENAME};
 use nearcore::get_default_home;
 use std::path::PathBuf;
 use std::sync::Arc;

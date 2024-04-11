@@ -348,7 +348,7 @@ impl PeerStore {
     }
 
     pub fn is_banned(&self, peer_id: &PeerId) -> bool {
-        self.0.lock().peer_states.get(peer_id).map_or(false, |s| s.status.is_banned())
+        self.0.lock().peer_states.get(peer_id).is_some_and(|s| s.status.is_banned())
     }
 
     pub fn count_banned(&self) -> usize {
@@ -488,7 +488,7 @@ impl PeerStore {
         for peer_info in peers {
             total += 1;
             let is_blacklisted =
-                peer_info.addr.map_or(false, |addr| inner.config.blacklist.contains(addr));
+                peer_info.addr.is_some_and(|addr| inner.config.blacklist.contains(addr));
             if is_blacklisted {
                 blacklisted += 1;
             } else {

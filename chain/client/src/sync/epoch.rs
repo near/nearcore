@@ -1,22 +1,21 @@
-use chrono::{DateTime, Duration, Utc};
+use near_async::time::{Clock, Duration, Utc};
 use near_network::types::PeerManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::static_clock::StaticClock;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::EpochId;
 use std::collections::{HashMap, HashSet};
-use std::time::Duration as TimeDuration;
 
 /// Helper to keep track of the Epoch Sync
 // TODO #3488
 #[allow(dead_code)]
 pub struct EpochSync {
+    clock: Clock,
     network_adapter: PeerManagerAdapter,
     /// Datastructure to keep track of when the last request to each peer was made.
     /// Peers do not respond to Epoch Sync requests more frequently than once per a certain time
     /// interval, thus there's no point in requesting more frequently.
-    peer_to_last_request_time: HashMap<PeerId, DateTime<Utc>>,
+    peer_to_last_request_time: HashMap<PeerId, Utc>,
     /// Tracks all the peers who have reported that we are already up to date
     peers_reporting_up_to_date: HashSet<PeerId>,
     /// The last epoch we are synced to
@@ -28,7 +27,7 @@ pub struct EpochSync {
     /// The last epoch id that we have requested
     requested_epoch_id: EpochId,
     /// When and to whom was the last request made
-    last_request_time: DateTime<Utc>,
+    last_request_time: Utc,
     last_request_peer_id: Option<PeerId>,
 
     /// How long to wait for a response before re-requesting the same light client block view
@@ -52,14 +51,16 @@ pub struct EpochSync {
 
 impl EpochSync {
     pub fn new(
+        clock: Clock,
         network_adapter: PeerManagerAdapter,
         genesis_epoch_id: EpochId,
         genesis_next_epoch_id: EpochId,
         first_epoch_block_producers: Vec<ValidatorStake>,
-        request_timeout: TimeDuration,
-        peer_timeout: TimeDuration,
+        request_timeout: Duration,
+        peer_timeout: Duration,
     ) -> Self {
         Self {
+            clock: clock.clone(),
             network_adapter,
             peer_to_last_request_time: HashMap::new(),
             peers_reporting_up_to_date: HashSet::new(),
@@ -67,10 +68,10 @@ impl EpochSync {
             next_epoch_id: genesis_next_epoch_id,
             next_block_producers: first_epoch_block_producers,
             requested_epoch_id: genesis_epoch_id,
-            last_request_time: StaticClock::utc(),
+            last_request_time: clock.now_utc(),
             last_request_peer_id: None,
-            request_timeout: Duration::from_std(request_timeout).unwrap(),
-            peer_timeout: Duration::from_std(peer_timeout).unwrap(),
+            request_timeout,
+            peer_timeout,
             received_epoch: false,
             have_all_epochs: false,
             done: false,

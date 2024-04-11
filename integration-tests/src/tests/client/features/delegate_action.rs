@@ -5,8 +5,7 @@
 
 use crate::node::{Node, RuntimeNode};
 use crate::tests::standard_cases::fee_helper;
-use near_chain::ChainGenesis;
-use near_chain_configs::Genesis;
+use near_chain_configs::{Genesis, NEAR_BASE};
 use near_client::test_utils::TestEnv;
 use near_crypto::{KeyType, PublicKey, Signer};
 use near_parameters::ActionCosts;
@@ -31,9 +30,7 @@ use near_primitives::views::{
     AccessKeyPermissionView, ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus,
 };
 use near_test_contracts::{ft_contract, smallest_rs_contract};
-use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
-use nearcore::NEAR_BASE;
 use testlib::runtime_utils::{
     add_account_with_access_key, add_contract, add_test_contract, alice_account, bob_account,
     carol_account, eve_dot_alice_account,
@@ -58,10 +55,7 @@ fn exec_meta_transaction(
         Genesis::test(vec![validator, user.clone(), receiver.clone(), relayer.clone()], 1);
     genesis.config.epoch_length = 1000;
     genesis.config.protocol_version = protocol_version;
-    let mut env = TestEnv::builder(ChainGenesis::test())
-        .real_epoch_managers(&genesis.config)
-        .nightshade_runtimes(&genesis)
-        .build();
+    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     let tx = env.meta_tx_from_actions(actions, user, relayer, receiver);
 

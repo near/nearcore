@@ -255,7 +255,7 @@ mod test {
         let cold = create_cold();
         let split = SplitDB::new(hot.clone(), cold.clone());
 
-        // Block is a nice column for testing because is is a cold column but
+        // Block is a nice column for testing because is a cold column but
         // cold doesn't do anything funny to it.
         let col = DBCol::Block;
 

@@ -366,9 +366,9 @@ impl TestChunkEncoder {
         PartialEncodedChunk::V2(PartialEncodedChunkV2 {
             header: self.encoded_chunk.cloned_header(),
             parts,
-            receipts: self
+            prev_outgoing_receipts: self
                 .full_partial_chunk
-                .receipts()
+                .prev_outgoing_receipts()
                 .iter()
                 .enumerate()
                 .filter(|(i, _)| receipt_shards.contains(&(*i as ShardId)))

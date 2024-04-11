@@ -131,13 +131,31 @@ export class Layouts {
                 nextRowForColumn.push(0);
             }
         }
-        sortedItems.sort((a, b) => a.time - b.time);
+        sortedItems.sort((a, b) => {
+            if (a.time < b.time) {
+                return -1;
+            }
+            if (a.time > b.time) {
+                return 1;
+            }
+            // Tiebreak using the topological ordering that we're naturally given.
+            return a.id - b.id;
+        });
         for (const item of sortedItems) {
             if (item.time > currentTime) {
                 currentTime = item.time;
                 for (let i = 0; i < this.columns.length; i++) {
                     nextRowForColumn[i] = this.rows.length;
                 }
+            }
+            let parentItem = item.parentId === null ? null : items.get(item.parentId);
+            if (parentItem !== null && items.isAttachedToParent(parentItem.id) && parentItem.parentId !== null) {
+                parentItem = items.get(parentItem.parentId);
+            }
+            if (parentItem !== null) {
+                // Make sure that the child item is always placed below the parent; otherwise the arrows would
+                // point backwards.
+                nextRowForColumn[item.column] = Math.max(nextRowForColumn[item.column], parentItem.row + 1);
             }
             item.row = nextRowForColumn[item.column]++;
             if (item.row >= this.rows.length) {

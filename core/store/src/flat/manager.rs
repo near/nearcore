@@ -64,18 +64,25 @@ impl FlatStorageManager {
         );
     }
 
-    /// Creates flat storage instance for shard `shard_uid`. The function also checks that
-    /// the shard's flat storage state hasn't been set before, otherwise it panics.
+    /// Creates flat storage instance for shard `shard_uid`. This function
+    /// allows creating flat storage if it already exists even though it's not
+    /// desired. It needs to allow that to cover a resharding restart case.
     /// TODO (#7327): this behavior may change when we implement support for state sync
     /// and resharding.
     pub fn create_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Result<(), StorageError> {
+        tracing::debug!(target: "store", ?shard_uid, "Creating flat storage for shard");
         let mut flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
-        let original_value =
-            flat_storages.insert(shard_uid, FlatStorage::new(self.0.store.clone(), shard_uid)?);
-        // TODO (#7327): maybe we should propagate the error instead of assert here
-        // assert is fine now because this function is only called at construction time, but we
-        // will need to be more careful when we want to implement flat storage for resharding
-        assert!(original_value.is_none());
+        let flat_storage = FlatStorage::new(self.0.store.clone(), shard_uid)?;
+        let original_value = flat_storages.insert(shard_uid, flat_storage);
+        if original_value.is_some() {
+            // Generally speaking this shouldn't happen. It may only happen when
+            // the node is restarted in the middle of resharding.
+            //
+            // TODO(resharding) It would be better to detect when building state
+            // is finished for a shard and skip doing it again after restart. We
+            // can then assert that the flat storage is only created once.
+            tracing::warn!(target: "store", ?shard_uid, "Creating flat storage for shard that already has flat storage.");
+        }
         Ok(())
     }
 
@@ -164,10 +171,9 @@ impl FlatStorageManager {
             // If flat storage exists, we add a block to it.
             flat_storage.add_delta(delta).map_err(|e| StorageError::from(e))?
         } else {
-            let shard_id = shard_uid.shard_id();
             // Otherwise, save delta to disk so it will be used for flat storage creation later.
-            debug!(target: "store", %shard_id, "Add delta for flat storage creation");
-            let mut store_update = self.0.store.store_update();
+            debug!(target: "store", %shard_uid, "Add delta for flat storage creation");
+            let mut store_update: StoreUpdate = self.0.store.store_update();
             store_helper::set_delta(&mut store_update, shard_uid, &delta);
             store_update
         };

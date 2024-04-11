@@ -22,6 +22,7 @@ fn main() -> anyhow::Result<()> {
         rules::publishable_has_description,
         rules::publishable_has_near_link,
         rules::recursively_publishable,
+        rules::no_superfluous_deps,
     ];
 
     let _unused_rules = [

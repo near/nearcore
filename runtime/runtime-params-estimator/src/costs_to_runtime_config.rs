@@ -38,6 +38,7 @@ pub fn costs_to_runtime_config(cost_table: &CostTable) -> anyhow::Result<Runtime
             ..latest_runtime_config.wasm_config
         },
         account_creation_config: AccountCreationConfig::default(),
+        storage_proof_size_soft_limit: usize::MAX,
     };
     Ok(res)
 }
@@ -151,24 +152,44 @@ fn estimation(cost: ExtCosts) -> Option<Cost> {
         ExtCosts::alt_bn128_g1_multiexp_element => Cost::AltBn128G1MultiexpElement,
         ExtCosts::alt_bn128_pairing_check_base => Cost::AltBn128PairingCheckBase,
         ExtCosts::alt_bn128_pairing_check_element => Cost::AltBn128PairingCheckElement,
+        ExtCosts::yield_create_base => Cost::YieldCreateBase,
+        ExtCosts::yield_create_byte => Cost::YieldCreateByte,
+        #[cfg(feature = "protocol_feature_bls12381")]
         ExtCosts::bls12381_p1_sum_base => Cost::Bls12381P1SumBase,
+        #[cfg(feature = "protocol_feature_bls12381")]
         ExtCosts::bls12381_p1_sum_element => Cost::Bls12381P1SumElement,
+        #[cfg(feature = "protocol_feature_bls12381")]
         ExtCosts::bls12381_p2_sum_base => Cost::Bls12381P2SumBase,
+        #[cfg(feature = "protocol_feature_bls12381")]
         ExtCosts::bls12381_p2_sum_element => Cost::Bls12381P2SumElement,
+        #[cfg(feature = "protocol_feature_bls12381")]
         ExtCosts::bls12381_p1_multiexp_base => Cost::Bls12381P1MultiexpBase,
+        #[cfg(feature = "protocol_feature_bls12381")]
         ExtCosts::bls12381_p1_multiexp_element => Cost::Bls12381P1MultiexpElement,
+        #[cfg(feature = "protocol_feature_bls12381")]
         ExtCosts::bls12381_p2_multiexp_base => Cost::Bls12381P2MultiexpBase,
+        #[cfg(feature = "protocol_feature_bls12381")]
         ExtCosts::bls12381_p2_multiexp_element => Cost::Bls12381P2MultiexpElement,
+        #[cfg(feature = "protocol_feature_bls12381")]
         ExtCosts::bls12381_map_fp_to_g1_base => Cost::Bls12381MapFpToG1Base,
+        #[cfg(feature = "protocol_feature_bls12381")]
         ExtCosts::bls12381_map_fp_to_g1_element => Cost::Bls12381MapFpToG1Element,
+        #[cfg(feature = "protocol_feature_bls12381")]
         ExtCosts::bls12381_map_fp2_to_g2_base => Cost::Bls12381MapFp2ToG2Base,
+        #[cfg(feature = "protocol_feature_bls12381")]
         ExtCosts::bls12381_map_fp2_to_g2_element => Cost::Bls12381MapFp2ToG2Element,
+        #[cfg(feature = "protocol_feature_bls12381")]
         ExtCosts::bls12381_pairing_base => Cost::Bls12381PairingBase,
-        ExtCosts::bls12381_pairing_element=> Cost::Bls12381PairingElement,
+        #[cfg(feature = "protocol_feature_bls12381")]
+        ExtCosts::bls12381_pairing_element => Cost::Bls12381PairingElement,
+        #[cfg(feature = "protocol_feature_bls12381")]
         ExtCosts::bls12381_p1_decompress_base => Cost::Bls12381P1DecompressBase,
-        ExtCosts::bls12381_p1_decompress_element=> Cost::Bls12381P1DecompressElement,
+        #[cfg(feature = "protocol_feature_bls12381")]
+        ExtCosts::bls12381_p1_decompress_element => Cost::Bls12381P1DecompressElement,
+        #[cfg(feature = "protocol_feature_bls12381")]
         ExtCosts::bls12381_p2_decompress_base => Cost::Bls12381P2DecompressBase,
-        ExtCosts::bls12381_p2_decompress_element=> Cost::Bls12381P2DecompressElement,
+        #[cfg(feature = "protocol_feature_bls12381")]
+        ExtCosts::bls12381_p2_decompress_element => Cost::Bls12381P2DecompressElement,
         _ => return None,
     })
 }

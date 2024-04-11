@@ -3,10 +3,10 @@ name = "near-performance-metrics"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 repository.workspace = true
 license.workspace = true
-publish = false
+description = "Tools for tracking performance of nearcore"
+publish = true
 
 [lints]
 workspace = true
@@ -19,7 +19,6 @@ bytesize = { workspace = true, optional = true }
 futures.workspace = true
 libc.workspace = true
 once_cell.workspace = true
-strum.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true

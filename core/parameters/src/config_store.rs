@@ -37,9 +37,12 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (62, include_config!("62.yaml")),
     (63, include_config!("63.yaml")),
     (64, include_config!("64.yaml")),
+    (83, include_config!("83.yaml")),
     (129, include_config!("129.yaml")),
     // Introduce ETH-implicit accounts.
     (138, include_config!("138.yaml")),
+    (139, include_config!("139.yaml")),
+    (141, include_config!("141.yaml")),
 ];
 
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters
@@ -316,6 +319,7 @@ mod tests {
     /// the new snapshot if it looks right.
     #[test]
     #[cfg(not(feature = "nightly"))]
+    #[cfg(not(feature = "statelessnet_protocol"))]
     #[cfg(not(feature = "calimero_zero_storage"))]
     fn test_json_unchanged() {
         use crate::view::RuntimeConfigView;

@@ -41,8 +41,10 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 yansi.workspace = true
+bytesize.workspace = true
 
 near-async.workspace = true
+near-cache.workspace = true
 near-chain-configs.workspace = true
 near-chain-primitives.workspace = true
 near-chain.workspace = true
@@ -68,6 +70,7 @@ near-actix-test-utils.workspace = true
 [features]
 # if enabled, we assert in most situations that are impossible unless some byzantine behavior is observed.
 byzantine_asserts = ["near-chain/byzantine_asserts"]
+shadow_chunk_validation = ["near-chain/shadow_chunk_validation"]
 expensive_tests = []
 test_features = [
   "near-network/test_features",
@@ -75,6 +78,7 @@ test_features = [
   "near-chunks/test_features",
 ]
 nightly_protocol = [
+  "near-actix-test-utils/nightly_protocol",
   "near-async/nightly_protocol",
   "near-chain-configs/nightly_protocol",
   "near-chain/nightly_protocol",
@@ -91,7 +95,7 @@ nightly_protocol = [
   "near-telemetry/nightly_protocol",
 ]
 nightly = [
-  "nightly_protocol",
+  "near-actix-test-utils/nightly",
   "near-async/nightly",
   "near-chain-configs/nightly",
   "near-chain/nightly",
@@ -106,6 +110,7 @@ nightly = [
   "near-primitives/nightly",
   "near-store/nightly",
   "near-telemetry/nightly",
+  "nightly_protocol",
 ]
 sandbox = [
   "near-client-primitives/sandbox",
@@ -113,4 +118,7 @@ sandbox = [
 ]
 new_epoch_sync = [
   "near-chain/new_epoch_sync"
+]
+statelessnet_protocol = [
+  "near-chain/statelessnet_protocol",
 ]

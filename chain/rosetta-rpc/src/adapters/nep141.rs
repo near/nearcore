@@ -116,13 +116,13 @@ pub(crate) async fn get_fungible_token_balance_for_account(
             contract_address.clone(),
         )));
     };
-    let serde_call_result = serde_json::from_slice(&call_result).or(Err(
-        crate::errors::ErrorKind::InternalInvariantError(format!(
+    let serde_call_result = serde_json::from_slice(&call_result).or_else(|_| {
+        Err(crate::errors::ErrorKind::InternalInvariantError(format!(
             "Couldn't read the value from the contract {:?}, for the account {:?}",
             contract_address.clone(),
             account_identifier.address.clone(),
-        )),
-    ))?;
+        )))
+    })?;
     let amount: String = match serde_json::from_value(serde_call_result) {
         Ok(amount) => amount,
         Err(err) => return Err(err.into()),

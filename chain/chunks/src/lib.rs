@@ -90,8 +90,10 @@ use metrics::{
     PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER,
     PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_PREV_BLOCK, PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY,
 };
+use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
 use near_async::messaging::Sender;
 use near_async::time;
+use near_async::time::Duration;
 use near_chain::byzantine_assert;
 use near_chain::chunks_store::ReadOnlyChunksStore;
 use near_chain::near_chain_primitives::error::Error::DBNotFoundErr;
@@ -111,18 +113,18 @@ use near_primitives::merkle::{verify_path, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, EncodedShardChunkBody, PartialEncodedChunk,
-    PartialEncodedChunkPart, PartialEncodedChunkV2, ReceiptList, ReceiptProof, ReedSolomonWrapper,
-    ShardChunk, ShardChunkHeader, ShardProof,
+    PartialEncodedChunkPart, PartialEncodedChunkV2, ReceiptProof, ReedSolomonWrapper, ShardChunk,
+    ShardChunkHeader, ShardProof,
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash, ShardId, StateRoot,
 };
-use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::ProtocolVersion;
+use near_primitives::{checked_feature, unwrap_or_return};
 use rand::seq::IteratorRandom;
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
@@ -305,6 +307,21 @@ impl ShardsManager {
         }
     }
 
+    pub fn periodically_resend_chunk_requests(
+        &mut self,
+        delayed_action_runner: &mut dyn DelayedActionRunner<Self>,
+        interval: Duration,
+    ) {
+        delayed_action_runner.run_later(
+            "resend_chunk_requests",
+            interval,
+            move |this, delayed_action_runner| {
+                this.resend_chunk_requests();
+                this.periodically_resend_chunk_requests(delayed_action_runner, interval);
+            },
+        )
+    }
+
     pub fn update_chain_heads(&mut self, head: Tip, header_head: Tip) {
         self.encoded_chunks.update_largest_seen_height(
             head.height,
@@ -382,7 +399,7 @@ impl ShardsManager {
 
         for part_ord in 0..self.rs.total_shard_count() {
             let part_ord = part_ord as u64;
-            if cache_entry.map_or(false, |cache_entry| cache_entry.parts.contains_key(&part_ord)) {
+            if cache_entry.is_some_and(|cache_entry| cache_entry.parts.contains_key(&part_ord)) {
                 continue;
             }
 
@@ -930,7 +947,7 @@ impl ShardsManager {
                 response.parts.push(part.clone());
             }
         }
-        for receipt in partial_chunk.receipts() {
+        for receipt in partial_chunk.prev_outgoing_receipts() {
             if tracking_shards.contains(&receipt.1.to_shard_id) {
                 response.receipts.push(receipt.clone());
             }
@@ -1182,7 +1199,7 @@ impl ShardsManager {
                 let parts = forward.parts.into_iter().filter_map(|part| {
                     let part_ord = part.part_ord;
                     if part_ord > num_total_parts {
-                        warn!(target: "chunks", "Received chunk part with part_ord greater than the the total number of chunks");
+                        warn!(target: "chunks", "Received chunk part with part_ord greater than the total number of chunks");
                         None
                     } else {
                         Some((part_ord, part))
@@ -1195,7 +1212,7 @@ impl ShardsManager {
                 for part in forward.parts {
                     let part_ord = part.part_ord;
                     if part_ord > num_total_parts {
-                        warn!(target: "chunks", "Received chunk part with part_ord greater than the the total number of chunks");
+                        warn!(target: "chunks", "Received chunk part with part_ord greater than the total number of chunks");
                         continue;
                     }
                     existing_parts.insert(part_ord, part);
@@ -1241,7 +1258,7 @@ impl ShardsManager {
         let partial_chunk = PartialEncodedChunk::V2(PartialEncodedChunkV2 {
             header,
             parts: forward.parts,
-            receipts: Vec::new(),
+            prev_outgoing_receipts: Vec::new(),
         });
         self.process_partial_encoded_chunk(MaybeValidated::from_validated(partial_chunk))?;
         Ok(())
@@ -1358,7 +1375,7 @@ impl ShardsManager {
             self.encoded_chunks.merge_in_partial_encoded_chunk(&PartialEncodedChunkV2 {
                 header: header.clone(),
                 parts: parts.into_values().collect(),
-                receipts: vec![],
+                prev_outgoing_receipts: vec![],
             });
             return true;
         }
@@ -1464,19 +1481,12 @@ impl ShardsManager {
         }
 
         // 1.e Checking receipts validity
-        for proof in partial_encoded_chunk.receipts.iter() {
+        for proof in partial_encoded_chunk.prev_outgoing_receipts.iter() {
             // TODO: only validate receipts we care about
             // https://github.com/near/nearcore/issues/5885
             // we can't simply use prev_block_hash to check if the node tracks this shard or not
             // because prev_block_hash may not be ready
-            let shard_id = proof.1.to_shard_id;
-            let ReceiptProof(shard_receipts, receipt_proof) = proof;
-            let receipt_hash = CryptoHash::hash_borsh(ReceiptList(shard_id, shard_receipts));
-            if !verify_path(
-                header.prev_outgoing_receipts_root(),
-                &receipt_proof.proof,
-                &receipt_hash,
-            ) {
+            if !proof.verify_against_receipt_root(header.prev_outgoing_receipts_root()) {
                 byzantine_assert!(false);
                 return Err(Error::ChainError(near_chain::Error::InvalidReceiptsProof));
             }
@@ -1750,7 +1760,7 @@ impl ShardsManager {
         partial_encoded_chunk: &PartialEncodedChunkV2,
         part_ords: HashSet<u64>,
         epoch_id: &EpochId,
-        lastest_block_hash: &CryptoHash,
+        latest_block_hash: &CryptoHash,
     ) -> Result<(), Error> {
         let me = match self.me.as_ref() {
             Some(me) => me,
@@ -1764,7 +1774,7 @@ impl ShardsManager {
                     && self
                         .epoch_manager
                         .get_part_owner(epoch_id, part.part_ord)
-                        .map_or(false, |owner| &owner == me)
+                        .is_ok_and(|owner| &owner == me)
             })
             .cloned()
             .collect();
@@ -1778,50 +1788,92 @@ impl ShardsManager {
             owned_parts,
         );
 
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
         let block_producers =
-            self.epoch_manager.get_epoch_block_producers_ordered(&epoch_id, lastest_block_hash)?;
+            self.epoch_manager.get_epoch_block_producers_ordered(&epoch_id, latest_block_hash)?;
         let current_chunk_height = partial_encoded_chunk.header.height_created();
-        let mut next_chunk_producers = self
-            .epoch_manager
-            .shard_ids(&epoch_id)?
-            .into_iter()
-            .map(|shard_id| {
-                self.epoch_manager.get_chunk_producer(&epoch_id, current_chunk_height + 1, shard_id)
-            })
-            .collect::<Result<HashSet<_>, _>>()?;
-        next_chunk_producers.remove(me);
-        for (bp, _) in block_producers {
-            let bp_account_id = bp.take_account_id();
-            // no need to send anything to myself
-            if me == &bp_account_id {
-                continue;
+
+        if checked_feature!("stable", SingleShardTracking, protocol_version) {
+            let shard_id = partial_encoded_chunk.header.shard_id();
+            let mut accounts_forwarded_to = HashSet::new();
+            accounts_forwarded_to.insert(me.clone());
+            let next_chunk_producer = self.epoch_manager.get_chunk_producer(
+                &epoch_id,
+                current_chunk_height + 1,
+                shard_id,
+            )?;
+            for (bp, _) in block_producers {
+                let bp_account_id = bp.take_account_id();
+
+                if cares_about_shard_this_or_next_epoch(
+                    Some(&bp_account_id),
+                    latest_block_hash,
+                    shard_id,
+                    false,
+                    &self.shard_tracker,
+                ) {
+                    if accounts_forwarded_to.insert(bp_account_id.clone()) {
+                        self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                            NetworkRequests::PartialEncodedChunkForward {
+                                account_id: bp_account_id,
+                                forward: forward.clone(),
+                            },
+                        ));
+                    }
+                }
             }
-            next_chunk_producers.remove(&bp_account_id);
 
-            // Technically, here we should check if the block producer actually cares about the shard.
-            // We don't because with the current implementation, we force all validators to track all
-            // shards by making their config tracking all shards.
-            // See https://github.com/near/nearcore/issues/7388
-            self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::PartialEncodedChunkForward {
-                    account_id: bp_account_id,
-                    forward: forward.clone(),
-                },
-            ));
+            if accounts_forwarded_to.insert(next_chunk_producer.clone()) {
+                self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::PartialEncodedChunkForward {
+                        account_id: next_chunk_producer,
+                        forward,
+                    },
+                ));
+            }
+        } else {
+            // Without SingleShardTracking, we're asking all validators to track all shards.
+            // So we may as well forward every part to all block producers, and we also
+            // forward to incoming chunk producers so they can produce the next chunks without
+            // delay.
+            let mut next_chunk_producers = self
+                .epoch_manager
+                .shard_ids(&epoch_id)?
+                .into_iter()
+                .map(|shard_id| {
+                    self.epoch_manager.get_chunk_producer(
+                        &epoch_id,
+                        current_chunk_height + 1,
+                        shard_id,
+                    )
+                })
+                .collect::<Result<HashSet<_>, _>>()?;
+            next_chunk_producers.remove(me);
+            for (bp, _) in block_producers {
+                let bp_account_id = bp.take_account_id();
+                // no need to send anything to myself
+                if me == &bp_account_id {
+                    continue;
+                }
+                next_chunk_producers.remove(&bp_account_id);
+
+                self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::PartialEncodedChunkForward {
+                        account_id: bp_account_id,
+                        forward: forward.clone(),
+                    },
+                ));
+            }
+
+            for next_chunk_producer in next_chunk_producers {
+                self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::PartialEncodedChunkForward {
+                        account_id: next_chunk_producer,
+                        forward: forward.clone(),
+                    },
+                ));
+            }
         }
-
-        // We also forward chunk parts to incoming chunk producers because we want them to be able
-        // to produce the next chunk without delays. For the same reason as above, we don't check if they
-        // actually track this shard.
-        for next_chunk_producer in next_chunk_producers {
-            self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::PartialEncodedChunkForward {
-                    account_id: next_chunk_producer,
-                    forward: forward.clone(),
-                },
-            ));
-        }
-
         Ok(())
     }
 
@@ -2026,6 +2078,27 @@ impl ShardsManager {
             } => self.request_chunks_for_orphan(chunks_to_request, &epoch_id, ancestor_hash),
             ShardsManagerRequestFromClient::CheckIncompleteChunks(prev_block_hash) => {
                 self.check_incomplete_chunks(&prev_block_hash)
+            }
+            ShardsManagerRequestFromClient::ProcessOrRequestChunk {
+                candidate_chunk,
+                request_header,
+                prev_hash,
+            } => {
+                if let Err(err) = self.process_partial_encoded_chunk(candidate_chunk.into()) {
+                    warn!(target: "chunks", ?err, "Error processing partial encoded chunk");
+                    self.request_chunk_single(&request_header, prev_hash, false);
+                }
+            }
+            ShardsManagerRequestFromClient::ProcessOrRequestChunkForOrphan {
+                candidate_chunk,
+                request_header,
+                ancestor_hash,
+                epoch_id,
+            } => {
+                if let Err(e) = self.process_partial_encoded_chunk(candidate_chunk.into()) {
+                    warn!(target: "chunks", "Error processing partial encoded chunk: {:?}", e);
+                    self.request_chunks_for_orphan(vec![request_header], &epoch_id, ancestor_hash);
+                }
             }
         }
     }
@@ -2473,7 +2546,7 @@ mod test {
         let partial_encoded_chunk = PartialEncodedChunk::V2(PartialEncodedChunkV2 {
             header: fixture.mock_chunk_header.clone(),
             parts: other_parts,
-            receipts: Vec::new(),
+            prev_outgoing_receipts: Vec::new(),
         });
         // The validator receives a chunk header with the rest of the parts it needed
         let result = shards_manager
@@ -2511,7 +2584,7 @@ mod test {
 
     #[test]
     // Test that when a validator receives a chunk forward before the chunk header, and that the
-    // chunk header first arrives as part of a block, it should store the the forward and use it
+    // chunk header first arrives as part of a block, it should store the forward and use it
     // when it receives the header.
     fn test_receive_forward_before_chunk_header_from_block() {
         let fixture = ChunkTestFixture::default();

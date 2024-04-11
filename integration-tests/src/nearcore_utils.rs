@@ -1,6 +1,8 @@
 use crate::genesis_helpers::genesis_block;
 use actix::Addr;
+use near_async::time::Clock;
 use near_chain::Block;
+use near_chain_configs::test_utils::TESTING_INIT_STAKE;
 use near_chain_configs::Genesis;
 use near_client::{BlockResponse, ClientActor};
 use near_network::tcp;
@@ -15,11 +17,11 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{BlockHeightDelta, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
-use nearcore::config::{GenesisExt, TESTING_INIT_STAKE};
 use nearcore::{load_test_config, NearConfig};
 
 // This assumes that there is no height skipped. Otherwise epoch hash calculation will be wrong.
 pub fn add_blocks(
+    clock: Clock,
     mut blocks: Vec<Block>,
     client: Addr<ClientActor>,
     num: usize,
@@ -59,6 +61,7 @@ pub fn add_blocks(
             prev.header().height() + 1,
             prev.header().block_ordinal() + 1,
             blocks[0].chunks().iter().cloned().collect(),
+            vec![],
             epoch_id,
             next_epoch_id,
             None,
@@ -80,7 +83,7 @@ pub fn add_blocks(
             signer,
             next_bp_hash,
             block_merkle_tree.root(),
-            None,
+            clock.now_utc(),
         );
         block_merkle_tree.insert(*block.hash());
         let _ = client.do_send(

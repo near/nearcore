@@ -4,15 +4,16 @@ use crate::merkle::combine_hash;
 use crate::network::PeerId;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
 use crate::types::{AccountId, Balance, BlockHeight, EpochId, MerkleHash, NumBlocks};
-use crate::utils::{from_timestamp, to_timestamp};
 use crate::validator_signer::ValidatorSigner;
 use crate::version::{get_protocol_version, ProtocolVersion, PROTOCOL_VERSION};
 use borsh::{BorshDeserialize, BorshSerialize};
-use chrono::{DateTime, Utc};
+use near_async::time::Utc;
 use near_crypto::{KeyType, PublicKey, Signature};
 use std::sync::Arc;
 
-#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
+#[derive(
+    BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq, Default,
+)]
 pub struct BlockHeaderInnerLite {
     /// Height of this block.
     pub height: BlockHeight,
@@ -152,7 +153,9 @@ pub struct BlockHeaderInnerRestV3 {
 }
 
 /// Add `block_body_hash`
-#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
+#[derive(
+    BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq, Default,
+)]
 pub struct BlockHeaderInnerRestV4 {
     /// Hash of block body
     pub block_body_hash: CryptoHash,
@@ -331,7 +334,9 @@ pub struct BlockHeaderV3 {
 }
 
 /// V3 -> V4: Add hash of block body to inner_rest
-#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
+#[derive(
+    BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq, Default,
+)]
 #[borsh(init=init)]
 pub struct BlockHeaderV4 {
     pub prev_hash: CryptoHash,
@@ -594,7 +599,7 @@ impl BlockHeader {
         chunk_tx_root: MerkleHash,
         num_shards: u64,
         challenges_root: MerkleHash,
-        timestamp: DateTime<Utc>,
+        timestamp: Utc,
         initial_gas_price: Balance,
         initial_total_supply: Balance,
         next_bp_hash: CryptoHash,
@@ -606,7 +611,7 @@ impl BlockHeader {
             next_epoch_id: EpochId::default(),
             prev_state_root: state_root,
             prev_outcome_root: CryptoHash::default(),
-            timestamp: to_timestamp(timestamp),
+            timestamp: timestamp.unix_timestamp_nanos() as u64,
             next_bp_hash,
             block_merkle_root: CryptoHash::default(),
         };
@@ -737,6 +742,11 @@ impl BlockHeader {
                 hash,
             }))
         }
+    }
+
+    #[inline]
+    pub fn is_genesis(&self) -> bool {
+        self.prev_hash() == &CryptoHash::default()
     }
 
     #[inline]
@@ -1050,8 +1060,8 @@ impl BlockHeader {
         self.signature().verify(self.hash().as_ref(), public_key)
     }
 
-    pub fn timestamp(&self) -> DateTime<Utc> {
-        from_timestamp(self.raw_timestamp())
+    pub fn timestamp(&self) -> Utc {
+        Utc::from_unix_timestamp_nanos(self.raw_timestamp() as i128).unwrap()
     }
 
     pub fn num_approvals(&self) -> u64 {

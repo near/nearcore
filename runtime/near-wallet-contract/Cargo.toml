@@ -23,9 +23,11 @@ anyhow.workspace = true
 
 [features]
 nightly_protocol = [
+  "near-primitives-core/nightly_protocol",
   "near-vm-runner/nightly_protocol",
 ]
 nightly = [
-  "nightly_protocol",
+  "near-primitives-core/nightly",
   "near-vm-runner/nightly",
+  "nightly_protocol",
 ]

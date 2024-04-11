@@ -1,6 +1,7 @@
 use crate::entity_debug_serializer::serialize_entity;
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 
+use borsh::BorshDeserialize;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Block, BlockHeader};
 use near_epoch_manager::EpochManagerAdapter;
@@ -9,12 +10,15 @@ use near_jsonrpc_primitives::types::entity_debug::{
     EntityDataEntry, EntityDataStruct, EntityDataValue, EntityDebugHandler, EntityQuery,
 };
 use near_primitives::block::Tip;
-use near_primitives::hash::CryptoHash;
+use near_primitives::challenge::{PartialState, TrieValue};
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::state::FlatStateValue;
+use near_primitives::stateless_validation::StoredChunkStateTransitionData;
 use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
-use near_primitives::utils::get_outcome_id_block_hash;
+use near_primitives::types::{AccountId, Balance};
+use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash};
 use near_primitives::views::{
     BlockHeaderView, BlockView, ChunkView, ExecutionOutcomeView, ReceiptView, SignedTransactionView,
 };
@@ -22,10 +26,11 @@ use near_store::flat::delta::KeyForFlatStateDelta;
 use near_store::flat::store_helper::encode_flat_state_db_key;
 use near_store::flat::{FlatStateChanges, FlatStateDeltaMetadata, FlatStorageStatus};
 use near_store::{
-    DBCol, NibbleSlice, ShardUId, Store, TrieCachingStorage, FINAL_HEAD_KEY, HEADER_HEAD_KEY,
-    HEAD_KEY,
+    DBCol, NibbleSlice, RawTrieNode, RawTrieNodeWithSize, ShardUId, Store, TrieCachingStorage,
+    FINAL_HEAD_KEY, HEADER_HEAD_KEY, HEAD_KEY,
 };
 use serde::Serialize;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 pub struct EntityDebugHandlerImpl {
@@ -49,7 +54,15 @@ impl EntityDebugHandlerImpl {
                 let author = self
                     .epoch_manager
                     .get_block_producer(block.header().epoch_id(), block.header().height())?;
-                Ok(serialize_entity(&BlockView::from_author_block(author, block)))
+                let mut ret =
+                    serialize_entity(&BlockView::from_author_block(author, block.clone()));
+                if let EntityDataValue::Struct(inner) = &mut ret {
+                    inner.entries.push(EntityDataEntry {
+                        name: "chunk_endorsements".to_owned(),
+                        value: serialize_entity(block.chunk_endorsements()),
+                    });
+                }
+                Ok(ret)
             }
             EntityQuery::BlockHashByHeight { block_height } => {
                 let block_hash = self
@@ -188,6 +201,37 @@ impl EntityDebugHandlerImpl {
                     .nth(shard_id as usize)
                     .ok_or_else(|| anyhow!("Shard {} not found", shard_id))?;
                 Ok(serialize_entity(&shard_uid))
+            }
+            EntityQuery::StateTransitionData { block_hash } => {
+                let block = self
+                    .store
+                    .get_ser::<Block>(DBCol::Block, &borsh::to_vec(&block_hash).unwrap())?
+                    .ok_or_else(|| anyhow!("Block not found"))?;
+                let epoch_id = block.header().epoch_id();
+                let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+                let shard_ids = shard_layout.shard_ids().collect::<Vec<_>>();
+                let mut state_transitions = EntityDataStruct::new();
+                for shard_id in shard_ids {
+                    let state_transition = self
+                        .store
+                        .get_ser::<StoredChunkStateTransitionData>(
+                            DBCol::StateTransitionData,
+                            &get_block_shard_id(&block_hash, shard_id),
+                        )?
+                        .ok_or_else(|| anyhow!("State transition not found"))?;
+                    let mut serialized = EntityDataStruct::new();
+                    serialized.add(
+                        "base_state",
+                        PartialStateParser::parse_and_serialize_partial_state(
+                            state_transition.base_state,
+                        ),
+                    );
+                    serialized
+                        .add("receipts_hash", serialize_entity(&state_transition.receipts_hash));
+                    state_transitions
+                        .add(&shard_id.to_string(), EntityDataValue::Struct(serialized.into()));
+                }
+                Ok(EntityDataValue::Struct(state_transitions.into()))
             }
             EntityQuery::TipAtFinalHead(_) => {
                 let tip = self
@@ -336,6 +380,49 @@ impl EntityDebugHandlerImpl {
                 let path = TriePath { path: vec![], shard_uid, state_root };
                 Ok(serialize_entity(&path.to_string()))
             }
+            EntityQuery::ValidatorAssignmentsAtHeight { block_height, epoch_id } => {
+                let block_producer = self
+                    .epoch_manager
+                    .get_block_producer(&epoch_id, block_height)
+                    .context("Getting block producer")?;
+                let shard_layout = self
+                    .epoch_manager
+                    .get_shard_layout(&epoch_id)
+                    .context("Getting shard layout")?;
+                let chunk_producers = shard_layout
+                    .shard_ids()
+                    .map(|shard_id| {
+                        self.epoch_manager
+                            .get_chunk_producer(&epoch_id, block_height, shard_id)
+                            .context("Getting chunk producer")
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                let chunk_validator_assignments = shard_layout
+                    .shard_ids()
+                    .map(|shard_id| {
+                        self.epoch_manager
+                            .get_chunk_validator_assignments(&epoch_id, shard_id, block_height)
+                            .context("Getting chunk validator assignments")
+                            .map(|assignments| {
+                                assignments
+                                    .assignments()
+                                    .iter()
+                                    .cloned()
+                                    .map(|(account_id, stake)| OneValidatorAssignment {
+                                        account_id,
+                                        stake,
+                                    })
+                                    .collect::<Vec<_>>()
+                            })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                let ret = ValidatorAssignmentsAtHeight {
+                    block_producer,
+                    chunk_producers,
+                    chunk_validator_assignments,
+                };
+                Ok(serialize_entity(&ret))
+            }
         }
     }
 
@@ -408,4 +495,163 @@ impl TriePath {
 struct FlatStateChangeView {
     pub key: String,
     pub value: Option<String>,
+}
+
+struct PartialStateParser {
+    nodes: HashMap<CryptoHash, TrieValue>,
+}
+
+impl PartialStateParser {
+    /// Takes the flattened partial trie nodes and turn them into a hierarchical view,
+    /// automatically finding the root. Only used for debugging.
+    pub fn parse_and_serialize_partial_state(partial_state: PartialState) -> EntityDataValue {
+        let PartialState::TrieValues(nodes) = partial_state;
+        let parser = Self::new(&nodes);
+        let root = parser.find_root();
+        match root {
+            Some(root) => {
+                let mut ret = EntityDataStruct::new();
+                ret.add("root", parser.serialize_node(root));
+                EntityDataValue::Struct(ret.into())
+            }
+            None => {
+                // If finding root failed, just dump the raw nodes as hex.
+                let mut ret = EntityDataStruct::new();
+                ret.add("error", EntityDataValue::String("No root found".to_string()));
+                let mut inner = EntityDataStruct::new();
+                for (hash, data) in &parser.nodes {
+                    inner.add(&format!("{}", hash), EntityDataValue::String(hex::encode(data)));
+                }
+                ret.add("raw_nodes", EntityDataValue::Struct(inner.into()));
+                EntityDataValue::Struct(ret.into())
+            }
+        }
+    }
+
+    fn new(nodes: &[TrieValue]) -> Self {
+        Self {
+            nodes: nodes
+                .iter()
+                .map(|node| {
+                    let hash = hash(&node);
+                    (hash, node.clone())
+                })
+                .collect(),
+        }
+    }
+
+    /// Finds what's most likely the root node, which is the node that isn't listed
+    /// as a child of any other node.
+    fn find_root(&self) -> Option<CryptoHash> {
+        let mut nodes_not_yet_seen_as_children: HashSet<CryptoHash> = HashSet::new();
+        for hash in self.nodes.keys() {
+            nodes_not_yet_seen_as_children.insert(*hash);
+        }
+        for data in self.nodes.values() {
+            // Note that here it's possible that we're parsing a value that is not a trie
+            // node, so we may get some false positive. But that is very rare and only
+            // a problem if a child parsed from such a ill-constructed value happens to
+            // be the root hash. In that case, we would fail to find the root and will just
+            // fall back to showing the raw values.
+            let children = self.detect_possible_children_of(&data);
+            for child in children {
+                nodes_not_yet_seen_as_children.remove(&child);
+            }
+        }
+        if nodes_not_yet_seen_as_children.len() == 1 {
+            nodes_not_yet_seen_as_children.iter().next().copied()
+        } else {
+            None
+        }
+    }
+
+    /// Parses the given data that is possibly a trie node (and possibly a value),
+    /// and if it looks like a trie node, return all its children hashes (nodes and
+    /// values).
+    fn detect_possible_children_of(&self, data: &[u8]) -> Vec<CryptoHash> {
+        let Ok(node) = RawTrieNodeWithSize::try_from_slice(data) else {
+            return vec![];
+        };
+        match &node.node {
+            RawTrieNode::Leaf(_, value) => {
+                vec![value.hash]
+            }
+            RawTrieNode::BranchNoValue(children) => {
+                children.iter().map(|(_, child)| *child).collect()
+            }
+            RawTrieNode::BranchWithValue(value, children) => children
+                .iter()
+                .map(|(_, child)| *child)
+                .chain(std::iter::once(value.hash))
+                .collect(),
+            RawTrieNode::Extension(_, child) => vec![*child],
+        }
+    }
+
+    /// Visits node, serializing it as entity debug output.
+    fn serialize_node(&self, hash: CryptoHash) -> EntityDataValue {
+        let Some(data) = self.nodes.get(&hash) else {
+            // This is a partial trie, so missing is very normal.
+            return EntityDataValue::String("(missing)".to_string());
+        };
+        let mut ret = EntityDataStruct::new();
+        let node = RawTrieNodeWithSize::try_from_slice(data.as_ref()).unwrap();
+        match &node.node {
+            RawTrieNode::Leaf(extension, value_ref) => {
+                let (nibbles, _) = NibbleSlice::from_encoded(&extension);
+                ret.add(
+                    "extension",
+                    EntityDataValue::String(TriePath::nibbles_to_hex(
+                        &nibbles.iter().collect::<Vec<_>>(),
+                    )),
+                );
+                ret.add("value", self.serialize_value(value_ref.hash));
+            }
+            RawTrieNode::BranchNoValue(children) => {
+                for (index, child) in children.iter() {
+                    ret.add(&format!("{:x}", index), self.serialize_node(*child));
+                }
+            }
+            RawTrieNode::BranchWithValue(value_ref, children) => {
+                ret.add("value", self.serialize_value(value_ref.hash));
+                for (index, child) in children.iter() {
+                    ret.add(&format!("{:x}", index), self.serialize_node(*child));
+                }
+            }
+            RawTrieNode::Extension(extension, child) => {
+                let (nibbles, _) = NibbleSlice::from_encoded(&extension);
+                ret.add(
+                    "extension",
+                    EntityDataValue::String(TriePath::nibbles_to_hex(
+                        &nibbles.iter().collect::<Vec<_>>(),
+                    )),
+                );
+                ret.add("child", self.serialize_node(*child));
+            }
+        }
+        EntityDataValue::Struct(ret.into())
+    }
+
+    /// Visits value, serializing it as entity debug output.
+    fn serialize_value(&self, hash: CryptoHash) -> EntityDataValue {
+        let value = match self.nodes.get(&hash) {
+            Some(data) => hex::encode(data),
+            // This is a partial trie, so missing is very normal.
+            None => "(missing)".to_string(),
+        };
+        EntityDataValue::String(value)
+    }
+}
+
+#[derive(serde::Serialize)]
+struct ValidatorAssignmentsAtHeight {
+    block_producer: AccountId,
+    chunk_producers: Vec<AccountId>,
+    chunk_validator_assignments: Vec<Vec<OneValidatorAssignment>>,
+}
+
+#[derive(serde::Serialize)]
+struct OneValidatorAssignment {
+    account_id: AccountId,
+    stake: Balance,
 }

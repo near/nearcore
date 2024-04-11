@@ -1,13 +1,12 @@
+use crate::conversions::Convert;
 use crate::receipt_manager::ReceiptManager;
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
-use near_primitives::types::{
-    AccountId, Balance, EpochId, EpochInfoProvider, Gas, TrieCacheMode, TrieNodesCount,
-};
-use near_primitives::utils::create_data_id;
+use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, TrieCacheMode};
+use near_primitives::utils::create_receipt_id_from_action_hash;
 use near_primitives::version::ProtocolVersion;
-use near_store::{get_code, KeyLookupMode, TrieUpdate, TrieUpdateValuePtr};
+use near_store::{get_code, has_yielded_promise, KeyLookupMode, TrieUpdate, TrieUpdateValuePtr};
 use near_vm_runner::logic::errors::{AnyError, VMLogicError};
 use near_vm_runner::logic::types::ReceiptIndex;
 use near_vm_runner::logic::{External, StorageGetMode, ValuePtr};
@@ -174,7 +173,7 @@ impl<'a> External for RuntimeExt<'a> {
     }
 
     fn generate_data_id(&mut self) -> CryptoHash {
-        let data_id = create_data_id(
+        let data_id = create_receipt_id_from_action_hash(
             self.current_protocol_version,
             self.action_hash,
             self.prev_block_hash,
@@ -185,8 +184,8 @@ impl<'a> External for RuntimeExt<'a> {
         data_id
     }
 
-    fn get_trie_nodes_count(&self) -> TrieNodesCount {
-        self.trie_update.trie().get_trie_nodes_count()
+    fn get_trie_nodes_count(&self) -> near_vm_runner::logic::TrieNodesCount {
+        Convert::convert(self.trie_update.trie().get_trie_nodes_count())
     }
 
     fn validator_stake(&self, account_id: &AccountId) -> ExtResult<Option<Balance>> {
@@ -201,7 +200,7 @@ impl<'a> External for RuntimeExt<'a> {
             .map_err(|e| ExternalError::ValidatorError(e).into())
     }
 
-    fn create_receipt(
+    fn create_action_receipt(
         &mut self,
         receipt_indices: Vec<ReceiptIndex>,
         receiver_id: AccountId,
@@ -209,7 +208,35 @@ impl<'a> External for RuntimeExt<'a> {
         let data_ids = std::iter::from_fn(|| Some(self.generate_data_id()))
             .take(receipt_indices.len())
             .collect();
-        self.receipt_manager.create_receipt(data_ids, receipt_indices, receiver_id)
+        self.receipt_manager.create_action_receipt(data_ids, receipt_indices, receiver_id)
+    }
+
+    fn create_promise_yield_receipt(
+        &mut self,
+        receiver_id: AccountId,
+    ) -> Result<(ReceiptIndex, CryptoHash), VMLogicError> {
+        let input_data_id = self.generate_data_id();
+        self.receipt_manager
+            .create_promise_yield_receipt(input_data_id, receiver_id)
+            .map(|receipt_index| (receipt_index, input_data_id))
+    }
+
+    fn submit_promise_resume_data(
+        &mut self,
+        data_id: CryptoHash,
+        data: Vec<u8>,
+    ) -> Result<bool, VMLogicError> {
+        // If the yielded promise was created by a previous transaction, we'll find it in the trie
+        if has_yielded_promise(self.trie_update, self.account_id.clone(), data_id)
+            .map_err(wrap_storage_error)?
+        {
+            self.receipt_manager.create_promise_resume_receipt(data_id, data)?;
+            return Ok(true);
+        }
+
+        // If the yielded promise was created by the current transaction, we'll find it in the
+        // receipt manager.
+        self.receipt_manager.checked_resolve_promise_yield(data_id, data)
     }
 
     fn append_action_create_account(

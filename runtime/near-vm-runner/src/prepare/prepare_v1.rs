@@ -71,7 +71,7 @@ impl<'a> ContractModule<'a> {
     /// Memory section contains declarations of internal linear memories, so if we find one
     /// we reject such a module.
     pub(crate) fn ensure_no_internal_memory(self) -> Result<Self, PrepareError> {
-        if self.module.memory_section().map_or(false, |ms| !ms.entries().is_empty()) {
+        if self.module.memory_section().is_some_and(|ms| !ms.entries().is_empty()) {
             Err(PrepareError::InternalMemoryDeclared)
         } else {
             Ok(self)

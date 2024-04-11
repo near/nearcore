@@ -1,6 +1,5 @@
 use assert_matches::assert_matches;
-use near_chain::ChainGenesis;
-use near_chain_configs::Genesis;
+use near_chain_configs::{Genesis, NEAR_BASE};
 use near_client::{test_utils::TestEnv, ProcessTxResponse};
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
 use near_primitives::errors::{
@@ -22,7 +21,7 @@ use near_primitives_core::{
 use near_store::ShardUId;
 use near_vm_runner::ContractCode;
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
-use nearcore::{config::GenesisExt, test_utils::TestEnvNightshadeSetupExt, NEAR_BASE};
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use node_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT;
 use rlp::RlpStream;
 use testlib::runtime_utils::{alice_account, bob_account, carol_account};
@@ -73,10 +72,7 @@ fn test_eth_implicit_account_creation() {
         return;
     }
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    let mut env = TestEnv::builder(ChainGenesis::test())
-        .real_epoch_managers(&genesis.config)
-        .nightshade_runtimes(&genesis)
-        .build();
+    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
@@ -129,10 +125,7 @@ fn test_transaction_from_eth_implicit_account_fail() {
         return;
     }
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    let mut env = TestEnv::builder(ChainGenesis::test())
-        .real_epoch_managers(&genesis.config)
-        .nightshade_runtimes(&genesis)
-        .build();
+    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let deposit_for_account_creation = NEAR_BASE;
     let mut height = 1;
@@ -173,7 +166,7 @@ fn test_transaction_from_eth_implicit_account_fail() {
     let expected_tx_error = ProcessTxResponse::InvalidTx(InvalidTxError::InvalidAccessKeyError(
         InvalidAccessKeyError::AccessKeyNotFound {
             account_id: eth_implicit_account_id.clone(),
-            public_key: public_key.clone(),
+            public_key: public_key.clone().into(),
         },
     ));
     assert_eq!(response, expected_tx_error);

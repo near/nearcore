@@ -185,7 +185,7 @@ async fn invalid_signature_not_broadcast() {
     let empty_sync_msg = peer3.events.recv_until(take_sync_snapshot_msg).await;
     assert_eq!(empty_sync_msg.hosts, vec![]);
 
-    tracing::info!(target:"test", "Send an invalid SyncSnapshotHosts message from from peer1. One of the host infos has an invalid signature.");
+    tracing::info!(target:"test", "Send an invalid SyncSnapshotHosts message from peer1. One of the host infos has an invalid signature.");
     let random_secret_key = SecretKey::from_random(near_crypto::KeyType::ED25519);
     let invalid_info = make_snapshot_host_info(&peer1_config.node_id(), &random_secret_key, rng);
 
@@ -249,7 +249,7 @@ async fn too_many_shards_not_broadcast() {
     let empty_sync_msg = peer3.events.recv_until(take_sync_snapshot_msg).await;
     assert_eq!(empty_sync_msg.hosts, vec![]);
 
-    tracing::info!(target:"test", "Send an invalid SyncSnapshotHosts message from from peer1. One of the host infos has more shard ids than allowed.");
+    tracing::info!(target:"test", "Send an invalid SyncSnapshotHosts message from peer1. One of the host infos has more shard ids than allowed.");
     let too_many_shards: Vec<ShardId> =
         (0..(MAX_SHARDS_PER_SNAPSHOT_HOST_INFO as u64 + 1)).collect();
     let invalid_info = Arc::new(SnapshotHostInfo::new(

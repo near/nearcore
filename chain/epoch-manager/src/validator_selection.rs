@@ -179,7 +179,7 @@ pub fn proposals_to_epoch_info(
             .collect()
     };
 
-    let validator_mandates = if checked_feature!("stable", ChunkValidation, next_version) {
+    let validator_mandates = if checked_feature!("stable", StatelessValidationV0, next_version) {
         // TODO(#10014) determine required stake per mandate instead of reusing seat price.
         // TODO(#10014) determine `min_mandates_per_shard`
         let min_mandates_per_shard = 0;
@@ -390,8 +390,6 @@ mod tests {
     use near_primitives::epoch_manager::ValidatorSelectionConfig;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::validator_stake::ValidatorStake;
-    #[cfg(feature = "nightly")]
-    use near_primitives::validator_mandates::{AssignmentWeight, ValidatorMandatesAssignment};
     use near_primitives::version::PROTOCOL_VERSION;
     use num_rational::Ratio;
 
@@ -608,7 +606,7 @@ mod tests {
                 let cp = epoch_info.sample_chunk_producer(h, shard_id);
                 // Don't read too much into this. The reason the ValidatorId always
                 // equals the ShardId is because the validators are assigned to shards in order.
-                assert_eq!(cp, shard_id)
+                assert_eq!(cp, Some(shard_id))
             }
         }
 
@@ -634,7 +632,7 @@ mod tests {
         for shard_id in 0..num_shards {
             let mut counts: [i32; 2] = [0, 0];
             for h in 0..100_000 {
-                let cp = epoch_info.sample_chunk_producer(h, shard_id);
+                let cp = epoch_info.sample_chunk_producer(h, shard_id).unwrap();
                 // if ValidatorId is in the second half then it is the lower
                 // stake validator (because they are sorted by decreasing stake).
                 let index = if cp >= num_shards { 1 } else { 0 };
@@ -645,12 +643,8 @@ mod tests {
         }
     }
 
-    /// This test only verifies that chunk validator mandates are correctly wired up with
-    /// `EpochInfo`. The internals of mandate assignment are tested in the module containing
-    /// [`ValidatorMandates`].
-    #[test]
     #[cfg(feature = "nightly")]
-    fn test_chunk_validators_sampling() {
+    fn get_epoch_info_for_chunk_validators_sampling() -> EpochInfo {
         let num_shards = 4;
         let epoch_config = create_epoch_config(
             num_shards,
@@ -694,41 +688,42 @@ mod tests {
         )
         .unwrap();
 
+        epoch_info
+    }
+
+    /// This test only verifies that chunk validator mandates are correctly wired up with
+    /// `EpochInfo`. The internals of mandate assignment are tested in the module containing
+    /// [`ValidatorMandates`].
+    #[test]
+    #[cfg(feature = "nightly")]
+    fn test_chunk_validators_sampling() {
+        let epoch_info = get_epoch_info_for_chunk_validators_sampling();
         // Given `epoch_info` and `proposals` above, the sample at a given height is deterministic.
         let height = 42;
-        let expected_assignments: ValidatorMandatesAssignment = vec![
-            HashMap::from([
-                (0, AssignmentWeight::new(3, 0)),
-                (1, AssignmentWeight::new(3, 0)),
-                (2, AssignmentWeight::new(3, 0)),
-                (3, AssignmentWeight::new(0, 60)),
-            ]),
-            HashMap::from([
-                (0, AssignmentWeight::new(6, 0)),
-                (1, AssignmentWeight::new(2, 0)),
-                (2, AssignmentWeight::new(2, 0)),
-            ]),
-            HashMap::from([
-                (0, AssignmentWeight::new(4, 0)),
-                (1, AssignmentWeight::new(1, 0)),
-                (2, AssignmentWeight::new(3, 0)),
-                (3, AssignmentWeight::new(2, 0)),
-            ]),
-            HashMap::from([
-                (0, AssignmentWeight::new(2, 0)),
-                (1, AssignmentWeight::new(4, 0)),
-                (2, AssignmentWeight::new(2, 0)),
-                (4, AssignmentWeight::new(1, 40)),
-            ]),
+        let expected_assignments = vec![
+            vec![(1, 300), (0, 300), (2, 300), (3, 60)],
+            vec![(0, 600), (2, 200), (1, 200)],
+            vec![(3, 200), (2, 300), (1, 100), (0, 400)],
+            vec![(2, 200), (4, 140), (1, 400), (0, 200)],
         ];
         assert_eq!(epoch_info.sample_chunk_validators(height), expected_assignments);
+    }
+
+    #[test]
+    #[cfg(feature = "nightly")]
+    fn test_deterministic_chunk_validators_sampling() {
+        let epoch_info = get_epoch_info_for_chunk_validators_sampling();
+        let height = 42;
+        let assignment1 = epoch_info.sample_chunk_validators(height);
+        let assignment2 = epoch_info.sample_chunk_validators(height);
+        assert_eq!(assignment1, assignment2);
     }
 
     #[test]
     fn test_validator_assignment_ratio_condition() {
         // There are more seats than proposals, however the
         // lower proposals are too small relative to the total
-        // (the reason we can't choose them is because the the probability of them actually
+        // (the reason we can't choose them is because the probability of them actually
         // being selected to make a block would be too low since it is done in
         // proportion to stake).
         let epoch_config = create_epoch_config(

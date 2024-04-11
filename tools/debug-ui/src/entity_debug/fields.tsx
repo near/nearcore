@@ -214,6 +214,50 @@ const flatStateDeltaMetadata = {
     },
 };
 
+const partialTrieNode: any = {
+    struct: {
+        extension: nibbles,
+    },
+};
+partialTrieNode.struct.a = partialTrieNode;
+partialTrieNode.struct.b = partialTrieNode;
+partialTrieNode.struct.c = partialTrieNode;
+partialTrieNode.struct.d = partialTrieNode;
+partialTrieNode.struct.e = partialTrieNode;
+partialTrieNode.struct.f = partialTrieNode;
+partialTrieNode.array = partialTrieNode;
+
+const partialTrie = {
+    struct: {
+        root: partialTrieNode,
+    },
+};
+
+const chunkStateTransitionData = {
+    struct: {
+        base_state: partialTrie,
+    },
+};
+
+const stateTransitionData = {
+    array: chunkStateTransitionData,
+};
+
+const oneValidatorAssignment = {
+    struct: {
+        account_id: accountId,
+    },
+    titleKey: 'account_id',
+};
+
+const validatorAssignmentsAtHeight = {
+    struct: {
+        blockProducer: accountId,
+        chunkProducers: { array: accountId },
+        chunkValidatorAssignments: { array: { array: oneValidatorAssignment } },
+    },
+};
+
 export const fieldSemantics: Record<EntityType, FieldSemantic> = {
     AllShards: { array: shardUId },
     Block: block,
@@ -230,8 +274,10 @@ export const fieldSemantics: Record<EntityType, FieldSemantic> = {
     ShardId: shardId,
     ShardLayout: undefined,
     ShardUId: shardUId,
+    StateTransitionData: stateTransitionData,
     Tip: tip,
     Transaction: transaction,
     TrieNode: trieNode,
     TrieRoot: triePath,
+    ValidatorAssignmentsAtHeight: validatorAssignmentsAtHeight,
 };

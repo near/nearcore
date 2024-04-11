@@ -61,7 +61,7 @@ pub enum RuntimeError {
     /// It's possible the input state is invalid or malicious.
     StorageError(StorageError),
     /// An error happens if `check_balance` fails, which is likely an indication of an invalid state.
-    BalanceMismatchError(BalanceMismatchError),
+    BalanceMismatchError(Box<BalanceMismatchError>),
     /// The incoming receipt didn't pass the validation, it's likely a malicious behaviour.
     ReceiptValidationError(ReceiptValidationError),
     /// Error when accessing validator information. Happens inside epoch manager.
@@ -193,7 +193,7 @@ impl std::error::Error for InvalidTxError {}
 )]
 pub enum InvalidAccessKeyError {
     /// The access key identified by the `public_key` doesn't exist for the account
-    AccessKeyNotFound { account_id: AccountId, public_key: PublicKey },
+    AccessKeyNotFound { account_id: AccountId, public_key: Box<PublicKey> },
     /// Transaction `receiver_id` doesn't match the access key receiver_id
     ReceiverMismatch { tx_receiver: AccountId, ak_receiver: String },
     /// Transaction method name isn't allowed by the access key
@@ -203,7 +203,7 @@ pub enum InvalidAccessKeyError {
     /// Access Key does not have enough allowance to cover transaction cost
     NotEnoughAllowance {
         account_id: AccountId,
-        public_key: PublicKey,
+        public_key: Box<PublicKey>,
         #[serde(with = "dec_format")]
         allowance: Balance,
         #[serde(with = "dec_format")]
@@ -247,7 +247,7 @@ pub enum ActionsValidationError {
     /// The length of the arguments exceeded the limit in a Function Call action.
     FunctionCallArgumentsLengthExceeded { length: u64, limit: u64 },
     /// An attempt to stake with a public key that is not convertible to ristretto.
-    UnsuitableStakingKey { public_key: PublicKey },
+    UnsuitableStakingKey { public_key: Box<PublicKey> },
     /// The attached amount of gas in a FunctionCall action has to be a positive number.
     FunctionCallZeroAttachedGas,
     /// There should be the only one DelegateAction
@@ -443,15 +443,16 @@ pub enum ActionErrorKind {
         registrar_account_id: AccountId,
         predecessor_id: AccountId,
     },
+
     /// A newly created account must be under a namespace of the creator account
     CreateAccountNotAllowed { account_id: AccountId, predecessor_id: AccountId },
     /// Administrative actions like `DeployContract`, `Stake`, `AddKey`, `DeleteKey`. can be proceed only if sender=receiver
     /// or the first TX action is a `CreateAccount` action
     ActorNoPermission { account_id: AccountId, actor_id: AccountId },
     /// Account tries to remove an access key that doesn't exist
-    DeleteKeyDoesNotExist { account_id: AccountId, public_key: PublicKey },
+    DeleteKeyDoesNotExist { account_id: AccountId, public_key: Box<PublicKey> },
     /// The public key is already used for an existing access key
-    AddKeyAlreadyExists { account_id: AccountId, public_key: PublicKey },
+    AddKeyAlreadyExists { account_id: AccountId, public_key: Box<PublicKey> },
     /// Account is staking and can not be deleted
     DeleteAccountStaking { account_id: AccountId },
     /// ActionReceipt can't be completed, because the remaining balance will not be enough to cover storage.
@@ -507,6 +508,8 @@ pub enum ActionErrorKind {
     DelegateActionInvalidNonce { delegate_nonce: Nonce, ak_nonce: Nonce },
     /// DelegateAction nonce is larger than the upper bound given by the block height
     DelegateActionNonceTooLarge { delegate_nonce: Nonce, upper_bound: Nonce },
+    /// Sending non-refundable balance to an existing account is not allowed according to NEP-491.
+    NonRefundableBalanceToExistingAccount { account_id: AccountId },
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -744,7 +747,7 @@ impl From<StorageError> for RuntimeError {
 
 impl From<BalanceMismatchError> for RuntimeError {
     fn from(e: BalanceMismatchError) -> Self {
-        RuntimeError::BalanceMismatchError(e)
+        RuntimeError::BalanceMismatchError(Box::new(e))
     }
 }
 
@@ -831,6 +834,9 @@ impl Display for ActionErrorKind {
             ActionErrorKind::DelegateActionAccessKeyError(access_key_error) => Display::fmt(&access_key_error, f),
             ActionErrorKind::DelegateActionInvalidNonce { delegate_nonce, ak_nonce } => write!(f, "DelegateAction nonce {} must be larger than nonce of the used access key {}", delegate_nonce, ak_nonce),
             ActionErrorKind::DelegateActionNonceTooLarge { delegate_nonce, upper_bound } => write!(f, "DelegateAction nonce {} must be smaller than the access key nonce upper bound {}", delegate_nonce, upper_bound),
+            ActionErrorKind::NonRefundableBalanceToExistingAccount { account_id} => {
+                write!(f, "Can't send non-refundable balance to {} because it already exists", account_id)
+            }
         }
     }
 }
@@ -859,6 +865,8 @@ pub enum EpochError {
     },
     /// Error selecting validators for a chunk.
     ChunkValidatorSelectionError(String),
+    /// Error selecting chunk producer for a shard.
+    ChunkProducerSelectionError(String),
 }
 
 impl std::error::Error for EpochError {}
@@ -886,6 +894,9 @@ impl Display for EpochError {
             EpochError::ChunkValidatorSelectionError(err) => {
                 write!(f, "Error selecting validators for a chunk: {}", err)
             }
+            EpochError::ChunkProducerSelectionError(err) => {
+                write!(f, "Error selecting chunk producer: {}", err)
+            }
         }
     }
 }
@@ -908,6 +919,9 @@ impl Debug for EpochError {
             }
             EpochError::ChunkValidatorSelectionError(err) => {
                 write!(f, "ChunkValidatorSelectionError({})", err)
+            }
+            EpochError::ChunkProducerSelectionError(err) => {
+                write!(f, "ChunkProducerSelectionError({})", err)
             }
         }
     }
@@ -1155,63 +1169,6 @@ pub enum FunctionCallError {
     // error borsh serialized at correct index
     _EVMError,
     ExecutionError(String),
-}
-
-impl From<near_vm_runner::logic::errors::MethodResolveError> for MethodResolveError {
-    fn from(outer_err: near_vm_runner::logic::errors::MethodResolveError) -> Self {
-        use near_vm_runner::logic::errors::MethodResolveError as MRE;
-        match outer_err {
-            MRE::MethodEmptyName => Self::MethodEmptyName,
-            MRE::MethodNotFound => Self::MethodNotFound,
-            MRE::MethodInvalidSignature => Self::MethodInvalidSignature,
-        }
-    }
-}
-
-impl From<near_vm_runner::logic::errors::PrepareError> for PrepareError {
-    fn from(outer_err: near_vm_runner::logic::errors::PrepareError) -> Self {
-        use near_vm_runner::logic::errors::PrepareError as PE;
-        match outer_err {
-            PE::Serialization => Self::Serialization,
-            PE::Deserialization => Self::Deserialization,
-            PE::InternalMemoryDeclared => Self::InternalMemoryDeclared,
-            PE::GasInstrumentation => Self::GasInstrumentation,
-            PE::StackHeightInstrumentation => Self::StackHeightInstrumentation,
-            PE::Instantiate => Self::Instantiate,
-            PE::Memory => Self::Memory,
-            PE::TooManyFunctions => Self::TooManyFunctions,
-            PE::TooManyLocals => Self::TooManyLocals,
-        }
-    }
-}
-
-impl From<near_vm_runner::logic::errors::CompilationError> for CompilationError {
-    fn from(outer_err: near_vm_runner::logic::errors::CompilationError) -> Self {
-        use near_vm_runner::logic::errors::CompilationError as CE;
-        match outer_err {
-            CE::CodeDoesNotExist { account_id } => Self::CodeDoesNotExist {
-                account_id: account_id.parse().expect("account_id in error must be valid"),
-            },
-            CE::PrepareError(pe) => Self::PrepareError(pe.into()),
-            CE::WasmerCompileError { msg } => Self::WasmerCompileError { msg },
-        }
-    }
-}
-
-impl From<near_vm_runner::logic::errors::FunctionCallError> for FunctionCallError {
-    fn from(outer_err: near_vm_runner::logic::errors::FunctionCallError) -> Self {
-        use near_vm_runner::logic::errors::FunctionCallError as FCE;
-        match outer_err {
-            FCE::CompilationError(e) => Self::CompilationError(e.into()),
-            FCE::MethodResolveError(e) => Self::MethodResolveError(e.into()),
-            // Note: We deliberately collapse all execution errors for
-            // serialization to make the DB representation less dependent
-            // on specific types in Rust code.
-            FCE::HostError(ref _e) => Self::ExecutionError(outer_err.to_string()),
-            FCE::LinkError { msg } => Self::ExecutionError(format!("Link Error: {}", msg)),
-            FCE::WasmTrap(ref _e) => Self::ExecutionError(outer_err.to_string()),
-        }
-    }
 }
 
 #[cfg(feature = "new_epoch_sync")]

@@ -8,7 +8,7 @@ use near_primitives::{
     types::EpochId,
 };
 
-#[derive(Message, Debug, strum::IntoStaticStr)]
+#[derive(Message, Debug, strum::IntoStaticStr, PartialEq)]
 #[rtype(result = "()")]
 pub enum ShardsManagerRequestFromClient {
     /// Processes the header seen from a block we received, if we have not already received the
@@ -50,4 +50,20 @@ pub enum ShardsManagerRequestFromClient {
     /// proofs, but cannot be marked as complete because the previous block isn't available),
     /// and completes them if so.
     CheckIncompleteChunks(CryptoHash),
+    /// Process a `PartialEncodedChunk` obtained via the Chunk Distribution Network feature.
+    /// If the chunk turns out to be invalid then request from the p2p network instead.
+    ProcessOrRequestChunk {
+        candidate_chunk: PartialEncodedChunk,
+        request_header: ShardChunkHeader,
+        prev_hash: CryptoHash,
+    },
+    /// Similar to `ProcessOrRequestChunk` but for orphan chunks.
+    /// Process a `PartialEncodedChunk` obtained via the Chunk Distribution Network feature.
+    /// If the chunk turns out to be invalid then request from the p2p network instead.
+    ProcessOrRequestChunkForOrphan {
+        candidate_chunk: PartialEncodedChunk,
+        request_header: ShardChunkHeader,
+        epoch_id: EpochId,
+        ancestor_hash: CryptoHash,
+    },
 }

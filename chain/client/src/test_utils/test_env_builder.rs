@@ -3,7 +3,8 @@ use super::test_env::TestEnv;
 use super::{AccountIndices, TEST_SEED};
 use actix_rt::System;
 use itertools::{multizip, Itertools};
-use near_async::messaging::IntoSender;
+use near_async::messaging::{IntoMultiSender, IntoSender};
+use near_async::time::Clock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
 use near_chain::types::RuntimeAdapter;
@@ -40,7 +41,8 @@ impl EpochManagerKind {
 
 /// A builder for the TestEnv structure.
 pub struct TestEnvBuilder {
-    chain_genesis: ChainGenesis,
+    clock: Option<Clock>,
+    genesis_config: GenesisConfig,
     clients: Vec<AccountId>,
     validators: Vec<AccountId>,
     home_dirs: Option<Vec<PathBuf>>,
@@ -61,7 +63,7 @@ pub struct TestEnvBuilder {
 /// Builder for the [`TestEnv`] structure.
 impl TestEnvBuilder {
     /// Constructs a new builder.
-    pub(crate) fn new(chain_genesis: ChainGenesis) -> Self {
+    pub(crate) fn new(genesis_config: GenesisConfig) -> Self {
         if let None = System::try_current() {
             let _ = System::new();
         }
@@ -69,7 +71,8 @@ impl TestEnvBuilder {
         let validators = clients.clone();
         let seeds: HashMap<AccountId, RngSeed> = HashMap::with_capacity(1);
         Self {
-            chain_genesis,
+            clock: None,
+            genesis_config,
             clients,
             validators,
             home_dirs: None,
@@ -84,6 +87,12 @@ impl TestEnvBuilder {
             save_trie_changes: true,
             state_snapshot_enabled: false,
         }
+    }
+
+    pub fn clock(mut self, clock: Clock) -> Self {
+        assert!(self.clock.is_none(), "Cannot set clock twice");
+        self.clock = Some(clock);
+        self
     }
 
     /// Sets list of client [`AccountId`]s to the one provided.  Panics if the
@@ -190,29 +199,6 @@ impl TestEnvBuilder {
         }
     }
 
-    /// Specifies custom MockEpochManager for each client.  This allows us to
-    /// construct [`TestEnv`] with a custom implementation.
-    ///
-    /// The vector must have the same number of elements as they are clients
-    /// (one by default).  If that does not hold, [`Self::build`] method will
-    /// panic.
-    pub fn mock_epoch_managers(mut self, epoch_managers: Vec<Arc<MockEpochManager>>) -> Self {
-        assert_eq!(epoch_managers.len(), self.clients.len());
-        assert!(self.epoch_managers.is_none(), "Cannot override twice");
-        assert!(
-            self.num_shards.is_none(),
-            "Cannot set both num_shards and epoch_managers at the same time"
-        );
-        assert!(
-            self.shard_trackers.is_none(),
-            "Cannot override epoch_managers after shard_trackers"
-        );
-        assert!(self.runtimes.is_none(), "Cannot override epoch_managers after runtimes");
-        self.epoch_managers =
-            Some(epoch_managers.into_iter().map(|epoch_manager| epoch_manager.into()).collect());
-        self
-    }
-
     /// Specifies custom EpochManagerHandle for each client.  This allows us to
     /// construct [`TestEnv`] with a custom implementation.
     ///
@@ -236,14 +222,9 @@ impl TestEnvBuilder {
         self
     }
 
-    pub fn real_epoch_managers(self, genesis_config: &GenesisConfig) -> Self {
-        self.real_epoch_managers_with_test_overrides(genesis_config, None)
-    }
-
     /// Constructs real EpochManager implementations for each instance.
-    pub fn real_epoch_managers_with_test_overrides(
+    pub fn epoch_managers_with_test_overrides(
         self,
-        genesis_config: &GenesisConfig,
         test_overrides: Option<AllEpochConfigTestOverrides>,
     ) -> Self {
         assert!(
@@ -255,7 +236,7 @@ impl TestEnvBuilder {
             .map(|i| {
                 EpochManager::new_arc_handle_with_test_overrides(
                     ret.stores.as_ref().unwrap()[i].clone(),
-                    genesis_config,
+                    &ret.genesis_config,
                     test_overrides.clone(),
                 )
             })
@@ -265,10 +246,17 @@ impl TestEnvBuilder {
 
     /// Internal impl to make sure EpochManagers are initialized.
     fn ensure_epoch_managers(self) -> Self {
-        let mut ret = self.ensure_stores();
+        let ret = self.ensure_stores();
         if ret.epoch_managers.is_some() {
             return ret;
         }
+        ret.epoch_managers_with_test_overrides(None)
+    }
+
+    /// Constructs MockEpochManager implementations for each instance.
+    pub fn mock_epoch_managers(self) -> Self {
+        assert!(self.epoch_managers.is_none(), "Cannot override twice");
+        let mut ret = self.ensure_stores();
         let epoch_managers: Vec<EpochManagerKind> = (0..ret.clients.len())
             .map(|i| {
                 let vs = ValidatorSchedule::new_with_shards(ret.num_shards.unwrap_or(1))
@@ -276,7 +264,7 @@ impl TestEnvBuilder {
                 MockEpochManager::new_with_validators(
                     ret.stores.as_ref().unwrap()[i].clone(),
                     vs,
-                    ret.chain_genesis.epoch_length,
+                    ret.genesis_config.epoch_length,
                 )
                 .into()
             })
@@ -351,6 +339,15 @@ impl TestEnvBuilder {
             })
             .collect();
         ret.shard_trackers(shard_trackers)
+    }
+
+    /// Calls track_all_shards only if the given boolean is true.
+    pub fn maybe_track_all_shards(self, track_all_shards: bool) -> Self {
+        if track_all_shards {
+            self.track_all_shards()
+        } else {
+            self
+        }
     }
 
     /// Internal impl to make sure ShardTrackers are initialized.
@@ -459,7 +456,8 @@ impl TestEnvBuilder {
     }
 
     fn build_impl(self) -> TestEnv {
-        let chain_genesis = self.chain_genesis;
+        let clock = self.clock.unwrap_or_else(|| Clock::real());
+        let chain_genesis = ChainGenesis::new(&self.genesis_config);
         let clients = self.clients.clone();
         let num_clients = clients.len();
         let validators = self.validators;
@@ -474,15 +472,17 @@ impl TestEnvBuilder {
             .collect::<Vec<_>>();
         let shards_manager_adapters = (0..num_clients)
             .map(|i| {
+                let clock = clock.clone();
                 let epoch_manager = epoch_managers[i].clone();
                 let shard_tracker = shard_trackers[i].clone();
                 let runtime = runtimes[i].clone();
                 let network_adapter = network_adapters[i].clone();
                 let client_adapter = client_adapters[i].clone();
                 setup_synchronous_shards_manager(
+                    clock,
                     Some(clients[i].clone()),
                     client_adapter.as_sender(),
-                    network_adapter.into(),
+                    network_adapter.as_multi_sender(),
                     epoch_manager.into_adapter(),
                     shard_tracker,
                     runtime,
@@ -518,10 +518,11 @@ impl TestEnvBuilder {
                         delete_snapshot_callback,
                     };
                     setup_client_with_runtime(
+                        clock.clone(),
                         u64::try_from(num_validators).unwrap(),
                         Some(account_id),
                         false,
-                        network_adapter.into(),
+                        network_adapter.as_multi_sender(),
                         shards_manager_adapter,
                         chain_genesis.clone(),
                         epoch_manager.into_adapter(),
@@ -536,6 +537,7 @@ impl TestEnvBuilder {
                 .collect();
 
         TestEnv {
+            clock,
             chain_genesis,
             validators,
             network_adapters,

@@ -29,7 +29,7 @@ rsync -r ~/.near/localnet_multi/node1 192.168.0.2:~/.near/localnet_multi/node1
 
 Now open the config.json file on both machines (node0/config.json on machine1 and node1/config.json on machine2) and:
 * for rpc->addr and network->addr:
-  * Change the addres from 127.0.0.1 to 0.0.0.0 (this means that the port will be accessible from other computers)
+  * Change the address from 127.0.0.1 to 0.0.0.0 (this means that the port will be accessible from other computers)
   * Remember the port numbers (they are generated randomly). 
 * Also write down the node0's node_key (it is probably: "ed25519:7PGseFbWxvYVgZ89K1uTJKYoKetWs7BJtbyXDzfbAcqX")
 

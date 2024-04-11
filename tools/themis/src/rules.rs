@@ -3,7 +3,7 @@ use super::{style, utils};
 use crate::utils::read_toml;
 use anyhow::bail;
 use cargo_metadata::DependencyKind;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 /// Ensure all crates have the `publish = <true/false>` specification
 pub fn has_publish_spec(workspace: &Workspace) -> anyhow::Result<()> {
@@ -256,7 +256,7 @@ pub fn publishable_has_license_file(workspace: &Workspace) -> anyhow::Result<()>
 
 const EXPECTED_LICENSE: &str = "MIT OR Apache-2.0";
 
-/// Ensure all non-private crates use the the same expected license
+/// Ensure all non-private crates use the same expected license
 pub fn publishable_has_unified_license(workspace: &Workspace) -> anyhow::Result<()> {
     let outliers = workspace
         .members
@@ -396,6 +396,55 @@ pub fn recursively_publishable(workspace: &Workspace) -> anyhow::Result<()> {
                             + name
                             + style::reset()))
                     )),
+                })
+                .collect(),
+        });
+    }
+    Ok(())
+}
+
+/// Ensure that top-level `Cargo.toml` does not contain superfluouos dependencies.
+pub fn no_superfluous_deps(workspace: &Workspace) -> anyhow::Result<()> {
+    let mut workspace_deps = BTreeSet::<String>::new();
+    let mut read_deps = |manifest: &toml::value::Value, table_name: &'static str| {
+        let Some(deps) = manifest.get(table_name) else { return };
+        let Some(deps) = deps.as_table() else { return };
+        for (name, dep) in deps {
+            let Some(workspace_field) = dep.get("workspace") else { continue };
+            let Some(true) = workspace_field.as_bool() else { continue };
+            workspace_deps.insert(name.clone());
+        }
+    };
+    for pkg in workspace.members.iter() {
+        read_deps(&pkg.manifest.raw, "dependencies");
+        read_deps(&pkg.manifest.raw, "dev-dependencies");
+        read_deps(&pkg.manifest.raw, "build-dependencies");
+        let Some(target) = pkg.manifest.raw.get("target") else { continue };
+        let Some(target) = target.as_table() else { continue };
+        for (_, target_manifest) in target {
+            read_deps(&target_manifest, "dependencies");
+            read_deps(&target_manifest, "dev-dependencies");
+            read_deps(&target_manifest, "build-dependencies");
+        }
+    }
+    let Some(root_deps) = workspace.manifest.read(&["workspace", "dependencies"]) else {
+        panic!("Cargo.toml has no [workspace.dependencies]?");
+    };
+    let Some(root_deps) = root_deps.as_table() else {
+        panic!("workspace.dependencies is not a table?");
+    };
+    let root_deps = BTreeSet::from_iter(root_deps.keys().into_iter().cloned());
+    let diff = root_deps.difference(&workspace_deps).collect::<Vec<_>>();
+    if !diff.is_empty() {
+        bail!(ComplianceError {
+            msg: "These dependencies are not used by any workspace member".to_string(),
+            expected: None,
+            outliers: diff
+                .into_iter()
+                .map(|dep| Outlier {
+                    path: workspace.root.clone(),
+                    found: Some(dep.clone()),
+                    extra: None,
                 })
                 .collect(),
         });

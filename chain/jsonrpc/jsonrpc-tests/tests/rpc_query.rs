@@ -6,6 +6,7 @@ use futures::{future, FutureExt};
 use serde_json::json;
 
 use near_actix_test_utils::run_actix;
+use near_async::time::Clock;
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_jsonrpc::client::{new_client, ChunkId};
 use near_jsonrpc_primitives::types::query::QueryResponseKind;
@@ -383,7 +384,7 @@ fn test_status_fail() {
     init_test_logger();
 
     run_actix(async {
-        let (_, addr) = test_utils::start_all(test_utils::NodeType::NonValidator);
+        let (_, addr) = test_utils::start_all(Clock::real(), test_utils::NodeType::NonValidator);
 
         let client = new_client(&format!("http://{}", addr));
         wait_or_timeout(100, 10000, || async {
@@ -420,7 +421,7 @@ fn test_health_fail_no_blocks() {
     init_test_logger();
 
     run_actix(async {
-        let (_, addr) = test_utils::start_all(test_utils::NodeType::NonValidator);
+        let (_, addr) = test_utils::start_all(Clock::real(), test_utils::NodeType::NonValidator);
 
         let client = new_client(&format!("http://{}", addr));
         wait_or_timeout(300, 10000, || async {
@@ -465,7 +466,7 @@ fn test_validators_ordered() {
 fn test_genesis_config() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let genesis_config = client.EXPERIMENTAL_genesis_config().await.unwrap();
-        if !cfg!(feature = "nightly_protocol") {
+        if !cfg!(feature = "nightly_protocol") && !cfg!(feature = "statelessnet_protocol") {
             assert_eq!(
                 genesis_config["protocol_version"].as_u64().unwrap(),
                 near_primitives::version::PROTOCOL_VERSION as u64

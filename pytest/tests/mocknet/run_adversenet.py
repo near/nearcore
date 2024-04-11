@@ -9,6 +9,19 @@ The script will recognize any node that has "validator" in its name as a validat
 
 Use https://github.com/near/near-ops/tree/master/provisioning/terraform/network/adversenet to bring up a set of VM
 instances for the test.
+
+Example command to drive the cluster:
+  python3 pytest/tests/mocknet/run_adversenet.py new \
+    --chain-id mynetwork \
+    --pattern mynetwork-node- \
+    --epoch-length 100 \
+    --num-seats 5 \
+    --binary-url http://something/neard
+
+Example command to send load to the cluster:
+  KEY=~/nearcore/pytest/tests/mocknet/adversenet_loadtest_key.json
+  cd pytest/tests/loadtest/locust
+  locust -H <rpc_node>:3030 -f locustfiles/ft.py --funding-key=$KEY
 """
 
 import argparse
@@ -144,9 +157,12 @@ if __name__ == '__main__':
     bad_validators = [
         n.instance_name for n in all_nodes if get_role(n) == Role.BadValidator
     ]
+    print("Good validators: ", good_validators)
+    print("Bad validators: ", bad_validators)
     TOTAL_STAKE = 1000000
-    bad_validator_stake = int(TOTAL_STAKE * args.bad_stake /
-                              (100 * len(bad_validators)))
+    bad_validator_stake = int(
+        TOTAL_STAKE * args.bad_stake /
+        (100 * len(bad_validators))) if len(bad_validators) > 0 else 0
     good_validator_stake = int(TOTAL_STAKE * (100 - args.bad_stake) /
                                (100 * len(good_validators)))
 
@@ -180,8 +196,6 @@ if __name__ == '__main__':
         mocknet.create_and_upload_config_file_from_default(
             all_nodes, chain_id, override_config)
     else:
-        mocknet.update_existing_config_file(all_nodes, override_config)
+        mocknet.update_existing_config_files(all_nodes, override_config)
     mocknet.start_nodes(all_nodes)
     mocknet.wait_all_nodes_up(all_nodes)
-
-    # TODO: send loadtest traffic.

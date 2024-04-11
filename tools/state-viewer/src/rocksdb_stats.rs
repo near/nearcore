@@ -105,7 +105,7 @@ pub fn get_rocksdb_stats(store_dir: &Path, file: Option<PathBuf>) -> anyhow::Res
     for entry in std::fs::read_dir(store_dir)? {
         let entry = entry?;
         let file_name = std::path::PathBuf::from(entry.file_name());
-        if file_name.extension().map_or(false, |ext| ext == "sst") {
+        if file_name.extension().is_some_and(|ext| ext == "sst") {
             let file_path = store_dir.join(file_name);
             eprintln!("Processing ‘{}’...", file_path.display());
             data.add_sst_data(SSTFileData::for_sst_file(&file_path)?);

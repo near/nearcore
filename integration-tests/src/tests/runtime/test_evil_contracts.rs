@@ -84,6 +84,34 @@ fn test_evil_deep_trie() {
     }
 }
 
+/// Test delaying the conclusion of a receipt for as long as possible through the use of self
+/// cross-contract calls.
+///
+/// I hear that the protocol-level limit on the depth here is 64, so given the current fee
+/// structure this limit cannot be reached by this contract, but once they decrease it might very
+/// well be necessary to adjust the `expected_max_depth` to at most that limit.
+#[test]
+fn test_self_delay() {
+    let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
+    let res = node
+        .user()
+        .function_call(
+            "alice.near".parse().unwrap(),
+            "test_contract".parse().unwrap(),
+            "max_self_recursion_delay",
+            vec![0; 4],
+            MAX_GAS,
+            0,
+        )
+        .unwrap();
+    let expected_max_depth = 61u32;
+    assert_eq!(
+        res.status,
+        FinalExecutionStatus::SuccessValue(expected_max_depth.to_be_bytes().to_vec()),
+        "{res:?} has not recursed the expected number of times",
+    );
+}
+
 #[test]
 fn test_evil_deep_recursion() {
     let node = setup_test_contract(near_test_contracts::rs_contract());

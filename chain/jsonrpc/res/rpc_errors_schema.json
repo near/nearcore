@@ -46,7 +46,8 @@
         "DelegateActionExpired",
         "DelegateActionAccessKeyError",
         "DelegateActionInvalidNonce",
-        "DelegateActionNonceTooLarge"
+        "DelegateActionNonceTooLarge",
+        "NonRefundableBalanceToExistingAccount"
       ],
       "props": {
         "index": ""
@@ -639,6 +640,13 @@
       "name": "MisalignedAtomicAccess",
       "subtypes": [],
       "props": {}
+    },
+    "NonRefundableBalanceToExistingAccount": {
+      "name": "NonRefundableBalanceToExistingAccount",
+      "subtypes": [],
+      "props": {
+        "account_id": ""
+      }
     },
     "NonceTooLarge": {
       "name": "NonceTooLarge",

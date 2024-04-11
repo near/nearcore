@@ -12,6 +12,6 @@ RUN npm run build
 
 # Serving does not require npm; simple nginx is good enough; it's just some
 # static files.
-FROM nginx:1.25.3-alpine
+FROM nginx:1.25.4-alpine
 COPY --from=build /build/build /var/www/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf

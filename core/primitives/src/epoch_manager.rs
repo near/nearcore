@@ -128,6 +128,9 @@ impl AllEpochConfig {
 
     pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> EpochConfig {
         let mut config = self.genesis_epoch_config.clone();
+
+        Self::config_stateless_net(&mut config, &self.chain_id, protocol_version);
+
         if !self.use_production_config {
             return config;
         }
@@ -141,6 +144,25 @@ impl AllEpochConfig {
         Self::config_test_overrides(&mut config, &self.test_overrides);
 
         config
+    }
+
+    // StatelessNet only. Lower the kickout threshold so the network is more stable while
+    // we figure out issues with block and chunk production.
+    fn config_stateless_net(
+        config: &mut EpochConfig,
+        chain_id: &str,
+        protocol_version: ProtocolVersion,
+    ) {
+        if chain_id == near_primitives_core::chains::STATELESSNET
+            && checked_feature!(
+                "stable",
+                LowerValidatorKickoutPercentForDebugging,
+                protocol_version
+            )
+        {
+            config.block_producer_kickout_threshold = 50;
+            config.chunk_producer_kickout_threshold = 50;
+        }
     }
 
     fn config_nightshade(config: &mut EpochConfig, protocol_version: ProtocolVersion) {
@@ -347,6 +369,11 @@ pub mod block_info {
         }
 
         #[inline]
+        pub fn is_genesis(&self) -> bool {
+            self.prev_hash() == &CryptoHash::default()
+        }
+
+        #[inline]
         pub fn epoch_first_block(&self) -> &CryptoHash {
             match self {
                 Self::V1(v1) => &v1.epoch_first_block,
@@ -522,7 +549,7 @@ pub mod epoch_info {
     use crate::epoch_manager::ValidatorWeight;
     use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
     use crate::types::{BlockChunkValidatorStats, ValidatorKickoutReason};
-    use crate::validator_mandates::{ValidatorMandates, ValidatorMandatesAssignment};
+    use crate::validator_mandates::{ChunkValidatorStakeAssignment, ValidatorMandates};
     use crate::version::PROTOCOL_VERSION;
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_primitives_core::hash::CryptoHash;
@@ -703,7 +730,7 @@ pub mod epoch_info {
                 let block_producers_sampler = stake_weights(&block_producers_settlement);
                 let chunk_producers_sampler =
                     chunk_producers_settlement.iter().map(|vs| stake_weights(vs)).collect();
-                if checked_feature!("stable", ChunkValidation, protocol_version) {
+                if checked_feature!("stable", StatelessValidationV0, protocol_version) {
                     Self::V4(EpochInfoV4 {
                         epoch_height,
                         validators,
@@ -1059,43 +1086,48 @@ pub mod epoch_info {
             }
         }
 
-        pub fn sample_chunk_producer(&self, height: BlockHeight, shard_id: ShardId) -> ValidatorId {
+        pub fn sample_chunk_producer(
+            &self,
+            height: BlockHeight,
+            shard_id: ShardId,
+        ) -> Option<ValidatorId> {
             match &self {
                 Self::V1(v1) => {
                     let cp_settlement = &v1.chunk_producers_settlement;
-                    let shard_cps = &cp_settlement[shard_id as usize];
-                    shard_cps[(height as u64 % (shard_cps.len() as u64)) as usize]
+                    let shard_cps = cp_settlement.get(shard_id as usize)?;
+                    shard_cps.get((height as u64 % (shard_cps.len() as u64)) as usize).copied()
                 }
                 Self::V2(v2) => {
                     let cp_settlement = &v2.chunk_producers_settlement;
-                    let shard_cps = &cp_settlement[shard_id as usize];
-                    shard_cps[(height as u64 % (shard_cps.len() as u64)) as usize]
+                    let shard_cps = cp_settlement.get(shard_id as usize)?;
+                    shard_cps.get((height as u64 % (shard_cps.len() as u64)) as usize).copied()
                 }
                 Self::V3(v3) => {
                     let protocol_version = self.protocol_version();
                     let seed =
                         Self::chunk_produce_seed(protocol_version, &v3.rng_seed, height, shard_id);
                     let shard_id = shard_id as usize;
-                    let sample = v3.chunk_producers_sampler[shard_id].sample(seed);
-                    v3.chunk_producers_settlement[shard_id][sample]
+                    let sample = v3.chunk_producers_sampler.get(shard_id)?.sample(seed);
+                    v3.chunk_producers_settlement.get(shard_id)?.get(sample).copied()
                 }
                 Self::V4(v4) => {
                     let protocol_version = self.protocol_version();
                     let seed =
                         Self::chunk_produce_seed(protocol_version, &v4.rng_seed, height, shard_id);
                     let shard_id = shard_id as usize;
-                    let sample = v4.chunk_producers_sampler[shard_id].sample(seed);
-                    v4.chunk_producers_settlement[shard_id][sample]
+                    let sample = v4.chunk_producers_sampler.get(shard_id)?.sample(seed);
+                    v4.chunk_producers_settlement.get(shard_id)?.get(sample).copied()
                 }
             }
         }
 
-        pub fn sample_chunk_validators(&self, height: BlockHeight) -> ValidatorMandatesAssignment {
+        pub fn sample_chunk_validators(
+            &self,
+            height: BlockHeight,
+        ) -> ChunkValidatorStakeAssignment {
             // Chunk validator assignment was introduced with `V4`.
             match &self {
-                Self::V1(_) => Default::default(),
-                Self::V2(_) => Default::default(),
-                Self::V3(_) => Default::default(),
+                Self::V1(_) | Self::V2(_) | Self::V3(_) => Default::default(),
                 Self::V4(v4) => {
                     let mut rng = Self::chunk_validate_rng(&v4.rng_seed, height);
                     v4.validator_mandates.sample(&mut rng)
@@ -1139,6 +1171,8 @@ pub mod epoch_info {
         ///
         /// The returned RNG can be used to shuffle slices via [`rand::seq::SliceRandom`].
         fn chunk_validate_rng(seed: &RngSeed, height: BlockHeight) -> ChaCha20Rng {
+            // A deterministic seed is produces using the block height and the provided seed.
+            // This is important as all nodes need to agree on the set and order of chunk_validators
             let mut buffer = [0u8; 40];
             buffer[0..32].copy_from_slice(seed);
             buffer[32..40].copy_from_slice(&height.to_le_bytes());
@@ -1222,7 +1256,6 @@ pub mod epoch_sync {
     use crate::errors::epoch_sync::{EpochSyncHashType, EpochSyncInfoError};
     use crate::types::EpochId;
     use borsh::{BorshDeserialize, BorshSerialize};
-    use near_o11y::log_assert;
     use near_primitives_core::hash::CryptoHash;
     use std::collections::{HashMap, HashSet};
 
@@ -1299,10 +1332,11 @@ pub mod epoch_sync {
             let epoch_first_header = self.get_epoch_first_header()?;
             let header = self.get_header(*hash, EpochSyncHashType::Other)?;
 
-            log_assert!(
-                epoch_first_header.epoch_id() == header.epoch_id(),
-                "We can only correctly reconstruct headers from this epoch"
-            );
+            if epoch_first_header.epoch_id() != header.epoch_id() {
+                let msg = "We can only correctly reconstruct headers from this epoch";
+                debug_assert!(false, "{}", msg);
+                tracing::error!(message = msg);
+            }
 
             let last_finalized_height = if *header.last_final_block() == CryptoHash::default() {
                 0

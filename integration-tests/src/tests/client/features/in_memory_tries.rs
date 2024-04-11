@@ -1,7 +1,9 @@
-use std::collections::{HashMap, HashSet};
-
-use near_chain::{ChainGenesis, Provenance};
+use near_async::messaging::CanSend;
+use near_async::time::{FakeClock, Utc};
+use near_chain::{Block, Provenance};
 use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords};
+use near_chunks::test_loop::ShardsManagerResendChunkRequests;
+use near_chunks::CHUNK_REQUEST_SWITCH_TO_FULL_FETCH;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
 use near_o11y::testonly::init_test_logger;
@@ -11,6 +13,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountInfo, EpochId};
+use near_primitives::utils::from_timestamp;
 use near_primitives_core::account::{AccessKey, Account};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::AccountId;
@@ -20,6 +23,7 @@ use near_store::{ShardUId, TrieConfig};
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use rand::seq::IteratorRandom;
 use rand::{thread_rng, Rng};
+use std::collections::{HashMap, HashSet};
 
 const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 
@@ -31,7 +35,9 @@ fn test_in_memory_trie_node_consistency() {
     let initial_balance = 10000 * ONE_NEAR;
     let accounts =
         (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
+    let mut clock = FakeClock::new(Utc::UNIX_EPOCH);
     let mut genesis_config = GenesisConfig {
+        genesis_time: from_timestamp(clock.now_utc().unix_timestamp_nanos() as u64),
         // Use the latest protocol version. Otherwise, the version may be too
         // old that e.g. blocks don't even store previous heights.
         protocol_version: PROTOCOL_VERSION,
@@ -102,7 +108,14 @@ fn test_in_memory_trie_node_consistency() {
         let staked = if i < 2 { validator_stake } else { 0 };
         records.push(StateRecord::Account {
             account_id: account.clone(),
-            account: Account::new(initial_balance, staked, CryptoHash::default(), 0),
+            account: Account::new(
+                initial_balance,
+                staked,
+                0,
+                CryptoHash::default(),
+                0,
+                PROTOCOL_VERSION,
+            ),
         });
         records.push(StateRecord::AccessKey {
             account_id: account.clone(),
@@ -113,15 +126,14 @@ fn test_in_memory_trie_node_consistency() {
         genesis_config.total_supply += initial_balance + staked;
     }
     let genesis = Genesis::new(genesis_config, GenesisRecords(records)).unwrap();
-    let chain_genesis = ChainGenesis::new(&genesis);
 
     // Create two stores, one for each node. We'll be reusing the stores later
     // to emulate node restarts.
     let stores = vec![create_test_store(), create_test_store()];
-    let mut env = TestEnv::builder(chain_genesis.clone())
+    let mut env = TestEnv::builder(&genesis.config)
+        .clock(clock.clock())
         .clients(vec!["account0".parse().unwrap(), "account1".parse().unwrap()])
         .stores(stores.clone())
-        .real_epoch_managers(&genesis.config)
         .track_all_shards()
         .nightshade_runtimes_with_trie_config(
             &genesis,
@@ -161,7 +173,14 @@ fn test_in_memory_trie_node_consistency() {
         .map(|account| (account.clone(), initial_balance))
         .collect::<HashMap<AccountId, u128>>();
 
-    run_chain_for_some_blocks_while_sending_money_around(&mut env, &mut nonces, &mut balances, 100);
+    run_chain_for_some_blocks_while_sending_money_around(
+        &mut clock,
+        &mut env,
+        &mut nonces,
+        &mut balances,
+        100,
+        true,
+    );
     // Sanity check that in-memory tries are loaded, and garbage collected properly.
     // We should have 4 roots for each loaded shard, because we maintain in-memory
     // roots until (and including) the prev block of the last final block. So if the
@@ -177,10 +196,10 @@ fn test_in_memory_trie_node_consistency() {
 
     // Restart nodes, and change some configs.
     drop(env);
-    let mut env = TestEnv::builder(chain_genesis.clone())
+    let mut env = TestEnv::builder(&genesis.config)
+        .clock(clock.clock())
         .clients(vec!["account0".parse().unwrap(), "account1".parse().unwrap()])
         .stores(stores.clone())
-        .real_epoch_managers(&genesis.config)
         .track_all_shards()
         .nightshade_runtimes_with_trie_config(
             &genesis,
@@ -196,7 +215,14 @@ fn test_in_memory_trie_node_consistency() {
             ],
         )
         .build();
-    run_chain_for_some_blocks_while_sending_money_around(&mut env, &mut nonces, &mut balances, 100);
+    run_chain_for_some_blocks_while_sending_money_around(
+        &mut clock,
+        &mut env,
+        &mut nonces,
+        &mut balances,
+        100,
+        true,
+    );
     assert_eq!(num_memtrie_roots(&env, 0, "s0.v1".parse().unwrap()), None);
     assert_eq!(num_memtrie_roots(&env, 0, "s1.v1".parse().unwrap()), None);
     assert_eq!(num_memtrie_roots(&env, 0, "s2.v1".parse().unwrap()), None);
@@ -208,10 +234,10 @@ fn test_in_memory_trie_node_consistency() {
 
     // Restart again, but this time flip the nodes.
     drop(env);
-    let mut env = TestEnv::builder(chain_genesis)
+    let mut env = TestEnv::builder(&genesis.config)
+        .clock(clock.clock())
         .clients(vec!["account0".parse().unwrap(), "account1".parse().unwrap()])
         .stores(stores)
-        .real_epoch_managers(&genesis.config)
         .track_all_shards()
         .nightshade_runtimes_with_trie_config(
             &genesis,
@@ -229,7 +255,14 @@ fn test_in_memory_trie_node_consistency() {
             ],
         )
         .build();
-    run_chain_for_some_blocks_while_sending_money_around(&mut env, &mut nonces, &mut balances, 100);
+    run_chain_for_some_blocks_while_sending_money_around(
+        &mut clock,
+        &mut env,
+        &mut nonces,
+        &mut balances,
+        100,
+        true,
+    );
     assert_eq!(num_memtrie_roots(&env, 0, "s0.v1".parse().unwrap()), None);
     assert_eq!(num_memtrie_roots(&env, 0, "s1.v1".parse().unwrap()), Some(4));
     assert_eq!(num_memtrie_roots(&env, 0, "s2.v1".parse().unwrap()), None);
@@ -251,6 +284,17 @@ fn get_block_producer(env: &TestEnv, head: &Tip, height_offset: u64) -> AccountI
     block_producer
 }
 
+fn check_block_does_not_have_missing_chunks(block: &Block) {
+    for chunk in block.chunks().iter() {
+        if !chunk.is_new_chunk(block.header().height()) {
+            panic!(
+                "Block at height {} is produced without all chunks; the test setup is faulty",
+                block.header().height()
+            );
+        }
+    }
+}
+
 /// Runs the chain for some number of blocks, sending money around randomly between
 /// the test accounts, updating the corresponding nonces and balances. At the end,
 /// check that the balances are correct, i.e. the transactions have been executed
@@ -259,13 +303,17 @@ fn get_block_producer(env: &TestEnv, head: &Tip, height_offset: u64) -> AccountI
 /// root mismatch issue, the two nodes would not be able to apply each others'
 /// blocks because the block hashes would be different.
 fn run_chain_for_some_blocks_while_sending_money_around(
+    clock: &mut FakeClock,
     env: &mut TestEnv,
     nonces: &mut HashMap<AccountId, u64>,
     balances: &mut HashMap<AccountId, u128>,
     num_rounds: usize,
+    track_all_shards: bool,
 ) {
     // Run the chain for some extra blocks, to ensure that all transactions are
     // included in the chain and are executed completely.
+    let mut total_txs_included_in_chunks = 0;
+    let mut num_chunks_not_found_in_all_clients = 0;
     for round in 0..(num_rounds + 10) {
         let heads = env
             .clients
@@ -291,10 +339,14 @@ fn run_chain_for_some_blocks_while_sending_money_around(
                     ONE_NEAR,
                     tip.last_block_hash,
                 );
-                match env.clients[0].process_tx(txn, false, false) {
-                    ProcessTxResponse::NoResponse => panic!("No response"),
-                    ProcessTxResponse::InvalidTx(err) => panic!("Invalid tx: {}", err),
-                    _ => {}
+                // Process the txn in all shards, because they may not always
+                // get a chance to produce the txn if they don't track the shard.
+                for client in &mut env.clients {
+                    match client.process_tx(txn.clone(), false, false) {
+                        ProcessTxResponse::NoResponse => panic!("No response"),
+                        ProcessTxResponse::InvalidTx(err) => panic!("Invalid tx: {}", err),
+                        _ => {}
+                    }
                 }
                 *balances.get_mut(&sender).unwrap() -= ONE_NEAR;
                 *balances.get_mut(&receiver).unwrap() += ONE_NEAR;
@@ -305,6 +357,9 @@ fn run_chain_for_some_blocks_while_sending_money_around(
         let next_block_producer = get_block_producer(&env, &tip, 2);
         println!("Producing block at height {} by {}", tip.height + 1, cur_block_producer);
         let block = env.client(&cur_block_producer).produce_block(tip.height + 1).unwrap().unwrap();
+        if round > 0 {
+            check_block_does_not_have_missing_chunks(&block);
+        }
 
         // Let's produce some skip blocks too so that we test that in-memory tries are able to
         // deal with forks.
@@ -326,8 +381,13 @@ fn run_chain_for_some_blocks_while_sending_money_around(
             skip_block = Some(
                 env.client(&next_block_producer).produce_block(tip.height + 2).unwrap().unwrap(),
             );
+            if round > 0 {
+                check_block_does_not_have_missing_chunks(&skip_block.as_ref().unwrap());
+            }
         }
 
+        let block_processed =
+            if let Some(skip_block) = &skip_block { skip_block.clone() } else { block.clone() };
         // Apply height + 1 block.
         for i in 0..env.clients.len() {
             println!(
@@ -354,15 +414,46 @@ fn run_chain_for_some_blocks_while_sending_money_around(
             }
         }
 
+        for chunk in block_processed.chunks().iter() {
+            let mut chunks_found = 0;
+            for i in 0..env.clients.len() {
+                let client = &env.clients[i];
+                if let Ok(chunk) = client.chain.get_chunk(&chunk.chunk_hash()) {
+                    if chunks_found == 0 {
+                        total_txs_included_in_chunks += chunk.transactions().len();
+                    }
+                    chunks_found += 1;
+                }
+            }
+            if chunks_found == 0 {
+                panic!("Chunk {:?} not found in any client", chunk.chunk_hash());
+            }
+            if chunks_found != env.clients.len() {
+                num_chunks_not_found_in_all_clients += 1;
+            }
+        }
+
         // Send partial encoded chunks around so that the newly produced chunks
         // can be included and processed in the next block. Having to do this
         // sucks, because this test has nothing to do with partial encoded
         // chunks, but it is the unfortunate reality when using TestEnv with
         // multiple nodes.
+        clock.advance(CHUNK_REQUEST_SWITCH_TO_FULL_FETCH);
+        for i in 0..env.clients.len() {
+            env.shards_manager_adapters[i].send(ShardsManagerResendChunkRequests);
+        }
         env.process_partial_encoded_chunks();
         for j in 0..env.clients.len() {
             env.process_shards_manager_responses_and_finish_processing_blocks(j);
         }
+        env.propagate_chunk_state_witnesses_and_endorsements(false);
+    }
+
+    assert_eq!(total_txs_included_in_chunks, 50 * num_rounds);
+    if track_all_shards {
+        assert_eq!(num_chunks_not_found_in_all_clients, 0);
+    } else {
+        assert!(num_chunks_not_found_in_all_clients > 0);
     }
 
     for (account, balance) in balances {
@@ -387,4 +478,152 @@ fn num_memtrie_roots(env: &TestEnv, client_id: usize, shard: ShardUId) -> Option
             .unwrap()
             .num_roots(),
     )
+}
+
+/// Base case for testing in-memory tries consistency with state sync.
+/// This base case does not use in-memory tries. We leave this test here
+/// nonetheless, because single-shard tracking setup is difficult to get
+/// right.
+fn test_in_memory_trie_consistency_with_state_sync_base_case(track_all_shards: bool) {
+    // Recommended to run with RUST_LOG=memtrie=debug,chunks=error,info
+    init_test_logger();
+    let validator_stake = 1000000 * ONE_NEAR;
+    let initial_balance = 10000 * ONE_NEAR;
+    let accounts =
+        (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
+    // We'll test with 4 shards. This can be any number, but we want to test
+    // the case when some shards are loaded into memory and others are not.
+    // We pick the boundaries so that each shard would get some transactions.
+    const NUM_VALIDATORS_PER_SHARD: usize = 1;
+    let shard_layout = ShardLayout::v1(
+        vec!["account3", "account5", "account7"].into_iter().map(|a| a.parse().unwrap()).collect(),
+        None,
+        1,
+    );
+    const NUM_VALIDATORS: usize = NUM_VALIDATORS_PER_SHARD * 4;
+    let mut genesis_config = GenesisConfig {
+        // Use the latest protocol version. Otherwise, the version may be too
+        // old that e.g. blocks don't even store previous heights.
+        protocol_version: PROTOCOL_VERSION,
+        // Some arbitrary starting height. Doesn't matter.
+        genesis_height: 10000,
+        shard_layout,
+        // We're going to send NEAR between accounts and then assert at the end
+        // that these transactions have been processed correctly, so here we set
+        // the gas price to 0 so that we don't have to calculate gas cost.
+        min_gas_price: 0,
+        max_gas_price: 0,
+        // Set the block gas limit high enough so we don't have to worry about
+        // transactions being throttled.
+        gas_limit: 100000000000000,
+        // Set the validity period high enough so even if a transaction gets
+        // included a few blocks later it won't be rejected.
+        transaction_validity_period: 1000,
+        validators: (0..NUM_VALIDATORS)
+            .map(|i| AccountInfo {
+                account_id: accounts[i].clone(),
+                amount: validator_stake,
+                public_key: create_test_signer(accounts[i].as_str()).public_key(),
+            })
+            .collect(),
+        // Test epoch transitions.
+        epoch_length: 10,
+        // The genesis requires this, so set it to something arbitrary.
+        protocol_treasury_account: accounts[10].clone(),
+        // Simply make all validators block producers.
+        num_block_producer_seats: NUM_VALIDATORS as u64,
+        minimum_validators_per_shard: NUM_VALIDATORS_PER_SHARD as u64,
+        // Even though not used for the most recent protocol version,
+        // this must still have the same length as the number of shards,
+        // or else the genesis fails validation.
+        num_block_producer_seats_per_shard: vec![0, 0, 0, 0],
+        ..Default::default()
+    };
+
+    // We'll now create the initial records. We'll set up 100 accounts, each
+    // with some initial balance. We'll add an access key to each account so
+    // we can send transactions from them.
+    let mut records = Vec::new();
+    for (i, account) in accounts.iter().enumerate() {
+        // The staked amount must be consistent with validators from genesis.
+        let staked = if i < NUM_VALIDATORS { validator_stake } else { 0 };
+        records.push(StateRecord::Account {
+            account_id: account.clone(),
+            account: Account::new(
+                initial_balance,
+                staked,
+                0,
+                CryptoHash::default(),
+                0,
+                genesis_config.protocol_version,
+            ),
+        });
+        records.push(StateRecord::AccessKey {
+            account_id: account.clone(),
+            public_key: create_user_test_signer(&account).public_key,
+            access_key: AccessKey::full_access(),
+        });
+        // The total supply must be correct to pass validation.
+        genesis_config.total_supply += initial_balance + staked;
+    }
+    let genesis = Genesis::new(genesis_config.clone(), GenesisRecords(records)).unwrap();
+
+    let mut clock = FakeClock::new(Utc::UNIX_EPOCH);
+    let stores = (0..NUM_VALIDATORS).map(|_| create_test_store()).collect::<Vec<_>>();
+    let mut env = TestEnv::builder(&genesis_config)
+        .clients((0..NUM_VALIDATORS).map(|i| format!("account{}", i).parse().unwrap()).collect())
+        .stores(stores)
+        .maybe_track_all_shards(track_all_shards)
+        .nightshade_runtimes_with_trie_config(
+            &genesis,
+            // Don't load any memtries.
+            (0..NUM_VALIDATORS).map(|_| TrieConfig::default()).collect(),
+        )
+        .build();
+
+    // Sanity check that we should have 4 block producers.
+    assert_eq!(
+        env.clients[0]
+            .epoch_manager
+            .get_epoch_block_producers_ordered(
+                &EpochId::default(),
+                &env.clients[0].chain.head().unwrap().last_block_hash
+            )
+            .unwrap()
+            .len(),
+        NUM_VALIDATORS
+    );
+
+    // Start the nodes from genesis, and then send transactions.
+    let mut nonces =
+        accounts.iter().map(|account| (account.clone(), 0)).collect::<HashMap<AccountId, u64>>();
+    let mut balances = accounts
+        .iter()
+        .map(|account| (account.clone(), initial_balance))
+        .collect::<HashMap<AccountId, u128>>();
+
+    run_chain_for_some_blocks_while_sending_money_around(
+        &mut clock,
+        &mut env,
+        &mut nonces,
+        &mut balances,
+        100,
+        track_all_shards,
+    );
+    // Assert that indeed no memtries are loaded.
+    for i in 0..NUM_VALIDATORS {
+        for shard_id in 0..4 {
+            assert_eq!(num_memtrie_roots(&env, i, ShardUId { version: 1, shard_id }), None);
+        }
+    }
+}
+
+#[test]
+fn test_in_memory_trie_consistency_with_state_sync_base_case_track_single_shard() {
+    test_in_memory_trie_consistency_with_state_sync_base_case(false);
+}
+
+#[test]
+fn test_in_memory_trie_consistency_with_state_sync_base_case_track_all_shards() {
+    test_in_memory_trie_consistency_with_state_sync_base_case(true);
 }

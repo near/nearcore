@@ -8,6 +8,9 @@ pessimistic_gas_price_inflation: {
   denominator: 100,
 }
 
+# Stateless validation config
+storage_proof_size_soft_limit: 999_999_999_999_999
+
 # Account creation config
 min_allowed_top_level_account_length: 0
 registrar_account_id: "registrar"
@@ -167,24 +170,29 @@ wasm_alt_bn128_pairing_check_base: 9_685_508_901_000
 wasm_alt_bn128_pairing_check_element: 26_575_188_546
 wasm_alt_bn128_g1_sum_base: 3_175_314_375
 wasm_alt_bn128_g1_sum_element: 76_218_543
-wasm_bls12381_p1_sum_base: 0
-wasm_bls12381_p1_sum_element: 0
-wasm_bls12381_p2_sum_base: 0
-wasm_bls12381_p2_sum_element: 0
-wasm_bls12381_p1_multiexp_base: 0
-wasm_bls12381_p1_multiexp_element: 0
-wasm_bls12381_p2_multiexp_base: 0
-wasm_bls12381_p2_multiexp_element: 0
-wasm_bls12381_map_fp_to_g1_base: 0
-wasm_bls12381_map_fp_to_g1_element: 0
-wasm_bls12381_map_fp2_to_g2_base: 0
-wasm_bls12381_map_fp2_to_g2_element: 0
-wasm_bls12381_pairing_base: 0
-wasm_bls12381_pairing_element: 0
-wasm_bls12381_p1_decompress_base: 0
-wasm_bls12381_p1_decompress_element: 0
-wasm_bls12381_p2_decompress_base: 0
-wasm_bls12381_p2_decompress_element: 0
+wasm_bls12381_p1_sum_base: 300_000_000_000_000
+wasm_bls12381_p1_sum_element: 300_000_000_000_000
+wasm_bls12381_p2_sum_base: 300_000_000_000_000
+wasm_bls12381_p2_sum_element: 300_000_000_000_000
+wasm_bls12381_p1_multiexp_base: 300_000_000_000_000
+wasm_bls12381_p1_multiexp_element: 300_000_000_000_000
+wasm_bls12381_p2_multiexp_base: 300_000_000_000_000
+wasm_bls12381_p2_multiexp_element: 300_000_000_000_000
+wasm_bls12381_map_fp_to_g1_base: 300_000_000_000_000
+wasm_bls12381_map_fp_to_g1_element: 300_000_000_000_000
+wasm_bls12381_map_fp2_to_g2_base: 300_000_000_000_000
+wasm_bls12381_map_fp2_to_g2_element: 300_000_000_000_000
+wasm_bls12381_pairing_base: 300_000_000_000_000
+wasm_bls12381_pairing_element: 300_000_000_000_000
+wasm_bls12381_p1_decompress_base: 300_000_000_000_000
+wasm_bls12381_p1_decompress_element: 300_000_000_000_000
+wasm_bls12381_p2_decompress_base: 300_000_000_000_000
+wasm_bls12381_p2_decompress_element: 300_000_000_000_000
+
+wasm_yield_create_base: 300_000_000_000_000
+wasm_yield_create_byte: 300_000_000_000_000
+wasm_yield_resume_base: 300_000_000_000_000
+wasm_yield_resume_byte: 300_000_000_000_000
 
 # Smart contract limits
 max_gas_burnt: 200_000_000_000_000
@@ -210,6 +218,8 @@ max_length_storage_key: 4_194_304
 max_length_storage_value: 4_194_304
 max_promises_per_function_call_action: 1_024
 max_number_input_data_dependencies: 128
+yield_timeout_length_in_blocks: 200
+max_yield_payload_size: 1_024 # kiB
 
 disable_9393_fix: false
 flat_storage_reads: false
@@ -221,3 +231,4 @@ alt_bn128: false
 function_call_weight: false
 vm_kind: Wasmer0
 eth_implicit_accounts: false
+yield_resume: false

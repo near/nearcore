@@ -58,7 +58,7 @@ impl<'a> GenesisValidator<'a> {
                         format!("Duplicate account id {} in genesis records", account_id);
                     self.validation_errors.push_genesis_semantics_error(error_message)
                 }
-                self.total_supply += account.locked() + account.amount();
+                self.total_supply += account.locked() + account.amount() + account.nonrefundable();
                 self.account_ids.insert(account_id.clone());
                 if account.locked() > 0 {
                     self.staked_accounts.insert(account_id.clone(), account.locked());
@@ -200,11 +200,31 @@ mod test {
     use near_crypto::{KeyType, PublicKey};
     use near_primitives::account::{AccessKey, Account};
     use near_primitives::types::AccountInfo;
+    use near_primitives::version::PROTOCOL_VERSION;
 
     const VALID_ED25519_RISTRETTO_KEY: &str = "ed25519:KuTCtARNzxZQ3YvXDeLjx83FDqxv2SdQTSbiq876zR7";
 
     fn create_account() -> Account {
-        Account::new(100, 10, Default::default(), 0)
+        Account::new(100, 10, 0, Default::default(), 0, PROTOCOL_VERSION)
+    }
+
+    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+    #[test]
+    fn test_total_supply_includes_nonrefundable_amount() {
+        let mut config = GenesisConfig::default();
+        config.epoch_length = 42;
+        config.total_supply = 111;
+        config.validators = vec![AccountInfo {
+            account_id: "test".parse().unwrap(),
+            public_key: VALID_ED25519_RISTRETTO_KEY.parse().unwrap(),
+            amount: 10,
+        }];
+        let records = GenesisRecords(vec![StateRecord::Account {
+            account_id: "test".parse().unwrap(),
+            account: Account::new(100, 10, 1, Default::default(), 0, PROTOCOL_VERSION),
+        }]);
+        let genesis = &Genesis::new(config, records).unwrap();
+        validate_genesis(genesis).unwrap();
     }
 
     #[test]

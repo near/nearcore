@@ -1,60 +1,72 @@
 mod kv_runtime;
 mod validator_schedule;
 
-use chrono::{DateTime, Utc};
-use num_rational::Ratio;
 use std::cmp::Ordering;
 use std::sync::Arc;
 
-pub use self::kv_runtime::account_id_to_shard_id;
-pub use self::kv_runtime::KeyValueRuntime;
-pub use self::kv_runtime::MockEpochManager;
-pub use self::validator_schedule::ValidatorSchedule;
 use crate::block_processing_utils::BlockNotInPoolError;
 use crate::chain::Chain;
+use crate::rayon_spawner::RayonAsyncComputationSpawner;
+use crate::runtime::NightshadeRuntime;
 use crate::store::ChainStoreAccess;
 use crate::types::{AcceptedBlock, ChainConfig, ChainGenesis};
 use crate::DoomslugThresholdMode;
 use crate::{BlockProcessingArtifact, Provenance};
+use near_async::time::Clock;
+use near_chain_configs::Genesis;
 use near_chain_primitives::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_epoch_manager::EpochManager;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
-use near_primitives::static_clock::StaticClock;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, NumBlocks, NumShards};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
+use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use near_store::DBCol;
+use num_rational::Ratio;
 use tracing::debug;
 
-pub fn get_chain() -> Chain {
-    get_chain_with_epoch_length_and_num_shards(10, 1)
+pub use self::kv_runtime::{account_id_to_shard_id, KeyValueRuntime, MockEpochManager};
+pub use self::validator_schedule::ValidatorSchedule;
+
+pub fn get_chain(clock: Clock) -> Chain {
+    get_chain_with_epoch_length_and_num_shards(clock, 10, 1)
 }
 
-pub fn get_chain_with_num_shards(num_shards: NumShards) -> Chain {
-    get_chain_with_epoch_length_and_num_shards(10, num_shards)
+pub fn get_chain_with_num_shards(clock: Clock, num_shards: NumShards) -> Chain {
+    get_chain_with_epoch_length_and_num_shards(clock, 10, num_shards)
 }
 
-pub fn get_chain_with_epoch_length(epoch_length: NumBlocks) -> Chain {
-    get_chain_with_epoch_length_and_num_shards(epoch_length, 1)
+pub fn get_chain_with_epoch_length(clock: Clock, epoch_length: NumBlocks) -> Chain {
+    get_chain_with_epoch_length_and_num_shards(clock, epoch_length, 1)
 }
 
 pub fn get_chain_with_epoch_length_and_num_shards(
+    clock: Clock,
     epoch_length: NumBlocks,
     num_shards: NumShards,
 ) -> Chain {
     let store = create_test_store();
-    let chain_genesis = ChainGenesis::test();
-    let vs = ValidatorSchedule::new()
-        .block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]])
-        .num_shards(num_shards);
-    let epoch_manager = MockEpochManager::new_with_validators(store.clone(), vs, epoch_length);
+    let mut genesis = Genesis::test_sharded(
+        clock.clone(),
+        vec!["test1".parse::<AccountId>().unwrap()],
+        1,
+        vec![1; num_shards as usize],
+    );
+    genesis.config.epoch_length = epoch_length;
+    let tempdir = tempfile::tempdir().unwrap();
+    initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
+    let chain_genesis = ChainGenesis::new(&genesis.config);
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-    let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
+    let runtime =
+        NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
     Chain::new(
+        clock,
         epoch_manager,
         shard_tracker,
         runtime,
@@ -62,6 +74,7 @@ pub fn get_chain_with_epoch_length_and_num_shards(
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),
         None,
+        Arc::new(RayonAsyncComputationSpawner),
     )
     .unwrap()
 }
@@ -109,12 +122,14 @@ pub fn process_block_sync(
 }
 
 // TODO(#8190) Improve this testing API.
-pub fn setup() -> (Chain, Arc<MockEpochManager>, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>)
-{
-    setup_with_tx_validity_period(100)
+pub fn setup(
+    clock: Clock,
+) -> (Chain, Arc<MockEpochManager>, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
+    setup_with_tx_validity_period(clock, 100)
 }
 
 fn setup_with_tx_validity_period(
+    clock: Clock,
     tx_validity_period: NumBlocks,
 ) -> (Chain, Arc<MockEpochManager>, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
     let store = create_test_store();
@@ -123,11 +138,12 @@ fn setup_with_tx_validity_period(
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
     let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
     let chain = Chain::new(
+        clock.clone(),
         epoch_manager.clone(),
         shard_tracker,
         runtime.clone(),
         &ChainGenesis {
-            time: StaticClock::utc(),
+            time: clock.now_utc(),
             height: 0,
             gas_limit: 1_000_000,
             min_gas_price: 100,
@@ -141,6 +157,7 @@ fn setup_with_tx_validity_period(
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),
         None,
+        Arc::new(RayonAsyncComputationSpawner),
     )
     .unwrap();
 
@@ -149,6 +166,7 @@ fn setup_with_tx_validity_period(
 }
 
 pub fn setup_with_validators(
+    clock: Clock,
     vs: ValidatorSchedule,
     epoch_length: u64,
     tx_validity_period: NumBlocks,
@@ -160,11 +178,12 @@ pub fn setup_with_validators(
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
     let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
     let chain = Chain::new(
+        clock.clone(),
         epoch_manager.clone(),
         shard_tracker,
         runtime.clone(),
         &ChainGenesis {
-            time: StaticClock::utc(),
+            time: clock.now_utc(),
             height: 0,
             gas_limit: 1_000_000,
             min_gas_price: 100,
@@ -178,16 +197,17 @@ pub fn setup_with_validators(
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),
         None,
+        Arc::new(RayonAsyncComputationSpawner),
     )
     .unwrap();
     (chain, epoch_manager, runtime, signers)
 }
 
 pub fn setup_with_validators_and_start_time(
+    clock: Clock,
     vs: ValidatorSchedule,
     epoch_length: u64,
     tx_validity_period: NumBlocks,
-    start_time: DateTime<Utc>,
 ) -> (Chain, Arc<MockEpochManager>, Arc<KeyValueRuntime>, Vec<Arc<InMemoryValidatorSigner>>) {
     let store = create_test_store();
     let signers =
@@ -196,11 +216,12 @@ pub fn setup_with_validators_and_start_time(
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
     let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
     let chain = Chain::new(
+        clock.clone(),
         epoch_manager.clone(),
         shard_tracker,
         runtime.clone(),
         &ChainGenesis {
-            time: start_time,
+            time: clock.now_utc(),
             height: 0,
             gas_limit: 1_000_000,
             min_gas_price: 100,
@@ -214,6 +235,7 @@ pub fn setup_with_validators_and_start_time(
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),
         None,
+        Arc::new(RayonAsyncComputationSpawner),
     )
     .unwrap();
     (chain, epoch_manager, runtime, signers)
@@ -255,7 +277,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
         }
     });
     for header in headers {
-        if header.prev_hash() == &CryptoHash::default() {
+        if header.is_genesis() {
             // Genesis block.
             debug!("{: >3} {}", header.height(), format_hash(*header.hash()));
         } else {
@@ -307,7 +329,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
                             chunk_producer,
                             partial_chunk.parts().iter().map(|x| x.part_ord).collect::<Vec<_>>(),
                             partial_chunk
-                                .receipts()
+                                .prev_outgoing_receipts()
                                 .iter()
                                 .map(|x| format!("{} => {}", x.0.len(), x.1.to_shard_id))
                                 .collect::<Vec<_>>(),
@@ -319,33 +341,16 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
     }
 }
 
-impl ChainGenesis {
-    pub fn test() -> Self {
-        ChainGenesis {
-            time: StaticClock::utc(),
-            height: 0,
-            gas_limit: 10u64.pow(15),
-            min_gas_price: 0,
-            max_gas_price: 1_000_000_000,
-            total_supply: 1_000_000_000,
-            gas_price_adjustment_rate: Ratio::from_integer(0),
-            transaction_validity_period: 100,
-            epoch_length: 5,
-            protocol_version: PROTOCOL_VERSION,
-        }
-    }
-}
-
 #[cfg(test)]
 mod test {
     use std::convert::TryFrom;
 
+    use near_async::time::Clock;
     use rand::Rng;
 
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::Receipt;
     use near_primitives::sharding::ReceiptList;
-    use near_primitives::static_clock::StaticClock;
     use near_primitives::types::{AccountId, NumShards};
 
     use crate::Chain;
@@ -383,10 +388,10 @@ mod test {
                 )
             })
             .collect::<Vec<_>>();
-        let start = StaticClock::instant();
+        let start = Clock::real().now();
         let naive_result = naive_build_receipt_hashes(&receipts, &shard_layout);
         let naive_duration = start.elapsed();
-        let start = StaticClock::instant();
+        let start = Clock::real().now();
         let prod_result = Chain::build_receipts_hashes(&receipts, &shard_layout);
         let prod_duration = start.elapsed();
         assert_eq!(naive_result, prod_result);

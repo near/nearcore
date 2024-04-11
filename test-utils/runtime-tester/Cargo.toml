@@ -12,7 +12,6 @@ publish = false
 workspace = true
 
 [dependencies]
-bolero.workspace = true
 cpu-time.workspace = true
 libfuzzer-sys.workspace = true
 serde.workspace = true
@@ -35,3 +34,4 @@ near-test-contracts.workspace = true
 
 [dev-dependencies]
 testlib.workspace = true
+bolero.workspace = true

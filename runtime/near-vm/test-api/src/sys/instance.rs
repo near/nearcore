@@ -38,7 +38,7 @@ pub enum InstantiationError {
     #[error(transparent)]
     Link(LinkError),
 
-    /// A runtime error occured while invoking the start function
+    /// A runtime error occurred while invoking the start function
     #[error("could not invoke the start function: {0}")]
     Start(RuntimeError),
 

@@ -24,9 +24,7 @@ pub fn read_resource(path: &str) -> Vec<u8> {
 /// other systems. Requires write access to /proc/sys/vm/drop_caches
 #[cfg(target_os = "linux")]
 pub fn clear_linux_page_cache() -> std::io::Result<()> {
-    unsafe {
-        libc::sync();
-    }
+    rustix::fs::sync();
     std::fs::write("/proc/sys/vm/drop_caches", b"1")
 }
 
@@ -107,7 +105,10 @@ pub(crate) fn fn_cost(
     // should use `fn_cost_count`.
     let block_latency = 0;
     let (total_cost, measured_count) = fn_cost_count(ctx, method, ext_cost, block_latency);
-    assert_eq!(measured_count, count);
+    assert_eq!(
+        measured_count, count,
+        "fn_cost: measured_count={measured_count} did not match the expected {count}"
+    );
 
     let base_cost = noop_function_call_cost(ctx);
 
@@ -223,7 +224,10 @@ pub(crate) fn fn_cost_with_setup(
 
         (gas_cost, ext_costs[&ext_cost])
     };
-    assert_eq!(measured_count, count);
+    assert_eq!(
+        measured_count, count,
+        "fn_cost_with_setup: measured_count={measured_count} did not match {count}"
+    );
 
     let base_cost = noop_function_call_cost(ctx);
 

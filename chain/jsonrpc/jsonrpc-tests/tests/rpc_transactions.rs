@@ -5,6 +5,7 @@ use actix::{Actor, System};
 use futures::{future, FutureExt, TryFutureExt};
 
 use near_actix_test_utils::run_actix;
+use near_async::time::Clock;
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
 use near_jsonrpc_primitives::types::transactions::{RpcTransactionStatusRequest, TransactionInfo};
@@ -24,7 +25,7 @@ fn test_send_tx_async() {
     init_test_logger();
 
     run_actix(async {
-        let (_, addr) = test_utils::start_all(test_utils::NodeType::Validator);
+        let (_, addr) = test_utils::start_all(Clock::real(), test_utils::NodeType::Validator);
 
         let client = new_client(&format!("http://{}", addr));
 
@@ -107,7 +108,7 @@ fn test_send_tx_commit() {
             FinalExecutionStatus::SuccessValue(Vec::new())
         );
         assert!(
-            vec![TxExecutionStatus::Executed, TxExecutionStatus::Final]
+            [TxExecutionStatus::Executed, TxExecutionStatus::Final]
                 .contains(&result.final_execution_status),
             "All the receipts should be already executed"
         );
@@ -120,6 +121,7 @@ fn test_expired_tx() {
     init_integration_logger();
     run_actix(async {
         let (_, addr) = test_utils::start_all_with_validity_period_and_no_epoch_sync(
+            Clock::real(),
             test_utils::NodeType::Validator,
             1,
             false,

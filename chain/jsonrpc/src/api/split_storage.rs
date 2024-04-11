@@ -1,3 +1,4 @@
+use near_async::messaging::AsyncSendError;
 use near_client_primitives::types::GetSplitStorageInfoError;
 use near_jsonrpc_primitives::{
     errors::RpcParseError,
@@ -13,8 +14,8 @@ impl RpcRequest for RpcSplitStorageInfoRequest {
     }
 }
 
-impl RpcFrom<actix::MailboxError> for RpcSplitStorageInfoError {
-    fn rpc_from(error: actix::MailboxError) -> Self {
+impl RpcFrom<AsyncSendError> for RpcSplitStorageInfoError {
+    fn rpc_from(error: AsyncSendError) -> Self {
         Self::InternalError { error_message: error.to_string() }
     }
 }

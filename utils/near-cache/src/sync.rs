@@ -19,7 +19,7 @@ where
         Self { inner: Mutex::new(LruCache::<K, V>::new(cap)) }
     }
 
-    /// Returns the number of key-value pairs that are currently in the the cache.
+    /// Returns the number of key-value pairs that are currently in the cache.
     pub fn len(&self) -> usize {
         self.inner.lock().unwrap().len()
     }
@@ -72,6 +72,11 @@ where
     /// Moves the key to the head of the LRU list if it exists.
     pub fn get(&self, key: &K) -> Option<V> {
         self.inner.lock().unwrap().get(key).cloned()
+    }
+
+    /// Returns the lock over underlying LRU cache.
+    pub fn lock(&self) -> std::sync::MutexGuard<LruCache<K, V>> {
+        self.inner.lock().unwrap()
     }
 }
 

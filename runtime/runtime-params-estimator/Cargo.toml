@@ -26,7 +26,7 @@ clap.workspace = true
 enum-map.workspace = true
 hex.workspace = true
 indicatif.workspace = true
-libc.workspace = true
+rustix.workspace = true
 num-rational.workspace = true
 num-traits.workspace = true
 rand.workspace = true
@@ -48,7 +48,7 @@ near-parameters = { workspace = true, features = ["clap"] }
 near-primitives.workspace = true
 near-store.workspace = true
 near-test-contracts.workspace = true
-near-vm-runner.workspace = true
+near-vm-runner = { workspace = true, features = [ "near_vm", "prepare" ] }
 nearcore.workspace = true
 node-runtime.workspace = true
 
@@ -69,7 +69,6 @@ no_cache = [
   "near-store/no_cache",
 ]
 nightly = [
-  "nightly_protocol",
   "genesis-populate/nightly",
   "near-chain-configs/nightly",
   "near-fmt/nightly",
@@ -77,8 +76,10 @@ nightly = [
   "near-parameters/nightly",
   "near-primitives/nightly",
   "near-store/nightly",
+  "near-test-contracts/nightly",
   "near-vm-runner/nightly",
   "nearcore/nightly",
+  "nightly_protocol",
   "node-runtime/nightly",
 ]
 nightly_protocol = [
@@ -89,9 +90,12 @@ nightly_protocol = [
   "near-parameters/nightly_protocol",
   "near-primitives/nightly_protocol",
   "near-store/nightly_protocol",
+  "near-test-contracts/nightly",
   "near-vm-runner/nightly_protocol",
   "nearcore/nightly_protocol",
   "node-runtime/nightly_protocol",
+  "protocol_feature_bls12381",
 ]
 sandbox = ["node-runtime/sandbox"]
 io_trace = ["near-store/io_trace", "near-o11y/io_trace", "near-vm-runner/io_trace"]
+protocol_feature_bls12381 = []

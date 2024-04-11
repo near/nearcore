@@ -91,30 +91,36 @@ impl TriePrefetcher {
         receipts: &[Receipt],
     ) -> Result<(), PrefetchError> {
         for receipt in receipts.iter() {
-            if let ReceiptEnum::Action(action_receipt) = &receipt.receipt {
-                let account_id = receipt.receiver_id.clone();
+            match &receipt.receipt {
+                ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
+                    let account_id = receipt.receiver_id.clone();
 
-                // general-purpose account prefetching
-                if self.prefetch_api.enable_receipt_prefetching {
-                    let trie_key = TrieKey::Account { account_id: account_id.clone() };
-                    self.prefetch_trie_key(trie_key)?;
-                }
+                    // general-purpose account prefetching
+                    if self.prefetch_api.enable_receipt_prefetching {
+                        let trie_key = TrieKey::Account { account_id: account_id.clone() };
+                        self.prefetch_trie_key(trie_key)?;
+                    }
 
-                // SWEAT specific argument prefetcher
-                if self.prefetch_api.sweat_prefetch_receivers.contains(&account_id)
-                    && self.prefetch_api.sweat_prefetch_senders.contains(&receipt.predecessor_id)
-                {
-                    for action in &action_receipt.actions {
-                        if let Action::FunctionCall(fn_call) = action {
-                            if fn_call.method_name == "record_batch" {
-                                self.prefetch_sweat_record_batch(
-                                    account_id.clone(),
-                                    &fn_call.args,
-                                )?;
+                    // SWEAT specific argument prefetcher
+                    if self.prefetch_api.sweat_prefetch_receivers.contains(&account_id)
+                        && self
+                            .prefetch_api
+                            .sweat_prefetch_senders
+                            .contains(&receipt.predecessor_id)
+                    {
+                        for action in &action_receipt.actions {
+                            if let Action::FunctionCall(fn_call) = action {
+                                if fn_call.method_name == "record_batch" {
+                                    self.prefetch_sweat_record_batch(
+                                        account_id.clone(),
+                                        &fn_call.args,
+                                    )?;
+                                }
                             }
                         }
                     }
                 }
+                ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => {}
             }
         }
         Ok(())

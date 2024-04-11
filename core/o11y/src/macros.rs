@@ -11,7 +11,7 @@ macro_rules! handler_span {
             actor = near_o11y::macros::last_component_of_name(std::any::type_name::<Self>()),
             $($extra_fields)*)
         .entered();
-        span.set_parent(context);
+        <tracing::span::Span as near_o11y::OpenTelemetrySpanExt>::set_parent(&span, context);
         (span, msg)
     }};
 }

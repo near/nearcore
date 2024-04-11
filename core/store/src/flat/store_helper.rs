@@ -232,7 +232,7 @@ pub fn set_flat_storage_status(
 /// Returns iterator over flat storage entries for a given shard and range of
 /// state keys. `None` means that there is no bound in respective direction.
 /// It reads data only from `FlatState` column which represents the state at
-/// flat storage head. Reads only commited changes.
+/// flat storage head. Reads only committed changes.
 pub fn iter_flat_state_entries<'a>(
     shard_uid: ShardUId,
     store: &'a Store,

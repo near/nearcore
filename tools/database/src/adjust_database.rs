@@ -40,7 +40,7 @@ impl ChangeDbKindCommand {
         let store = match self.db_selector {
             DbSelector::ChangeHot => storage.get_hot_store(),
             DbSelector::ChangeCold => {
-                storage.get_cold_store().ok_or(anyhow::anyhow!("No cold store"))?
+                storage.get_cold_store().ok_or_else(|| anyhow::anyhow!("No cold store"))?
             }
         };
         Ok(store.set_db_kind(self.new_kind)?)

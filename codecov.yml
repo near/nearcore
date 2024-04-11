@@ -1,6 +1,11 @@
 codecov:
   notify:
     after_n_builds: 10 # Keep in sync with .github/workflows/ci.yml
+  # Dear h4xx0rz reading this,
+  # Feel free to use this token to upload arbitrary coverage information to codecov.
+  # We do not care. The best you can do is make us facepalm.
+  # Best,
+  token: 1d44b2e4-764d-4336-b989-d3c620176bd2
 
 coverage:
   status:
@@ -17,6 +22,7 @@ component_management:
       - "!debug_scripts/**"
       - "!docs/**"
       - "!genesis-tools/**"
+      - "!integration-tests/**"
       - "!nightly/**"
       - "!tools/**"
     statuses:

@@ -41,7 +41,7 @@ impl SinglepassCompiler {
 impl Compiler for SinglepassCompiler {
     /// Compile the module using Singlepass, producing a compilation result with
     /// associated relocations.
-    #[tracing::instrument(target = "near_vm", level = "info", skip_all)]
+    #[tracing::instrument(target = "near_vm", level = "debug", skip_all)]
     fn compile_module(
         &self,
         target: &Target,
@@ -87,7 +87,7 @@ impl Compiler for SinglepassCompiler {
         };
         let import_idxs = 0..module.import_counts.functions as usize;
         let import_trampolines: PrimaryMap<SectionIndex, _> =
-            tracing::debug_span!(target: "near_vm", "import_trampolines", n_imports = import_idxs.len()).in_scope(
+            tracing::trace_span!(target: "near_vm", "import_trampolines", n_imports = import_idxs.len()).in_scope(
                 || {
                     import_idxs
                         .into_par_iter()
@@ -111,7 +111,7 @@ impl Compiler for SinglepassCompiler {
             .collect::<Vec<(LocalFunctionIndex, &FunctionBodyData<'_>)>>()
             .into_par_iter()
             .map_init(make_assembler, |assembler, (i, input)| {
-                tracing::debug_span!(target: "near_vm", "function", i = i.index()).in_scope(|| {
+                tracing::trace_span!(target: "near_vm", "function", i = i.index()).in_scope(|| {
                     let reader =
                         near_vm_compiler::FunctionReader::new(input.module_offset, input.data);
                     let stack_init_gas_cost = tunables
@@ -169,7 +169,7 @@ impl Compiler for SinglepassCompiler {
             .collect::<PrimaryMap<LocalFunctionIndex, CompiledFunction>>();
 
         let function_call_trampolines =
-            tracing::debug_span!(target: "near_vm", "function_call_trampolines").in_scope(|| {
+            tracing::trace_span!(target: "near_vm", "function_call_trampolines").in_scope(|| {
                 module
                     .signatures
                     .values()
@@ -184,7 +184,7 @@ impl Compiler for SinglepassCompiler {
             });
 
         let dynamic_function_trampolines =
-            tracing::debug_span!(target: "near_vm", "dynamic_function_trampolines").in_scope(
+            tracing::trace_span!(target: "near_vm", "dynamic_function_trampolines").in_scope(
                 || {
                     module
                         .imported_function_types()

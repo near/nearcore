@@ -478,8 +478,11 @@ fn retrieve_partial_encoded_chunk(
         .collect();
 
     // Same process for receipts as above for parts.
-    let present_receipts: HashMap<ShardId, _> =
-        partial_chunk.receipts().iter().map(|receipt| (receipt.1.to_shard_id, receipt)).collect();
+    let present_receipts: HashMap<ShardId, _> = partial_chunk
+        .prev_outgoing_receipts()
+        .iter()
+        .map(|receipt| (receipt.1.to_shard_id, receipt))
+        .collect();
     let receipts: Vec<_> = request
         .tracking_shards
         .iter()

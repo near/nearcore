@@ -1,5 +1,5 @@
 use crate::test_utils::TestEnv;
-use near_chain::{ChainGenesis, Provenance};
+use near_chain::Provenance;
 use near_crypto::KeyType;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::{Approval, ApprovalType};
@@ -19,8 +19,11 @@ use near_primitives::validator_signer::InMemoryValidatorSigner;
 fn test_processing_skips_on_forks() {
     init_test_logger();
 
-    let mut env =
-        TestEnv::builder(ChainGenesis::test()).clients_count(2).validator_seats(2).build();
+    let mut env = TestEnv::default_builder()
+        .clients_count(2)
+        .validator_seats(2)
+        .mock_epoch_managers()
+        .build();
     let b1 = env.clients[1].produce_block(1).unwrap().unwrap();
     let b2 = env.clients[0].produce_block(2).unwrap().unwrap();
     assert_eq!(b1.header().prev_hash(), b2.header().prev_hash());

@@ -1,27 +1,27 @@
 mod metrics;
 
-use actix::{Actor, Addr, Context, Handler};
+use actix::{Actor, Context, Handler};
 use awc::{Client, Connector};
 use futures::FutureExt;
-use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
+use near_async::time::{Duration, Instant};
+use near_o11y::{handler_debug_span, WithSpanContext};
 use near_performance_metrics_macros::perf;
-use near_primitives::static_clock::StaticClock;
 use std::ops::Sub;
-use std::time::{Duration, Instant};
 
 /// Timeout for establishing connection.
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct TelemetryConfig {
     pub endpoints: Vec<String>,
     /// Only one request will be allowed in the specified time interval.
     #[serde(default = "default_reporting_interval")]
-    pub reporting_interval: std::time::Duration,
+    #[serde(with = "near_async::time::serde_duration_as_std")]
+    pub reporting_interval: Duration,
 }
 
-fn default_reporting_interval() -> std::time::Duration {
-    std::time::Duration::from_secs(10)
+fn default_reporting_interval() -> Duration {
+    Duration::seconds(10)
 }
 
 impl Default for TelemetryConfig {
@@ -35,6 +35,12 @@ impl Default for TelemetryConfig {
 #[rtype(result = "()")]
 pub struct TelemetryEvent {
     content: serde_json::Value,
+}
+
+impl TelemetryEvent {
+    pub fn new(content: serde_json::Value) -> Self {
+        Self { content }
+    }
 }
 
 pub struct TelemetryActor {
@@ -69,7 +75,7 @@ impl TelemetryActor {
             config,
             client,
             // Let the node report telemetry info at the startup.
-            last_telemetry_update: std::time::Instant::now().sub(reporting_interval),
+            last_telemetry_update: Instant::now().sub(reporting_interval),
         }
     }
 }
@@ -85,8 +91,8 @@ impl Handler<WithSpanContext<TelemetryEvent>> for TelemetryActor {
     fn handle(&mut self, msg: WithSpanContext<TelemetryEvent>, _ctx: &mut Context<Self>) {
         let (_span, msg) = handler_debug_span!(target: "telemetry", msg);
         tracing::debug!(target: "client", ?msg);
-        let now = StaticClock::instant();
-        if now.duration_since(self.last_telemetry_update) < self.config.reporting_interval {
+        let now = Instant::now();
+        if now - self.last_telemetry_update < self.config.reporting_interval {
             // Throttle requests to the telemetry endpoints, to at most one
             // request per `self.config.reporting_interval`.
             return;
@@ -116,9 +122,4 @@ impl Handler<WithSpanContext<TelemetryEvent>> for TelemetryActor {
         }
         self.last_telemetry_update = now;
     }
-}
-
-/// Send telemetry event to all the endpoints.
-pub fn telemetry(telemetry: &Addr<TelemetryActor>, content: serde_json::Value) {
-    telemetry.do_send(TelemetryEvent { content }.with_span_context());
 }

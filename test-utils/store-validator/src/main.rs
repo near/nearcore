@@ -6,7 +6,7 @@ use near_epoch_manager::{
     EpochManager,
 };
 use near_o11y::testonly::init_integration_logger;
-use nearcore::{get_default_home, load_config};
+use nearcore::{get_default_home, load_config, NightshadeRuntimeExt};
 use std::path::PathBuf;
 use std::process;
 use yansi::Color::{Green, Red, White, Yellow};

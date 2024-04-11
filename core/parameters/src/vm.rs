@@ -132,6 +132,10 @@ pub struct LimitConfig {
     /// historically.
     #[serde(default = "AccountIdValidityRulesVersion::v0")]
     pub account_id_validity_rules_version: AccountIdValidityRulesVersion,
+    /// Number of blocks after which a yielded promise times out.
+    pub yield_timeout_length_in_blocks: u64,
+    /// Maximum number of bytes for payload passed over a yield resume.
+    pub max_yield_payload_size: u64,
 }
 
 /// Dynamic configuration parameters required for the WASM runtime to
@@ -183,6 +187,9 @@ pub struct Config {
     /// Enable the `EthImplicitAccounts` protocol feature.
     pub eth_implicit_accounts: bool,
 
+    /// Enable the `promise_yield_create` and `promise_yield_resume` host functions.
+    pub yield_resume_host_functions: bool,
+
     /// Describes limits for VM and Runtime.
     pub limit_config: LimitConfig,
 }
@@ -205,6 +212,16 @@ impl Config {
         self.grow_mem_cost = 0;
         self.regular_op_cost = 0;
         self.limit_config.max_gas_burnt = u64::MAX;
+    }
+
+    pub fn enable_all_features(&mut self) {
+        self.yield_resume_host_functions = true;
+        self.eth_implicit_accounts = true;
+        self.function_call_weight = true;
+        self.alt_bn128 = true;
+        self.ed25519_verify = true;
+        self.math_extension = true;
+        self.implicit_account_creation = true;
     }
 }
 

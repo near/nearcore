@@ -57,6 +57,13 @@ export class EventItem {
             const secondBracket = /[({]/.exec(afterFirstParens);
             if (secondBracket !== null) {
                 this.subtitle = afterFirstParens.substring(0, secondBracket.index);
+                if (this.subtitle === "DelayedAction"
+                    || this.subtitle === "Task"
+                    || this.subtitle === "AsyncComputation") {
+                    // Special logic for DelayedAction and Task, where we're more interested
+                    // in the name, which is printed in the parens.
+                    this.subtitle = afterFirstParens.substring(secondBracket.index + 1, afterFirstParens.length - 1);
+                }
             } else {
                 this.subtitle = afterFirstParens;
             }
@@ -167,39 +174,40 @@ export class EventItemCollection {
         const parentIds = [] as (number | null)[];
         let totalEventCount = 0;
         for (const line of lines) {
-            // This marker marks the beginning of handling a TestLoop event.
-            // Search for this string on the Rust side to see the logic that
-            // emitted these markers. Lines after this marker and before
-            // the next marker are log messages that are emitted while handling
-            // this event.
-            const marker = 'TEST_LOOP_EVENT_START ';
-            const index = line.indexOf(marker);
-            if (index == -1) {
+            // The start and end markers are emitted for each event handled by
+            // the TestLoop. Lines between these markers are log messages
+            // emitted while handling this event.
+            const startMarker = 'TEST_LOOP_EVENT_START ';
+            const endMarker = 'TEST_LOOP_EVENT_END ';
+            const startIndex = line.indexOf(startMarker);
+            const endIndex = line.indexOf(endMarker);
+            if (startIndex != -1) {
+                type EventStartLogLineData = {
+                    current_index: number;
+                    total_events: number;
+                    current_event: string;
+                    current_time_ms: number;
+                };
+                const startData = JSON.parse(line.substring(startIndex + startMarker.length)) as EventStartLogLineData;
+                totalEventCount = startData.total_events;
+                const event = new EventItem(
+                    startData.current_index,
+                    parentIds[startData.current_index] ?? null,
+                    startData.current_time_ms,
+                    startData.current_event,
+                );
+                items.add(event);
+            } else if (endIndex != -1) {
+                type EventEndLogLineData = {
+                    total_events: number;
+                };
+                const endData = JSON.parse(line.substring(endIndex + endMarker.length)) as EventEndLogLineData;
+                for (let i = totalEventCount; i < endData.total_events; i++) {
+                    parentIds[i] = items.lastEvent()!.id;
+                }
+            } else {
                 items.lastEvent()?.logRows?.push(line);
-                continue;
             }
-            type LogLineData = {
-                current_index: number;
-                total_events: number;
-                current_event: string;
-                current_time_ms: number;
-            };
-            const parsed = JSON.parse(line.substring(index + marker.length)) as LogLineData;
-            // Any event IDs between the previously seen total_events count and
-            // the currently reported total_events count are events that were
-            // emitted by the handling of the previous event. Therefore, the
-            // previous event is the parent of all these new IDs.
-            for (let i = totalEventCount; i < parsed.total_events; i++) {
-                parentIds[i] = items.lastEvent()?.id ?? null;
-            }
-            totalEventCount = parsed.total_events;
-            const event = new EventItem(
-                parsed.current_index,
-                parentIds[parsed.current_index],
-                parsed.current_time_ms,
-                parsed.current_event
-            );
-            items.add(event);
         }
         return items;
     }

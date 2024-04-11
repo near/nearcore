@@ -38,6 +38,7 @@ pub const STATE_SNAPSHOT_KEY: &[u8; 18] = b"STATE_SNAPSHOT_KEY";
 // `DBCol::Misc` keys
 pub const FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS_KEY: &[u8] =
     b"FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS";
+pub const STATE_TRANSITION_START_HEIGHTS: &[u8] = b"STATE_TRANSITION_START_HEIGHTS";
 
 #[derive(Default, Debug)]
 pub struct DBTransaction {

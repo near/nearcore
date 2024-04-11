@@ -29,10 +29,10 @@ pub(crate) fn test_builder() -> TestBuilder {
         output_data_receivers: vec![],
     };
     let mut skip = HashSet::new();
-    if cfg!(not(target_arch = "x86_64")) {
-        skip.insert(VMKind::Wasmer0);
-        skip.insert(VMKind::Wasmer2);
-        skip.insert(VMKind::NearVm);
+    for kind in [VMKind::Wasmer0, VMKind::Wasmer2, VMKind::NearVm, VMKind::Wasmtime] {
+        if !kind.is_available() {
+            skip.insert(kind);
+        }
     }
     TestBuilder {
         code: ContractCode::new(Vec::new(), None),
@@ -219,7 +219,9 @@ impl TestBuilder {
 
                 let promise_results = vec![];
 
-                let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
+                let Some(runtime) = vm_kind.runtime(config) else {
+                    panic!("runtime for {:?} has not been compiled", vm_kind);
+                };
                 println!("Running {:?} for protocol version {}", vm_kind, protocol_version);
                 let outcome = runtime
                     .run(

@@ -138,7 +138,8 @@ impl EpochInfoAggregator {
                 epoch_info,
                 prev_block_height + 1,
                 i as ShardId,
-            );
+            )
+            .unwrap();
             let tracker = self.shard_tracker.entry(i as ShardId).or_insert_with(HashMap::new);
             tracker
                 .entry(chunk_validator_id)

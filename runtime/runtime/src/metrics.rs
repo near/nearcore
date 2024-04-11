@@ -178,6 +178,24 @@ static CHUNK_INC_RECEIPTS_TGAS: Lazy<HistogramVec> = Lazy::new(|| {
     )
     .unwrap()
 });
+static CHUNK_YIELD_TIMEOUTS_COMPUTE: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_chunk_yield_timeouts_compute",
+        "Compute time for triggering timed-out yields by chunk, as a histogram in ms",
+        &["shard_id"],
+        buckets_for_compute(),
+    )
+    .unwrap()
+});
+static CHUNK_YIELD_TIMEOUTS_TGAS: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_chunk_yield_timeouts_tgas",
+        "Tgas burnt for triggering timed-out yields by chunk, as a histogram in ms",
+        &["shard_id"],
+        buckets_for_gas(),
+    )
+    .unwrap()
+});
 static CHUNK_TX_COMPUTE: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
         "near_chunk_tx_compute",
@@ -234,6 +252,8 @@ pub struct ApplyMetrics {
     delayed_receipts_gas: u64,
     incoming_receipts_compute_usage: u64,
     incoming_receipts_gas: u64,
+    yield_timeouts_compute_usage: u64,
+    yield_timeouts_gas: u64,
 }
 
 impl ApplyMetrics {
@@ -270,6 +290,11 @@ impl ApplyMetrics {
             self.update_accumulated(accumulated_gas, accumulated_compute);
     }
 
+    pub fn yield_timeouts_done(&mut self, accumulated_gas: u64, accumulated_compute: u64) {
+        (self.yield_timeouts_gas, self.yield_timeouts_compute_usage) =
+            self.update_accumulated(accumulated_gas, accumulated_compute);
+    }
+
     /// Report statistics
     pub fn report(&self, shard_id: &str) {
         const TERA: f64 = 1_000_000_000_000_f64;
@@ -299,6 +324,13 @@ impl ApplyMetrics {
         CHUNK_INC_RECEIPTS_COMPUTE
             .with_label_values(&[shard_id])
             .observe(self.incoming_receipts_compute_usage as f64 / TERA);
+
+        CHUNK_YIELD_TIMEOUTS_TGAS
+            .with_label_values(&[shard_id])
+            .observe(self.yield_timeouts_gas as f64 / TERA);
+        CHUNK_YIELD_TIMEOUTS_COMPUTE
+            .with_label_values(&[shard_id])
+            .observe(self.yield_timeouts_compute_usage as f64 / TERA);
 
         CHUNK_TGAS.with_label_values(&[shard_id]).observe(self.accumulated_gas as f64 / TERA);
         CHUNK_COMPUTE

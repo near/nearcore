@@ -2,6 +2,7 @@ use crate::block::BlockValidityError::{
     InvalidChallengeRoot, InvalidChunkHeaderRoot, InvalidChunkMask, InvalidReceiptRoot,
     InvalidStateRoot, InvalidTransactionRoot,
 };
+use crate::block_body::{BlockBody, BlockBodyV1, ChunkEndorsementSignatures};
 pub use crate::block_header::*;
 use crate::challenge::{Challenges, ChallengesResult};
 use crate::checked_feature;
@@ -12,13 +13,11 @@ use crate::sharding::{
     ChunkHashHeight, EncodedShardChunk, ReedSolomonWrapper, ShardChunk, ShardChunkHeader,
     ShardChunkHeaderV1,
 };
-use crate::static_clock::StaticClock;
 use crate::types::{Balance, BlockHeight, EpochId, Gas, NumBlocks, StateRoot};
-use crate::utils::to_timestamp;
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 use crate::version::{ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
 use borsh::{BorshDeserialize, BorshSerialize};
-use chrono::{DateTime, Utc};
+use near_async::time::Utc;
 use near_crypto::Signature;
 use near_primitives_core::types::ShardId;
 use primitive_types::U256;
@@ -65,21 +64,18 @@ pub struct BlockV2 {
     pub vrf_proof: near_crypto::vrf::Proof,
 }
 
-/// V2 -> V3: added BlockBody
+/// V2 -> V3: added BlockBodyV1
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockV3 {
     pub header: BlockHeader,
-    pub body: BlockBody,
+    pub body: BlockBodyV1,
 }
 
+/// V3 -> V4: use versioned BlockBody
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
-pub struct BlockBody {
-    pub chunks: Vec<ShardChunkHeader>,
-    pub challenges: Challenges,
-
-    // Data to confirm the correctness of randomness beacon output
-    pub vrf_value: near_crypto::vrf::Value,
-    pub vrf_proof: near_crypto::vrf::Proof,
+pub struct BlockV4 {
+    pub header: BlockHeader,
+    pub body: BlockBody,
 }
 
 /// Versioned Block data structure.
@@ -89,6 +85,7 @@ pub enum Block {
     BlockV1(Arc<BlockV1>),
     BlockV2(Arc<BlockV2>),
     BlockV3(Arc<BlockV3>),
+    BlockV4(Arc<BlockV4>),
 }
 
 pub fn genesis_chunks(
@@ -145,8 +142,9 @@ impl Block {
     ) -> Block {
         if next_epoch_protocol_version < SHARD_CHUNK_HEADER_UPGRADE_VERSION {
             let legacy_chunks = body
-                .chunks
-                .into_iter()
+                .chunks()
+                .iter()
+                .cloned()
                 .map(|chunk| match chunk {
                     ShardChunkHeader::V1(header) => header,
                     ShardChunkHeader::V2(_) => panic!(
@@ -161,20 +159,35 @@ impl Block {
             Block::BlockV1(Arc::new(BlockV1 {
                 header,
                 chunks: legacy_chunks,
-                challenges: body.challenges,
-                vrf_value: body.vrf_value,
-                vrf_proof: body.vrf_proof,
+                challenges: body.challenges().to_vec(),
+                vrf_value: *body.vrf_value(),
+                vrf_proof: *body.vrf_proof(),
             }))
         } else if !checked_feature!("stable", BlockHeaderV4, this_epoch_protocol_version) {
             Block::BlockV2(Arc::new(BlockV2 {
                 header,
-                chunks: body.chunks,
-                challenges: body.challenges,
-                vrf_value: body.vrf_value,
-                vrf_proof: body.vrf_proof,
+                chunks: body.chunks().to_vec(),
+                challenges: body.challenges().to_vec(),
+                vrf_value: *body.vrf_value(),
+                vrf_proof: *body.vrf_proof(),
             }))
+        } else if !checked_feature!("stable", StatelessValidationV0, this_epoch_protocol_version) {
+            // BlockV3 should only have BlockBodyV1
+            match body {
+                BlockBody::V1(body) => Block::BlockV3(Arc::new(BlockV3 { header, body })),
+                _ => {
+                    panic!("Attempted to include newer BlockBody version in old protocol version")
+                }
+            }
         } else {
-            Block::BlockV3(Arc::new(BlockV3 { header, body }))
+            // BlockV4 and BlockBodyV2 were introduced in the same protocol version `ChunkValidation`
+            // We should not expect BlockV4 to have BlockBodyV1
+            match body {
+                BlockBody::V1(_) => {
+                    panic!("Attempted to include BlockBodyV1 in new protocol version")
+                }
+                _ => Block::BlockV4(Arc::new(BlockV4 { header, body })),
+            }
         }
     }
 
@@ -182,29 +195,37 @@ impl Block {
     pub fn genesis(
         genesis_protocol_version: ProtocolVersion,
         chunks: Vec<ShardChunkHeader>,
-        timestamp: DateTime<Utc>,
+        timestamp: Utc,
         height: BlockHeight,
         initial_gas_price: Balance,
         initial_total_supply: Balance,
         next_bp_hash: CryptoHash,
     ) -> Self {
         let challenges = vec![];
+        let chunk_endorsements = vec![];
         for chunk in &chunks {
             assert_eq!(chunk.height_included(), height);
         }
         let vrf_value = near_crypto::vrf::Value([0; 32]);
         let vrf_proof = near_crypto::vrf::Proof([0; 64]);
-        let body = BlockBody { chunks, challenges, vrf_value, vrf_proof };
+        let body = BlockBody::new(
+            genesis_protocol_version,
+            chunks,
+            challenges,
+            vrf_value,
+            vrf_proof,
+            chunk_endorsements,
+        );
         let header = BlockHeader::genesis(
             genesis_protocol_version,
             height,
-            Block::compute_state_root(&body.chunks),
-            Block::compute_block_body_hash_impl(&body),
-            Block::compute_chunk_prev_outgoing_receipts_root(&body.chunks),
-            Block::compute_chunk_headers_root(&body.chunks).0,
-            Block::compute_chunk_tx_root(&body.chunks),
-            body.chunks.len() as u64,
-            Block::compute_challenges_root(&body.challenges),
+            Block::compute_state_root(body.chunks()),
+            body.compute_hash(),
+            Block::compute_chunk_prev_outgoing_receipts_root(body.chunks()),
+            Block::compute_chunk_headers_root(body.chunks()).0,
+            Block::compute_chunk_tx_root(body.chunks()),
+            body.chunks().len() as u64,
+            Block::compute_challenges_root(body.challenges()),
             timestamp,
             initial_gas_price,
             initial_total_supply,
@@ -227,6 +248,7 @@ impl Block {
         height: BlockHeight,
         block_ordinal: NumBlocks,
         chunks: Vec<ShardChunkHeader>,
+        chunk_endorsements: Vec<ChunkEndorsementSignatures>,
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         epoch_sync_data_hash: Option<CryptoHash>,
@@ -240,7 +262,7 @@ impl Block {
         signer: &dyn ValidatorSigner,
         next_bp_hash: CryptoHash,
         block_merkle_root: CryptoHash,
-        timestamp_override: Option<DateTime<chrono::Utc>>,
+        timestamp: Utc,
     ) -> Self {
         // Collect aggregate of validators and gas usage/limits from chunks.
         let mut prev_validator_proposals = vec![];
@@ -270,7 +292,7 @@ impl Block {
         );
 
         let new_total_supply = prev.total_supply() + minted_amount.unwrap_or(0) - balance_burnt;
-        let now = to_timestamp(timestamp_override.unwrap_or_else(StaticClock::utc));
+        let now = timestamp.unix_timestamp_nanos() as u64;
         let time = if now <= prev.raw_timestamp() { prev.raw_timestamp() + 1 } else { now };
 
         let (vrf_value, vrf_proof) = signer.compute_vrf_with_proof(prev.random_value().as_ref());
@@ -297,20 +319,27 @@ impl Block {
             }
         };
 
-        let body = BlockBody { chunks, challenges, vrf_value, vrf_proof };
+        let body = BlockBody::new(
+            this_epoch_protocol_version,
+            chunks,
+            challenges,
+            vrf_value,
+            vrf_proof,
+            chunk_endorsements,
+        );
         let header = BlockHeader::new(
             this_epoch_protocol_version,
             next_epoch_protocol_version,
             height,
             *prev.hash(),
-            Block::compute_block_body_hash_impl(&body),
-            Block::compute_state_root(&body.chunks),
-            Block::compute_chunk_prev_outgoing_receipts_root(&body.chunks),
-            Block::compute_chunk_headers_root(&body.chunks).0,
-            Block::compute_chunk_tx_root(&body.chunks),
-            Block::compute_outcome_root(&body.chunks),
+            body.compute_hash(),
+            Block::compute_state_root(body.chunks()),
+            Block::compute_chunk_prev_outgoing_receipts_root(body.chunks()),
+            Block::compute_chunk_headers_root(body.chunks()).0,
+            Block::compute_chunk_tx_root(body.chunks()),
+            Block::compute_outcome_root(body.chunks()),
             time,
-            Block::compute_challenges_root(&body.challenges),
+            Block::compute_challenges_root(body.challenges()),
             random_value,
             prev_validator_proposals,
             chunk_mask,
@@ -417,10 +446,6 @@ impl Block {
         .0
     }
 
-    pub fn compute_block_body_hash_impl(body: &BlockBody) -> CryptoHash {
-        CryptoHash::hash_borsh(body)
-    }
-
     pub fn compute_chunk_prev_outgoing_receipts_root<
         'a,
         T: IntoIterator<Item = &'a ShardChunkHeader>,
@@ -510,6 +535,7 @@ impl Block {
             Block::BlockV1(block) => &block.header,
             Block::BlockV2(block) => &block.header,
             Block::BlockV3(block) => &block.header,
+            Block::BlockV4(block) => &block.header,
         }
     }
 
@@ -520,6 +546,7 @@ impl Block {
             ),
             Block::BlockV2(block) => ChunksCollection::V2(&block.chunks),
             Block::BlockV3(block) => ChunksCollection::V2(&block.body.chunks),
+            Block::BlockV4(block) => ChunksCollection::V2(&block.body.chunks()),
         }
     }
 
@@ -529,6 +556,7 @@ impl Block {
             Block::BlockV1(block) => &block.challenges,
             Block::BlockV2(block) => &block.challenges,
             Block::BlockV3(block) => &block.body.challenges,
+            Block::BlockV4(block) => block.body.challenges(),
         }
     }
 
@@ -538,6 +566,7 @@ impl Block {
             Block::BlockV1(block) => &block.vrf_value,
             Block::BlockV2(block) => &block.vrf_value,
             Block::BlockV3(block) => &block.body.vrf_value,
+            Block::BlockV4(block) => &block.body.vrf_value(),
         }
     }
 
@@ -547,6 +576,15 @@ impl Block {
             Block::BlockV1(block) => &block.vrf_proof,
             Block::BlockV2(block) => &block.vrf_proof,
             Block::BlockV3(block) => &block.body.vrf_proof,
+            Block::BlockV4(block) => &block.body.vrf_proof(),
+        }
+    }
+
+    #[inline]
+    pub fn chunk_endorsements(&self) -> &[ChunkEndorsementSignatures] {
+        match self {
+            Block::BlockV1(_) | Block::BlockV2(_) | Block::BlockV3(_) => &[],
+            Block::BlockV4(block) => block.body.chunk_endorsements(),
         }
     }
 
@@ -558,7 +596,8 @@ impl Block {
         match self {
             Block::BlockV1(_) => None,
             Block::BlockV2(_) => None,
-            Block::BlockV3(block) => Some(Self::compute_block_body_hash_impl(&block.body)),
+            Block::BlockV3(block) => Some(block.body.compute_hash()),
+            Block::BlockV4(block) => Some(block.body.compute_hash()),
         }
     }
 

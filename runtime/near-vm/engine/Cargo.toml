@@ -19,7 +19,6 @@ backtrace.workspace = true
 enumset.workspace = true
 finite-wasm.workspace = true
 lazy_static.workspace = true
-memmap2.workspace = true
 more-asserts.workspace = true
 near-vm-compiler.workspace = true
 near-vm-types.workspace = true
@@ -31,7 +30,6 @@ target-lexicon.workspace = true
 thiserror.workspace = true
 cfg-if.workspace = true
 tracing.workspace = true
-crossbeam-queue.workspace = true
 rustix = { workspace = true, features = ["param", "mm"] }
 
 [badges]

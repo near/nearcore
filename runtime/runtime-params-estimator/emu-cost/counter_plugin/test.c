@@ -6,7 +6,7 @@
 #include <unistd.h>
 #include <pthread.h>
 
-#define CATCH_BASE 0xcafebabe
+#define CATCH_BASE 0x0afebabe
 #define THREAD_NUM 10
 
 static void start_counting() {
@@ -72,7 +72,7 @@ int main(int argc, char** argv) {
         repeat = atoi(argv[1]);
     }
 
-    g_fd = open("/tmp/data_file", O_RDWR | O_CREAT);
+    g_fd = open("/tmp/data_file", O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
     memset(block, 0xff, sizeof(block));
     for (i = 0; i < 1000; i++) {
         g_file_size += write(g_fd, block, sizeof(block));

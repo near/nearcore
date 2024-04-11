@@ -64,7 +64,7 @@ pub struct AnnounceAccount {
 
 impl AnnounceAccount {
     /// We hash only (account_id, peer_id, epoch_id). There is no need hash the signature
-    /// as it's uniquely determined the the triple.
+    /// as it's uniquely determined the triple.
     pub fn build_header_hash(
         account_id: &AccountId,
         peer_id: &PeerId,

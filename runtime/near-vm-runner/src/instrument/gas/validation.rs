@@ -143,8 +143,7 @@ fn build_control_flow_graph(
             .active_node;
 
         // Increment the charged cost if there are metering instructions to be inserted here.
-        let apply_block =
-            metered_blocks_iter.peek().map_or(false, |block| block.start_pos == cursor);
+        let apply_block = metered_blocks_iter.peek().is_some_and(|block| block.start_pos == cursor);
         if apply_block {
             let next_metered_block =
                 metered_blocks_iter.next().expect("peek returned an item; qed");

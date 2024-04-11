@@ -50,7 +50,6 @@ nightly_protocol = [
 ]
 calimero_zero_storage = ["near-primitives/calimero_zero_storage"]
 nightly = [
-  "nightly_protocol",
   "near-chain-configs/nightly",
   "near-client/nightly",
   "near-dyn-configs/nightly",
@@ -60,5 +59,6 @@ nightly = [
   "near-primitives/nightly",
   "near-store/nightly",
   "nearcore/nightly",
+  "nightly_protocol",
   "node-runtime/nightly",
 ]

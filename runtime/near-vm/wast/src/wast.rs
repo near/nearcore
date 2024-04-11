@@ -412,7 +412,7 @@ impl Wast {
             || self
                 .match_trap_messages
                 .get(expected)
-                .map_or(false, |alternative| actual.contains(alternative))
+                .is_some_and(|alternative| actual.contains(alternative))
     }
 
     fn val_matches(&self, actual: &Val, expected: &wast::AssertExpression) -> Result<bool> {

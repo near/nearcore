@@ -1,17 +1,20 @@
 use super::ValidatorSchedule;
 use crate::types::{
-    ApplyResultForResharding, ApplyTransactionResult, ApplyTransactionsBlockContext,
-    ApplyTransactionsChunkContext, RuntimeAdapter, RuntimeStorageConfig,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, ApplyResultForResharding,
+    PrepareTransactionsBlockContext, PrepareTransactionsChunkContext, PreparedTransactions,
+    RuntimeAdapter, RuntimeStorageConfig,
 };
 use crate::BlockHeader;
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_async::time::Duration;
 use near_chain_configs::{ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chain_primitives::Error;
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::{EpochManagerAdapter, RngSeed};
-use near_pool::types::PoolIterator;
+use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::block::Tip;
 use near_primitives::block_header::{Approval, ApprovalInner};
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
@@ -23,18 +26,20 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::shard_layout;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
-use near_primitives::sharding::ChunkHash;
+use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::state_part::PartId;
+use near_primitives::stateless_validation::{
+    ChunkEndorsement, ChunkStateWitness, ChunkValidatorAssignments,
+};
 use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
     SignedTransaction, TransferAction,
 };
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, Gas, Nonce, NumShards,
+    AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, Nonce, NumShards,
     ShardId, StateChangesForResharding, StateRoot, StateRootNode, ValidatorInfoIdentifier,
 };
-use near_primitives::validator_mandates::AssignmentWeight;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::{
     AccessKeyInfoView, AccessKeyList, CallResult, ContractCodeView, EpochValidatorInfo,
@@ -49,7 +54,6 @@ use num_rational::Ratio;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, RwLock};
-use std::time::Duration;
 
 /// Simple key value runtime for tests.
 ///
@@ -586,6 +590,14 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(shard_ids)
     }
 
+    fn get_prev_shard_id(
+        &self,
+        _prev_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<ShardId, Error> {
+        Ok(shard_id)
+    }
+
     fn get_shard_layout_from_prev_block(
         &self,
         _parent_hash: &CryptoHash,
@@ -685,6 +697,18 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(vec![])
     }
 
+    /// We need to override the default implementation to make
+    /// `Chain::should_produce_state_witness_for_this_or_next_epoch` work
+    /// since `get_epoch_chunk_producers` returns empty Vec which results
+    /// in state transition data not being saved on disk.
+    fn is_chunk_producer_for_epoch(
+        &self,
+        _epoch_id: &EpochId,
+        _account_id: &AccountId,
+    ) -> Result<bool, EpochError> {
+        Ok(true)
+    }
+
     fn get_block_producer(
         &self,
         epoch_id: &EpochId,
@@ -706,13 +730,19 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(chunk_producers[index].account_id().clone())
     }
 
-    fn get_chunk_validators(
+    fn get_chunk_validator_assignments(
         &self,
-        _epoch_id: &EpochId,
+        epoch_id: &EpochId,
         _shard_id: ShardId,
         _height: BlockHeight,
-    ) -> Result<HashMap<AccountId, AssignmentWeight>, EpochError> {
-        Ok(HashMap::new())
+    ) -> Result<Arc<ChunkValidatorAssignments>, EpochError> {
+        let chunk_validators = self
+            .get_block_producers(self.get_valset_for_epoch(epoch_id)?)
+            .into_iter()
+            .cloned()
+            .map(|validator| validator.account_and_stake())
+            .collect();
+        Ok(Arc::new(ChunkValidatorAssignments::new(chunk_validators)))
     }
 
     fn get_validator_by_account_id(
@@ -910,6 +940,29 @@ impl EpochManagerAdapter for MockEpochManager {
         }
     }
 
+    fn verify_chunk_endorsement(
+        &self,
+        _chunk_header: &ShardChunkHeader,
+        _endorsement: &ChunkEndorsement,
+    ) -> Result<bool, Error> {
+        Ok(true)
+    }
+
+    fn verify_chunk_state_witness_signature(
+        &self,
+        _state_witness: &ChunkStateWitness,
+    ) -> Result<bool, Error> {
+        Ok(true)
+    }
+
+    fn verify_chunk_state_witness_signature_in_epoch(
+        &self,
+        _state_witness: &ChunkStateWitness,
+        _epoch_id: &EpochId,
+    ) -> Result<bool, Error> {
+        Ok(true)
+    }
+
     fn cares_about_shard_from_prev_block(
         &self,
         parent_hash: &CryptoHash,
@@ -956,6 +1009,14 @@ impl EpochManagerAdapter for MockEpochManager {
         let shard_layout = self.get_shard_layout(&epoch_id)?;
         let next_shard_layout = self.get_shard_layout(&next_epoch_id)?;
         Ok(shard_layout != next_shard_layout)
+    }
+
+    fn possible_epochs_of_height_around_tip(
+        &self,
+        _tip: &Tip,
+        _height: BlockHeight,
+    ) -> Result<Vec<EpochId>, EpochError> {
+        unimplemented!();
     }
 
     #[cfg(feature = "new_epoch_sync")]
@@ -1022,33 +1083,32 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn prepare_transactions(
         &self,
-        _gas_price: Balance,
-        _gas_limit: Gas,
-        _epoch_id: &EpochId,
-        _shard_id: ShardId,
-        _state_root: StateRoot,
-        _next_block_height: BlockHeight,
-        transactions: &mut dyn PoolIterator,
+        storage: RuntimeStorageConfig,
+        _chunk: PrepareTransactionsChunkContext,
+        _prev_block: PrepareTransactionsBlockContext,
+        transaction_groups: &mut dyn TransactionGroupIterator,
         _chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
-        _current_protocol_version: ProtocolVersion,
         _time_limit: Option<Duration>,
-    ) -> Result<Vec<SignedTransaction>, Error> {
+    ) -> Result<PreparedTransactions, Error> {
         let mut res = vec![];
-        while let Some(iter) = transactions.next() {
+        while let Some(iter) = transaction_groups.next() {
             res.push(iter.next().unwrap());
         }
-        Ok(res)
+        Ok(PreparedTransactions {
+            transactions: res,
+            limited_by: None,
+            storage_proof: if storage.record_storage { Some(Default::default()) } else { None },
+        })
     }
 
-    fn apply_transactions(
+    fn apply_chunk(
         &self,
         storage_config: RuntimeStorageConfig,
-        chunk: ApplyTransactionsChunkContext,
-        block: ApplyTransactionsBlockContext,
+        chunk: ApplyChunkShardContext,
+        block: ApplyChunkBlockContext,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
-    ) -> Result<ApplyTransactionResult, Error> {
-        assert!(!storage_config.record_storage);
+    ) -> Result<ApplyChunkResult, Error> {
         let mut tx_results = vec![];
         let shard_id = chunk.shard_id;
 
@@ -1058,7 +1118,9 @@ impl RuntimeAdapter for KeyValueRuntime {
         let mut balance_transfers = vec![];
 
         for receipt in receipts.iter() {
-            if let ReceiptEnum::Action(action) = &receipt.receipt {
+            if let ReceiptEnum::Action(action) | ReceiptEnum::PromiseYield(action) =
+                &receipt.receipt
+            {
                 assert_eq!(account_id_to_shard_id(&receipt.receiver_id, self.num_shards), shard_id);
                 if !state.receipt_nonces.contains(&receipt.receipt_id) {
                     state.receipt_nonces.insert(receipt.receipt_id);
@@ -1075,7 +1137,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                     panic!("receipts should never be applied twice");
                 }
             } else {
-                unreachable!();
+                unreachable!("only action receipts can be applied");
             }
         }
 
@@ -1181,7 +1243,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         self.state.write().unwrap().insert(state_root, state);
         self.state_size.write().unwrap().insert(state_root, state_size);
 
-        Ok(ApplyTransactionResult {
+        Ok(ApplyChunkResult {
             trie_changes: WrappedTrieChanges::new(
                 self.get_tries(),
                 ShardUId { version: 0, shard_id: shard_id as u32 },
@@ -1196,8 +1258,9 @@ impl RuntimeAdapter for KeyValueRuntime {
             validator_proposals: vec![],
             total_gas_burnt: 0,
             total_balance_burnt: 0,
-            proof: None,
+            proof: if storage_config.record_storage { Some(Default::default()) } else { None },
             processed_delayed_receipts: vec![],
+            applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
         })
     }
 
@@ -1221,8 +1284,10 @@ impl RuntimeAdapter for KeyValueRuntime {
                             |state| *state.amounts.get(account_id).unwrap_or(&0),
                         ),
                         0,
+                        0,
                         CryptoHash::default(),
                         0,
+                        PROTOCOL_VERSION,
                     )
                     .into(),
                 ),

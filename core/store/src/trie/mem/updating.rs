@@ -38,7 +38,7 @@ pub enum UpdatedMemTrieNode {
     },
     /// Corresponds to either a Branch or BranchWithValue node.
     Branch {
-        children: [Option<OldOrUpdatedNodeId>; 16],
+        children: Box<[Option<OldOrUpdatedNodeId>; 16]>,
         value: Option<FlatStateValue>,
     },
 }
@@ -66,11 +66,12 @@ impl UpdatedMemTrieNode {
                 extension: extension.raw_slice().to_vec().into_boxed_slice(),
                 value: value.to_flat_value(),
             },
-            MemTrieNodeView::Branch { children, .. } => {
-                Self::Branch { children: Self::convert_children_to_updated(children), value: None }
-            }
+            MemTrieNodeView::Branch { children, .. } => Self::Branch {
+                children: Box::new(Self::convert_children_to_updated(children)),
+                value: None,
+            },
             MemTrieNodeView::BranchWithValue { children, value, .. } => Self::Branch {
-                children: Self::convert_children_to_updated(children),
+                children: Box::new(Self::convert_children_to_updated(children)),
                 value: Some(value.to_flat_value()),
             },
             MemTrieNodeView::Extension { extension, child, .. } => Self::Extension {
@@ -259,7 +260,7 @@ impl<'a> MemTrieUpdate<'a> {
                     } else if common_prefix == 0 {
                         // Convert the leaf to an equivalent branch. We are not adding
                         // the new branch yet; that will be done in the next iteration.
-                        let mut children = [None; 16];
+                        let mut children = Box::<[_; 16]>::default();
                         let branch_node = if existing_key.is_empty() {
                             // Existing key being empty means the old value now lives at the branch.
                             UpdatedMemTrieNode::Branch { children, value: Some(old_value) }
@@ -318,7 +319,7 @@ impl<'a> MemTrieUpdate<'a> {
                             OldOrUpdatedNodeId::Updated(self.new_updated_node(inner_child))
                         };
 
-                        let mut children = [None; 16];
+                        let mut children = Box::<[_; 16]>::default();
                         children[idx as usize] = Some(child);
                         let branch_node = UpdatedMemTrieNode::Branch { children, value: None };
                         self.place_node(node_id, branch_node);
@@ -415,7 +416,7 @@ impl<'a> MemTrieUpdate<'a> {
                         // if needed, branch will be squashed at the end of the function.
                         break;
                     } else {
-                        let mut new_children = old_children;
+                        let mut new_children = old_children.clone();
                         let child = &mut new_children[partial.at(0) as usize];
                         let old_child_id = match child.take() {
                             Some(node_id) => node_id,
@@ -906,10 +907,9 @@ mod tests {
         }
 
         fn make_all_changes(&mut self, changes: Vec<(Vec<u8>, Option<Vec<u8>>)>) -> TrieChanges {
-            let mut update = self.mem.update(self.state_root, true).expect(&format!(
-                "Trying to update root {:?} but it's not in memtries",
-                self.state_root
-            ));
+            let mut update = self.mem.update(self.state_root, true).unwrap_or_else(|_| {
+                panic!("Trying to update root {:?} but it's not in memtries", self.state_root)
+            });
             for (key, value) in changes {
                 if let Some(value) = value {
                     update.insert(&key, value);
@@ -924,10 +924,10 @@ mod tests {
             &mut self,
             changes: Vec<(Vec<u8>, Option<Vec<u8>>)>,
         ) -> MemTrieChanges {
-            let mut update = self.mem.update(self.state_root, false).expect(&format!(
-                "Trying to update root {:?} but it's not in memtries",
-                self.state_root
-            ));
+            let mut update = self.mem.update(self.state_root, false).unwrap_or_else(|_| {
+                panic!("Trying to update root {:?} but it's not in memtries", self.state_root)
+            });
+
             for (key, value) in changes {
                 if let Some(value) = value {
                     update.insert_memtrie_only(&key, FlatStateValue::on_disk(&value));
@@ -995,13 +995,15 @@ mod tests {
                 let disk_result = disk_trie.get_optimized_ref(key, KeyLookupMode::Trie).unwrap();
                 if let Some(value_ref) = value_ref {
                     let memtrie_value_ref = memtrie_result
-                        .expect(&format!("Key {} is in truth but not in memtrie", hex::encode(key)))
+                        .unwrap_or_else(|| {
+                            panic!("Key {} is in truth but not in memtrie", hex::encode(key))
+                        })
+                        .to_flat_value()
                         .to_value_ref();
                     let disk_value_ref = disk_result
-                        .expect(&format!(
-                            "Key {} is in truth but not in disk trie",
-                            hex::encode(key)
-                        ))
+                        .unwrap_or_else(|| {
+                            panic!("Key {} is in truth but not in disk trie", hex::encode(key))
+                        })
                         .into_value_ref();
                     assert_eq!(
                         memtrie_value_ref,

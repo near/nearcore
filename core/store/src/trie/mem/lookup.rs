@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
+use super::flexible_data::value::ValueView;
 use super::metrics::MEM_TRIE_NUM_LOOKUPS;
 use super::node::{MemTrieNodePtr, MemTrieNodeView};
 use crate::NibbleSlice;
 use near_primitives::hash::CryptoHash;
-use near_primitives::state::FlatStateValue;
 
 /// Performs a lookup in an in-memory trie, while taking care of cache
 /// accounting for gas calculation purposes.
@@ -13,11 +13,11 @@ use near_primitives::state::FlatStateValue;
 /// will be added to the vector as (node hash, serialized `RawTrieNodeWithSize`).
 /// Even if the key is not found, the nodes that were accessed to make that
 /// determination will be added to the vector.
-pub fn memtrie_lookup(
-    root: MemTrieNodePtr<'_>,
+pub fn memtrie_lookup<'a>(
+    root: MemTrieNodePtr<'a>,
     key: &[u8],
     mut nodes_accessed: Option<&mut Vec<(CryptoHash, Arc<[u8]>)>>,
-) -> Option<FlatStateValue> {
+) -> Option<ValueView<'a>> {
     MEM_TRIE_NUM_LOOKUPS.inc();
     let mut nibbles = NibbleSlice::new(key);
     let mut node = root;
@@ -31,7 +31,7 @@ pub fn memtrie_lookup(
         match view {
             MemTrieNodeView::Leaf { extension, value } => {
                 if nibbles == NibbleSlice::from_encoded(extension.raw_slice()).0 {
-                    return Some(value.to_flat_value());
+                    return Some(value);
                 } else {
                     return None;
                 }
@@ -58,7 +58,7 @@ pub fn memtrie_lookup(
             }
             MemTrieNodeView::BranchWithValue { children, value, .. } => {
                 if nibbles.is_empty() {
-                    return Some(value.to_flat_value());
+                    return Some(value);
                 }
                 let first = nibbles.at(0);
                 nibbles = nibbles.mid(1);

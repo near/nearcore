@@ -3,18 +3,16 @@ name = "near-async"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 description = "This crate contains the async helpers specific for nearcore"
 repository.workspace = true
 license.workspace = true
-publish = false
+publish = true
 
 [lints]
 workspace = true
 
 [dependencies]
 actix.workspace = true
-derive-enum-from-into.workspace = true
 derive_more.workspace = true
 futures.workspace = true
 once_cell.workspace = true
@@ -23,17 +21,19 @@ serde_json.workspace = true
 time.workspace = true
 tokio.workspace = true
 
-near-primitives.workspace = true
+near-async-derive.workspace = true
 near-o11y.workspace = true
 near-performance-metrics.workspace = true
 
+[dev-dependencies]
+derive-enum-from-into.workspace = true
+tokio-util.workspace = true
+
 [features]
 nightly = [
-  "nightly_protocol",
   "near-o11y/nightly",
-  "near-primitives/nightly",
+  "nightly_protocol",
 ]
 nightly_protocol = [
   "near-o11y/nightly_protocol",
-  "near-primitives/nightly_protocol",
 ]

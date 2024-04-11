@@ -97,7 +97,7 @@ pub(crate) fn run_estimation(db: &Db, config: &EstimateConfig) -> anyhow::Result
     if config.metrics.iter().any(|m| m == "icount") {
         let estimation_output =
             cmd!(sh,
-                "{estimator_binary} --iters {iters} --warmup-iters {warmup_iters} --json-output --home {estimator_home} --metric icount --docker"
+                "{estimator_binary} --iters {iters} --warmup-iters {warmup_iters} --json-output --home {estimator_home} --metric icount --containerize"
             ).read()?;
         db.import_json_lines(
             &ImportConfig { commit_hash: Some(commit_hash), protocol_version: None },

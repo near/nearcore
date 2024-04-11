@@ -201,7 +201,7 @@ impl Chain {
         &self,
         sync_hash: &CryptoHash,
         shard_id: ShardId,
-        resharding_scheduler: &dyn Fn(ReshardingRequest),
+        resharding_scheduler: &near_async::messaging::Sender<ReshardingRequest>,
     ) -> Result<(), Error> {
         tracing::debug!(target: "resharding", ?shard_id, ?sync_hash, "preprocessing started");
         let block_header = self.get_block_header(sync_hash)?;
@@ -216,7 +216,7 @@ impl Chain {
         let prev_prev_hash = prev_block_header.prev_hash();
         let state_root = *self.get_chunk_extra(&prev_hash, &shard_uid)?.state_root();
 
-        resharding_scheduler(ReshardingRequest {
+        resharding_scheduler.send(ReshardingRequest {
             tries: Arc::new(self.runtime_adapter.get_tries()),
             sync_hash: *sync_hash,
             prev_hash: *prev_hash,
@@ -404,7 +404,7 @@ impl Chain {
 
             // sleep between batches in order to throttle resharding and leave
             // some resource for the regular node operation
-            std::thread::sleep(config.get().batch_delay);
+            std::thread::sleep(config.get().batch_delay.unsigned_abs());
         }
 
         state_roots = apply_delayed_receipts(

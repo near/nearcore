@@ -9,7 +9,7 @@ use near_network::tcp;
 use near_network::test_utils::convert_boot_nodes;
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards};
-use nearcore::{config::GenesisExt, load_test_config, start_with_config};
+use nearcore::{load_test_config, start_with_config};
 
 fn start_nodes(
     temp_dir: &std::path::Path,

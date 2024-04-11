@@ -26,7 +26,6 @@ serde_json.workspace = true
 strum.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
-validator.workspace = true
 
 near-account-id.workspace = true
 near-chain-configs.workspace = true
@@ -42,9 +41,13 @@ node-runtime.workspace = true
 [dev-dependencies]
 insta.workspace = true
 near-actix-test-utils.workspace = true
+near-async.workspace = true
 
 [features]
+protocol_feature_nonrefundable_transfer_nep491 = []
 nightly_protocol = [
+  "near-actix-test-utils/nightly_protocol",
+  "near-async/nightly_protocol",
   "near-chain-configs/nightly_protocol",
   "near-client-primitives/nightly_protocol",
   "near-client/nightly_protocol",
@@ -55,7 +58,8 @@ nightly_protocol = [
   "node-runtime/nightly_protocol",
 ]
 nightly = [
-  "nightly_protocol",
+  "near-actix-test-utils/nightly",
+  "near-async/nightly",
   "near-chain-configs/nightly",
   "near-client-primitives/nightly",
   "near-client/nightly",
@@ -63,5 +67,7 @@ nightly = [
   "near-o11y/nightly",
   "near-parameters/nightly",
   "near-primitives/nightly",
+  "nightly_protocol",
   "node-runtime/nightly",
+  "protocol_feature_nonrefundable_transfer_nep491",
 ]

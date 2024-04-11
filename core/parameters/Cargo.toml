@@ -12,7 +12,6 @@ publish = true
 workspace = true
 
 [dependencies]
-assert_matches.workspace = true
 enum-map.workspace = true
 num-rational.workspace = true
 serde.workspace = true
@@ -29,14 +28,20 @@ near-primitives-core.workspace = true
 near-account-id.workspace = true
 
 [dev-dependencies]
+assert_matches.workspace = true
 insta.workspace = true
 
 [features]
 nightly = [
-  "nightly_protocol",
   "near-primitives-core/nightly",
+  "nightly_protocol",
 ]
 nightly_protocol = [
   "near-primitives-core/nightly_protocol",
+  "protocol_feature_bls12381"
+]
+statelessnet_protocol = [
+  "near-primitives-core/statelessnet_protocol",
 ]
 calimero_zero_storage = []
+protocol_feature_bls12381 = []

@@ -295,7 +295,7 @@ mod tls {
         // allows the runtime to perform per-thread initialization if necessary
         // for handling traps (e.g. setting up ports on macOS and sigaltstack on
         // Unix).
-        thread_local!(static PTR: Cell<Ptr> = Cell::new(ptr::null()));
+        thread_local!(static PTR: Cell<Ptr> = const { Cell::new(ptr::null()) });
 
         #[inline(never)] // see module docs for why this is here
         pub fn replace(val: Ptr) -> Result<Ptr, Trap> {

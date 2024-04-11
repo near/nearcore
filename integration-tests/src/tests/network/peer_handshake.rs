@@ -23,7 +23,7 @@ fn make_peer_manager(
     boot_nodes: Vec<(&str, std::net::SocketAddr)>,
     peer_max_count: u32,
 ) -> actix::Addr<PeerManagerActor> {
-    use near_async::messaging::Sender;
+    use near_async::messaging::{noop, IntoMultiSender, IntoSender};
 
     let mut config = config::NetworkConfig::from_seed(seed, node_addr);
     config.peer_store.boot_nodes = convert_boot_nodes(boot_nodes);
@@ -35,8 +35,8 @@ fn make_peer_manager(
         time::Clock::real(),
         near_store::db::TestDB::new(),
         config,
-        Arc::new(near_network::client::Noop),
-        Sender::noop(),
+        noop().into_multi_sender(),
+        noop().into_sender(),
         GenesisId::default(),
     )
     .unwrap()

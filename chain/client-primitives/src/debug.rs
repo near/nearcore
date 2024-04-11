@@ -1,7 +1,7 @@
 //! Structs in this module are used for debug purposes, and might change at any time
 //! without backwards compatibility of JSON encoding.
 use crate::types::StatusError;
-use chrono::DateTime;
+use near_async::time::Utc;
 use near_primitives::types::EpochId;
 use near_primitives::views::{
     CatchupStatusView, ChainProcessingInfo, EpochValidatorInfo, RequestedStatePartsView,
@@ -26,7 +26,7 @@ pub struct TrackedShardsView {
 pub struct EpochInfoView {
     pub epoch_id: CryptoHash,
     pub height: BlockHeight,
-    pub first_block: Option<(CryptoHash, DateTime<chrono::Utc>)>,
+    pub first_block: Option<(CryptoHash, Utc)>,
     pub block_producers: Vec<ValidatorInfo>,
     pub chunk_only_producers: Vec<String>,
     pub validator_info: Option<EpochValidatorInfo>,
@@ -83,7 +83,7 @@ pub struct ApprovalHistoryEntry {
     pub parent_height: BlockHeight,
     pub target_height: BlockHeight,
     // Time when we actually created the approval and sent it out.
-    pub approval_creation_time: DateTime<chrono::Utc>,
+    pub approval_creation_time: Utc,
     // The moment when we were ready to send this approval (or skip)
     pub timer_started_ago_millis: u64,
     // But we had to wait at least this long before doing it.
@@ -95,7 +95,7 @@ pub struct ApprovalHistoryEntry {
 #[derive(serde::Serialize, Debug, Default, Clone)]
 pub struct ChunkProduction {
     // Time when we produced the chunk.
-    pub chunk_production_time: Option<DateTime<chrono::Utc>>,
+    pub chunk_production_time: Option<Utc>,
     // How long did the chunk production take (reed solomon encoding, preparing fragments etc.)
     // Doesn't include network latency.
     pub chunk_production_duration_millis: Option<u64>,
@@ -110,7 +110,7 @@ pub struct BlockProduction {
     // set if we didn't produce the block.
     pub chunks_collection_time: Vec<ChunkCollection>,
     // Time when we produced the block, None if we didn't produce the block.
-    pub block_production_time: Option<DateTime<chrono::Utc>>,
+    pub block_production_time: Option<Utc>,
     // Whether this block is included on the canonical chain.
     pub block_included: bool,
 }
@@ -121,7 +121,7 @@ pub struct ChunkCollection {
     pub chunk_producer: AccountId,
     // Time when the chunk was received. Note that this field can be filled even if the block doesn't
     // include a chunk for the shard, if a chunk at this height was received after the block was produced.
-    pub received_time: Option<DateTime<chrono::Utc>>,
+    pub received_time: Option<Utc>,
     // Whether the block included a chunk for this shard
     pub chunk_included: bool,
 }
@@ -142,9 +142,9 @@ pub struct ProductionAtHeight {
 #[derive(serde::Serialize, Debug, Default, Clone)]
 pub struct ApprovalAtHeightStatus {
     // Map from validator id to the type of approval that they sent and timestamp.
-    pub approvals: HashMap<AccountId, (ApprovalInner, DateTime<chrono::Utc>)>,
+    pub approvals: HashMap<AccountId, (ApprovalInner, Utc)>,
     // Time at which we received 2/3 approvals (doomslug threshold).
-    pub ready_at: Option<DateTime<chrono::Utc>>,
+    pub ready_at: Option<Utc>,
 }
 
 #[derive(serde::Serialize, Debug)]

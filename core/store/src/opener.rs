@@ -147,7 +147,7 @@ fn is_valid_kind_archive(kind: DbKind, archive: bool) -> bool {
     match (kind, archive) {
         (DbKind::Archive, true) => true,
         (DbKind::Cold, true) => true,
-        (DbKind::Hot, true) => true,
+        (DbKind::Hot, _) => true,
         (DbKind::RPC, _) => true,
         _ => false,
     }
@@ -486,7 +486,7 @@ impl<'a> DBOpener<'a> {
     /// given home_dir as base directory for resolving relative paths.
     fn new(home_dir: &std::path::Path, config: &'a StoreConfig, temp: Temperature) -> Self {
         let path = if temp == Temperature::Hot { "data" } else { "cold-data" };
-        let path = config.path.as_deref().unwrap_or(std::path::Path::new(path));
+        let path = config.path.as_deref().unwrap_or_else(|| std::path::Path::new(path));
         let path = home_dir.join(path);
         Self { path, config, temp }
     }
@@ -647,6 +647,7 @@ mod tests {
         let (home_dir, opener) = NodeStorage::test_opener();
         let node_storage = opener.open().unwrap();
         let hot_store = Store { storage: node_storage.hot_storage.clone() };
+        assert_eq!(hot_store.get_db_kind().unwrap(), Some(DbKind::RPC));
 
         let keys = vec![vec![0], vec![1], vec![2], vec![3]];
         let columns = vec![DBCol::Block, DBCol::Chunks, DBCol::BlockHeader];

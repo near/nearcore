@@ -51,7 +51,7 @@ struct Inner {
 }
 
 fn has(set: &im::HashMap<EdgeKey, Edge>, edge: &Edge) -> bool {
-    set.get(&edge.key()).map_or(false, |x| x.nonce() >= edge.nonce())
+    set.get(&edge.key()).is_some_and(|x| x.nonce() >= edge.nonce())
 }
 
 impl Inner {

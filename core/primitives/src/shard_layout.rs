@@ -76,7 +76,7 @@ type ShardSplitMap = Vec<Vec<ShardId>>;
 pub struct ShardLayoutV1 {
     /// The boundary accounts are the accounts on boundaries between shards.
     /// Each shard contains a range of accounts from one boundary account to
-    /// another - or the the smallest or largest account possible. The total
+    /// another - or the smallest or largest account possible. The total
     /// number of shards is equal to the number of boundary accounts plus 1.
     boundary_accounts: Vec<AccountId>,
     /// Maps shards from the last shard layout to shards that it splits to in this shard layout,

@@ -7,7 +7,6 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     CostGasUsed, ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionStatus,
 };
-use nearcore::config::GenesisExt;
 use std::collections::HashSet;
 use std::mem::size_of;
 use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};

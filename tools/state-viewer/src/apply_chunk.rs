@@ -3,8 +3,8 @@ use borsh::BorshDeserialize;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{
-    ApplyTransactionResult, ApplyTransactionsBlockContext, ApplyTransactionsChunkContext,
-    RuntimeAdapter, RuntimeStorageConfig,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
+    RuntimeStorageConfig,
 };
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
@@ -52,7 +52,7 @@ fn get_incoming_receipts(
 
     for chunk in chunks {
         if let Ok(partial_encoded_chunk) = chain_store.get_partial_chunk(&chunk.chunk_hash()) {
-            for receipt in partial_encoded_chunk.receipts().iter() {
+            for receipt in partial_encoded_chunk.prev_outgoing_receipts().iter() {
                 let ReceiptProof(_, shard_proof) = receipt;
                 if shard_proof.to_shard_id == shard_id {
                     receipt_proofs.push(receipt.clone());
@@ -86,7 +86,7 @@ pub(crate) fn apply_chunk(
     target_height: Option<u64>,
     rng: Option<StdRng>,
     use_flat_storage: bool,
-) -> anyhow::Result<(ApplyTransactionResult, Gas)> {
+) -> anyhow::Result<(ApplyChunkResult, Gas)> {
     let chunk = chain_store.get_chunk(&chunk_hash)?;
     let chunk_header = chunk.cloned_header();
 
@@ -131,16 +131,16 @@ pub(crate) fn apply_chunk(
     )?;
 
     Ok((
-        runtime.apply_transactions(
+        runtime.apply_chunk(
             RuntimeStorageConfig::new(prev_state_root, use_flat_storage),
-            ApplyTransactionsChunkContext {
+            ApplyChunkShardContext {
                 shard_id,
                 last_validator_proposals: chunk_header.prev_validator_proposals(),
                 gas_limit: chunk_header.gas_limit(),
                 is_first_block_with_chunk_of_version,
                 is_new_chunk: true,
             },
-            ApplyTransactionsBlockContext {
+            ApplyChunkBlockContext {
                 height: target_height,
                 block_timestamp: prev_timestamp + 1_000_000_000,
                 challenges_result: vec![],
@@ -201,7 +201,7 @@ fn apply_tx_in_block(
     tx_hash: &CryptoHash,
     block_hash: CryptoHash,
     use_flat_storage: bool,
-) -> anyhow::Result<ApplyTransactionResult> {
+) -> anyhow::Result<ApplyChunkResult> {
     match find_tx_or_receipt(tx_hash, &block_hash, epoch_manager, chain_store)? {
         Some((hash_type, shard_id)) => {
             match hash_type {
@@ -230,7 +230,7 @@ fn apply_tx_in_chunk(
     chain_store: &mut ChainStore,
     tx_hash: &CryptoHash,
     use_flat_storage: bool,
-) -> anyhow::Result<Vec<ApplyTransactionResult>> {
+) -> anyhow::Result<Vec<ApplyChunkResult>> {
     if chain_store.get_transaction(tx_hash)?.is_none() {
         return Err(anyhow!("tx with hash {} not known", tx_hash));
     }
@@ -298,7 +298,7 @@ pub(crate) fn apply_tx(
     store: Store,
     tx_hash: CryptoHash,
     use_flat_storage: bool,
-) -> anyhow::Result<Vec<ApplyTransactionResult>> {
+) -> anyhow::Result<Vec<ApplyChunkResult>> {
     let mut chain_store = ChainStore::new(store.clone(), genesis_height, false);
     let outcomes = chain_store.get_outcomes_by_id(&tx_hash)?;
 
@@ -330,7 +330,7 @@ fn apply_receipt_in_block(
     id: &CryptoHash,
     block_hash: CryptoHash,
     use_flat_storage: bool,
-) -> anyhow::Result<ApplyTransactionResult> {
+) -> anyhow::Result<ApplyChunkResult> {
     match find_tx_or_receipt(id, &block_hash, epoch_manager, chain_store)? {
         Some((hash_type, shard_id)) => {
             match hash_type {
@@ -360,7 +360,7 @@ fn apply_receipt_in_chunk(
     chain_store: &mut ChainStore,
     id: &CryptoHash,
     use_flat_storage: bool,
-) -> anyhow::Result<Vec<ApplyTransactionResult>> {
+) -> anyhow::Result<Vec<ApplyChunkResult>> {
     if chain_store.get_receipt(id)?.is_none() {
         // TODO: handle local/delayed receipts
         return Err(anyhow!("receipt with ID {} not known. Is it a local or delayed receipt?", id));
@@ -453,7 +453,7 @@ pub(crate) fn apply_receipt(
     store: Store,
     id: CryptoHash,
     use_flat_storage: bool,
-) -> anyhow::Result<Vec<ApplyTransactionResult>> {
+) -> anyhow::Result<Vec<ApplyChunkResult>> {
     let mut chain_store = ChainStore::new(store.clone(), genesis_height, false);
     let outcomes = chain_store.get_outcomes_by_id(&id)?;
     if let Some(outcome) = outcomes.first() {
@@ -479,7 +479,8 @@ pub(crate) fn apply_receipt(
 
 #[cfg(test)]
 mod test {
-    use near_chain::{ChainGenesis, ChainStore, ChainStoreAccess, Provenance};
+    use near_async::time::Clock;
+    use near_chain::{ChainStore, ChainStoreAccess, Provenance};
     use near_chain_configs::Genesis;
     use near_client::test_utils::TestEnv;
     use near_client::ProcessTxResponse;
@@ -491,7 +492,6 @@ mod test {
     use near_primitives::utils::get_num_seats_per_shard;
     use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
-    use nearcore::config::GenesisExt;
     use nearcore::NightshadeRuntime;
     use rand::rngs::StdRng;
     use rand::SeedableRng;
@@ -516,6 +516,7 @@ mod test {
     #[test]
     fn test_apply_chunk() {
         let genesis = Genesis::test_sharded(
+            Clock::real(),
             vec![
                 "test0".parse().unwrap(),
                 "test1".parse().unwrap(),
@@ -537,7 +538,6 @@ mod test {
             &genesis.config,
             epoch_manager.clone(),
         );
-        let chain_genesis = ChainGenesis::test();
 
         let signers = (0..4)
             .map(|i| {
@@ -546,7 +546,7 @@ mod test {
             })
             .collect::<Vec<_>>();
 
-        let mut env = TestEnv::builder(chain_genesis)
+        let mut env = TestEnv::builder(&genesis.config)
             .stores(vec![store])
             .epoch_managers(vec![epoch_manager.clone()])
             .track_all_shards()
@@ -601,6 +601,7 @@ mod test {
     #[test]
     fn test_apply_tx_apply_receipt() {
         let genesis = Genesis::test_sharded(
+            Clock::real(),
             vec![
                 "test0".parse().unwrap(),
                 "test1".parse().unwrap(),
@@ -622,9 +623,6 @@ mod test {
             &genesis.config,
             epoch_manager.clone(),
         );
-        let mut chain_genesis = ChainGenesis::test();
-        // receipts get delayed with the small ChainGenesis::test() limit
-        chain_genesis.gas_limit = genesis.config.gas_limit;
 
         let signers = (0..4)
             .map(|i| {
@@ -633,7 +631,7 @@ mod test {
             })
             .collect::<Vec<_>>();
 
-        let mut env = TestEnv::builder(chain_genesis)
+        let mut env = TestEnv::builder(&genesis.config)
             .stores(vec![store.clone()])
             .epoch_managers(vec![epoch_manager.clone()])
             .track_all_shards()

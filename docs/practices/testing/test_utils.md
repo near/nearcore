@@ -65,14 +65,6 @@ KeyValueRuntime::new(store, &epoch_manager);
 
 No fakes or mocks.
 
-### Chain genesis
-
-We have a test method:
-
-```rust
-ChainGenesis::test();
-```
-
 ## Client
 
 TestEnv - for testing multiple clients (without network):

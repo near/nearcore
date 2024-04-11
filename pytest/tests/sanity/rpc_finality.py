@@ -58,7 +58,7 @@ class TestRpcFinality(unittest.TestCase):
                              latest_block_hash)
         logger.info("About to send payment")
         # this transaction will be added to the block (probably around block 5)
-        # and the the receipts & transfers will happen in the next block (block 6).
+        # and the receipts & transfers will happen in the next block (block 6).
         # This function should return as soon as block 6 arrives in node0.
         logger.info(nodes[0].send_tx_rpc(tx, wait_until='INCLUDED', timeout=10))
         logger.info("Done")

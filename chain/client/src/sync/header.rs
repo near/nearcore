@@ -1,17 +1,15 @@
-use chrono::{DateTime, Duration, Utc};
 use near_async::messaging::CanSend;
+use near_async::time::{Clock, Duration, Utc};
 use near_chain::{Chain, ChainStoreAccess};
 use near_client_primitives::types::SyncStatus;
 use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter};
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
-use near_primitives::static_clock::StaticClock;
 use near_primitives::types::BlockHeight;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::cmp::min;
-use std::time::Duration as TimeDuration;
 use tracing::{debug, warn};
 
 /// Maximum number of block headers send over the network.
@@ -25,7 +23,7 @@ pub const NS_PER_SECOND: u128 = 1_000_000_000;
 /// Progress of downloading the currently requested batch of headers.
 struct BatchProgress {
     /// An intermediate timeout by which a certain number of headers is expected.
-    timeout: DateTime<Utc>,
+    timeout: Utc,
     /// Height expected at the moment of `timeout`.
     expected_height: BlockHeight,
     /// Header head height at the moment this batch was requested.
@@ -36,6 +34,8 @@ struct BatchProgress {
 /// Helper to keep track of sync headers.
 /// Handles major re-orgs by finding closest header that matches and re-downloading headers from that point.
 pub struct HeaderSync {
+    clock: Clock,
+
     network_adapter: PeerManagerAdapter,
 
     /// Progress of downloading the currently requested batch of headers.
@@ -46,7 +46,7 @@ pub struct HeaderSync {
     syncing_peer: Option<HighestHeightPeerInfo>,
 
     /// When the stalling was first detected.
-    stalling_ts: Option<DateTime<Utc>>,
+    stalling_ts: Option<Utc>,
 
     /// How much time to wait after initial header sync.
     initial_timeout: Duration,
@@ -63,25 +63,27 @@ pub struct HeaderSync {
 
 impl HeaderSync {
     pub fn new(
+        clock: Clock,
         network_adapter: PeerManagerAdapter,
-        initial_timeout: TimeDuration,
-        progress_timeout: TimeDuration,
-        stall_ban_timeout: TimeDuration,
+        initial_timeout: Duration,
+        progress_timeout: Duration,
+        stall_ban_timeout: Duration,
         expected_height_per_second: u64,
     ) -> Self {
         HeaderSync {
+            clock: clock.clone(),
             network_adapter,
             batch_progress: BatchProgress {
-                timeout: StaticClock::utc(),
+                timeout: clock.now_utc(),
                 expected_height: 0,
                 header_head_height: 0,
                 highest_height_of_peers: 0,
             },
             syncing_peer: None,
             stalling_ts: None,
-            initial_timeout: Duration::from_std(initial_timeout).unwrap(),
-            progress_timeout: Duration::from_std(progress_timeout).unwrap(),
-            stall_ban_timeout: Duration::from_std(stall_ban_timeout).unwrap(),
+            initial_timeout: initial_timeout,
+            progress_timeout: progress_timeout,
+            stall_ban_timeout: stall_ban_timeout,
             expected_height_per_second,
         }
     }
@@ -159,8 +161,7 @@ impl HeaderSync {
         time_delta: Duration,
     ) -> BlockHeight {
         (old_height as u128
-            + (time_delta.num_nanoseconds().unwrap() as u128
-                * self.expected_height_per_second as u128
+            + (time_delta.whole_nanoseconds() as u128 * self.expected_height_per_second as u128
                 / NS_PER_SECOND)) as u64
     }
 
@@ -176,7 +177,7 @@ impl HeaderSync {
         header_head: &Tip,
         highest_height: BlockHeight,
     ) -> bool {
-        let now = StaticClock::utc();
+        let now = self.clock.now_utc();
         let BatchProgress {
             timeout,
             expected_height: old_expected_height,
@@ -293,8 +294,8 @@ impl HeaderSync {
         &self,
         current_height: BlockHeight,
         expected_height: BlockHeight,
-        now: DateTime<Utc>,
-        timeout: DateTime<Utc>,
+        now: Utc,
+        timeout: Utc,
     ) -> bool {
         if now <= timeout {
             self.compute_expected_height(current_height, timeout - now) >= expected_height
@@ -372,25 +373,30 @@ fn get_locator_ordinals(lowest_ordinal: u64, highest_ordinal: u64) -> Vec<u64> {
 
 #[cfg(test)]
 mod test {
-    use std::sync::Arc;
-    use std::thread;
-
+    use near_async::messaging::IntoMultiSender;
+    use near_async::time::{Clock, Duration, FakeClock, Utc};
     use near_chain::test_utils::{
         process_block_sync, setup, setup_with_validators_and_start_time, ValidatorSchedule,
     };
+    use near_chain::types::Tip;
     use near_chain::{BlockProcessingArtifact, Provenance};
+    use near_client_primitives::types::SyncStatus;
     use near_crypto::{KeyType, PublicKey};
     use near_network::test_utils::MockPeerManagerAdapter;
+    use near_network::types::{
+        BlockInfo, FullPeerInfo, HighestHeightPeerInfo, NetworkRequests, PeerInfo,
+    };
     use near_primitives::block::{Approval, Block, GenesisId};
+    use near_primitives::merkle::PartialMerkleTree;
     use near_primitives::network::PeerId;
     use near_primitives::test_utils::TestBlockBuilder;
-
-    use super::*;
-    use near_network::types::{BlockInfo, FullPeerInfo, PeerInfo};
-    use near_primitives::merkle::PartialMerkleTree;
     use near_primitives::types::EpochId;
     use near_primitives::version::PROTOCOL_VERSION;
     use num_rational::Ratio;
+    use std::sync::Arc;
+    use std::thread;
+
+    use crate::sync::header::{get_locator_ordinals, HeaderSync, MAX_BLOCK_HEADERS};
 
     #[test]
     fn test_get_locator_ordinals() {
@@ -436,18 +442,19 @@ mod test {
     fn test_sync_headers_fork() {
         let mock_adapter = Arc::new(MockPeerManagerAdapter::default());
         let mut header_sync = HeaderSync::new(
-            mock_adapter.clone().into(),
-            TimeDuration::from_secs(10),
-            TimeDuration::from_secs(2),
-            TimeDuration::from_secs(120),
+            Clock::real(),
+            mock_adapter.as_multi_sender(),
+            Duration::seconds(10),
+            Duration::seconds(2),
+            Duration::seconds(120),
             1_000_000_000,
         );
-        let (mut chain, _, _, signer) = setup();
+        let (mut chain, _, _, signer) = setup(Clock::real());
         for _ in 0..3 {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
             // Have gaps in the chain, so we don't have final blocks (i.e. last final block is
             // genesis). Otherwise we violate consensus invariants.
-            let block = TestBlockBuilder::new(&prev, signer.clone())
+            let block = TestBlockBuilder::new(Clock::real(), &prev, signer.clone())
                 .height(prev.header().height() + 2)
                 .build();
             process_block_sync(
@@ -459,12 +466,12 @@ mod test {
             )
             .unwrap();
         }
-        let (mut chain2, _, _, signer2) = setup();
+        let (mut chain2, _, _, signer2) = setup(Clock::real());
         for _ in 0..5 {
             let prev = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
             // Have gaps in the chain, so we don't have final blocks (i.e. last final block is
             // genesis). Otherwise we violate consensus invariants.
-            let block = TestBlockBuilder::new(&prev, signer2.clone())
+            let block = TestBlockBuilder::new(Clock::real(), &prev, signer2.clone())
                 .height(prev.header().height() + 2)
                 .build();
             process_block_sync(
@@ -522,19 +529,20 @@ mod test {
     fn test_sync_headers_fork_from_final_block() {
         let mock_adapter = Arc::new(MockPeerManagerAdapter::default());
         let mut header_sync = HeaderSync::new(
-            mock_adapter.clone().into(),
-            TimeDuration::from_secs(10),
-            TimeDuration::from_secs(2),
-            TimeDuration::from_secs(120),
+            Clock::real(),
+            mock_adapter.as_multi_sender(),
+            Duration::seconds(10),
+            Duration::seconds(2),
+            Duration::seconds(120),
             1_000_000_000,
         );
-        let (mut chain, _, _, signer) = setup();
-        let (mut chain2, _, _, signer2) = setup();
+        let (mut chain, _, _, signer) = setup(Clock::real());
+        let (mut chain2, _, _, signer2) = setup(Clock::real());
         for chain in [&mut chain, &mut chain2] {
             // Both chains share a common final block at height 3.
             for _ in 0..5 {
                 let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
-                let block = TestBlockBuilder::new(&prev, signer.clone()).build();
+                let block = TestBlockBuilder::new(Clock::real(), &prev, signer.clone()).build();
                 process_block_sync(
                     chain,
                     &None,
@@ -548,7 +556,7 @@ mod test {
         for _ in 0..7 {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
             // Test with huge gaps to make sure we are still able to find locators.
-            let block = TestBlockBuilder::new(&prev, signer.clone())
+            let block = TestBlockBuilder::new(Clock::real(), &prev, signer.clone())
                 .height(prev.header().height() + 1000)
                 .build();
             process_block_sync(
@@ -564,7 +572,7 @@ mod test {
             let prev = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
             // Test with huge gaps, but 3 blocks here produce a higher height than the 7 blocks
             // above.
-            let block = TestBlockBuilder::new(&prev, signer2.clone())
+            let block = TestBlockBuilder::new(Clock::real(), &prev, signer2.clone())
                 .height(prev.header().height() + 3100)
                 .build();
             process_block_sync(
@@ -632,10 +640,11 @@ mod test {
 
         // Setup header_sync with expectation of 25 headers/second
         let mut header_sync = HeaderSync::new(
-            network_adapter.clone().into(),
-            TimeDuration::from_secs(1),
-            TimeDuration::from_secs(1),
-            TimeDuration::from_secs(3),
+            Clock::real(),
+            network_adapter.as_multi_sender(),
+            Duration::seconds(1),
+            Duration::seconds(1),
+            Duration::seconds(3),
             25,
         );
 
@@ -656,15 +665,16 @@ mod test {
         };
         set_syncing_peer(&mut header_sync);
 
-        let (chain, _, _, signer) = setup();
+        let (chain, _, _, signer) = setup(Clock::real());
         let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
 
         let mut last_block = &genesis;
         let mut all_blocks = vec![];
         for i in 0..61 {
             let current_height = 3 + i * 5;
-            let block =
-                TestBlockBuilder::new(last_block, signer.clone()).height(current_height).build();
+            let block = TestBlockBuilder::new(Clock::real(), last_block, signer.clone())
+                .height(current_height)
+                .build();
             all_blocks.push(block);
             last_block = &all_blocks[all_blocks.len() - 1];
         }
@@ -688,7 +698,7 @@ mod test {
 
             last_added_block_ord += 3;
 
-            thread::sleep(TimeDuration::from_millis(500));
+            thread::sleep(std::time::Duration::from_millis(500));
         }
         // 6 blocks / second is fast enough, we should not have banned the peer
         assert!(network_adapter.requests.read().unwrap().is_empty());
@@ -710,7 +720,7 @@ mod test {
 
             last_added_block_ord += 2;
 
-            thread::sleep(TimeDuration::from_millis(500));
+            thread::sleep(std::time::Duration::from_millis(500));
         }
         // This time the peer should be banned, because 4 blocks/s is not fast enough
         let ban_peer = network_adapter.requests.write().unwrap().pop_back().unwrap();
@@ -726,36 +736,36 @@ mod test {
     fn test_sync_from_very_behind() {
         let mock_adapter = Arc::new(MockPeerManagerAdapter::default());
         let mut header_sync = HeaderSync::new(
-            mock_adapter.clone().into(),
-            TimeDuration::from_secs(10),
-            TimeDuration::from_secs(2),
-            TimeDuration::from_secs(120),
+            Clock::real(),
+            mock_adapter.as_multi_sender(),
+            Duration::seconds(10),
+            Duration::seconds(2),
+            Duration::seconds(120),
             1_000_000_000,
         );
 
         let vs = ValidatorSchedule::new()
             .block_producers_per_epoch(vec![vec!["test0".parse().unwrap()]]);
-        let genesis_time = StaticClock::utc();
+        let clock = FakeClock::new(Utc::UNIX_EPOCH);
         // Don't bother with epoch switches. It's not relevant.
         let (mut chain, _, _, _) =
-            setup_with_validators_and_start_time(vs.clone(), 10000, 100, genesis_time);
+            setup_with_validators_and_start_time(clock.clock(), vs.clone(), 10000, 100);
         let (mut chain2, _, _, signers2) =
-            setup_with_validators_and_start_time(vs, 10000, 100, genesis_time);
+            setup_with_validators_and_start_time(clock.clock(), vs, 10000, 100);
         // Set up the second chain with 2000+ blocks.
         let mut block_merkle_tree = PartialMerkleTree::default();
         block_merkle_tree.insert(*chain.genesis().hash()); // for genesis block
         for _ in 0..(4 * MAX_BLOCK_HEADERS + 10) {
             let last_block = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
             let this_height = last_block.header().height() + 1;
-            let (epoch_id, next_epoch_id) =
-                if last_block.header().prev_hash() == &CryptoHash::default() {
-                    (last_block.header().next_epoch_id().clone(), EpochId(*last_block.hash()))
-                } else {
-                    (
-                        last_block.header().epoch_id().clone(),
-                        last_block.header().next_epoch_id().clone(),
-                    )
-                };
+            let (epoch_id, next_epoch_id) = if last_block.header().is_genesis() {
+                (last_block.header().next_epoch_id().clone(), EpochId(*last_block.hash()))
+            } else {
+                (
+                    last_block.header().epoch_id().clone(),
+                    last_block.header().next_epoch_id().clone(),
+                )
+            };
             let block = Block::produce(
                 PROTOCOL_VERSION,
                 PROTOCOL_VERSION,
@@ -763,6 +773,7 @@ mod test {
                 this_height,
                 last_block.header().block_ordinal() + 1,
                 last_block.chunks().iter().cloned().collect(),
+                vec![vec![]; last_block.chunks().len()],
                 epoch_id,
                 next_epoch_id,
                 None,
@@ -789,7 +800,7 @@ mod test {
                 &*signers2[0],
                 *last_block.header().next_bp_hash(),
                 block_merkle_tree.root(),
-                None,
+                clock.now_utc(),
             );
             block_merkle_tree.insert(*block.hash());
             chain2.process_block_header(block.header(), &mut Vec::new()).unwrap(); // just to validate

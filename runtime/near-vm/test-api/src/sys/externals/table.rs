@@ -1,6 +1,3 @@
-// This is test code...
-#![allow(clippy::vtable_address_comparisons)]
-
 use super::super::exports::Exportable;
 use super::super::store::Store;
 use super::super::types::TableType;

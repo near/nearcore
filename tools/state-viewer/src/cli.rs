@@ -679,6 +679,7 @@ pub enum RecordType {
     PostponedReceipt = col::POSTPONED_RECEIPT,
     DelayedReceiptOrIndices = col::DELAYED_RECEIPT_OR_INDICES,
     ContractData = col::CONTRACT_DATA,
+    PromiseYieldReceipt = col::PROMISE_YIELD_RECEIPT,
 }
 
 impl clap::ValueEnum for RecordType {
@@ -693,6 +694,7 @@ impl clap::ValueEnum for RecordType {
             Self::PostponedReceipt,
             Self::DelayedReceiptOrIndices,
             Self::ContractData,
+            Self::PromiseYieldReceipt,
         ]
     }
 
@@ -711,6 +713,9 @@ impl clap::ValueEnum for RecordType {
                 Some(clap::builder::PossibleValue::new("delayed-receipt-or-indices"))
             }
             Self::ContractData => Some(clap::builder::PossibleValue::new("contract-data")),
+            Self::PromiseYieldReceipt => {
+                Some(clap::builder::PossibleValue::new("promise-yield-receipt"))
+            }
         }
     }
 }

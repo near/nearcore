@@ -4,7 +4,8 @@ See https://github.com/near/NEPs/issues/518.
 
 Must not use in production!
 
-Currently, the contract can only be used in nightly build.
+Currently, the contract build is disabled!
+
 The `build.rs` generates WASM file and saves it to the `./res` directory.
 
 If you want to use the contract from nearcore, add this crate as a dependency

@@ -2,7 +2,7 @@
 version = "0.0.0" # managed by cargo-workspaces, see below
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2021"
-rust-version = "1.75.0"
+rust-version = "1.76.0"
 repository = "https://github.com/near/nearcore"
 license = "MIT OR Apache-2.0"
 
@@ -12,7 +12,7 @@ license = "MIT OR Apache-2.0"
 # Most crates are not stable on purpose, as maintaining API compatibility is a
 # significant developer time expense. Please think thoroughly before adding
 # anything to the list of stable crates.
-version = "0.19.0"
+version = "0.20.1"
 exclude = ["neard"]
 
 [workspace]
@@ -36,6 +36,7 @@ members = [
     "chain/rosetta-rpc",
     "chain/telemetry",
     "core/async",
+    "core/async-derive",
     "core/chain-configs",
     "core/crypto",
     "core/dyn-configs",
@@ -69,9 +70,9 @@ members = [
     "test-utils/runtime-tester/fuzz",
     "test-utils/store-validator",
     "test-utils/testlib",
-    "test-utils/style",
     "tools/database",
     "tools/chainsync-loadtest",
+    "tools/congestion-model",
     "tools/fork-network",
     "tools/indexer/example",
     "tools/mirror",
@@ -94,17 +95,20 @@ members = [
     "utils/stdx",
 ]
 
-[workspace.lints.rust]
-warnings = "deny"
-
 [workspace.lints.clippy]
-all = { level = "allow", priority = -1 }
+all = { level = "allow", priority = -100 }
+correctness = { level = "deny", priority = -50 }
+suspicious = { level = "deny", priority = -50 }
+perf = { level = "deny", priority = -50 }
+# overrides clippy::perf = "deny": https://github.com/rust-lang/rust-clippy/issues/8111
+single_char_pattern = "allow"
 clone_on_copy = "deny"
-correctness = "deny"
 derivable_impls = "deny"
 redundant_clone = "deny"
-suspicious = "deny"
 len_zero = "deny"
+or_fun_call = "deny"
+unnecessary_lazy_evaluations = "deny"
+
 
 [workspace.dependencies]
 actix = "0.13.0"
@@ -112,7 +116,6 @@ actix-cors = "0.6.1"
 actix-http = "3.3"
 actix-rt = "2"
 actix-web = "4.1"
-ansi_term = "0.12"
 anyhow = "1.0.62"
 arbitrary = { version = "1.2.3", features = ["derive"] }
 arc-swap = "1.5"
@@ -132,24 +135,23 @@ bitflags = "1.2"
 blake2 = "0.9.1"
 blst = { git = "https://github.com/supranational/blst.git",  branch = "master" }
 bn = { package = "zeropool-bn", version = "0.5.11", default-features = false }
-bolero = { version = "0.10.0", git = "https://github.com/Ekleog-NEAR/bolero", rev = "56da8e6d1d018519a30b36d85d3a53fe35a42eaf", features = ["arbitrary"] }
+# TODO: remove this override when https://github.com/camshaft/bolero/issues/196 is fixed upstream
+# Currently the changes here are: https://github.com/camshaft/bolero/compare/master...Ekleog-NEAR:bolero:reduce-list-tests-run
+bolero = { version = "0.10.0", git = "https://github.com/Ekleog-NEAR/bolero", rev = "c37993bd70dcf5b1778b03daf29f686225e9a504", features = ["arbitrary"] }
 borsh = { version = "1.0.0", features = ["derive", "rc"] }
 bs58 = "0.4"
 bytes = "1"
 bytesize = { version = "1.1", features = ["serde"] }
-c2-chacha = "0.3"
 cargo_metadata = "0.14.1"
 cc = "1.0"
 cfg-if = "1.0"
 chrono = { version = "0.4.19", features = ["serde"] }
 clap = { version = "4.2.0", features = ["derive", "env", "string"] }
 cloud-storage = "0.11.1"
-conqueue = "0.4.0"
 cpu-time = "1.0"
 criterion = { version = "0.5.1", default_features = false, features = ["html_reports", "cargo_bench_support"] }
 crossbeam = "0.8"
 crossbeam-channel = "0.5.8"
-crossbeam-queue = "0.3.8"
 csv = "1.2.1"
 curve25519-dalek = { version = "4.1.1", default-features = false, features = ["alloc", "precomputed-tables", "rand_core"] }
 derive-enum-from-into = "0.1.1"
@@ -164,7 +166,6 @@ enum-map = "2.1.0"
 enumset = "1.0"
 expect-test = "1.3.0"
 finite-wasm = "0.5.0"
-flate2 = "1.0.22"
 fs2 = "0.4"
 futures = "0.3.5"
 futures-util = "0.3"
@@ -184,13 +185,10 @@ itertools = "0.10.0"
 itoa = "1.0"
 json_comments = "0.2.1"
 lazy_static = "1.4"
-leb128 = "0.2"
 libc = "0.2.81"
 libfuzzer-sys = { version = "0.4", features = ["arbitrary-derive"] }
 log = "0.4"
-loupe = "0.1"
 lru = "0.7.2"
-memmap2 = "0.5"
 memoffset = "0.8"
 more-asserts = "0.2"
 near-account-id = { version = "1.0.0-alpha.4", features = ["internal_unstable", "serde", "borsh"] }
@@ -198,6 +196,7 @@ near-actix-test-utils = { path = "test-utils/actix-test-utils" }
 near-amend-genesis = { path = "tools/amend-genesis" }
 near-database-tool= { path = "tools/database" }
 near-async = { path = "core/async" }
+near-async-derive = { path = "core/async-derive" }
 near-cache = { path = "utils/near-cache" }
 near-chain = { path = "chain/chain" }
 near-chain-configs = { path = "core/chain-configs" }
@@ -237,7 +236,6 @@ near-primitives-core = { path = "core/primitives-core" }
 near-rosetta-rpc = { path = "chain/rosetta-rpc" }
 near-rpc-error-core = { path = "tools/rpctypegen/core" }
 near-rpc-error-macro = { path = "tools/rpctypegen/macro" }
-near-stable-hasher = { path = "utils/near-stable-hasher" }
 near-state-parts = { path = "tools/state-parts" }
 near-state-parts-dump-check = { path = "tools/state-parts-dump-check" }
 near-state-viewer = { path = "tools/state-viewer", package = "state-viewer" }
@@ -250,7 +248,6 @@ near-vm-compiler = { path = "runtime/near-vm/compiler" }
 near-vm-compiler-singlepass = { path = "runtime/near-vm/compiler-singlepass" }
 near-vm-compiler-test-derive = { path = "runtime/near-vm/compiler-test-derive" }
 near-vm-engine = { path = "runtime/near-vm/engine" }
-near-vm-engine-universal = { path = "runtime/near-vm/engine-universal" }
 near-vm-runner = { path = "runtime/near-vm-runner" }
 near-vm-test-generator = { path = "runtime/near-vm/test-generator" }
 near-vm-types = { path = "runtime/near-vm/types" }
@@ -304,7 +301,7 @@ runtime-tester = { path = "test-utils/runtime-tester" }
 rusqlite = { version = "0.29.0", features = ["bundled", "chrono", "functions"] }
 rustc-demangle = "0.1"
 rust-s3 = { version = "0.32.3", features = ["blocking"] }
-rustix = "0.37"
+rustix = "0.38"
 secp256k1 = { version = "0.27.0", features = ["recovery", "rand-std"] }
 semver = "1.0.4"
 serde = { version = "1.0.136", features = ["alloc", "derive", "rc"] }
@@ -316,7 +313,6 @@ serde_yaml = "0.9"
 serial_test = "0.5"
 sha2 = "0.10"
 sha3 = "0.10"
-shell-escape = "0.1.5"
 smallvec = "1.6"
 smart-default = "0.6"
 smartstring = "1.0.1"
@@ -325,14 +321,13 @@ stun = "0.4"
 subtle = "2.2"
 syn = { version = "2.0.4", features = ["extra-traits", "full"] }
 sysinfo = "0.24.5"
-tar = "0.4.38"
 target-lexicon = { version = "0.12.2", default-features = false }
 tempfile = "3.3"
 testlib = { path = "test-utils/testlib" }
 test-log = { version = "0.2", default-features = false, features = ["trace"] }
 thiserror = "1.0.30"
 tikv-jemallocator = "0.5.0"
-time = "0.3.9"
+time = { version = "0.3.9", features = ["parsing", "serde"] }
 tokio = { version = "1.28", features = [
     "fs",
     "macros",
@@ -352,7 +347,6 @@ tracing-span-tree = "0.1"
 tracing-subscriber = { version = "0.3.15", features = ["env-filter", "fmt", "registry", "std"] }
 trybuild = "1.0.11"
 turn = "0.6"
-validator = "0.12"
 wasm-encoder = "0.27.0"
 wasmer-compiler = { package = "wasmer-compiler-near", version = "=2.4.1" }
 wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", version = "=2.4.1" }
@@ -377,6 +371,8 @@ yansi = "0.5.1"
 stdx = { package = "near-stdx", path = "utils/stdx" }
 
 [patch.crates-io]
+protobuf = { git = "https://github.com/near/rust-protobuf.git", branch = "3.0.2-patch" }
+protobuf-support = { git = "https://github.com/near/rust-protobuf.git", branch = "3.0.2-patch" }
 
 # Note that "bench" profile inherits from "release" profile and
 # "test" profile inherits from "dev" profile.

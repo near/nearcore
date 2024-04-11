@@ -16,11 +16,11 @@ cargo run -p runtime-params-estimator --features required -- \
 You should get an output like this.
 
 ```
-[elapsed 00:00:17 remaining 00:00:00] Writing into storage ████████████████████   20000/20000  
-ActionReceiptCreation         4_499_673_502_000 gas [  4.499674ms]    (computed in 7.22s) 
-ActionTransfer                  410_122_090_000 gas [   410.122µs]    (computed in 4.71s) 
-ActionCreateAccount             237_495_890_000 gas [   237.496µs]    (computed in 4.64s) 
-ActionFunctionCallBase          770_989_128_914 gas [   770.989µs]    (computed in 4.65s) 
+[elapsed 00:00:17 remaining 00:00:00] Writing into storage ████████████████████   20000/20000
+ActionReceiptCreation         4_499_673_502_000 gas [  4.499674ms]    (computed in 7.22s)
+ActionTransfer                  410_122_090_000 gas [   410.122µs]    (computed in 4.71s)
+ActionCreateAccount             237_495_890_000 gas [   237.496µs]    (computed in 4.64s)
+ActionFunctionCallBase          770_989_128_914 gas [   770.989µs]    (computed in 4.65s)
 
 
 Finished in 40.11s, output saved to:
@@ -63,11 +63,11 @@ instruction count, read IO bytes, and write IO bytes respectively. The IO byte
 count is known to be inaccurate.
 
 ```
-+ /host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/qemu-x86_64 -plugin file=/host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/libcounter.so -cpu Westmere-v1 /host/nearcore/target/release/runtime-params-estimator --home /.near --accounts-num 20000 --iters 3 --warmup-iters 1 --metric icount --costs=ActionReceiptCreation,ActionTransfer,ActionCreateAccount,ActionFunctionCallBase --skip-build-test-contract --additional-accounts-num 0 --in-memory-db
-ActionReceiptCreation         214_581_685_500 gas [  1716653.48i 0.00r 0.00w]     (computed in 6.11s) 
-ActionTransfer                 21_528_212_916 gas [   172225.70i 0.00r 0.00w]     (computed in 4.71s) 
-ActionCreateAccount            26_608_336_250 gas [   212866.69i 0.00r 0.00w]     (computed in 4.67s) 
-ActionFunctionCallBase         12_193_364_898 gas [    97546.92i 0.00r 0.00w]     (computed in 2.39s) 
++ /host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/qemu-x86_64 -plugin file=/host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/libcounter.so -cpu Haswell-v4 /host/nearcore/target/release/runtime-params-estimator --home /.near --accounts-num 20000 --iters 3 --warmup-iters 1 --metric icount --costs=ActionReceiptCreation,ActionTransfer,ActionCreateAccount,ActionFunctionCallBase --skip-build-test-contract --additional-accounts-num 0 --in-memory-db
+ActionReceiptCreation         214_581_685_500 gas [  1716653.48i 0.00r 0.00w]     (computed in 6.11s)
+ActionTransfer                 21_528_212_916 gas [   172225.70i 0.00r 0.00w]     (computed in 4.71s)
+ActionCreateAccount            26_608_336_250 gas [   212866.69i 0.00r 0.00w]     (computed in 4.67s)
+ActionFunctionCallBase         12_193_364_898 gas [    97546.92i 0.00r 0.00w]     (computed in 2.39s)
 
 
 Finished in 17.92s, output saved to:

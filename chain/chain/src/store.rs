@@ -42,14 +42,15 @@ use near_primitives::utils::{
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::LightClientBlockView;
 use near_store::{
-    DBCol, KeyForStateChanges, Store, StoreUpdate, WrappedTrieChanges, CHUNK_TAIL_KEY,
-    FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
-    LATEST_KNOWN_KEY, TAIL_KEY,
+    DBCol, KeyForStateChanges, PartialStorage, Store, StoreUpdate, WrappedTrieChanges,
+    CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
+    LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, TAIL_KEY,
 };
 
 use crate::byzantine_assert;
 use crate::chunks_store::ReadOnlyChunksStore;
 use crate::types::{Block, BlockHeader, LatestKnown};
+use near_primitives::stateless_validation::StoredChunkStateTransitionData;
 use near_store::db::{StoreStatistics, STATE_SYNC_DUMP_KEY};
 use std::sync::Arc;
 
@@ -1120,7 +1121,7 @@ impl ChainStoreAccess for ChainStore {
         } else {
             self.store
                 .get_ser(DBCol::BlockMisc, TAIL_KEY)
-                .map(|option| option.unwrap_or_else(|| self.genesis_height))
+                .map(|option| option.unwrap_or(self.genesis_height))
                 .map_err(|e| e.into())
         }
     }
@@ -1129,14 +1130,14 @@ impl ChainStoreAccess for ChainStore {
     fn chunk_tail(&self) -> Result<BlockHeight, Error> {
         self.store
             .get_ser(DBCol::BlockMisc, CHUNK_TAIL_KEY)
-            .map(|option| option.unwrap_or_else(|| self.genesis_height))
+            .map(|option| option.unwrap_or(self.genesis_height))
             .map_err(|e| e.into())
     }
 
     fn fork_tail(&self) -> Result<BlockHeight, Error> {
         self.store
             .get_ser(DBCol::BlockMisc, FORK_TAIL_KEY)
-            .map(|option| option.unwrap_or_else(|| self.genesis_height))
+            .map(|option| option.unwrap_or(self.genesis_height))
             .map_err(|e| e.into())
     }
 
@@ -1438,11 +1439,10 @@ pub struct ChainStoreUpdate<'a> {
     final_head: Option<Tip>,
     largest_target_height: Option<BlockHeight>,
     trie_changes: Vec<WrappedTrieChanges>,
-
+    state_transition_data: HashMap<(CryptoHash, ShardId), StoredChunkStateTransitionData>,
     // All state changes made by a chunk, this is only used for resharding.
     add_state_changes_for_resharding: HashMap<(CryptoHash, ShardId), StateChangesForResharding>,
-    remove_state_changes_for_resharding: HashSet<(CryptoHash, ShardId)>,
-
+    remove_all_state_changes_for_resharding: bool,
     add_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
     // A pair (prev_hash, hash) to be removed from blocks to catchup
     remove_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
@@ -1467,8 +1467,9 @@ impl<'a> ChainStoreUpdate<'a> {
             final_head: None,
             largest_target_height: None,
             trie_changes: vec![],
+            state_transition_data: Default::default(),
             add_state_changes_for_resharding: HashMap::new(),
-            remove_state_changes_for_resharding: HashSet::new(),
+            remove_all_state_changes_for_resharding: false,
             add_blocks_to_catchup: vec![],
             remove_blocks_to_catchup: vec![],
             remove_prev_blocks_to_catchup: vec![],
@@ -1991,13 +1992,13 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     fn update_and_save_block_merkle_tree(&mut self, header: &BlockHeader) -> Result<(), Error> {
-        let prev_hash = *header.prev_hash();
-        if prev_hash == CryptoHash::default() {
+        if header.is_genesis() {
             self.save_block_merkle_tree(*header.hash(), PartialMerkleTree::default());
         } else {
-            let old_merkle_tree = self.get_block_merkle_tree(&prev_hash)?;
+            let prev_hash = header.prev_hash();
+            let old_merkle_tree = self.get_block_merkle_tree(prev_hash)?;
             let mut new_merkle_tree = PartialMerkleTree::clone(&old_merkle_tree);
-            new_merkle_tree.insert(prev_hash);
+            new_merkle_tree.insert(*prev_hash);
             self.save_block_merkle_tree(*header.hash(), new_merkle_tree);
         }
         Ok(())
@@ -2077,6 +2078,24 @@ impl<'a> ChainStoreUpdate<'a> {
         self.trie_changes.push(trie_changes);
     }
 
+    pub fn save_state_transition_data(
+        &mut self,
+        block_hash: CryptoHash,
+        shard_id: ShardId,
+        partial_storage: Option<PartialStorage>,
+        applied_receipts_hash: CryptoHash,
+    ) {
+        if let Some(partial_storage) = partial_storage {
+            self.state_transition_data.insert(
+                (block_hash, shard_id),
+                StoredChunkStateTransitionData {
+                    base_state: partial_storage.nodes,
+                    receipts_hash: applied_receipts_hash,
+                },
+            );
+        }
+    }
+
     pub fn add_state_changes_for_resharding(
         &mut self,
         block_hash: CryptoHash,
@@ -2089,15 +2108,8 @@ impl<'a> ChainStoreUpdate<'a> {
         assert!(prev.is_none());
     }
 
-    pub fn remove_state_changes_for_resharding(
-        &mut self,
-        block_hash: CryptoHash,
-        shard_id: ShardId,
-    ) {
-        // We should not remove state changes for the same chunk twice
-        let value_not_present =
-            self.remove_state_changes_for_resharding.insert((block_hash, shard_id));
-        assert!(value_not_present);
+    pub fn remove_all_state_changes_for_resharding(&mut self) {
+        self.remove_all_state_changes_for_resharding = true;
     }
 
     pub fn add_block_to_catchup(&mut self, prev_hash: CryptoHash, block_hash: CryptoHash) {
@@ -2526,6 +2538,13 @@ impl<'a> ChainStoreUpdate<'a> {
             }
         }
 
+        for ((block_hash, shard_id), state_transition_data) in self.state_transition_data.drain() {
+            store_update.set_ser(
+                DBCol::StateTransitionData,
+                &get_block_shard_id(&block_hash, shard_id),
+                &state_transition_data,
+            )?;
+        }
         for ((block_hash, shard_id), state_changes) in self.add_state_changes_for_resharding.drain()
         {
             store_update.set_ser(
@@ -2534,11 +2553,9 @@ impl<'a> ChainStoreUpdate<'a> {
                 &state_changes,
             )?;
         }
-        for (block_hash, shard_id) in self.remove_state_changes_for_resharding.drain() {
-            store_update.delete(
-                DBCol::StateChangesForSplitStates,
-                &get_block_shard_id(&block_hash, shard_id),
-            );
+
+        if self.remove_all_state_changes_for_resharding {
+            store_update.delete_all(DBCol::StateChangesForSplitStates);
         }
 
         let mut affected_catchup_blocks = HashSet::new();
@@ -2733,6 +2750,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
 #[cfg(test)]
 mod tests {
+    use near_async::time::Clock;
     use std::sync::Arc;
 
     use crate::test_utils::get_chain;
@@ -2746,10 +2764,11 @@ mod tests {
     #[test]
     fn test_tx_validity_long_fork() {
         let transaction_validity_period = 5;
-        let mut chain = get_chain();
+        let mut chain = get_chain(Clock::real());
         let genesis = chain.get_block_by_height(0).unwrap();
         let signer = Arc::new(create_test_signer("test1"));
-        let short_fork = vec![TestBlockBuilder::new(&genesis, signer.clone()).build()];
+        let short_fork =
+            vec![TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build()];
         let mut store_update = chain.mut_chain_store().store_update();
         store_update.save_block_header(short_fork[0].header().clone()).unwrap();
         store_update.commit().unwrap();
@@ -2767,7 +2786,8 @@ mod tests {
         let mut prev_block = genesis;
         for i in 1..(transaction_validity_period + 3) {
             let mut store_update = chain.mut_chain_store().store_update();
-            let block = TestBlockBuilder::new(&prev_block, signer.clone()).height(i).build();
+            let block =
+                TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).height(i).build();
             prev_block = block.clone();
             store_update.save_block_header(block.header().clone()).unwrap();
             store_update
@@ -2800,14 +2820,15 @@ mod tests {
     #[test]
     fn test_tx_validity_normal_case() {
         let transaction_validity_period = 5;
-        let mut chain = get_chain();
+        let mut chain = get_chain(Clock::real());
         let genesis = chain.get_block_by_height(0).unwrap();
         let signer = Arc::new(create_test_signer("test1"));
         let mut blocks = vec![];
         let mut prev_block = genesis;
         for i in 1..(transaction_validity_period + 2) {
             let mut store_update = chain.mut_chain_store().store_update();
-            let block = TestBlockBuilder::new(&prev_block, signer.clone()).height(i).build();
+            let block =
+                TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).height(i).build();
             prev_block = block.clone();
             store_update.save_block_header(block.header().clone()).unwrap();
             store_update
@@ -2826,7 +2847,7 @@ mod tests {
                 transaction_validity_period
             )
             .is_ok());
-        let new_block = TestBlockBuilder::new(&blocks.last().unwrap(), signer)
+        let new_block = TestBlockBuilder::new(Clock::real(), &blocks.last().unwrap(), signer)
             .height(transaction_validity_period + 3)
             .build();
 
@@ -2849,7 +2870,7 @@ mod tests {
     #[test]
     fn test_tx_validity_off_by_one() {
         let transaction_validity_period = 5;
-        let mut chain = get_chain();
+        let mut chain = get_chain(Clock::real());
         let genesis = chain.get_block_by_height(0).unwrap();
         let genesis_hash = *genesis.hash();
         let signer = Arc::new(create_test_signer("test1"));
@@ -2857,7 +2878,8 @@ mod tests {
         let mut prev_block = genesis.clone();
         for i in 1..(transaction_validity_period + 2) {
             let mut store_update = chain.mut_chain_store().store_update();
-            let block = TestBlockBuilder::new(&prev_block, signer.clone()).height(i).build();
+            let block =
+                TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).height(i).build();
             prev_block = block.clone();
             store_update.save_block_header(block.header().clone()).unwrap();
             short_fork.push(block);
@@ -2877,7 +2899,8 @@ mod tests {
         let mut prev_block = genesis;
         for i in 1..(transaction_validity_period * 5) {
             let mut store_update = chain.mut_chain_store().store_update();
-            let block = TestBlockBuilder::new(&prev_block, signer.clone()).height(i).build();
+            let block =
+                TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).height(i).build();
             prev_block = block.clone();
             store_update.save_block_header(block.header().clone()).unwrap();
             long_fork.push(block);
@@ -2896,10 +2919,10 @@ mod tests {
 
     #[test]
     fn test_cache_invalidation() {
-        let mut chain = get_chain();
+        let mut chain = get_chain(Clock::real());
         let genesis = chain.get_block_by_height(0).unwrap();
         let signer = Arc::new(create_test_signer("test1"));
-        let block1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
+        let block1 = TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build();
         let mut block2 = block1.clone();
         block2.mut_header().get_mut().inner_lite.epoch_id = EpochId(hash(&[1, 2, 3]));
         block2.mut_header().resign(&*signer);

@@ -113,18 +113,18 @@ expensive integration-tests integration_tests tests::standard_cases::rpc::test_u
 expensive integration-tests integration_tests tests::standard_cases::rpc::test_upload_contract_testnet --features nightly
 
 # GC tests
-expensive --timeout=900 near-chain near_chain tests::gc::test_gc_remove_fork_large
-expensive --timeout=900 near-chain near_chain tests::gc::test_gc_remove_fork_large --features nightly
-expensive --timeout=1200 near-chain near_chain tests::gc::test_gc_not_remove_fork_large
-expensive --timeout=1200 near-chain near_chain tests::gc::test_gc_not_remove_fork_large --features nightly
-expensive --timeout=1200 near-chain near_chain tests::gc::test_gc_boundaries_large
-expensive --timeout=1200 near-chain near_chain tests::gc::test_gc_boundaries_large --features nightly
-expensive --timeout=900 near-chain near_chain tests::gc::test_gc_random_large
-expensive --timeout=900 near-chain near_chain tests::gc::test_gc_random_large --features nightly
-expensive --timeout=600 near-chain near_chain tests::gc::test_gc_pine
-expensive --timeout=600 near-chain near_chain tests::gc::test_gc_pine --features nightly
-expensive --timeout=700 near-chain near_chain tests::gc::test_gc_star_large
-expensive --timeout=700 near-chain near_chain tests::gc::test_gc_star_large --features nightly
+expensive --timeout=900 near-chain near_chain tests::garbage_collection::test_gc_remove_fork_large
+expensive --timeout=900 near-chain near_chain tests::garbage_collection::test_gc_remove_fork_large --features nightly
+expensive --timeout=1200 near-chain near_chain tests::garbage_collection::test_gc_not_remove_fork_large
+expensive --timeout=1200 near-chain near_chain tests::garbage_collection::test_gc_not_remove_fork_large --features nightly
+expensive --timeout=1200 near-chain near_chain tests::garbage_collection::test_gc_boundaries_large
+expensive --timeout=1200 near-chain near_chain tests::garbage_collection::test_gc_boundaries_large --features nightly
+expensive --timeout=900 near-chain near_chain tests::garbage_collection::test_gc_random_large
+expensive --timeout=900 near-chain near_chain tests::garbage_collection::test_gc_random_large --features nightly
+expensive --timeout=600 near-chain near_chain tests::garbage_collection::test_gc_pine
+expensive --timeout=600 near-chain near_chain tests::garbage_collection::test_gc_pine --features nightly
+expensive --timeout=700 near-chain near_chain tests::garbage_collection::test_gc_star_large
+expensive --timeout=700 near-chain near_chain tests::garbage_collection::test_gc_star_large --features nightly
 
 expensive --timeout=1200 integration-tests integration_tests tests::client::block_corruption::check_process_flipped_block_fails
 expensive --timeout=1200 integration-tests integration_tests tests::client::block_corruption::check_process_flipped_block_fails --features nightly
@@ -154,7 +154,7 @@ expensive integration-tests integration_tests tests::client::sync_state_nodes::s
 expensive integration-tests integration_tests tests::client::sync_state_nodes::sync_state_nodes_multishard --features nightly
 
 # other tests
-expensive --timeout=300 near-chain near_chain store::tests::test_clear_old_data_too_many_heights
+expensive --timeout=300 near-chain near_chain tests::garbage_collection::test_clear_old_data_too_many_heights
 
 expensive integration-tests integration_tests tests::test_simple::test_2_10_multiple_nodes
 expensive integration-tests integration_tests tests::test_simple::test_2_10_multiple_nodes --features nightly

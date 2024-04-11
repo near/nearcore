@@ -1,7 +1,4 @@
-use super::{
-    delay_sender::DelaySender,
-    event_handler::{LoopEventHandler, TryIntoOrSelf},
-};
+use super::{delay_sender::DelaySender, event_handler::LoopEventHandler};
 use crate::messaging::CanSend;
 use crate::time;
 use std::fmt::Debug;
@@ -54,10 +51,8 @@ impl<Data: 'static, Event: From<AdhocEvent<Data>> + 'static> AdhocEventSender<Da
 }
 
 /// Handler to handle adhoc events.
-pub fn handle_adhoc_events<Data: 'static, Event: TryIntoOrSelf<AdhocEvent<Data>>>(
-) -> LoopEventHandler<Data, Event> {
-    LoopEventHandler::new(|event: Event, data, _ctx| {
-        let event = event.try_into_or_self()?;
+pub fn handle_adhoc_events<Data: 'static>() -> LoopEventHandler<Data, AdhocEvent<Data>> {
+    LoopEventHandler::new(|event: AdhocEvent<Data>, data, _ctx| {
         (event.handler)(data);
         Ok(())
     })

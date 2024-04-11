@@ -1,10 +1,11 @@
+use near_async::messaging::AsyncSendError;
 use near_client_primitives::types::GetClientConfigError;
 use near_jsonrpc_primitives::types::client_config::RpcClientConfigError;
 
 use super::RpcFrom;
 
-impl RpcFrom<actix::MailboxError> for RpcClientConfigError {
-    fn rpc_from(error: actix::MailboxError) -> Self {
+impl RpcFrom<AsyncSendError> for RpcClientConfigError {
+    fn rpc_from(error: AsyncSendError) -> Self {
         Self::InternalError { error_message: error.to_string() }
     }
 }

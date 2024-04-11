@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, HashMap};
 
 mod arena;
 mod construction;
-mod flexible_data;
+pub(crate) mod flexible_data;
 pub mod loading;
 pub mod lookup;
 pub mod metrics;

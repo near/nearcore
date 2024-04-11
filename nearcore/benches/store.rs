@@ -8,7 +8,7 @@ use near_epoch_manager::EpochManager;
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::types::StateRoot;
 use near_store::Mode;
-use nearcore::{get_default_home, load_config, NightshadeRuntime};
+use nearcore::{get_default_home, load_config, NightshadeRuntime, NightshadeRuntimeExt};
 use std::time::{Duration, Instant};
 
 /// Read `TrieItem`s - nodes containing values - using Trie iterator, stop when 10k items were read.

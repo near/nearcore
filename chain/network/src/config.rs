@@ -2,9 +2,7 @@ use crate::blacklist;
 use crate::concurrency::rate;
 use crate::network_protocol::PeerAddr;
 use crate::network_protocol::PeerInfo;
-use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
-use crate::sink::Sink;
 use crate::snapshot_hosts;
 use crate::stun;
 use crate::tcp;
@@ -165,10 +163,9 @@ pub struct NetworkConfig {
     //   * ignoring received deleted edges as well
     pub skip_tombstones: Option<time::Duration>,
 
-    /// TEST-ONLY
-    /// TODO(gprusak): make it pub(crate), once all integration tests
-    /// are merged into near_network.
-    pub event_sink: Sink<Event>,
+    #[cfg(test)]
+    pub(crate) event_sink:
+        near_async::messaging::Sender<crate::peer_manager::peer_manager_actor::Event>,
 }
 
 impl NetworkConfig {
@@ -289,6 +286,7 @@ impl NetworkConfig {
             },
             snapshot_hosts: snapshot_hosts::Config {
                 snapshot_hosts_cache_size: cfg.snapshot_hosts_cache_size,
+                part_selection_cache_batch_size: 10,
             },
             whitelist_nodes: if cfg.whitelist_nodes.is_empty() {
                 vec![]
@@ -340,7 +338,10 @@ impl NetworkConfig {
             } else {
                 None
             },
-            event_sink: Sink::null(),
+            #[cfg(test)]
+            event_sink: near_async::messaging::IntoSender::into_sender(
+                near_async::messaging::noop(),
+            ),
         };
         this.override_config(cfg.experimental.network_config_overrides);
         Ok(this)
@@ -372,7 +373,10 @@ impl NetworkConfig {
                 peer_expiration_duration: time::Duration::seconds(60 * 60),
                 connect_only_to_boot_nodes: false,
             },
-            snapshot_hosts: snapshot_hosts::Config { snapshot_hosts_cache_size: 1000 },
+            snapshot_hosts: snapshot_hosts::Config {
+                snapshot_hosts_cache_size: 1000,
+                part_selection_cache_batch_size: 10,
+            },
             whitelist_nodes: vec![],
             handshake_timeout: time::Duration::seconds(5),
             connect_to_reliable_peers_on_startup: true,
@@ -407,7 +411,10 @@ impl NetworkConfig {
                 enable_outbound: true,
             }),
             skip_tombstones: None,
-            event_sink: Sink::null(),
+            #[cfg(test)]
+            event_sink: near_async::messaging::IntoSender::into_sender(
+                near_async::messaging::noop(),
+            ),
         }
     }
 

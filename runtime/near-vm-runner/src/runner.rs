@@ -111,6 +111,7 @@ pub trait VM {
 }
 
 pub trait VMKindExt {
+    fn is_available(&self) -> bool;
     /// Make a [`VM`] for this [`VMKind`].
     ///
     /// This is not intended to be used by code other than internal tools like
@@ -119,6 +120,14 @@ pub trait VMKindExt {
 }
 
 impl VMKindExt for VMKind {
+    fn is_available(&self) -> bool {
+        match self {
+            Self::Wasmer0 => cfg!(all(feature = "wasmer0_vm", target_arch = "x86_64")),
+            Self::Wasmtime => cfg!(feature = "wasmtime_vm"),
+            Self::Wasmer2 => cfg!(all(feature = "wasmer2_vm", target_arch = "x86_64")),
+            Self::NearVm => cfg!(all(feature = "near_vm", target_arch = "x86_64")),
+        }
+    }
     fn runtime(&self, config: Config) -> Option<Box<dyn VM>> {
         match self {
             #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
@@ -130,7 +139,10 @@ impl VMKindExt for VMKind {
             #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
             Self::NearVm => Some(Box::new(crate::near_vm_runner::NearVM::new(config))),
             #[allow(unreachable_patterns)] // reachable when some of the VMs are disabled.
-            _ => None,
+            _ => {
+                let _ = config;
+                None
+            }
         }
     }
 }

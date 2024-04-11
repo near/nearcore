@@ -4,13 +4,14 @@ use std::sync::Arc;
 
 use actix::{Actor, Addr, System};
 use futures::{future, FutureExt};
+use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_primitives::num_rational::Ratio;
 use rand::Rng;
 
 use crate::genesis_helpers::genesis_hash;
 use crate::test_helpers::heavy_test;
 use near_actix_test_utils::run_actix;
-use near_chain_configs::Genesis;
+use near_chain_configs::{Genesis, NEAR_BASE};
 use near_client::{ClientActor, GetBlock, ProcessTxRequest, Query, Status, ViewClientActor};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::tcp;
@@ -20,8 +21,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeightDelta, BlockReference, NumSeats};
 use near_primitives::views::{QueryRequest, QueryResponseKind, ValidatorInfo};
-use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use nearcore::{load_test_config, start_with_config, NearConfig, NEAR_BASE};
+use nearcore::{load_test_config, start_with_config, NearConfig};
 
 use near_o11y::WithSpanContextExt;
 use {near_primitives::types::BlockId, primitive_types::U256};

@@ -50,5 +50,6 @@ jobs:
       - name: "Compile fuzzers and upload to GCS"
         run: |
           NAME="nearcore-${{ github.ref_name }}-$(env TZ=Etc/UTC  date +"%Y%m%d%H%M%S")"
-          RUSTFLAGS="-A warnings --cfg fuzz" cargo +nightly bolero build-clusterfuzz --all-features --profile fuzz
+          # Our Clusterfuzz setup currently (2024-02) runs on Cascade Lake CPUs
+          RUSTFLAGS="--cfg fuzz -C target-cpu=cascadelake" cargo +nightly bolero build-clusterfuzz --all-features --profile fuzz
           gsutil cp -Z target/fuzz/clusterfuzz.tar "gs://fuzzer_targets/${{ github.ref_name }}/$NAME.tar.gz"

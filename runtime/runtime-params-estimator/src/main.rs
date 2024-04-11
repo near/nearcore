@@ -11,6 +11,7 @@ use runtime_params_estimator::{
     costs_to_runtime_config, Cost, CostTable, QemuCommandBuilder, RocksDBTestConfig,
 };
 use std::env;
+use std::ffi::{OsStr, OsString};
 use std::fmt::Write;
 use std::fs::{self};
 use std::path::Path;
@@ -73,10 +74,10 @@ struct CliArgs {
     costs: Option<Vec<Cost>>,
     /// Build and run the estimator inside a docker container via QEMU.
     #[clap(long)]
-    docker: bool,
+    containerize: bool,
     /// Spawn a bash shell inside a docker container for debugging purposes.
     #[clap(long)]
-    docker_shell: bool,
+    container_shell: bool,
     /// Drop OS cache before measurements for better IO accuracy. Requires sudo.
     #[clap(long)]
     drop_os_cache: bool,
@@ -201,15 +202,15 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
             .unwrap();
     }
 
-    if cli_args.docker {
-        main_docker(
+    if cli_args.containerize {
+        main_container(
             &state_dump_path,
             cli_args.accurate,
-            cli_args.docker_shell,
+            cli_args.container_shell,
             cli_args.json_output,
             cli_args.debug,
         )?;
-        // The cost table has already been printed inside docker, the outer
+        // The cost table has already been printed inside container, the outer
         // instance does not produce an output.
         return Ok(None);
     }
@@ -303,14 +304,14 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
     Ok(Some(cost_table))
 }
 
-/// Spawns another instance of this binary but inside docker.
+/// Spawns another instance of this binary but inside a container.
 ///
-/// Most command line args are passed through but `--docker` is removed.
+/// Most command line args are passed through but `--containerize` is removed.
 /// We are now also running with an in-memory database to increase turn-around
 /// time and make the results more consistent. Note that this means qemu based
 /// IO estimations are inaccurate. They never really have been very accurate
 /// anyway and qemu is just not the right tool to measure IO costs.
-fn main_docker(
+fn main_container(
     state_dump_path: &Path,
     full: bool,
     debug_shell: bool,
@@ -318,18 +319,18 @@ fn main_docker(
     debug: bool,
 ) -> anyhow::Result<()> {
     let profile = if full { "release" } else { "dev-release" };
-    exec("docker --version").context("please install `docker`")?;
+    exec("podman --version").context("please install `podman`")?;
 
     let project_root = project_root();
-    let tagged_image = docker_image()?;
-    if exec(&format!("docker images -q {}", tagged_image))?.is_empty() {
+    let tagged_image = container_image_name()?;
+    if exec(&format!("podman images -q {}", tagged_image))?.is_empty() {
         // Build a docker image if there isn't one already.
-        let status = Command::new("docker")
+        let status = Command::new("podman")
             .args(&["build", "--tag", &tagged_image])
             .arg(project_root.join("runtime/runtime-params-estimator/emu-cost"))
             .status()?;
         if !status.success() {
-            anyhow::bail!("failed to build a docker image")
+            anyhow::bail!("failed to build the container image")
         }
     }
 
@@ -339,8 +340,14 @@ fn main_docker(
 
         let mut buf = String::new();
         buf.push_str("set -ex;\n");
+        buf.push_str("export CARGO_HOME=/.cargo\n");
         buf.push_str("cd /host/nearcore;\n");
-        buf.push_str("CFLAGS='-D__BLST_PORTABLE__' cargo build --manifest-path /host/nearcore/Cargo.toml");
+        #[cfg(feature = "protocol_feature_bls12381")]
+        buf.push_str(
+            "CFLAGS='-D__BLST_PORTABLE__' cargo build --manifest-path /host/nearcore/Cargo.toml",
+        );
+        #[cfg(not(feature = "protocol_feature_bls12381"))]
+        buf.push_str("cargo build --manifest-path /host/nearcore/Cargo.toml");
         buf.push_str(" --package runtime-params-estimator --bin runtime-params-estimator");
 
         // Feature "required" is always necessary for accurate measurements.
@@ -368,12 +375,12 @@ fn main_docker(
         buf.push_str(&format!("{:?}", qemu_cmd));
 
         // Sanitize & forward our arguments to the estimator to be run inside
-        // docker.
+        // the container.
         let mut args = env::args();
         let _binary_name = args.next();
         while let Some(arg) = args.next() {
             match arg.as_str() {
-                "--docker" => continue,
+                "--containerize" => continue,
                 "--additional-accounts-num" | "--home" => {
                     args.next();
                     continue;
@@ -399,17 +406,39 @@ fn main_docker(
         buf
     };
 
-    let nearcore =
-        format!("type=bind,source={},target=/host/nearcore", project_root.to_str().unwrap());
-    let nearhome = format!("type=bind,source={},target=/.near", state_dump_path.to_str().unwrap());
+    let mut nearcore_mount = OsString::from("type=bind,target=/host/nearcore,source=");
+    nearcore_mount.push(project_root.as_os_str());
+    let mut nearhome_mount = OsString::from("type=bind,target=/.near,source=");
+    nearhome_mount.push(state_dump_path.as_os_str());
+    let host_target_dir = project_root.join("target").join("estimator");
+    let mut target_mount = OsString::from("type=bind,target=/host/nearcore/target,source=");
+    target_mount.push(host_target_dir.as_os_str());
+    std::fs::create_dir_all(&host_target_dir)
+        .context("could not create host target dir at target/estimator")?;
+    let cargo_home = std::env::var_os("CARGO_HOME")
+        .map(PathBuf::from)
+        .or_else(|| Some(PathBuf::from(std::env::var_os("HOME")?).join(".cargo")))
+        .context("could not get cargo home directory")?;
+    let mut cargo_mount = OsString::from("type=bind,target=/.cargo,source=");
+    cargo_mount.push(cargo_home.as_os_str());
+    std::fs::create_dir_all(&host_target_dir)
+        .context("could not create host target dir at target/estimator")?;
 
-    let mut cmd = Command::new("docker");
-    cmd.args(&["run", "--rm", "--cap-add=SYS_PTRACE", "--security-opt", "seccomp=unconfined"])
-        .args(&["--mount", &nearcore])
-        .args(&["--mount", &nearhome])
-        .args(&["--mount", "source=rust-emu-target-dir,target=/host/nearcore/target"])
-        .args(&["--mount", "source=rust-emu-cargo-dir,target=/usr/local/cargo"])
-        .args(&["--env", "RUST_BACKTRACE=full"]);
+    let mut cmd = Command::new("podman");
+    cmd.args(&[
+        "--runtime=crun",
+        "run",
+        "--rm",
+        "--cap-add=SYS_PTRACE",
+        "--security-opt",
+        "seccomp=unconfined",
+    ])
+    .args(&["--network", "host"])
+    .args(&[OsStr::new("--mount"), &nearcore_mount])
+    .args(&[OsStr::new("--mount"), &nearhome_mount])
+    .args(&[OsStr::new("--mount"), &target_mount])
+    .args(&[OsStr::new("--mount"), &cargo_mount])
+    .args(&["--env", "RUST_BACKTRACE=full"]);
     // Spawning an interactive shell and pseudo TTY is necessary for debug shell
     // and nice-to-have in the general case, for cargo to color its output. But
     // it also merges stderr and stdout, which is problem when the stdout should
@@ -430,8 +459,9 @@ fn main_docker(
     Ok(())
 }
 
-/// Creates a docker image tag that is unique for each rust version to force re-build when it changes.
-fn docker_image() -> Result<String, anyhow::Error> {
+/// Creates a podman image tag that is unique for each rust version to force re-build when it
+/// changes.
+fn container_image_name() -> Result<String, anyhow::Error> {
     let image = "rust-emu";
     let dockerfile =
         fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("emu-cost/Dockerfile"))?;
@@ -440,13 +470,13 @@ fn docker_image() -> Result<String, anyhow::Error> {
     // FROM rust:x.y.z
     // ```
     // and the result should be `rust-x.y.z`
-    let tag = dockerfile
+    let from_image = dockerfile
         .lines()
         .find_map(|line| line.split_once("FROM "))
         .context("could not parse rustc version from Dockerfile")?
-        .1
-        .replace(":", "-");
-
+        .1;
+    let image_name = from_image.split_once("/").map(|(_, b)| b).unwrap_or(from_image);
+    let tag = image_name.replace(":", "-");
     Ok(format!("{}:{}", image, tag))
 }
 
@@ -513,8 +543,8 @@ mod tests {
             costs_file: None,
             compare_to: None,
             costs: Some(costs),
-            docker: false,
-            docker_shell: false,
+            containerize: false,
+            container_shell: false,
             drop_os_cache: false,
             debug: true,
             json_output: false,

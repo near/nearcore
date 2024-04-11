@@ -2,6 +2,7 @@ use crate::test_utils::setup_no_network;
 use actix::System;
 use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
+use near_async::time::Clock;
 use near_client_primitives::types::GetMaintenanceWindows;
 
 use near_o11y::testonly::init_test_logger;
@@ -13,6 +14,7 @@ fn test_get_maintenance_windows_for_validator() {
     init_test_logger();
     run_actix(async {
         let actor_handles = setup_no_network(
+            Clock::real(),
             vec!["test".parse().unwrap(), "other".parse().unwrap()],
             "other".parse().unwrap(),
             true,
@@ -45,8 +47,13 @@ fn test_get_maintenance_windows_for_validator() {
 fn test_get_maintenance_windows_for_not_validator() {
     init_test_logger();
     run_actix(async {
-        let actor_handles =
-            setup_no_network(vec!["test".parse().unwrap()], "other".parse().unwrap(), true, true);
+        let actor_handles = setup_no_network(
+            Clock::real(),
+            vec!["test".parse().unwrap()],
+            "other".parse().unwrap(),
+            true,
+            true,
+        );
         let actor = actor_handles.view_client_actor.send(
             GetMaintenanceWindows { account_id: "alice".parse().unwrap() }.with_span_context(),
         );

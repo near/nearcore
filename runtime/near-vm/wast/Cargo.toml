@@ -18,7 +18,6 @@ workspace = true
 anyhow.workspace = true
 near-vm-test-api.workspace = true
 wast.workspace = true
-tempfile.workspace = true
 thiserror.workspace = true
 
 [features]

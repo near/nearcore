@@ -1,6 +1,11 @@
+use crate::break_apart::BreakApart;
+use crate::functional::{SendAsyncFunction, SendFunction};
 use futures::future::BoxFuture;
+use futures::FutureExt;
 use once_cell::sync::OnceCell;
+use std::fmt::{Debug, Display};
 use std::sync::Arc;
+use tokio::sync::oneshot;
 
 /// Trait for sending a typed message.
 pub trait CanSend<M>: Send + Sync + 'static {
@@ -38,6 +43,8 @@ impl<M, T: CanSend<M>> IntoSender<M> for T {
 }
 
 impl<M> Sender<M> {
+    /// Sends a message. It's the responsibility of the underlying CanSend
+    /// implementation to decide how to handle the message.
     pub fn send(&self, message: M) {
         self.sender.send(message)
     }
@@ -50,65 +57,103 @@ impl<M> Sender<M> {
         Self { sender: arc }
     }
 
-    /// Creates a no-op sender that does nothing with the message.
-    pub fn noop() -> Self {
-        Self::from_impl(Noop)
+    /// Creates a sender that handles messages using the given function.
+    pub fn from_fn(send: impl Fn(M) + Send + Sync + 'static) -> Self {
+        Self::from_impl(SendFunction::new(send))
+    }
+
+    /// Creates an object that implements `CanSend<Inner>` for any message `Inner`
+    /// that can be converted to `M`.
+    pub fn break_apart(self) -> BreakApart<M> {
+        BreakApart { sender: self }
     }
 }
 
-/// Allows the sending of a message while expecting a response.
-pub trait CanSendAsync<M, R>: Send + Sync + 'static {
-    fn send_async(&self, message: M) -> BoxFuture<'static, R>;
+/// Extension trait (not for anyone to implement), that allows a
+/// Sender<MessageWithCallback<M, R>> to be used to send a message and then
+/// getting a future of the response.
+///
+/// See `AsyncSendError` for reasons that the future may resolve to an error result.
+pub trait SendAsync<M, R: Send + 'static> {
+    fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>>;
 }
 
-pub struct AsyncSender<M: 'static, R: 'static> {
-    sender: Arc<dyn CanSendAsync<M, R>>,
-}
-
-impl<M, R> Clone for AsyncSender<M, R> {
-    fn clone(&self) -> Self {
-        Self { sender: self.sender.clone() }
+impl<M, R: Send + 'static, A: CanSend<MessageWithCallback<M, R>> + ?Sized> SendAsync<M, R> for A {
+    fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {
+        // To send a message and get a future of the response, we use a oneshot
+        // channel that is resolved when the responder function is called. It's
+        // possible that someone implementing the Sender would just drop the
+        // message without calling the responder, in which case we return a
+        // Dropped error.
+        let (sender, receiver) = oneshot::channel::<Result<R, AsyncSendError>>();
+        let future = async move { receiver.await.unwrap_or_else(|_| Err(AsyncSendError::Dropped)) };
+        let responder = Box::new(move |r| {
+            // It's ok for the send to return an error, because that means the receiver is dropped
+            // therefore the sender does not care about the result.
+            sender.send(r).ok();
+        });
+        self.send(MessageWithCallback { message, callback: responder });
+        future.boxed()
     }
 }
 
-/// Extension functions to wrap a CanSendAsync as an AsyncSender.
-pub trait IntoAsyncSender<M, R> {
-    /// This allows conversion of an owned CanSendAsync into an AsyncSender.
-    fn into_async_sender(self) -> AsyncSender<M, R>;
-    /// This allows conversion of a reference-counted CanSendAsync into an AsyncSender.
-    fn as_async_sender(self: &Arc<Self>) -> AsyncSender<M, R>;
-}
-
-impl<M, R, T: CanSendAsync<M, R>> IntoAsyncSender<M, R> for T {
-    fn into_async_sender(self) -> AsyncSender<M, R> {
-        AsyncSender::from_impl(self)
-    }
-    fn as_async_sender(self: &Arc<Self>) -> AsyncSender<M, R> {
-        AsyncSender::from_arc(self.clone())
-    }
-}
-
-impl<M, R> AsyncSender<M, R> {
-    pub fn send_async(&self, message: M) -> BoxFuture<'static, R> {
+impl<M, R: Send + 'static> Sender<MessageWithCallback<M, R>> {
+    /// Same as the above, but for a concrete Sender type.
+    pub fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {
         self.sender.send_async(message)
     }
 
-    fn from_impl(sender: impl CanSendAsync<M, R> + 'static) -> Self {
-        Self { sender: Arc::new(sender) }
-    }
-
-    fn from_arc<T: CanSendAsync<M, R> + 'static>(arc: Arc<T>) -> Self {
-        Self { sender: arc }
+    /// Creates a sender that would handle send_async messages by producing a
+    /// result synchronously. Note that the provided function is NOT async.
+    ///
+    /// (Implementing the similar functionality with async function is possible
+    /// but requires deciding who drives the async function; a FutureSpawner
+    /// can be a good idea.)
+    pub fn from_async_fn(send_async: impl Fn(M) -> R + Send + Sync + 'static) -> Self {
+        Self::from_impl(SendAsyncFunction::new(send_async))
     }
 }
+
+/// Generic failure for async send.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum AsyncSendError {
+    // The receiver side could not accept the message.
+    Closed,
+    // The receiver side could not process the message in time.
+    Timeout,
+    // The message was ignored entirely.
+    Dropped,
+}
+
+impl Display for AsyncSendError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(self, f)
+    }
+}
+
+/// Used to implement an async sender. An async sender is just a Sender whose
+/// message is `MessageWithCallback<M, R>`, which is a message plus a
+/// callback function (which resolves the future that send_async returns).
+pub struct MessageWithCallback<T, R> {
+    pub message: T,
+    pub callback: Box<dyn FnOnce(Result<R, AsyncSendError>) + Send>,
+}
+
+impl<T: Debug, R> Debug for MessageWithCallback<T, R> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("MessageWithCallback").field(&self.message).finish()
+    }
+}
+
+pub type AsyncSender<M, R> = Sender<MessageWithCallback<M, R>>;
 
 /// Sometimes we want to be able to pass in a sender that has not yet been fully constructed.
 /// LateBoundSender can act as a placeholder to pass CanSend and CanSendAsync capabilities
 /// through to the inner object. bind() should be called when the inner object is ready.
 /// All calls to send() and send_async() through this wrapper will block until bind() is called.
 ///
-/// This struct is intended to be wrapped with an Arc, e.g.
-///   let late_bound = Arc::new(LateBoundSender::default());
+/// Example:
+///   let late_bound = LateBoundSender::new();
 ///   let something_else = SomethingElse::new(late_bound.as_sender());
 ///   let implementation = Implementation::new(something_else);
 ///   late_bound.bind(implementation);
@@ -116,13 +161,11 @@ pub struct LateBoundSender<S> {
     sender: OnceCell<S>,
 }
 
-impl<S> Default for LateBoundSender<S> {
-    fn default() -> Self {
-        Self { sender: OnceCell::default() }
-    }
-}
-
 impl<S> LateBoundSender<S> {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self { sender: OnceCell::new() })
+    }
+
     pub fn bind(&self, sender: S) {
         self.sender.set(sender).map_err(|_| ()).expect("cannot set sender twice");
     }
@@ -135,46 +178,82 @@ impl<M, S: CanSend<M>> CanSend<M> for LateBoundSender<S> {
     }
 }
 
-/// Allows LateBoundSender to be convertible to an AsyncSender as long as the inner object could
-/// be.
-impl<M, R, S: CanSendAsync<M, R>> CanSendAsync<M, R> for LateBoundSender<S> {
-    fn send_async(&self, message: M) -> BoxFuture<'static, R> {
-        self.sender.wait().send_async(message)
-    }
-}
-
-struct Noop;
+pub struct Noop;
 
 impl<M> CanSend<M> for Noop {
     fn send(&self, _message: M) {}
 }
 
-/// Anything that contains a Sender also implements CanSend. This is useful for implementing
-/// APIs that require multiple sender interfaces, so that the multi-sender API can be used
-/// to send individual message types directly.
+/// Creates a no-op sender that does nothing with the message.
 ///
-/// For example:
-///
-///   #[derive(Clone, derive_more::AsRef)]
-///   pub struct MyAPI {
-///     client: Sender<ClientMessage>,
-///     network: AsyncSender<NetworkMessage, NetworkResponse>,
-///   }
-///
-///   fn something(api: &MyAPI) {
-///     // There's no need to do api.client.send() or api.network.send_async() here.
-///     api.send(ClientMessage::Something);
-///     api.send_async(NetworkMessage::Something).then(...);
-///   }
-impl<A: AsRef<Sender<M>> + Send + Sync + 'static, M: 'static> CanSend<M> for A {
-    fn send(&self, message: M) {
-        self.as_ref().send(message)
+/// Returns a type that can be converted to any type of sender,
+/// sync or async, including multi-senders.
+pub fn noop() -> Noop {
+    Noop
+}
+
+/// A trait for converting something that implements individual senders into
+/// a multi-sender.
+pub trait IntoMultiSender<A> {
+    fn as_multi_sender(self: &Arc<Self>) -> A;
+    fn into_multi_sender(self) -> A;
+}
+
+pub trait MultiSenderFrom<A> {
+    fn multi_sender_from(a: Arc<A>) -> Self;
+}
+
+impl<A, B: MultiSenderFrom<A>> IntoMultiSender<B> for A {
+    fn as_multi_sender(self: &Arc<Self>) -> B {
+        B::multi_sender_from(self.clone())
+    }
+    fn into_multi_sender(self) -> B {
+        B::multi_sender_from(Arc::new(self))
     }
 }
-impl<A: AsRef<AsyncSender<M, R>> + Send + Sync + 'static, M: 'static, R: 'static> CanSendAsync<M, R>
-    for A
-{
-    fn send_async(&self, message: M) -> BoxFuture<'static, R> {
-        self.as_ref().send_async(message)
+
+#[cfg(test)]
+mod tests {
+    use crate::messaging::{AsyncSendError, MessageWithCallback, Sender};
+    use tokio_util::sync::CancellationToken;
+
+    #[tokio::test]
+    async fn test_async_send_sender_dropped() {
+        // The handler drops the callback, making the response will never resolve.
+        let sender: Sender<MessageWithCallback<u32, u32>> = Sender::from_fn(|_| {});
+        let result = sender.send_async(4).await;
+        assert_eq!(result, Err(AsyncSendError::Dropped));
+    }
+
+    #[tokio::test]
+    async fn test_async_send_receiver_dropped() {
+        // Test that if the receiver is dropped, the sending side will not panic.
+        let result_blocker = CancellationToken::new();
+        let callback_done = CancellationToken::new();
+
+        let default_panic = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            default_panic(info);
+            std::process::abort();
+        }));
+
+        let sender = {
+            let result_blocker = result_blocker.clone();
+            let callback_done = callback_done.clone();
+            Sender::<MessageWithCallback<u32, u32>>::from_fn(move |msg| {
+                let MessageWithCallback { message, callback } = msg;
+                let result_blocker = result_blocker.clone();
+                let callback_done = callback_done.clone();
+                tokio::spawn(async move {
+                    result_blocker.cancelled().await;
+                    callback(Ok(message));
+                    callback_done.cancel();
+                });
+            })
+        };
+
+        drop(sender.send_async(4)); // drops the resulting future
+        result_blocker.cancel();
+        callback_done.cancelled().await;
     }
 }

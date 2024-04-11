@@ -39,6 +39,8 @@ jobs:
       - name: Checkout nearcore repository
         if: ${{ github.event_name != 'workflow_dispatch'}}
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Neard binary build and upload to S3
         run: ./scripts/binary_release.sh
@@ -47,6 +49,10 @@ jobs:
         run: |
           echo $(git rev-parse HEAD) > latest
           BRANCH=$(git branch --show-current)
+          # in case of Release triggered run, branch is empty
+          if [ -z "$BRANCH" ]; then
+            BRANCH=$(git branch -r --contains=${{ github.ref_name }} | head -n1 | cut -c3- | cut -d / -f 2)
+          fi
           aws s3 cp --acl public-read latest s3://build.nearprotocol.com/nearcore/$(uname)/${BRANCH}/latest
 
   docker-release:
@@ -63,6 +69,8 @@ jobs:
       - name: Checkout nearcore repository
         if: ${{ github.event_name != 'workflow_dispatch'}}
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -73,7 +81,11 @@ jobs:
       - name: Build and push Docker image to Dockerhub
         run: |
           COMMIT=$(git rev-parse HEAD)
-          BRANCH=${{ github.ref_name }}
+          BRANCH=$(git branch --show-current)
+          # in case of Release triggered run, branch is empty
+          if [ -z "$BRANCH" ]; then
+            BRANCH=$(git branch -r --contains=${{ github.ref_name }} | head -n1 | cut -c3- | cut -d / -f 2)
+          fi
           make docker-nearcore
           docker tag nearcore nearprotocol/nearcore:${BRANCH}-${COMMIT}
           docker tag nearcore nearprotocol/nearcore:${BRANCH}

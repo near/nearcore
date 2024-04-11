@@ -10,16 +10,20 @@ use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight, Nonce};
 use near_vm_runner::logic::HostError;
 use near_vm_runner::logic::VMLogicError;
+use std::collections::HashMap;
 
 use crate::config::safe_add_gas;
 
 /// near_vm_runner::types is not public.
 type ReceiptIndex = u64;
 
-type ActionReceipts = Vec<(AccountId, ReceiptMetadata)>;
+type ActionReceipts = Vec<ActionReceiptMetadata>;
+type DataReceipts = Vec<DataReceiptMetadata>;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ReceiptMetadata {
+pub struct ActionReceiptMetadata {
+    /// Receipt destination
+    pub receiver_id: AccountId,
     /// If present, where to route the output data
     pub output_data_receivers: Vec<DataReceiver>,
     /// A list of the input data dependencies for this Receipt to process.
@@ -30,12 +34,27 @@ pub struct ReceiptMetadata {
     pub input_data_ids: Vec<CryptoHash>,
     /// A list of actions to process when all input_data_ids are filled
     pub actions: Vec<Action>,
+    /// Indicates whether the receipt should have type Action or PromiseYield
+    pub is_promise_yield: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DataReceiptMetadata {
+    /// Id under which the receipt should be created
+    pub data_id: CryptoHash,
+    /// Contents of the receipt
+    pub data: Option<Vec<u8>>,
+    /// Indicates whether the receipt should have type Data or PromiseResume
+    pub is_promise_resume: bool,
 }
 
 #[derive(Default, Clone, PartialEq)]
 pub struct ReceiptManager {
     pub(super) action_receipts: ActionReceipts,
+    pub(super) data_receipts: DataReceipts,
     pub(super) gas_weights: Vec<(FunctionCallActionIndex, GasWeight)>,
+    /// For new promise yields, map from input data id to index in `action_receipts`
+    promise_yield_receipt_index: HashMap<CryptoHash, usize>,
 }
 
 /// Indexes the [`ReceiptManager`]'s action receipts and actions.
@@ -49,10 +68,11 @@ pub(super) struct FunctionCallActionIndex {
 
 impl ReceiptManager {
     pub(super) fn get_receipt_receiver(&self, receipt_index: ReceiptIndex) -> &AccountId {
-        self.action_receipts
+        &self
+            .action_receipts
             .get(receipt_index as usize)
-            .map(|(id, _)| id)
             .expect("receipt index should be valid for getting receiver")
+            .receiver_id
     }
 
     /// Appends an action and returns the index the action was inserted in the receipt
@@ -61,7 +81,6 @@ impl ReceiptManager {
             .action_receipts
             .get_mut(receipt_index as usize)
             .expect("receipt index should be present")
-            .1
             .actions;
 
         actions.push(action);
@@ -81,7 +100,7 @@ impl ReceiptManager {
     /// * `generate_data_id` - function to generate a data id to connect receipt output to
     /// * `receipt_indices` - a list of receipt indices the new receipt is depend on
     /// * `receiver_id` - account id of the receiver of the receipt created
-    pub(super) fn create_receipt(
+    pub(super) fn create_action_receipt(
         &mut self,
         input_data_ids: Vec<CryptoHash>,
         receipt_indices: Vec<ReceiptIndex>,
@@ -91,17 +110,99 @@ impl ReceiptManager {
         for (data_id, receipt_index) in input_data_ids.iter().zip(receipt_indices.into_iter()) {
             self.action_receipts
                 .get_mut(receipt_index as usize)
-                .ok_or_else(|| HostError::InvalidReceiptIndex { receipt_index })?
-                .1
+                .ok_or(HostError::InvalidReceiptIndex { receipt_index })?
                 .output_data_receivers
                 .push(DataReceiver { data_id: *data_id, receiver_id: receiver_id.clone() });
         }
 
-        let new_receipt =
-            ReceiptMetadata { output_data_receivers: vec![], input_data_ids, actions: vec![] };
+        let new_receipt = ActionReceiptMetadata {
+            receiver_id,
+            output_data_receivers: vec![],
+            input_data_ids,
+            actions: vec![],
+            is_promise_yield: false,
+        };
         let new_receipt_index = self.action_receipts.len() as ReceiptIndex;
-        self.action_receipts.push((receiver_id, new_receipt));
+        self.action_receipts.push(new_receipt);
         Ok(new_receipt_index)
+    }
+
+    /// Special case of create_receipt used by yielded promises.
+    ///
+    /// The receipt will be executed after the input data is explicitly submitted by calling
+    /// `create_data_receipt` with specified `input_data_id`.
+    ///
+    /// # Arguments
+    ///
+    /// * `input_data_id` - data id which will be used to later submit the receipt input
+    /// * `receiver_id` - account id of the receiver of the receipt created
+    pub(super) fn create_promise_yield_receipt(
+        &mut self,
+        input_data_id: CryptoHash,
+        receiver_id: AccountId,
+    ) -> Result<ReceiptIndex, VMLogicError> {
+        let new_receipt = ActionReceiptMetadata {
+            receiver_id,
+            output_data_receivers: vec![],
+            input_data_ids: vec![input_data_id],
+            actions: vec![],
+            is_promise_yield: true,
+        };
+        let new_receipt_index = self.action_receipts.len();
+        self.action_receipts.push(new_receipt);
+        self.promise_yield_receipt_index.insert(input_data_id, new_receipt_index);
+        Ok(new_receipt_index as ReceiptIndex)
+    }
+
+    /// Creates a PromiseResume receipt.
+    ///
+    /// Should only be used to resolve dependencies created by `create_yielded_action_receipt`.
+    ///
+    /// # Arguments
+    ///
+    /// * `data_id` - id of the PromiseResume receipt being submitted
+    /// * `data` - contents of the PromiseResume receipt
+    pub(super) fn create_promise_resume_receipt(
+        &mut self,
+        data_id: CryptoHash,
+        data: Vec<u8>,
+    ) -> Result<(), VMLogicError> {
+        self.data_receipts.push(DataReceiptMetadata {
+            data_id,
+            data: Some(data),
+            is_promise_resume: true,
+        });
+        Ok(())
+    }
+
+    /// Resolves a PromiseYield input dependency previously created under given `data_id`,
+    /// if it exists.
+    ///
+    /// # Arguments
+    ///
+    /// * `data_id` - id of the Data receipt being submitted
+    /// * `data` - contents of the Data receipt
+    pub(super) fn checked_resolve_promise_yield(
+        &mut self,
+        data_id: CryptoHash,
+        data: Vec<u8>,
+    ) -> Result<bool, VMLogicError> {
+        Ok(if let Some(receipt_index) = self.promise_yield_receipt_index.remove(&data_id) {
+            // Convert existing PromiseYield to a standard Action receipt
+            let receipt = &mut self.action_receipts[receipt_index];
+            assert!(receipt.is_promise_yield, "receipt should be promise yield");
+            receipt.is_promise_yield = false;
+
+            // Create Data receipt delivering the payload
+            self.data_receipts.push(DataReceiptMetadata {
+                data_id,
+                data: Some(data),
+                is_promise_resume: false,
+            });
+            true
+        } else {
+            false
+        })
     }
 
     /// Attach the [`CreateAccountAction`] action to an existing receipt.
@@ -355,7 +456,12 @@ impl ReceiptManager {
     ///
     /// Returns the amount of gas distributed (either `0` or `unused_gas`.)
     pub(super) fn distribute_gas(&mut self, unused_gas: Gas) -> Result<Gas, RuntimeError> {
-        let ReceiptManager { action_receipts, gas_weights } = self;
+        let ReceiptManager {
+            action_receipts,
+            data_receipts: _,
+            gas_weights,
+            promise_yield_receipt_index: _,
+        } = self;
         let gas_weight_sum: u128 = gas_weights.iter().map(|(_, gv)| u128::from(gv.0)).sum();
         if gas_weight_sum == 0 || unused_gas == 0 {
             return Ok(0);
@@ -367,7 +473,7 @@ impl ReceiptManager {
             let FunctionCallActionIndex { receipt_index, action_index } = *index;
             let Some(Action::FunctionCall(action)) = action_receipts
                 .get_mut(receipt_index)
-                .and_then(|(_, receipt)| receipt.actions.get_mut(action_index))
+                .and_then(|receipt| receipt.actions.get_mut(action_index))
             else {
                 panic!(
                         "Invalid function call index (promise_index={receipt_index}, action_index={action_index})",
@@ -404,7 +510,7 @@ mod tests {
         let mut receipt_manager = super::ReceiptManager::default();
         for &(static_gas, gas_weight, _) in function_calls {
             let index = receipt_manager
-                .create_receipt(vec![], vec![], "rick.test".parse().unwrap())
+                .create_action_receipt(vec![], vec![], "rick.test".parse().unwrap())
                 .unwrap();
             gas_limit = gas_limit.saturating_sub(static_gas);
             receipt_manager
@@ -428,7 +534,7 @@ mod tests {
         // Assert expected amount of gas was associated with the action
         let mut function_call_gas = 0;
         let mut function_calls_iter = function_calls.iter();
-        for (_, receipt) in receipt_manager.action_receipts {
+        for receipt in receipt_manager.action_receipts {
             for action in receipt.actions {
                 if let Action::FunctionCall(function_call_action) = action {
                     let reference = function_calls_iter.next().unwrap();

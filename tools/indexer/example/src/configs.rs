@@ -14,6 +14,7 @@ pub(crate) struct Opts {
 }
 
 #[derive(clap::Parser, Debug)]
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum SubCommand {
     /// Run NEAR Indexer Example. Start observe the network
     Run,

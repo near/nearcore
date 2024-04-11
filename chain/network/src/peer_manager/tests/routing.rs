@@ -1300,7 +1300,7 @@ async fn archival_node() {
         let pm0_connections: HashSet<PeerId> =
             pm0.with_state(|s| async move { s.tier2.load().ready.keys().cloned().collect() }).await;
 
-        let pms = vec![&pm2, &pm3, &pm4];
+        let pms = [&pm2, &pm3, &pm4];
         let chosen = pms
             .iter()
             .filter(|&pm| !pm0_connections.contains(&pm.cfg.node_id()))

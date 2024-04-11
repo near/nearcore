@@ -5,14 +5,15 @@ use std::sync::{Arc, RwLock};
 use actix::{Addr, System};
 use borsh::{BorshDeserialize, BorshSerialize};
 use futures::{future, FutureExt};
+use near_async::time::Clock;
 
-use crate::adapter::ProcessTxRequest;
 use crate::test_utils::{setup_mock_all_validators, ActorHandlesForTesting};
 use crate::{ClientActor, Query};
 use near_actix_test_utils::run_actix;
 use near_chain::test_utils::{account_id_to_shard_id, ValidatorSchedule};
 use near_chain_configs::TEST_STATE_SYNC_TIMEOUT;
 use near_crypto::{InMemorySigner, KeyType};
+use near_network::client::ProcessTxRequest;
 use near_network::types::PeerInfo;
 use near_network::types::{NetworkRequests, NetworkResponses, PeerManagerMessageRequest};
 use near_o11y::testonly::init_integration_logger;
@@ -150,6 +151,7 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
             block_prod_time *= TEST_STATE_SYNC_TIMEOUT as u64;
         }
         let (_, conn, _) = setup_mock_all_validators(
+            Clock::real(),
             vs,
             key_pairs,
             true,
@@ -161,6 +163,7 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
             archive,
             epoch_sync_enabled,
             false,
+            None,
             Box::new(move |_, _account_id: _, msg: &PeerManagerMessageRequest| {
                 let msg = msg.as_network_requests_ref();
                 let account_from = "test3.3".parse().unwrap();
@@ -230,7 +233,7 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
                             //     include the receipt. The `distant` epoch is the first one that
                             //     will get the receipt through the state sync.
                             let receipts: Vec<Receipt> = partial_encoded_chunk
-                                .receipts
+                                .prev_outgoing_receipts
                                 .iter()
                                 .map(|x| x.0.clone())
                                 .flatten()
@@ -443,6 +446,7 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
 
         let connectors1 = connectors.clone();
         let (_, conn, _) = setup_mock_all_validators(
+            Clock::real(),
             vs,
             key_pairs,
             true,
@@ -454,6 +458,7 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
             vec![false; validators.len()],
             vec![true; validators.len()],
             false,
+            None,
             Box::new(move |_, _account_id: _, msg: &PeerManagerMessageRequest| {
                 let msg = msg.as_network_requests_ref();
                 let mut seen_heights_same_block = seen_heights_same_block.write().unwrap();
@@ -631,6 +636,7 @@ fn test_catchup_sanity_blocks_produced() {
         let epoch_sync_enabled = vec![true; vs.all_block_producers().count()];
 
         let (_, conn, _) = setup_mock_all_validators(
+            Clock::real(),
             vs,
             key_pairs,
             true,
@@ -642,6 +648,7 @@ fn test_catchup_sanity_blocks_produced() {
             archive,
             epoch_sync_enabled,
             false,
+            None,
             Box::new(move |_, _account_id: _, msg: &PeerManagerMessageRequest| {
                 let msg = msg.as_network_requests_ref();
                 let propagate = if let NetworkRequests::Block { block } = msg {
@@ -710,6 +717,7 @@ fn test_all_chunks_accepted_common(
         let responded = Arc::new(RwLock::new(HashSet::<(CryptoHash, Vec<u64>, ChunkHash)>::new()));
 
         let (_, conn, _) = setup_mock_all_validators(
+            Clock::real(),
             vs,
             key_pairs,
             true,
@@ -721,6 +729,7 @@ fn test_all_chunks_accepted_common(
             archive,
             epoch_sync_enabled,
             false,
+            None,
             Box::new(move |_, sender_account_id: AccountId, msg: &PeerManagerMessageRequest| {
                 let msg = msg.as_network_requests_ref();
                 let mut seen_chunk_same_sender = seen_chunk_same_sender.write().unwrap();

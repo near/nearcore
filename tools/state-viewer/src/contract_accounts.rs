@@ -128,6 +128,8 @@ pub(crate) enum ActionType {
     DeployContract,
     FunctionCall,
     Transfer,
+    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+    NonrefundableStorageTransfer,
     Stake,
     AddKey,
     DeleteKey,
@@ -326,13 +328,20 @@ fn try_find_actions_spawned_by_receipt(
                         ContractAccountError::MissingOutgoingReceipt(*outgoing_receipt_id)
                     })?;
                     match outgoing_receipt.receipt {
-                        ReceiptEnum::Action(action_receipt) => {
+                        ReceiptEnum::Action(action_receipt)
+                        | ReceiptEnum::PromiseYield(action_receipt) => {
                             for action in &action_receipt.actions {
                                 let action_type = match action {
                                     Action::CreateAccount(_) => ActionType::CreateAccount,
                                     Action::DeployContract(_) => ActionType::DeployContract,
                                     Action::FunctionCall(_) => ActionType::FunctionCall,
                                     Action::Transfer(_) => ActionType::Transfer,
+                                    #[cfg(
+                                        feature = "protocol_feature_nonrefundable_transfer_nep491"
+                                    )]
+                                    Action::NonrefundableStorageTransfer(_) => {
+                                        ActionType::NonrefundableStorageTransfer
+                                    }
                                     Action::Stake(_) => ActionType::Stake,
                                     Action::AddKey(_) => ActionType::AddKey,
                                     Action::DeleteKey(_) => ActionType::DeleteKey,
@@ -345,7 +354,7 @@ fn try_find_actions_spawned_by_receipt(
                                     .insert(action_type);
                             }
                         }
-                        ReceiptEnum::Data(_) => {
+                        ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => {
                             entry
                                 .actions
                                 .get_or_insert_with(Default::default)

@@ -31,6 +31,13 @@ pub struct FlatStateDeltaMetadata {
     pub prev_block_with_changes: Option<BlockWithChangesInfo>,
 }
 
+impl FlatStateDeltaMetadata {
+    #[inline]
+    pub fn has_changes(&self) -> bool {
+        self.prev_block_with_changes.is_none()
+    }
+}
+
 #[derive(BorshSerialize, BorshDeserialize, Debug)]
 pub struct KeyForFlatStateDelta {
     pub shard_uid: ShardUId,
@@ -128,7 +135,7 @@ impl FlatStateChanges {
 
 /// `FlatStateChanges` which uses hash of raw `TrieKey`s instead of keys themselves.
 /// Used to reduce memory used by deltas and serves read queries.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct CachedFlatStateChanges(HashMap<CryptoHash, Option<ValueRef>>);
 
 #[derive(Debug)]
@@ -155,8 +162,8 @@ impl CachedFlatStateChanges {
         std::mem::size_of::<CryptoHash>() + std::mem::size_of::<Option<ValueRef>>();
 
     /// Returns `Some(Option<ValueRef>)` from delta for the given key. If key is not present, returns None.
-    pub(crate) fn get(&self, key: &[u8]) -> Option<Option<ValueRef>> {
-        self.0.get(&hash(key)).cloned()
+    pub(crate) fn get(&self, key: &[u8]) -> Option<&Option<ValueRef>> {
+        self.0.get(&hash(key))
     }
 
     /// Returns number of all entries.

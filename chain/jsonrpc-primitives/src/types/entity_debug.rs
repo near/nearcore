@@ -33,6 +33,10 @@ impl EntityDataStruct {
     pub fn new() -> EntityDataStruct {
         EntityDataStruct { entries: Vec::new() }
     }
+
+    pub fn add(&mut self, name: &str, value: EntityDataValue) {
+        self.entries.push(EntityDataEntry { name: name.to_string(), value });
+    }
 }
 
 /// All queries supported by the Entity Debug UI.
@@ -67,6 +71,7 @@ pub enum EntityQuery {
     ShardIdByAccountId { account_id: String, epoch_id: EpochId },
     ShardLayoutByEpochId { epoch_id: EpochId },
     ShardUIdByShardId { shard_id: ShardId, epoch_id: EpochId },
+    StateTransitionData { block_hash: CryptoHash },
     TipAtFinalHead(()),
     TipAtHead(()),
     TipAtHeaderHead(()),
@@ -74,6 +79,7 @@ pub enum EntityQuery {
     TrieNode { trie_path: String },
     TrieRootByChunkHash { chunk_hash: CryptoHash },
     TrieRootByStateRoot { state_root: CryptoHash, shard_uid: ShardUId },
+    ValidatorAssignmentsAtHeight { block_height: BlockHeight, epoch_id: EpochId },
 }
 
 /// We use a trait for this, because jsonrpc does not have access to low-level

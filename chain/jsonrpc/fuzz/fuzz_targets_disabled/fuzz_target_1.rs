@@ -1,6 +1,7 @@
 #![no_main]
 use actix::System;
 use libfuzzer_sys::{arbitrary, fuzz_target};
+use near_async::time::Clock;
 use serde::ser::{Serialize, Serializer};
 use serde_json::json;
 use tokio;
@@ -103,7 +104,7 @@ fuzz_target!(|requests: Vec<JsonRpcRequest>| {
         std::thread::spawn(|| {
             System::new().block_on(async {
                 let (_view_client_addr, addr) =
-                    test_utils::start_all(test_utils::NodeType::NonValidator);
+                    test_utils::start_all(Clock::real(), test_utils::NodeType::NonValidator);
                 unsafe { NODE_ADDR = Some(addr.to_string()) }
             });
         });

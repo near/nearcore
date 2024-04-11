@@ -107,6 +107,7 @@ class TestState(Enum):
     RUNNING = 5
     STOPPED = 6
     RESETTING = 7
+    ERROR = 8
 
 
 class NeardRunner:
@@ -142,6 +143,8 @@ class NeardRunner:
             }
         # protects self.data, and its representation on disk,
         # because both the rpc server and the main loop touch them concurrently
+        # TODO: consider locking the TestState variable separately, since there
+        # is no need to block reading that when inside the update_binaries rpc for example
         self.lock = threading.Lock()
 
     def is_traffic_generator(self):
@@ -153,13 +156,13 @@ class NeardRunner:
 
     def parse_binaries_config(self):
         if 'binaries' not in self.config:
-            sys.exit('config does not have a "binaries" section')
+            raise ValueError('config does not have a "binaries" section')
 
         if not isinstance(self.config['binaries'], list):
-            sys.exit('config "binaries" section not a list')
+            raise ValueError('config "binaries" section not a list')
 
         if len(self.config['binaries']) == 0:
-            sys.exit('no binaries in the config')
+            raise ValueError('no binaries in the config')
 
         self.config['binaries'].sort(key=lambda x: x['epoch_height'])
         last_epoch_height = -1
@@ -168,16 +171,17 @@ class NeardRunner:
         for i, b in enumerate(self.config['binaries']):
             epoch_height = b['epoch_height']
             if not isinstance(epoch_height, int) or epoch_height < 0:
-                sys.exit(f'bad epoch height in config: {epoch_height}')
+                raise ValueError(f'bad epoch height in config: {epoch_height}')
             if last_epoch_height == -1:
                 if epoch_height != 0:
                     # TODO: maybe it could make sense to allow this, meaning don't run any binary
                     # on this node until the network reaches that epoch, then we bring this node online
-                    sys.exit(
+                    raise ValueError(
                         f'config should contain one binary with epoch_height 0')
             else:
                 if epoch_height == last_epoch_height:
-                    sys.exit(f'repeated epoch height in config: {epoch_height}')
+                    raise ValueError(
+                        f'repeated epoch height in config: {epoch_height}')
             last_epoch_height = epoch_height
             binaries.append({
                 'url': b['url'],
@@ -206,8 +210,7 @@ class NeardRunner:
         else:
             # start at the index of the first missing binary
             # typically it's all or nothing
-            with self.lock:
-                start_index = len(self.data['binaries'])
+            start_index = len(self.data['binaries'])
 
         # for now we assume that the binaries recorded in data.json as having been
         # dowloaded are still valid and were not touched. Also this assumes that their
@@ -223,11 +226,10 @@ class NeardRunner:
             os.chmod(b['system_path'], 0o755)
             logging.info(f'downloaded binary from {b["url"]}')
 
-            with self.lock:
-                self.data['binaries'].append(b)
-                if self.data['current_neard_path'] is None:
-                    self.reset_current_neard_path()
-                self.save_data()
+            self.data['binaries'].append(b)
+            if self.data['current_neard_path'] is None:
+                self.reset_current_neard_path()
+            self.save_data()
 
     def target_near_home_path(self, *args):
         if self.is_traffic_generator():
@@ -454,9 +456,17 @@ class NeardRunner:
                 )
 
     def do_update_binaries(self):
-        logging.info('update binaries')
-        self.download_binaries(force=True)
-        logging.info('update binaries finished')
+        with self.lock:
+            logging.info('update binaries')
+            try:
+                self.download_binaries(force=True)
+            except ValueError as e:
+                raise jsonrpc.exceptions.JSONRPCDispatchException(
+                    code=-32603,
+                    message=f'Internal error downloading binaries: {e}')
+                self.set_state(TestState.ERROR)
+                self.save_data()
+            logging.info('update binaries finished')
 
     def do_ready(self):
         with self.lock:
@@ -723,10 +733,10 @@ class NeardRunner:
             if exit_code is not None and exit_code != 0:
                 logging.error(
                     f'neard amend-genesis exited with code {exit_code}')
-                # for now just set the state to None, and if this ever happens, the
+                # for now just set the state to ERROR, and if this ever happens, the
                 # test operator will have to intervene manually. Probably shouldn't
                 # really happen in practice
-                self.set_state(TestState.NONE)
+                self.set_state(TestState.ERROR)
                 self.save_data()
             else:
                 # TODO: if exit_code is None then we were interrupted and restarted after starting
@@ -785,9 +795,10 @@ class NeardRunner:
         if not running:
             logging.error(
                 f'neard exited with code {exit_code} on the first run')
-            # For now just exit, because if this happens, there is something pretty wrong with
+            # For now just set the state to ERROR, because if this happens, there is something pretty wrong with
             # the setup, so a human needs to investigate and fix the bug
-            sys.exit(1)
+            self.set_state(TestState.ERROR)
+            self.save_data()
         try:
             r = requests.get(f'http://{self.data["neard_addr"]}/status',
                              timeout=5)
@@ -877,7 +888,8 @@ def main():
     runner = NeardRunner(args)
 
     logging.info("downloading binaries")
-    runner.download_binaries(force=False)
+    with runner.lock:
+        runner.download_binaries(force=False)
 
     logging.info("serve")
     runner.serve(args.port)

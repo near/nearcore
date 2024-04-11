@@ -1,3 +1,4 @@
+use near_async::messaging::AsyncSendError;
 use serde_json::Value;
 
 use near_client_primitives::types::{GetChunk, GetChunkError};
@@ -28,8 +29,8 @@ impl RpcRequest for RpcChunkRequest {
     }
 }
 
-impl RpcFrom<actix::MailboxError> for RpcChunkError {
-    fn rpc_from(error: actix::MailboxError) -> Self {
+impl RpcFrom<AsyncSendError> for RpcChunkError {
+    fn rpc_from(error: AsyncSendError) -> Self {
         Self::InternalError { error_message: error.to_string() }
     }
 }

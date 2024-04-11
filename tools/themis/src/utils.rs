@@ -31,7 +31,6 @@ pub fn parse_workspace() -> anyhow::Result<Workspace> {
     let members = metadata
         .packages
         .iter()
-        .cloned()
         .filter(|package| metadata.workspace_members.contains(&package.id))
         .map(|package| {
             Ok(Package {
@@ -42,7 +41,7 @@ pub fn parse_workspace() -> anyhow::Result<Workspace> {
                     },
                     Some(workspace_manifest.clone()),
                 ),
-                parsed: package,
+                parsed: package.clone(),
             })
         })
         .collect::<anyhow::Result<_>>()?;

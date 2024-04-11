@@ -3,8 +3,8 @@ extern crate bencher;
 
 use bencher::{black_box, Bencher};
 use borsh::BorshDeserialize;
-use near_primitives::static_clock::StaticClock;
 
+use near_async::time::Clock;
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_primitives::account::Account;
 use near_primitives::block::{genesis_chunks, Block};
@@ -37,12 +37,11 @@ fn create_transaction() -> SignedTransaction {
 }
 
 fn create_block() -> Block {
-    let genesis_chunks =
-        genesis_chunks(vec![StateRoot::new()], &vec![0], 1_000, 0, PROTOCOL_VERSION);
+    let genesis_chunks = genesis_chunks(vec![StateRoot::new()], &[0], 1_000, 0, PROTOCOL_VERSION);
     let genesis = Block::genesis(
         PROTOCOL_VERSION,
         genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
-        StaticClock::utc(),
+        Clock::real().now_utc(),
         0,
         1_000,
         1_000,
@@ -56,6 +55,7 @@ fn create_block() -> Block {
         10,
         genesis.header().block_ordinal() + 1,
         vec![genesis.chunks()[0].clone()],
+        vec![],
         EpochId::default(),
         EpochId::default(),
         None,
@@ -69,7 +69,7 @@ fn create_block() -> Block {
         &signer,
         CryptoHash::default(),
         CryptoHash::default(),
-        None,
+        Clock::real().now_utc(),
     )
 }
 

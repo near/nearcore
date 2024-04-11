@@ -14,23 +14,20 @@ workspace = true
 
 [dependencies]
 anyhow = { workspace = true, optional = true }
-blst.workspace = true
+blst = { workspace = true, optional = true }
 base64.workspace = true
 bn.workspace = true
 borsh.workspace = true
-csv.workspace = true
 ed25519-dalek.workspace = true
 enum-map.workspace = true
-finite-wasm = { workspace = true, features = ["instrument"] }
-loupe.workspace = true
+finite-wasm = { workspace = true, features = ["instrument"], optional = true }
 memoffset.workspace = true
 num-rational.workspace = true
 once_cell.workspace = true
-parity-wasm.workspace = true
+parity-wasm = { workspace = true, optional = true }
 prefix-sum-vec.workspace = true
 ripemd.workspace = true
 serde_repr.workspace = true
-serde_with.workspace = true
 serde.workspace = true
 sha2.workspace = true
 sha3.workspace = true
@@ -38,8 +35,8 @@ stdx.workspace = true
 strum.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-wasm-encoder.workspace = true
-wasmparser.workspace = true
+wasm-encoder = { workspace = true, optional = true }
+wasmparser = { workspace = true, optional = true }
 wasmtime = { workspace = true, optional = true }
 
 near-crypto.workspace = true
@@ -48,8 +45,8 @@ near-parameters.workspace = true
 
 # Old versions of pwasm-utils we need to preserve backwards compatibility under
 # old protocol versions.
-pwasm-utils_12.workspace = true
-parity-wasm_41.workspace = true
+pwasm-utils_12 = { workspace = true, optional = true }
+parity-wasm_41 = { workspace = true, optional = true }
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 wasmer-runtime = { workspace = true, optional = true }
@@ -75,6 +72,7 @@ ark-serialize.workspace = true
 ark-std.workspace = true
 assert_matches.workspace = true
 bolero.workspace = true
+csv.workspace = true
 expect-test.workspace = true
 hex.workspace = true
 near-test-contracts.workspace = true
@@ -88,31 +86,28 @@ wat.workspace = true
 nightly_protocol = [
   "near-parameters/nightly_protocol",
   "near-primitives-core/nightly_protocol",
+  "protocol_feature_bls12381",
 ]
-# all vms enabled for now
-default = [
-  "wasmer0_vm",
-  "wasmtime_vm",
-  "wasmer2_vm",
-  "near_vm",
-]
-wasmer0_vm = [ "wasmer-runtime", "wasmer-runtime-core" ]
-wasmtime_vm = [ "wasmtime", "anyhow"]
+wasmer0_vm = [ "wasmer-runtime", "wasmer-runtime-core", "prepare" ]
+wasmtime_vm = [ "wasmtime", "anyhow", "prepare" ]
 wasmer2_vm = [
     "wasmer-compiler",
     "wasmer-compiler-singlepass",
     "wasmer-engine",
     "wasmer-engine-universal",
     "wasmer-types",
-    "wasmer-vm"
+    "wasmer-vm",
+    "prepare",
 ]
 near_vm = [
     "near-vm-compiler",
     "near-vm-compiler-singlepass",
     "near-vm-engine",
     "near-vm-types",
-    "near-vm-vm"
+    "near-vm-vm",
+    "prepare",
 ]
+prepare = [ "finite-wasm", "wasm-encoder", "wasmparser", "parity-wasm", "parity-wasm_41", "pwasm-utils_12" ]
 
 no_cpu_compatibility_checks = []
 
@@ -122,11 +117,15 @@ protocol_feature_fix_contract_loading_cost = [
     "near-primitives-core/protocol_feature_fix_contract_loading_cost",
 ]
 
+protocol_feature_bls12381 = [
+    "blst",
+]
+
 nightly = [
-  "nightly_protocol",
-  "protocol_feature_fix_contract_loading_cost",
   "near-parameters/nightly",
   "near-primitives-core/nightly",
+  "nightly_protocol",
+  "protocol_feature_fix_contract_loading_cost",
 ]
 sandbox = []
 io_trace = []

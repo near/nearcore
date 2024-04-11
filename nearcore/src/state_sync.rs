@@ -1,9 +1,13 @@
 use crate::metrics;
 
+use borsh::BorshSerialize;
+use near_async::time::{Clock, Duration, Instant};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error};
 use near_chain_configs::{ClientConfig, ExternalStorageLocation};
-use near_client::sync::external::{create_bucket_readwrite, external_storage_location};
+use near_client::sync::external::{
+    create_bucket_readwrite, external_storage_location, StateFileType,
+};
 use near_client::sync::external::{
     external_storage_location_directory, get_part_id_from_filename, is_part_filename,
     ExternalConnection,
@@ -20,7 +24,6 @@ use rand::{thread_rng, Rng};
 use std::collections::HashSet;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 /// Starts one a thread per tracked shard.
 /// Each started thread will be dumping state parts of a single epoch to external storage.
@@ -43,7 +46,7 @@ pub fn spawn_state_sync_dump(
 
     let external = match dump_config.location {
         ExternalStorageLocation::S3 { bucket, region } => ExternalConnection::S3{
-            bucket: Arc::new(create_bucket_readwrite(&bucket, &region, Duration::from_secs(30), dump_config.credentials_file).expect(
+            bucket: Arc::new(create_bucket_readwrite(&bucket, &region, std::time::Duration::from_secs(30), dump_config.credentials_file).expect(
                 "Failed to authenticate connection to S3. Please either provide AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in the environment, or create a credentials file and link it in config.json as 's3_credentials_file'."))
         },
         ExternalStorageLocation::Filesystem { root_dir } => ExternalConnection::Filesystem { root_dir },
@@ -69,6 +72,7 @@ pub fn spawn_state_sync_dump(
     let shard_ids = {
         // Sadly, `Chain` is not `Send` and each thread needs to create its own `Chain` instance.
         let chain = Chain::new_for_view_client(
+            Clock::real(),
             epoch_manager.clone(),
             shard_tracker.clone(),
             runtime.clone(),
@@ -89,6 +93,7 @@ pub fn spawn_state_sync_dump(
             let runtime = runtime.clone();
             let chain_genesis = chain_genesis.clone();
             let chain = Chain::new_for_view_client(
+                Clock::real(),
                 epoch_manager.clone(),
                 shard_tracker.clone(),
                 runtime.clone(),
@@ -107,7 +112,7 @@ pub fn spawn_state_sync_dump(
                 chain_id.clone(),
                 dump_config.restart_dump_for_shards.clone().unwrap_or_default(),
                 external.clone(),
-                dump_config.iteration_delay.unwrap_or(Duration::from_secs(10)),
+                dump_config.iteration_delay.unwrap_or(Duration::seconds(10)),
                 account_id.clone(),
                 keep_running.clone(),
             )));
@@ -139,6 +144,18 @@ impl StateSyncDumpHandle {
     }
 }
 
+/// Fetches the state sync header from DB and serializes it.
+fn get_serialized_header(
+    shard_id: ShardId,
+    sync_hash: CryptoHash,
+    chain: &Chain,
+) -> anyhow::Result<Vec<u8>> {
+    let header = chain.get_state_response_header(shard_id, sync_hash)?;
+    let mut buffer: Vec<u8> = Vec::new();
+    header.serialize(&mut buffer)?;
+    Ok(buffer)
+}
+
 pub fn extract_part_id_from_part_file_name(file_name: &String) -> u64 {
     assert!(is_part_filename(file_name));
     return get_part_id_from_filename(file_name).unwrap();
@@ -152,9 +169,14 @@ async fn get_missing_part_ids_for_epoch(
     total_parts: u64,
     external: &ExternalConnection,
 ) -> Result<Vec<u64>, anyhow::Error> {
-    let directory_path =
-        external_storage_location_directory(chain_id, epoch_id, epoch_height, shard_id);
-    let file_names = external.list_state_parts(shard_id, &directory_path).await?;
+    let directory_path = external_storage_location_directory(
+        chain_id,
+        epoch_id,
+        epoch_height,
+        shard_id,
+        &StateFileType::StatePart { part_id: 0, num_parts: 0 },
+    );
+    let file_names = external.list_objects(shard_id, &directory_path).await?;
     if !file_names.is_empty() {
         let existing_nums: HashSet<_> = file_names
             .iter()
@@ -217,6 +239,39 @@ fn get_current_state(
     }
 }
 
+/// Uploads header to external storage.
+/// Returns true if it was successful.
+async fn upload_state_header(
+    chain_id: &String,
+    epoch_id: &EpochId,
+    epoch_height: u64,
+    shard_id: ShardId,
+    state_sync_header: anyhow::Result<Vec<u8>>,
+    external: &ExternalConnection,
+) -> bool {
+    match state_sync_header {
+        Err(err) => {
+            tracing::error!(target: "state_sync_dump", ?err, ?shard_id, "Failed to serialize header.");
+            false
+        }
+        Ok(header) => {
+            let file_type = StateFileType::StateHeader;
+            let location =
+                external_storage_location(&chain_id, &epoch_id, epoch_height, shard_id, &file_type);
+            match external.put_file(file_type, &header, shard_id, &location).await {
+                Err(err) => {
+                    tracing::warn!(target: "state_sync_dump", shard_id, epoch_height, ?err, "Failed to put header into external storage. Will retry next iteration.");
+                    false
+                }
+                Ok(_) => {
+                    tracing::trace!(target: "state_sync_dump", shard_id, epoch_height, "Header saved to external storage.");
+                    true
+                }
+            }
+        }
+    }
+}
+
 const FAILURES_ALLOWED_PER_ITERATION: u32 = 10;
 
 async fn state_sync_dump(
@@ -264,7 +319,48 @@ async fn state_sync_dump(
                         None
                     }
                     Ok((state_root, num_parts, sync_prev_prev_hash)) => {
-                        match get_missing_part_ids_for_epoch(
+                        // Upload header
+                        let header_in_external_storage = match external
+                            .is_state_sync_header_stored_for_epoch(
+                                shard_id,
+                                &chain_id,
+                                &epoch_id,
+                                epoch_height,
+                            )
+                            .await
+                        {
+                            Err(err) => {
+                                tracing::error!(target: "state_sync_dump", ?err, ?shard_id, "Failed to determine header presence in external storage.");
+                                false
+                            }
+                            // Header is already stored
+                            Ok(true) => true,
+                            // Header is missing
+                            Ok(false) => {
+                                upload_state_header(
+                                    &chain_id,
+                                    &epoch_id,
+                                    epoch_height,
+                                    shard_id,
+                                    get_serialized_header(shard_id, sync_hash, &chain),
+                                    &external,
+                                )
+                                .await
+                            }
+                        };
+
+                        let header_upload_status = if header_in_external_storage {
+                            None
+                        } else {
+                            Some(StateSyncDumpProgress::InProgress {
+                                epoch_id: epoch_id.clone(),
+                                epoch_height,
+                                sync_hash,
+                            })
+                        };
+
+                        // Upload parts
+                        let parts_upload_status = match get_missing_part_ids_for_epoch(
                             shard_id,
                             &chain_id,
                             &epoch_id,
@@ -296,7 +392,7 @@ async fn state_sync_dump(
                                 // Stop if the node is stopped.
                                 // Note that without this check the state dumping thread is unstoppable, i.e. non-interruptable.
                                 while keep_running.load(std::sync::atomic::Ordering::Relaxed)
-                                    && timer.elapsed().as_secs()
+                                    && timer.elapsed().whole_seconds()
                                         <= STATE_DUMP_ITERATION_TIME_LIMIT_SECS
                                     && !parts_to_dump.is_empty()
                                     && failures_cnt < FAILURES_ALLOWED_PER_ITERATION
@@ -327,16 +423,16 @@ async fn state_sync_dump(
                                         }
                                     };
 
+                                    let file_type = StateFileType::StatePart { part_id, num_parts };
                                     let location = external_storage_location(
                                         &chain_id,
                                         &epoch_id,
                                         epoch_height,
                                         shard_id,
-                                        part_id,
-                                        num_parts,
+                                        &file_type,
                                     );
                                     if let Err(err) = external
-                                        .put_state_part(&state_part, shard_id, &location)
+                                        .put_file(file_type, &state_part, shard_id, &location)
                                         .await
                                     {
                                         // no need to break if there's an error, we should keep dumping other parts.
@@ -373,6 +469,13 @@ async fn state_sync_dump(
                                     None
                                 }
                             }
+                        };
+                        match (&parts_upload_status, &header_upload_status) {
+                            (
+                                Some(StateSyncDumpProgress::AllDumped { .. }),
+                                Some(StateSyncDumpProgress::InProgress { .. }),
+                            ) => header_upload_status,
+                            _ => parts_upload_status,
                         }
                     }
                 }
@@ -401,7 +504,7 @@ async fn state_sync_dump(
 
         if !has_progress {
             // Avoid a busy-loop when there is nothing to do.
-            actix_rt::time::sleep(tokio::time::Duration::from(iteration_delay)).await;
+            actix_rt::time::sleep(iteration_delay.unsigned_abs()).await;
         }
     }
     tracing::debug!(target: "state_sync_dump", shard_id, "Stopped state dump thread");

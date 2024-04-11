@@ -279,7 +279,7 @@ impl Inner {
                         *local_edge = tree_edge.clone();
                     }
                 })
-                .or_insert(tree_edge.clone());
+                .or_insert_with(|| tree_edge.clone());
         }
 
         // Without a direct edge, we cannot use the distances advertised by the peer

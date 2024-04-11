@@ -8,17 +8,14 @@ use crate::logic::Config;
 use crate::logic::{CompiledContract, CompiledContractCache};
 use crate::runner::VMKindExt;
 use crate::runner::VMResult;
-use crate::wasmer2_runner::Wasmer2VM;
 use crate::ContractCode;
-use crate::{prepare, MockCompiledContractCache};
+use crate::MockCompiledContractCache;
 use assert_matches::assert_matches;
 use near_parameters::vm::VMKind;
 use near_parameters::RuntimeFeesConfig;
 use near_primitives_core::hash::CryptoHash;
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
-use wasmer_compiler::{CpuFeature, Target};
-use wasmer_engine::Executable;
 
 #[test]
 fn test_caches_compilation_error() {
@@ -102,7 +99,12 @@ fn make_cached_contract_call_vm(
 }
 
 #[test]
+#[cfg(feature = "wasmer2_vm")]
 fn test_wasmer2_artifact_output_stability() {
+    use crate::prepare;
+    use crate::wasmer2_runner::Wasmer2VM;
+    use wasmer_compiler::{CpuFeature, Target};
+    use wasmer_engine::Executable;
     // If this test has failed, you want to adjust the necessary constants so that `cache::vm_hash`
     // changes (and only then the hashes here).
     //
@@ -171,8 +173,10 @@ fn test_wasmer2_artifact_output_stability() {
 }
 
 #[test]
+#[cfg(feature = "near_vm")]
 fn test_near_vm_artifact_output_stability() {
     use crate::near_vm_runner::NearVM;
+    use crate::prepare;
     use near_vm_compiler::{CpuFeature, Target};
     // If this test has failed, you want to adjust the necessary constants so that `cache::vm_hash`
     // changes (and only then the hashes here).

@@ -151,7 +151,7 @@ skip = [
 
     # Various packages haven’t upgraded to 0.base64 21 yet.
     { name = "base64", version = "=0.13.0" },
-    { name = "ahash", version = "=0.7.7" },
+    { name = "ahash", version = "=0.7.8" },
 
     # actix-http hasn't upgraded iminz_oxide/flate2 yet.
     { name = "miniz_oxide", version = "=0.5.1" },
