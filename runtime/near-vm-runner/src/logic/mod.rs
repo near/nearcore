@@ -3,6 +3,7 @@ use near_primitives_core::hash::CryptoHash;
 use std::fmt;
 
 mod alt_bn128;
+#[cfg(feature = "protocol_feature_bls12381")]
 mod bls12381;
 mod context;
 mod dependencies;
