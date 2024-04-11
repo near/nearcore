@@ -8,7 +8,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::version::PROTOCOL_VERSION;
 use num_rational::Ratio;
-use std::sync::Arc;
 
 #[test]
 fn build_chain() {
@@ -104,7 +103,7 @@ fn build_chain_with_orphans() {
         chain.postprocess_ready_blocks(
             &None,
             &mut BlockProcessingArtifact::default(),
-            Arc::new(|_| {}),
+            None,
         );
     }
     assert_eq!(chain.head().unwrap().height, 10);

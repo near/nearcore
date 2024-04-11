@@ -11,7 +11,6 @@ use near_primitives::sharding::ShardChunkHeaderV3;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::utils::MaybeValidated;
-use std::sync::Arc;
 
 /// Only process one block per height
 /// Test that if a node receives two blocks at the same height, it doesn't process the second one
@@ -36,7 +35,7 @@ fn test_not_process_height_twice() {
             duplicate_block,
             PeerId::new(PublicKey::empty(KeyType::ED25519)),
             false,
-            Arc::new(|_| {}),
+            None,
         )
         .unwrap();
     // check that the second block is not being processed
@@ -110,7 +109,7 @@ fn test_bad_block_content_vrf() {
             bad_block,
             PeerId::new(PublicKey::empty(KeyType::ED25519)),
             false,
-            Arc::new(|_| {}),
+            None,
         )
         .unwrap_err();
     assert_matches!(err, near_chain::Error::InvalidSignature);
@@ -134,7 +133,7 @@ fn test_bad_block_signature() {
             bad_block,
             PeerId::new(PublicKey::empty(KeyType::ED25519)),
             false,
-            Arc::new(|_| {}),
+            None,
         )
         .unwrap_err();
     assert_matches!(err, near_chain::Error::InvalidSignature);
