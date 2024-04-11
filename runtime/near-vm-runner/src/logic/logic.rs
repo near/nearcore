@@ -1369,33 +1369,14 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_base(bls12381_p1_decompress_base)?;
         const ITEM_SIZE: usize = 48;
 
-        if value_len % (ITEM_SIZE as u64) != 0 {
-            return Err(HostError::BLS12381InvalidInput {
-                msg: format!(
-                    "Incorrect input length for bls12381_p1_decompress: {} is not divisible by {}",
-                    value_len, ITEM_SIZE
-                ),
-            }
-            .into());
-        }
-
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
-
-        let mut res = Vec::<u8>::new();
 
         let elements_count = data.len() / ITEM_SIZE;
         self.gas_counter.pay_per(bls12381_p1_decompress_element, elements_count as u64)?;
 
-        for i in 0..elements_count {
-            let pk_res =
-                blst::min_pk::PublicKey::uncompress(&data[i * ITEM_SIZE..(i + 1) * ITEM_SIZE]);
-            let pk_ser = if let Ok(pk) = pk_res {
-                pk.serialize()
-            } else {
-                return Ok(1);
-            };
-
-            res.extend_from_slice(pk_ser.as_slice());
+        let (status, res) = super::bls12381::p1_decompress(&data)?;
+        if status != 0 {
+            return Ok(status);
         }
 
         self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res)?;
@@ -1449,33 +1430,14 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_base(bls12381_p2_decompress_base)?;
         const ITEM_SIZE: usize = 96;
 
-        if value_len % (ITEM_SIZE as u64) != 0 {
-            return Err(HostError::BLS12381InvalidInput {
-                msg: format!(
-                    "Incorrect input length for bls12381_p2_decompress: {} is not divisible by {}",
-                    value_len, ITEM_SIZE
-                ),
-            }
-            .into());
-        }
-
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
-
-        let mut res = Vec::<u8>::new();
 
         let elements_count = data.len() / ITEM_SIZE;
         self.gas_counter.pay_per(bls12381_p2_decompress_element, elements_count as u64)?;
 
-        for i in 0..elements_count {
-            let sig_res =
-                blst::min_pk::Signature::uncompress(&data[i * ITEM_SIZE..(i + 1) * ITEM_SIZE]);
-            let sig_ser = if let Ok(sig) = sig_res {
-                sig.serialize()
-            } else {
-                return Ok(1);
-            };
-
-            res.extend_from_slice(sig_ser.as_slice());
+        let (status, res) = super::bls12381::p2_decompress(&data)?;
+        if status != 0 {
+            return Ok(status);
         }
 
         self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res)?;

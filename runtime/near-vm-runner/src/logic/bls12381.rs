@@ -492,3 +492,71 @@ pub(super) fn pairing_check(
         Ok(2)
     }
 }
+
+pub(super) fn p1_decompress(
+    data: &[u8]
+) -> Result<(u64, Vec<u8>)> {
+    const ITEM_SIZE: usize = 48;
+
+    if data.len() % ITEM_SIZE != 0 {
+        return Err(HostError::BLS12381InvalidInput {
+            msg: format!(
+                "Incorrect input length for bls12381_p1_decompress: {} is not divisible by {}",
+                data.len(), ITEM_SIZE
+            ),
+        }
+            .into());
+    }
+
+    let mut res = Vec::<u8>::new();
+
+    let elements_count = data.len() / ITEM_SIZE;
+
+    for i in 0..elements_count {
+        let pk_res =
+            blst::min_pk::PublicKey::uncompress(&data[i * ITEM_SIZE..(i + 1) * ITEM_SIZE]);
+        let pk_ser = if let Ok(pk) = pk_res {
+            pk.serialize()
+        } else {
+            return Ok((1, vec![]));
+        };
+
+        res.extend_from_slice(pk_ser.as_slice());
+    }
+
+    Ok((0, res))
+}
+
+pub(super) fn p2_decompress(
+    data: &[u8]
+) -> Result<(u64, Vec<u8>)> {
+    const ITEM_SIZE: usize = 96;
+
+    if data.len() % ITEM_SIZE != 0 {
+        return Err(HostError::BLS12381InvalidInput {
+            msg: format!(
+                "Incorrect input length for bls12381_p2_decompress: {} is not divisible by {}",
+                data.len(), ITEM_SIZE
+            ),
+        }
+            .into());
+    }
+
+    let mut res = Vec::<u8>::new();
+
+    let elements_count = data.len() / ITEM_SIZE;
+
+    for i in 0..elements_count {
+        let sig_res =
+            blst::min_pk::Signature::uncompress(&data[i * ITEM_SIZE..(i + 1) * ITEM_SIZE]);
+        let sig_ser = if let Ok(sig) = sig_res {
+            sig.serialize()
+        } else {
+            return Ok((1, vec![]));
+        };
+
+        res.extend_from_slice(sig_ser.as_slice());
+    }
+
+    Ok((0, res))
+}
