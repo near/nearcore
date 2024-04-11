@@ -509,7 +509,7 @@ impl StoreUpdate {
     ) {
         assert!(column.is_rc(), "can't update refcount: {column}");
         let value = refcount::encode_negative_refcount(decrease);
-        self.transaction.update_refcount(column, key.to_vec(), value)
+        self.transaction.update_refcount(column, key.to_vec(), value.to_vec())
     }
 
     /// Same as `self.decrement_refcount_by(column, key, 1)`.
