@@ -557,18 +557,14 @@ impl NetworkState {
 
     /// Send message to specific account.
     /// Return whether the message is sent or not.
-    /// The message might be sent over TIER1 and/or TIER2 connection depending on the message type.
+    /// The message might be sent over TIER1 or TIER2 connection depending on the message type.
     pub fn send_message_to_account(
         &self,
         clock: &time::Clock,
         account_id: &AccountId,
         msg: RoutedMessageBody,
     ) -> bool {
-        let mut success = false;
         let accounts_data = self.accounts_data.load();
-        // All TIER1 messages are being sent over both TIER1 and TIER2 connections for now,
-        // so that we can actually observe the latency/reliability improvements in practice:
-        // for each message we track over which network tier it arrived faster?
         if tcp::Tier::T1.is_allowed_routed(&msg) {
             for key in accounts_data.keys_by_id.get(account_id).iter().flat_map(|keys| keys.iter())
             {
@@ -589,8 +585,7 @@ impl NetworkState {
                         body: msg.clone(),
                     },
                 ))));
-                success |= true;
-                break;
+                return true;
             }
         }
 
@@ -624,6 +619,7 @@ impl NetworkState {
             return false;
         };
 
+        let mut success = false;
         let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body: msg };
         let msg = self.sign_message(clock, msg);
         if msg.body.is_important() {
