@@ -27,6 +27,13 @@ pub(crate) struct Store(schema::Store);
 
 impl Store {
     /// Inserts (account_id,aa) to the AccountAnnouncements column.
+    #[tracing::instrument(
+        target = "network::store",
+        level = "trace",
+        "Store::set_account_announcement",
+        skip_all,
+        fields(%account_id)
+    )]
     pub fn set_account_announcement(
         &mut self,
         account_id: &AccountId,
@@ -48,6 +55,12 @@ impl Store {
 
 // ConnectionStore storage.
 impl Store {
+    #[tracing::instrument(
+        target = "network::store",
+        level = "trace",
+        "Store::set_recent_outbound_connections",
+        skip_all
+    )]
     pub fn set_recent_outbound_connections(
         &mut self,
         recent_outbound_connections: &Vec<ConnectionInfo>,

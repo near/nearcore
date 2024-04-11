@@ -226,6 +226,13 @@ impl Store {
     pub fn new_update(&mut self) -> StoreUpdate {
         Default::default()
     }
+
+    #[tracing::instrument(
+        target = "network::store::schema",
+        level = "trace",
+        "Store::commit",
+        skip_all
+    )]
     pub fn commit(&mut self, update: StoreUpdate) -> Result<(), Error> {
         self.0.write(update.0)
     }

@@ -73,6 +73,17 @@ impl DBOp {
             DBOp::DeleteRange { col, .. } => col,
         }
     }
+
+    pub fn bytes(&self) -> usize {
+        match self {
+            DBOp::Set { key, value, .. } => key.len() + value.len(),
+            DBOp::Insert { key, value, .. } => key.len() + value.len(),
+            DBOp::UpdateRefcount { key, value, .. } => key.len() + value.len(),
+            DBOp::Delete { key, .. } => key.len(),
+            DBOp::DeleteAll { .. } => 0,
+            DBOp::DeleteRange { from, to, .. } => from.len() + to.len(),
+        }
+    }
 }
 
 impl std::fmt::Debug for DBOp {
