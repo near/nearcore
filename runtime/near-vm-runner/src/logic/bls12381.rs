@@ -419,3 +419,76 @@ pub(super) fn map_fp2_to_g2(
 
     Ok((0, res_concat))
 }
+
+pub(super) fn pairing_check(
+    data: &[u8]
+) -> Result<u64> {
+    const BLS_P1_SIZE: usize = 96;
+    const BLS_P2_SIZE: usize = 192;
+    const ITEM_SIZE: usize = BLS_P1_SIZE + BLS_P2_SIZE;
+
+    if data.len() % ITEM_SIZE != 0 {
+        return Err(HostError::BLS12381InvalidInput {
+            msg: format!(
+                "Incorrect input length for bls12381_pairing_check: {} is not divisible by {}",
+                data.len(), ITEM_SIZE
+            ),
+        }
+            .into());
+    }
+
+    let elements_count = data.len() / ITEM_SIZE;
+
+    let mut blst_g1_list: Vec<blst::blst_p1_affine> =
+        vec![blst::blst_p1_affine::default(); elements_count];
+    let mut blst_g2_list: Vec<blst::blst_p2_affine> =
+        vec![blst::blst_p2_affine::default(); elements_count];
+
+    for i in 0..elements_count {
+        let error_code = unsafe {
+            blst::blst_p1_deserialize(
+                &mut blst_g1_list[i],
+                data[(i * ITEM_SIZE)..(i * ITEM_SIZE + BLS_P1_SIZE)].as_ptr(),
+            )
+        };
+        if (error_code != blst::BLST_ERROR::BLST_SUCCESS) || (data[i * ITEM_SIZE] & 0x80 != 0) {
+            return Ok(1);
+        }
+
+        let g1_check = unsafe { blst::blst_p1_affine_in_g1(&blst_g1_list[i]) };
+        if g1_check == false {
+            return Ok(1);
+        }
+
+        let error_code = unsafe {
+            blst::blst_p2_deserialize(
+                &mut blst_g2_list[i],
+                data[(i * ITEM_SIZE + BLS_P1_SIZE)..((i + 1) * ITEM_SIZE)].as_ptr(),
+            )
+        };
+        if (error_code != blst::BLST_ERROR::BLST_SUCCESS)
+            || (data[i * ITEM_SIZE + BLS_P1_SIZE] & 0x80 != 0)
+        {
+            return Ok(1);
+        }
+
+        let g2_check = unsafe { blst::blst_p2_affine_in_g2(&blst_g2_list[i]) };
+        if g2_check == false {
+            return Ok(1);
+        }
+    }
+
+    let mut pairing_fp12 = blst::blst_fp12::default();
+    for i in 0..elements_count {
+        pairing_fp12 *= blst::blst_fp12::miller_loop(&blst_g2_list[i], &blst_g1_list[i]);
+    }
+    pairing_fp12 = pairing_fp12.final_exp();
+
+    let pairing_res = unsafe { blst::blst_fp12_is_one(&pairing_fp12) };
+
+    if pairing_res {
+        Ok(0)
+    } else {
+        Ok(2)
+    }
+}
