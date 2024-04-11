@@ -28,6 +28,7 @@ near-chain.workspace = true
 near-chain-configs.workspace = true
 near-store.workspace = true
 near-primitives.workspace = true
+near-async.workspace = true
 
 [features]
 nightly = [

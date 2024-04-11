@@ -1115,7 +1115,6 @@ impl StateSync {
     ) -> Result<(), near_chain::Error> {
         let resharding_request =
             chain.build_state_for_resharding_preprocessing(&sync_hash, shard_id)?;
-        chain.set_resharding_status_scheduled(resharding_request.shard_uid);
 
         resharding_scheduler.send(resharding_request);
 
