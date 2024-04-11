@@ -143,7 +143,9 @@ fn run_model(
         workload_name,
         strategy_name,
         &model.progress(),
-        &(model.gas_throughput() - warmup_gas_usage),
+        &((model.gas_throughput() - warmup_gas_usage)
+            / (num_rounds - num_warmup_rounds)
+            / num_shards),
         &max_queues,
         &model.user_experience(),
     );

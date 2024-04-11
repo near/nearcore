@@ -133,3 +133,11 @@ impl std::ops::Sub for GasThroughput {
         Self { total: self.total - rhs.total }
     }
 }
+
+impl std::ops::Div<usize> for GasThroughput {
+    type Output = GasThroughput;
+
+    fn div(self, rhs: usize) -> Self::Output {
+        Self { total: self.total / rhs as u64 }
+    }
+}
