@@ -294,7 +294,7 @@ pub static RECEIPT_RECORDED_SIZE: Lazy<Histogram> = Lazy::new(|| {
     try_create_histogram_with_buckets(
         "near_receipt_recorded_size",
         "Size of storage proof recorded when executing a receipt",
-        buckets_for_storage_proof_size(),
+        buckets_for_receipt_storage_proof_size(),
     )
     .unwrap()
 });
@@ -302,7 +302,7 @@ pub static RECEIPT_RECORDED_SIZE_UPPER_BOUND: Lazy<Histogram> = Lazy::new(|| {
     try_create_histogram_with_buckets(
         "near_receipt_recorded_size_upper_bound",
         "Upper bound estimation (e.g with extra size added for deletes) of storage proof size recorded when executing a receipt",
-        buckets_for_storage_proof_size(),
+        buckets_for_receipt_storage_proof_size(),
     )
     .unwrap()
 });
@@ -363,9 +363,15 @@ fn buckets_for_compute() -> Option<Vec<f64>> {
 }
 
 // Buckets from 0 to 100 MB
-fn buckets_for_storage_proof_size() -> Vec<f64> {
+fn buckets_for_receipt_storage_proof_size() -> Vec<f64> {
     // 100 * 2**20 = 100 MB
     exponential_buckets(100., 2., 20).unwrap()
+}
+
+// Buckets from 100KB to 100MB
+fn buckets_for_storage_proof_size() -> Vec<f64> {
+    // 100KB * 2**10 = 100 MB
+    exponential_buckets(100_000., 2., 10).unwrap()
 }
 
 // Buckets from 1 to 1.46
