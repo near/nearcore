@@ -582,7 +582,7 @@ impl NetworkState {
                     clock,
                     RawRoutedMessage {
                         target: PeerIdOrHash::PeerId(data.peer_id.clone()),
-                        body: msg.clone(),
+                        body: msg,
                     },
                 ))));
                 return true;
