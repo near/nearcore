@@ -17,7 +17,6 @@ use near_primitives_core::types::{
     AccountId, Balance, Compute, EpochHeight, Gas, GasWeight, StorageUsage,
 };
 use std::mem::size_of;
-use std::ptr::null;
 use ExtCosts::*;
 
 pub type Result<T, E = VMLogicError> = ::std::result::Result<T, E>;
@@ -1066,65 +1065,15 @@ impl<'a> VMLogic<'a> {
         const BLS_P1_SIZE: usize = 96;
         const ITEM_SIZE: usize = BLS_SCALAR_SIZE + BLS_P1_SIZE;
 
-        if value_len % (ITEM_SIZE as u64) != 0 {
-            return Err(HostError::BLS12381InvalidInput {
-                msg: format!(
-                    "Incorrect input length for bls12381_p1_multiexp: {} is not divisible by {}",
-                    value_len, ITEM_SIZE
-                ),
-            }
-            .into());
-        }
-
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
 
-        let elements_count = data.len() / ((BLS_P1_SIZE + BLS_SCALAR_SIZE) as usize);
+        let elements_count = data.len() / ITEM_SIZE;
         self.gas_counter.pay_per(bls12381_p1_multiexp_element, elements_count as u64)?;
 
-        let mut res_pk = blst::blst_p1::default();
+        let (status, res) = super::bls12381::p1_multiexp(&data)?;
 
-        for i in 0..elements_count {
-            let mut pk_aff = blst::blst_p1_affine::default();
-            let error_code = unsafe {
-                blst::blst_p1_deserialize(
-                    &mut pk_aff,
-                    data[i * ITEM_SIZE..(i * ITEM_SIZE + BLS_P1_SIZE)].as_ptr(),
-                )
-            };
-
-            if (error_code != blst::BLST_ERROR::BLST_SUCCESS) || (data[i * ITEM_SIZE] & 0x80 != 0) {
-                return Ok(1);
-            }
-
-            let mut pk = blst::blst_p1::default();
-            unsafe {
-                blst::blst_p1_from_affine(&mut pk, &pk_aff);
-            }
-
-            let mut pk_mul = blst::blst_p1::default();
-            unsafe {
-                blst::blst_p1_unchecked_mult(
-                    &mut pk_mul,
-                    &pk,
-                    data[(i * ITEM_SIZE + BLS_P1_SIZE)..((i + 1) * ITEM_SIZE)].as_ptr(),
-                    BLS_SCALAR_SIZE * 8,
-                );
-            }
-
-            unsafe {
-                blst::blst_p1_add_or_double(&mut res_pk, &res_pk, &pk_mul);
-            }
-        }
-
-        let mut res_affine = blst::blst_p1_affine::default();
-
-        unsafe {
-            blst::blst_p1_to_affine(&mut res_affine, &res_pk);
-        }
-
-        let mut res = [0u8; BLS_P1_SIZE];
-        unsafe {
-            blst::blst_p1_affine_serialize(res.as_mut_ptr(), &res_affine);
+        if status != 0 {
+            return Ok(status);
         }
 
         self.registers.set(
@@ -1184,64 +1133,15 @@ impl<'a> VMLogic<'a> {
         const BLS_P2_SIZE: usize = 192;
         const ITEM_SIZE: usize = BLS_SCALAR_SIZE + BLS_P2_SIZE;
 
-        if value_len % (ITEM_SIZE as u64) != 0 {
-            return Err(HostError::BLS12381InvalidInput {
-                msg: format!(
-                    "Incorrect input length for bls12381_p2_multiexp: {} is not divisible by {}",
-                    value_len, ITEM_SIZE
-                ),
-            }
-            .into());
-        }
-
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
 
-        let elements_count = data.len() / ((BLS_P2_SIZE + BLS_SCALAR_SIZE) as usize);
+        let elements_count = data.len() / (ITEM_SIZE as usize);
         self.gas_counter.pay_per(bls12381_p2_multiexp_element, elements_count as u64)?;
 
-        let mut res_pk = blst::blst_p2::default();
-        for i in 0..elements_count {
-            let mut pk_aff = blst::blst_p2_affine::default();
-            let error_code = unsafe {
-                blst::blst_p2_deserialize(
-                    &mut pk_aff,
-                    data[i * ITEM_SIZE..(i * ITEM_SIZE + BLS_P2_SIZE)].as_ptr(),
-                )
-            };
+        let (status, res) = super::bls12381::p2_multiexp(&data)?;
 
-            if (error_code != blst::BLST_ERROR::BLST_SUCCESS) || (data[i * ITEM_SIZE] & 0x80 != 0) {
-                return Ok(1);
-            }
-
-            let mut pk = blst::blst_p2::default();
-            unsafe {
-                blst::blst_p2_from_affine(&mut pk, &pk_aff);
-            }
-
-            let mut pk_mul = blst::blst_p2::default();
-            unsafe {
-                blst::blst_p2_unchecked_mult(
-                    &mut pk_mul,
-                    &pk,
-                    data[(i * ITEM_SIZE + BLS_P2_SIZE)..(i + 1) * ITEM_SIZE].as_ptr(),
-                    BLS_SCALAR_SIZE * 8,
-                );
-            }
-
-            unsafe {
-                blst::blst_p2_add_or_double(&mut res_pk, &res_pk, &pk_mul);
-            }
-        }
-
-        let mut mul_res_affine = blst::blst_p2_affine::default();
-
-        unsafe {
-            blst::blst_p2_to_affine(&mut mul_res_affine, &res_pk);
-        }
-
-        let mut res = [0u8; BLS_P2_SIZE];
-        unsafe {
-            blst::blst_p2_affine_serialize(res.as_mut_ptr(), &mul_res_affine);
+        if status != 0 {
+            return Ok(status);
         }
 
         self.registers.set(
@@ -1250,6 +1150,7 @@ impl<'a> VMLogic<'a> {
             register_id,
             res.as_slice(),
         )?;
+
         Ok(0)
     }
 
@@ -1289,64 +1190,18 @@ impl<'a> VMLogic<'a> {
     ) -> Result<u64> {
         self.gas_counter.pay_base(bls12381_map_fp_to_g1_base)?;
 
-        const BLS_P1_SIZE: usize = 96;
         const BLS_FP_SIZE: usize = 48;
         const ITEM_SIZE: usize = BLS_FP_SIZE;
 
-        if value_len % (ITEM_SIZE as u64) != 0 {
-            return Err(HostError::BLS12381InvalidInput {
-                msg: format!(
-                    "Incorrect input length for bls12381_map_fp_to_g1: {} is not divisible by {}",
-                    value_len, ITEM_SIZE
-                ),
-            }
-            .into());
-        }
-
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
-        let mut fp_point = blst::blst_fp::default();
 
         let elements_count: usize = (value_len as usize) / ITEM_SIZE;
         self.gas_counter.pay_per(bls12381_map_fp_to_g1_element, elements_count as u64)?;
 
-        let mut res_concat: Vec<u8> = vec![];
+        let (status, res_concat) = super::bls12381::map_fp_to_g1(&data)?;
 
-        for i in 0..elements_count {
-            unsafe {
-                blst::blst_fp_from_bendian(
-                    &mut fp_point,
-                    data[i * ITEM_SIZE..(i + 1) * ITEM_SIZE].as_ptr(),
-                );
-            }
-
-            let mut fp_row: [u8; BLS_FP_SIZE] = [0u8; BLS_FP_SIZE];
-            unsafe {
-                blst::blst_bendian_from_fp(fp_row.as_mut_ptr(), &fp_point);
-            }
-
-            for j in 0..BLS_FP_SIZE {
-                if fp_row[j] != data[i * BLS_FP_SIZE + j] {
-                    return Ok(1);
-                }
-            }
-
-            let mut g1_point = blst::blst_p1::default();
-            unsafe {
-                blst::blst_map_to_g1(&mut g1_point, &fp_point, null());
-            }
-
-            let mut mul_res_affine = blst::blst_p1_affine::default();
-
-            unsafe {
-                blst::blst_p1_to_affine(&mut mul_res_affine, &g1_point);
-            }
-
-            let mut res = [0u8; BLS_P1_SIZE];
-            unsafe {
-                blst::blst_p1_affine_serialize(res.as_mut_ptr(), &mul_res_affine);
-            }
-
-            res_concat.append(&mut res.to_vec());
+        if status != 0 {
+            return Ok(status);
         }
 
         self.registers.set(
@@ -1355,6 +1210,7 @@ impl<'a> VMLogic<'a> {
             register_id,
             res_concat.as_slice(),
         )?;
+
         Ok(0)
     }
 
@@ -1395,81 +1251,17 @@ impl<'a> VMLogic<'a> {
     ) -> Result<u64> {
         self.gas_counter.pay_base(bls12381_map_fp2_to_g2_base)?;
 
-        const BLS_P2_SIZE: usize = 192;
-        const BLS_FP_SIZE: usize = 48;
         const BLS_FP2_SIZE: usize = 96;
         const ITEM_SIZE: usize = BLS_FP2_SIZE;
-
-        if value_len % (ITEM_SIZE as u64) != 0 {
-            return Err(HostError::BLS12381InvalidInput {
-                msg: format!(
-                    "Incorrect input length for bls12381_map_fp2_to_g2: {} is not divisible by {}",
-                    value_len, ITEM_SIZE
-                ),
-            }
-            .into());
-        }
 
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
         let elements_count: usize = (value_len as usize) / ITEM_SIZE;
         self.gas_counter.pay_per(bls12381_map_fp2_to_g2_element, elements_count as u64)?;
 
-        let mut res_concat: Vec<u8> = vec![];
+        let (status, res_concat) = super::bls12381::map_fp2_to_g2(&data)?;
 
-        for i in 0..elements_count {
-            let mut c_fp1 = [blst::blst_fp::default(); 2];
-
-            unsafe {
-                blst::blst_fp_from_bendian(
-                    &mut c_fp1[1],
-                    data[i * ITEM_SIZE..i * ITEM_SIZE + BLS_FP_SIZE].as_ptr(),
-                );
-                blst::blst_fp_from_bendian(
-                    &mut c_fp1[0],
-                    data[i * ITEM_SIZE + BLS_FP_SIZE..(i + 1) * ITEM_SIZE].as_ptr(),
-                );
-            }
-
-            let mut fp_row: [u8; BLS_FP_SIZE] = [0u8; BLS_FP_SIZE];
-            unsafe {
-                blst::blst_bendian_from_fp(fp_row.as_mut_ptr(), &c_fp1[0]);
-            }
-
-            for j in BLS_FP_SIZE..BLS_FP2_SIZE {
-                if fp_row[j - BLS_FP_SIZE] != data[BLS_FP2_SIZE * i + j] {
-                    return Ok(1);
-                }
-            }
-
-            unsafe {
-                blst::blst_bendian_from_fp(fp_row.as_mut_ptr(), &c_fp1[1]);
-            }
-
-            for j in 0..BLS_FP_SIZE {
-                if fp_row[j] != data[BLS_FP2_SIZE * i + j] {
-                    return Ok(1);
-                }
-            }
-
-            let fp2_point: blst::blst_fp2 = blst::blst_fp2 { fp: c_fp1 };
-
-            let mut g2_point = blst::blst_p2::default();
-            unsafe {
-                blst::blst_map_to_g2(&mut g2_point, &fp2_point, null());
-            }
-
-            let mut mul_res_affine = blst::blst_p2_affine::default();
-
-            unsafe {
-                blst::blst_p2_to_affine(&mut mul_res_affine, &g2_point);
-            }
-
-            let mut res = [0u8; BLS_P2_SIZE];
-            unsafe {
-                blst::blst_p2_affine_serialize(res.as_mut_ptr(), &mul_res_affine);
-            }
-
-            res_concat.append(&mut res.to_vec());
+        if status != 0 {
+            return Ok(status);
         }
 
         self.registers.set(
