@@ -1450,6 +1450,7 @@ impl Runtime {
             total_compute_usage,
         );
 
+<<<<<<< HEAD
         // No more receipts are executed on this trie, stop any pending prefetches on it.
         if let Some(prefetcher) = &prefetcher {
             prefetcher.clear();
