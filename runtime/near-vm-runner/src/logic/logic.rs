@@ -926,72 +926,19 @@ impl<'a> VMLogic<'a> {
     ) -> Result<u64> {
         self.gas_counter.pay_base(bls12381_p1_sum_base)?;
 
-        const BLS_BOOL_SIZE: usize = 1;
-        const BLS_P1_SIZE: usize = 96;
-        const ITEM_SIZE: usize = BLS_BOOL_SIZE + BLS_P1_SIZE;
+        const BLS_BOOL_SIZE: u64 = 1;
+        const BLS_P1_SIZE: u64 = 96;
+        const ITEM_SIZE: u64 = BLS_BOOL_SIZE + BLS_P1_SIZE;
 
-        if value_len % (ITEM_SIZE as u64) != 0 {
-            return Err(HostError::BLS12381InvalidInput {
-                msg: format!(
-                    "Incorrect input length for bls12381_p1_sum: {} is not divisible by {}",
-                    value_len, ITEM_SIZE
-                ),
-            }
-            .into());
-        }
+        let elements_count = value_len / ITEM_SIZE;
+        self.gas_counter.pay_per(bls12381_p1_sum_element, elements_count as u64)?;
 
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
 
-        let mut res_pk = blst::blst_p1::default();
+        let (status, res) = super::bls12381::p1_sum(&data)?;
 
-        let elements_count = data.len() / ITEM_SIZE;
-        self.gas_counter.pay_per(bls12381_p1_sum_element, elements_count as u64)?;
-
-        for i in 0..elements_count {
-            let mut pk_aff = blst::blst_p1_affine::default();
-            let error_code = unsafe {
-                blst::blst_p1_deserialize(
-                    &mut pk_aff,
-                    data[i * (BLS_BOOL_SIZE + BLS_P1_SIZE) + BLS_BOOL_SIZE
-                        ..(i + BLS_BOOL_SIZE) * ITEM_SIZE]
-                        .as_ptr(),
-                )
-            };
-
-            if (error_code != blst::BLST_ERROR::BLST_SUCCESS)
-                || (data[i * ITEM_SIZE + BLS_BOOL_SIZE] & 0x80 != 0)
-            {
-                return Ok(1);
-            }
-
-            let mut pk = blst::blst_p1::default();
-            unsafe {
-                blst::blst_p1_from_affine(&mut pk, &pk_aff);
-            }
-
-            let sign = data[i * ITEM_SIZE];
-            if sign == 1 {
-                unsafe {
-                    blst::blst_p1_cneg(&mut pk, true);
-                }
-            } else if sign != 0 {
-                return Ok(1);
-            }
-
-            unsafe {
-                blst::blst_p1_add_or_double(&mut res_pk, &res_pk, &pk);
-            }
-        }
-
-        let mut res_affine = blst::blst_p1_affine::default();
-
-        unsafe {
-            blst::blst_p1_to_affine(&mut res_affine, &res_pk);
-        }
-
-        let mut res = [0u8; BLS_P1_SIZE];
-        unsafe {
-            blst::blst_p1_affine_serialize(res.as_mut_ptr(), &res_affine);
+        if status != 0 {
+            return Ok(status);
         }
 
         self.registers.set(
@@ -1000,6 +947,7 @@ impl<'a> VMLogic<'a> {
             register_id,
             res.as_slice(),
         )?;
+
         Ok(0)
     }
 
@@ -1047,70 +995,19 @@ impl<'a> VMLogic<'a> {
     ) -> Result<u64> {
         self.gas_counter.pay_base(bls12381_p2_sum_base)?;
 
-        const BLS_BOOL_SIZE: usize = 1;
-        const BLS_P2_SIZE: usize = 192;
-        const ITEM_SIZE: usize = BLS_BOOL_SIZE + BLS_P2_SIZE;
+        const BLS_BOOL_SIZE: u64 = 1;
+        const BLS_P2_SIZE: u64 = 192;
+        const ITEM_SIZE: u64 = BLS_BOOL_SIZE + BLS_P2_SIZE;
 
-        if value_len % (ITEM_SIZE as u64) != 0 {
-            return Err(HostError::BLS12381InvalidInput {
-                msg: format!(
-                    "Incorrect input length for bls12381_p2_sum: {} is not divisible by {}",
-                    value_len, ITEM_SIZE
-                ),
-            }
-            .into());
-        }
+        let elements_count = value_len / ITEM_SIZE;
+        self.gas_counter.pay_per(bls12381_p2_sum_element, elements_count as u64)?;
 
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
 
-        let mut res_pk = blst::blst_p2::default();
+        let (status, res) = super::bls12381::p2_sum(&data)?;
 
-        let elements_count = data.len() / ITEM_SIZE;
-        self.gas_counter.pay_per(bls12381_p2_sum_element, elements_count as u64)?;
-
-        for i in 0..elements_count {
-            let mut pk_aff = blst::blst_p2_affine::default();
-            let error_code = unsafe {
-                blst::blst_p2_deserialize(
-                    &mut pk_aff,
-                    data[i * ITEM_SIZE + BLS_BOOL_SIZE..(i + 1) * ITEM_SIZE].as_ptr(),
-                )
-            };
-
-            if (error_code != blst::BLST_ERROR::BLST_SUCCESS)
-                || (data[i * ITEM_SIZE + BLS_BOOL_SIZE] & 0x80 != 0)
-            {
-                return Ok(1);
-            }
-
-            let mut pk = blst::blst_p2::default();
-            unsafe {
-                blst::blst_p2_from_affine(&mut pk, &pk_aff);
-            }
-
-            let sign = data[i * ITEM_SIZE];
-            if sign == 1 {
-                unsafe {
-                    blst::blst_p2_cneg(&mut pk, true);
-                }
-            } else if sign != 0 {
-                return Ok(1);
-            }
-
-            unsafe {
-                blst::blst_p2_add_or_double(&mut res_pk, &res_pk, &pk);
-            }
-        }
-
-        let mut res_affine = blst::blst_p2_affine::default();
-
-        unsafe {
-            blst::blst_p2_to_affine(&mut res_affine, &res_pk);
-        }
-
-        let mut res = [0u8; BLS_P2_SIZE];
-        unsafe {
-            blst::blst_p2_affine_serialize(res.as_mut_ptr(), &res_affine);
+        if status != 0 {
+            return Ok(status);
         }
 
         self.registers.set(
