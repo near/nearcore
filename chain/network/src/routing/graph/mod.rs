@@ -176,7 +176,7 @@ impl Inner {
     /// 3. Recomputes GraphSnapshot.
     #[tracing::instrument(
         target = "network::routing::graph",
-        level = "info",
+        level = "debug",
         "GraphInner::update",
         skip_all
     )]
@@ -282,7 +282,7 @@ impl Graph {
         self.runtime
             .handle
             .spawn_blocking(move || {
-                let _span = tracing::info_span!(
+                let _span = tracing::debug_span!(
                     target: "network::routing::graph",
                     parent: current_span,
                     "Graph::update"
