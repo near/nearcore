@@ -314,6 +314,30 @@ pub static RECEIPT_RECORDED_SIZE_UPPER_BOUND_RATIO: Lazy<Histogram> = Lazy::new(
     )
     .unwrap()
 });
+pub static CHUNK_RECORDED_SIZE: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram_with_buckets(
+        "near_chunk_recorded_size",
+        "Total size of storage proof (recorded trie nodes for state witness, post-finalization) for a single chunk",
+        buckets_for_storage_proof_size(),
+    )
+    .unwrap()
+});
+pub static CHUNK_RECORDED_SIZE_UPPER_BOUND: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram_with_buckets(
+        "near_chunk_recorded_size_upper_bound",
+        "Upper bound of storage proof size (recorded trie nodes size + estimated charges, pre-finalization) for a single chunk",
+        buckets_for_storage_proof_size(),
+    )
+    .unwrap()
+});
+pub static CHUNK_RECORDED_SIZE_UPPER_BOUND_RATIO: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram_with_buckets(
+        "near_chunk_recorded_size_upper_bound_ratio",
+        "Ratio of upper bound to true storage proof size, equal to (near_chunk_recorded_size_upper_bound / near_chunk_recorded_size)",
+        buckets_for_storage_proof_size_ratio(),
+    )
+    .unwrap()
+});
 
 /// Buckets used for burned gas in receipts.
 ///
