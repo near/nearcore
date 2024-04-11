@@ -115,6 +115,9 @@ impl TrieUpdate {
 
     pub fn remove(&mut self, trie_key: TrieKey) {
         self.prospective.insert(trie_key.to_vec(), TrieKeyValueUpdate { trie_key, value: None });
+        if let Some(recorder) = &self.trie.recorder {
+            recorder.borrow_mut().record_removal();
+        }
     }
 
     pub fn commit(&mut self, event: StateChangeCause) {

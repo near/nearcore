@@ -125,3 +125,19 @@ impl Model {
         stats_writer.write_record(None::<&[u8]>).unwrap();
     }
 }
+
+impl std::ops::Sub for GasThroughput {
+    type Output = GasThroughput;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self { total: self.total - rhs.total }
+    }
+}
+
+impl std::ops::Div<usize> for GasThroughput {
+    type Output = GasThroughput;
+
+    fn div(self, rhs: usize) -> Self::Output {
+        Self { total: self.total / rhs as u64 }
+    }
+}

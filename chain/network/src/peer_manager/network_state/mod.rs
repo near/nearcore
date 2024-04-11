@@ -171,14 +171,11 @@ impl NetworkState {
     ) -> Self {
         Self {
             runtime: Runtime::new(),
-            graph: Arc::new(crate::routing::Graph::new(
-                crate::routing::GraphConfig {
-                    node_id: config.node_id(),
-                    prune_unreachable_peers_after: PRUNE_UNREACHABLE_PEERS_AFTER,
-                    prune_edges_after: Some(PRUNE_EDGES_AFTER),
-                },
-                store.clone(),
-            )),
+            graph: Arc::new(crate::routing::Graph::new(crate::routing::GraphConfig {
+                node_id: config.node_id(),
+                prune_unreachable_peers_after: PRUNE_UNREACHABLE_PEERS_AFTER,
+                prune_edges_after: Some(PRUNE_EDGES_AFTER),
+            })),
             graph_v2: Arc::new(crate::routing::GraphV2::new(crate::routing::GraphConfigV2 {
                 node_id: config.node_id(),
                 prune_edges_after: Some(PRUNE_EDGES_AFTER),

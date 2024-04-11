@@ -620,6 +620,7 @@ impl ClientActionHandler<Status> for ClientActions {
             node_public_key,
             node_key,
             uptime_sec,
+            genesis_hash: *self.client.chain.genesis().hash(),
             detailed_debug_status,
         })
     }
