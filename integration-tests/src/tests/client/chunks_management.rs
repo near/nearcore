@@ -180,7 +180,8 @@ impl Test {
                             );
                         }
 
-                        if block.header().height() > 1 {
+                        let height = block.header().height();
+                        if height > 1 {
                             for shard_id in 0..4 {
                                 // If messages from 1 to 4 are dropped, 4 at their heights will
                                 //    receive the block significantly later than the chunks, and
@@ -189,8 +190,9 @@ impl Test {
                                     || block.header().height() % 4 != 3
                                 {
                                     assert_eq!(
-                                        block.header().height(),
-                                        block.chunks()[shard_id].height_created()
+                                        height,
+                                        block.chunks()[shard_id].height_created(),
+                                        "New chunk at height {height} for shard {shard_id} wasn't included"
                                     );
                                 }
                             }
@@ -440,14 +442,14 @@ fn chunks_produced_and_distributed_one_val_per_shard_should_succeed_even_without
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn chunks_recovered_from_others() {
-    //    Test {
-    //        validator_groups: 2,
-    //        chunk_only_producers: false,
-    //        drop_to_4_from: &["test1"],
-    //        drop_all_chunk_forward_msgs: true,
-    //        block_timeout: CHUNK_REQUEST_SWITCH_TO_OTHERS * 4,
-    //    }
-    //    .run()
+    Test {
+        validator_groups: 2,
+        chunk_only_producers: false,
+        drop_to_4_from: &["test1"],
+        drop_all_chunk_forward_msgs: true,
+        block_timeout: CHUNK_REQUEST_SWITCH_TO_OTHERS * 4,
+    }
+    .run()
 }
 
 /// Same test as above, but the number of validator groups is four, therefore test2 doesn't have the
