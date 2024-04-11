@@ -1341,6 +1341,7 @@ impl Runtime {
         // We first process local receipts. They contain staking, local contract calls, etc.
         let local_processing_start = std::time::Instant::now();
         if let Some(prefetcher) = &mut prefetcher {
+            prefetcher.clear();
             // Prefetcher is allowed to fail
             _ = prefetcher.prefetch_receipts_data(&local_receipts);
         }
@@ -1382,6 +1383,7 @@ impl Runtime {
             })?;
 
             if let Some(prefetcher) = &mut prefetcher {
+                prefetcher.clear();
                 // Prefetcher is allowed to fail
                 _ = prefetcher.prefetch_receipts_data(std::slice::from_ref(&receipt));
             }
@@ -1420,6 +1422,7 @@ impl Runtime {
         // And then we process the new incoming receipts. These are receipts from other shards.
         let incoming_processing_start = std::time::Instant::now();
         if let Some(prefetcher) = &mut prefetcher {
+            prefetcher.clear();
             // Prefetcher is allowed to fail
             _ = prefetcher.prefetch_receipts_data(&incoming_receipts);
         }
@@ -1450,13 +1453,11 @@ impl Runtime {
             total_compute_usage,
         );
 
-<<<<<<< HEAD
         // No more receipts are executed on this trie, stop any pending prefetches on it.
         if let Some(prefetcher) = &prefetcher {
             prefetcher.clear();
         }
 
-        let _span = tracing::debug_span!(target: "runtime", "apply_commit").entered();
         if delayed_receipts_indices != initial_delayed_receipt_indices {
             set(&mut state_update, TrieKey::DelayedReceiptIndices, &delayed_receipts_indices);
         }
@@ -1474,20 +1475,6 @@ impl Runtime {
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
         self.apply_state_patch(&mut state_update, state_patch);
         let (trie, trie_changes, state_changes) = state_update.finalize()?;
-        if let Some(prefetcher) = &prefetcher {
-            // Only clear the prefetcher queue after finalize is done because as part of receipt
-            // processing we also prefetch account data and access keys that are accessed in
-            // finalize. This data can take a very long time otherwise if not prefetched.
-            //
-            // (This probably results in more data being accessed than strictly necessary and
-            // prefetcher may touch data that is no longer relevant as a result but...)
-            //
-            // In the future it may make sense to have prefetcher have a mode where it has two
-            // queues: one for data that is going to be required soon, and the other that it would
-            // only work when otherwise idle.
-            let discarded_prefetch_requests = prefetcher.clear();
-            tracing::debug!(target: "runtime", discarded_prefetch_requests);
-        }
 
         // Dedup proposals from the same account.
         // The order is deterministically changed.
