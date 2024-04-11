@@ -286,7 +286,8 @@ impl Graph {
                     target: "network::routing::graph",
                     parent: current_span,
                     "Graph::update"
-                ).entered();
+                )
+                .entered();
                 let mut inner = this.inner.lock();
                 let mut new_edges = vec![];
                 let mut oks = vec![];

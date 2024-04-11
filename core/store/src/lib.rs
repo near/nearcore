@@ -585,12 +585,21 @@ impl StoreUpdate {
 
     #[tracing::instrument(
         level = "trace",
+        target = "store::update",
         // FIXME: start moving things into tighter modules so that its easier to selectively trace
         // specific things.
-        target = "store::update",
         "StoreUpdate::commit",
         skip_all,
-        fields(transaction.ops.len = self.transaction.ops.len())
+        fields(
+            transaction.ops.len = self.transaction.ops.len(),
+            total_bytes,
+            inserts,
+            sets,
+            rc_ops,
+            deletes,
+            delete_all_ops,
+            delete_range_ops
+        )
     )]
     pub fn commit(self) -> io::Result<()> {
         debug_assert!(
@@ -614,7 +623,32 @@ impl StoreUpdate {
             "Transaction overwrites itself: {:?}",
             self
         );
-        if self.transaction.ops.len() == 1 {
+        let span = tracing::Span::current();
+        if !span.is_disabled() {
+            let [mut insert_count, mut set_count, mut update_rc_count] = [0u64; 3];
+            let [mut delete_count, mut delete_all_count, mut delete_range_count] = [0u64; 3];
+            let mut total_bytes = 0;
+            for op in &self.transaction.ops {
+                total_bytes += op.bytes();
+                let count = match op {
+                    DBOp::Set { .. } => &mut set_count,
+                    DBOp::Insert { .. } => &mut insert_count,
+                    DBOp::UpdateRefcount { .. } => &mut update_rc_count,
+                    DBOp::Delete { .. } => &mut delete_count,
+                    DBOp::DeleteAll { .. } => &mut delete_all_count,
+                    DBOp::DeleteRange { .. } => &mut delete_range_count,
+                };
+                *count += 1;
+            }
+            span.record("inserts", insert_count);
+            span.record("sets", set_count);
+            span.record("rc_ops", update_rc_count);
+            span.record("deletes", delete_count);
+            span.record("delete_all_ops", delete_all_count);
+            span.record("delete_range_ops", delete_range_count);
+            span.record("total_bytes", total_bytes);
+        }
+        if tracing::event_enabled!(target: "store::update::transactions", tracing::Level::TRACE) {
             for op in &self.transaction.ops {
                 match op {
                     DBOp::Insert { col, key, value } => tracing::trace!(

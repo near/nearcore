@@ -390,7 +390,7 @@ impl Database for RocksDB {
     fn write(&self, transaction: DBTransaction) -> io::Result<()> {
         let write_batch_start = std::time::Instant::now();
         let batch = self.build_write_batch(transaction)?;
-        let elapsed =  write_batch_start.elapsed();
+        let elapsed = write_batch_start.elapsed();
         if elapsed.as_secs_f32() > 0.15 {
             tracing::warn!(
                 target = "store::db::rocksdb",
@@ -406,7 +406,7 @@ impl Database for RocksDB {
         target = "store::db::rocksdb",
         level = "info",
         "RocksDB::compact",
-        skip_all,
+        skip_all
     )]
     fn compact(&self) -> io::Result<()> {
         for col in DBCol::iter() {
