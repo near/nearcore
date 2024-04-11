@@ -5,6 +5,7 @@ use std::io;
 pub(crate) mod rocksdb;
 
 mod colddb;
+mod mixeddb;
 mod splitdb;
 
 pub mod refcount;
@@ -14,6 +15,7 @@ mod testdb;
 mod database_tests;
 
 pub use self::colddb::ColdDB;
+pub use self::mixeddb::{MixedDB, ReadOrder};
 pub use self::rocksdb::RocksDB;
 pub use self::splitdb::SplitDB;
 
