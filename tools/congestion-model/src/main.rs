@@ -6,7 +6,8 @@ use congestion_model::strategy::{
     SimpleBackpressure, TrafficLight,
 };
 use congestion_model::workload::{
-    AllForOneProducer, BalancedProducer, LinearImbalanceProducer, Producer,
+    AllForOneProducer, BalancedProducer, FairnessBenchmarkProducer, LinearImbalanceProducer,
+    Producer,
 };
 use congestion_model::{
     summary_table, CongestionStrategy, Model, ShardQueueLengths, StatsWriter, PGAS, TGAS,
@@ -187,6 +188,7 @@ fn workload(workload_name: &str) -> Box<dyn Producer> {
         "Relayed Hot" => Box::new(AllForOneProducer::hot_tg()),
         "Linear Imbalance" => Box::<LinearImbalanceProducer>::default(),
         "Big Linear Imbalance" => Box::new(LinearImbalanceProducer::big_receipts()),
+        "Fairness Test" => Box::<FairnessBenchmarkProducer>::default(),
         _ => panic!("unknown workload: {}", workload_name),
     }
 }
@@ -306,6 +308,7 @@ fn parse_workload_names(workload_name: &str) -> Vec<String> {
         "Relayed Hot".to_string(),
         "Linear Imbalance".to_string(),
         "Big Linear Imbalance".to_string(),
+        "Fairness Test".to_string(),
     ];
 
     if workload_name == "all" {
