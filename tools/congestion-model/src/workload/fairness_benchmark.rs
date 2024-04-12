@@ -47,7 +47,7 @@ impl Producer for FairnessBenchmarkProducer {
 
         // Send from the busy shard to all other shards, using around 90% of
         // their capacity.
-        while gas_to_non_busy < GAS_LIMIT * 10 / 9 {
+        while gas_to_non_busy < GAS_LIMIT {
             for &other_shard in other_shards {
                 let mut tx_from_busy_shard = tx_factory(busy_shard);
                 self.produce_tx(other_shard, &mut tx_from_busy_shard);
