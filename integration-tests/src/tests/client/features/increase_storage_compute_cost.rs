@@ -252,7 +252,7 @@ fn assert_compute_limit_reached(
         "should saturate gas limit, only burnt {gas_burnt} when limit was {gas_limit}"
     );
 
-    env.upgrade_protocol(new_protocol_version);
+    env.upgrade_protocol_to_latest_version();
 
     let new_chunk = produce_saturated_chunk(
         &mut env,

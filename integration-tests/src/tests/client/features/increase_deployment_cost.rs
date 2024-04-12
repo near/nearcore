@@ -47,7 +47,7 @@ fn test_deploy_cost_increased() {
     let tx = env.tx_from_actions(actions.clone(), &signer, signer.account_id.clone());
     let old_outcome = env.execute_tx(tx).unwrap();
 
-    env.upgrade_protocol(new_protocol_version);
+    env.upgrade_protocol_to_latest_version();
 
     let tx = env.tx_from_actions(actions, &signer, signer.account_id.clone());
     let new_outcome = env.execute_tx(tx).unwrap();

@@ -6,7 +6,8 @@ use congestion_model::strategy::{
     SimpleBackpressure, TrafficLight,
 };
 use congestion_model::workload::{
-    AllForOneProducer, BalancedProducer, LinearImbalanceProducer, Producer,
+    AllForOneProducer, BalancedProducer, FairnessBenchmarkProducer, LinearImbalanceProducer,
+    Producer,
 };
 use congestion_model::{
     summary_table, CongestionStrategy, Model, ShardQueueLengths, StatsWriter, PGAS, TGAS,
@@ -187,6 +188,7 @@ fn workload(workload_name: &str) -> Box<dyn Producer> {
         "Relayed Hot" => Box::new(AllForOneProducer::hot_tg()),
         "Linear Imbalance" => Box::<LinearImbalanceProducer>::default(),
         "Big Linear Imbalance" => Box::new(LinearImbalanceProducer::big_receipts()),
+        "Fairness Test" => Box::<FairnessBenchmarkProducer>::default(),
         _ => panic!("unknown workload: {}", workload_name),
     }
 }
@@ -270,19 +272,17 @@ fn strategy(strategy_name: &str, num_shards: usize) -> Vec<Box<dyn CongestionStr
                     .with_memory_limits(ByteSize::mb(450), ByteSize::mb(50))
                     .with_tx_gas_limit_range(5 * TGAS, 900 * TGAS),
             ),
-            // NEP v3 takes results from v2 into account
-            // it is still work in progress, just something to throw out there for now
-            // note: it showed weird behavior depending on number of shards,
-            // doing bad with 8 or 12 shards on balanced workloads but doing
-            // great with 10 shards.
+            // NEP v3 takes results from v2 into account, and lots of further fine-tuning.
+            // Unfortunately, no configuration can pass the fairness test in a satisfying way.
             "NEPv3" => Box::new(
                 NepStrategy::default()
+                    // small outgoing buffers is great for low latency
                     .with_gas_limits(10 * PGAS, 1 * PGAS)
-                    .with_memory_limits(ByteSize::mb(450), ByteSize::mb(50))
-                    // less tx is generally better for all-to-one workloads, but balanced workloads need more
+                    .with_memory_limits(ByteSize::mb(500), ByteSize::mb(50))
+                    // going to zero is generally better in this strategy
                     .with_tx_gas_limit_range(0, 500 * TGAS)
-                    // less forwarding is generally quite good, also the
-                    .with_send_gas_limit_range(0, 5 * PGAS),
+                    .with_send_gas_limit_range(0, 5 * PGAS)
+                    .with_global_stop_limit(0.95),
             ),
             _ => panic!("unknown strategy: {}", strategy_name),
         };
@@ -306,6 +306,7 @@ fn parse_workload_names(workload_name: &str) -> Vec<String> {
         "Relayed Hot".to_string(),
         "Linear Imbalance".to_string(),
         "Big Linear Imbalance".to_string(),
+        "Fairness Test".to_string(),
     ];
 
     if workload_name == "all" {

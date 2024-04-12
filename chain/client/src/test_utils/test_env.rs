@@ -32,7 +32,6 @@ use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, NumSeats, ShardId};
 use near_primitives::utils::MaybeValidated;
-use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
     AccountView, FinalExecutionOutcomeView, QueryRequest, QueryResponse, QueryResponseKind,
     StateItem,
@@ -429,9 +428,11 @@ impl TestEnv {
         self.clients[id].process_tx(tx, false, false)
     }
 
-    /// This function will actually bump to the latest protocol version instead of the provided one.
-    /// See https://github.com/near/nearcore/issues/8590 for details.
-    pub fn upgrade_protocol(&mut self, protocol_version: ProtocolVersion) {
+    /// This function used to be able to upgrade to a specific protocol version
+    /// but due to https://github.com/near/nearcore/issues/8590 that
+    /// functionality does not work currently.  Hence it is renamed to upgrade
+    /// to the latest version.
+    pub fn upgrade_protocol_to_latest_version(&mut self) {
         assert_eq!(self.clients.len(), 1, "at the moment, this support only a single client");
 
         let tip = self.clients[0].chain.head().unwrap();
@@ -443,8 +444,6 @@ impl TestEnv {
             self.clients[0].epoch_manager.get_block_producer(&epoch_id, tip.height).unwrap();
 
         let mut block = self.clients[0].produce_block(tip.height + 1).unwrap().unwrap();
-        eprintln!("Producing block with version {protocol_version}");
-        block.mut_header().set_latest_protocol_version(protocol_version);
         block.mut_header().resign(&create_test_signer(block_producer.as_str()));
 
         let _ = self.clients[0]
