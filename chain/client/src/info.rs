@@ -1,12 +1,15 @@
 use crate::config_updater::ConfigUpdater;
 use crate::{metrics, SyncStatus};
 use itertools::Itertools;
+use lru::LruCache;
 use near_async::messaging::Sender;
 use near_async::time::{Clock, Instant};
 use near_chain_configs::{ClientConfig, LogSummaryStyle, SyncConfig};
 use near_client_primitives::types::StateSyncStatus;
+use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::NetworkInfo;
 use near_primitives::block::Tip;
+use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::telemetry::{
     TelemetryAgentInfo, TelemetryChainInfo, TelemetryInfo, TelemetrySystemInfo,
@@ -24,7 +27,7 @@ use near_primitives::views::{
 };
 use near_telemetry::TelemetryEvent;
 use std::cmp::min;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 use std::sync::Arc;
 use sysinfo::{get_current_pid, set_open_files_limit, Pid, ProcessExt, System, SystemExt};
@@ -68,6 +71,8 @@ pub struct InfoHelper {
     enable_multiline_logging: bool,
     // Keeps track of the previous SyncRequirement for updating metrics.
     prev_sync_requirement: Option<String>,
+    /// Cached number of validators (block + chunk producers) per epoch.
+    num_validators_per_epoch: LruCache<EpochId, usize>,
 }
 
 impl InfoHelper {
@@ -95,6 +100,7 @@ impl InfoHelper {
             epoch_id: None,
             enable_multiline_logging: client_config.enable_multiline_logging,
             prev_sync_requirement: None,
+            num_validators_per_epoch: LruCache::new(3),
         }
     }
 
@@ -275,6 +281,36 @@ impl InfoHelper {
         }
     }
 
+    /// Returns the number of validators (AccountIds) in the given epoch.
+    ///
+    /// The set of validators include both block producers and chunk producers.
+    /// This set of validators do not change during the epoch, so it caches the result.
+    /// It does NOT currently consider whether the validators are slashed or not.
+    fn get_num_validators(
+        &mut self,
+        epoch_manager: &dyn EpochManagerAdapter,
+        epoch_id: &EpochId,
+        last_block_hash: &CryptoHash,
+    ) -> usize {
+        self.num_validators_per_epoch
+            .get_or_insert(epoch_id.clone(), || {
+                let block_producers: HashSet<AccountId> = epoch_manager
+                    .get_epoch_block_producers_ordered(epoch_id, last_block_hash)
+                    .unwrap_or(vec![])
+                    .into_iter()
+                    .map(|(validator_stake, _)| validator_stake.account_id().clone())
+                    .collect();
+                let chunk_producers: HashSet<AccountId> = epoch_manager
+                    .get_epoch_chunk_producers(epoch_id)
+                    .unwrap_or(vec![])
+                    .into_iter()
+                    .map(|validator_stake| validator_stake.account_id().clone())
+                    .collect();
+                block_producers.union(&chunk_producers).count()
+            })
+            .map_or(0, |num_validators| *num_validators)
+    }
+
     /// Print current summary.
     pub fn log_summary(
         &mut self,
@@ -286,10 +322,11 @@ impl InfoHelper {
         let is_syncing = client.sync_status.is_syncing();
         let head = unwrap_or_return!(client.chain.head());
         let validator_info = if !is_syncing {
-            let validators = unwrap_or_return!(client
-                .epoch_manager
-                .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash));
-            let num_validators = validators.len();
+            let num_validators = self.get_num_validators(
+                client.epoch_manager.as_ref(),
+                &head.epoch_id,
+                &head.last_block_hash,
+            );
             let account_id = client.validator_signer.as_ref().map(|x| x.validator_id());
             let is_validator = if let Some(account_id) = account_id {
                 match client.epoch_manager.get_validator_by_account_id(
@@ -865,11 +902,13 @@ fn get_validator_epoch_stats(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use near_epoch_manager::test_utils::*;
     use assert_matches::assert_matches;
     use near_async::messaging::{noop, IntoSender};
     use near_async::time::Clock;
     use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
     use near_chain::runtime::NightshadeRuntime;
+    use near_chain::test_utils::{MockEpochManager, ValidatorSchedule};
     use near_chain::types::ChainConfig;
     use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
     use near_chain_configs::Genesis;
@@ -954,5 +993,45 @@ mod tests {
             telemetry["extra_info"].as_str().unwrap().find("\"max_block_production_delay\":2.34,"),
             Some(_)
         );
+    }
+
+    #[test]
+    fn num_validators() {
+        let store = create_test_store();
+        let amount_staked = 1_000_000;
+    let validators = vec![
+        stake("test1".parse().unwrap(), amount_staked),
+        stake("test2".parse().unwrap(), amount_staked),
+        stake("test3".parse().unwrap(), amount_staked),
+        stake("test4".parse().unwrap(), amount_staked),
+        stake("test5".parse().unwrap(), amount_staked),
+        stake("test6".parse().unwrap(), amount_staked),
+        stake("test7".parse().unwrap(), amount_staked),
+        stake("test8".parse().unwrap(), amount_staked),
+        stake("test9".parse().unwrap(), amount_staked),
+        stake("test10".parse().unwrap(), amount_staked),
+    ];
+    let num_shards = 2;
+    let num_block_producer_seats = 4;
+    let kickout_threshold  = 90;
+    let config = epoch_config(2, num_shards, num_block_producer_seats, 0, kickout_threshold, kickout_threshold, 0);
+    let mut epoch_manager =
+    EpochManager::new(store, config, PROTOCOL_VERSION, default_reward_calculator(), validators)
+        .unwrap();
+    let epoch_manager_adapter =epoch_manager.into_handle();
+    assert_eq!(vec![], epoch_manager_adapter.get_epoch_block_producers_ordered(&epoch_id, last_block_hash.clone())
+    .unwrap_or(vec![])
+    .into_iter()
+    .map(|(validator_stake, _)| validator_stake.account_id().to_string())
+    .collect());
+    // let client_config = ClientConfig::test(false, 1230, 2340, 50, false, true, true, true);
+    //     let mut info_helper = InfoHelper::new(Clock::real(), noop().into_sender(), &client_config, None);
+
+    //     let epoch_id = EpochId::default();
+    //     let last_block_hash = CryptoHash::default();
+    //     assert_eq!(
+    //         5,
+    //         info_helper.get_num_validators(epoch_manager.as_ref(), &epoch_id, &last_block_hash)
+    //     );
     }
 }
