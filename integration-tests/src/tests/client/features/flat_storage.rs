@@ -113,7 +113,7 @@ fn test_flat_storage_upgrade() {
                 env.produce_block(0, tip.height + i + 1);
             }
             if i == 0 {
-                env.upgrade_protocol(new_protocol_version);
+                env.upgrade_protocol_to_latest_version();
             }
 
             let final_transaction_result =

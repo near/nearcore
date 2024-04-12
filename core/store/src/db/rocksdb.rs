@@ -293,9 +293,54 @@ impl RocksDB {
 
     pub fn compact_column(&self, col: DBCol) -> io::Result<()> {
         let none = Option::<&[u8]>::None;
-        tracing::info!(target: "db", column = %col, "Compact column");
+        tracing::info!(target: "store::db::rocksdb", col = %col, "RocksDB::compact_column");
         self.db.compact_range_cf(self.cf_handle(col)?, none, none);
         Ok(())
+    }
+
+    #[tracing::instrument(
+        target = "store::db::rocksdb",
+        level = "trace",
+        "RocksDB::build_write_batch",
+        skip_all,
+        fields(transaction.ops.len = transaction.ops.len()),
+    )]
+    fn build_write_batch(&self, transaction: DBTransaction) -> io::Result<WriteBatch> {
+        let mut batch = WriteBatch::default();
+        for op in transaction.ops {
+            match op {
+                DBOp::Set { col, key, value } => {
+                    batch.put_cf(self.cf_handle(col)?, key, value);
+                }
+                DBOp::Insert { col, key, value } => {
+                    if cfg!(debug_assertions) {
+                        if let Ok(Some(old_value)) = self.get_raw_bytes(col, &key) {
+                            super::assert_no_overwrite(col, &key, &value, &*old_value)
+                        }
+                    }
+                    batch.put_cf(self.cf_handle(col)?, key, value);
+                }
+                DBOp::UpdateRefcount { col, key, value } => {
+                    batch.merge_cf(self.cf_handle(col)?, key, value);
+                }
+                DBOp::Delete { col, key } => {
+                    batch.delete_cf(self.cf_handle(col)?, key);
+                }
+                DBOp::DeleteAll { col } => {
+                    let cf_handle = self.cf_handle(col)?;
+                    let range = self.get_cf_key_range(cf_handle).map_err(io::Error::other)?;
+                    if let Some(range) = range {
+                        batch.delete_range_cf(cf_handle, range.start(), range.end());
+                        // delete_range_cf deletes ["begin_key", "end_key"), so need one more delete
+                        batch.delete_cf(cf_handle, range.end())
+                    }
+                }
+                DBOp::DeleteRange { col, from, to } => {
+                    batch.delete_range_cf(self.cf_handle(col)?, from, to);
+                }
+            }
+        }
+        Ok(batch)
     }
 }
 
@@ -336,44 +381,33 @@ impl Database for RocksDB {
         refcount::iter_with_rc_logic(col, iter)
     }
 
+    #[tracing::instrument(
+        target = "store::db::rocksdb",
+        level = "trace",
+        "RocksDB::write",
+        skip_all
+    )]
     fn write(&self, transaction: DBTransaction) -> io::Result<()> {
-        let mut batch = WriteBatch::default();
-        for op in transaction.ops {
-            match op {
-                DBOp::Set { col, key, value } => {
-                    batch.put_cf(self.cf_handle(col)?, key, value);
-                }
-                DBOp::Insert { col, key, value } => {
-                    if cfg!(debug_assertions) {
-                        if let Ok(Some(old_value)) = self.get_raw_bytes(col, &key) {
-                            super::assert_no_overwrite(col, &key, &value, &*old_value)
-                        }
-                    }
-                    batch.put_cf(self.cf_handle(col)?, key, value);
-                }
-                DBOp::UpdateRefcount { col, key, value } => {
-                    batch.merge_cf(self.cf_handle(col)?, key, value);
-                }
-                DBOp::Delete { col, key } => {
-                    batch.delete_cf(self.cf_handle(col)?, key);
-                }
-                DBOp::DeleteAll { col } => {
-                    let cf_handle = self.cf_handle(col)?;
-                    let range = self.get_cf_key_range(cf_handle).map_err(io::Error::other)?;
-                    if let Some(range) = range {
-                        batch.delete_range_cf(cf_handle, range.start(), range.end());
-                        // delete_range_cf deletes ["begin_key", "end_key"), so need one more delete
-                        batch.delete_cf(cf_handle, range.end())
-                    }
-                }
-                DBOp::DeleteRange { col, from, to } => {
-                    batch.delete_range_cf(self.cf_handle(col)?, from, to);
-                }
-            }
+        let write_batch_start = std::time::Instant::now();
+        let batch = self.build_write_batch(transaction)?;
+        let elapsed = write_batch_start.elapsed();
+        if elapsed.as_secs_f32() > 0.15 {
+            tracing::warn!(
+                target = "store::db::rocksdb",
+                message = "making a write batch took a very long time, make smaller transactions!",
+                ?elapsed,
+                backtrace = %std::backtrace::Backtrace::force_capture()
+            );
         }
         self.db.write(batch).map_err(io::Error::other)
     }
 
+    #[tracing::instrument(
+        target = "store::db::rocksdb",
+        level = "info",
+        "RocksDB::compact",
+        skip_all
+    )]
     fn compact(&self) -> io::Result<()> {
         for col in DBCol::iter() {
             self.compact_column(col)?;
@@ -381,6 +415,12 @@ impl Database for RocksDB {
         Ok(())
     }
 
+    #[tracing::instrument(
+        target = "store::db::rocksdb",
+        level = "debug",
+        "RocksDB::flush",
+        skip_all
+    )]
     fn flush(&self) -> io::Result<()> {
         // Need to iterator over all CFs because the normal `flush()` only
         // flushes the default column family.
@@ -408,13 +448,18 @@ impl Database for RocksDB {
         }
     }
 
+    #[tracing::instrument(
+        target = "store::db::rocksdb",
+        level = "debug",
+        "RocksDB::create_checkpoint",
+        skip_all,
+        fields(path = %path.display()),
+    )]
     fn create_checkpoint(
         &self,
         path: &std::path::Path,
         columns_to_keep: Option<&[DBCol]>,
     ) -> anyhow::Result<()> {
-        let _span =
-            tracing::info_span!(target: "state_snapshot", "create_checkpoint", ?path).entered();
         let cp = ::rocksdb::checkpoint::Checkpoint::new(&self.db)?;
         cp.create_checkpoint(path)
             .with_context(|| format!("failed to create checkpoint at {}", path.display()))?;
@@ -433,7 +478,7 @@ impl Database for RocksDB {
                     // We need to keep DbVersion because it's expected to be there when
                     // we check the metadata in DBOpener::get_metadata()
                     tracing::debug!(
-                        target: "store",
+                        target: "store::db::rocksdb",
                         "create_checkpoint called with columns to keep not including DBCol::DbVersion. Including it anyway."
                     );
                     continue;
