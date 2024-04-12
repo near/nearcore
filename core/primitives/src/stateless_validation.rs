@@ -43,7 +43,8 @@ impl EncodedChunkStateWitness {
     /// Returns decoded witness along with the raw (uncompressed) witness size.
     pub fn decode(&self) -> std::io::Result<(ChunkStateWitness, ChunkStateWitnessSize)> {
         // We want to limit the size of decompressed data to address "Zip bomb" attack.
-        const MAX_WITNESS_SIZE: usize = 64_000_000;
+        // The value here is the same as NETWORK_MESSAGE_MAX_SIZE_BYTES.
+        const MAX_WITNESS_SIZE: usize = 512 * bytesize::MIB as usize;
         let borsh_bytes = decompress_with_limit(self.0.as_ref(), MAX_WITNESS_SIZE)?;
         let witness = ChunkStateWitness::try_from_slice(&borsh_bytes)?;
         Ok((witness, borsh_bytes.len()))
