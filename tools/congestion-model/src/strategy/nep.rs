@@ -178,6 +178,15 @@ impl NepStrategy {
         let filter_outgoing_congestion_limit = 0.5;
 
         let receiver = ctx.tx_receiver(tx);
+        // Note: I also tried using the incoming congestion for the filter stop instead.
+        // Positive
+        // The fairness test utilization is about 2x better. (depends on
+        // strategy parameters and model config)
+        // Negative
+        // In the available workloads, it leads to larger queues when big
+        // receipts are involved and slightly worse 90th percentile delays in
+        // all-to-one workloads.
+        // Also, the linear imbalance workloads lose about 50% utilization.
         let CongestedShardsInfo { outgoing_congestion, .. } = self.get_info(ctx, &receiver);
         outgoing_congestion > filter_outgoing_congestion_limit
     }
