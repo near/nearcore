@@ -1449,9 +1449,9 @@ impl Trie {
         } else if mode == KeyLookupMode::FlatStorage && self.flat_storage_chunk_view.is_some() {
             self.lookup_from_flat_storage(key)
         } else {
-            Ok(self
-                .lookup_from_state_column(NibbleSlice::new(key), charge_gas_for_trie_node_access)?
-                .map(OptimizedValueRef::Ref))
+            self
+                .lookup_from_state_column(NibbleSlice::new(key), charge_gas_for_trie_node_access)
+                .map(|x| x.map(OptimizedValueRef::Ref))
         };
         if let Err(e) = &result {
             tracing::error!("get_optimized_ref failed on key: {}: {:?}", hex::encode(key), e);
