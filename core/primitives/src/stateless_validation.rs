@@ -373,8 +373,22 @@ impl ChunkValidatorAssignments {
 
 fn decompress_with_limit(data: &[u8], limit: usize) -> std::io::Result<Vec<u8>> {
     let mut buf = Vec::new().limit(limit).writer();
-    zstd::stream::copy_decode(data, &mut buf)?;
-    Ok(buf.into_inner().into_inner())
+    match zstd::stream::copy_decode(data, &mut buf) {
+        Err(err) => {
+            // If decompressed data exceeds the limit then the following error is returned:
+            // Error { kind: WriteZero, message: "failed to write whole buffer" }
+            // Here we convert it to a more descriptive error to make debugging easier.
+            let err = if err.kind() == std::io::ErrorKind::WriteZero {
+                std::io::Error::other(format!(
+                    "Decompressed data exceeded limit of {limit} bytes: {err}"
+                ))
+            } else {
+                err
+            };
+            Err(err)
+        }
+        Ok(()) => Ok(buf.into_inner().into_inner()),
+    }
 }
 
 #[cfg(test)]
@@ -394,6 +408,19 @@ mod tests {
     fn decompress_exceed_limit() {
         let data = vec![0; 100];
         let compressed = zstd::encode_all(data.as_slice(), 0).unwrap();
-        assert!(decompress_with_limit(&compressed, 99).is_err());
+        let decompress_res = decompress_with_limit(&compressed, 99);
+        assert!(decompress_res.is_err());
+        assert_eq!(
+            decompress_res.unwrap_err().to_string(),
+            "Decompressed data exceeded limit of 99 bytes: failed to write whole buffer"
+        );
+    }
+
+    #[test]
+    fn decompress_invalid_data() {
+        let data = vec![0; 10];
+        let decompress_res = decompress_with_limit(&data, 100);
+        assert!(decompress_res.is_err());
+        assert_eq!(decompress_res.unwrap_err().to_string(), "Unknown frame descriptor");
     }
 }
