@@ -1442,7 +1442,7 @@ impl Trie {
     ) -> Result<Option<OptimizedValueRef>, StorageError> {
         let charge_gas_for_trie_node_access =
             mode == KeyLookupMode::Trie || self.charge_gas_for_trie_node_access;
-        if self.memtries.is_some() {
+        let result = if self.memtries.is_some() {
             self.lookup_from_memory(key, charge_gas_for_trie_node_access, |v| {
                 v.to_optimized_value_ref()
             })
@@ -1452,7 +1452,11 @@ impl Trie {
             Ok(self
                 .lookup_from_state_column(NibbleSlice::new(key), charge_gas_for_trie_node_access)?
                 .map(OptimizedValueRef::Ref))
+        };
+        if let Err(e) = &result {
+            tracing::error!("get_optimized_ref failed on key: {}: {:?}", hex::encode(key), e);
         }
+        result
     }
 
     /// Dereferences an `OptimizedValueRef` into the full value, and properly
@@ -1464,7 +1468,14 @@ impl Trie {
         optimized_value_ref: &OptimizedValueRef,
     ) -> Result<Vec<u8>, StorageError> {
         match optimized_value_ref {
-            OptimizedValueRef::Ref(value_ref) => self.retrieve_value(&value_ref.hash),
+            OptimizedValueRef::Ref(value_ref) => {
+                let result = self.retrieve_value(&value_ref.hash);
+                if let Err(e) = &result {
+                    tracing::error!("deref_optimized failed on value hash: {:?}: {:?}",
+                    value_ref.hash, e);
+                }
+                result
+            },
             OptimizedValueRef::AvailableValue(ValueAccessToken { value }) => {
                 let value_hash = hash(value);
                 let arc_value: Arc<[u8]> = value.clone().into();
