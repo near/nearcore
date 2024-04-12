@@ -1,4 +1,8 @@
-use {super::ValidatorMandatesConfig, near_primitives_core::types::Balance, std::cmp::Ordering};
+use {
+    super::ValidatorMandatesConfig,
+    near_primitives_core::types::Balance,
+    std::cmp::{min, Ordering},
+};
 
 /// Given the stakes for the validators and the target number of mandates to have,
 /// this function computes the mandate price to use. It works by iterating a
@@ -18,7 +22,13 @@ where
 {
     let ValidatorMandatesConfig { target_mandates_per_shard, num_shards } = config;
     let total_stake = saturating_sum(stakes());
-    let target_mandates: u128 = num_shards.saturating_mul(target_mandates_per_shard) as u128;
+
+    // The target number of mandates cannot be larger than the total amount of stake.
+    // In production the total stake is _much_ higher than
+    // `num_shards * target_mandates_per_shard`, but in tests validators are given
+    // low staked numbers, so we need to have this condition in place.
+    let target_mandates: u128 =
+        min(num_shards.saturating_mul(target_mandates_per_shard) as u128, total_stake);
 
     let initial_price = total_stake / target_mandates;
 
@@ -95,6 +105,19 @@ mod tests {
     use rand::{Rng, SeedableRng};
 
     use super::*;
+
+    // Test case where the target number of mandates is larger than the total stake.
+    // This should never happen in production, but nearcore tests sometimes have
+    // low stake.
+    #[test]
+    fn test_small_total_stake() {
+        let stakes = [100_u128; 1];
+        let num_shards = 1;
+        let target_mandates_per_shard = 1000;
+        let config = ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
+
+        assert_eq!(compute_mandate_price(config, || stakes.iter().copied()), 1);
+    }
 
     // Test cases where all stakes are equal.
     #[test]
