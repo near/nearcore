@@ -8,6 +8,9 @@ use near_store::{metadata::DbKind, Store};
 use std::sync::Arc;
 use tracing::warn;
 
+/// An actor for garbage collection that runs in its own thread
+/// The actor runs periodically, as determined by `gc_step_period`,
+/// to garbage collect blockchain data
 pub struct GCActor {
     store: ChainStore,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
