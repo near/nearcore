@@ -212,13 +212,14 @@ impl EntityDebugHandlerImpl {
                 let shard_ids = shard_layout.shard_ids().collect::<Vec<_>>();
                 let mut state_transitions = EntityDataStruct::new();
                 for shard_id in shard_ids {
-                    let state_transition = self
+                    let Some(state_transition) = self
                         .store
                         .get_ser::<StoredChunkStateTransitionData>(
                             DBCol::StateTransitionData,
                             &get_block_shard_id(&block_hash, shard_id),
-                        )?
-                        .ok_or_else(|| anyhow!("State transition not found"))?;
+                        )? else {
+                        continue;
+                    };
                     let mut serialized = EntityDataStruct::new();
                     serialized.add(
                         "base_state",
