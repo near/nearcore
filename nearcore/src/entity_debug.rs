@@ -614,7 +614,7 @@ impl PartialStateParser {
                         &nibbles.iter().collect::<Vec<_>>(),
                     )),
                 );
-                ret.add("value", self.serialize_value(value_ref.hash, path.into_iter().chain(nibbles.iter().copied()).collect()));
+                ret.add("value", self.serialize_value(value_ref.hash, path.into_iter().chain(nibbles.iter()).collect()));
             }
             RawTrieNode::BranchNoValue(children) => {
                 for (index, child) in children.iter() {
@@ -635,7 +635,7 @@ impl PartialStateParser {
                         &nibbles.iter().collect::<Vec<_>>(),
                     )),
                 );
-                ret.add("child", self.serialize_node(*child, path.into_iter().chain(nibbles.iter().copied()).collect()));
+                ret.add("child", self.serialize_node(*child, path.into_iter().chain(nibbles.iter()).collect()));
             }
         }
         EntityDataValue::Struct(ret.into())
