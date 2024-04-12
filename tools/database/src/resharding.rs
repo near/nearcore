@@ -20,7 +20,7 @@ use nearcore::{open_storage, NearConfig, NightshadeRuntime};
 #[derive(clap::Args)]
 pub(crate) struct ReshardingCommand {
     #[clap(long)]
-    sync_hash: CryptoHash,
+    block_hash: CryptoHash,
 
     #[clap(long)]
     shard_id: u64,
@@ -50,7 +50,7 @@ impl ReshardingCommand {
         );
         let runtime_adapter = NightshadeRuntime::from_config(
             home_dir,
-            storage.get_hot_store(),
+            storage.get_split_store().unwrap(),
             &config,
             epoch_manager.clone(),
         )?;
@@ -93,8 +93,11 @@ impl ReshardingCommand {
         /* RESHARING STUFF */
         /* *************** */
 
-        let resharding_request =
-            chain.build_state_for_resharding_preprocessing(&self.sync_hash, self.shard_id)?;
+        let resharding_request = chain.custom_build_state_for_resharding_preprocessing(
+            &self.block_hash,
+            &self.block_hash,
+            self.shard_id,
+        )?;
 
         let shard_uid = resharding_request.shard_uid;
 
