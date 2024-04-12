@@ -26,22 +26,20 @@ impl ReedSolomonWrapper {
 
     // Encode function takes a serializable object and returns a tuple of parts and length of encoded data
     pub fn encode<T: BorshSerialize>(&mut self, data: T) -> (Vec<Option<Box<[u8]>>>, usize) {
-        let bytes = borsh::to_vec(&data).unwrap();
+        let mut bytes = borsh::to_vec(&data).unwrap();
         let encoded_length = bytes.len();
 
         let data_parts = self.rs.data_shard_count();
         let part_length = (encoded_length + data_parts - 1) / data_parts;
 
-        // convert encoded data into `data_parts` number of parts and pad the last part with None
+        // Pad the bytes to be a multiple of `part_length`
+        // Convert encoded data into `data_shard_count` number of parts and pad with `parity_shard_count` None values
         // with 4 data_parts and 2 parity_parts
         // b'aaabbbcccd' -> [Some(b'aaa'), Some(b'bbb'), Some(b'ccc'), Some(b'd00'), None, None]
+        bytes.resize(data_parts * part_length, 0);
         let mut parts = bytes
-            .chunks(part_length)
-            .map(|chunk| {
-                let mut chunk = chunk.to_vec();
-                chunk.resize(part_length, 0);
-                Some(chunk.into_boxed_slice())
-            })
+            .chunks_exact(part_length)
+            .map(|chunk| Some(chunk.to_vec().into_boxed_slice()))
             .chain(itertools::repeat_n(None, self.rs.parity_shard_count()))
             .collect_vec();
 
