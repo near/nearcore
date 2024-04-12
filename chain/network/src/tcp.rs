@@ -87,6 +87,21 @@ impl Stream {
         let addr = peer_info
             .addr
             .ok_or_else(|| anyhow!("Trying to connect to peer with no public address"))?;
+
+        let socket = match addr {
+            std::net::SocketAddr::V4(_) => tokio::net::TcpSocket::new_v4()?,
+            std::net::SocketAddr::V6(_) => tokio::net::TcpSocket::new_v6()?,
+        };
+
+        let SO_RCVBUF = 1000000;
+        let SO_SNDBUF = 1000000;
+
+        socket.set_recv_buffer_size(SO_RCVBUF)?;
+        socket.set_send_buffer_size(SO_SNDBUF)?;
+
+        tracing::debug!(target: "network", "SO_RCVBUF wanted {} got {:?}", SO_RCVBUF, socket.recv_buffer_size());
+        tracing::debug!(target: "network", "SO_SNDBUF wanted {} got {:?}", SO_SNDBUF, socket.send_buffer_size());
+
         // The `connect` may take several minutes. This happens when the
         // `SYN` packet for establishing a TCP connection gets silently
         // dropped, in which case the default TCP timeout is applied. That's
@@ -95,12 +110,9 @@ impl Stream {
         // Why exactly a second? It was hard-coded in a library we used
         // before, so we keep it to preserve behavior. Removing the timeout
         // completely was observed to break stuff for real on the testnet.
-        let stream = tokio::time::timeout(
-            std::time::Duration::from_secs(1),
-            tokio::net::TcpStream::connect(addr),
-        )
-        .await?
-        .context("TcpStream::connect()")?;
+        let stream = tokio::time::timeout(std::time::Duration::from_secs(1), socket.connect(addr))
+            .await?
+            .context("TcpStream::connect()")?;
         Ok(Stream::new(stream, StreamType::Outbound { peer_id: peer_info.id.clone(), tier })?)
     }
 
