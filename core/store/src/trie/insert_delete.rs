@@ -316,6 +316,7 @@ impl Trie {
         node: StorageHandle,
         partial: NibbleSlice<'_>,
     ) -> Result<StorageHandle, StorageError> {
+        tracing::info!("Deleting partial key: {}", hex::encode(&partial.iter().collect::<Vec<_>>()));
         let mut handle = node;
         let mut partial = partial;
         let root_node = handle;
