@@ -500,6 +500,7 @@ struct FlatStateChangeView {
 
 struct PartialStateParser {
     nodes: HashMap<CryptoHash, TrieValue>,
+    hash_to_key: HashMap<CryptoHash, Vec<u8>>,
 }
 
 impl PartialStateParser {
@@ -507,12 +508,17 @@ impl PartialStateParser {
     /// automatically finding the root. Only used for debugging.
     pub fn parse_and_serialize_partial_state(partial_state: PartialState) -> EntityDataValue {
         let PartialState::TrieValues(nodes) = partial_state;
-        let parser = Self::new(&nodes);
+        let mut parser = Self::new(&nodes);
         let root = parser.find_root();
         match root {
             Some(root) => {
                 let mut ret = EntityDataStruct::new();
-                ret.add("root", parser.serialize_node(root));
+                ret.add("root", parser.serialize_node(root, Vec::new()));
+                let mut hash_to_key = EntityDataStruct::new();
+                for (hash, key) in parser.hash_to_key {
+                    hash_to_key.add(&format!("{:?}", hash), EntityDataValue::String(hex::encode(&key)));
+                }
+                ret.add("hash_to_key", EntityDataValue::Struct(hash_to_key.into()));
                 EntityDataValue::Struct(ret.into())
             }
             None => {
@@ -538,6 +544,7 @@ impl PartialStateParser {
                     (hash, node.clone())
                 })
                 .collect(),
+            hash_to_key: HashMap::new(),
         }
     }
 
@@ -590,7 +597,8 @@ impl PartialStateParser {
     }
 
     /// Visits node, serializing it as entity debug output.
-    fn serialize_node(&self, hash: CryptoHash) -> EntityDataValue {
+    fn serialize_node(&mut self, hash: CryptoHash, path: Vec<u8>) -> EntityDataValue {
+        self.hash_to_key.insert(hash, path.clone());
         let Some(data) = self.nodes.get(&hash) else {
             // This is a partial trie, so missing is very normal.
             return EntityDataValue::String("(missing)".to_string());
@@ -606,17 +614,17 @@ impl PartialStateParser {
                         &nibbles.iter().collect::<Vec<_>>(),
                     )),
                 );
-                ret.add("value", self.serialize_value(value_ref.hash));
+                ret.add("value", self.serialize_value(value_ref.hash, path.into_iter().chain(nibbles.iter().copied()).collect()));
             }
             RawTrieNode::BranchNoValue(children) => {
                 for (index, child) in children.iter() {
-                    ret.add(&format!("{:x}", index), self.serialize_node(*child));
+                    ret.add(&format!("{:x}", index), self.serialize_node(*child, path.iter().copied().chain([index].into_iter()).collect()));
                 }
             }
             RawTrieNode::BranchWithValue(value_ref, children) => {
-                ret.add("value", self.serialize_value(value_ref.hash));
+                ret.add("value", self.serialize_value(value_ref.hash, path.clone()));
                 for (index, child) in children.iter() {
-                    ret.add(&format!("{:x}", index), self.serialize_node(*child));
+                    ret.add(&format!("{:x}", index), self.serialize_node(*child, path.iter().copied().chain([index].into_iter()).collect()));
                 }
             }
             RawTrieNode::Extension(extension, child) => {
@@ -627,14 +635,15 @@ impl PartialStateParser {
                         &nibbles.iter().collect::<Vec<_>>(),
                     )),
                 );
-                ret.add("child", self.serialize_node(*child));
+                ret.add("child", self.serialize_node(*child, path.into_iter().chain(nibbles.iter().copied()).collect()));
             }
         }
         EntityDataValue::Struct(ret.into())
     }
 
     /// Visits value, serializing it as entity debug output.
-    fn serialize_value(&self, hash: CryptoHash) -> EntityDataValue {
+    fn serialize_value(&mut self, hash: CryptoHash, path: Vec<u8>) -> EntityDataValue {
+        self.hash_to_key.insert(hash, path);
         let value = match self.nodes.get(&hash) {
             Some(data) => hex::encode(data),
             // This is a partial trie, so missing is very normal.
