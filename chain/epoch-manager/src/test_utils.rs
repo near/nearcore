@@ -107,11 +107,12 @@ pub fn epoch_info_with_num_seats(
     };
     let all_validators = account_to_validators(accounts);
     let validator_mandates = {
-        // TODO(#10014) determine required stake per mandate instead of reusing seat price.
-        // TODO(#10014) determine `min_mandates_per_shard`
         let num_shards = chunk_producers_settlement.len();
-        let min_mandates_per_shard = 0;
-        let config = ValidatorMandatesConfig::new(seat_price, min_mandates_per_shard, num_shards);
+        let total_stake =
+            all_validators.iter().fold(0_u128, |acc, v| acc.saturating_add(v.stake()));
+        // For tests we estimate the target number of seats based on the seat price of the old algorithm.
+        let target_mandates_per_shard = (total_stake / seat_price) as usize;
+        let config = ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
         ValidatorMandates::new(config, &all_validators)
     };
     EpochInfo::new(

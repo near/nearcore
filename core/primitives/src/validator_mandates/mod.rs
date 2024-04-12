@@ -6,16 +6,16 @@ use itertools::Itertools;
 use near_primitives_core::types::Balance;
 use rand::{seq::SliceRandom, Rng};
 
+mod compute_price;
+
 /// Represents the configuration of [`ValidatorMandates`]. Its parameters are expected to remain
 /// valid for one epoch.
 #[derive(
     BorshSerialize, BorshDeserialize, Default, Copy, Clone, Debug, PartialEq, Eq, serde::Serialize,
 )]
 pub struct ValidatorMandatesConfig {
-    /// The amount of stake that corresponds to one mandate.
-    stake_per_mandate: Balance,
-    /// The minimum number of mandates required per shard.
-    min_mandates_per_shard: usize,
+    /// The desired number of mandates required per shard.
+    target_mandates_per_shard: usize,
     /// The number of shards for the referenced epoch.
     num_shards: usize,
 }
@@ -29,14 +29,9 @@ impl ValidatorMandatesConfig {
     ///
     /// - If `stake_per_mandate` is 0 as this would lead to division by 0.
     /// - If `num_shards` is zero.
-    pub fn new(
-        stake_per_mandate: Balance,
-        min_mandates_per_shard: usize,
-        num_shards: usize,
-    ) -> Self {
-        assert!(stake_per_mandate > 0, "stake_per_mandate of 0 would lead to division by 0");
+    pub fn new(target_mandates_per_shard: usize, num_shards: usize) -> Self {
         assert!(num_shards > 0, "there should be at least one shard");
-        Self { stake_per_mandate, min_mandates_per_shard, num_shards }
+        Self { target_mandates_per_shard, num_shards }
     }
 }
 
@@ -54,6 +49,8 @@ impl ValidatorMandatesConfig {
 pub struct ValidatorMandates {
     /// The configuration applied to the mandates.
     config: ValidatorMandatesConfig,
+    /// The amount of stake a whole mandate is worth.
+    stake_per_mandate: Balance,
     /// Each element represents a validator mandate held by the validator with the given id.
     ///
     /// The id of a validator who holds `n >= 0` mandates occurs `n` times in the vector.
@@ -75,8 +72,10 @@ impl ValidatorMandates {
     /// Only full mandates are assigned, partial mandates are dropped. For example, when the stake
     /// required for a mandate is 5 and a validator has staked 12, then it will obtain 2 mandates.
     pub fn new(config: ValidatorMandatesConfig, validators: &[ValidatorStake]) -> Self {
+        let stake_per_mandate =
+            compute_price::compute_mandate_price(config, || validators.iter().map(|v| v.stake()));
         let num_mandates_per_validator: Vec<u16> =
-            validators.iter().map(|v| v.num_mandates(config.stake_per_mandate)).collect();
+            validators.iter().map(|v| v.num_mandates(stake_per_mandate)).collect();
         let num_total_mandates =
             num_mandates_per_validator.iter().map(|&num| usize::from(num)).sum();
         let mut mandates: Vec<ValidatorId> = Vec::with_capacity(num_total_mandates);
@@ -88,16 +87,6 @@ impl ValidatorMandates {
             }
         }
 
-        let required_mandates = config.min_mandates_per_shard * config.num_shards;
-        if mandates.len() < required_mandates {
-            // TODO(#10014) dynamically lower `stake_per_mandate` to reach enough mandates
-            panic!(
-                "not enough validator mandates: got {}, need {}",
-                mandates.len(),
-                required_mandates
-            );
-        }
-
         // Not counting partials towards `required_mandates` as the weight of partials and its
         // distribution across shards may vary widely.
         //
@@ -105,13 +94,13 @@ impl ValidatorMandates {
         // divided by `config.stake_per_mandate`, i.e. some validators will have partials.
         let mut partials = Vec::with_capacity(validators.len());
         for i in 0..validators.len() {
-            let partial_weight = validators[i].partial_mandate_weight(config.stake_per_mandate);
+            let partial_weight = validators[i].partial_mandate_weight(stake_per_mandate);
             if partial_weight > 0 {
                 partials.push((i as ValidatorId, partial_weight));
             }
         }
 
-        Self { config, mandates, partials }
+        Self { config, stake_per_mandate, mandates, partials }
     }
 
     /// Returns a validator assignment obtained by shuffling mandates and assigning them to shards.
@@ -139,7 +128,7 @@ impl ValidatorMandates {
         //
         // Assume, for example, there are 10 mandates and 4 shards. Then for `shard_id = 1` we
         // collect the mandates with indices 1, 5, and 9.
-        let stake_per_mandate = self.config.stake_per_mandate;
+        let stake_per_mandate = self.stake_per_mandate;
         let mut stake_assignment_per_shard = vec![HashMap::new(); self.config.num_shards];
         for shard_id in 0..self.config.num_shards {
             // Achieve shard id shuffling by writing to the position of the alias of `shard_id`.
@@ -278,12 +267,11 @@ mod tests {
 
     #[test]
     fn test_validator_mandates_config_new() {
-        let stake_per_mandate = 10;
-        let min_mandates_per_shard = 400;
+        let target_mandates_per_shard = 400;
         let num_shards = 4;
         assert_eq!(
-            ValidatorMandatesConfig::new(stake_per_mandate, min_mandates_per_shard, num_shards),
-            ValidatorMandatesConfig { stake_per_mandate, min_mandates_per_shard, num_shards },
+            ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards),
+            ValidatorMandatesConfig { target_mandates_per_shard, num_shards },
         )
     }
 
@@ -319,18 +307,28 @@ mod tests {
     #[test]
     fn test_validator_mandates_new() {
         let validators = new_validator_stakes();
-        let config = ValidatorMandatesConfig::new(10, 1, 4);
+        let config = ValidatorMandatesConfig::new(3, 4);
         let mandates = ValidatorMandates::new(config, &validators);
 
-        // At 10 stake per mandate, the first validator holds three mandates, and so on.
-        // Note that "account_2" holds no mandate as its stake is below the threshold.
-        let expected_mandates: Vec<ValidatorId> = vec![0, 0, 0, 1, 1, 3, 4, 4, 4];
+        // With 3 mandates per shard and 4 shards, we are looking for around 12 total mandates.
+        // The total stake in `new_validator_stakes` is 123, so to get 12 mandates we need a price
+        // close to 10. But the algorithm for computing price tries to make the number of _whole_
+        // mandates equal to 12, and there are validators with partial mandates in the distribution,
+        // therefore the price is set a little lower than 10.
+        assert_eq!(mandates.stake_per_mandate, 8);
+
+        // At 8 stake per mandate, the first validator holds three mandates, and so on.
+        // Note that "account_5" and "account_6" hold no mandate as both their stakes are below the threshold.
+        let expected_mandates: Vec<ValidatorId> = vec![0, 0, 0, 1, 1, 1, 2, 3, 4, 4, 4, 4];
         assert_eq!(mandates.mandates, expected_mandates);
 
-        // At 10 stake per mandate, the first validator holds no partial mandate, the second
-        // validator holds a partial mandate with weight 7, and so on.
+        // The number of whole mandates is exactly equal to our target
+        assert_eq!(mandates.mandates.len(), config.num_shards * config.target_mandates_per_shard);
+
+        // At 8 stake per mandate, the first validator a partial mandate with weight 6, the second
+        // validator holds a partial mandate with weight 3, and so on.
         let expected_partials: Vec<(ValidatorId, Balance)> =
-            vec![(1, 7), (2, 9), (3, 2), (4, 5), (5, 4), (6, 6)];
+            vec![(0, 6), (1, 3), (2, 1), (3, 4), (4, 3), (5, 4), (6, 6)];
         assert_eq!(mandates.partials, expected_partials);
     }
 
@@ -338,7 +336,7 @@ mod tests {
     fn test_validator_mandates_shuffled_mandates() {
         // Testing with different `num_shards` values to verify the shuffles used in other tests.
         assert_validator_mandates_shuffled_mandates(3, vec![0, 1, 4, 4, 3, 1, 4, 0, 0]);
-        assert_validator_mandates_shuffled_mandates(4, vec![0, 4, 1, 1, 0, 0, 4, 3, 4]);
+        assert_validator_mandates_shuffled_mandates(4, vec![0, 0, 2, 1, 3, 4, 1, 1, 0, 4, 4, 4]);
     }
 
     fn assert_validator_mandates_shuffled_mandates(
@@ -346,7 +344,7 @@ mod tests {
         expected_assignment: Vec<ValidatorId>,
     ) {
         let validators = new_validator_stakes();
-        let config = ValidatorMandatesConfig::new(10, 1, num_shards);
+        let config = ValidatorMandatesConfig::new(3, num_shards);
         let mandates = ValidatorMandates::new(config, &validators);
         let mut rng = new_fixed_rng();
 
@@ -371,7 +369,7 @@ mod tests {
         );
         assert_validator_mandates_shuffled_partials(
             4,
-            vec![(5, 4), (4, 5), (1, 7), (3, 2), (2, 9), (6, 6)],
+            vec![(5, 4), (3, 4), (0, 6), (2, 1), (1, 3), (4, 3), (6, 6)],
         );
     }
 
@@ -380,7 +378,7 @@ mod tests {
         expected_assignment: Vec<(ValidatorId, Balance)>,
     ) {
         let validators = new_validator_stakes();
-        let config = ValidatorMandatesConfig::new(10, 1, num_shards);
+        let config = ValidatorMandatesConfig::new(3, num_shards);
         let mandates = ValidatorMandates::new(config, &validators);
         let mut rng = new_fixed_rng();
 
@@ -405,7 +403,7 @@ mod tests {
         // Assignments in `test_validator_mandates_shuffled_*` can be used to construct
         // `expected_assignment` below.
         // Note that shard ids are shuffled too, see `test_shuffled_shard_ids_new`.
-        let config = ValidatorMandatesConfig::new(10, 1, 3);
+        let config = ValidatorMandatesConfig::new(3, 3);
         let expected_assignment = vec![
             vec![(1, 17), (4, 10), (6, 06), (0, 10)],
             vec![(4, 05), (5, 04), (0, 10), (1, 10), (3, 10)],
@@ -422,12 +420,12 @@ mod tests {
         // Assignments in `test_validator_mandates_shuffled_*` can be used to construct
         // `expected_assignment` below.
         // Note that shard ids are shuffled too, see `test_shuffled_shard_ids_new`.
-        let config = ValidatorMandatesConfig::new(10, 1, 4);
+        let config = ValidatorMandatesConfig::new(3, 4);
         let expected_mandates_per_shards = vec![
-            vec![(1, 07), (4, 10), (0, 20)],
-            vec![(4, 10), (3, 02), (1, 10)],
-            vec![(0, 10), (4, 15), (6, 06)],
-            vec![(3, 10), (5, 04), (2, 09), (1, 10)],
+            vec![(3, 8), (6, 6), (0, 22)],
+            vec![(4, 8), (2, 9), (1, 08)],
+            vec![(0, 8), (3, 4), (4, 19)],
+            vec![(4, 8), (5, 4), (1, 19)],
         ];
         assert_validator_mandates_sample(config, expected_mandates_per_shards);
     }
@@ -483,7 +481,7 @@ mod tests {
 
     #[test]
     fn test_deterministic_shuffle() {
-        let config = ValidatorMandatesConfig::new(10, 1, 4);
+        let config = ValidatorMandatesConfig::new(3, 4);
         let validators = new_validator_stakes();
         let mandates = ValidatorMandates::new(config, &validators);
 

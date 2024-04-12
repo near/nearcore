@@ -187,11 +187,13 @@ pub fn proposals_to_epoch_info(
     };
 
     let validator_mandates = if checked_feature!("stable", StatelessValidationV0, next_version) {
-        // TODO(#10014) determine required stake per mandate instead of reusing seat price.
-        // TODO(#10014) determine `min_mandates_per_shard`
-        let min_mandates_per_shard = 0;
+        // Value chosen based on calculations for the security of the protocol.
+        // With this number of mandates per shard and 6 shards, the theory calculations predict the
+        // protocol is secure for 40 years (at 90% confidence).
+        let target_mandates_per_shard = 68;
+        let num_shards = shard_ids.len();
         let validator_mandates_config =
-            ValidatorMandatesConfig::new(threshold, min_mandates_per_shard, shard_ids.len());
+            ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
         // We can use `all_validators` to construct mandates Since a validator's position in
         // `all_validators` corresponds to its `ValidatorId`
         ValidatorMandates::new(validator_mandates_config, &all_validators)
