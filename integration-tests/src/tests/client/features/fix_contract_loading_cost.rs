@@ -44,7 +44,7 @@ fn unchanged_gas_cost() {
     let old_gas = old_result.receipts_outcome[0].outcome.gas_burnt;
     assert_matches!(old_result.status, FinalExecutionStatus::SuccessValue(_));
 
-    env.upgrade_protocol(new_protocol_version);
+    env.upgrade_protocol_to_latest_version();
 
     let new_result = env.call_main(&account);
     let new_gas = new_result.receipts_outcome[0].outcome.gas_burnt;
@@ -77,7 +77,7 @@ fn preparation_error_gas_cost() {
     let old_gas = old_result.receipts_outcome[0].outcome.gas_burnt;
     assert_matches!(old_result.status, FinalExecutionStatus::Failure(_));
 
-    env.upgrade_protocol(new_protocol_version);
+    env.upgrade_protocol_to_latest_version();
 
     let new_result = env.call_main(&account);
     let new_gas = new_result.receipts_outcome[0].outcome.gas_burnt;
