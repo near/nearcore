@@ -44,7 +44,7 @@ impl Producer for FairnessBenchmarkProducer {
                 gas_to_busy += self.execution_gas;
             }
         }
-        
+
         // Send from the busy shard to all other shards, using around 90% of
         // their capacity.
         while gas_to_non_busy < GAS_LIMIT * 10 / 9 {
