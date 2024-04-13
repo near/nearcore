@@ -1,11 +1,13 @@
 mod all_for_one;
 mod balanced;
+mod fairness_benchmark;
 mod linear_imbalance;
 mod transaction_builder;
 mod utils;
 
 pub use all_for_one::AllForOneProducer;
 pub use balanced::BalancedProducer;
+pub use fairness_benchmark::FairnessBenchmarkProducer;
 pub use linear_imbalance::LinearImbalanceProducer;
 pub use transaction_builder::{ReceiptDefinition, ReceiptId, TransactionBuilder};
 

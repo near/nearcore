@@ -19,7 +19,6 @@ fn test_account_id_in_function_call_permission_upgrade() {
         near_primitives::version::ProtocolFeature::AccountIdInFunctionCallPermission
             .protocol_version()
             - 1;
-    let new_protocol_version = old_protocol_version + 1;
 
     // Prepare TestEnv with a contract at the old protocol version.
     let mut env = {
@@ -70,7 +69,7 @@ fn test_account_id_in_function_call_permission_upgrade() {
         }
     };
 
-    env.upgrade_protocol(new_protocol_version);
+    env.upgrade_protocol_to_latest_version();
 
     // Re-run the transaction, now it fails due to invalid account id.
     {

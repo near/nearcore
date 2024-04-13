@@ -42,10 +42,6 @@ mod tier1;
 /// Limit number of pending Peer actors to avoid OOM.
 pub(crate) const LIMIT_PENDING_PEERS: usize = 60;
 
-/// Send important messages three times.
-/// We send these messages multiple times to reduce the chance that they are lost
-const IMPORTANT_MESSAGE_RESENT_COUNT: usize = 3;
-
 /// Size of LRU cache size of recent routed messages.
 /// It should be large enough to detect duplicates (i.e. all messages received during
 /// production of 1 block should fit).
@@ -171,14 +167,11 @@ impl NetworkState {
     ) -> Self {
         Self {
             runtime: Runtime::new(),
-            graph: Arc::new(crate::routing::Graph::new(
-                crate::routing::GraphConfig {
-                    node_id: config.node_id(),
-                    prune_unreachable_peers_after: PRUNE_UNREACHABLE_PEERS_AFTER,
-                    prune_edges_after: Some(PRUNE_EDGES_AFTER),
-                },
-                store.clone(),
-            )),
+            graph: Arc::new(crate::routing::Graph::new(crate::routing::GraphConfig {
+                node_id: config.node_id(),
+                prune_unreachable_peers_after: PRUNE_UNREACHABLE_PEERS_AFTER,
+                prune_edges_after: Some(PRUNE_EDGES_AFTER),
+            })),
             graph_v2: Arc::new(crate::routing::GraphV2::new(crate::routing::GraphConfigV2 {
                 node_id: config.node_id(),
                 prune_edges_after: Some(PRUNE_EDGES_AFTER),
@@ -557,18 +550,14 @@ impl NetworkState {
 
     /// Send message to specific account.
     /// Return whether the message is sent or not.
-    /// The message might be sent over TIER1 and/or TIER2 connection depending on the message type.
+    /// The message might be sent over TIER1 or TIER2 connection depending on the message type.
     pub fn send_message_to_account(
         &self,
         clock: &time::Clock,
         account_id: &AccountId,
         msg: RoutedMessageBody,
     ) -> bool {
-        let mut success = false;
         let accounts_data = self.accounts_data.load();
-        // All TIER1 messages are being sent over both TIER1 and TIER2 connections for now,
-        // so that we can actually observe the latency/reliability improvements in practice:
-        // for each message we track over which network tier it arrived faster?
         if tcp::Tier::T1.is_allowed_routed(&msg) {
             for key in accounts_data.keys_by_id.get(account_id).iter().flat_map(|keys| keys.iter())
             {
@@ -586,11 +575,10 @@ impl NetworkState {
                     clock,
                     RawRoutedMessage {
                         target: PeerIdOrHash::PeerId(data.peer_id.clone()),
-                        body: msg.clone(),
+                        body: msg,
                     },
                 ))));
-                success |= true;
-                break;
+                return true;
             }
         }
 
@@ -624,14 +612,11 @@ impl NetworkState {
             return false;
         };
 
+        let mut success = false;
         let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body: msg };
         let msg = self.sign_message(clock, msg);
-        if msg.body.is_important() {
-            for _ in 0..IMPORTANT_MESSAGE_RESENT_COUNT {
-                success |= self.send_message_to_peer(clock, tcp::Tier::T2, msg.clone());
-            }
-        } else {
-            success |= self.send_message_to_peer(clock, tcp::Tier::T2, msg)
+        for _ in 0..msg.body.message_resend_count() {
+            success |= self.send_message_to_peer(clock, tcp::Tier::T2, msg.clone());
         }
         success
     }

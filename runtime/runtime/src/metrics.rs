@@ -1,6 +1,7 @@
 use near_o11y::metrics::{
-    try_create_counter_vec, try_create_histogram_vec, try_create_int_counter,
-    try_create_int_counter_vec, CounterVec, HistogramVec, IntCounter, IntCounterVec,
+    exponential_buckets, try_create_counter_vec, try_create_histogram_vec,
+    try_create_histogram_with_buckets, try_create_int_counter, try_create_int_counter_vec,
+    CounterVec, Histogram, HistogramVec, IntCounter, IntCounterVec,
 };
 use once_cell::sync::Lazy;
 use std::time::Duration;
@@ -289,6 +290,54 @@ static CHUNK_TX_TGAS: Lazy<HistogramVec> = Lazy::new(|| {
     )
     .unwrap()
 });
+pub static RECEIPT_RECORDED_SIZE: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram_with_buckets(
+        "near_receipt_recorded_size",
+        "Size of storage proof recorded when executing a receipt",
+        buckets_for_receipt_storage_proof_size(),
+    )
+    .unwrap()
+});
+pub static RECEIPT_RECORDED_SIZE_UPPER_BOUND: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram_with_buckets(
+        "near_receipt_recorded_size_upper_bound",
+        "Upper bound estimation (e.g with extra size added for deletes) of storage proof size recorded when executing a receipt",
+        buckets_for_receipt_storage_proof_size(),
+    )
+    .unwrap()
+});
+pub static RECEIPT_RECORDED_SIZE_UPPER_BOUND_RATIO: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram_with_buckets(
+        "near_receipt_recorded_size_upper_bound_ratio",
+        "Ratio of upper bound to true recorded size, equal to (near_receipt_recorded_size_upper_bound / near_receipt_recorded_size)",
+        buckets_for_storage_proof_size_ratio(),
+    )
+    .unwrap()
+});
+pub static CHUNK_RECORDED_SIZE: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram_with_buckets(
+        "near_chunk_recorded_size",
+        "Total size of storage proof (recorded trie nodes for state witness, post-finalization) for a single chunk",
+        buckets_for_storage_proof_size(),
+    )
+    .unwrap()
+});
+pub static CHUNK_RECORDED_SIZE_UPPER_BOUND: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram_with_buckets(
+        "near_chunk_recorded_size_upper_bound",
+        "Upper bound of storage proof size (recorded trie nodes size + estimated charges, pre-finalization) for a single chunk",
+        buckets_for_storage_proof_size(),
+    )
+    .unwrap()
+});
+pub static CHUNK_RECORDED_SIZE_UPPER_BOUND_RATIO: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram_with_buckets(
+        "near_chunk_recorded_size_upper_bound_ratio",
+        "Ratio of upper bound to true storage proof size, equal to (near_chunk_recorded_size_upper_bound / near_chunk_recorded_size)",
+        buckets_for_storage_proof_size_ratio(),
+    )
+    .unwrap()
+});
 
 /// Buckets used for burned gas in receipts.
 ///
@@ -311,6 +360,24 @@ fn buckets_for_compute() -> Option<Vec<f64>> {
         0., 50., 100., 200., 300., 400., 500., 600., 700., 800., 900., 1000., 1100., 1200., 1300.,
         2000.,
     ])
+}
+
+// Buckets from 0 to 100 MB
+fn buckets_for_receipt_storage_proof_size() -> Vec<f64> {
+    // 100 * 2**20 = 100 MB
+    exponential_buckets(100., 2., 20).unwrap()
+}
+
+// Buckets from 100KB to 100MB
+fn buckets_for_storage_proof_size() -> Vec<f64> {
+    // 100KB * 2**10 = 100 MB
+    exponential_buckets(100_000., 2., 10).unwrap()
+}
+
+// Buckets from 1 to 1.46
+fn buckets_for_storage_proof_size_ratio() -> Vec<f64> {
+    // 1.02 ** 20 = 1.46
+    exponential_buckets(1., 1.02, 20).unwrap()
 }
 
 /// Helper struct to collect partial costs of `Runtime::apply` and reporting it

@@ -124,6 +124,15 @@ impl Model {
             .collect()
     }
 
+    pub fn trim_transaction_pools(&mut self, max_len: usize) {
+        for &shard_id in &self.shard_ids {
+            let len = self.queues.incoming_transactions(shard_id).len();
+            if len > max_len {
+                self.queues.incoming_transactions_mut(shard_id).drain(0..len - max_len);
+            }
+        }
+    }
+
     pub fn shard(&mut self, id: ShardId) -> &mut dyn CongestionStrategy {
         self.shards[id.0].as_mut()
     }
