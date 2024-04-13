@@ -915,7 +915,6 @@ mod tests {
     use near_epoch_manager::EpochManager;
     use near_network::test_utils::peer_id_from_seed;
     use near_store::genesis::initialize_genesis_state;
-    use near_store::test_utils::*;
 
     #[test]
     fn test_pretty_number() {
@@ -938,7 +937,7 @@ mod tests {
     }
 
     #[test]
-    fn telemetry_info() {
+    fn test_telemetry_info() {
         let config = ClientConfig::test(false, 1230, 2340, 50, false, true, true, true);
         let info_helper = InfoHelper::new(Clock::real(), noop().into_sender(), &config, None);
 
@@ -997,7 +996,7 @@ mod tests {
 
     /// Tests that `num_validators` returns the number of all validators including both block and chunk producers.
     #[test]
-    fn num_validators() {
+    fn test_num_validators() {
         let amount_staked = 1_000_000;
         let validators = vec![
             ("test1".parse().unwrap(), amount_staked),
