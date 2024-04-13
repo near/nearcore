@@ -902,20 +902,20 @@ fn get_validator_epoch_stats(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use near_epoch_manager::test_utils::*;
     use assert_matches::assert_matches;
     use near_async::messaging::{noop, IntoSender};
     use near_async::time::Clock;
     use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
     use near_chain::runtime::NightshadeRuntime;
-    use near_chain::test_utils::{MockEpochManager, ValidatorSchedule};
     use near_chain::types::ChainConfig;
     use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
     use near_chain_configs::Genesis;
     use near_epoch_manager::shard_tracker::ShardTracker;
+    use near_epoch_manager::test_utils::*;
     use near_epoch_manager::EpochManager;
     use near_network::test_utils::peer_id_from_seed;
     use near_store::genesis::initialize_genesis_state;
+    use near_store::test_utils::*;
 
     #[test]
     fn test_pretty_number() {
@@ -995,43 +995,62 @@ mod tests {
         );
     }
 
+    /// Tests that `num_validators` returns the number of all validators including both block and chunk producers.
     #[test]
     fn num_validators() {
-        let store = create_test_store();
         let amount_staked = 1_000_000;
-    let validators = vec![
-        stake("test1".parse().unwrap(), amount_staked),
-        stake("test2".parse().unwrap(), amount_staked),
-        stake("test3".parse().unwrap(), amount_staked),
-        stake("test4".parse().unwrap(), amount_staked),
-        stake("test5".parse().unwrap(), amount_staked),
-        stake("test6".parse().unwrap(), amount_staked),
-        stake("test7".parse().unwrap(), amount_staked),
-        stake("test8".parse().unwrap(), amount_staked),
-        stake("test9".parse().unwrap(), amount_staked),
-        stake("test10".parse().unwrap(), amount_staked),
-    ];
-    let num_shards = 2;
-    let num_block_producer_seats = 4;
-    let kickout_threshold  = 90;
-    let config = epoch_config(2, num_shards, num_block_producer_seats, 0, kickout_threshold, kickout_threshold, 0);
-    let mut epoch_manager =
-    EpochManager::new(store, config, PROTOCOL_VERSION, default_reward_calculator(), validators)
-        .unwrap();
-    let epoch_manager_adapter =epoch_manager.into_handle();
-    assert_eq!(vec![], epoch_manager_adapter.get_epoch_block_producers_ordered(&epoch_id, last_block_hash.clone())
-    .unwrap_or(vec![])
-    .into_iter()
-    .map(|(validator_stake, _)| validator_stake.account_id().to_string())
-    .collect());
-    // let client_config = ClientConfig::test(false, 1230, 2340, 50, false, true, true, true);
-    //     let mut info_helper = InfoHelper::new(Clock::real(), noop().into_sender(), &client_config, None);
+        let validators = vec![
+            ("test1".parse().unwrap(), amount_staked),
+            ("test2".parse().unwrap(), amount_staked),
+            ("test3".parse().unwrap(), amount_staked),
+            ("test4".parse().unwrap(), amount_staked),
+            ("test5".parse().unwrap(), amount_staked),
+        ];
+        let num_validators = validators.len();
+        let num_block_producer_seats = 3usize;
+        assert!(
+            num_block_producer_seats < num_validators,
+            "for this test, make sure number of validators are more than block producer seats"
+        );
 
-    //     let epoch_id = EpochId::default();
-    //     let last_block_hash = CryptoHash::default();
-    //     assert_eq!(
-    //         5,
-    //         info_helper.get_num_validators(epoch_manager.as_ref(), &epoch_id, &last_block_hash)
-    //     );
+        let last_block_hash = CryptoHash::default();
+        let epoch_id = EpochId::default();
+        let epoch_length = 2;
+        let num_shards = 2;
+
+        let epoch_manager_adapter = setup_epoch_manager(
+            validators,
+            epoch_length,
+            num_shards,
+            num_block_producer_seats.try_into().unwrap(),
+            0,
+            90,
+            90,
+            90,
+            default_reward_calculator(),
+        )
+        .into_handle();
+
+        // First check that we have different number of block and chunk producers.
+        assert_eq!(
+            num_block_producer_seats,
+            epoch_manager_adapter
+                .get_epoch_block_producers_ordered(&epoch_id, &last_block_hash)
+                .unwrap()
+                .len()
+        );
+        assert_eq!(
+            num_validators,
+            epoch_manager_adapter.get_epoch_chunk_producers(&epoch_id).unwrap().len()
+        );
+
+        // Then check that get_num_validators returns the correct number of validators.
+        let client_config = ClientConfig::test(false, 1230, 2340, 50, false, true, true, true);
+        let mut info_helper =
+            InfoHelper::new(Clock::real(), noop().into_sender(), &client_config, None);
+        assert_eq!(
+            num_validators,
+            info_helper.get_num_validators(&epoch_manager_adapter, &epoch_id, &last_block_hash)
+        );
     }
 }
