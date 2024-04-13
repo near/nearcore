@@ -670,7 +670,7 @@ fn test_fork_far_away_from_epoch_end() {
         do_fork(
             source_block,
             state_root,
-            tries.clone(),
+            tries,
             &mut chain,
             1,
             &mut states,

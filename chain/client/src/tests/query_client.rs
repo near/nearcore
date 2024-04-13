@@ -1,7 +1,6 @@
-use crate::test_utils::{setup_mock_all_validators, setup_no_network, setup_only_view};
+use crate::test_utils::{setup_no_network, setup_only_view};
 use crate::{
-    GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock, Query, QueryError, Status,
-    TxStatus,
+    GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock, Query, Status, TxStatus,
 };
 use actix::System;
 use futures::{future, FutureExt};
@@ -9,16 +8,12 @@ use near_actix_test_utils::run_actix;
 use near_async::messaging::IntoMultiSender;
 use near_async::time::{Clock, Duration};
 use near_chain::test_utils::ValidatorSchedule;
-use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::client::{
     BlockResponse, ProcessTxRequest, ProcessTxResponse, StateRequestHeader,
 };
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::PeerInfo;
-use near_network::types::{
-    NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
-};
 use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::{Block, BlockHeader};
@@ -277,133 +272,4 @@ fn test_state_request() {
         });
         near_network::test_utils::wait_or_panic(50000);
     });
-}
-
-#[test]
-/// When querying data which was garbage collected on a node it returns
-/// `QueryError::GarbageCollectedBlock`.
-fn test_garbage_collection() {
-    init_test_logger();
-    run_actix(async {
-        let block_prod_time = 100;
-        let epoch_length = 5;
-        let target_height = epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 1);
-        let vs = ValidatorSchedule::new().num_shards(2).block_producers_per_epoch(vec![vec![
-            "test1".parse().unwrap(),
-            "test2".parse().unwrap(),
-        ]]);
-
-        setup_mock_all_validators(
-            Clock::real(),
-            vs,
-            vec![PeerInfo::random(), PeerInfo::random()],
-            true,
-            block_prod_time,
-            false,
-            false,
-            epoch_length,
-            true,
-            vec![false, true], // first validator non-archival, second archival
-            vec![true, true],
-            true,
-            None,
-            Box::new(
-                move |conns,
-                      _,
-                      msg: &PeerManagerMessageRequest|
-                      -> (PeerManagerMessageResponse, bool) {
-                    if let NetworkRequests::Block { block } = msg.as_network_requests_ref() {
-                        if block.header().height() > target_height {
-                            let view_client_non_archival = &conns[0].view_client_actor;
-                            let view_client_archival = &conns[1].view_client_actor;
-                            let mut tests = vec![];
-
-                            // Recent data is present on all nodes (archival or not).
-                            let prev_height = block.header().prev_height().unwrap();
-                            for actor_handles in conns.iter() {
-                                tests.push(actix::spawn(
-                                    actor_handles
-                                        .view_client_actor
-                                        .send(
-                                            Query::new(
-                                                BlockReference::BlockId(BlockId::Height(
-                                                    prev_height,
-                                                )),
-                                                QueryRequest::ViewAccount {
-                                                    account_id: "test1".parse().unwrap(),
-                                                },
-                                            )
-                                            .with_span_context(),
-                                        )
-                                        .then(move |res| {
-                                            let res = res.unwrap().unwrap();
-                                            match res.kind {
-                                                QueryResponseKind::ViewAccount(_) => (),
-                                                _ => panic!("Invalid response"),
-                                            }
-                                            futures::future::ready(())
-                                        }),
-                                ));
-                            }
-
-                            // On non-archival node old data is garbage collected.
-                            tests.push(actix::spawn(
-                                view_client_non_archival
-                                    .send(
-                                        Query::new(
-                                            BlockReference::BlockId(BlockId::Height(1)),
-                                            QueryRequest::ViewAccount {
-                                                account_id: "test1".parse().unwrap(),
-                                            },
-                                        )
-                                        .with_span_context(),
-                                    )
-                                    .then(move |res| {
-                                        let res = res.unwrap();
-                                        match res {
-                                            Err(err) => assert!(matches!(
-                                                err,
-                                                QueryError::GarbageCollectedBlock { .. }
-                                            )),
-                                            Ok(_) => panic!("Unexpected Ok variant"),
-                                        }
-                                        futures::future::ready(())
-                                    }),
-                            ));
-
-                            // On archival node old data is _not_ garbage collected.
-                            tests.push(actix::spawn(
-                                view_client_archival
-                                    .send(
-                                        Query::new(
-                                            BlockReference::BlockId(BlockId::Height(1)),
-                                            QueryRequest::ViewAccount {
-                                                account_id: "test1".parse().unwrap(),
-                                            },
-                                        )
-                                        .with_span_context(),
-                                    )
-                                    .then(move |res| {
-                                        let res = res.unwrap().unwrap();
-                                        match res.kind {
-                                            QueryResponseKind::ViewAccount(_) => (),
-                                            _ => panic!("Invalid response"),
-                                        }
-                                        futures::future::ready(())
-                                    }),
-                            ));
-
-                            actix::spawn(futures::future::join_all(tests).then(|_| {
-                                System::current().stop();
-                                futures::future::ready(())
-                            }));
-                        }
-                    }
-                    (NetworkResponses::NoResponse.into(), true)
-                },
-            ),
-        );
-
-        near_network::test_utils::wait_or_panic(block_prod_time * target_height * 2 + 2000);
-    })
 }

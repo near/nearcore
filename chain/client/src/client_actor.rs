@@ -182,7 +182,7 @@ pub struct StartClientResult {
     pub client_actor: Addr<ClientActor>,
     pub client_arbiter_handle: ArbiterHandle,
     pub resharding_handle: ReshardingHandle,
-    pub gc_arbiter_handle: Option<ArbiterHandle>,
+    pub gc_arbiter_handle: ArbiterHandle,
 }
 
 /// Starts client in a separate Arbiter (thread).
@@ -228,20 +228,14 @@ pub fn start_client(
     .unwrap();
     let resharding_handle = client.chain.resharding_handle.clone();
 
-    let maybe_gc_arbiter = {
-        if !client_config.archive {
-            let (_, gc_arbiter) = start_gc_actor(
-                runtime.store().clone(),
-                genesis_height,
-                client_config.clone(),
-                runtime,
-                epoch_manager,
-            );
-            Some(gc_arbiter)
-        } else {
-            None
-        }
-    };
+    let (_, gc_arbiter_handle) = start_gc_actor(
+        runtime.store().clone(),
+        genesis_height,
+        client_config.clone(),
+        runtime,
+        epoch_manager,
+    );
+
     let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |ctx| {
         ClientActor::new(
             clock,
@@ -264,6 +258,6 @@ pub fn start_client(
         client_actor: client_addr,
         client_arbiter_handle,
         resharding_handle,
-        gc_arbiter_handle: maybe_gc_arbiter,
+        gc_arbiter_handle,
     }
 }

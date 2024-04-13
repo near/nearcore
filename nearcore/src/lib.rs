@@ -451,21 +451,13 @@ pub fn start_with_config_and_synchronization(
 
     tracing::trace!(target: "diagnostic", key = "log", "Starting NEAR node with diagnostic activated");
 
-    let mut arbiters = match gc_arbiter_handle {
-        Some(handle) => vec![
-            client_arbiter_handle,
-            shards_manager_arbiter_handle,
-            trie_metrics_arbiter,
-            state_snapshot_arbiter,
-            handle,
-        ],
-        None => vec![
-            client_arbiter_handle,
-            shards_manager_arbiter_handle,
-            trie_metrics_arbiter,
-            state_snapshot_arbiter,
-        ],
-    };
+    let mut arbiters = vec![
+        client_arbiter_handle,
+        shards_manager_arbiter_handle,
+        trie_metrics_arbiter,
+        state_snapshot_arbiter,
+        gc_arbiter_handle,
+    ];
     if let Some(db_metrics_arbiter) = db_metrics_arbiter {
         arbiters.push(db_metrics_arbiter);
     }

@@ -37,35 +37,39 @@ impl GCActor {
         }
     }
 
-    fn gc(&mut self, ctx: &mut Context<GCActor>) {
-        let timer = metrics::GC_TIME.start_timer();
+    fn clear_data(&mut self) -> Result<(), near_chain::Error> {
+        // A RPC node should do regular garbage collection.
         if !self.is_archive {
-            let _span = tracing::debug_span!(target: "client", "gc");
-            if let Err(e) = self.store.clear_data(
+            return self.store.clear_data(
                 &self.gc_config,
                 self.runtime_adapter.clone(),
                 self.epoch_manager.clone(),
-            ) {
-                warn!(target: "client", "Error in gc: {}", e);
-            }
-        } else {
-            let _span = tracing::debug_span!(target: "client", "archive_gc");
-            let kind = self.store.store().get_db_kind();
-            match kind {
-                Ok(Some(DbKind::Hot)) => {
-                    if let Err(e) = self.store.clear_data(
-                        &self.gc_config,
-                        self.runtime_adapter.clone(),
-                        self.epoch_manager.clone(),
-                    ) {
-                        warn!(target: "client", "Error in gc: {}", e);
-                    }
-                }
-                Err(e) => {
-                    warn!(target: "client", "Error in gc: {}", e);
-                }
-                _ => {}
-            }
+            );
+        }
+
+        // An archival node with split storage should perform garbage collection
+        // on the hot storage. In order to determine if split storage is enabled
+        // *and* that the migration to split storage is finished we can check
+        // the store kind. It's only set to hot after the migration is finished.
+        let store = self.store.store();
+        let kind = store.get_db_kind()?;
+        if kind == Some(DbKind::Hot) {
+            return self.store.clear_data(
+                &self.gc_config,
+                self.runtime_adapter.clone(),
+                self.epoch_manager.clone(),
+            );
+        }
+
+        // An archival node with legacy storage or in the midst of migration to split
+        // storage should do the legacy clear_archive_data.
+        self.store.clear_archive_data(self.gc_config.gc_blocks_limit, self.runtime_adapter.clone())
+    }
+
+    fn gc(&mut self, ctx: &mut Context<GCActor>) {
+        let timer = metrics::GC_TIME.start_timer();
+        if let Err(e) = self.clear_data() {
+            warn!(target: "garbage collection", "Error in gc: {}", e);
         }
 
         timer.observe_duration();
