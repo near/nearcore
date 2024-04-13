@@ -71,7 +71,7 @@ pub struct InfoHelper {
     enable_multiline_logging: bool,
     // Keeps track of the previous SyncRequirement for updating metrics.
     prev_sync_requirement: Option<String>,
-    /// Cached number of validators (block + chunk producers) per epoch.
+    /// Number of validators (block + chunk producers) per epoch, cached for a small number of epochs.
     num_validators_per_epoch: LruCache<EpochId, usize>,
 }
 
@@ -281,10 +281,10 @@ impl InfoHelper {
         }
     }
 
-    /// Returns the number of validators (AccountIds) in the given epoch.
+    /// Returns the number of validators in a given epoch (EpochId).
     ///
     /// The set of validators include both block producers and chunk producers.
-    /// This set of validators do not change during the epoch, so it caches the result.
+    /// This set of validators do not change during the epoch, so it is cached for a small number of epochs.
     /// It does NOT currently consider whether the validators are slashed or not.
     fn get_num_validators(
         &mut self,
