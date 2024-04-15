@@ -309,7 +309,7 @@ pub static RECEIPT_RECORDED_SIZE_UPPER_BOUND: Lazy<Histogram> = Lazy::new(|| {
 pub static RECEIPT_RECORDED_SIZE_UPPER_BOUND_RATIO: Lazy<Histogram> = Lazy::new(|| {
     try_create_histogram_with_buckets(
         "near_receipt_recorded_size_upper_bound_ratio",
-        "Ratio of upper bound to true recorded size, equal to (near_receipt_recorded_size_upper_bound / near_receipt_recorded_size)",
+        "Ratio of upper bound to true recorded size, calculated only for sizes larger than 100KB, equal to (near_receipt_recorded_size_upper_bound / near_receipt_recorded_size)",
         buckets_for_storage_proof_size_ratio(),
     )
     .unwrap()
