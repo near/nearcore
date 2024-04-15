@@ -1,5 +1,5 @@
 use near_o11y::metrics::{
-    exponential_buckets, try_create_counter_vec, try_create_histogram_vec,
+    exponential_buckets, linear_buckets, try_create_counter_vec, try_create_histogram_vec,
     try_create_histogram_with_buckets, try_create_int_counter, try_create_int_counter_vec,
     CounterVec, Histogram, HistogramVec, IntCounter, IntCounterVec,
 };
@@ -318,7 +318,7 @@ pub static CHUNK_RECORDED_SIZE: Lazy<Histogram> = Lazy::new(|| {
     try_create_histogram_with_buckets(
         "near_chunk_recorded_size",
         "Total size of storage proof (recorded trie nodes for state witness, post-finalization) for a single chunk",
-        buckets_for_storage_proof_size(),
+        buckets_for_chunk_storage_proof_size(),
     )
     .unwrap()
 });
@@ -326,7 +326,7 @@ pub static CHUNK_RECORDED_SIZE_UPPER_BOUND: Lazy<Histogram> = Lazy::new(|| {
     try_create_histogram_with_buckets(
         "near_chunk_recorded_size_upper_bound",
         "Upper bound of storage proof size (recorded trie nodes size + estimated charges, pre-finalization) for a single chunk",
-        buckets_for_storage_proof_size(),
+        buckets_for_chunk_storage_proof_size(),
     )
     .unwrap()
 });
@@ -362,22 +362,25 @@ fn buckets_for_compute() -> Option<Vec<f64>> {
     ])
 }
 
-// Buckets from 0 to 100 MB
+/// Buckets from 0 to 10MB
 fn buckets_for_receipt_storage_proof_size() -> Vec<f64> {
-    // 100 * 2**20 = 100 MB
-    exponential_buckets(100., 2., 20).unwrap()
+    // Precise buckets for the smaller, common values
+    let mut buckets = vec![50_000., 100_000., 200_000., 300_000.];
+
+    // Coarse buckets for the larger values
+    buckets.extend(linear_buckets(500_000., 500_000., 20).unwrap());
+    buckets
 }
 
-// Buckets from 100KB to 100MB
-fn buckets_for_storage_proof_size() -> Vec<f64> {
-    // 100KB * 2**10 = 100 MB
-    exponential_buckets(100_000., 2., 10).unwrap()
+/// Buckets from 0 to 15.2MB
+fn buckets_for_chunk_storage_proof_size() -> Vec<f64> {
+    linear_buckets(0., 800_000., 20).unwrap()
 }
 
-// Buckets from 1 to 1.46
+/// Buckets from 1 to 12.84
 fn buckets_for_storage_proof_size_ratio() -> Vec<f64> {
-    // 1.02 ** 20 = 1.46
-    exponential_buckets(1., 1.02, 20).unwrap()
+    // 1.2 ** 14 = 12.84
+    exponential_buckets(1., 1.2, 15).unwrap()
 }
 
 /// Helper struct to collect partial costs of `Runtime::apply` and reporting it
