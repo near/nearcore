@@ -131,19 +131,20 @@ mod trie_recording_tests {
             .iter()
             .map(|(key, value)| (key.clone(), value.clone().unwrap()))
             .collect::<HashMap<_, _>>();
-        let (keys_to_get, keys_to_get_ref) = trie_changes
+        let keys: Vec<_> = trie_changes
             .iter()
             .map(|(key, _)| {
                 let mut key = key.clone();
                 if use_missing_keys {
-                    key.push(100);
+                    *key.last_mut().unwrap() = 100;
+                    // key.push(100);
                 }
                 key
             })
-            .partition::<Vec<_>, _>(|_| random());
-        let updates = trie_changes
+            .collect();
+        let updates = keys
             .iter()
-            .map(|(key, _)| {
+            .map(|key| {
                 let value = if thread_rng().gen_bool(0.5) {
                     Some(vec![thread_rng().gen_range(0..10) as u8])
                 } else {
@@ -153,6 +154,7 @@ mod trie_recording_tests {
             })
             .filter(|_| random())
             .collect::<Vec<_>>();
+        let (keys_to_get, keys_to_get_ref) = keys.into_iter().partition::<Vec<_>, _>(|_| random());
         PreparedTrie {
             store: tries_for_building.get_store(),
             shard_uid,
@@ -209,6 +211,7 @@ mod trie_recording_tests {
                 updates,
                 state_root,
             } = prepare_trie(use_missing_keys);
+            println!("{:?}\n{:?}\n{:?}", keys_to_get, keys_to_get_ref, updates);
             let tries = if use_in_memory_tries {
                 TestTriesBuilder::new().with_store(store.clone()).with_in_memory_tries().build()
             } else {

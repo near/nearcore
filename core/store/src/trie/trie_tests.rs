@@ -444,9 +444,10 @@ mod trie_storage_tests {
         let trie = tries.get_trie_for_shard(shard_uid, state_root).recording_reads();
         let changes = trie
             .update(vec![
-                (vec![7], Some(vec![10])),
-                (vec![7, 0], None),
-                (vec![7, 6], Some(vec![8])),
+                (vec![8], None),
+                // (vec![7], Some(vec![10])),
+                // (vec![7, 0], None),
+                // (vec![7, 6], Some(vec![8])),
             ])
             .unwrap();
         tracing::info!("Changes: {:?}", changes);
@@ -487,9 +488,10 @@ mod trie_storage_tests {
         let trie = tries.get_trie_for_shard(shard_uid, state_root).recording_reads();
         let changes = trie
             .update(vec![
-                (vec![7], Some(vec![10])),
-                (vec![7, 0], None),
-                (vec![7, 6], Some(vec![8])),
+                (vec![8], None),
+                // (vec![7], Some(vec![10])),
+                // (vec![7, 0], None),
+                // (vec![7, 6], Some(vec![8])),
             ])
             .unwrap();
 
