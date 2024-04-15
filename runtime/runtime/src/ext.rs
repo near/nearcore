@@ -104,7 +104,7 @@ impl<'a> RuntimeExt<'a> {
     }
 
     pub fn chain_id(&self) -> String {
-        self.epoch_info_provider.chin_id()
+        self.epoch_info_provider.chain_id()
     }
 }
 

@@ -622,7 +622,7 @@ impl EpochInfoProvider for MockEpochInfoProvider {
         Ok(0)
     }
 
-    fn chin_id(&self) -> String {
+    fn chain_id(&self) -> String {
         "localnet".into()
     }
 }

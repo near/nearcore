@@ -609,7 +609,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
         // It holds because in the only calling site, we've checked the permissions before.
         AccountType::EthImplicitAccount => {
             if checked_feature!("stable", EthImplicitAccounts, current_protocol_version) {
-                let chain_id = epoch_info_provider.chin_id();
+                let chain_id = epoch_info_provider.chain_id();
 
                 // We deploy "near[wallet contract hash]" magic bytes as the contract code,
                 // to mark that this is a neard-defined contract. It will not be used on a function call.

@@ -112,7 +112,7 @@ impl EpochInfoProvider for EpochManagerHandle {
         epoch_manager.minimum_stake(prev_block_hash)
     }
 
-    fn chin_id(&self) -> String {
+    fn chain_id(&self) -> String {
         let epoch_manager = self.read();
         epoch_manager.config.chain_id().into()
     }

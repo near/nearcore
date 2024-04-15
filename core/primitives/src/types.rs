@@ -1016,7 +1016,7 @@ pub trait EpochInfoProvider {
     fn minimum_stake(&self, prev_block_hash: &CryptoHash) -> Result<Balance, EpochError>;
 
     /// Get the chain_id of the chain this epoch belongs to
-    fn chin_id(&self) -> String;
+    fn chain_id(&self) -> String;
 }
 
 /// Mode of the trie cache.
