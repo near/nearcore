@@ -147,7 +147,8 @@ impl NepStrategy {
             }
 
             if self.get_filter_stop(ctx, tx) {
-                break;
+                // reject receipt
+                continue;
             }
 
             let outgoing = ctx.accept_transaction(tx);
