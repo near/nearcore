@@ -8,11 +8,14 @@ use std::sync::Arc;
 pub struct TrieRecorder {
     recorded: HashMap<CryptoHash, Arc<[u8]>>,
     size: usize,
+    /// Counts removals performed while recording.
+    /// recorded_storage_size_upper_bound takes it into account when calculating the total size.
+    removal_counter: usize,
 }
 
 impl TrieRecorder {
     pub fn new() -> Self {
-        Self { recorded: HashMap::new(), size: 0 }
+        Self { recorded: HashMap::new(), size: 0, removal_counter: 0 }
     }
 
     pub fn record(&mut self, hash: &CryptoHash, node: Arc<[u8]>) {
@@ -20,6 +23,10 @@ impl TrieRecorder {
         if self.recorded.insert(*hash, node).is_none() {
             self.size += size;
         }
+    }
+
+    pub fn record_removal(&mut self) {
+        self.removal_counter = self.removal_counter.saturating_add(1)
     }
 
     pub fn recorded_storage(&mut self) -> PartialStorage {
@@ -31,6 +38,15 @@ impl TrieRecorder {
     pub fn recorded_storage_size(&self) -> usize {
         debug_assert!(self.size == self.recorded.values().map(|v| v.len()).sum::<usize>());
         self.size
+    }
+
+    /// Size of the recorded state proof plus some additional size added to cover removals.
+    /// An upper-bound estimation of the true recorded size after finalization.
+    /// See https://github.com/near/nearcore/issues/10890 and https://github.com/near/nearcore/pull/11000 for details.
+    pub fn recorded_storage_size_upper_bound(&self) -> usize {
+        // Charge 2000 bytes for every removal
+        let removals_size = self.removal_counter.saturating_mul(2000);
+        self.recorded_storage_size().saturating_add(removals_size)
     }
 }
 
@@ -251,7 +267,25 @@ mod trie_recording_tests {
                 partial_storage.nodes.len(),
                 data_in_trie.len()
             );
-            let trie = Trie::from_recorded_storage(partial_storage, state_root, false);
+            let trie = Trie::from_recorded_storage(partial_storage.clone(), state_root, false);
+            trie.accounting_cache.borrow_mut().set_enabled(enable_accounting_cache);
+            for key in &keys_to_get {
+                assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
+            }
+            for key in &keys_to_get_ref {
+                assert_eq!(
+                    trie.get_optimized_ref(key, crate::KeyLookupMode::Trie)
+                        .unwrap()
+                        .map(|value| value.into_value_ref()),
+                    data_in_trie.get(key).map(|value| ValueRef::new(&value))
+                );
+            }
+            assert_eq!(trie.get_trie_nodes_count(), baseline_trie_nodes_count);
+            trie.update(updates.iter().cloned()).unwrap();
+
+            // Build a Trie using recorded storage and enable recording_reads on this Trie
+            let trie =
+                Trie::from_recorded_storage(partial_storage, state_root, false).recording_reads();
             trie.accounting_cache.borrow_mut().set_enabled(enable_accounting_cache);
             for key in &keys_to_get {
                 assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
@@ -420,7 +454,25 @@ mod trie_recording_tests {
                 partial_storage.nodes.len(),
                 data_in_trie.len()
             );
-            let trie = Trie::from_recorded_storage(partial_storage, state_root, true);
+            let trie = Trie::from_recorded_storage(partial_storage.clone(), state_root, true);
+            trie.accounting_cache.borrow_mut().set_enabled(enable_accounting_cache);
+            for key in &keys_to_get {
+                assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
+            }
+            for key in &keys_to_get_ref {
+                assert_eq!(
+                    trie.get_optimized_ref(key, crate::KeyLookupMode::FlatStorage)
+                        .unwrap()
+                        .map(|value| value.into_value_ref()),
+                    data_in_trie.get(key).map(|value| ValueRef::new(&value))
+                );
+            }
+            assert_eq!(trie.get_trie_nodes_count(), baseline_trie_nodes_count);
+            trie.update(updates.iter().cloned()).unwrap();
+
+            // Build a Trie using recorded storage and enable recording_reads on this Trie
+            let trie =
+                Trie::from_recorded_storage(partial_storage, state_root, true).recording_reads();
             trie.accounting_cache.borrow_mut().set_enabled(enable_accounting_cache);
             for key in &keys_to_get {
                 assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());

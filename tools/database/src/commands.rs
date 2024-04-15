@@ -9,6 +9,7 @@ use crate::make_snapshot::MakeSnapshotCommand;
 use crate::memtrie::LoadMemTrieCommand;
 use crate::run_migrations::RunMigrationsCommand;
 use crate::state_perf::StatePerfCommand;
+use crate::write_to_db::WriteCryptoHashCommand;
 use clap::Parser;
 use std::path::PathBuf;
 
@@ -48,6 +49,8 @@ enum SubCommand {
 
     /// Loads an in-memory trie for research purposes.
     LoadMemTrie(LoadMemTrieCommand),
+    /// Write CryptoHash to DB
+    WriteCryptoHash(WriteCryptoHashCommand),
     /// Outputs stats that are needed to analise high load
     /// for a block range and account.
     HighLoadStats(HighLoadStatsCommand),
@@ -81,6 +84,7 @@ impl DatabaseCommand {
                 .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
                 cmd.run(near_config, home)
             }
+            SubCommand::WriteCryptoHash(cmd) => cmd.run(home),
             SubCommand::HighLoadStats(cmd) => cmd.run(home),
             SubCommand::AnalyzeDelayedReceipt(cmd) => cmd.run(home),
         }

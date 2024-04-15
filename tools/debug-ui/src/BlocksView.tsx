@@ -1,5 +1,5 @@
 import './BlocksView.scss';
-import { useQuery } from 'react-query';
+import { useQuery } from '@tanstack/react-query';
 import { fetchChainProcessingStatus, BlockProcessingStatus, ChunkProcessingStatus } from './api';
 
 type BlocksViewProps = {

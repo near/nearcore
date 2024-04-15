@@ -140,12 +140,30 @@ impl AllForOneProducer {
         }
     }
 
-    pub fn one_hop_only() -> Self {
+    pub fn new(enable_one_hop: bool, enable_two_hops: bool, enable_three_hops: bool) -> Self {
+        Self { enable_one_hop, enable_two_hops, enable_three_hops, ..Default::default() }
+    }
+
+    /// Approximates the workload of game.hot.tg
+    pub fn hot_tg() -> Self {
         Self {
-            enable_one_hop: true,
-            enable_two_hops: false,
+            // Usually, workloads are function calls through a relayer.
+            // Therefore, use 2-hop requests only.
+            enable_one_hop: false,
+            enable_two_hops: true,
             enable_three_hops: false,
-            ..Default::default()
+            // The receipts are small, exact values should not matter.
+            receipt_size: 1024,
+            // Gas numbers based on reduced fn base gas costs and what traffic
+            // I could find on chain.
+            attached_gas: 30 * TGAS,
+            light_execution_gas: TGAS / 2,
+            last_execution_gas: 3 * TGAS,
+            conversion_gas: TGAS / 2,
+            // just send plenty
+            messages_per_round: 3000,
+            // empty iterator overwritten in init
+            round_robin_shards: Box::new(std::iter::empty()),
         }
     }
 }

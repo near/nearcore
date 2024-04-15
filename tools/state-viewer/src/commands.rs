@@ -1,4 +1,5 @@
 use crate::apply_chain_range::apply_chain_range;
+use crate::cli::ApplyRangeMode;
 use crate::contract_accounts::ContractAccount;
 use crate::contract_accounts::ContractAccountFilter;
 use crate::contract_accounts::Summary;
@@ -204,6 +205,7 @@ pub(crate) fn apply_chunk(
 }
 
 pub(crate) fn apply_range(
+    mode: ApplyRangeMode,
     start_index: Option<BlockHeight>,
     end_index: Option<BlockHeight>,
     shard_id: ShardId,
@@ -213,7 +215,6 @@ pub(crate) fn apply_range(
     near_config: NearConfig,
     store: Store,
     only_contracts: bool,
-    sequential: bool,
     use_flat_storage: bool,
 ) {
     let mut csv_file = csv_file.map(|filename| std::fs::File::create(filename).unwrap());
@@ -227,6 +228,7 @@ pub(crate) fn apply_range(
     )
     .expect("could not create the transaction runtime");
     apply_chain_range(
+        mode,
         store,
         &near_config.genesis,
         start_index,
@@ -237,7 +239,6 @@ pub(crate) fn apply_range(
         verbose_output,
         csv_file.as_mut(),
         only_contracts,
-        sequential,
         use_flat_storage,
     );
 }

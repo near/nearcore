@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use num_rational::Rational32;
-use primitive_types::U256;
+use primitive_types::{U256, U512};
 
 use near_chain_configs::GenesisConfig;
 use near_primitives::checked_feature;
@@ -138,9 +138,9 @@ impl RewardCalculator {
                 // Apply min between 1. and computed uptime.
                 uptime_numer =
                     if uptime_numer > uptime_denum { uptime_denum } else { uptime_numer };
-                (U256::from(epoch_validator_reward) * uptime_numer * U256::from(stake)
-                    / uptime_denum
-                    / U256::from(total_stake))
+                (U512::from(epoch_validator_reward) * U512::from(uptime_numer) * U512::from(stake)
+                    / U512::from(uptime_denum)
+                    / U512::from(total_stake))
                 .as_u128()
             };
             res.insert(account_id, reward);

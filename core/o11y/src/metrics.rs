@@ -70,8 +70,8 @@
 use once_cell::sync::Lazy;
 pub use prometheus::{
     self, core::MetricVec, core::MetricVecBuilder, exponential_buckets, linear_buckets, Counter,
-    Encoder, Gauge, GaugeVec, Histogram, HistogramOpts, HistogramVec, IntCounter, IntCounterVec,
-    IntGauge, IntGaugeVec, Opts, Result, TextEncoder,
+    CounterVec, Encoder, Gauge, GaugeVec, Histogram, HistogramOpts, HistogramVec, IntCounter,
+    IntCounterVec, IntGauge, IntGaugeVec, Opts, Result, TextEncoder,
 };
 use std::collections::HashSet;
 
@@ -110,6 +110,16 @@ pub fn try_create_counter(name: &str, help: &str) -> Result<Counter> {
     check_metric_near_prefix(name)?;
     let opts = Opts::new(name, help);
     let counter = Counter::with_opts(opts)?;
+    prometheus::register(Box::new(counter.clone()))?;
+    Ok(counter)
+}
+
+/// Attempts to crate an `Counter`, returning `Err` if the registry does not accept the counter
+/// (potentially due to naming conflict).
+pub fn try_create_counter_vec(name: &str, help: &str, labels: &[&str]) -> Result<CounterVec> {
+    check_metric_near_prefix(name)?;
+    let opts = Opts::new(name, help);
+    let counter = CounterVec::new(opts, labels)?;
     prometheus::register(Box::new(counter.clone()))?;
     Ok(counter)
 }

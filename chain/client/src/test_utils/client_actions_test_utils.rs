@@ -6,7 +6,7 @@ use near_network::client::ClientSenderForNetworkMessage;
 
 pub fn forward_client_messages_from_network_to_client_actions(
 ) -> LoopEventHandler<ClientActions, ClientSenderForNetworkMessage> {
-    LoopEventHandler::new(|msg, client_actions: &mut ClientActions, _| {
+    LoopEventHandler::new(|msg, client_actions: &mut ClientActions| {
         match msg {
             ClientSenderForNetworkMessage::_state_response(msg) => {
                 (msg.callback)(Ok(client_actions.handle(msg.message)));
@@ -61,6 +61,7 @@ pub fn forward_client_messages_from_sync_jobs_to_client_actions(
         }
         ClientSenderForSyncJobsMessage::_block_catch_up_response(msg) => client_actions.handle(msg),
         ClientSenderForSyncJobsMessage::_resharding_response(msg) => client_actions.handle(msg),
+        ClientSenderForSyncJobsMessage::_load_memtrie_response(msg) => client_actions.handle(msg),
     })
 }
 

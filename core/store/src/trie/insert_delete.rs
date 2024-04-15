@@ -534,6 +534,7 @@ impl Trie {
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", target = "store::trie", "Trie::flatten_nodes", skip_all)]
     pub(crate) fn flatten_nodes(
         old_root: &CryptoHash,
         memory: NodesStorage,

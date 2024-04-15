@@ -21,9 +21,9 @@ use near_async::futures::{AsyncComputationSpawner, FutureSpawner};
 use near_async::messaging::IntoSender;
 use near_async::messaging::{CanSend, Sender};
 use near_async::time::{Clock, Duration, Instant};
-use near_chain::chain::VerifyBlockHashAndSignatureResult;
 use near_chain::chain::{
     ApplyStatePartsRequest, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
+    LoadMemtrieRequest, VerifyBlockHashAndSignatureResult,
 };
 use near_chain::flat_storage_creator::FlatStorageCreator;
 use near_chain::orphan::OrphanMissingChunks;
@@ -2327,6 +2327,7 @@ impl Client {
         &mut self,
         highest_height_peers: &[HighestHeightPeerInfo],
         state_parts_task_scheduler: &Sender<ApplyStatePartsRequest>,
+        load_memtrie_scheduler: &Sender<LoadMemtrieRequest>,
         block_catch_up_task_scheduler: &Sender<BlockCatchUpRequest>,
         resharding_scheduler: &Sender<ReshardingRequest>,
         apply_chunks_done_callback: DoneApplyChunkCallback,
@@ -2388,7 +2389,7 @@ impl Client {
                     .iter()
                     .map(|id| self.epoch_manager.shard_id_to_uid(*id, &epoch_id).unwrap())
                     .collect();
-                self.runtime_adapter.retain_mem_tries(&shard_uids);
+                self.runtime_adapter.get_tries().retain_mem_tries(&shard_uids);
 
                 for &shard_id in &tracking_shards {
                     let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
@@ -2418,6 +2419,7 @@ impl Client {
                 highest_height_peers,
                 tracking_shards,
                 state_parts_task_scheduler,
+                load_memtrie_scheduler,
                 resharding_scheduler,
                 state_parts_future_spawner,
                 use_colour,

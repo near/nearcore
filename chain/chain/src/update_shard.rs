@@ -329,6 +329,7 @@ fn apply_resharding_state_changes(
     let state_changes = StateChangesForResharding::from_raw_state_changes(
         apply_result.trie_changes.state_changes(),
         apply_result.processed_delayed_receipts.clone(),
+        apply_result.processed_yield_timeouts.clone(),
     );
     let next_epoch_id = epoch_manager.get_next_epoch_id_from_prev_block(&block.prev_block_hash)?;
     let next_shard_layout = epoch_manager.get_shard_layout(&next_epoch_id)?;

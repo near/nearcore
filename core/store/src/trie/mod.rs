@@ -666,6 +666,7 @@ impl Trie {
             self.flat_storage_chunk_view.clone(),
         );
         trie.recorder = Some(RefCell::new(TrieRecorder::new()));
+        trie.charge_gas_for_trie_node_access = self.charge_gas_for_trie_node_access;
         trie
     }
 
@@ -679,6 +680,15 @@ impl Trie {
         self.recorder
             .as_ref()
             .map(|recorder| recorder.borrow().recorded_storage_size())
+            .unwrap_or_default()
+    }
+
+    /// Size of the recorded state proof plus some additional size added to cover removals.
+    /// An upper-bound estimation of the true recorded size after finalization.
+    pub fn recorded_storage_size_upper_bound(&self) -> usize {
+        self.recorder
+            .as_ref()
+            .map(|recorder| recorder.borrow().recorded_storage_size_upper_bound())
             .unwrap_or_default()
     }
 
@@ -1120,6 +1130,12 @@ impl Trie {
         }
     }
 
+    #[tracing::instrument(
+        level = "trace",
+        target = "store::trie",
+        "Trie::move_node_to_mutable",
+        skip_all
+    )]
     fn move_node_to_mutable(
         &self,
         memory: &mut NodesStorage,

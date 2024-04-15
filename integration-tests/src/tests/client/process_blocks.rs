@@ -2421,7 +2421,7 @@ fn test_catchup_gas_price_change() {
         }
     });
     env.clients[1].chain.schedule_apply_state_parts(0, sync_hash, num_parts, &f).unwrap();
-    env.clients[1].chain.set_state_finalize(0, sync_hash, Ok(())).unwrap();
+    env.clients[1].chain.set_state_finalize(0, sync_hash).unwrap();
     let chunk_extra_after_sync =
         env.clients[1].chain.get_chunk_extra(blocks[4].hash(), &ShardUId::single_shard()).unwrap();
     let expected_chunk_extra =
@@ -2703,7 +2703,7 @@ fn test_execution_metadata() {
       {
         "cost_category": "WASM_HOST_COST",
         "cost": "CONTRACT_LOADING_BYTES",
-        "gas_used": "18423750"
+        "gas_used": "92590075"
       },
       {
         "cost_category": "WASM_HOST_COST",

@@ -76,7 +76,6 @@ io_trace = []
 no_cache = []
 single_thread_rocksdb = [] # Deactivate RocksDB IO background threads
 test_features = []
-serialize_all_state_changes = []
 new_epoch_sync = []
 yield_resume = []
 

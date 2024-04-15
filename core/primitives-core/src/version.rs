@@ -98,6 +98,8 @@ pub enum ProtocolFeature {
     ///
     /// Compute Costs NEP-455: https://github.com/near/NEPs/blob/master/neps/nep-0455.md
     ComputeCosts,
+    /// Decrease the cost of function call action. Only affects the execution cost.
+    DecreaseFunctionCallBaseCost,
     /// Enable flat storage for reads, reducing number of DB accesses from `2 * key.len()` in
     /// the worst case to 2.
     ///
@@ -135,6 +137,11 @@ pub enum ProtocolFeature {
     /// Enables stateless validation which is introduced in https://github.com/near/NEPs/pull/509
     StatelessValidationV0,
     EthImplicitAccounts,
+    /// Enables yield execution which is introduced in https://github.com/near/NEPs/pull/519
+    YieldExecution,
+
+    /// Protocol version reserved for use in resharding tests.
+    SimpleNightshadeTestonly,
 
     // Stateless validation: lower block and chunk validator kickout percent from 90 to 50.
     LowerValidatorKickoutPercentForDebugging,
@@ -198,6 +205,15 @@ impl ProtocolFeature {
             // TODO(resharding) clean up after stake wars is over.
             #[cfg(not(feature = "statelessnet_protocol"))]
             ProtocolFeature::SimpleNightshadeV3 => 65,
+            ProtocolFeature::DecreaseFunctionCallBaseCost => 66,
+
+            // Nightly features which should be tested for compatibility with resharding
+            ProtocolFeature::YieldExecution => 78,
+
+            // This protocol version is reserved for use in resharding tests. An extra resharding
+            // is simulated on top of the latest shard layout in production. Note that later
+            // protocol versions will still have the production layout.
+            ProtocolFeature::SimpleNightshadeTestonly => 79,
 
             // StatelessNet features
             ProtocolFeature::StatelessValidationV0 => 80,
@@ -227,7 +243,7 @@ impl ProtocolFeature {
 /// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 65;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 66;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "statelessnet_protocol") {

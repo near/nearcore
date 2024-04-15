@@ -24,7 +24,7 @@ struct ChunkStateWitnessKey {
 
 impl ChunkStateWitnessKey {
     pub fn new(witness: &ChunkStateWitness) -> Self {
-        Self { chunk_hash: witness.inner.chunk_header.chunk_hash() }
+        Self { chunk_hash: witness.chunk_header.chunk_hash() }
     }
 }
 

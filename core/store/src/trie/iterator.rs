@@ -299,7 +299,7 @@ impl<'a> TrieIterator<'a> {
     }
 
     // TODO(#9446) remove function when shifting to flat storage iteration for resharding
-    pub(crate) fn get_trie_items(
+    pub fn get_trie_items(
         &mut self,
         path_begin: &[u8],
         path_end: &[u8],

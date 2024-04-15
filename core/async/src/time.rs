@@ -21,9 +21,10 @@
 //!    of different machines are not perfectly synchronized, and in extreme
 //!    cases can be totally skewed.
 use once_cell::sync::Lazy;
+use std::cmp::Ordering;
+use std::collections::BinaryHeap;
 use std::sync::{Arc, Mutex};
 pub use time::error;
-use tokio::sync::watch;
 
 // TODO: consider wrapping these types to prevent interactions
 // with other time libraries, especially to prevent the direct access
@@ -124,23 +125,46 @@ impl Clock {
 }
 
 struct FakeClockInner {
-    /// `mono` keeps the current time of the monotonic clock.
-    /// It is wrapped in watch::Sender, so that the value can
-    /// be observed from the clock::sleep() futures.
-    mono: watch::Sender<Instant>,
     utc: Utc,
-    /// We need to keep it so that mono.send() always succeeds.
-    _mono_recv: watch::Receiver<Instant>,
+    instant: Instant,
+    waiters: BinaryHeap<ClockWaiterInHeap>,
+}
+
+/// Whenever a user of a FakeClock calls `sleep` for `sleep_until`, we create a
+/// `ClockWaiterInHeap` so that the returned future can be completed when the
+/// clock advances past the desired deadline.
+struct ClockWaiterInHeap {
+    deadline: Instant,
+    waker: tokio::sync::oneshot::Sender<()>,
+}
+
+impl PartialEq for ClockWaiterInHeap {
+    fn eq(&self, other: &Self) -> bool {
+        self.deadline == other.deadline
+    }
+}
+
+impl PartialOrd for ClockWaiterInHeap {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Eq for ClockWaiterInHeap {}
+
+impl Ord for ClockWaiterInHeap {
+    fn cmp(&self, other: &Self) -> Ordering {
+        other.deadline.cmp(&self.deadline)
+    }
 }
 
 impl FakeClockInner {
     pub fn new(utc: Utc) -> Self {
-        let (mono, _mono_recv) = watch::channel(*FAKE_CLOCK_MONO_START);
-        Self { utc, mono, _mono_recv }
+        Self { utc, instant: *FAKE_CLOCK_MONO_START, waiters: BinaryHeap::new() }
     }
 
     pub fn now(&mut self) -> Instant {
-        *self.mono.borrow()
+        self.instant
     }
     pub fn now_utc(&mut self) -> Utc {
         self.utc
@@ -150,17 +174,19 @@ impl FakeClockInner {
         if d == Duration::ZERO {
             return;
         }
-        let now = *self.mono.borrow();
-        self.mono.send(now + d).unwrap();
+        self.instant += d;
         self.utc += d;
+        while let Some(earliest_waiter) = self.waiters.peek() {
+            if earliest_waiter.deadline <= self.instant {
+                self.waiters.pop().unwrap().waker.send(()).ok();
+            } else {
+                break;
+            }
+        }
     }
     pub fn advance_until(&mut self, t: Instant) {
-        let now = *self.mono.borrow();
-        if t <= now {
-            return;
-        }
-        self.mono.send(t).unwrap();
-        self.utc += t - now;
+        let by = t - self.now();
+        self.advance(by);
     }
 }
 
@@ -198,19 +224,40 @@ impl FakeClock {
 
     /// Cancel-safe.
     pub async fn sleep(&self, d: Duration) {
-        let mut watch = self.0.lock().unwrap().mono.subscribe();
-        let t = *watch.borrow() + d;
-        while *watch.borrow() < t {
-            watch.changed().await.unwrap();
+        if d <= Duration::ZERO {
+            return;
         }
+        let receiver = {
+            let mut inner = self.0.lock().unwrap();
+            let (sender, receiver) = tokio::sync::oneshot::channel();
+            let waiter = ClockWaiterInHeap { waker: sender, deadline: inner.now() + d };
+            inner.waiters.push(waiter);
+            receiver
+        };
+        receiver.await.unwrap();
     }
 
     /// Cancel-safe.
     pub async fn sleep_until(&self, t: Instant) {
-        let mut watch = self.0.lock().unwrap().mono.subscribe();
-        while *watch.borrow() < t {
-            watch.changed().await.unwrap();
-        }
+        let receiver = {
+            let mut inner = self.0.lock().unwrap();
+            if inner.now() >= t {
+                return;
+            }
+            let (sender, receiver) = tokio::sync::oneshot::channel();
+            let waiter = ClockWaiterInHeap { waker: sender, deadline: t };
+            inner.waiters.push(waiter);
+            receiver
+        };
+        receiver.await.unwrap();
+    }
+
+    /// Returns the earliest waiter, or None if no one is waiting on the clock.
+    /// The returned instant is guaranteed to be <= any waiter that is currently
+    /// waiting on the clock to advance.
+    pub fn first_waiter(&self) -> Option<Instant> {
+        let inner = self.0.lock().unwrap();
+        inner.waiters.peek().map(|waiter| waiter.deadline)
     }
 }
 

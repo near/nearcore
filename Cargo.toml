@@ -113,7 +113,7 @@ unnecessary_lazy_evaluations = "deny"
 [workspace.dependencies]
 actix = "0.13.0"
 actix-cors = "0.6.1"
-actix-http = "3.3"
+actix-http = "3.6"
 actix-rt = "2"
 actix-web = "4.1"
 anyhow = "1.0.62"
@@ -121,6 +121,8 @@ arbitrary = { version = "1.2.3", features = ["derive"] }
 arc-swap = "1.5"
 assert_matches = "1.5.0"
 async-trait = "0.1.58"
+aurora-engine-transactions = { git = "https://github.com/aurora-is-near/aurora-engine.git", tag = "3.6.1" }
+aurora-engine-types = { git = "https://github.com/aurora-is-near/aurora-engine.git", tag = "3.6.1" }
 awc = { version = "3", features = ["openssl"] }
 backtrace = "0.3"
 base64 = "0.21"
@@ -170,6 +172,7 @@ ed25519-dalek = { version = "2.1.0", default-features = false, features = [
 elastic-array = "0.11"
 enum-map = "2.1.0"
 enumset = "1.0"
+ethabi = "18"
 expect-test = "1.3.0"
 finite-wasm = "0.5.0"
 fs2 = "0.4"
@@ -275,9 +278,10 @@ num-traits = "0.2.15"
 once_cell = "1.13.1"
 openssl = { version = "0.10.60", features = ["vendored"] }
 openssl-probe = "0.1.4"
-opentelemetry = { version = "0.17.0", features = ["rt-tokio", "trace"] }
-opentelemetry-otlp = "0.10.0"
-opentelemetry-semantic-conventions = "0.9.0"
+opentelemetry = { version = "0.22.0", features = ["trace"] }
+opentelemetry_sdk = { version = "0.22.0", features = ["rt-tokio"] }
+opentelemetry-otlp = "0.15.0"
+opentelemetry-semantic-conventions = "0.14.0"
 paperclip = { version = "0.8.0", features = ["actix4"] }
 parity-wasm = { version = "0.42", default-features = false }
 parity-wasm_41 = { package = "parity-wasm", version = "0.41" }
@@ -358,11 +362,11 @@ tokio-stream = { version = "0.1.2", features = ["net"] }
 tokio-util = { version = "0.7.1", features = ["codec", "io"] }
 toml = "0.5.8"
 tqdm = "0.4.4"
-tracing = { version = "0.1.36", features = ["std"] }
-tracing-appender = "0.2.2"
-tracing-opentelemetry = "0.17.0"
+tracing = { version = "0.1.40", features = ["std"] }
+tracing-appender = "0.2.3"
+tracing-opentelemetry = "0.23.0"
 tracing-span-tree = "0.1"
-tracing-subscriber = { version = "0.3.15", features = [
+tracing-subscriber = { version = "0.3.18", features = [
     "env-filter",
     "fmt",
     "registry",
@@ -402,6 +406,7 @@ winapi = { version = "0.3", features = [
 xshell = "0.2.1"
 xz2 = "0.1.6"
 yansi = "0.5.1"
+zstd = "0.13.1"
 
 stdx = { package = "near-stdx", path = "utils/stdx" }
 

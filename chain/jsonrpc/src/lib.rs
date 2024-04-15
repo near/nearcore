@@ -711,8 +711,7 @@ impl JsonRpcHandler {
     > {
         self.send_tx(RpcSendTransactionRequest {
             signed_transaction: request_data.signed_transaction,
-            // Will be ignored, broadcast_tx_commit is not aligned with existing enum
-            wait_until: Default::default(),
+            wait_until: TxExecutionStatus::ExecutedOptimistic,
         })
         .await
     }

@@ -301,7 +301,7 @@ fn run_state_sync_with_dumped_parts(
                 .apply_state_part(0, &state_root, PartId::new(part_id, num_parts), &part, &epoch_id)
                 .unwrap();
         }
-        env.clients[1].chain.set_state_finalize(0, sync_hash, Ok(())).unwrap();
+        env.clients[1].chain.set_state_finalize(0, sync_hash).unwrap();
         tracing::info!("syncing node: state sync finished.");
 
         let synced_block = env.clients[1].chain.get_block(&sync_hash).unwrap();

@@ -4,7 +4,7 @@ use near_async::time::Duration;
 use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
 use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
-    BlockCatchUpResponse,
+    BlockCatchUpResponse, LoadMemtrieRequest, LoadMemtrieResponse,
 };
 use near_chain::resharding::{ReshardingRequest, ReshardingResponse};
 use near_chain::Chain;
@@ -19,6 +19,7 @@ pub struct ClientSenderForSyncJobs {
     apply_state_parts_response: Sender<ApplyStatePartsResponse>,
     block_catch_up_response: Sender<BlockCatchUpResponse>,
     resharding_response: Sender<ReshardingResponse>,
+    load_memtrie_response: Sender<LoadMemtrieResponse>,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
@@ -80,9 +81,23 @@ impl SyncJobsActions {
         Ok(success)
     }
 
+    /// This call is synchronous and handled in `sync_jobs_actor`.
+    pub fn handle_load_memtrie_request(&mut self, msg: LoadMemtrieRequest) {
+        let result = msg
+            .runtime_adapter
+            .get_tries()
+            .load_mem_trie_on_catchup(&msg.shard_uid, &msg.prev_state_root)
+            .map_err(|error| error.into());
+        self.client_sender.send(LoadMemtrieResponse {
+            load_result: result,
+            shard_uid: msg.shard_uid,
+            sync_hash: msg.sync_hash,
+        });
+    }
+
     pub fn handle_apply_state_parts_request(&mut self, msg: ApplyStatePartsRequest) {
         // Unload mem-trie (in case it is still loaded) before we apply state parts.
-        msg.runtime_adapter.unload_mem_trie(&msg.shard_uid);
+        msg.runtime_adapter.get_tries().unload_mem_trie(&msg.shard_uid);
 
         let shard_id = msg.shard_uid.shard_id as ShardId;
         match self.clear_flat_state(&msg) {

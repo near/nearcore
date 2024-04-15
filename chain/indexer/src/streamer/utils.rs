@@ -2,6 +2,7 @@ use actix::Addr;
 
 use near_indexer_primitives::IndexerTransactionWithOutcome;
 use near_parameters::RuntimeConfig;
+use near_primitives::version::ProtocolVersion;
 use near_primitives::views;
 use node_runtime::config::tx_cost;
 
@@ -13,6 +14,7 @@ pub(crate) async fn convert_transactions_sir_into_local_receipts(
     runtime_config: &RuntimeConfig,
     txs: Vec<&IndexerTransactionWithOutcome>,
     block: &views::BlockView,
+    protocol_version: ProtocolVersion,
 ) -> Result<Vec<views::ReceiptView>, FailedToFetchData> {
     if txs.is_empty() {
         return Ok(vec![]);

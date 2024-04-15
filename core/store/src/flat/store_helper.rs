@@ -178,7 +178,7 @@ pub fn set_flat_state_values_inlining_migration_status(
     })
 }
 
-pub(crate) fn get_flat_state_value(
+pub fn get_flat_state_value(
     store: &Store,
     shard_uid: ShardUId,
     key: &[u8],

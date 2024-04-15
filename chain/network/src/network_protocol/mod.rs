@@ -8,8 +8,8 @@ mod proto_conv;
 mod state_sync;
 pub use edge::*;
 use near_primitives::stateless_validation::ChunkEndorsement;
-use near_primitives::stateless_validation::ChunkStateWitness;
 use near_primitives::stateless_validation::ChunkStateWitnessAck;
+use near_primitives::stateless_validation::SignedEncodedChunkStateWitness;
 pub use peer::*;
 pub use state_sync::*;
 
@@ -52,6 +52,10 @@ use std::fmt;
 use std::fmt::Debug;
 use std::sync::Arc;
 use tracing::Span;
+
+/// Send important messages three times.
+/// We send these messages multiple times to reduce the chance that they are lost
+const IMPORTANT_MESSAGE_RESENT_COUNT: usize = 3;
 
 #[derive(PartialEq, Eq, Clone, Debug, Hash)]
 pub struct PeerAddr {
@@ -530,24 +534,22 @@ pub enum RoutedMessageBody {
     VersionedPartialEncodedChunk(PartialEncodedChunk),
     _UnusedVersionedStateResponse,
     PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
-    ChunkStateWitness(ChunkStateWitness),
+    ChunkStateWitness(SignedEncodedChunkStateWitness),
     ChunkEndorsement(ChunkEndorsement),
     ChunkStateWitnessAck(ChunkStateWitnessAck),
 }
 
 impl RoutedMessageBody {
-    // Return whether this message is important.
-    // In routing logics, we send important messages multiple times to minimize the risk that they are
-    // lost
-    pub fn is_important(&self) -> bool {
+    // Return the number of times this message should be sent.
+    // In routing logics, we send important messages multiple times to minimize the risk that they are lost
+    pub fn message_resend_count(&self) -> usize {
         match self {
             // These messages are important because they are critical for block and chunk production,
             // and lost messages cannot be requested again.
             RoutedMessageBody::BlockApproval(_)
-            | RoutedMessageBody::ChunkEndorsement(_)
-            | RoutedMessageBody::ChunkStateWitness(_)
-            | RoutedMessageBody::VersionedPartialEncodedChunk(_) => true,
-            _ => false,
+            | RoutedMessageBody::VersionedPartialEncodedChunk(_) => IMPORTANT_MESSAGE_RESENT_COUNT,
+            // Default value is sending just once.
+            _ => 1,
         }
     }
 }

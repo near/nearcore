@@ -50,6 +50,7 @@ use near_primitives::types::AccountId;
 use near_primitives::types::StateRoot;
 use near_store::{PrefetchApi, PrefetchError, Trie};
 use sha2::Digest;
+use std::str::FromStr;
 use tracing::{debug, warn};
 
 use crate::metrics;
@@ -63,22 +64,21 @@ pub(crate) struct TriePrefetcher {
 
 impl TriePrefetcher {
     pub(crate) fn new_if_enabled(trie: &Trie) -> Option<Self> {
-        if let Some(caching_storage) = trie.internal_get_storage_as_caching_storage() {
-            if let Some(prefetch_api) = caching_storage.prefetch_api().clone() {
-                let trie_root = *trie.get_root();
-                let shard_uid = prefetch_api.shard_uid;
-                let metrics_labels: [&str; 1] = [&shard_uid.shard_id.to_string()];
-                return Some(Self {
-                    prefetch_api,
-                    trie_root,
-                    prefetch_enqueued: metrics::PREFETCH_ENQUEUED
-                        .with_label_values(&metrics_labels),
-                    prefetch_queue_full: metrics::PREFETCH_QUEUE_FULL
-                        .with_label_values(&metrics_labels),
-                });
-            }
-        }
-        None
+        let Some(caching_storage) = trie.internal_get_storage_as_caching_storage() else {
+            return None;
+        };
+        let Some(prefetch_api) = caching_storage.prefetch_api().clone() else {
+            return None;
+        };
+        let trie_root = *trie.get_root();
+        let shard_uid = prefetch_api.shard_uid;
+        let metrics_labels: [&str; 1] = [&shard_uid.shard_id.to_string()];
+        Some(Self {
+            prefetch_api,
+            trie_root,
+            prefetch_enqueued: metrics::PREFETCH_ENQUEUED.with_label_values(&metrics_labels),
+            prefetch_queue_full: metrics::PREFETCH_QUEUE_FULL.with_label_values(&metrics_labels),
+        })
     }
 
     /// Starts prefetching data for processing the receipts.
@@ -91,36 +91,83 @@ impl TriePrefetcher {
         receipts: &[Receipt],
     ) -> Result<(), PrefetchError> {
         for receipt in receipts.iter() {
-            match &receipt.receipt {
+            let is_refund = receipt.predecessor_id.is_system();
+            let action_receipt = match &receipt.receipt {
                 ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
-                    let account_id = receipt.receiver_id.clone();
+                    action_receipt
+                }
+                ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => {
+                    continue;
+                }
+            };
+            let account_id = receipt.receiver_id.clone();
 
-                    // general-purpose account prefetching
-                    if self.prefetch_api.enable_receipt_prefetching {
-                        let trie_key = TrieKey::Account { account_id: account_id.clone() };
-                        self.prefetch_trie_key(trie_key)?;
-                    }
-
-                    // SWEAT specific argument prefetcher
-                    if self.prefetch_api.sweat_prefetch_receivers.contains(&account_id)
-                        && self
-                            .prefetch_api
-                            .sweat_prefetch_senders
-                            .contains(&receipt.predecessor_id)
-                    {
-                        for action in &action_receipt.actions {
-                            if let Action::FunctionCall(fn_call) = action {
-                                if fn_call.method_name == "record_batch" {
-                                    self.prefetch_sweat_record_batch(
-                                        account_id.clone(),
-                                        &fn_call.args,
-                                    )?;
-                                }
-                            }
+            // general-purpose account prefetching
+            if self.prefetch_api.enable_receipt_prefetching {
+                let trie_key = TrieKey::Account { account_id: account_id.clone() };
+                self.prefetch_trie_key(trie_key)?;
+                if is_refund {
+                    let trie_key = TrieKey::AccessKey {
+                        account_id: account_id.clone(),
+                        public_key: action_receipt.signer_public_key.clone(),
+                    };
+                    self.prefetch_trie_key(trie_key)?;
+                }
+                for action in &action_receipt.actions {
+                    match action {
+                        Action::Delegate(delegate_action) => {
+                            let trie_key = TrieKey::AccessKey {
+                                account_id: delegate_action.delegate_action.sender_id.clone(),
+                                public_key: delegate_action.delegate_action.public_key.clone(),
+                            };
+                            self.prefetch_trie_key(trie_key)?;
                         }
+                        Action::AddKey(add_key_action) => {
+                            let trie_key = TrieKey::AccessKey {
+                                account_id: account_id.clone(),
+                                public_key: add_key_action.public_key.clone(),
+                            };
+                            self.prefetch_trie_key(trie_key)?;
+                        }
+                        Action::DeleteKey(delete_key_action) => {
+                            let trie_key = TrieKey::AccessKey {
+                                account_id: account_id.clone(),
+                                public_key: delete_key_action.public_key.clone(),
+                            };
+                            self.prefetch_trie_key(trie_key)?;
+                        }
+                        _ => {}
                     }
                 }
-                ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => {}
+            }
+
+            for action in &action_receipt.actions {
+                let Action::FunctionCall(fn_call) = action else {
+                    continue;
+                };
+                if self.prefetch_api.sweat_prefetch_receivers.contains(&account_id)
+                    && self.prefetch_api.sweat_prefetch_senders.contains(&receipt.predecessor_id)
+                {
+                    if fn_call.method_name == "record_batch" {
+                        self.prefetch_sweat_record_batch(account_id.clone(), &fn_call.args)?;
+                    }
+                }
+
+                if self.prefetch_api.claim_sweat_prefetch_config.iter().any(|cfg| {
+                    cfg.sender == receipt.predecessor_id.as_str()
+                        && cfg.receiver == account_id.as_str()
+                        && cfg.method_name == fn_call.method_name
+                }) {
+                    self.prefetch_claim_sweat(account_id.clone(), &fn_call.args)?;
+                }
+
+                if self.prefetch_api.kaiching_prefetch_config.iter().any(|cfg| {
+                    cfg.sender == receipt.predecessor_id.as_str()
+                        && cfg.receiver == account_id.as_str()
+                        && cfg.method_name == fn_call.method_name
+                }) {
+                    self.prefetch_kaiching(account_id.clone(), &fn_call.args)?;
+                }
             }
         }
         Ok(())
@@ -164,9 +211,13 @@ impl TriePrefetcher {
     /// at the same time. They share a prefetcher, so they will clean each others
     /// data. Handling this is a bit more involved. Failing to do so makes prefetching
     /// less effective in those cases but crucially nothing breaks.
-    pub(crate) fn clear(&self) {
-        self.prefetch_api.clear_queue();
+    ///
+    /// Returns the number of prefetch requests that have been removed from the prefetch queue.
+    /// If this number is large, the prefetches aren't actually getting executed before cancelling.
+    pub(crate) fn clear(&self) -> usize {
+        let ret = self.prefetch_api.clear_queue();
         self.prefetch_api.clear_data();
+        ret
     }
 
     fn prefetch_trie_key(&self, trie_key: TrieKey) -> Result<(), PrefetchError> {
@@ -185,38 +236,130 @@ impl TriePrefetcher {
         res
     }
 
-    /// Prefetcher specifically tuned for SWEAT record batch
+    /// Prefetcher tuned for SWEAT contract calls of method steps_batch.
     ///
-    /// Temporary hack, consider removing after merging flat storage, see
-    /// <https://github.com/near/nearcore/issues/7327>.
+    /// Remove after #10965 reaches mainnet.
     fn prefetch_sweat_record_batch(
         &self,
         account_id: AccountId,
         arg: &[u8],
     ) -> Result<(), PrefetchError> {
-        if let Ok(json) = serde_json::de::from_slice::<serde_json::Value>(arg) {
-            if json.is_object() {
-                if let Some(list) = json.get("steps_batch") {
-                    if let Some(list) = list.as_array() {
-                        for tuple in list.iter() {
-                            if let Some(tuple) = tuple.as_array() {
-                                if let Some(user_account) = tuple.first().and_then(|a| a.as_str()) {
-                                    let hashed_account =
-                                        sha2::Sha256::digest(user_account.as_bytes()).into_iter();
-                                    let mut key = vec![0x74, 0x00];
-                                    key.extend(hashed_account);
-                                    let trie_key = TrieKey::ContractData {
-                                        account_id: account_id.clone(),
-                                        key: key.to_vec(),
-                                    };
-                                    near_o11y::io_trace!(count: "prefetch");
-                                    self.prefetch_trie_key(trie_key)?;
-                                }
-                            }
-                        }
-                    }
-                }
+        let Ok(json) = serde_json::de::from_slice::<serde_json::Value>(arg) else {
+            return Ok(());
+        };
+        let Some(list) = &json.get("steps_batch") else {
+            return Ok(());
+        };
+        let Some(list) = list.as_array() else {
+            return Ok(());
+        };
+
+        for tuple in list.iter() {
+            let Some(tuple) = tuple.as_array() else {
+                continue;
+            };
+            let Some(user_account) = tuple.first().and_then(|a| a.as_str()) else {
+                continue;
+            };
+            let hashed_account = sha2::Sha256::digest(user_account.as_bytes()).into_iter();
+            // This is a "t" string used as the unique prefix of underlying
+            // data structure terminated by a null value.
+            let mut key = vec![0x74, 0x00];
+            key.extend(hashed_account);
+            let trie_key =
+                TrieKey::ContractData { account_id: account_id.clone(), key: key.to_vec() };
+            near_o11y::io_trace!(count: "prefetch");
+            self.prefetch_trie_key(trie_key)?;
+        }
+        Ok(())
+    }
+
+    /// Prefetcher tuned for claim.sweat contract calls.
+    ///
+    /// Remove after #10965 reaches mainnet.
+    fn prefetch_claim_sweat(&self, account_id: AccountId, arg: &[u8]) -> Result<(), PrefetchError> {
+        let Ok(json) = serde_json::de::from_slice::<serde_json::Value>(arg) else {
+            return Ok(());
+        };
+        let Some(list) = json.get("amounts") else {
+            return Ok(());
+        };
+        let Some(list) = list.as_array() else {
+            return Ok(());
+        };
+        for tuple in list.iter() {
+            let Some(tuple) = tuple.as_array() else {
+                continue;
+            };
+            let Some(user_account) = tuple.first().and_then(|a| a.as_str()) else {
+                continue;
+            };
+            // Unique prefix of underlying data structure.
+            let mut key = vec![0, 64, 0, 0, 0];
+            key.extend(user_account.as_bytes());
+            let trie_key = TrieKey::ContractData { account_id: account_id.clone(), key };
+            near_o11y::io_trace!(count: "prefetch");
+            self.prefetch_trie_key(trie_key)?;
+        }
+        Ok(())
+    }
+
+    /// Prefetcher tuned for kaiching contract calls.
+    ///
+    /// Remove after #10965 reaches mainnet.
+    fn prefetch_kaiching(&self, account_id: AccountId, arg: &[u8]) -> Result<(), PrefetchError> {
+        let Ok(json) = serde_json::de::from_slice::<serde_json::Value>(&arg) else {
+            return Ok(());
+        };
+        let Some(msg) = json.get("msg") else {
+            return Ok(());
+        };
+        let Some(json) = msg
+            .as_str()
+            .and_then(|s| serde_json::de::from_slice::<serde_json::Value>(s.as_bytes()).ok())
+        else {
+            return Ok(());
+        };
+        let Some(list) = json.get("rewards") else {
+            return Ok(());
+        };
+        let Some(list) = list.as_array() else {
+            return Ok(());
+        };
+
+        for tuple in list.iter() {
+            let Some(tuple) = tuple.as_array() else {
+                continue;
+            };
+            // Unique prefix of underlying data structure.
+            let mut user_account_key = vec![1, 109];
+            let user_account_serialize_result = tuple
+                .get(0)
+                .and_then(|a| a.as_str())
+                .and_then(|a| AccountId::from_str(a).ok())
+                .and_then(|a| borsh::BorshSerialize::serialize(&a, &mut user_account_key).ok());
+            if user_account_serialize_result.is_none() {
+                continue;
             }
+            let reward_id = tuple.get(2).and_then(|a| a.as_str());
+            let Some(reward_id) = reward_id else {
+                continue;
+            };
+            let user_account_key_hash = sha2::Sha256::digest(&user_account_key);
+            let trie_key = TrieKey::ContractData {
+                account_id: account_id.clone(),
+                key: user_account_key_hash.to_vec(),
+            };
+            near_o11y::io_trace!(count: "prefetch");
+            self.prefetch_trie_key(trie_key)?;
+
+            // Unique prefix of underlying data structure.
+            let mut reward_key = vec![0, 24, 0, 0, 0];
+            reward_key.extend(reward_id.as_bytes());
+            let trie_key =
+                TrieKey::ContractData { account_id: account_id.clone(), key: reward_key };
+            near_o11y::io_trace!(count: "prefetch");
+            self.prefetch_trie_key(trie_key)?;
         }
         Ok(())
     }

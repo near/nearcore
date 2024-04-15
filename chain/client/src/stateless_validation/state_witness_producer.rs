@@ -10,10 +10,11 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::stateless_validation::{
-    ChunkStateTransition, ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessInner,
-    StoredChunkStateTransitionData,
+    ChunkStateTransition, ChunkStateWitness, ChunkStateWitnessAck, EncodedChunkStateWitness,
+    SignedEncodedChunkStateWitness, StoredChunkStateTransitionData,
 };
-use near_primitives::types::EpochId;
+use near_primitives::types::{AccountId, EpochId};
+use near_primitives::validator_signer::ValidatorSigner;
 use std::collections::HashMap;
 
 use crate::stateless_validation::chunk_validator::send_chunk_endorsement_to_block_producers;
@@ -46,19 +47,14 @@ impl Client {
             .ordered_chunk_validators();
 
         let my_signer = self.validator_signer.as_ref().ok_or(Error::NotAValidator)?.clone();
-        let (witness, witness_size) = {
-            let witness_inner = self.create_state_witness_inner(
-                prev_block_header,
-                prev_chunk_header,
-                chunk,
-                transactions_storage_proof,
-            )?;
-            let (signature, witness_size) = my_signer.sign_chunk_state_witness(&witness_inner);
-            metrics::CHUNK_STATE_WITNESS_TOTAL_SIZE
-                .with_label_values(&[&chunk_header.shard_id().to_string()])
-                .observe(witness_size as f64);
-            (ChunkStateWitness { inner: witness_inner, signature }, witness_size)
-        };
+        let witness = self.create_state_witness(
+            my_signer.validator_id().clone(),
+            prev_block_header,
+            prev_chunk_header,
+            chunk,
+            transactions_storage_proof,
+        )?;
+        let signed_witness = create_signed_witness(&witness, my_signer.as_ref())?;
 
         if chunk_validators.contains(my_signer.validator_id()) {
             // Bypass state witness validation if we created state witness. Endorse the chunk immediately.
@@ -84,12 +80,12 @@ impl Client {
         // See process_chunk_state_witness_ack for the handling of the ack messages.
         self.state_witness_tracker.record_witness_sent(
             &witness,
-            witness_size,
+            signed_witness.witness_bytes.size_bytes(),
             chunk_validators.len(),
         );
 
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::ChunkStateWitness(chunk_validators, witness),
+            NetworkRequests::ChunkStateWitness(chunk_validators, signed_witness),
         ));
         Ok(())
     }
@@ -103,14 +99,17 @@ impl Client {
         self.state_witness_tracker.on_witness_ack_received(witness_ack);
     }
 
-    pub(crate) fn create_state_witness_inner(
+    pub(crate) fn create_state_witness(
         &mut self,
+        chunk_producer: AccountId,
         prev_block_header: &BlockHeader,
         prev_chunk_header: &ShardChunkHeader,
         chunk: &ShardChunk,
         transactions_storage_proof: Option<PartialState>,
-    ) -> Result<ChunkStateWitnessInner, Error> {
+    ) -> Result<ChunkStateWitness, Error> {
         let chunk_header = chunk.cloned_header();
+        let epoch_id =
+            self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
         let prev_chunk = self.chain.get_chunk(&prev_chunk_header.chunk_hash())?;
         let (main_state_transition, implicit_transitions, applied_receipts_hash) =
             self.collect_state_transition_data(&chunk_header, prev_chunk_header)?;
@@ -131,8 +130,10 @@ impl Client {
         let source_receipt_proofs =
             self.collect_source_receipt_proofs(prev_block_header, prev_chunk_header)?;
 
-        let witness_inner = ChunkStateWitnessInner::new(
-            chunk_header.clone(),
+        let witness = ChunkStateWitness::new(
+            chunk_producer,
+            epoch_id,
+            chunk_header,
             main_state_transition,
             source_receipt_proofs,
             // (Could also be derived from iterating through the receipts, but
@@ -144,7 +145,7 @@ impl Client {
             new_transactions,
             new_transactions_validation_state,
         );
-        Ok(witness_inner)
+        Ok(witness)
     }
 
     /// Collect state transition data necessary to produce state witness for
@@ -298,4 +299,27 @@ impl Client {
         }
         Ok(source_receipt_proofs)
     }
+}
+
+fn create_signed_witness(
+    witness: &ChunkStateWitness,
+    my_signer: &dyn ValidatorSigner,
+) -> Result<SignedEncodedChunkStateWitness, Error> {
+    let shard_id_label = witness.chunk_header.shard_id().to_string();
+    let encode_timer = metrics::CHUNK_STATE_WITNESS_ENCODE_TIME
+        .with_label_values(&[shard_id_label.as_str()])
+        .start_timer();
+    let (witness_bytes, raw_witness_size) = EncodedChunkStateWitness::encode(&witness)?;
+    encode_timer.observe_duration();
+    let signed_witness = SignedEncodedChunkStateWitness {
+        signature: my_signer.sign_chunk_state_witness(&witness_bytes),
+        witness_bytes,
+    };
+    metrics::CHUNK_STATE_WITNESS_TOTAL_SIZE
+        .with_label_values(&[shard_id_label.as_str()])
+        .observe(signed_witness.witness_bytes.size_bytes() as f64);
+    metrics::CHUNK_STATE_WITNESS_RAW_SIZE
+        .with_label_values(&[shard_id_label.as_str()])
+        .observe(raw_witness_size as f64);
+    Ok(signed_witness)
 }

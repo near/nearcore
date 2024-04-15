@@ -1,5 +1,7 @@
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
-use near_primitives::stateless_validation::ChunkStateWitness;
+use near_primitives::stateless_validation::{
+    ChunkStateWitness, EncodedChunkStateWitness, SignedEncodedChunkStateWitness,
+};
 use near_store::test_utils::create_test_store;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -331,10 +333,14 @@ fn test_chunk_state_witness_bad_shard_id() {
     let previous_block = env.clients[0].chain.head().unwrap().prev_block_hash;
     let invalid_shard_id = 1000000000;
     let witness = ChunkStateWitness::new_dummy(upper_height, invalid_shard_id, previous_block);
+    let signed_witness = SignedEncodedChunkStateWitness {
+        witness_bytes: EncodedChunkStateWitness::encode(&witness).unwrap().0,
+        signature: Default::default(),
+    };
 
     // Client should reject this ChunkStateWitness and the error message should mention "shard"
     tracing::info!(target: "test", "Processing invalid ChunkStateWitness");
-    let res = env.clients[0].process_chunk_state_witness(witness, None);
+    let res = env.clients[0].process_chunk_state_witness(signed_witness, None);
     let error = res.unwrap_err();
     let error_message = format!("{}", error).to_lowercase();
     tracing::info!(target: "test", "error message: {}", error_message);

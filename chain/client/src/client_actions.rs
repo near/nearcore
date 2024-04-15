@@ -21,6 +21,7 @@ use near_async::time::{Duration, Instant};
 use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
 use near_chain::chain::{
     ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest, BlockCatchUpResponse,
+    LoadMemtrieRequest, LoadMemtrieResponse,
 };
 use near_chain::resharding::{ReshardingRequest, ReshardingResponse};
 use near_chain::test_utils::format_hash;
@@ -89,6 +90,7 @@ pub struct ClientSenderForClient {
 #[multi_send_message_derive(Debug)]
 pub struct SyncJobsSenderForClient {
     pub apply_state_parts: Sender<ApplyStatePartsRequest>,
+    pub load_memtrie: Sender<LoadMemtrieRequest>,
     pub block_catch_up: Sender<BlockCatchUpRequest>,
     pub resharding: Sender<ReshardingRequest>,
 }
@@ -619,6 +621,7 @@ impl ClientActionHandler<Status> for ClientActions {
             node_public_key,
             node_key,
             uptime_sec,
+            genesis_hash: *self.client.chain.genesis().hash(),
             detailed_debug_status,
         })
     }
@@ -1393,6 +1396,7 @@ impl ClientActions {
             if let Err(err) = self.client.run_catchup(
                 &self.network_info.highest_height_peers,
                 &self.sync_jobs_sender.apply_state_parts,
+                &self.sync_jobs_sender.load_memtrie,
                 &self.sync_jobs_sender.block_catch_up,
                 &self.sync_jobs_sender.resharding,
                 self.get_apply_chunks_done_callback(),
@@ -1619,6 +1623,7 @@ impl ClientActions {
                         &self.network_info.highest_height_peers,
                         shards_to_sync,
                         &self.sync_jobs_sender.apply_state_parts,
+                        &self.sync_jobs_sender.load_memtrie,
                         &self.sync_jobs_sender.resharding,
                         self.state_parts_future_spawner.as_ref(),
                         use_colour,
@@ -1777,6 +1782,26 @@ impl ClientActionHandler<ReshardingResponse> for ClientActions {
             sync.set_resharding_result(msg.shard_id, msg.new_state_roots);
         } else {
             self.client.state_sync.set_resharding_result(msg.shard_id, msg.new_state_roots);
+        }
+    }
+}
+
+impl ClientActionHandler<LoadMemtrieResponse> for ClientActions {
+    type Result = ();
+
+    // The memtrie was loaded as a part of catchup or state-sync,
+    // (see https://github.com/near/nearcore/blob/master/docs/architecture/how/sync.md#basics).
+    // Here we save the result of loading memtrie to the appropriate place,
+    // depending on whether it was catch-up or state sync.
+    #[perf]
+    fn handle(&mut self, msg: LoadMemtrieResponse) -> Self::Result {
+        tracing::debug!(target: "client", ?msg);
+        if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
+            // We are doing catchup
+            sync.set_load_memtrie_result(msg.shard_uid, msg.load_result);
+        } else {
+            // We are doing state sync
+            self.client.state_sync.set_load_memtrie_result(msg.shard_uid, msg.load_result);
         }
     }
 }

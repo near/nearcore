@@ -1,3 +1,4 @@
+use crate::config::PrefetchConfig;
 use crate::sync_utils::Monitor;
 use crate::{
     metrics, DBCol, MissingTrieValueContext, StorageError, Store, Trie, TrieCache,
@@ -82,6 +83,8 @@ pub struct PrefetchApi {
     pub sweat_prefetch_receivers: Vec<AccountId>,
     /// List of allowed predecessor accounts for SWEAT prefetching.
     pub sweat_prefetch_senders: Vec<AccountId>,
+    pub claim_sweat_prefetch_config: Vec<PrefetchConfig>,
+    pub kaiching_prefetch_config: Vec<PrefetchConfig>,
 
     pub shard_uid: ShardUId,
 }
@@ -406,7 +409,8 @@ impl PrefetchApi {
         let sweat_prefetch_receivers = trie_config.sweat_prefetch_receivers.clone();
         let sweat_prefetch_senders = trie_config.sweat_prefetch_senders.clone();
         let enable_receipt_prefetching = trie_config.enable_receipt_prefetching;
-
+        let claim_sweat_prefetch_config = trie_config.claim_sweat_prefetch_config.clone();
+        let kaiching_prefetch_config = trie_config.kaiching_prefetch_config.clone();
         let this = Self {
             work_queue_tx,
             work_queue_rx,
@@ -414,6 +418,8 @@ impl PrefetchApi {
             enable_receipt_prefetching,
             sweat_prefetch_receivers,
             sweat_prefetch_senders,
+            claim_sweat_prefetch_config,
+            kaiching_prefetch_config,
             shard_uid,
         };
         let (shutdown_tx, shutdown_rx) = crossbeam::channel::bounded(1);
@@ -494,8 +500,12 @@ impl PrefetchApi {
     ///
     /// Queued up work will not be finished. But trie keys that are already
     /// being fetched will finish.
-    pub fn clear_queue(&self) {
-        while let Ok(_dropped) = self.work_queue_rx.try_recv() {}
+    pub fn clear_queue(&self) -> usize {
+        let mut count = 0;
+        while let Ok(_dropped) = self.work_queue_rx.try_recv() {
+            count += 1;
+        }
+        count
     }
 
     /// Clear prefetched staging area from data that has not been picked up by the main thread.

@@ -1,6 +1,7 @@
 use crate::single_shard_storage_mutator::SingleShardStorageMutator;
 use crate::storage_mutator::StorageMutator;
 use anyhow::Context;
+use chrono::{DateTime, Utc};
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::{Genesis, GenesisConfig, GenesisValidationMode, NEAR_BASE};
@@ -14,7 +15,6 @@ use near_primitives::account::id::AccountType;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::borsh;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::Receipt;
 use near_primitives::serialize::dec_format;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
@@ -107,6 +107,10 @@ struct SetValidatorsCmd {
     pub epoch_length: NumBlocks,
     #[arg(long, default_value = "-fork", allow_hyphen_values = true)]
     pub chain_id_suffix: String,
+    /// Timestamp that should be set in the genesis block. This is required if you want
+    /// to create a consistent forked network across many machines
+    #[arg(long)]
+    pub genesis_time: Option<DateTime<Utc>>,
 }
 
 #[derive(clap::Parser)]
@@ -176,11 +180,13 @@ impl ForkNetworkCommand {
                 self.amend_access_keys(*batch_size, near_config, home_dir)?;
             }
             SubCommand::SetValidators(SetValidatorsCmd {
+                genesis_time,
                 validators,
                 epoch_length,
                 chain_id_suffix,
             }) => {
                 self.set_validators(
+                    genesis_time.unwrap_or_else(chrono::Utc::now),
                     validators,
                     *epoch_length,
                     chain_id_suffix,
@@ -320,7 +326,7 @@ impl ForkNetworkCommand {
         let runtime =
             NightshadeRuntime::from_config(home_dir, store.clone(), &near_config, epoch_manager)
                 .context("could not create the transaction runtime")?;
-        runtime.load_mem_tries_on_startup(&all_shard_uids).unwrap();
+        runtime.get_tries().load_mem_tries_for_enabled_shards(&all_shard_uids).unwrap();
 
         let make_storage_mutator: MakeSingleShardStorageMutatorFn =
             Arc::new(move |prev_state_root| {
@@ -344,6 +350,7 @@ impl ForkNetworkCommand {
     /// Creates a genesis file with the new validators.
     fn set_validators(
         &self,
+        genesis_time: DateTime<Utc>,
         validators: &Path,
         epoch_length: u64,
         chain_id_suffix: &str,
@@ -379,6 +386,7 @@ impl ForkNetworkCommand {
         tracing::info!("Creating a new genesis");
         backup_genesis_file(home_dir, &near_config)?;
         self.make_and_write_genesis(
+            genesis_time,
             epoch_length,
             block_height,
             chain_id_suffix,
@@ -480,6 +488,8 @@ impl ForkNetworkCommand {
         tracing::info!(?shard_uid);
         let mut storage_mutator: SingleShardStorageMutator = make_storage_mutator(prev_state_root)?;
 
+        // TODO: allow mutating the state with a secret, so this can be used to prepare a public test network
+        let default_key = near_mirror::key_mapping::default_extra_key(None).public_key();
         // Keeps track of accounts that have a full access key.
         let mut has_full_key = HashSet::new();
         // Lets us lookup large values in the `State` columns.
@@ -495,7 +505,6 @@ impl ForkNetworkCommand {
         let mut contract_data_updated = 0;
         let mut contract_code_updated = 0;
         let mut postponed_receipts_updated = 0;
-        let mut delayed_receipts_updated = 0;
         let mut received_data_updated = 0;
         let mut fake_block_height = block_height + 1;
         for item in store_helper::iter_flat_state_entries(shard_uid, &store, None, None) {
@@ -554,23 +563,11 @@ impl ForkNetworkCommand {
                             contract_code_updated += 1;
                         }
                     }
-                    StateRecord::PostponedReceipt(receipt) => {
-                        // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
-                        if receipt.predecessor_id.get_account_type()
-                            == AccountType::NearImplicitAccount
-                            || receipt.receiver_id.get_account_type()
-                                == AccountType::NearImplicitAccount
-                        {
-                            let new_receipt = Receipt {
-                                predecessor_id: map_account(&receipt.predecessor_id, None),
-                                receiver_id: map_account(&receipt.receiver_id, None),
-                                receipt_id: receipt.receipt_id,
-                                receipt: receipt.receipt.clone(),
-                            };
-                            storage_mutator.delete_postponed_receipt(receipt)?;
-                            storage_mutator.set_postponed_receipt(&new_receipt)?;
-                            postponed_receipts_updated += 1;
-                        }
+                    StateRecord::PostponedReceipt(mut receipt) => {
+                        storage_mutator.delete_postponed_receipt(&receipt)?;
+                        near_mirror::genesis::map_receipt(&mut receipt, None, &default_key);
+                        storage_mutator.set_postponed_receipt(&receipt)?;
+                        postponed_receipts_updated += 1;
                     }
                     StateRecord::ReceivedData { account_id, data_id, data } => {
                         // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
@@ -581,24 +578,10 @@ impl ForkNetworkCommand {
                             received_data_updated += 1;
                         }
                     }
-                    StateRecord::DelayedReceipt(receipt) => {
-                        // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
-                        if receipt.predecessor_id.get_account_type()
-                            == AccountType::NearImplicitAccount
-                            || receipt.receiver_id.get_account_type()
-                                == AccountType::NearImplicitAccount
-                        {
-                            let new_receipt = Receipt {
-                                predecessor_id: map_account(&receipt.predecessor_id, None),
-                                receiver_id: map_account(&receipt.receiver_id, None),
-                                receipt_id: receipt.receipt_id,
-                                receipt: receipt.receipt,
-                            };
-                            storage_mutator.delete_delayed_receipt(index_delayed_receipt)?;
-                            storage_mutator
-                                .set_delayed_receipt(index_delayed_receipt, &new_receipt)?;
-                            delayed_receipts_updated += 1;
-                        }
+                    StateRecord::DelayedReceipt(mut receipt) => {
+                        storage_mutator.delete_delayed_receipt(index_delayed_receipt)?;
+                        near_mirror::genesis::map_receipt(&mut receipt, None, &default_key);
+                        storage_mutator.set_delayed_receipt(index_delayed_receipt, &receipt)?;
                         index_delayed_receipt += 1;
                     }
                 }
@@ -616,7 +599,7 @@ impl ForkNetworkCommand {
                         + contract_data_updated
                         + contract_code_updated
                         + postponed_receipts_updated
-                        + delayed_receipts_updated
+                        + index_delayed_receipt
                         + received_data_updated,
                 );
                 let state_root = storage_mutator.commit(&shard_uid, fake_block_height)?;
@@ -635,7 +618,7 @@ impl ForkNetworkCommand {
             contract_code_updated,
             contract_data_updated,
             postponed_receipts_updated,
-            delayed_receipts_updated,
+            delayed_receipts_updated = index_delayed_receipt,
             received_data_updated,
             num_has_full_key = has_full_key.len(),
             "Pass 1 done"
@@ -666,7 +649,7 @@ impl ForkNetworkCommand {
                     }
                     storage_mutator.set_access_key(
                         account_id,
-                        near_mirror::key_mapping::default_extra_key(None).public_key(),
+                        default_key.clone(),
                         AccessKey::full_access(),
                     )?;
                     num_added += 1;
@@ -768,6 +751,7 @@ impl ForkNetworkCommand {
     /// Makes a new genesis and writes it to `~/.near/genesis.json`.
     fn make_and_write_genesis(
         &self,
+        genesis_time: DateTime<Utc>,
         epoch_length: u64,
         height: BlockHeight,
         chain_id_suffix: &str,
@@ -785,7 +769,7 @@ impl ForkNetworkCommand {
         let new_config = GenesisConfig {
             chain_id: original_config.chain_id.clone() + chain_id_suffix,
             genesis_height: height,
-            genesis_time: chrono::Utc::now(),
+            genesis_time,
             epoch_length,
             num_block_producer_seats: epoch_config.num_block_producer_seats,
             num_block_producer_seats_per_shard: epoch_config.num_block_producer_seats_per_shard,

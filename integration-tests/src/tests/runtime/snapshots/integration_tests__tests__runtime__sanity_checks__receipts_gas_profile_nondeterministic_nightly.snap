@@ -12,7 +12,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "CONTRACT_LOADING_BYTES",
-            gas_used: 8236500,
+            gas_used: 41393210,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",

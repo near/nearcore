@@ -1,9 +1,9 @@
 use derive_enum_from_into::{EnumFrom, EnumTryInto};
-use near_async::futures::DelayedActionRunnerExt;
 use near_async::messaging::{noop, IntoMultiSender, IntoSender};
+use near_async::test_loop::adhoc::{handle_adhoc_events, AdhocEvent, AdhocEventSender};
 use near_async::test_loop::futures::{
-    drive_async_computations, drive_delayed_action_runners, drive_futures,
-    TestLoopAsyncComputationEvent, TestLoopDelayedActionEvent, TestLoopTask,
+    drive_async_computations, drive_futures, TestLoopAsyncComputationEvent,
+    TestLoopDelayedActionEvent, TestLoopTask,
 };
 use near_async::test_loop::TestLoopBuilder;
 use near_async::time::Duration;
@@ -54,10 +54,17 @@ struct TestData {
     pub shards_manager: ShardsManager,
 }
 
+impl AsMut<TestData> for TestData {
+    fn as_mut(&mut self) -> &mut Self {
+        self
+    }
+}
+
 #[derive(EnumTryInto, Debug, EnumFrom)]
 #[allow(clippy::large_enum_variant)]
 enum TestEvent {
     Task(Arc<TestLoopTask>),
+    Adhoc(AdhocEvent<TestData>),
     AsyncComputation(TestLoopAsyncComputationEvent),
     ClientDelayedActions(TestLoopDelayedActionEvent<ClientActions>),
     ClientEventFromNetwork(ClientSenderForNetworkMessage),
@@ -230,18 +237,17 @@ fn test_client_with_simple_test_loop() {
         .widen(),
     );
     test.register_handler(drive_futures().widen());
+    test.register_handler(handle_adhoc_events::<TestData>().widen());
     test.register_handler(drive_async_computations().widen());
-    test.register_handler(drive_delayed_action_runners::<ClientActions>().widen());
+    test.register_delayed_action_handler::<ClientActions>();
     test.register_handler(forward_client_request_to_shards_manager().widen());
     // TODO: handle additional events.
 
-    test.sender().into_delayed_action_runner::<ClientActions>().run_later(
-        "start_client",
-        Duration::ZERO,
-        |client, runner| {
-            client.start(runner);
-        },
-    );
+    let mut delayed_runner =
+        test.sender().into_delayed_action_runner::<ClientActions>(test.shutting_down());
+    test.sender().send_adhoc_event("start_client", move |data| {
+        data.client.start(&mut delayed_runner);
+    });
     test.run_for(Duration::seconds(10));
-    test.finish_remaining_events(Duration::seconds(1));
+    test.shutdown_and_drain_remaining_events(Duration::seconds(1));
 }

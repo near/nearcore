@@ -695,7 +695,7 @@ mod tests {
     }
 
     #[test]
-    fn test_key_for_yielded_promise_consistency() {
+    fn test_key_for_promise_yield_consistency() {
         let key = TrieKey::PromiseYieldIndices;
         let raw_key = key.to_vec();
         assert!(trie_key_parsers::parse_account_id_from_raw_key(&raw_key).unwrap().is_none());

@@ -521,7 +521,7 @@ impl Chain {
             })
             .cloned()
             .collect();
-        runtime_adapter.load_mem_tries_on_startup(&tracked_shards)?;
+        runtime_adapter.get_tries().load_mem_tries_for_enabled_shards(&tracked_shards)?;
 
         info!(target: "chain", "Init: header head @ #{} {}; block head @ #{} {}",
               header_head.height, header_head.last_block_hash,
@@ -1744,6 +1744,7 @@ impl Chain {
         });
     }
 
+    #[tracing::instrument(level = "debug", target = "chain", "postprocess_block_only", skip_all)]
     fn postprocess_block_only(
         &mut self,
         me: &Option<AccountId>,
@@ -2734,59 +2735,61 @@ impl Chain {
         Ok(())
     }
 
+    pub fn schedule_load_memtrie(
+        &self,
+        shard_uid: ShardUId,
+        sync_hash: CryptoHash,
+        chunk: &ShardChunk,
+        load_memtrie_scheduler: &near_async::messaging::Sender<LoadMemtrieRequest>,
+    ) {
+        load_memtrie_scheduler.send(LoadMemtrieRequest {
+            runtime_adapter: self.runtime_adapter.clone(),
+            shard_uid,
+            prev_state_root: chunk.prev_state_root(),
+            sync_hash,
+        });
+    }
+
+    pub fn create_flat_storage_for_shard(
+        &self,
+        shard_uid: ShardUId,
+        chunk: &ShardChunk,
+    ) -> Result<(), Error> {
+        let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
+        // Flat storage must not exist at this point because leftover keys corrupt its state.
+        assert!(flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none());
+
+        let flat_head_hash = *chunk.prev_block();
+        let flat_head_header = self.get_block_header(&flat_head_hash)?;
+        let flat_head_prev_hash = *flat_head_header.prev_hash();
+        let flat_head_height = flat_head_header.height();
+
+        tracing::debug!(target: "store", ?shard_uid, ?flat_head_hash, flat_head_height, "set_state_finalize - initialized flat storage");
+
+        let mut store_update = self.runtime_adapter.store().store_update();
+        store_helper::set_flat_storage_status(
+            &mut store_update,
+            shard_uid,
+            FlatStorageStatus::Ready(FlatStorageReadyStatus {
+                flat_head: near_store::flat::BlockInfo {
+                    hash: flat_head_hash,
+                    prev_hash: flat_head_prev_hash,
+                    height: flat_head_height,
+                },
+            }),
+        );
+        store_update.commit()?;
+        flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+        Ok(())
+    }
+
     pub fn set_state_finalize(
         &mut self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
-        apply_result: Result<(), near_chain_primitives::Error>,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "sync", "set_state_finalize").entered();
-        apply_result?;
-
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
-        let chunk = shard_state_header.cloned_chunk();
-
-        let block_hash = chunk.prev_block();
-
-        // We synced shard state on top of _previous_ block for chunk in shard state header and applied state parts to
-        // flat storage. Now we can set flat head to hash of this block and create flat storage.
-        // If block_hash is equal to default - this means that we're all the way back at genesis.
-        // So we don't have to add the storage state for shard in such case.
-        // TODO(8438) - add additional test scenarios for this case.
-        if *block_hash != CryptoHash::default() {
-            let block_header = self.get_block_header(block_hash)?;
-            let epoch_id = block_header.epoch_id();
-            let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
-
-            let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
-            // Flat storage must not exist at this point because leftover keys corrupt its state.
-            assert!(flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none());
-
-            let flat_head_hash = *chunk.prev_block();
-            let flat_head_header = self.get_block_header(&flat_head_hash)?;
-            let flat_head_prev_hash = *flat_head_header.prev_hash();
-            let flat_head_height = flat_head_header.height();
-
-            tracing::debug!(target: "store", ?shard_uid, ?flat_head_hash, flat_head_height, "set_state_finalize - initialized flat storage");
-
-            let mut store_update = self.runtime_adapter.store().store_update();
-            store_helper::set_flat_storage_status(
-                &mut store_update,
-                shard_uid,
-                FlatStorageStatus::Ready(FlatStorageReadyStatus {
-                    flat_head: near_store::flat::BlockInfo {
-                        hash: flat_head_hash,
-                        prev_hash: flat_head_prev_hash,
-                        height: flat_head_height,
-                    },
-                }),
-            );
-            store_update.commit()?;
-            flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
-            // Flat storage is ready, load memtrie if it is enabled.
-            self.runtime_adapter.load_mem_trie_on_catchup(&shard_uid, &chunk.prev_state_root())?;
-        }
-
         let mut height = shard_state_header.chunk_height_included();
         let mut chain_update = self.chain_update();
         chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?;
@@ -3077,29 +3080,18 @@ impl Chain {
         Ok(self.chain_store.get_outcomes_by_id(id)?.into_iter().map(Into::into).collect())
     }
 
-    fn get_recursive_transaction_results(
+    /// Returns execution status based on the list of currently existing outcomes
+    fn get_execution_status(
         &self,
-        outcomes: &mut Vec<ExecutionOutcomeWithIdView>,
-        id: &CryptoHash,
-    ) -> Result<(), Error> {
-        outcomes.push(ExecutionOutcomeWithIdView::from(self.get_execution_outcome(id)?));
-        let outcome_idx = outcomes.len() - 1;
-        for idx in 0..outcomes[outcome_idx].outcome.receipt_ids.len() {
-            let id = outcomes[outcome_idx].outcome.receipt_ids[idx];
-            self.get_recursive_transaction_results(outcomes, &id)?;
-        }
-        Ok(())
-    }
-
-    pub fn get_final_transaction_result(
-        &self,
+        outcomes: &[ExecutionOutcomeWithIdView],
         transaction_hash: &CryptoHash,
-    ) -> Result<FinalExecutionOutcomeView, Error> {
-        let mut outcomes = Vec::new();
-        self.get_recursive_transaction_results(&mut outcomes, transaction_hash)?;
+    ) -> FinalExecutionStatus {
+        if outcomes.is_empty() {
+            return FinalExecutionStatus::NotStarted;
+        }
         let mut looking_for_id = *transaction_hash;
         let num_outcomes = outcomes.len();
-        let status = outcomes
+        outcomes
             .iter()
             .find_map(|outcome_with_id| {
                 if outcome_with_id.id == looking_for_id {
@@ -3123,7 +3115,39 @@ impl Chain {
                     None
                 }
             })
-            .expect("results should resolve to a final outcome");
+            .unwrap_or_else(|| FinalExecutionStatus::Started)
+    }
+
+    /// Collect all the execution outcomes existing at the current moment
+    /// Fails if there are non executed receipts, and require_all_outcomes == true
+    fn get_recursive_transaction_results(
+        &self,
+        outcomes: &mut Vec<ExecutionOutcomeWithIdView>,
+        id: &CryptoHash,
+        require_all_outcomes: bool,
+    ) -> Result<(), Error> {
+        let outcome = match self.get_execution_outcome(id) {
+            Ok(outcome) => outcome,
+            Err(err) => return if require_all_outcomes { Err(err) } else { Ok(()) },
+        };
+        outcomes.push(ExecutionOutcomeWithIdView::from(outcome));
+        let outcome_idx = outcomes.len() - 1;
+        for idx in 0..outcomes[outcome_idx].outcome.receipt_ids.len() {
+            let id = outcomes[outcome_idx].outcome.receipt_ids[idx];
+            self.get_recursive_transaction_results(outcomes, &id, require_all_outcomes)?;
+        }
+        Ok(())
+    }
+
+    /// Returns FinalExecutionOutcomeView for the given transaction.
+    /// Waits for the end of the execution of all corresponding receipts
+    pub fn get_final_transaction_result(
+        &self,
+        transaction_hash: &CryptoHash,
+    ) -> Result<FinalExecutionOutcomeView, Error> {
+        let mut outcomes = Vec::new();
+        self.get_recursive_transaction_results(&mut outcomes, transaction_hash, true)?;
+        let status = self.get_execution_status(&outcomes, transaction_hash);
         let receipts_outcome = outcomes.split_off(1);
         let transaction = self.chain_store.get_transaction(transaction_hash)?.ok_or_else(|| {
             Error::DBNotFoundErr(format!("Transaction {} is not found", transaction_hash))
@@ -3133,16 +3157,45 @@ impl Chain {
         Ok(FinalExecutionOutcomeView { status, transaction, transaction_outcome, receipts_outcome })
     }
 
-    pub fn get_final_transaction_result_with_receipt(
+    /// Returns FinalExecutionOutcomeView for the given transaction.
+    /// Does not wait for the end of the execution of all corresponding receipts
+    pub fn get_partial_transaction_result(
         &self,
-        final_outcome: FinalExecutionOutcomeView,
+        transaction_hash: &CryptoHash,
+    ) -> Result<FinalExecutionOutcomeView, Error> {
+        let transaction = self.chain_store.get_transaction(transaction_hash)?.ok_or_else(|| {
+            Error::DBNotFoundErr(format!("Transaction {} is not found", transaction_hash))
+        })?;
+        let transaction: SignedTransactionView = SignedTransaction::clone(&transaction).into();
+
+        let mut outcomes = Vec::new();
+        self.get_recursive_transaction_results(&mut outcomes, transaction_hash, false)?;
+        if outcomes.is_empty() {
+            // It can't be, we would fail with tx not found error earlier in this case
+            // But if so, let's return meaningful error instead of panic on split_off
+            return Err(Error::DBNotFoundErr(format!(
+                "Transaction {} is not found",
+                transaction_hash
+            )));
+        }
+
+        let status = self.get_execution_status(&outcomes, transaction_hash);
+        let receipts_outcome = outcomes.split_off(1);
+        let transaction_outcome = outcomes.pop().unwrap();
+        Ok(FinalExecutionOutcomeView { status, transaction, transaction_outcome, receipts_outcome })
+    }
+
+    /// Returns corresponding receipts for provided outcome
+    /// The incoming list in receipts_outcome may be partial
+    pub fn get_transaction_result_with_receipt(
+        &self,
+        outcome: FinalExecutionOutcomeView,
     ) -> Result<FinalExecutionOutcomeWithReceiptView, Error> {
         let receipt_id_from_transaction =
-            final_outcome.transaction_outcome.outcome.receipt_ids.get(0).cloned();
-        let is_local_receipt =
-            final_outcome.transaction.signer_id == final_outcome.transaction.receiver_id;
+            outcome.transaction_outcome.outcome.receipt_ids.get(0).cloned();
+        let is_local_receipt = outcome.transaction.signer_id == outcome.transaction.receiver_id;
 
-        let receipts = final_outcome
+        let receipts = outcome
             .receipts_outcome
             .iter()
             .filter_map(|outcome| {
@@ -3158,7 +3211,7 @@ impl Chain {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        Ok(FinalExecutionOutcomeWithReceiptView { final_outcome, receipts })
+        Ok(FinalExecutionOutcomeWithReceiptView { final_outcome: outcome, receipts })
     }
 
     pub fn check_blocks_final_and_canonical(
@@ -4177,7 +4230,8 @@ impl Chain {
         Ok(is_first_block_of_epoch?)
     }
 
-    /// Get transaction result for given hash of transaction or receipt id on the canonical chain
+    /// Get transaction result for given hash of transaction or receipt id
+    /// Chain may not be canonical yet
     pub fn get_execution_outcome(
         &self,
         id: &CryptoHash,
@@ -4473,6 +4527,42 @@ impl Debug for ApplyStatePartsRequest {
 pub struct ApplyStatePartsResponse {
     pub apply_result: Result<(), near_chain_primitives::error::Error>,
     pub shard_id: ShardId,
+    pub sync_hash: CryptoHash,
+}
+
+// This message is handled by `sync_job_actions.rs::handle_load_memtrie_request()`.
+// It is a request for `runtime_adapter` to load in-memory trie for `shard_uid`.
+#[derive(actix::Message)]
+#[rtype(result = "()")]
+pub struct LoadMemtrieRequest {
+    pub runtime_adapter: Arc<dyn RuntimeAdapter>,
+    pub shard_uid: ShardUId,
+    // Required to load memtrie.
+    pub prev_state_root: StateRoot,
+    // Needs to be included in a response to the caller for identification purposes.
+    pub sync_hash: CryptoHash,
+}
+
+// Skip `runtime_adapter`, because it's a complex object that has complex logic
+// and many fields.
+impl Debug for LoadMemtrieRequest {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LoadMemtrieRequest")
+            .field("runtime_adapter", &"<not shown>")
+            .field("shard_uid", &self.shard_uid)
+            .field("prev_state_root", &self.prev_state_root)
+            .field("sync_hash", &self.sync_hash)
+            .finish()
+    }
+}
+
+// It is message indicating the result of loading in-memory trie for `shard_id`.
+// `sync_hash` is passed around to indicate to which block we were catching up.
+#[derive(actix::Message, Debug)]
+#[rtype(result = "()")]
+pub struct LoadMemtrieResponse {
+    pub load_result: Result<(), near_chain_primitives::error::Error>,
+    pub shard_uid: ShardUId,
     pub sync_hash: CryptoHash,
 }
 

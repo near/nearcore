@@ -2,6 +2,7 @@
 
 use near_primitives::account::AccessKeyPermission;
 use near_primitives::errors::IntegerOverflowError;
+use near_primitives::version::FIXED_MINIMUM_NEW_RECEIPT_GAS_VERSION;
 use num_bigint::BigUint;
 use num_traits::cast::ToPrimitive;
 use num_traits::pow::Pow;
@@ -277,7 +278,15 @@ pub fn tx_cost(
         // transaction. Otherwise it will processed in the next block and the gas might be inflated.
         let initial_receipt_hop =
             if transaction.signer_id == transaction.receiver_id { 0 } else { 1 };
-        let minimum_new_receipt_gas = fees.min_receipt_with_function_call_gas();
+        let minimum_new_receipt_gas = if protocol_version < FIXED_MINIMUM_NEW_RECEIPT_GAS_VERSION {
+            fees.min_receipt_with_function_call_gas()
+        } else {
+            // The pessimistic gas pricing is a best-effort limit which can be breached in case of
+            // congestion when receipts are delayed before they execute. Hence there is not much
+            // value to tie this limit to the function call base cost. Making it constant limits
+            // overcharging to 6x, which was the value before the cost increase.
+            4_855_842_000_000 // 4.855TGas.
+        };
         let maximum_depth =
             if minimum_new_receipt_gas > 0 { prepaid_gas / minimum_new_receipt_gas } else { 0 };
         let inflation_exponent = u8::try_from(initial_receipt_hop + maximum_depth)
