@@ -131,26 +131,32 @@ mod trie_recording_tests {
             .iter()
             .map(|(key, value)| (key.clone(), value.clone().unwrap()))
             .collect::<HashMap<_, _>>();
+        println!("{:?}", data_in_trie);
         let keys: Vec<_> = trie_changes
             .iter()
             .map(|(key, _)| {
                 let mut key = key.clone();
-                if use_missing_keys {
+                if use_missing_keys && thread_rng().gen_bool(0.5) {
                     *key.last_mut().unwrap() = 100;
                     // key.push(100);
                 }
                 key
             })
             .collect();
-        let updates = keys
+        let updates = trie_changes
             .iter()
-            .map(|key| {
+            .map(|(key, _)| {
+                let mut key = key.clone();
+                if use_missing_keys && thread_rng().gen_bool(0.5) {
+                    *key.last_mut().unwrap() = 100;
+                    // key.push(100);
+                }
                 let value = if thread_rng().gen_bool(0.5) {
                     Some(vec![thread_rng().gen_range(0..10) as u8])
                 } else {
                     None
                 };
-                (key.clone(), value)
+                (key, value)
             })
             .filter(|_| random())
             .collect::<Vec<_>>();
@@ -266,9 +272,10 @@ mod trie_recording_tests {
             // we still get the same counters.
             let partial_storage = trie.recorded_storage().unwrap();
             println!(
-                "Partial storage has {} nodes from {} entries",
+                "Partial storage has {} nodes from {} entries: {:?}",
                 partial_storage.nodes.len(),
-                data_in_trie.len()
+                data_in_trie.len(),
+                partial_storage
             );
             let trie = Trie::from_recorded_storage(partial_storage.clone(), state_root, false);
             trie.accounting_cache.borrow_mut().set_enabled(enable_accounting_cache);
