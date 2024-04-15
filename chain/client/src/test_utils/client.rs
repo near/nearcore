@@ -286,6 +286,7 @@ pub fn run_catchup(
         client.run_catchup(
             highest_height_peers,
             &noop().into_sender(),
+            &noop().into_sender(),
             &block_catch_up,
             &resharding,
             None,

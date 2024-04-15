@@ -2739,61 +2739,61 @@ impl Chain {
         Ok(())
     }
 
+    pub fn schedule_load_memtrie(
+        &self,
+        shard_uid: ShardUId,
+        sync_hash: CryptoHash,
+        chunk: &ShardChunk,
+        load_memtrie_scheduler: &near_async::messaging::Sender<LoadMemtrieRequest>,
+    ) {
+        load_memtrie_scheduler.send(LoadMemtrieRequest {
+            runtime_adapter: self.runtime_adapter.clone(),
+            shard_uid,
+            prev_state_root: chunk.prev_state_root(),
+            sync_hash,
+        });
+    }
+
+    pub fn create_flat_storage_for_shard(
+        &self,
+        shard_uid: ShardUId,
+        chunk: &ShardChunk,
+    ) -> Result<(), Error> {
+        let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
+        // Flat storage must not exist at this point because leftover keys corrupt its state.
+        assert!(flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none());
+
+        let flat_head_hash = *chunk.prev_block();
+        let flat_head_header = self.get_block_header(&flat_head_hash)?;
+        let flat_head_prev_hash = *flat_head_header.prev_hash();
+        let flat_head_height = flat_head_header.height();
+
+        tracing::debug!(target: "store", ?shard_uid, ?flat_head_hash, flat_head_height, "set_state_finalize - initialized flat storage");
+
+        let mut store_update = self.runtime_adapter.store().store_update();
+        store_helper::set_flat_storage_status(
+            &mut store_update,
+            shard_uid,
+            FlatStorageStatus::Ready(FlatStorageReadyStatus {
+                flat_head: near_store::flat::BlockInfo {
+                    hash: flat_head_hash,
+                    prev_hash: flat_head_prev_hash,
+                    height: flat_head_height,
+                },
+            }),
+        );
+        store_update.commit()?;
+        flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+        Ok(())
+    }
+
     pub fn set_state_finalize(
         &mut self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
-        apply_result: Result<(), near_chain_primitives::Error>,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "sync", "set_state_finalize").entered();
-        apply_result?;
-
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
-        let chunk = shard_state_header.cloned_chunk();
-
-        let block_hash = chunk.prev_block();
-
-        // We synced shard state on top of _previous_ block for chunk in shard state header and applied state parts to
-        // flat storage. Now we can set flat head to hash of this block and create flat storage.
-        // If block_hash is equal to default - this means that we're all the way back at genesis.
-        // So we don't have to add the storage state for shard in such case.
-        // TODO(8438) - add additional test scenarios for this case.
-        if *block_hash != CryptoHash::default() {
-            let block_header = self.get_block_header(block_hash)?;
-            let epoch_id = block_header.epoch_id();
-            let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
-
-            let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
-            // Flat storage must not exist at this point because leftover keys corrupt its state.
-            assert!(flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none());
-
-            let flat_head_hash = *chunk.prev_block();
-            let flat_head_header = self.get_block_header(&flat_head_hash)?;
-            let flat_head_prev_hash = *flat_head_header.prev_hash();
-            let flat_head_height = flat_head_header.height();
-
-            tracing::debug!(target: "store", ?shard_uid, ?flat_head_hash, flat_head_height, "set_state_finalize - initialized flat storage");
-
-            let mut store_update = self.runtime_adapter.store().store_update();
-            store_helper::set_flat_storage_status(
-                &mut store_update,
-                shard_uid,
-                FlatStorageStatus::Ready(FlatStorageReadyStatus {
-                    flat_head: near_store::flat::BlockInfo {
-                        hash: flat_head_hash,
-                        prev_hash: flat_head_prev_hash,
-                        height: flat_head_height,
-                    },
-                }),
-            );
-            store_update.commit()?;
-            flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
-            // Flat storage is ready, load memtrie if it is enabled.
-            self.runtime_adapter
-                .get_tries()
-                .load_mem_trie_on_catchup(&shard_uid, &chunk.prev_state_root())?;
-        }
-
         let mut height = shard_state_header.chunk_height_included();
         let mut chain_update = self.chain_update();
         chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?;
@@ -4531,6 +4531,42 @@ impl Debug for ApplyStatePartsRequest {
 pub struct ApplyStatePartsResponse {
     pub apply_result: Result<(), near_chain_primitives::error::Error>,
     pub shard_id: ShardId,
+    pub sync_hash: CryptoHash,
+}
+
+// This message is handled by `sync_job_actions.rs::handle_load_memtrie_request()`.
+// It is a request for `runtime_adapter` to load in-memory trie for `shard_uid`.
+#[derive(actix::Message)]
+#[rtype(result = "()")]
+pub struct LoadMemtrieRequest {
+    pub runtime_adapter: Arc<dyn RuntimeAdapter>,
+    pub shard_uid: ShardUId,
+    // Required to load memtrie.
+    pub prev_state_root: StateRoot,
+    // Needs to be included in a response to the caller for identification purposes.
+    pub sync_hash: CryptoHash,
+}
+
+// Skip `runtime_adapter`, because it's a complex object that has complex logic
+// and many fields.
+impl Debug for LoadMemtrieRequest {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LoadMemtrieRequest")
+            .field("runtime_adapter", &"<not shown>")
+            .field("shard_uid", &self.shard_uid)
+            .field("prev_state_root", &self.prev_state_root)
+            .field("sync_hash", &self.sync_hash)
+            .finish()
+    }
+}
+
+// It is message indicating the result of loading in-memory trie for `shard_id`.
+// `sync_hash` is passed around to indicate to which block we were catching up.
+#[derive(actix::Message, Debug)]
+#[rtype(result = "()")]
+pub struct LoadMemtrieResponse {
+    pub load_result: Result<(), near_chain_primitives::error::Error>,
+    pub shard_uid: ShardUId,
     pub sync_hash: CryptoHash,
 }
 

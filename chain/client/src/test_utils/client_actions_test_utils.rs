@@ -61,6 +61,7 @@ pub fn forward_client_messages_from_sync_jobs_to_client_actions(
         }
         ClientSenderForSyncJobsMessage::_block_catch_up_response(msg) => client_actions.handle(msg),
         ClientSenderForSyncJobsMessage::_resharding_response(msg) => client_actions.handle(msg),
+        ClientSenderForSyncJobsMessage::_load_memtrie_response(msg) => client_actions.handle(msg),
     })
 }
 
