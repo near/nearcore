@@ -113,7 +113,7 @@ unnecessary_lazy_evaluations = "deny"
 [workspace.dependencies]
 actix = "0.13.0"
 actix-cors = "0.6.1"
-actix-http = "3.3"
+actix-http = "3.6"
 actix-rt = "2"
 actix-web = "4.1"
 anyhow = "1.0.62"
@@ -406,6 +406,7 @@ winapi = { version = "0.3", features = [
 xshell = "0.2.1"
 xz2 = "0.1.6"
 yansi = "0.5.1"
+zstd = "0.13.1"
 
 stdx = { package = "near-stdx", path = "utils/stdx" }
 
