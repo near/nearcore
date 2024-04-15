@@ -1490,8 +1490,9 @@ impl Runtime {
         }
         for receipt in local_receipts.iter() {
             if total.compute >= compute_limit
-                || proof_size_limit
-                    .is_some_and(|limit| state_update.trie.recorded_storage_size() > limit)
+                || proof_size_limit.is_some_and(|limit| {
+                    state_update.trie.recorded_storage_size_upper_bound() > limit
+                })
             {
                 set_delayed_receipt(&mut state_update, &mut delayed_receipts_indices, receipt);
             } else {
@@ -1512,8 +1513,9 @@ impl Runtime {
         let mut delayed_receipt_count = 0;
         while delayed_receipts_indices.first_index < delayed_receipts_indices.next_available_index {
             if total.compute >= compute_limit
-                || proof_size_limit
-                    .is_some_and(|limit| state_update.trie.recorded_storage_size() > limit)
+                || proof_size_limit.is_some_and(|limit| {
+                    state_update.trie.recorded_storage_size_upper_bound() > limit
+                })
             {
                 break;
             }
@@ -1573,8 +1575,9 @@ impl Runtime {
             )
             .map_err(RuntimeError::ReceiptValidationError)?;
             if total.compute >= compute_limit
-                || proof_size_limit
-                    .is_some_and(|limit| state_update.trie.recorded_storage_size() > limit)
+                || proof_size_limit.is_some_and(|limit| {
+                    state_update.trie.recorded_storage_size_upper_bound() > limit
+                })
             {
                 set_delayed_receipt(&mut state_update, &mut delayed_receipts_indices, receipt);
             } else {
@@ -1599,8 +1602,9 @@ impl Runtime {
         let yield_processing_start = std::time::Instant::now();
         while promise_yield_indices.first_index < promise_yield_indices.next_available_index {
             if total.compute >= compute_limit
-                || proof_size_limit
-                    .is_some_and(|limit| state_update.trie.recorded_storage_size() > limit)
+                || proof_size_limit.is_some_and(|limit| {
+                    state_update.trie.recorded_storage_size_upper_bound() > limit
+                })
             {
                 break;
             }
