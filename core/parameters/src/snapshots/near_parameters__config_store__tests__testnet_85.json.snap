@@ -103,7 +103,7 @@ expression: config_view
       103,
       100
     ],
-    "storage_proof_size_soft_limit": 16000000
+    "storage_proof_size_soft_limit": 3000000
   },
   "wasm_config": {
     "ext_costs": {
