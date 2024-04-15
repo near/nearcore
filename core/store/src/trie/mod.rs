@@ -1503,6 +1503,7 @@ impl Trie {
     {
         match &self.memtries {
             Some(memtries) => {
+                println!("MT UPDATE!");
                 // If we have in-memory tries, use it to construct the changes entirely (for
                 // both in-memory and on-disk updates) because it's much faster.
                 let guard = memtries.read().unwrap();
@@ -1555,6 +1556,7 @@ impl Trie {
                 Ok(trie_changes)
             }
             None => {
+                println!("DT UPDATE!");
                 let mut memory = NodesStorage::new();
                 let mut root_node = self.move_node_to_mutable(&mut memory, &self.root)?;
                 for (key, value) in changes {
