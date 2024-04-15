@@ -35,7 +35,6 @@ use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::Arc;
 use tracing::debug;
 
 #[cfg(feature = "nightly")]

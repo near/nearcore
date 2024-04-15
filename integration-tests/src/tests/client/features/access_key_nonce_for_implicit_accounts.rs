@@ -25,7 +25,6 @@ use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use std::collections::HashSet;
-use std::sync::Arc;
 use tracing::debug;
 
 /// Try to process tx in the next blocks, check that tx and all generated receipts succeed.
