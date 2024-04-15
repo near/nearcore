@@ -3,7 +3,7 @@ use chrono::Utc;
 use clap::Parser;
 use congestion_model::strategy::{
     FancyGlobalTransactionStop, GlobalTxStopShard, NepStrategy, NewTxLast, NoQueueShard,
-    SimpleBackpressure, TrafficLight,
+    SimpleBackpressure, SmoothTrafficLight, TrafficLight,
 };
 use congestion_model::workload::{
     AllForOneProducer, BalancedProducer, FairnessBenchmarkProducer, LinearImbalanceProducer,
@@ -205,6 +205,7 @@ fn strategy(strategy_name: &str, num_shards: usize) -> Vec<Box<dyn CongestionStr
             "Fancy Stop" => Box::<FancyGlobalTransactionStop>::default(),
             "New TX last" => Box::<NewTxLast>::default(),
             "Traffic Light" => Box::<TrafficLight>::default(),
+            "Smooth Traffic Light" => Box::<SmoothTrafficLight>::default(),
             "NEP" => Box::<NepStrategy>::default(),
             "NEP 200MB" => Box::new(
                 NepStrategy::default().with_memory_limits(ByteSize::mb(100), ByteSize::mb(100)),
@@ -329,6 +330,7 @@ fn parse_strategy_names(strategy_name: &str) -> Vec<String> {
         "Fancy Stop".to_string(),
         "New TX last".to_string(),
         "Traffic Light".to_string(),
+        "Smooth Traffic Light".to_string(),
         "NEP".to_string(),
         "NEP 200MB".to_string(),
         "NEP 450/50MB".to_string(),
