@@ -4,60 +4,68 @@ use crate::model::ChunkExecutionContext;
 use crate::strategy::QueueFactory;
 use crate::{GGas, QueueId, Receipt, ShardId, TransactionId, GAS_LIMIT, PGAS, TGAS};
 
-pub struct NepStrategy {
+pub struct SmoothTrafficLight {
     pub shard_id: Option<ShardId>,
     pub all_shards: Vec<ShardId>,
     pub other_shards: Vec<ShardId>,
 
     // The queues for receipts going to other shards.
-    pub outgoing_queues: BTreeMap<ShardId, QueueId>,
+    pub outgoing_buffer: BTreeMap<ShardId, QueueId>,
 
     // How much gas are we allowed to send to other shards.
-    pub outgoing_gas_limit: BTreeMap<ShardId, GGas>,
+    pub outgoing_gas_allowance: BTreeMap<ShardId, GGas>,
 
-    // numbers to fine-tune
+    // new tx acceptance
     pub min_tx_gas: GGas,
     pub max_tx_gas: GGas,
-    pub min_send_limit: GGas,
+    pub reject_tx_congestion_limit: f64,
+
+    // receipt forwarding limits
+    pub min_send_limit_amber: GGas,
     pub max_send_limit: GGas,
-    pub global_outgoing_congestion_limit: f64,
-    pub max_incoming_gas: GGas,
-    pub max_incoming_congestion_memory: u64,
-    pub max_outgoing_congestion_memory: u64,
-    pub max_outgoing_gas: GGas,
+    pub red_send_limit: GGas,
+
+    // queue limits to calculate congestion level
+    pub red_incoming_gas: GGas,
+    pub red_outgoing_gas: GGas,
+    pub memory_limit: u64,
 }
 
-impl Default for NepStrategy {
+impl Default for SmoothTrafficLight {
     fn default() -> Self {
         Self {
-            // parameters which can be set by the model runner
-            min_tx_gas: 5 * TGAS,
+            // new tx acceptance
+            min_tx_gas: 20 * TGAS,
             max_tx_gas: 500 * TGAS,
-            min_send_limit: 0,
-            max_send_limit: 30 * PGAS,
-            global_outgoing_congestion_limit: 0.9,
-            max_incoming_gas: 100 * PGAS,
-            max_outgoing_gas: 100 * PGAS,
-            max_incoming_congestion_memory: 250_000_000,
-            max_outgoing_congestion_memory: 250_000_000,
+            reject_tx_congestion_limit: 0.25,
+
+            // receipt forwarding limits
+            min_send_limit_amber: 1 * PGAS,
+            max_send_limit: 300 * PGAS,
+            red_send_limit: 1 * PGAS,
+
+            // queue limits to calculate congestion level
+            red_incoming_gas: 20 * PGAS,
+            red_outgoing_gas: 2 * PGAS,
+            memory_limit: bytesize::mb(1000u64),
 
             // init fills these
             shard_id: Default::default(),
             all_shards: Default::default(),
             other_shards: Default::default(),
-            outgoing_queues: Default::default(),
-            outgoing_gas_limit: Default::default(),
+            outgoing_buffer: Default::default(),
+            outgoing_gas_allowance: Default::default(),
         }
     }
 }
 
 #[derive(Default, Clone)]
 struct CongestedShardsInfo {
-    incoming_congestion: f64,
-    outgoing_congestion: f64,
+    congestion_level: f64,
+    allowed_shard: Option<ShardId>,
 }
 
-impl crate::CongestionStrategy for NepStrategy {
+impl crate::CongestionStrategy for SmoothTrafficLight {
     fn init(
         &mut self,
         id: crate::ShardId,
@@ -71,7 +79,7 @@ impl crate::CongestionStrategy for NepStrategy {
         for shard_id in &self.other_shards {
             let name = format!("outgoing_receipts_{}", shard_id);
             let queue = queue_factory.register_queue(id, &name);
-            self.outgoing_queues.insert(*shard_id, queue);
+            self.outgoing_buffer.insert(*shard_id, queue);
         }
     }
 
@@ -88,16 +96,27 @@ impl crate::CongestionStrategy for NepStrategy {
     }
 }
 
-impl NepStrategy {
+impl SmoothTrafficLight {
     // Step 1: Compute bandwidth limits to other shards based on the congestion information
     fn init_send_limit(&mut self, ctx: &mut ChunkExecutionContext<'_>) {
-        self.outgoing_gas_limit.clear();
+        self.outgoing_gas_allowance.clear();
 
         for shard_id in self.other_shards.clone() {
-            let CongestedShardsInfo { incoming_congestion, .. } = self.get_info(ctx, &shard_id);
-            let send_limit = mix(self.max_send_limit, self.min_send_limit, incoming_congestion);
+            let CongestedShardsInfo { congestion_level, allowed_shard } =
+                self.get_info(ctx, &shard_id);
+            let send_limit = if congestion_level < 1.0 {
+                // amber
+                mix(self.max_send_limit, self.min_send_limit_amber, congestion_level)
+            } else {
+                // red
+                if Some(self.shard_id()) == allowed_shard {
+                    self.red_send_limit
+                } else {
+                    0
+                }
+            };
 
-            self.outgoing_gas_limit.insert(shard_id, send_limit);
+            self.outgoing_gas_allowance.insert(shard_id, send_limit);
         }
     }
 
@@ -106,20 +125,20 @@ impl NepStrategy {
     // Goes through buffered outgoing receipts and sends as many as possible up
     // to the send limit for each shard. Updates the send limit for every sent receipt.
     fn process_outgoing_receipts(&mut self, ctx: &mut ChunkExecutionContext<'_>) {
-        for (other_shard_id, queue_id) in &self.outgoing_queues {
-            let send_limit = self.outgoing_gas_limit.get_mut(other_shard_id).unwrap();
+        for (other_shard_id, queue_id) in &self.outgoing_buffer {
+            let send_allowance = self.outgoing_gas_allowance.get_mut(other_shard_id).unwrap();
 
             loop {
                 let Some(receipt) = ctx.queue(*queue_id).front() else {
                     break;
                 };
 
-                if receipt.attached_gas > *send_limit {
+                if receipt.attached_gas > *send_allowance {
                     break;
                 }
 
                 let receipt = ctx.queue(*queue_id).pop_front().unwrap();
-                *send_limit -= receipt.attached_gas;
+                *send_allowance -= receipt.attached_gas;
 
                 ctx.forward_receipt(receipt);
             }
@@ -129,22 +148,18 @@ impl NepStrategy {
     // Step 3: Convert all transactions to receipts included in the chunk
     //
     // * limit the gas for new transaction based on the self incoming congestion
-    // * filter transactions to a shard based on the receiver's memory congestion
+    // * filter transactions to a shard based on the receiver's congestion level
     //
     // The outgoing receipts are processed as in `process_outgoing_receipts`.
     fn process_new_transactions(&mut self, ctx: &mut ChunkExecutionContext<'_>) {
-        let incoming_congestion = self.get_incoming_congestion(ctx);
-        let tx_limit = mix(self.max_tx_gas, self.min_tx_gas, incoming_congestion);
+        let incoming_congestion = self.incoming_gas_congestion(ctx);
+        let tx_allowance = mix(self.max_tx_gas, self.min_tx_gas, incoming_congestion);
 
-        while ctx.gas_burnt() < tx_limit {
+        while ctx.gas_burnt() < tx_allowance {
             let Some(tx) = ctx.incoming_transactions().pop_front() else {
                 // no more transactions to process
                 break;
             };
-
-            if self.get_global_stop(ctx) {
-                break;
-            }
 
             if self.get_filter_stop(ctx, tx) {
                 // reject receipt
@@ -156,40 +171,13 @@ impl NepStrategy {
         }
     }
 
-    // Checks if any of the shards are congested to the point where all shards
-    // should stop accepting any transactions.
-    //
-    // TODO consider smooth slow down
-    fn get_global_stop(&mut self, ctx: &mut ChunkExecutionContext<'_>) -> bool {
-        for shard_id in self.all_shards.clone() {
-            let CongestedShardsInfo { outgoing_congestion, .. } = self.get_info(ctx, &shard_id);
-            if outgoing_congestion > self.global_outgoing_congestion_limit {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     // Checks if the transaction receiver is in a congested shard. If so the
     // transaction should be rejected.
-    //
-    // TODO consider smooth slow down
     fn get_filter_stop(&mut self, ctx: &mut ChunkExecutionContext<'_>, tx: TransactionId) -> bool {
-        let filter_outgoing_congestion_limit = 0.5;
-
         let receiver = ctx.tx_receiver(tx);
-        // Note: I also tried using the incoming congestion for the filter stop instead.
-        // Positive
-        // The fairness test utilization is about 2x better. (depends on
-        // strategy parameters and model config)
-        // Negative
-        // In the available workloads, it leads to larger queues when big
-        // receipts are involved and slightly worse 90th percentile delays in
-        // all-to-one workloads.
-        // Also, the linear imbalance workloads lose about 50% utilization.
-        let CongestedShardsInfo { outgoing_congestion, .. } = self.get_info(ctx, &receiver);
-        outgoing_congestion > filter_outgoing_congestion_limit
+
+        let CongestedShardsInfo { congestion_level, .. } = self.get_info(ctx, &receiver);
+        congestion_level > self.reject_tx_congestion_limit
     }
 
     // Step 4: Execute receipts in the order of local, delayed, incoming
@@ -217,59 +205,73 @@ impl NepStrategy {
 
     // Step 6: Compute own congestion information for the next block
     fn update_block_info(&mut self, ctx: &mut ChunkExecutionContext<'_>) {
-        let incoming_congestion = self.get_incoming_congestion(ctx);
-        let outgoing_congestion = self.get_outgoing_congestion(ctx);
+        let incoming_gas_congestion = self.incoming_gas_congestion(ctx);
+        let outgoing_gas_congestion = self.outgoing_gas_congestion(ctx);
+        let memory_congestion = self.memory_congestion(ctx);
 
-        tracing::debug!(
-            target: "model",
-            shard_id=?self.shard_id(),
-            incoming_congestion=format!("{incoming_congestion:.2}"),
-            outgoing_congestion=format!("{outgoing_congestion:.2}"),
-            "chunk info"
-        );
+        // Initial traffic light:
+        // Usually, signal other shards to slow down based on our incoming gas congestion only.
+        // All other limits (outgoing gas, memory) are ignored until they hit a red light.
+        // The goal is to never hit red, unless we have to prevent the unbounded queues vs deadlocks tradeoff.
+        // If we hit red, it slows down incoming traffic massively, which should bring us out of red soon.
+        // let red =
+        //     incoming_gas_congestion.max(outgoing_gas_congestion).max(memory_congestion) >= 1.0;
+        // let info = if red {
+        //     CongestedShardsInfo {
+        //         congestion_level: 1.0,
+        //         allowed_shard: Some(self.round_robin_shard(ctx.block_height() as usize)),
+        //     }
+        // } else {
+        //     CongestedShardsInfo { congestion_level: incoming_gas_congestion, allowed_shard: None }
+        // };
 
-        let info = CongestedShardsInfo { incoming_congestion, outgoing_congestion };
+        // Simplified and smoothed. Requires a larger max memory limit but will
+        // smoothly reduce based on size, which can even lead to smaller peak
+        // buffer size.
+        let max_congestion =
+            incoming_gas_congestion.max(outgoing_gas_congestion).max(memory_congestion);
+        let info = if max_congestion >= 1.0 {
+            CongestedShardsInfo {
+                congestion_level: 1.0,
+                allowed_shard: Some(self.round_robin_shard(ctx.block_height() as usize)),
+            }
+        } else {
+            CongestedShardsInfo { congestion_level: max_congestion, allowed_shard: None }
+        };
+
         ctx.current_block_info().insert(info);
     }
 
-    fn get_incoming_congestion(&self, ctx: &mut ChunkExecutionContext) -> f64 {
-        f64::max(self.incoming_memory_congestion(ctx), self.incoming_gas_congestion(ctx))
+    fn round_robin_shard(&mut self, seed: usize) -> ShardId {
+        let num_other_shards = self.all_shards.len() - 1;
+        let mut index = (seed + *self.shard_id.unwrap()) % num_other_shards;
+        if self.all_shards[index] == self.shard_id() {
+            index = self.all_shards.len() - 1;
+        }
+        self.all_shards[index]
     }
 
-    fn incoming_memory_congestion(&self, ctx: &mut ChunkExecutionContext) -> f64 {
-        let memory_consumption = ctx.incoming_receipts().size();
-        let memory_congestion =
-            memory_consumption as f64 / self.max_incoming_congestion_memory as f64;
-        f64::clamp(memory_congestion, 0.0, 1.0)
+    fn memory_congestion(&self, ctx: &mut ChunkExecutionContext) -> f64 {
+        let mut memory_consumption = ctx.incoming_receipts().size();
+        for (_, queue_id) in &self.outgoing_buffer {
+            memory_consumption += ctx.queue(*queue_id).size();
+        }
+
+        f64::clamp(memory_consumption as f64 / self.memory_limit as f64, 0.0, 1.0)
     }
 
     fn incoming_gas_congestion(&self, ctx: &mut ChunkExecutionContext) -> f64 {
         let gas_backlog = ctx.incoming_receipts().attached_gas() as f64;
-        f64::clamp(gas_backlog / self.max_incoming_gas as f64, 0.0, 1.0)
-    }
-
-    fn get_outgoing_congestion(&self, ctx: &mut ChunkExecutionContext) -> f64 {
-        f64::max(self.outgoing_memory_congestion(ctx), self.outgoing_gas_congestion(ctx))
-    }
-
-    fn outgoing_memory_congestion(&self, ctx: &mut ChunkExecutionContext) -> f64 {
-        let mut memory_consumption = 0;
-        for (_, queue_id) in &self.outgoing_queues {
-            memory_consumption += ctx.queue(*queue_id).size();
-        }
-
-        let memory_congestion =
-            memory_consumption as f64 / self.max_outgoing_congestion_memory as f64;
-        f64::clamp(memory_congestion, 0.0, 1.0)
+        f64::clamp(gas_backlog / self.red_incoming_gas as f64, 0.0, 1.0)
     }
 
     fn outgoing_gas_congestion(&self, ctx: &mut ChunkExecutionContext) -> f64 {
         let mut gas_backlog = 0;
-        for (_, queue_id) in &self.outgoing_queues {
+        for (_, queue_id) in &self.outgoing_buffer {
             gas_backlog += ctx.queue(*queue_id).attached_gas();
         }
 
-        let gas_congestion = gas_backlog as f64 / self.max_outgoing_gas as f64;
+        let gas_congestion = gas_backlog as f64 / self.red_outgoing_gas as f64;
         f64::clamp(gas_congestion, 0.0, 1.0)
     }
 
@@ -284,9 +286,9 @@ impl NepStrategy {
             return;
         }
 
-        let send_limit = self.outgoing_gas_limit.get_mut(&shard_id).unwrap();
+        let send_limit = self.outgoing_gas_allowance.get_mut(&shard_id).unwrap();
         if receipt.attached_gas > *send_limit {
-            ctx.queue(self.outgoing_queues[&shard_id]).push_back(receipt);
+            ctx.queue(self.outgoing_buffer[&shard_id]).push_back(receipt);
             return;
         }
 
@@ -312,19 +314,14 @@ impl NepStrategy {
 
     /// Define 100% congestion limit in gas.
     pub fn with_gas_limits(mut self, incoming: GGas, outgoing: GGas) -> Self {
-        self.max_incoming_gas = incoming;
-        self.max_outgoing_gas = outgoing;
+        self.red_incoming_gas = incoming;
+        self.red_outgoing_gas = outgoing;
         self
     }
 
     /// Define 100% congestion limit in bytes.
-    pub fn with_memory_limits(
-        mut self,
-        incoming: bytesize::ByteSize,
-        outgoing: bytesize::ByteSize,
-    ) -> Self {
-        self.max_incoming_congestion_memory = incoming.as_u64();
-        self.max_outgoing_congestion_memory = outgoing.as_u64();
+    pub fn with_memory_limit(mut self, limit: bytesize::ByteSize) -> Self {
+        self.memory_limit = limit.as_u64();
         self
     }
 
@@ -337,14 +334,8 @@ impl NepStrategy {
 
     /// Gas allowance to sent to other shards.
     pub fn with_send_gas_limit_range(mut self, min: GGas, max: GGas) -> Self {
-        self.min_send_limit = min;
+        self.min_send_limit_amber = min;
         self.max_send_limit = max;
-        self
-    }
-
-    /// At how much % congestion the global stop should kick in.
-    pub fn with_global_stop_limit(mut self, congestion_level: f64) -> Self {
-        self.global_outgoing_congestion_limit = congestion_level;
         self
     }
 }
