@@ -327,7 +327,7 @@ impl Trie {
             match node {
                 TrieNode::Empty => {
                     memory.store_at(handle, TrieNodeWithSize::empty());
-                    break;
+                    return Ok(root_node);
                 }
                 TrieNode::Leaf(key, value) => {
                     if NibbleSlice::from_encoded(&key).0 == partial {
@@ -338,25 +338,31 @@ impl Trie {
                         let leaf_node = TrieNode::Leaf(key, value);
                         let memory_usage = leaf_node.memory_usage_direct(memory);
                         memory.store_at(handle, TrieNodeWithSize::new(leaf_node, memory_usage));
-                        break;
+                        return Ok(root_node);
                     }
                 }
                 TrieNode::Branch(mut children, value) => {
                     if partial.is_empty() {
-                        if let Some(value) = &value {
-                            self.delete_value(memory, value)?;
-                        }
-                        if children.iter().count() == 0 {
-                            memory.store_at(handle, TrieNodeWithSize::empty());
-                        } else {
-                            Trie::calc_memory_usage_and_store(
-                                memory,
+                        if value.is_none() {
+                            // Key being deleted doesn't exist.
+                            memory.store_at(
                                 handle,
-                                children_memory_usage,
-                                TrieNode::Branch(children, None),
-                                None,
+                                TrieNodeWithSize::new(
+                                    TrieNode::Branch(children, value),
+                                    memory_usage,
+                                ),
                             );
+                            return Ok(root_node);
                         }
+                        self.delete_value(memory, &value.unwrap())?;
+                        Trie::calc_memory_usage_and_store(
+                            memory,
+                            handle,
+                            children_memory_usage,
+                            TrieNode::Branch(children, None),
+                            None,
+                        );
+                        // if needed, branch will be squashed at the end of the function.
                         break;
                     } else {
                         let child = &mut children[partial.at(0)];
@@ -386,7 +392,8 @@ impl Trie {
                                     memory_usage,
                                 ),
                             );
-                            break;
+                            return Ok(root_node);
+                            // break;
                         }
                     }
                 }
@@ -415,7 +422,8 @@ impl Trie {
                             handle,
                             TrieNodeWithSize::new(TrieNode::Extension(key, child), memory_usage),
                         );
-                        break;
+                        // break;
+                        return Ok(root_node);
                     }
                 }
             }
