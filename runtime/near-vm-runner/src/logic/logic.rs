@@ -153,9 +153,10 @@ impl<'a> VMLogic<'a> {
             context.prepaid_gas,
             context.is_view(),
         );
-        // TODO: Pass the correct limit to RecordedStorageCounter
-        let recorded_storage_counter =
-            RecordedStorageCounter::new(ext.get_recorded_storage_size(), usize::MAX);
+        let recorded_storage_counter = RecordedStorageCounter::new(
+            ext.get_recorded_storage_size(),
+            config.limit_config.storage_proof_size_receipt_limit,
+        );
         Self {
             ext,
             context,

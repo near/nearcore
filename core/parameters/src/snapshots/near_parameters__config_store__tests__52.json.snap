@@ -215,7 +215,8 @@ expression: config_view
       "wasmer2_stack_limit": 102400,
       "account_id_validity_rules_version": 0,
       "yield_timeout_length_in_blocks": 200,
-      "max_yield_payload_size": 1024
+      "max_yield_payload_size": 1024,
+      "storage_proof_size_receipt_limit": 999999999999999
     }
   },
   "account_creation_config": {
