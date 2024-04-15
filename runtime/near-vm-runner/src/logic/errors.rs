@@ -210,6 +210,8 @@ pub enum HostError {
     YieldPayloadLength { length: u64, limit: u64 },
     /// Yield resumption data id is malformed.
     DataIdMalformed,
+    /// Size of the recorded trie storage proof has exceeded the allowed limit.
+    RecordedStorageExceeded { size: usize, limit: usize },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -444,6 +446,11 @@ impl std::fmt::Display for HostError {
                 "Yield resume payload is {length} bytes which exceeds the {limit} byte limit"
             ),
             DataIdMalformed => write!(f, "yield resumption token is malformed"),
+            RecordedStorageExceeded { size, limit } => write!(
+                f,
+                "Size of the recorded trie storage proof has exceeded the allowed limit: {} > {}",
+                size, limit
+            ),
         }
     }
 }
