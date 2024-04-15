@@ -615,7 +615,11 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
 
     opts.set_target_file_size_base(64 * bytesize::MIB);
     if temp == Temperature::Hot && col.is_rc() {
-        opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, RocksDB::refcount_merge);
+        opts.set_merge_operator(
+            "refcount merge",
+            RocksDB::refcount_merge,
+            RocksDB::refcount_merge_partial,
+        );
         opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
     }
     opts
