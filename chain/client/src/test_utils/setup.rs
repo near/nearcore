@@ -4,6 +4,9 @@
 
 use super::block_stats::BlockStats;
 use super::peer_manager_mock::PeerManagerMock;
+use crate::stateless_validation::state_witness_distribution_actor::{
+    DistributeChunkStateWitnessRequest, StateWitnessDistributionActor,
+};
 use crate::{start_view_client, Client, ClientActor, SyncAdapter, SyncStatus, ViewClientActor};
 use actix::{Actor, Addr, AsyncContext, Context};
 use futures::{future, FutureExt};
@@ -170,6 +173,12 @@ pub fn setup(
 
     let state_sync_adapter =
         Arc::new(RwLock::new(SyncAdapter::new(noop().into_sender(), noop().into_sender())));
+
+    let (state_witness_distribution_addr, _) =
+        StateWitnessDistributionActor::spawn(network_adapter.clone());
+    let state_witness_distribution_adapter =
+        state_witness_distribution_addr.with_auto_span_context();
+
     let client = Client::new(
         clock.clone(),
         config.clone(),
@@ -185,6 +194,7 @@ pub fn setup(
         TEST_SEED,
         None,
         Arc::new(RayonAsyncComputationSpawner),
+        state_witness_distribution_adapter.into_sender(),
     )
     .unwrap();
     let client_actor = ClientActor::new(
@@ -963,6 +973,7 @@ pub fn setup_client_with_runtime(
     archive: bool,
     save_trie_changes: bool,
     snapshot_callbacks: Option<SnapshotCallbacks>,
+    state_witness_distribution_adapter: Sender<DistributeChunkStateWitnessRequest>,
 ) -> Client {
     let validator_signer =
         account_id.map(|x| Arc::new(create_test_signer(x.as_str())) as Arc<dyn ValidatorSigner>);
@@ -994,6 +1005,7 @@ pub fn setup_client_with_runtime(
         rng_seed,
         snapshot_callbacks,
         Arc::new(RayonAsyncComputationSpawner),
+        state_witness_distribution_adapter,
     )
     .unwrap();
     client.sync_status = SyncStatus::NoSync;

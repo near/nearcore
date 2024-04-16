@@ -1,4 +1,5 @@
 use super::setup::{setup_client_with_runtime, setup_synchronous_shards_manager};
+use super::state_witness_distribution_mock::SynchronousStateWitnessDistributionAdapter;
 use super::test_env::TestEnv;
 use super::{AccountIndices, TEST_SEED};
 use actix_rt::System;
@@ -534,6 +535,13 @@ impl TestEnvBuilder {
                 )
             })
             .collect::<Vec<_>>();
+        let state_witness_distribution_adapters = (0..num_clients)
+            .map(|i| {
+                SynchronousStateWitnessDistributionAdapter::new(
+                    network_adapters[i].clone().as_multi_sender(),
+                )
+            })
+            .collect::<Vec<_>>();
         let clients = (0..num_clients)
                 .map(|i| {
                     let account_id = clients[i].clone();
@@ -561,6 +569,7 @@ impl TestEnvBuilder {
                         make_snapshot_callback,
                         delete_snapshot_callback,
                     };
+                    let state_witness_distribution_adapter = state_witness_distribution_adapters[i].clone();
                     setup_client_with_runtime(
                         clock.clone(),
                         u64::try_from(num_validators).unwrap(),
@@ -576,6 +585,7 @@ impl TestEnvBuilder {
                         self.archive,
                         self.save_trie_changes,
                         Some(snapshot_callbacks),
+                        state_witness_distribution_adapter.into_sender(),
                     )
                 })
                 .collect();
@@ -587,6 +597,7 @@ impl TestEnvBuilder {
             network_adapters,
             client_adapters,
             shards_manager_adapters,
+            state_witness_distribution_adapters,
             clients,
             account_indices: AccountIndices(
                 self.clients

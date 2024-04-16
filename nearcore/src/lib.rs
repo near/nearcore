@@ -23,7 +23,10 @@ use near_chain_configs::SyncConfig;
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::sync::adapter::SyncAdapter;
-use near_client::{start_client, start_view_client, ClientActor, ConfigUpdater, ViewClientActor};
+use near_client::{
+    start_client, start_view_client, ClientActor, ConfigUpdater, StateWitnessDistributionActor,
+    ViewClientActor,
+};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::EpochManagerAdapter;
@@ -344,6 +347,9 @@ pub fn start_with_config_and_synchronization(
         get_make_snapshot_callback(state_snapshot_actor, runtime.get_flat_storage_manager());
     let snapshot_callbacks = SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
 
+    let (state_witness_distribution_actor, state_witness_distribution_arbiter) =
+        StateWitnessDistributionActor::spawn(network_adapter.as_multi_sender());
+
     let (client_actor, client_arbiter_handle, resharding_handle) = start_client(
         Clock::real(),
         config.client_config.clone(),
@@ -361,6 +367,7 @@ pub fn start_with_config_and_synchronization(
         shutdown_signal,
         adv,
         config_updater,
+        state_witness_distribution_actor.with_auto_span_context().into_sender(),
     );
     if let SyncConfig::Peers = config.client_config.state_sync.sync {
         client_adapter_for_sync.bind(client_actor.clone().with_auto_span_context())
@@ -449,6 +456,7 @@ pub fn start_with_config_and_synchronization(
         shards_manager_arbiter_handle,
         trie_metrics_arbiter,
         state_snapshot_arbiter,
+        state_witness_distribution_arbiter,
     ];
     if let Some(db_metrics_arbiter) = db_metrics_arbiter {
         arbiters.push(db_metrics_arbiter);

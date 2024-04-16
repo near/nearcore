@@ -42,6 +42,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use super::setup::setup_client_with_runtime;
+use super::state_witness_distribution_mock::SynchronousStateWitnessDistributionAdapter;
 use super::test_env_builder::TestEnvBuilder;
 use super::TEST_SEED;
 
@@ -57,6 +58,7 @@ pub struct TestEnv {
     pub network_adapters: Vec<Arc<MockPeerManagerAdapter>>,
     pub client_adapters: Vec<Arc<MockClientAdapterForShardsManager>>,
     pub shards_manager_adapters: Vec<SynchronousShardsManagerAdapter>,
+    pub state_witness_distribution_adapters: Vec<SynchronousStateWitnessDistributionAdapter>,
     pub clients: Vec<Client>,
     pub(crate) account_indices: AccountIndices,
     pub(crate) paused_blocks: Arc<Mutex<HashMap<CryptoHash, Arc<OnceCell<()>>>>>,
@@ -580,6 +582,7 @@ impl TestEnv {
             self.archive,
             self.save_trie_changes,
             None,
+            self.clients[idx].state_witness_distribution_adapter.clone(),
         )
     }
 

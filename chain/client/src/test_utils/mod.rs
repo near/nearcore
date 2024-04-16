@@ -3,9 +3,10 @@ pub mod client;
 pub mod client_actions_test_utils;
 pub mod peer_manager_mock;
 pub mod setup;
-pub mod sync_jobs_test_utils;
+mod state_witness_distribution_mock;
 pub mod test_env;
 pub mod test_env_builder;
+pub mod test_loop;
 
 pub use block_stats::*;
 pub use client::*;
