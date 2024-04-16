@@ -597,7 +597,6 @@ impl TestEnvBuilder {
             network_adapters,
             client_adapters,
             shards_manager_adapters,
-            state_witness_distribution_adapters,
             clients,
             account_indices: AccountIndices(
                 self.clients
