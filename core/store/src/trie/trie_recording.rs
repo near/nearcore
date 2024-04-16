@@ -61,7 +61,7 @@ mod trie_recording_tests {
     use crate::trie::TrieNodesCount;
     use crate::{DBCol, PartialStorage, Store, Trie};
     use borsh::BorshDeserialize;
-    use near_primitives::challenge::{PartialState, TrieValue};
+    use near_primitives::challenge::PartialState;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
     use near_primitives::state::ValueRef;
@@ -97,7 +97,7 @@ mod trie_recording_tests {
     fn prepare_trie(use_missing_keys: bool) -> PreparedTrie {
         let tries_for_building = TestTriesBuilder::new().with_flat_storage().build();
         let shard_uid = ShardUId::single_shard();
-        let trie_changes = gen_larger_changes(&mut thread_rng(), 4);
+        let trie_changes = gen_larger_changes(&mut thread_rng(), 50);
         let trie_changes = simplify_changes(&trie_changes);
         if trie_changes.is_empty() {
             // try again
@@ -216,18 +216,12 @@ mod trie_recording_tests {
         assert_eq!(d, Vec::<&Vec<u8>>::default(), "Missing nodes in first storage");
         let d: Vec<&Vec<u8>> = nodes.difference(&other_nodes).collect();
         assert_eq!(d, Vec::<&Vec<u8>>::default(), "Missing nodes in second storage");
-        // assert_eq!(nodes.len(), other_nodes.len());
-        // assert_eq!(nodes, other_nodes);
     }
 
     /// Verifies that when operating on a trie, the results are completely consistent
     /// regardless of whether we're operating on the real storage (with or without chunk
     /// cache), while recording reads, or when operating on recorded partial storage.
-    fn test_trie_recording_consistency(
-        enable_accounting_cache: bool,
-        use_missing_keys: bool,
-        use_in_memory_tries: bool,
-    ) {
+    fn test_trie_recording_consistency(enable_accounting_cache: bool, use_missing_keys: bool) {
         for _ in 0..NUM_ITERATIONS_PER_TEST {
             let PreparedTrie {
                 store,
@@ -238,18 +232,7 @@ mod trie_recording_tests {
                 updates,
                 state_root,
             } = prepare_trie(use_missing_keys);
-            println!("{:?}", data_in_trie);
-            println!("{:?}", keys_to_get);
-            println!("{:?}", keys_to_get_ref);
-            println!("{:?}", updates);
-
             let tries = TestTriesBuilder::new().with_store(store.clone()).build();
-
-            // let tries = if use_in_memory_tries {
-            //     TestTriesBuilder::new().with_store(store.clone()).with_in_memory_tries().build()
-            // } else {
-            //     TestTriesBuilder::new().with_store(store.clone()).build()
-            // };
             let mem_trie_lookup_counts_before = MEM_TRIE_NUM_LOOKUPS.get();
 
             // Let's capture the baseline node counts - this is what will happen
@@ -366,42 +349,22 @@ mod trie_recording_tests {
 
     #[test]
     fn test_trie_recording_consistency_no_accounting_cache() {
-        test_trie_recording_consistency(false, false, false);
+        test_trie_recording_consistency(false, false);
     }
 
     #[test]
     fn test_trie_recording_consistency_with_accounting_cache() {
-        test_trie_recording_consistency(true, false, false);
+        test_trie_recording_consistency(true, false);
     }
 
     #[test]
     fn test_trie_recording_consistency_no_accounting_cache_with_missing_keys() {
-        test_trie_recording_consistency(false, true, false);
+        test_trie_recording_consistency(false, true);
     }
 
     #[test]
     fn test_trie_recording_consistency_with_accounting_cache_and_missing_keys() {
-        test_trie_recording_consistency(true, true, false);
-    }
-
-    #[test]
-    fn test_trie_recording_consistency_memtrie_no_accounting_cache() {
-        test_trie_recording_consistency(false, false, true);
-    }
-
-    #[test]
-    fn test_trie_recording_consistency_memtrie_with_accounting_cache() {
-        test_trie_recording_consistency(true, false, true);
-    }
-
-    #[test]
-    fn test_trie_recording_consistency_memtrie_no_accounting_cache_with_missing_keys() {
-        test_trie_recording_consistency(false, true, true);
-    }
-
-    #[test]
-    fn test_trie_recording_consistency_memtrie_with_accounting_cache_and_missing_keys() {
-        test_trie_recording_consistency(true, true, true);
+        test_trie_recording_consistency(true, true);
     }
 
     /// Verifies that when operating on a trie, the results are completely consistent

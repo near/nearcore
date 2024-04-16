@@ -34,6 +34,8 @@ use near_vm_runner::ContractCode;
 pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 use std::cell::RefCell;
 use std::collections::HashMap;
+#[cfg(test)]
+use std::collections::HashSet;
 use std::fmt::Write;
 use std::hash::Hash;
 use std::rc::Rc;
@@ -751,10 +753,16 @@ impl Trie {
 
     #[cfg(test)]
     fn memory_usage_verify(&self, memory: &NodesStorage, handle: NodeHandle) -> u64 {
-        return 0;
+        // Cannot compute memory usage naively if given only partial storage.
+        if self.storage.as_partial_storage().is_some() {
+            return 0;
+        }
+        // We don't want to impact recorded storage by retrieving nodes for
+        // this sanity check.
         if self.recorder.is_some() {
             return 0;
         }
+
         let TrieNodeWithSize { node, memory_usage } = match handle {
             NodeHandle::InMemory(h) => memory.node_ref(h).clone(),
             NodeHandle::Hash(h) => self.retrieve_node(&h).expect("storage failure").1,
@@ -1501,9 +1509,16 @@ impl Trie {
     where
         I: IntoIterator<Item = (Vec<u8>, Option<Vec<u8>>)>,
     {
+        #[cfg(test)]
+        let changes = {
+            let changes: Vec<_> = changes.into_iter().collect();
+            let unique_keys: HashSet<&Vec<u8>> = HashSet::from_iter(changes.iter().map(|(k, _)| k));
+            assert_eq!(unique_keys.len(), changes.len());
+            changes
+        };
+
         match &self.memtries {
             Some(memtries) => {
-                println!("MT UPDATE!");
                 // If we have in-memory tries, use it to construct the changes entirely (for
                 // both in-memory and on-disk updates) because it's much faster.
                 let guard = memtries.read().unwrap();
@@ -1556,7 +1571,6 @@ impl Trie {
                 Ok(trie_changes)
             }
             None => {
-                println!("DT UPDATE!");
                 let mut memory = NodesStorage::new();
                 let mut root_node = self.move_node_to_mutable(&mut memory, &self.root)?;
                 for (key, value) in changes {
