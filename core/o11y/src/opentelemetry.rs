@@ -59,7 +59,8 @@ where
         opentelemetry_sdk::trace::BatchConfigBuilder::default()
             .with_max_concurrent_exports(2)
             .with_max_queue_size(4096)
-    }.build();
+    }
+    .build();
     let tracer = opentelemetry_otlp::new_pipeline()
         .tracing()
         .with_exporter(opentelemetry_otlp::new_exporter().tonic())
