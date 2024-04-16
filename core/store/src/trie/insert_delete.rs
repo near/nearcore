@@ -563,16 +563,16 @@ impl Trie {
                             new_children[i - 1] = Some(last_hash);
                         }
                         while i < 16 {
-                            match children[i].clone() {
+                            match &children[i] {
                                 Some(NodeHandle::InMemory(handle)) => {
                                     stack.push((
                                         node,
                                         FlattenNodesCrumb::AtChild(new_children, i + 1),
                                     ));
-                                    stack.push((handle, FlattenNodesCrumb::Entering));
+                                    stack.push((*handle, FlattenNodesCrumb::Entering));
                                     continue 'outer;
                                 }
-                                Some(NodeHandle::Hash(hash)) => new_children[i] = Some(hash),
+                                Some(NodeHandle::Hash(hash)) => new_children[i] = Some(*hash),
                                 None => {}
                             }
                             i += 1;
