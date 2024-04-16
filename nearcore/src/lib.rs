@@ -348,8 +348,12 @@ pub fn start_with_config_and_synchronization(
 
     let (state_witness_actor, state_witness_arbiter) = if config.validator_signer.is_some() {
         let my_signer = config.validator_signer.clone().unwrap();
-        let (state_witness_actor, state_witness_arbiter) =
-            StateWitnessActor::spawn(Clock::real(), network_adapter.as_multi_sender(), my_signer);
+        let (state_witness_actor, state_witness_arbiter) = StateWitnessActor::spawn(
+            Clock::real(),
+            network_adapter.as_multi_sender(),
+            my_signer,
+            epoch_manager.clone(),
+        );
         (Some(state_witness_actor), Some(state_witness_arbiter))
     } else {
         (None, None)

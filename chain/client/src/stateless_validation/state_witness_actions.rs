@@ -3,6 +3,7 @@ use std::sync::Arc;
 use near_async::messaging::CanSend;
 use near_async::time::Clock;
 use near_chain::Error;
+use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_primitives::stateless_validation::{
     ChunkStateWitness, ChunkStateWitnessAck, EncodedChunkStateWitness,
@@ -20,6 +21,8 @@ pub struct StateWitnessActions {
     network_adapter: PeerManagerAdapter,
     /// Validator signer to sign the state witness.
     my_signer: Arc<dyn ValidatorSigner>,
+    /// Epoch manager to get the set of chunk validators
+    epoch_manager: Arc<dyn EpochManagerAdapter>,
     /// Tracks a collection of state witnesses sent from chunk producers to chunk validators.
     state_witness_tracker: ChunkStateWitnessTracker,
 }
@@ -29,10 +32,12 @@ impl StateWitnessActions {
         clock: Clock,
         network_adapter: PeerManagerAdapter,
         my_signer: Arc<dyn ValidatorSigner>,
+        epoch_manager: Arc<dyn EpochManagerAdapter>,
     ) -> Self {
         Self {
             network_adapter,
             my_signer,
+            epoch_manager,
             state_witness_tracker: ChunkStateWitnessTracker::new(clock),
         }
     }
@@ -41,9 +46,18 @@ impl StateWitnessActions {
         &mut self,
         msg: DistributeStateWitnessRequest,
     ) -> Result<(), Error> {
-        let DistributeStateWitnessRequest { chunk_validators, state_witness } = msg;
+        let DistributeStateWitnessRequest { state_witness } = msg;
 
         let signed_witness = create_signed_witness(&state_witness, self.my_signer.as_ref())?;
+
+        let mut chunk_validators = self
+            .epoch_manager
+            .get_chunk_validator_assignments(
+                &state_witness.epoch_id,
+                state_witness.chunk_header.shard_id(),
+                state_witness.chunk_header.height_created(),
+            )?
+            .ordered_chunk_validators();
 
         tracing::debug!(
             target: "stateless_validation",
@@ -59,6 +73,9 @@ impl StateWitnessActions {
             signed_witness.witness_bytes.size_bytes(),
             chunk_validators.len(),
         );
+
+        // Remove ourselves from the list of chunk validators. Network can't send messages to ourselves.
+        chunk_validators.retain(|validator| validator != self.my_signer.validator_id());
 
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::ChunkStateWitness(chunk_validators, signed_witness),

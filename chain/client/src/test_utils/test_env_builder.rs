@@ -565,6 +565,7 @@ impl TestEnvBuilder {
                         clock.clone(),
                         network_adapters[i].clone().as_multi_sender(),
                         validator_signer.clone(),
+                        epoch_manager.clone().into_adapter(),
                     ));
                     setup_client_with_runtime(
                         clock.clone(),

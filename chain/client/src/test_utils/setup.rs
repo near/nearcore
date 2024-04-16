@@ -174,8 +174,12 @@ pub fn setup(
     let state_sync_adapter =
         Arc::new(RwLock::new(SyncAdapter::new(noop().into_sender(), noop().into_sender())));
 
-    let (state_witness_addr, _) =
-        StateWitnessActor::spawn(clock.clone(), network_adapter.clone(), signer.clone());
+    let (state_witness_addr, _) = StateWitnessActor::spawn(
+        clock.clone(),
+        network_adapter.clone(),
+        signer.clone(),
+        epoch_manager.clone(),
+    );
     let state_witness_adapter = state_witness_addr.with_auto_span_context();
 
     let client = Client::new(
