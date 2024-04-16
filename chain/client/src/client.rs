@@ -8,7 +8,6 @@ use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
 use crate::stateless_validation::chunk_endorsement_tracker::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validator::ChunkValidator;
 use crate::stateless_validation::state_witness_distribution_actor::StateWitnessDistributionSenderForClient;
-use crate::stateless_validation::state_witness_tracker::ChunkStateWitnessTracker;
 use crate::sync::adapter::SyncShardInfo;
 use crate::sync::block::BlockSync;
 use crate::sync::epoch::EpochSync;
@@ -168,19 +167,16 @@ pub struct Client {
     /// Last time the head was updated, or our head was rebroadcasted. Used to re-broadcast the head
     /// again to prevent network from stalling if a large percentage of the network missed a block
     last_time_head_progress_made: Instant,
-
     /// Block production timing information. Used only for debug purposes.
     /// Stores approval information and production time of the block
     pub block_production_info: BlockProductionTracker,
     /// Chunk production timing information. Used only for debug purposes.
     pub chunk_production_info: lru::LruCache<(BlockHeight, ShardId), ChunkProduction>,
-
     /// Cached precomputed set of TIER1 accounts.
     /// See send_network_chain_info().
     tier1_accounts_cache: Option<(EpochId, Arc<AccountKeys>)>,
     /// Used when it is needed to create flat storage in background for some shards.
     flat_storage_creator: Option<FlatStorageCreator>,
-
     /// When the "sync block" was requested.
     /// The "sync block" is the last block of the previous epoch, i.e. `prev_hash` of the `sync_hash` block.
     pub last_time_sync_block_requested: Option<near_async::time::Utc>,
@@ -192,11 +188,8 @@ pub struct Client {
     pub chunk_inclusion_tracker: ChunkInclusionTracker,
     /// Tracks chunk endorsements received from chunk validators. Used to filter out chunks ready for inclusion
     pub chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
-    /// Tracks a collection of state witnesses sent from chunk producers to chunk validators.
-    pub state_witness_tracker: ChunkStateWitnessTracker,
     /// Adapter to send request to state_witness_distribution_actor to distribute state witness.
     pub state_witness_distribution_adapter: StateWitnessDistributionSenderForClient,
-
     // Optional value used for the Chunk Distribution Network Feature.
     chunk_distribution_network: Option<ChunkDistributionNetwork>,
 }
@@ -413,7 +406,6 @@ impl Client {
             chunk_validator,
             chunk_inclusion_tracker: ChunkInclusionTracker::new(),
             chunk_endorsement_tracker,
-            state_witness_tracker: ChunkStateWitnessTracker::new(clock),
             state_witness_distribution_adapter,
             chunk_distribution_network,
         })
