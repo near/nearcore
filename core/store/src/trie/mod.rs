@@ -1131,12 +1131,6 @@ impl Trie {
         }
     }
 
-    #[tracing::instrument(
-        level = "trace",
-        target = "store::trie",
-        "Trie::move_node_to_mutable",
-        skip_all
-    )]
     fn move_node_to_mutable(
         &self,
         memory: &mut NodesStorage,
