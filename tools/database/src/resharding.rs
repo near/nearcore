@@ -32,7 +32,7 @@ impl ReshardingCommand {
 
         let storage = open_storage(home_dir, &mut config)?;
         let epoch_manager =
-            EpochManager::new_arc_handle(storage.get_hot_store(), &config.genesis.config);
+            EpochManager::new_arc_handle(storage.get_split_store().unwrap(), &config.genesis.config);
         let genesis_epoch_config = epoch_manager.get_epoch_config(&EpochId::default())?;
         // Initialize genesis_state in store either from genesis config or dump before other components.
         // We only initialize if the genesis state is not already initialized in store.

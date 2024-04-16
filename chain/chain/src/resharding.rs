@@ -126,7 +126,7 @@ fn get_trie_update_batch(
     while let Some(item) = iter.next() {
         let (key, value) = item?;
 
-        print_state_record(key.clone(), value.clone());
+        // print_state_record(key.clone(), value.clone());
 
         size += key.len() as u64 + value.as_ref().map_or(0, |v| v.len() as u64);
         entries.push((key, value));
@@ -141,6 +141,7 @@ fn get_trie_update_batch(
     }
 }
 
+#[allow(dead_code)]
 fn print_state_record(key: Vec<u8>, value: Option<Vec<u8>>) {
     let state_record = match value {
         Some(value) => {
@@ -399,7 +400,7 @@ impl Chain {
             handle,
             ..
         } = resharding_request;
-        tracing::debug!(target: "resharding", config=?config.get(), ?shard_uid, "build_state_for_split_shards_impl starting");
+        tracing::debug!(target: "resharding", config=?config.get(), ?shard_uid, ?prev_hash, ?prev_prev_hash, "build_state_for_split_shards_impl starting");
 
         let shard_id = shard_uid.shard_id();
         let new_shards = next_epoch_shard_layout
@@ -422,7 +423,7 @@ impl Chain {
         // The snapshot when created has the flat head as of `prev_prev_hash`, i.e. the hash as
         // of the second last block of the previous epoch. Hence we need to append the detla
         // changes on top of it.
-        let (snapshot_store, flat_storage_manager) = tries
+        let (_snapshot_store, flat_storage_manager) = tries
             .get_state_snapshot(&prev_prev_hash)
             .map_err(|err| StorageInconsistentState(err.to_string()))?;
         let flat_storage_chunk_view = flat_storage_manager.chunk_view(shard_uid, prev_prev_hash);
@@ -434,18 +435,19 @@ impl Chain {
         let flat_storage_iter = flat_storage_chunk_view.iter_flat_state_entries(None, None);
         let flat_storage_iter = flat_storage_iter.map_ok(|(key, value)| (key, Some(value)));
 
-        // Get the delta iter and wrap the items in Result to match the flat
-        // storage iter so that they can be chained.
-        let delta = store_helper::get_delta_changes(&snapshot_store, shard_uid, prev_hash)
-            .map_err(|err| StorageInconsistentState(err.to_string()))?;
-        let delta = delta.ok_or_else(|| {
-            StorageInconsistentState("Delta missing for snapshot flat storage".to_string())
-        })?;
-        let delta_iter = delta.0.into_iter();
-        let delta_iter = delta_iter.map(|item| Ok(item));
+        // // Get the delta iter and wrap the items in Result to match the flat
+        // // storage iter so that they can be chained.
+        // let delta = store_helper::get_delta_changes(&snapshot_store, shard_uid, prev_hash)
+        //     .map_err(|err| StorageInconsistentState(err.to_string()))?;
+        // let delta = delta.ok_or_else(|| {
+        //     StorageInconsistentState("Delta missing for snapshot flat storage".to_string())
+        // })?;
+        // let delta_iter = delta.0.into_iter();
+        // let delta_iter = delta_iter.map(|item| Ok(item));
 
         // chain the flat storage and flat storage delta iterators
-        let iter = flat_storage_iter.chain(delta_iter);
+        // let iter = flat_storage_iter.chain(delta_iter);
+        let iter = flat_storage_iter;
 
         // map the iterator to read the values
         let trie_storage = TrieDBStorage::new(tries.get_store(), shard_uid);

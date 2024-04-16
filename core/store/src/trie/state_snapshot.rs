@@ -354,12 +354,18 @@ impl ShardTries {
 
         let store_config = StoreConfig::default();
 
+        tracing::debug!(target: "state_snapshot", "1");
         let opener = NodeStorage::opener(&snapshot_path, false, &store_config, None);
+        tracing::debug!(target: "state_snapshot", "2");
         let storage = opener.open_in_mode(Mode::ReadOnly)?;
+        tracing::debug!(target: "state_snapshot", "3");
         let store = storage.get_hot_store();
+        tracing::debug!(target: "state_snapshot", "4");
         let flat_storage_manager = FlatStorageManager::new(store.clone());
 
+        tracing::debug!(target: "state_snapshot", "5");
         let shard_uids = get_shard_uids_fn(snapshot_hash)?;
+        tracing::debug!(target: "state_snapshot", "6");
         let mut guard = self.state_snapshot().write().unwrap();
         *guard =
             Some(StateSnapshot::new(store, snapshot_hash, flat_storage_manager, &shard_uids, None));
