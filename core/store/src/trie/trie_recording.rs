@@ -234,10 +234,9 @@ mod trie_recording_tests {
     fn assert_partial_storage(storage: &PartialStorage, other_storage: &PartialStorage) {
         let PartialState::TrieValues(nodes) = &storage.nodes;
         let PartialState::TrieValues(other_nodes) = &other_storage.nodes;
-        let nodes: HashSet<Vec<u8>> =
-            HashSet::from_iter(nodes.into_iter().cloned().map(|key| key.to_vec()));
+        let nodes: HashSet<Vec<u8>> = HashSet::from_iter(nodes.into_iter().map(|key| key.to_vec()));
         let other_nodes: HashSet<Vec<u8>> =
-            HashSet::from_iter(other_nodes.into_iter().cloned().map(|key| key.to_vec()));
+            HashSet::from_iter(other_nodes.into_iter().map(|key| key.to_vec()));
         let d: Vec<&Vec<u8>> = other_nodes.difference(&nodes).collect();
         assert_eq!(d, Vec::<&Vec<u8>>::default(), "Missing nodes in first storage");
         let d: Vec<&Vec<u8>> = nodes.difference(&other_nodes).collect();
