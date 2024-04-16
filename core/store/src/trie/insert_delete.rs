@@ -432,7 +432,7 @@ impl Trie {
                 }
             }
         }
-        self.fix_nodes(memory, path, restructure)?;
+        self.fix_nodes(memory, path, true)?;
         Ok(root_node)
     }
 

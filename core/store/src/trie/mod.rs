@@ -82,7 +82,7 @@ pub struct TrieCosts {
 }
 
 /// Whether a key lookup will be performed through flat storage or through iterating the trie
-#[derive(PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum KeyLookupMode {
     FlatStorage,
     Trie,
@@ -1509,11 +1509,16 @@ impl Trie {
     where
         I: IntoIterator<Item = (Vec<u8>, Option<Vec<u8>>)>,
     {
+        // Sanity check: keys passed in `changes` must be unique.
         #[cfg(test)]
         let changes = {
             let changes: Vec<_> = changes.into_iter().collect();
             let unique_keys: HashSet<&Vec<u8>> = HashSet::from_iter(changes.iter().map(|(k, _)| k));
-            assert_eq!(unique_keys.len(), changes.len());
+            assert_eq!(
+                unique_keys.len(),
+                changes.len(),
+                "Keys given to Trie::update are not unique"
+            );
             changes
         };
 
@@ -1855,7 +1860,7 @@ mod tests {
     fn test_contains_key() {
         let sid = ShardUId::single_shard();
         let bid = CryptoHash::default();
-        let tries = TestTriesBuilder::new().with_flat_storage().build();
+        let tries = TestTriesBuilder::new().with_enabled_flat_storage().build();
         let initial = vec![
             (vec![99, 44, 100, 58, 58, 49], Some(vec![1])),
             (vec![99, 44, 100, 58, 58, 50], Some(vec![1])),

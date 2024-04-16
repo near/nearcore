@@ -470,7 +470,7 @@ mod trie_storage_tests {
 
         let tries = TestTriesBuilder::new()
             .with_store(store)
-            .with_flat_storage()
+            .with_enabled_flat_storage()
             .with_in_memory_tries()
             .build();
         let shard_uid = ShardUId::single_shard();
