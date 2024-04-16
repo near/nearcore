@@ -49,7 +49,7 @@ class TestSplitStorage(unittest.TestCase):
         # store and cold store will point to the same instance and
         # both will end up with the same path.
         node_config["cold_store"] = copy.deepcopy(node_config["store"])
-        node_config["store"]["path"] = path.join(node_dir, 'data')
+        node_config["store"]["path"] = path.join(node_dir, 'hot_data')
         node_config["cold_store"]["path"] = path.join(node_dir, 'cold_data')
 
         set_config_json(node_dir, node_config)

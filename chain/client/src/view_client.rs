@@ -348,8 +348,9 @@ impl ViewClientActor {
         let tip = self.chain.head();
         let chunk_extra =
             self.chain.get_chunk_extra(header.hash(), &shard_uid).map_err(|err| match err {
-                near_chain::near_chain_primitives::Error::DBNotFoundErr(_) => match tip {
+                near_chain::near_chain_primitives::Error::DBNotFoundErr(err) => match tip {
                     Ok(tip) => {
+                        tracing::error!(target:"view_client", block_hash=?header.hash(), ?shard_uid, ?err, "error getting chunk extra");
                         let gc_stop_height = self.runtime.get_gc_stop_height(&tip.last_block_hash);
                         if !self.config.archive && header.height() < gc_stop_height {
                             QueryError::GarbageCollectedBlock {

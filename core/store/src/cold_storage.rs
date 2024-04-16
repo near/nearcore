@@ -96,6 +96,8 @@ pub fn update_cold_db(
         get_keys_from_store(&hot_store, shard_layout, &height_key, block_hash_key)?;
     let cold_columns = DBCol::iter().filter(|col| col.is_cold()).collect::<Vec<DBCol>>();
 
+    tracing::debug!(target: "cold_store", ?height, shard_layout_version=shard_layout.version(), "update cold db");
+
     // Create new thread pool with `num_threads`.
     rayon::ThreadPoolBuilder::new()
         .num_threads(num_threads)
@@ -181,15 +183,14 @@ fn copy_state_from_store(
 
         let shard_uid_key = shard_uid.to_bytes();
         let key = join_two_keys(&block_hash_key, &shard_uid_key);
-        let trie_changes: Option<TrieChanges> =
-            hot_store.get_ser::<TrieChanges>(DBCol::TrieChanges, &key)?;
+        let trie_changes = hot_store.get_ser::<TrieChanges>(DBCol::TrieChanges, &key)?;
 
         let Some(trie_changes) = trie_changes else { continue };
         for op in trie_changes.insertions() {
             let key = join_two_keys(&shard_uid_key, op.hash().as_bytes());
             let value = op.payload().to_vec();
 
-            tracing::trace!(target: "cold_store", pretty_key=?near_fmt::StorageKey(&key), "copying state node to colddb");
+            tracing::debug!(target: "cold_store", ?shard_uid, hash=?op.hash(), pretty_key=?near_fmt::StorageKey(&key), "copying trie node to colddb");
             rc_aware_set(&mut transaction, DBCol::State, key, value);
         }
     }
@@ -232,6 +233,9 @@ fn copy_from_store(
         // added.
         let data = hot_store.get_for_cold(col, &key)?;
         if let Some(value) = data {
+            if col == DBCol::ChunkExtra {
+                tracing::debug!(target: "cold_store", pretty_key=?near_fmt::StorageKey(&key), "copying key to colddb");
+            }
             // TODO: As an optimisation, we might consider breaking the
             // abstraction layer.  Since we’re always writing to cold database,
             // rather than using `cold_db: &dyn Database` argument we could have
@@ -383,6 +387,9 @@ fn get_keys_from_store(
     let mut key_type_to_keys = HashMap::new();
 
     let block: Block = store.get_ser_or_err_for_cold(DBCol::Block, &block_hash_key)?;
+
+    tracing::debug!(target: "cold_store", block_hash=?block.header().hash(), "get_keys_from_store");
+
     let chunks = block
         .chunks()
         .iter()

@@ -232,6 +232,7 @@ impl ShardTries {
     ) {
         let mut ops = Vec::with_capacity(deletions.len());
         for TrieRefcountSubtraction { trie_node_or_value_hash, rc, .. } in deletions.iter() {
+            tracing::debug!(target: "gc", hash=?trie_node_or_value_hash, "deleting trie node");
             let key = TrieCachingStorage::get_key_from_shard_uid_and_hash(
                 shard_uid,
                 trie_node_or_value_hash,

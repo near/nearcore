@@ -16,6 +16,7 @@ use near_primitives::errors::StorageError::StorageInconsistentState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout};
 use near_primitives::state::FlatStateValue;
+use near_primitives::state_record::StateRecord;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ShardId, StateRoot};
 use near_store::flat::{
@@ -124,6 +125,9 @@ fn get_trie_update_batch(
     let mut entries = Vec::new();
     while let Some(item) = iter.next() {
         let (key, value) = item?;
+
+        print_state_record(key.clone(), value.clone());
+
         size += key.len() as u64 + value.as_ref().map_or(0, |v| v.len() as u64);
         entries.push((key, value));
         if size > config.batch_size.as_u64() {
@@ -135,6 +139,26 @@ fn get_trie_update_batch(
     } else {
         Ok(Some(TrieUpdateBatch { entries, size }))
     }
+}
+
+fn print_state_record(key: Vec<u8>, value: Option<Vec<u8>>) {
+    let state_record = match value {
+        Some(value) => {
+            let state_record = StateRecord::from_raw_key_value(key, value);
+            match state_record {
+                Some(state_record) => state_record,
+                None => {
+                    println!("Error parsing state record from value");
+                    return;
+                }
+            }
+        }
+        None => {
+            println!("Value is None");
+            return;
+        }
+    };
+    tracing::debug!(target: "resharding", ?state_record, "state record");
 }
 
 fn apply_delayed_receipts<'a>(

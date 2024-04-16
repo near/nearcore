@@ -369,9 +369,11 @@ impl<'a> StoreOpener<'a> {
         // If kind is set check if it's the expected one.
         if let Some(current_kind) = current_kind {
             if !is_valid_kind_temp(current_kind, temp) {
+                tracing::info!(target: "db_opener", archive, which, "kind temp");
                 return err;
             }
             if !is_valid_kind_archive(current_kind, archive) {
+                tracing::info!(target: "db_opener", archive, which, "kind archive");
                 return err;
             }
             return Ok(());

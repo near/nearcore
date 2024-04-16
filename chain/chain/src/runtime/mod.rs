@@ -520,13 +520,21 @@ impl NightshadeRuntime {
         let kind = self.store.get_db_kind()?;
         let cold_head = self.store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY)?;
 
-        if let (Some(DbKind::Hot), Some(cold_head)) = (kind, cold_head) {
-            let cold_head_hash = cold_head.last_block_hash;
-            let cold_epoch_first_block =
-                *epoch_manager.get_block_info(&cold_head_hash)?.epoch_first_block();
-            let cold_epoch_first_block_info =
-                epoch_manager.get_block_info(&cold_epoch_first_block)?;
-            return Ok(std::cmp::min(epoch_start_height, cold_epoch_first_block_info.height()));
+        match (kind, cold_head) {
+            (Some(DbKind::Hot), Some(cold_head)) => {
+                let cold_head_hash = cold_head.last_block_hash;
+                let cold_epoch_first_block =
+                    *epoch_manager.get_block_info(&cold_head_hash)?.epoch_first_block();
+                let cold_epoch_first_block_info =
+                    epoch_manager.get_block_info(&cold_epoch_first_block)?;
+                return Ok(std::cmp::min(epoch_start_height, cold_epoch_first_block_info.height()));
+            }
+            (Some(DbKind::Hot), None) => {
+                // TODO this should be genesis height
+                tracing::debug!(target: "gc", "No cold head found, using genesis height for GC stop height");
+                return Ok(0);
+            }
+            _ => {}
         }
         Ok(epoch_start_height)
     }

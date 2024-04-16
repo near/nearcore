@@ -7,6 +7,7 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::block::Tip;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::hash::CryptoHash;
+use near_primitives::types::BlockHeight;
 use near_store::cold_storage::{copy_all_data_to_cold, update_cold_db, update_cold_head};
 use near_store::metadata::DbKind;
 use near_store::{DBCol, NodeStorage, Store, StoreOpener};
@@ -170,10 +171,12 @@ fn print_heads(store: &NodeStorage) -> anyhow::Result<()> {
         let head = hot_store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?;
         let final_head = hot_store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?;
         let cold_head = hot_store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY)?;
+        let tail = hot_store.get_ser::<BlockHeight>(DBCol::BlockMisc, TAIL_KEY)?;
         println!("HOT STORE KIND is {:#?}", kind);
         println!("HOT STORE HEAD is at {:#?}", head);
         println!("HOT STORE FINAL_HEAD is at {:#?}", final_head);
         println!("HOT STORE COLD_HEAD is at {:#?}", cold_head);
+        println!("HOT STORE TAIL is at {:#?}", tail);
     }
 
     // cold store

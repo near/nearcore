@@ -1227,6 +1227,7 @@ impl ChainStoreAccess for ChainStore {
         block_hash: &CryptoHash,
         shard_uid: &ShardUId,
     ) -> Result<Arc<ChunkExtra>, Error> {
+        tracing::debug!(target: "store", ?block_hash, ?shard_uid, "get_chunk_extra");
         option_to_not_found(
             self.read_with_cache(
                 DBCol::ChunkExtra,
