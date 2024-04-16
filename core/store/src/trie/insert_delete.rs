@@ -320,7 +320,7 @@ impl Trie {
         let mut partial = partial;
         let root_node = handle;
         let mut path: Vec<StorageHandle> = Vec::new();
-        let mut restructure = true;
+        let mut key_deleted = true;
         loop {
             path.push(handle);
             let TrieNodeWithSize { node, memory_usage } = memory.destroy(handle);
@@ -328,7 +328,7 @@ impl Trie {
             match node {
                 TrieNode::Empty => {
                     memory.store_at(handle, TrieNodeWithSize::empty());
-                    restructure = false;
+                    key_deleted = false;
                     break;
                 }
                 TrieNode::Leaf(key, value) => {
@@ -340,7 +340,7 @@ impl Trie {
                         let leaf_node = TrieNode::Leaf(key, value);
                         let memory_usage = leaf_node.memory_usage_direct(memory);
                         memory.store_at(handle, TrieNodeWithSize::new(leaf_node, memory_usage));
-                        restructure = false;
+                        key_deleted = false;
                         break;
                     }
                 }
@@ -355,7 +355,7 @@ impl Trie {
                                     memory_usage,
                                 ),
                             );
-                            restructure = false;
+                            key_deleted = false;
                             break;
                         }
                         self.delete_value(memory, &value.unwrap())?;
@@ -396,7 +396,7 @@ impl Trie {
                                     memory_usage,
                                 ),
                             );
-                            restructure = false;
+                            key_deleted = false;
                             break;
                         }
                     }
@@ -426,27 +426,30 @@ impl Trie {
                             handle,
                             TrieNodeWithSize::new(TrieNode::Extension(key, child), memory_usage),
                         );
-                        restructure = false;
+                        key_deleted = false;
                         break;
                     }
                 }
             }
         }
-        self.fix_nodes(memory, path, true)?;
+        self.fix_nodes(memory, path, key_deleted)?;
         Ok(root_node)
     }
 
+    /// Iterates over nodes in `path`, changing their types where needed,
+    /// if `key_deleted` is true, so trie structure has to change.
+    /// If `key_deleted` is false, only recomputes memory usages along the path.
     fn fix_nodes(
         &self,
         memory: &mut NodesStorage,
         path: Vec<StorageHandle>,
-        restructure: bool,
+        key_deleted: bool,
     ) -> Result<(), StorageError> {
         let mut child_memory_usage = 0;
         for handle in path.into_iter().rev() {
             let TrieNodeWithSize { node, memory_usage } = memory.destroy(handle);
             let memory_usage = memory_usage + child_memory_usage;
-            if restructure {
+            if key_deleted {
                 match node {
                     TrieNode::Empty => {
                         memory.store_at(handle, TrieNodeWithSize::empty());

@@ -419,37 +419,20 @@ mod trie_storage_tests {
         assert_eq!(count_delta.mem_reads, 1);
     }
 
-    // Checks that when branch restructuring is triggered on updating trie,
-    // impacted child is still recorded.
-    //
-    // Needed when branch has two children, one of which is removed, branch
-    // could be converted to extension, so reading of the only remaining child
-    // is also required.
-    #[test]
-    fn test_memtrie_recorded_branch_restructuring() {
+    fn test_memtrie_and_disk_updates_consistency(updates: Vec<(Vec<u8>, Option<Vec<u8>>)>) {
         init_test_logger();
+        let base_changes = vec![
+            (vec![7], Some(vec![1])),
+            (vec![7, 0], Some(vec![2])),
+            (vec![7, 1], Some(vec![3])),
+        ];
         let tries = TestTriesBuilder::new().build();
         let shard_uid = ShardUId::single_shard();
 
-        let state_root = test_populate_trie(
-            &tries,
-            &Trie::EMPTY_ROOT,
-            shard_uid,
-            vec![
-                (vec![7], Some(vec![1])),
-                (vec![7, 0], Some(vec![2])),
-                (vec![7, 1], Some(vec![3])),
-            ],
-        );
+        let state_root =
+            test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, base_changes.clone());
         let trie = tries.get_trie_for_shard(shard_uid, state_root).recording_reads();
-        let changes = trie
-            .update(vec![
-                (vec![8], None),
-                // (vec![7], Some(vec![10])),
-                // (vec![7, 0], None),
-                // (vec![7, 6], Some(vec![8])),
-            ])
-            .unwrap();
+        let changes = trie.update(updates.clone()).unwrap();
         tracing::info!("Changes: {:?}", changes);
 
         let recorded_normal = trie.recorded_storage();
@@ -475,30 +458,39 @@ mod trie_storage_tests {
             .build();
         let shard_uid = ShardUId::single_shard();
 
-        let state_root = test_populate_trie(
-            &tries,
-            &Trie::EMPTY_ROOT,
-            shard_uid,
-            vec![
-                (vec![7], Some(vec![1])),
-                (vec![7, 0], Some(vec![2])),
-                (vec![7, 1], Some(vec![3])),
-            ],
-        );
+        let state_root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, base_changes);
         let trie = tries.get_trie_for_shard(shard_uid, state_root).recording_reads();
-        let changes = trie
-            .update(vec![
-                (vec![8], None),
-                // (vec![7], Some(vec![10])),
-                // (vec![7, 0], None),
-                // (vec![7, 6], Some(vec![8])),
-            ])
-            .unwrap();
+        let changes = trie.update(updates).unwrap();
 
         tracing::info!("Changes: {:?}", changes);
 
         let recorded_memtrie = trie.recorded_storage();
 
         assert_eq!(recorded_normal, recorded_memtrie);
+    }
+
+    // Checks that when branch restructuring is triggered on updating trie,
+    // impacted child is recorded on memtrie.
+    //
+    // Needed when branch has two children, one of which is removed, branch
+    // could be converted to extension, so reading of the only remaining child
+    // is also required.
+    #[test]
+    fn test_memtrie_recorded_branch_restructuring() {
+        test_memtrie_and_disk_updates_consistency(vec![
+            (vec![7], Some(vec![1])),
+            (vec![7, 0], Some(vec![2])),
+            (vec![7, 1], Some(vec![3])),
+        ]);
+    }
+
+    // Checks that when non-existent key is removed, only nodes along the path
+    // to it is recorded.
+    // Needed because old disk trie logic was always reading neighbouring children
+    // along the path to recompute memory usages, which is not needed if trie
+    // structure doesn't change.
+    #[test]
+    fn test_memtrie_recorded_delete_non_existent_key() {
+        test_memtrie_and_disk_updates_consistency(vec![(vec![8], None)]);
     }
 }
