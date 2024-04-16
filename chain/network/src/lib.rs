@@ -22,7 +22,7 @@ pub mod raw;
 pub mod routing;
 pub mod shards_manager;
 pub mod state_sync;
-pub mod state_witness_distribution;
+pub mod state_witness;
 pub mod tcp;
 pub mod test_loop;
 pub mod test_utils;

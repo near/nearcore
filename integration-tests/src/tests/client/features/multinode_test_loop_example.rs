@@ -32,13 +32,12 @@ use near_client::test_utils::test_loop::{
     forward_client_messages_from_network_to_client_actions,
     forward_client_messages_from_shards_manager,
     forward_client_messages_from_sync_jobs_to_client_actions,
-    forward_messages_from_client_to_state_witness_distribution_actor,
-    forward_messages_from_network_to_state_witness_distribution_actor,
+    forward_messages_from_client_to_state_witness_actor,
+    forward_messages_from_network_to_state_witness_actor,
     forward_sync_jobs_messages_from_client_to_sync_jobs_actions,
 };
 use near_client::{
-    Client, StateWitnessDistributionActions, StateWitnessDistributionSenderForClientMessage,
-    SyncAdapter, SyncMessage,
+    Client, StateWitnessActions, StateWitnessSenderForClientMessage, SyncAdapter, SyncMessage,
 };
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
@@ -47,9 +46,8 @@ use near_network::client::{
     ClientSenderForNetwork, ClientSenderForNetworkMessage, ProcessTxRequest,
 };
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
-use near_network::state_witness_distribution::{
-    ChunkStateWitnessAckMessage, StateWitnessDistributionSenderForNetwork,
-    StateWitnessDistributionSenderForNetworkMessage,
+use near_network::state_witness::{
+    ChunkStateWitnessAckMessage, StateWitnessSenderForNetwork, StateWitnessSenderForNetworkMessage,
 };
 use near_network::test_loop::SupportsRoutingLookup;
 use near_network::types::{
@@ -85,7 +83,7 @@ struct TestData {
     pub client: ClientActions,
     pub sync_jobs: SyncJobsActions,
     pub shards_manager: ShardsManager,
-    pub state_witness_distribution: StateWitnessDistributionActions,
+    pub state_witness: StateWitnessActions,
 }
 
 impl AsMut<TestData> for TestData {
@@ -144,10 +142,10 @@ enum TestEvent {
     ),
     /// Calls to the network component to set chain info.
     SetChainInfo(SetChainInfo),
-    /// Message from Client to StateWitnessDistributionActor.
-    StateWitnessDistributionSenderForClient(StateWitnessDistributionSenderForClientMessage),
-    /// Message from Network to StateWitnessDistributionActor.
-    StateWitnessDistributionSenderForNetwork(StateWitnessDistributionSenderForNetworkMessage),
+    /// Message from Client to StateWitnessActor.
+    StateWitnessSenderForClient(StateWitnessSenderForClientMessage),
+    /// Message from Network to StateWitnessActor.
+    StateWitnessSenderForNetwork(StateWitnessSenderForNetworkMessage),
 }
 
 const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
@@ -281,7 +279,7 @@ fn test_client_with_multi_test_loop() {
             builder
                 .sender()
                 .for_index(idx)
-                .into_wrapped_multi_sender::<StateWitnessDistributionSenderForClientMessage, _>(),
+                .into_wrapped_multi_sender::<StateWitnessSenderForClientMessage, _>(),
         )
         .unwrap();
 
@@ -320,7 +318,7 @@ fn test_client_with_multi_test_loop() {
         )
         .unwrap();
 
-        let state_witness_distribution_actions = StateWitnessDistributionActions::new(
+        let state_witness_actions = StateWitnessActions::new(
             builder.clock(),
             builder.sender().for_index(idx).into_multi_sender(),
             validator_signer,
@@ -332,7 +330,7 @@ fn test_client_with_multi_test_loop() {
             client: client_actions,
             sync_jobs: sync_jobs_actions,
             shards_manager,
-            state_witness_distribution: state_witness_distribution_actions,
+            state_witness: state_witness_actions,
         };
         datas.push(data);
     }
@@ -378,16 +376,12 @@ fn test_client_with_multi_test_loop() {
         // Messages to the network layer; multi-node messages are handled below.
         test.register_handler(ignore_events::<SetChainInfo>().widen().for_index(idx));
 
-        // Messages to StateWitnessDistributionActor.
+        // Messages to StateWitnessActor.
         test.register_handler(
-            forward_messages_from_client_to_state_witness_distribution_actor()
-                .widen()
-                .for_index(idx),
+            forward_messages_from_client_to_state_witness_actor().widen().for_index(idx),
         );
         test.register_handler(
-            forward_messages_from_network_to_state_witness_distribution_actor()
-                .widen()
-                .for_index(idx),
+            forward_messages_from_network_to_state_witness_actor().widen().for_index(idx),
         );
     }
     // Handles network routing. Outgoing messages are handled by emitting incoming messages to the
@@ -492,7 +486,7 @@ pub fn route_network_messages_to_client<
     Event: TryIntoOrSelf<PeerManagerMessageRequest>
         + From<PeerManagerMessageRequest>
         + From<ClientSenderForNetworkMessage>
-        + From<StateWitnessDistributionSenderForNetworkMessage>,
+        + From<StateWitnessSenderForNetworkMessage>,
 >(
     sender: DelaySender<(usize, Event)>,
     network_delay: Duration,
@@ -515,12 +509,12 @@ pub fn route_network_messages_to_client<
                 })
                 .collect::<Vec<_>>();
 
-        let state_witness_distribution_senders = (0..data.num_accounts())
+        let state_witness_senders = (0..data.num_accounts())
                 .map(|idx| {
                     sender
                         .with_additional_delay(network_delay)
                         .for_index(idx)
-                        .into_wrapped_multi_sender::<StateWitnessDistributionSenderForNetworkMessage, StateWitnessDistributionSenderForNetwork>()
+                        .into_wrapped_multi_sender::<StateWitnessSenderForNetworkMessage, StateWitnessSenderForNetwork>()
                 })
                 .collect::<Vec<_>>();
 
@@ -590,8 +584,7 @@ pub fn route_network_messages_to_client<
             NetworkRequests::ChunkStateWitnessAck(target, witness_ack) => {
                 let other_idx = data.index_for_account(&target);
                 if other_idx != idx {
-                    state_witness_distribution_senders[other_idx]
-                        .send(ChunkStateWitnessAckMessage(witness_ack));
+                    state_witness_senders[other_idx].send(ChunkStateWitnessAckMessage(witness_ack));
                 } else {
                     tracing::warn!("Dropping state-witness-ack message to self");
                 }

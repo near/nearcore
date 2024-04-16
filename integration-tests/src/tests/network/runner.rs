@@ -8,7 +8,7 @@ use near_chain::{Chain, ChainGenesis};
 use near_chain_configs::{ClientConfig, Genesis, GenesisConfig};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
-use near_client::{start_client, start_view_client, StateWitnessDistributionActor, SyncAdapter};
+use near_client::{start_client, start_view_client, StateWitnessActor, SyncAdapter};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManager;
 use near_network::actix::ActixSystem;
@@ -125,11 +125,8 @@ fn setup_network_node(
         runtime.store().clone(),
         client_config.chunk_request_retry_period,
     );
-    let (state_witness_distribution_actor, _) = StateWitnessDistributionActor::spawn(
-        Clock::real(),
-        network_adapter.as_multi_sender(),
-        signer,
-    );
+    let (state_witness_actor, _) =
+        StateWitnessActor::spawn(Clock::real(), network_adapter.as_multi_sender(), signer);
     shards_manager_adapter.bind(shards_manager_actor.with_auto_span_context());
     let peer_manager = PeerManagerActor::spawn(
         time::Clock::real(),
@@ -137,7 +134,7 @@ fn setup_network_node(
         config,
         client_sender_for_network(client_actor, view_client_actor),
         shards_manager_adapter.as_sender(),
-        state_witness_distribution_actor.with_auto_span_context().into_multi_sender(),
+        state_witness_actor.with_auto_span_context().into_multi_sender(),
         genesis_id,
     )
     .unwrap();

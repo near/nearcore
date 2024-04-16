@@ -12,8 +12,8 @@ use crate::peer_manager::peer_manager_actor;
 use crate::peer_manager::peer_store;
 use crate::private_actix::SendMessage;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
-use crate::state_witness_distribution::{
-    StateWitnessDistributionSenderForNetworkInput, StateWitnessDistributionSenderForNetworkMessage,
+use crate::state_witness::{
+    StateWitnessSenderForNetworkInput, StateWitnessSenderForNetworkMessage,
 };
 use crate::store;
 use crate::tcp;
@@ -45,7 +45,7 @@ pub(crate) enum Event {
     ShardsManager(ShardsManagerRequestFromNetwork),
     Client(ClientSenderForNetworkInput),
     Network(peer_manager_actor::Event),
-    StateWitnessDistribution(StateWitnessDistributionSenderForNetworkInput),
+    StateWitness(StateWitnessSenderForNetworkInput),
 }
 
 pub(crate) struct PeerHandle {
@@ -122,14 +122,12 @@ impl PeerHandle {
                 send.send(Event::ShardsManager(event));
             }
         });
-        let state_witness_distribution_sender = Sender::from_fn({
+        let state_witness_sender = Sender::from_fn({
             let send = send.clone();
-            move |event: StateWitnessDistributionSenderForNetworkMessage| match event {
-                StateWitnessDistributionSenderForNetworkMessage::_chunk_state_witness_ack(msg) => {
-                    send.send(Event::StateWitnessDistribution(
-                        StateWitnessDistributionSenderForNetworkInput::_chunk_state_witness_ack(
-                            msg,
-                        ),
+            move |event: StateWitnessSenderForNetworkMessage| match event {
+                StateWitnessSenderForNetworkMessage::_chunk_state_witness_ack(msg) => {
+                    send.send(Event::StateWitness(
+                        StateWitnessSenderForNetworkInput::_chunk_state_witness_ack(msg),
                     ))
                 }
             }
@@ -142,7 +140,7 @@ impl PeerHandle {
             cfg.chain.genesis_id.clone(),
             client_sender.break_apart().into_multi_sender(),
             shards_manager_sender,
-            state_witness_distribution_sender.break_apart().into_multi_sender(),
+            state_witness_sender.break_apart().into_multi_sender(),
             vec![],
         ));
         let actix = ActixSystem::spawn({

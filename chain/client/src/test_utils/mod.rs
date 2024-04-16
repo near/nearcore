@@ -2,7 +2,7 @@ pub mod block_stats;
 pub mod client;
 pub mod peer_manager_mock;
 pub mod setup;
-mod state_witness_distribution_mock;
+mod synchronous_state_witness_adapter;
 pub mod test_env;
 pub mod test_env_builder;
 pub mod test_loop;

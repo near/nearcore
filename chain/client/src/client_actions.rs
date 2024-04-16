@@ -13,7 +13,7 @@ use crate::debug::new_network_info_view;
 use crate::info::{display_sync_status, InfoHelper};
 use crate::sync::adapter::{SyncMessage, SyncShardInfo};
 use crate::sync::state::{StateSync, StateSyncResult};
-use crate::{metrics, DistributeChunkStateWitnessRequest, StatusResponse};
+use crate::{metrics, DistributeStateWitnessRequest, StatusResponse};
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawner};
 use near_async::messaging::{CanSend, Sender};
 use near_async::time::{Clock, Utc};
@@ -95,8 +95,8 @@ pub struct SyncJobsSenderForClient {
     pub resharding: Sender<ReshardingRequest>,
 }
 
-pub struct StateWitnessDistributionSenderForClient {
-    pub distribute_chunk_state_witness: Sender<DistributeChunkStateWitnessRequest>,
+pub struct StateWitnessSenderForClient {
+    pub distribute_chunk_state_witness: Sender<DistributeStateWitnessRequest>,
 }
 
 pub struct ClientActions {

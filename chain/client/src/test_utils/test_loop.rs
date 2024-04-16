@@ -2,12 +2,12 @@ use near_async::test_loop::event_handler::LoopEventHandler;
 use near_async::test_loop::futures::TestLoopFutureSpawner;
 use near_chunks::client::ShardsManagerResponse;
 use near_network::client::ClientSenderForNetworkMessage;
-use near_network::state_witness_distribution::StateWitnessDistributionSenderForNetworkMessage;
+use near_network::state_witness::StateWitnessSenderForNetworkMessage;
 
 use crate::client_actions::SyncJobsSenderForClientMessage;
 use crate::client_actions::{ClientActionHandler, ClientActions, ClientSenderForClientMessage};
-use crate::stateless_validation::state_witness_distribution_actions::StateWitnessDistributionActions;
-use crate::stateless_validation::state_witness_distribution_actor::StateWitnessDistributionSenderForClientMessage;
+use crate::stateless_validation::state_witness_actions::StateWitnessActions;
+use crate::stateless_validation::state_witness_actor::StateWitnessSenderForClientMessage;
 use crate::sync_jobs_actions::ClientSenderForSyncJobsMessage;
 use crate::sync_jobs_actions::SyncJobsActions;
 
@@ -95,36 +95,20 @@ pub fn forward_sync_jobs_messages_from_client_to_sync_jobs_actions(
     })
 }
 
-pub fn forward_messages_from_network_to_state_witness_distribution_actor() -> LoopEventHandler<
-    StateWitnessDistributionActions,
-    StateWitnessDistributionSenderForNetworkMessage,
-> {
-    LoopEventHandler::new_simple(
-        |msg: StateWitnessDistributionSenderForNetworkMessage,
-         state_witness_distribution_actions: &mut StateWitnessDistributionActions| match msg
-        {
-            StateWitnessDistributionSenderForNetworkMessage::_chunk_state_witness_ack(msg) => {
-                state_witness_distribution_actions.handle_chunk_state_witness_ack(msg.0);
-            }
-        },
-    )
+pub fn forward_messages_from_network_to_state_witness_actor(
+) -> LoopEventHandler<StateWitnessActions, StateWitnessSenderForNetworkMessage> {
+    LoopEventHandler::new_simple(|msg, state_witness_actions: &mut StateWitnessActions| match msg {
+        StateWitnessSenderForNetworkMessage::_chunk_state_witness_ack(msg) => {
+            state_witness_actions.handle_chunk_state_witness_ack(msg.0);
+        }
+    })
 }
 
-pub fn forward_messages_from_client_to_state_witness_distribution_actor(
-) -> LoopEventHandler<StateWitnessDistributionActions, StateWitnessDistributionSenderForClientMessage>
-{
-    LoopEventHandler::new_simple(
-        |msg: StateWitnessDistributionSenderForClientMessage,
-         state_witness_distribution_actions: &mut StateWitnessDistributionActions| {
-            match msg {
-                StateWitnessDistributionSenderForClientMessage::_distribute_chunk_state_witness(
-                    msg,
-                ) => {
-                    state_witness_distribution_actions
-                        .handle_distribute_chunk_state_witness_request(msg)
-                        .unwrap();
-                }
-            }
-        },
-    )
+pub fn forward_messages_from_client_to_state_witness_actor(
+) -> LoopEventHandler<StateWitnessActions, StateWitnessSenderForClientMessage> {
+    LoopEventHandler::new_simple(|msg, state_witness_actions: &mut StateWitnessActions| match msg {
+        StateWitnessSenderForClientMessage::_distribute_chunk_state_witness(msg) => {
+            state_witness_actions.handle_distribute_state_witness_request(msg).unwrap();
+        }
+    })
 }
