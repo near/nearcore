@@ -1663,7 +1663,6 @@ pub mod estimator {
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
-    use rand::prelude::SliceRandom;
     use rand::Rng;
 
     use crate::test_utils::{
