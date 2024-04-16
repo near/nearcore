@@ -33,7 +33,7 @@ use near_primitives::types::{AccountId, StateRoot, StateRootNode};
 use near_vm_runner::ContractCode;
 pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::hash::Hash;
 use std::rc::Rc;
@@ -449,12 +449,12 @@ impl TrieRefcountSubtraction {
 /// Helps produce a list of additions and subtractions to the trie,
 /// especially in the case where deletions don't carry the full value.
 pub struct TrieRefcountDeltaMap {
-    map: HashMap<CryptoHash, (Option<Vec<u8>>, i32)>,
+    map: BTreeMap<CryptoHash, (Option<Vec<u8>>, i32)>,
 }
 
 impl TrieRefcountDeltaMap {
     pub fn new() -> Self {
-        Self { map: HashMap::new() }
+        Self { map: BTreeMap::new() }
     }
 
     pub fn add(&mut self, hash: CryptoHash, data: Vec<u8>, refcount: u32) {
@@ -469,8 +469,9 @@ impl TrieRefcountDeltaMap {
     }
 
     pub fn into_changes(self) -> (Vec<TrieRefcountAddition>, Vec<TrieRefcountSubtraction>) {
-        let mut insertions = Vec::new();
-        let mut deletions = Vec::new();
+        let num_insertions = self.map.iter().filter(|(_h, (_v, rc))| *rc > 0).count();
+        let mut insertions = Vec::with_capacity(num_insertions);
+        let mut deletions = Vec::with_capacity(self.map.len().saturating_sub(num_insertions));
         for (hash, (value, rc)) in self.map.into_iter() {
             if rc > 0 {
                 insertions.push(TrieRefcountAddition {
@@ -1932,7 +1933,9 @@ mod tests {
             let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
 
             // Those known keys.
-            for (key, value) in trie_changes.into_iter().collect::<HashMap<_, _>>() {
+            for (key, value) in
+                trie_changes.into_iter().collect::<std::collections::HashMap<_, _>>()
+            {
                 if let Some(value) = value {
                     let want = Some(Ok((key.clone(), value)));
                     let mut iterator = trie.iter().unwrap();
