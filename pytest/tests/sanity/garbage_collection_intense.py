@@ -5,7 +5,7 @@
 
 import sys, time
 import pathlib
-import string, random, json, base64
+import string, random, json
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -71,7 +71,7 @@ nodes = start_cluster(
      })
 
 # generate 20 keys
-keys = ''.join(random.choices(string.ascii_letters, k=20))
+keys = [''.join(random.choices(string.ascii_lowercase, k=3)) for _ in range(20)]
 key_refcount = {x: 0 for x in keys}
 nonce = 1
 repo_dir = pathlib.Path(__file__).resolve().parents[2]
