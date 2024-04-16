@@ -381,7 +381,7 @@ pub fn start_with_config_and_synchronization(
         state_witness_distribution_actor
             .clone()
             .map(|actor| actor.with_auto_span_context().into_multi_sender())
-            .unwrap_or(noop().into_multi_sender()),
+            .unwrap_or_else(|| noop().into_multi_sender()),
     );
     if let SyncConfig::Peers = config.client_config.state_sync.sync {
         client_adapter_for_sync.bind(client_actor.clone().with_auto_span_context())
@@ -425,7 +425,7 @@ pub fn start_with_config_and_synchronization(
         shards_manager_adapter.as_sender(),
         state_witness_distribution_actor
             .map(|actor| actor.with_auto_span_context().into_multi_sender())
-            .unwrap_or(noop().into_multi_sender()),
+            .unwrap_or_else(|| noop().into_multi_sender()),
         genesis_id,
     )
     .context("PeerManager::spawn()")?;
