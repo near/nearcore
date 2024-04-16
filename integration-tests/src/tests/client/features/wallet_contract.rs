@@ -90,6 +90,7 @@ fn test_eth_implicit_account_creation() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let chain_id = &genesis.config.chain_id;
 
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let eth_implicit_account_id = eth_implicit_test_account();
@@ -108,7 +109,7 @@ fn test_eth_implicit_account_creation() {
         env.produce_block(0, i);
     }
 
-    let magic_bytes = wallet_contract_magic_bytes();
+    let magic_bytes = wallet_contract_magic_bytes(chain_id);
 
     // Verify the ETH-implicit account has zero balance and appropriate code hash.
     // Check that the account storage fits within zero balance account limit.
@@ -143,6 +144,7 @@ fn test_transaction_from_eth_implicit_account_fail() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let chain_id = &genesis.config.chain_id;
     let deposit_for_account_creation = NEAR_BASE;
     let mut height = 1;
     let blocks_number = 5;
@@ -216,7 +218,7 @@ fn test_transaction_from_eth_implicit_account_fail() {
     assert_eq!(response, expected_tx_error);
 
     // Try to deploy the Wallet Contract again to the ETH-implicit account. Should fail because there is no access key.
-    let wallet_contract_code = wallet_contract().code().to_vec();
+    let wallet_contract_code = wallet_contract(chain_id).code().to_vec();
     let add_access_key_to_eth_implicit_account_tx = SignedTransaction::from_actions(
         nonce,
         eth_implicit_account_id.clone(),
@@ -337,7 +339,7 @@ fn create_rlp_execute_tx(
     near_signer: &mut NearSigner<'_>,
     env: &TestEnv,
 ) -> SignedTransaction {
-    const CHAIN_ID: u64 = 0x4ea7;
+    const CHAIN_ID: u64 = 399;
     // handles 24 vs 18 decimal mismatch between $NEAR and $ETH
     const MAX_YOCTO_NEAR: u128 = 1_000_000;
 
