@@ -1911,11 +1911,9 @@ mod tests {
             let trie = tries.get_trie_for_shard(ShardUId::single_shard(), Trie::EMPTY_ROOT);
             let trie_changes = gen_changes(&mut rng, 20);
             let simplified_changes = simplify_changes(&trie_changes);
-            let mut shuffled_simplified_changes = simplified_changes.clone();
-            shuffled_simplified_changes.shuffle(&mut rng);
 
-            let trie_changes1 = trie.update(simplified_changes.iter().cloned()).unwrap();
-            let trie_changes2 = trie.update(shuffled_simplified_changes.iter().cloned()).unwrap();
+            let trie_changes1 = trie.update(trie_changes.iter().cloned()).unwrap();
+            let trie_changes2 = trie.update(simplified_changes.iter().cloned()).unwrap();
             if trie_changes1.new_root != trie_changes2.new_root {
                 eprintln!("{:?}", trie_changes);
                 eprintln!("{:?}", simplified_changes);
