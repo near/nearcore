@@ -197,7 +197,7 @@ mod tests {
     use rand::{Rng, SeedableRng};
 
     fn check(keys: Vec<Vec<u8>>) {
-        let shard_tries = TestTriesBuilder::new().with_flat_storage().build();
+        let shard_tries = TestTriesBuilder::new().with_flat_storage(true).build();
         let shard_uid = ShardUId::single_shard();
         let changes = keys.iter().map(|key| (key.to_vec(), Some(key.to_vec()))).collect::<Vec<_>>();
         let changes = simplify_changes(&changes);
