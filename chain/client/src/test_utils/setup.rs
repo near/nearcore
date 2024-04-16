@@ -5,7 +5,7 @@
 use super::block_stats::BlockStats;
 use super::peer_manager_mock::PeerManagerMock;
 use crate::stateless_validation::state_witness_distribution_actor::{
-    DistributeChunkStateWitnessRequest, StateWitnessDistributionActor,
+    StateWitnessDistributionActor, StateWitnessDistributionSenderForClient,
 };
 use crate::{start_view_client, Client, ClientActor, SyncAdapter, SyncStatus, ViewClientActor};
 use actix::{Actor, Addr, AsyncContext, Context};
@@ -194,7 +194,7 @@ pub fn setup(
         TEST_SEED,
         None,
         Arc::new(RayonAsyncComputationSpawner),
-        state_witness_distribution_adapter.into_sender(),
+        state_witness_distribution_adapter.into_multi_sender(),
     )
     .unwrap();
     let client_actor = ClientActor::new(
@@ -973,7 +973,7 @@ pub fn setup_client_with_runtime(
     archive: bool,
     save_trie_changes: bool,
     snapshot_callbacks: Option<SnapshotCallbacks>,
-    state_witness_distribution_adapter: Sender<DistributeChunkStateWitnessRequest>,
+    state_witness_distribution_adapter: StateWitnessDistributionSenderForClient,
 ) -> Client {
     let validator_signer =
         account_id.map(|x| Arc::new(create_test_signer(x.as_str())) as Arc<dyn ValidatorSigner>);

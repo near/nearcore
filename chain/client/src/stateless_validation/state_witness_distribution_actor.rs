@@ -1,4 +1,6 @@
 use actix::Actor;
+use near_async::messaging::Sender;
+use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
 use near_network::types::PeerManagerAdapter;
 use near_o11y::{handler_debug_span, WithSpanContext};
 use near_performance_metrics_macros::perf;
@@ -30,6 +32,11 @@ impl actix::Actor for StateWitnessDistributionActor {
 pub struct DistributeChunkStateWitnessRequest {
     pub chunk_validators: Vec<AccountId>,
     pub signed_witness: SignedEncodedChunkStateWitness,
+}
+
+#[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
+pub struct StateWitnessDistributionSenderForClient {
+    pub distribute_chunk_state_witness: Sender<DistributeChunkStateWitnessRequest>,
 }
 
 impl actix::Handler<WithSpanContext<DistributeChunkStateWitnessRequest>>

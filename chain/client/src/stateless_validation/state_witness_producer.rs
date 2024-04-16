@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use near_async::messaging::IntoSender;
+use near_async::messaging::{CanSend, IntoSender};
 use near_chain::{BlockHeader, Chain, ChainStoreAccess};
 use near_chain_primitives::Error;
 use near_o11y::log_assert_fail;

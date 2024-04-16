@@ -1,6 +1,5 @@
 pub mod block_stats;
 pub mod client;
-pub mod client_actions_test_utils;
 pub mod peer_manager_mock;
 pub mod setup;
 mod state_witness_distribution_mock;

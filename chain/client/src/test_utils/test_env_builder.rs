@@ -1,3 +1,5 @@
+use crate::StateWitnessDistributionActions;
+
 use super::setup::{setup_client_with_runtime, setup_synchronous_shards_manager};
 use super::state_witness_distribution_mock::SynchronousStateWitnessDistributionAdapter;
 use super::test_env::TestEnv;
@@ -535,13 +537,6 @@ impl TestEnvBuilder {
                 )
             })
             .collect::<Vec<_>>();
-        let state_witness_distribution_adapters = (0..num_clients)
-            .map(|i| {
-                SynchronousStateWitnessDistributionAdapter::new(
-                    network_adapters[i].clone().as_multi_sender(),
-                )
-            })
-            .collect::<Vec<_>>();
         let clients = (0..num_clients)
                 .map(|i| {
                     let account_id = clients[i].clone();
@@ -569,7 +564,9 @@ impl TestEnvBuilder {
                         make_snapshot_callback,
                         delete_snapshot_callback,
                     };
-                    let state_witness_distribution_adapter = state_witness_distribution_adapters[i].clone();
+                    let state_witness_distribution_adapter = SynchronousStateWitnessDistributionAdapter::new(
+                        StateWitnessDistributionActions::new(network_adapters[i].clone().as_multi_sender()),
+                    );
                     setup_client_with_runtime(
                         clock.clone(),
                         u64::try_from(num_validators).unwrap(),
@@ -585,7 +582,7 @@ impl TestEnvBuilder {
                         self.archive,
                         self.save_trie_changes,
                         Some(snapshot_callbacks),
-                        state_witness_distribution_adapter.into_sender(),
+                        state_witness_distribution_adapter.into_multi_sender(),
                     )
                 })
                 .collect();

@@ -33,7 +33,7 @@ use std::sync::{Arc, RwLock};
 use tokio::sync::broadcast;
 
 use crate::client_actions::{ClientActionHandler, ClientActions, ClientSenderForClient};
-use crate::stateless_validation::state_witness_distribution_actor::DistributeChunkStateWitnessRequest;
+use crate::stateless_validation::state_witness_distribution_actor::StateWitnessDistributionSenderForClient;
 use crate::sync_jobs_actions::SyncJobsActions;
 use crate::sync_jobs_actor::SyncJobsActor;
 use crate::{metrics, Client, ConfigUpdater, SyncAdapter};
@@ -196,7 +196,7 @@ pub fn start_client(
     sender: Option<broadcast::Sender<()>>,
     adv: crate::adversarial::Controls,
     config_updater: Option<ConfigUpdater>,
-    state_witness_distribution_adapter: Sender<DistributeChunkStateWitnessRequest>,
+    state_witness_distribution_adapter: StateWitnessDistributionSenderForClient,
 ) -> (Addr<ClientActor>, ArbiterHandle, ReshardingHandle) {
     let client_arbiter = Arbiter::new();
     let client_arbiter_handle = client_arbiter.handle();
