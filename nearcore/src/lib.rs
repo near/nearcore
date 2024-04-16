@@ -367,7 +367,7 @@ pub fn start_with_config_and_synchronization(
         shutdown_signal,
         adv,
         config_updater,
-        state_witness_distribution_actor.with_auto_span_context().into_sender(),
+        state_witness_distribution_actor.with_auto_span_context().into_multi_sender(),
     );
     if let SyncConfig::Peers = config.client_config.state_sync.sync {
         client_adapter_for_sync.bind(client_actor.clone().with_auto_span_context())
