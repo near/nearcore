@@ -26,7 +26,7 @@ use std::sync::Arc;
 
 use crate::node::Node;
 use crate::user::User;
-use near_parameters::RuntimeConfig;
+use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::test_utils;
 use near_primitives::transaction::{Action, DeployContractAction, FunctionCallAction};
@@ -39,7 +39,9 @@ use testlib::runtime_utils::{
 const FUNCTION_CALL_AMOUNT: Balance = TESTING_INIT_BALANCE / 10;
 
 pub(crate) fn fee_helper(node: &impl Node) -> FeeHelper {
-    FeeHelper::new(RuntimeConfig::test(), node.genesis().config.min_gas_price)
+    let store = RuntimeConfigStore::new(None);
+    let config = RuntimeConfig::clone(store.get_config(near_primitives::version::PROTOCOL_VERSION));
+    FeeHelper::new(config, node.genesis().config.min_gas_price)
 }
 
 /// Adds given access key to the given account_id using signer2.
