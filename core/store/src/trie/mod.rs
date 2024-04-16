@@ -1845,7 +1845,7 @@ mod tests {
     fn test_contains_key() {
         let sid = ShardUId::single_shard();
         let bid = CryptoHash::default();
-        let tries = TestTriesBuilder::new().with_enabled_flat_storage().build();
+        let tries = TestTriesBuilder::new().with_flat_storage(true).build();
         let initial = vec![
             (vec![99, 44, 100, 58, 58, 49], Some(vec![1])),
             (vec![99, 44, 100, 58, 58, 50], Some(vec![1])),

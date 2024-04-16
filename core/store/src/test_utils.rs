@@ -99,10 +99,6 @@ impl TestTriesBuilder {
         self
     }
 
-    pub fn with_enabled_flat_storage(self) -> Self {
-        self.with_flat_storage(true)
-    }
-
     pub fn with_in_memory_tries(mut self) -> Self {
         self.enable_in_memory_tries = true;
         self

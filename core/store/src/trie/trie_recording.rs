@@ -99,7 +99,7 @@ mod trie_recording_tests {
         p_existing_key: f64,
         p_missing_key: f64,
     ) -> PreparedTrie {
-        let tries_for_building = TestTriesBuilder::new().with_enabled_flat_storage().build();
+        let tries_for_building = TestTriesBuilder::new().with_flat_storage(true).build();
         let shard_uid = ShardUId::single_shard();
         let trie_changes = gen_larger_changes(&mut thread_rng(), 50);
         let trie_changes = simplify_changes(&trie_changes);

@@ -1147,7 +1147,7 @@ mod tests {
     fn get_trie_nodes_for_part_with_flat_storage() {
         let value_len = 1000usize;
 
-        let tries = TestTriesBuilder::new().with_enabled_flat_storage().build();
+        let tries = TestTriesBuilder::new().with_flat_storage(true).build();
         let shard_uid = ShardUId::single_shard();
         let block_hash = CryptoHash::default();
         let part_id = PartId::new(1, 3);
