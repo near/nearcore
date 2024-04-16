@@ -87,10 +87,6 @@ fn test_evil_deep_trie() {
 
 /// Test delaying the conclusion of a receipt for as long as possible through the use of self
 /// cross-contract calls.
-///
-/// I hear that the protocol-level limit on the depth here is 64, so given the current fee
-/// structure this limit cannot be reached by this contract, but once they decrease it might very
-/// well be necessary to adjust the `expected_depth` to at most that limit.
 #[test]
 fn test_self_delay() {
     let node = setup_test_contract(near_test_contracts::rs_contract());
@@ -112,7 +108,9 @@ fn test_self_delay() {
     // The test makes sure that the depth is within the expected range, but it doesn't check an exact value
     // to avoid having separate cases for every possible combination of features.
     let min_expected_depth = 56;
-    let max_expected_depth = 62;
+    // The upper limit has been recently bumped to 221 from the previous value of 62 after the
+    // adjustment of a function call gas costs.
+    let max_expected_depth = 221;
     match res.status {
         FinalExecutionStatus::SuccessValue(depth_bytes) => {
             let depth = u32::from_be_bytes(depth_bytes.try_into().unwrap());
