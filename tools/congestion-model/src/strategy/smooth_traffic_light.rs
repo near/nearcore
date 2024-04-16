@@ -24,6 +24,7 @@ pub struct SmoothTrafficLight {
     pub min_send_limit_amber: GGas,
     pub max_send_limit: GGas,
     pub red_send_limit: GGas,
+    pub smooth_slow_down: bool,
 
     // queue limits to calculate congestion level
     pub red_incoming_gas: GGas,
@@ -43,6 +44,7 @@ impl Default for SmoothTrafficLight {
             min_send_limit_amber: 1 * PGAS,
             max_send_limit: 300 * PGAS,
             red_send_limit: 1 * PGAS,
+            smooth_slow_down: true,
 
             // queue limits to calculate congestion level
             red_incoming_gas: 20 * PGAS,
@@ -209,33 +211,25 @@ impl SmoothTrafficLight {
         let outgoing_gas_congestion = self.outgoing_gas_congestion(ctx);
         let memory_congestion = self.memory_congestion(ctx);
 
-        // Initial traffic light:
-        // Usually, signal other shards to slow down based on our incoming gas congestion only.
-        // All other limits (outgoing gas, memory) are ignored until they hit a red light.
-        // The goal is to never hit red, unless we have to prevent the unbounded queues vs deadlocks tradeoff.
-        // If we hit red, it slows down incoming traffic massively, which should bring us out of red soon.
-        // let red =
-        //     incoming_gas_congestion.max(outgoing_gas_congestion).max(memory_congestion) >= 1.0;
-        // let info = if red {
-        //     CongestedShardsInfo {
-        //         congestion_level: 1.0,
-        //         allowed_shard: Some(self.round_robin_shard(ctx.block_height() as usize)),
-        //     }
-        // } else {
-        //     CongestedShardsInfo { congestion_level: incoming_gas_congestion, allowed_shard: None }
-        // };
-
-        // Simplified and smoothed. Requires a larger max memory limit but will
-        // smoothly reduce based on size, which can even lead to smaller peak
-        // buffer size.
         let max_congestion =
             incoming_gas_congestion.max(outgoing_gas_congestion).max(memory_congestion);
-        let info = if max_congestion >= 1.0 {
+        let red = max_congestion >= 1.0;
+        let info = if red {
             CongestedShardsInfo {
                 congestion_level: 1.0,
                 allowed_shard: Some(self.round_robin_shard(ctx.block_height() as usize)),
             }
+        } else if !self.smooth_slow_down {
+            // Initial traffic light:
+            // Usually, signal other shards to slow down based on our incoming gas congestion only.
+            // All other limits (outgoing gas, memory) are ignored until they hit a red light.
+            // The goal is to never hit red, unless we have to prevent the unbounded queues vs deadlocks tradeoff.
+            // If we hit red, it slows down incoming traffic massively, which should bring us out of red soon.
+            CongestedShardsInfo { congestion_level: incoming_gas_congestion, allowed_shard: None }
         } else {
+            // Simplified and smoothed.
+            // Requires a larger max memory limit but will smoothly reduce based
+            // on size, which can even lead to smaller peak buffer size.
             CongestedShardsInfo { congestion_level: max_congestion, allowed_shard: None }
         };
 
@@ -322,6 +316,20 @@ impl SmoothTrafficLight {
     /// Define 100% congestion limit in bytes.
     pub fn with_memory_limit(mut self, limit: bytesize::ByteSize) -> Self {
         self.memory_limit = limit.as_u64();
+        self
+    }
+
+    /// Define at what congestion level new transactions to a shard must be rejected.
+    pub fn with_tx_reject_threshold(mut self, threshold: f64) -> Self {
+        self.reject_tx_congestion_limit = threshold;
+        self
+    }
+
+    /// Set to false to use a less smooth strategy for slowing down, only
+    /// looking at memory and outgoing congestion once it is at the threshold.
+    /// This can give higher utilization but will lead to larger buffers.
+    pub fn with_smooth_slow_down(mut self, yes: bool) -> Self {
+        self.smooth_slow_down = yes;
         self
     }
 
