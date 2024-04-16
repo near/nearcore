@@ -34,8 +34,6 @@ use near_vm_runner::ContractCode;
 pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 use std::cell::RefCell;
 use std::collections::HashMap;
-#[cfg(test)]
-use std::collections::HashSet;
 use std::fmt::Write;
 use std::hash::Hash;
 use std::rc::Rc;
@@ -1509,19 +1507,6 @@ impl Trie {
     where
         I: IntoIterator<Item = (Vec<u8>, Option<Vec<u8>>)>,
     {
-        // Sanity check: keys passed in `changes` must be unique.
-        #[cfg(test)]
-        let changes = {
-            let changes: Vec<_> = changes.into_iter().collect();
-            let unique_keys: HashSet<&Vec<u8>> = HashSet::from_iter(changes.iter().map(|(k, _)| k));
-            assert_eq!(
-                unique_keys.len(),
-                changes.len(),
-                "Keys given to Trie::update are not unique"
-            );
-            changes
-        };
-
         match &self.memtries {
             Some(memtries) => {
                 // If we have in-memory tries, use it to construct the changes entirely (for
@@ -1678,6 +1663,7 @@ pub mod estimator {
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
+    use rand::prelude::SliceRandom;
     use rand::Rng;
 
     use crate::test_utils::{
@@ -1925,9 +1911,11 @@ mod tests {
             let trie = tries.get_trie_for_shard(ShardUId::single_shard(), Trie::EMPTY_ROOT);
             let trie_changes = gen_changes(&mut rng, 20);
             let simplified_changes = simplify_changes(&trie_changes);
+            let mut shuffled_simplified_changes = simplified_changes.clone();
+            shuffled_simplified_changes.shuffle(&mut rng);
 
-            let trie_changes1 = trie.update(trie_changes.iter().cloned()).unwrap();
-            let trie_changes2 = trie.update(simplified_changes.iter().cloned()).unwrap();
+            let trie_changes1 = trie.update(simplified_changes.iter().cloned()).unwrap();
+            let trie_changes2 = trie.update(shuffled_simplified_changes.iter().cloned()).unwrap();
             if trie_changes1.new_root != trie_changes2.new_root {
                 eprintln!("{:?}", trie_changes);
                 eprintln!("{:?}", simplified_changes);
