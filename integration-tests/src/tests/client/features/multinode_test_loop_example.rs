@@ -25,19 +25,17 @@ use near_client::client_actions::{
 use near_client::sync_jobs_actions::{
     ClientSenderForSyncJobsMessage, SyncJobsActions, SyncJobsSenderForSyncJobsMessage,
 };
-use near_client::test_utils::client_actions_test_utils::{
+use near_client::test_utils::test_loop::{
     forward_client_messages_from_client_to_client_actions,
     forward_client_messages_from_network_to_client_actions,
     forward_client_messages_from_shards_manager,
     forward_client_messages_from_sync_jobs_to_client_actions,
-};
-use near_client::test_utils::test_loop::{
     forward_messages_from_client_to_state_witness_distribution_actor,
     forward_sync_jobs_messages_from_client_to_sync_jobs_actions,
 };
 use near_client::{
-    Client, DistributeChunkStateWitnessRequest, StateWitnessDistributionActions, SyncAdapter,
-    SyncMessage,
+    Client, StateWitnessDistributionActions, StateWitnessDistributionSenderForClientMessage,
+    SyncAdapter, SyncMessage,
 };
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
@@ -81,7 +79,7 @@ struct TestData {
     pub client: ClientActions,
     pub sync_jobs: SyncJobsActions,
     pub shards_manager: ShardsManager,
-    state_witness_distribution: StateWitnessDistributionActions,
+    pub state_witness_distribution: StateWitnessDistributionActions,
 }
 
 impl AsMut<TestData> for TestData {
@@ -141,7 +139,7 @@ enum TestEvent {
     /// Calls to the network component to set chain info.
     SetChainInfo(SetChainInfo),
     /// Message from Client to StateWitnessDistributionActor.
-    StateWitnessDistribution(DistributeChunkStateWitnessRequest),
+    StateWitnessDistributionSenderForClient(StateWitnessDistributionSenderForClientMessage),
 }
 
 const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
@@ -271,7 +269,10 @@ fn test_client_with_multi_test_loop() {
                     .for_index(idx)
                     .into_async_computation_spawner(|_| Duration::milliseconds(80)),
             ),
-            builder.sender().for_index(idx).into_sender(),
+            builder
+                .sender()
+                .for_index(idx)
+                .into_wrapped_multi_sender::<StateWitnessDistributionSenderForClientMessage, _>(),
         )
         .unwrap();
 
@@ -366,7 +367,7 @@ fn test_client_with_multi_test_loop() {
         // Messages to the network layer; multi-node messages are handled below.
         test.register_handler(ignore_events::<SetChainInfo>().widen().for_index(idx));
 
-        // Messages from
+        // Messages from client to StateWitnessDistributionActor.
         test.register_handler(
             forward_messages_from_client_to_state_witness_distribution_actor()
                 .widen()

@@ -106,9 +106,11 @@ pub fn forward_messages_from_client_to_state_witness_distribution_actor(
             match msg {
                 StateWitnessDistributionSenderForClientMessage::_distribute_chunk_state_witness(
                     msg,
-                ) => state_witness_distribution_actions
-                    .handle_distribute_chunk_state_witness_request(msg)
-                    .unwrap(),
+                ) => {
+                    state_witness_distribution_actions
+                        .handle_distribute_chunk_state_witness_request(msg)
+                        .unwrap();
+                }
             }
         },
     )

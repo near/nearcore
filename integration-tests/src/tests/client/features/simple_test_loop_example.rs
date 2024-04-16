@@ -20,12 +20,12 @@ use near_client::client_actions::{
 use near_client::sync_jobs_actions::{
     ClientSenderForSyncJobsMessage, SyncJobsActions, SyncJobsSenderForSyncJobsMessage,
 };
-use near_client::test_utils::client_actions_test_utils::{
+use near_client::test_utils::test_loop::{
     forward_client_messages_from_client_to_client_actions,
     forward_client_messages_from_shards_manager,
     forward_client_messages_from_sync_jobs_to_client_actions,
+    forward_sync_jobs_messages_from_client_to_sync_jobs_actions,
 };
-use near_client::test_utils::test_loop::forward_sync_jobs_messages_from_client_to_sync_jobs_actions;
 use near_client::test_utils::{MAX_BLOCK_PROD_TIME, MIN_BLOCK_PROD_TIME};
 use near_client::{Client, SyncAdapter, SyncMessage};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
@@ -187,7 +187,7 @@ fn test_client_with_simple_test_loop() {
         [0; 32],
         None,
         Arc::new(builder.sender().into_async_computation_spawner(|_| Duration::milliseconds(80))),
-        noop().into_sender(),
+        noop().into_multi_sender(),
     )
     .unwrap();
 

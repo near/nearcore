@@ -35,6 +35,7 @@ pub struct DistributeChunkStateWitnessRequest {
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
+#[multi_send_message_derive(Debug)]
 pub struct StateWitnessDistributionSenderForClient {
     pub distribute_chunk_state_witness: Sender<DistributeChunkStateWitnessRequest>,
 }

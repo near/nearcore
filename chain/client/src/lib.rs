@@ -24,6 +24,7 @@ pub use stateless_validation::processing_tracker::{ProcessingDoneTracker, Proces
 pub use stateless_validation::state_witness_distribution_actions::StateWitnessDistributionActions;
 pub use stateless_validation::state_witness_distribution_actor::{
     DistributeChunkStateWitnessRequest, StateWitnessDistributionActor,
+    StateWitnessDistributionSenderForClientMessage,
 };
 
 pub mod adapter;
