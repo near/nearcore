@@ -17,6 +17,8 @@ import cluster
 import utils
 import transaction
 
+GGAS = 10**9
+
 
 def test_max_gas_burnt_view():
     nodes = cluster.start_cluster(
@@ -26,7 +28,7 @@ def test_max_gas_burnt_view():
         config=None,
         genesis_config_changes=[],
         client_config_changes={1: {
-            'max_gas_burnt_view': int(5e10)
+            'max_gas_burnt_view': 130 * GGAS,
         }})
 
     contract_key = nodes[0].signer_key
