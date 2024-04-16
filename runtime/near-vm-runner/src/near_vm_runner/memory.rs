@@ -65,7 +65,7 @@ impl NearVmMemory {
         Ok(unsafe { core::slice::from_raw_parts_mut(ptr, len) })
     }
 
-    pub(crate) fn vm(&self) -> VMMemory {
+    pub(super) fn vm(&self) -> VMMemory {
         VMMemory { from: self.0.clone(), instance_ref: None }
     }
 }
