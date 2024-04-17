@@ -11,13 +11,13 @@ use near_crypto::PublicKey;
 use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
+use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, Finality, TransactionOrReceiptId,
 };
 use near_primitives::views::{
     AccessKeyPermissionView, ExecutionOutcomeWithIdView, QueryRequest, QueryResponseKind,
 };
-use near_primitives_core::types::ShardId;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -112,17 +112,17 @@ impl crate::ChainAccess for ChainAccess {
             .height)
     }
 
-    async fn get_txs(
-        &self,
-        height: BlockHeight,
-        shards: &[ShardId],
-    ) -> Result<SourceBlock, ChainError> {
-        let block_hash = self.block_height_to_hash(height).await?;
+    async fn get_txs(&self, height: BlockHeight) -> Result<SourceBlock, ChainError> {
+        let block = self
+            .view_client
+            .send(GetBlock(BlockReference::BlockId(BlockId::Height(height))).with_span_context())
+            .await
+            .unwrap()?;
         let mut chunks = Vec::new();
-        for shard_id in shards.iter() {
+        for c in block.chunks {
             let chunk = match self
                 .view_client
-                .send(GetChunk::Height(height, *shard_id).with_span_context())
+                .send(GetChunk::ChunkHash(ChunkHash(c.chunk_hash)).with_span_context())
                 .await
                 .unwrap()
             {
@@ -130,8 +130,8 @@ impl crate::ChainAccess for ChainAccess {
                 Err(e) => match e {
                     GetChunkError::UnknownChunk { .. } => {
                         tracing::error!(
-                            "Can't fetch source chain shard {} chunk at height {}. Are we tracking all shards?",
-                            shard_id, height
+                            "Can't fetch source chain shard {} chunk {} at height {}. Are we tracking all shards?",
+                            c.shard_id, c.chunk_hash, height
                         );
                         continue;
                     }
@@ -140,14 +140,14 @@ impl crate::ChainAccess for ChainAccess {
             };
             if chunk.header.height_included == height {
                 chunks.push(SourceChunk {
-                    shard_id: *shard_id,
+                    shard_id: chunk.header.shard_id,
                     transactions: chunk.transactions.into_iter().map(Into::into).collect(),
                     receipts: chunk.receipts.into_iter().map(|r| r.try_into().unwrap()).collect(),
                 })
             }
         }
 
-        Ok(SourceBlock { hash: block_hash, chunks })
+        Ok(SourceBlock { hash: block.header.hash, chunks })
     }
 
     async fn get_next_block_height(
