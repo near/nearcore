@@ -4137,6 +4137,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "borsh 1.0.0",
+ "bytesize",
  "clap",
  "indicatif",
  "near-async",
@@ -4151,6 +4152,7 @@ dependencies = [
  "rocksdb",
  "strum",
  "tempfile",
+ "time",
 ]
 
 [[package]]

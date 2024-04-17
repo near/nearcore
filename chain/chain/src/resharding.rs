@@ -462,7 +462,9 @@ impl Chain {
         let shard_uid_string = shard_uid.to_string();
         let metrics_labels = [shard_uid_string.as_str()];
 
-        // Once we build the iterator, we break it into batches using the get_trie_update_batch function.
+        // Once we build the iterator, we break it into batches using the
+        // get_trie_update_batch function.
+        let mut i = 0;
         let mut iter = iter;
         loop {
             if !handle.get() {
@@ -505,6 +507,9 @@ impl Chain {
 
             RESHARDING_BATCH_COUNT.with_label_values(&metrics_labels).inc();
             RESHARDING_BATCH_SIZE.with_label_values(&metrics_labels).add(size as i64);
+
+            i += 1;
+            tracing::debug!(target: "resharding", ?i, ?size, "batch processed");
 
             // sleep between batches in order to throttle resharding and leave
             // some resource for the regular node operation
