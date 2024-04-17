@@ -632,7 +632,7 @@ impl Client {
         // wait for validation to finish.
         self.send_state_witness_ack(&witness);
 
-        // Avoid validating state witness for old chunks.
+        // Avoid processing state witness for old chunks.
         // In particular it is impossible for a chunk created at a height
         // that doesn't exceed the height of the current final block to be
         // included in the chain. This addresses both network-delayed messages
