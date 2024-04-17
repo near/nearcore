@@ -1,5 +1,3 @@
-#![allow(unused)]
-
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -12,7 +10,6 @@ use near_chain_configs::ReshardingConfig;
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::EpochManagerAdapter;
-use near_primitives::block::GenesisId;
 use near_primitives::{hash::CryptoHash, types::EpochId};
 use near_store::db::{MixedDB, ReadOrder, RocksDB, SplitDB};
 use near_store::genesis::initialize_sharded_genesis_state;
@@ -47,13 +44,9 @@ impl ReshardingCommand {
         let shard_uid = resharding_request.shard_uid;
 
         let response = Chain::build_state_for_split_shards(resharding_request);
-        let ReshardingResponse { shard_id, sync_hash, new_state_roots } = response;
+        let ReshardingResponse { sync_hash, new_state_roots: state_roots, .. } = response;
 
-        chain.build_state_for_split_shards_postprocessing(
-            shard_uid,
-            &sync_hash,
-            new_state_roots?,
-        )?;
+        chain.build_state_for_split_shards_postprocessing(shard_uid, &sync_hash, state_roots?)?;
 
         Ok(())
     }
@@ -109,22 +102,13 @@ impl ReshardingCommand {
         let runtime_adapter =
             NightshadeRuntime::from_config(home_dir, store, &config, epoch_manager.clone())?;
         let chain_genesis = ChainGenesis::new(&config.genesis.config);
-        let genesis_block = Chain::make_genesis_block(
-            epoch_manager.as_ref(),
-            runtime_adapter.as_ref(),
-            &chain_genesis,
-        )?;
-        let genesis_id = GenesisId {
-            chain_id: config.client_config.chain_id.clone(),
-            hash: *genesis_block.header().hash(),
-        };
         let client_config = config.client_config;
         let chain_config = ChainConfig {
             save_trie_changes: client_config.save_trie_changes,
             background_migration_threads: client_config.client_background_migration_threads,
             resharding_config: client_config.resharding_config.clone(),
         };
-        let mut chain = Chain::new(
+        let chain = Chain::new(
             Clock::real(),
             epoch_manager.clone(),
             shard_tracker.clone(),
@@ -141,12 +125,14 @@ impl ReshardingCommand {
     }
 
     fn config_resharding(config: &mut NearConfig) {
-        config.config.resharding_config = ReshardingConfig {
+        let resharding_config = ReshardingConfig {
             batch_size: bytesize::ByteSize::mb(100),
             batch_delay: time::Duration::ZERO,
             retry_delay: time::Duration::ZERO,
             initial_delay: time::Duration::ZERO,
             max_poll_time: time::Duration::ZERO,
         };
+        config.client_config.resharding_config.update(resharding_config);
+        config.config.resharding_config = resharding_config;
     }
 }
