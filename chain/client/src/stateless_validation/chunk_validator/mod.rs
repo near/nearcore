@@ -642,9 +642,10 @@ impl Client {
                 tracing::debug!(
                     target: "stateless_validation",
                     chunk_hash=?witness.chunk_header.chunk_hash(),
+                    shard_id=witness.chunk_header.shard_id(),
                     witness_height=witness.chunk_header.height_created(),
                     final_height=final_head.height,
-                    "Skipping old state witness",
+                    "Skipping state witness below the last final block",
                 );
                 return Ok(());
             }
