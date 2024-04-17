@@ -68,6 +68,9 @@ no_cache = [
   "node-runtime/no_cache",
   "near-store/no_cache",
 ]
+protocol_feature_nonrefundable_transfer_nep491 = [
+  "near-parameters/protocol_feature_nonrefundable_transfer_nep491",
+]
 nightly = [
   "genesis-populate/nightly",
   "near-chain-configs/nightly",
@@ -80,6 +83,7 @@ nightly = [
   "nearcore/nightly",
   "nightly_protocol",
   "node-runtime/nightly",
+  "protocol_feature_nonrefundable_transfer_nep491",
 ]
 nightly_protocol = [
   "genesis-populate/nightly_protocol",

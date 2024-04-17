@@ -102,6 +102,7 @@ pub fn total_send_fees(
                     config.wasm_config.implicit_account_creation,
                     config.wasm_config.eth_implicit_accounts,
                     receiver_id.get_account_type(),
+                    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
                     false,
                 )
             }
@@ -116,6 +117,7 @@ pub fn total_send_fees(
                     config.wasm_config.implicit_account_creation,
                     config.wasm_config.eth_implicit_accounts,
                     receiver_id.get_account_type(),
+                    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
                     true,
                 )
             }
@@ -212,6 +214,7 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
                 config.wasm_config.implicit_account_creation,
                 config.wasm_config.eth_implicit_accounts,
                 receiver_id.get_account_type(),
+                #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
                 false,
             )
         }
@@ -223,6 +226,7 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
                 config.wasm_config.implicit_account_creation,
                 config.wasm_config.eth_implicit_accounts,
                 receiver_id.get_account_type(),
+                #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
                 true,
             )
         }

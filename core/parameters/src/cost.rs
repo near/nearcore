@@ -264,6 +264,7 @@ pub enum ActionCosts {
     new_data_receipt_base = 13,
     new_data_receipt_byte = 14,
     delegate = 15,
+    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
     nonrefundable_transfer = 16,
 }
 
@@ -421,6 +422,7 @@ impl RuntimeFeesConfig {
                     send_not_sir: 115123062500,
                     execution: 115123062500,
                 },
+                #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
                 ActionCosts::nonrefundable_transfer => Fee {
                     send_sir: 115123062500,
                     send_not_sir: 115123062500,
@@ -519,13 +521,16 @@ pub fn transfer_exec_fee(
     implicit_account_creation_allowed: bool,
     eth_implicit_accounts_enabled: bool,
     receiver_account_type: AccountType,
-    is_nonrefundable: bool,
+    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")] is_nonrefundable: bool,
 ) -> Gas {
+    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
     let transfer_fee = if is_nonrefundable {
         cfg.fee(ActionCosts::nonrefundable_transfer).exec_fee()
     } else {
         cfg.fee(ActionCosts::transfer).exec_fee()
     };
+    #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
+    let transfer_fee = cfg.fee(ActionCosts::transfer).exec_fee();
     match (implicit_account_creation_allowed, eth_implicit_accounts_enabled, receiver_account_type)
     {
         // Regular transfer to a named account.
@@ -553,13 +558,16 @@ pub fn transfer_send_fee(
     implicit_account_creation_allowed: bool,
     eth_implicit_accounts_enabled: bool,
     receiver_account_type: AccountType,
-    is_nonrefundable: bool,
+    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")] is_nonrefundable: bool,
 ) -> Gas {
+    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
     let transfer_fee = if is_nonrefundable {
         cfg.fee(ActionCosts::nonrefundable_transfer).send_fee(sender_is_receiver)
     } else {
         cfg.fee(ActionCosts::transfer).send_fee(sender_is_receiver)
     };
+    #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
+    let transfer_fee = cfg.fee(ActionCosts::transfer).send_fee(sender_is_receiver);
     match (implicit_account_creation_allowed, eth_implicit_accounts_enabled, receiver_account_type)
     {
         // Regular transfer to a named account.

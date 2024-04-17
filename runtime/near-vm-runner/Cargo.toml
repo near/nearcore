@@ -113,11 +113,16 @@ protocol_feature_fix_contract_loading_cost = [
     "near-primitives-core/protocol_feature_fix_contract_loading_cost",
 ]
 
+protocol_feature_nonrefundable_transfer_nep491 = [
+  "near-primitives-core/protocol_feature_nonrefundable_transfer_nep491",
+]
+
 nightly = [
   "near-parameters/nightly",
   "near-primitives-core/nightly",
   "nightly_protocol",
   "protocol_feature_fix_contract_loading_cost",
+  "protocol_feature_nonrefundable_transfer_nep491",
 ]
 sandbox = []
 io_trace = []

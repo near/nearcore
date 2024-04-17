@@ -199,6 +199,8 @@ pub enum FeeParameter {
     ActionAddFunctionCallKeyPerByte,
     ActionDeleteKey,
     ActionDelegate,
+    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+    ActionNonrefundableStorageTransfer,
 }
 
 impl Parameter {
@@ -252,7 +254,8 @@ impl From<ActionCosts> for FeeParameter {
             ActionCosts::function_call_base => Self::ActionFunctionCall,
             ActionCosts::function_call_byte => Self::ActionFunctionCallPerByte,
             ActionCosts::transfer => Self::ActionTransfer,
-            ActionCosts::nonrefundable_transfer => Self::ActionTransfer, // TODO
+            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+            ActionCosts::nonrefundable_transfer => Self::ActionNonrefundableStorageTransfer,
             ActionCosts::stake => Self::ActionStake,
             ActionCosts::add_full_access_key => Self::ActionAddFullAccessKey,
             ActionCosts::add_function_call_key_base => Self::ActionAddFunctionCallKey,
