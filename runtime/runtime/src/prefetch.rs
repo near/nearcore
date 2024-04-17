@@ -154,22 +154,30 @@ impl TriePrefetcher {
                     }
                 }
 
-                if self.prefetch_api.claim_sweat_prefetch_config.iter().any(|cfg| {
-                    cfg.sender == receipt.predecessor_id.as_str()
-                        && cfg.receiver == account_id.as_str()
-                        && cfg.method_name == fn_call.method_name
-                }) {
-                    match &*fn_call.method_name {
-                        "record_batch_for_hold" => self
-                            .prefetch_claim_sweat_record_batch_for_hold(
-                                account_id.clone(),
-                                &fn_call.args,
-                            )?,
-                        "claim" => self.prefetch_claim_sweat_claim(
+                let claim_sweat_cfg = &self.prefetch_api.claim_sweat_prefetch_config;
+                if fn_call.method_name == "record_batch_for_hold" {
+                    let config = claim_sweat_cfg.iter().find(|cfg| {
+                        cfg.receiver == account_id.as_str()
+                            && cfg.method_name == fn_call.method_name
+                            && cfg.sender == receipt.predecessor_id.as_str()
+                    });
+                    if config.is_some() {
+                        self.prefetch_claim_sweat_record_batch_for_hold(
+                            account_id.clone(),
+                            &fn_call.args,
+                        )?
+                    }
+                }
+                if fn_call.method_name == "claim" {
+                    let config = claim_sweat_cfg.iter().find(|cfg| {
+                        cfg.receiver == account_id.as_str()
+                            && cfg.method_name == fn_call.method_name
+                    });
+                    if config.is_some() {
+                        self.prefetch_claim_sweat_claim(
                             account_id.clone(),
                             receipt.predecessor_id.clone(),
-                        )?,
-                        _ => {}
+                        )?
                     }
                 }
 
@@ -367,18 +375,18 @@ impl TriePrefetcher {
                 let Ok(()) = 1u8.serialize(&mut accruals_key) else { continue };
                 let Ok(()) = dt.serialize(&mut accruals_key) else { continue };
                 let accruals_key = sha2::Sha256::digest(&accruals_key).to_vec();
-                let _ = prefetch_api.prefetch_trie_key(trie_root, TrieKey::ContractData {
-                    account_id: account_id.clone(),
-                    key: accruals_key,
-                });
+                let _ = prefetch_api.prefetch_trie_key(
+                    trie_root,
+                    TrieKey::ContractData { account_id: account_id.clone(), key: accruals_key },
+                );
                 let mut amount_key = Vec::with_capacity(4 + 8 + 8);
                 let Ok(()) = 2u8.serialize(&mut amount_key) else { continue };
                 let Ok(()) = dt.serialize(&mut amount_key) else { continue };
                 amount_key.extend(&idx.to_le_bytes()); // index into Vector
-                let _ = prefetch_api.prefetch_trie_key(trie_root, TrieKey::ContractData {
-                    account_id: account_id.clone(),
-                    key: amount_key,
-                });
+                let _ = prefetch_api.prefetch_trie_key(
+                    trie_root,
+                    TrieKey::ContractData { account_id: account_id.clone(), key: amount_key },
+                );
             }
         });
         Ok(())
