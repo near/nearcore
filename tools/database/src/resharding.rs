@@ -14,14 +14,11 @@ use near_epoch_manager::EpochManager;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::GenesisId;
 use near_primitives::{hash::CryptoHash, types::EpochId};
-use near_store::db::{MixedDB, ReadOrder, RocksDB};
+use near_store::db::{MixedDB, ReadOrder, RocksDB, SplitDB};
 use near_store::genesis::initialize_sharded_genesis_state;
 use near_store::{Mode, NodeStorage, Store, Temperature};
 use nearcore::NightshadeRuntimeExt;
 use nearcore::{open_storage, NearConfig, NightshadeRuntime};
-
-// TODO mixed db
-// TODO resharding config
 
 #[derive(clap::Args)]
 pub(crate) struct ReshardingCommand {
@@ -65,10 +62,11 @@ impl ReshardingCommand {
         // Open hot and cold as usual.
         let storage = open_storage(home_dir, config)?;
         let cold_db = storage.cold_db().unwrap().to_owned();
-        let hot_db = storage.into_inner(Temperature::Cold);
+        let hot_db = storage.into_inner(Temperature::Hot);
 
-        // Use mixed db version of split db.
-        let split_db = MixedDB::new(cold_db, hot_db, ReadOrder::WriteDBFirst);
+        // We need real split db so that it correctly handles reads of missing
+        // values in the columns that are not in the cold db.
+        let split_db = SplitDB::new(hot_db, cold_db);
 
         // Open write db.
         let write_path = if self.write_path.is_absolute() {

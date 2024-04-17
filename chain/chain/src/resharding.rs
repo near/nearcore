@@ -509,7 +509,7 @@ impl Chain {
             RESHARDING_BATCH_SIZE.with_label_values(&metrics_labels).add(size as i64);
 
             i += 1;
-            tracing::debug!(target: "resharding", ?i, ?size, "batch processed");
+            tracing::debug!(target: "resharding", ?i, size=?bytesize::ByteSize::b(size), "batch processed");
 
             // sleep between batches in order to throttle resharding and leave
             // some resource for the regular node operation

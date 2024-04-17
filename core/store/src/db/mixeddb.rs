@@ -65,15 +65,15 @@ impl MixedDB {
 
 impl Database for MixedDB {
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
-        // tracing::debug!(target: "db", ?col, "read raw bytes");
+        tracing::debug!(target: "db", ?col, "read raw bytes");
 
         if let Some(first_result) = self.first_db().get_raw_bytes(col, key)? {
-            // tracing::debug!(target: "db", ?col, "read from first");
+            tracing::debug!(target: "db", ?col, "read from first");
             return Ok(Some(first_result));
         }
 
         let second_result = self.second_db().get_raw_bytes(col, key)?;
-        // tracing::debug!(target: "db", ?col, "read from second");
+        tracing::debug!(target: "db", ?col, "read from second");
 
         Ok(second_result)
     }
