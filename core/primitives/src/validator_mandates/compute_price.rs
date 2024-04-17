@@ -15,13 +15,9 @@ use {
 /// we have `S = m * N + \sum_i r_i`. We can rearrange this to solve for `m`,
 /// `m = (S - \sum_i r_i) / N`. Note that `r_i = a_i % m` so `m` is not truly
 /// isolated, but rather the RHS is the expression we want to find the fixed point for.
-pub fn compute_mandate_price<F, I>(config: ValidatorMandatesConfig, stakes: F) -> Balance
-where
-    I: Iterator<Item = Balance>,
-    F: Fn() -> I,
-{
+pub fn compute_mandate_price(config: ValidatorMandatesConfig, stakes: &[Balance]) -> Balance {
     let ValidatorMandatesConfig { target_mandates_per_shard, num_shards } = config;
-    let total_stake = saturating_sum(stakes());
+    let total_stake = saturating_sum(stakes.iter().copied());
 
     // The target number of mandates cannot be larger than the total amount of stake.
     // In production the total stake is _much_ higher than
@@ -37,7 +33,7 @@ where
     let f = |price: u128| {
         let mut whole_mandates = 0_u128;
         let mut remainders = 0_u128;
-        for s in stakes() {
+        for s in stakes.iter().copied() {
             whole_mandates = whole_mandates.saturating_add(s / price);
             remainders = remainders.saturating_add(s % price);
         }
@@ -116,7 +112,7 @@ mod tests {
         let target_mandates_per_shard = 1000;
         let config = ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
 
-        assert_eq!(compute_mandate_price(config, || stakes.iter().copied()), 1);
+        assert_eq!(compute_mandate_price(config, &stakes), 1);
     }
 
     // Test cases where all stakes are equal.
@@ -128,20 +124,20 @@ mod tests {
         let config = ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
 
         // There are enough validators to have 1:1 correspondence with mandates.
-        assert_eq!(compute_mandate_price(config, || stakes.iter().copied()), stakes[0]);
+        assert_eq!(compute_mandate_price(config, &stakes), stakes[0]);
 
         let target_mandates_per_shard = 2 * stakes.len();
         let config = ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
 
         // Now each validator needs to take two mandates.
-        assert_eq!(compute_mandate_price(config, || stakes.iter().copied()), stakes[0] / 2);
+        assert_eq!(compute_mandate_price(config, &stakes), stakes[0] / 2);
 
         let target_mandates_per_shard = stakes.len() - 1;
         let config = ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
 
         // Now there are more validators than we need, but
         // the mandate price still doesn't go below the common stake.
-        assert_eq!(compute_mandate_price(config, || stakes.iter().copied()), stakes[0]);
+        assert_eq!(compute_mandate_price(config, &stakes), stakes[0]);
     }
 
     // Test cases where the stake distribution is a step function.
@@ -160,17 +156,17 @@ mod tests {
         let config = ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
 
         // Computed price gives whole number of seats close to the target number
-        let price = compute_mandate_price(config, || stakes.iter().copied());
+        let price = compute_mandate_price(config, &stakes);
         assert_eq!(count_whole_mandates(&stakes, price), target_mandates_per_shard - 1);
 
         let target_mandates_per_shard = 2 * stakes.len();
         let config = ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
-        let price = compute_mandate_price(config, || stakes.iter().copied());
+        let price = compute_mandate_price(config, &stakes);
         assert_eq!(count_whole_mandates(&stakes, price), target_mandates_per_shard - 8);
 
         let target_mandates_per_shard = stakes.len() / 2;
         let config = ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
-        let price = compute_mandate_price(config, || stakes.iter().copied());
+        let price = compute_mandate_price(config, &stakes);
         assert_eq!(count_whole_mandates(&stakes, price), target_mandates_per_shard);
     }
 
@@ -191,23 +187,23 @@ mod tests {
         let num_shards = 6;
         let target_mandates_per_shard = 68;
         let config = ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
-        let price = compute_mandate_price(config, || stakes.iter().copied());
+        let price = compute_mandate_price(config, &stakes);
         assert_eq!(count_whole_mandates(&stakes, price), target_mandates_per_shard * num_shards);
 
         let num_shards = 1;
         let target_mandates_per_shard = stakes.len();
         let config = ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
-        let price = compute_mandate_price(config, || stakes.iter().copied());
+        let price = compute_mandate_price(config, &stakes);
         assert_eq!(count_whole_mandates(&stakes, price), target_mandates_per_shard);
 
         let target_mandates_per_shard = stakes.len() * 2;
         let config = ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
-        let price = compute_mandate_price(config, || stakes.iter().copied());
+        let price = compute_mandate_price(config, &stakes);
         assert_eq!(count_whole_mandates(&stakes, price), target_mandates_per_shard);
 
         let target_mandates_per_shard = stakes.len() / 2;
         let config = ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
-        let price = compute_mandate_price(config, || stakes.iter().copied());
+        let price = compute_mandate_price(config, &stakes);
         assert_eq!(count_whole_mandates(&stakes, price), target_mandates_per_shard);
     }
 
@@ -226,17 +222,17 @@ mod tests {
         let num_shards = 1;
         let target_mandates_per_shard = stakes.len();
         let config = ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
-        let price = compute_mandate_price(config, || stakes.iter().copied());
+        let price = compute_mandate_price(config, &stakes);
         assert_eq!(count_whole_mandates(&stakes, price), target_mandates_per_shard + 21);
 
         let target_mandates_per_shard = 2 * stakes.len();
         let config = ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
-        let price = compute_mandate_price(config, || stakes.iter().copied());
+        let price = compute_mandate_price(config, &stakes);
         assert_eq!(count_whole_mandates(&stakes, price), target_mandates_per_shard);
 
         let target_mandates_per_shard = stakes.len() / 2;
         let config = ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
-        let price = compute_mandate_price(config, || stakes.iter().copied());
+        let price = compute_mandate_price(config, &stakes);
         assert_eq!(count_whole_mandates(&stakes, price), target_mandates_per_shard - 31);
     }
 

@@ -72,8 +72,8 @@ impl ValidatorMandates {
     /// Only full mandates are assigned, partial mandates are dropped. For example, when the stake
     /// required for a mandate is 5 and a validator has staked 12, then it will obtain 2 mandates.
     pub fn new(config: ValidatorMandatesConfig, validators: &[ValidatorStake]) -> Self {
-        let stake_per_mandate =
-            compute_price::compute_mandate_price(config, || validators.iter().map(|v| v.stake()));
+        let stakes: Vec<Balance> = validators.iter().map(|v| v.stake()).collect();
+        let stake_per_mandate = compute_price::compute_mandate_price(config, &stakes);
         let num_mandates_per_validator: Vec<u16> =
             validators.iter().map(|v| v.num_mandates(stake_per_mandate)).collect();
         let num_total_mandates =
