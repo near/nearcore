@@ -5,16 +5,7 @@ use {
 };
 
 /// Given the stakes for the validators and the target number of mandates to have,
-/// this function computes the mandate price to use. It works by iterating a
-/// function in an attempt to find its fixed point. This function is motived as follows:
-/// Let the validator stakes be denoted by `s_i` a let `S = \sum_i s_i` be the total
-/// stake. For a given mandate price `m` we can write each `s_i = m * q_i + r_i`
-/// (by the Euclidean algorithm). Hence, the number of whole mandates created by
-/// that price is equal to `\sum_i q_i`. If we set this number of whole mandates
-/// equal to the target number `N` then substitute back in to the previous equations
-/// we have `S = m * N + \sum_i r_i`. We can rearrange this to solve for `m`,
-/// `m = (S - \sum_i r_i) / N`. Note that `r_i = a_i % m` so `m` is not truly
-/// isolated, but rather the RHS is the expression we want to find the fixed point for.
+/// this function computes the mandate price to use. It works by using a binary search.
 pub fn compute_mandate_price(config: ValidatorMandatesConfig, stakes: &[Balance]) -> Balance {
     let ValidatorMandatesConfig { target_mandates_per_shard, num_shards } = config;
     let total_stake = saturating_sum(stakes.iter().copied());
@@ -26,70 +17,85 @@ pub fn compute_mandate_price(config: ValidatorMandatesConfig, stakes: &[Balance]
     let target_mandates: u128 =
         min(num_shards.saturating_mul(target_mandates_per_shard) as u128, total_stake);
 
-    let initial_price = total_stake / target_mandates;
+    // Note: the reason to have the binary search look for the largest mandate price
+    // which obtains the target number of whole mandates is because the largest value
+    // minimizes the partial mandates. This can be seen as follows:
+    // Let `s_i` be the ith stake, `T` be the total stake and `m` be the mandate price.
+    // T / m = \sum (s_i / m) = \sum q_i + \sum r_i
+    // ==> \sum q_i = (T / m) - \sum r_i     [Eq. (1)]
+    // where `s_i = m * q_i + r_i` is obtained by the Euclidean algorithm.
+    // Notice that the LHS of (1) is the number of whole mandates, which we
+    // are assuming is equal to our target value for some range of `m` values.
+    // When we use a larger `m` value, `T / m` decreases but we need the LHS
+    // to remain constant, therefore `\sum r_i` must also decrease.
+    binary_search(1, total_stake, target_mandates, |mandate_price| {
+        saturating_sum(stakes.iter().map(|s| *s / mandate_price))
+    })
+}
 
-    // Function to compute the new estimated mandate price as well as
-    // evaluate the given mandate price.
-    let f = |price: u128| {
-        let mut whole_mandates = 0_u128;
-        let mut remainders = 0_u128;
-        for s in stakes.iter().copied() {
-            whole_mandates = whole_mandates.saturating_add(s / price);
-            remainders = remainders.saturating_add(s % price);
-        }
-        let updated_price = if total_stake > remainders {
-            (total_stake - remainders) / target_mandates
-        } else {
-            // This is an alternate expression we can try to find a fixed point of.
-            // We use it avoid making the next price equal to 0 (which is clearly incorrect).
-            // It is derived from `S = m * N + \sum_i r_i` by dividing by `m` first then
-            // isolating the `m` that appears on the LHS.
-            let partial_mandates = remainders / price;
-            total_stake / (target_mandates + partial_mandates)
-        };
-        let mandate_diff = if whole_mandates > target_mandates {
-            whole_mandates - target_mandates
-        } else {
-            target_mandates - whole_mandates
-        };
-        (PriceResult { price, mandate_diff }, updated_price)
-    };
+/// Assume `f` is a non-increasing function (f(x) <= f(y) if x > y) and `low < high`.
+/// This function uses a binary search to attempt to find the largest input, `x` such that
+/// `f(x) == target`, `low <= x` and `x <= high`.
+/// If there is no such `x` then it will return the unique input `x` such that
+/// `f(x) > target`, `f(x + 1) < target`, `low <= x` and `x <= high`.
+fn binary_search<F>(low: Balance, high: Balance, target: u128, f: F) -> Balance
+where
+    F: Fn(Balance) -> u128,
+{
+    debug_assert!(low < high);
 
-    // Iterate the function 25 times
-    let mut results = [PriceResult::default(); 25];
-    let (result_0, mut price) = f(initial_price);
-    results[0] = result_0;
-    for result in results.iter_mut().skip(1) {
-        let (output, next_price) = f(price);
-        *result = output;
-        price = next_price;
+    let mut low = low;
+    let mut high = high;
+
+    if f(low) == target {
+        return highest_exact(low, high, target, f);
+    } else if f(high) == target {
+        // No need to use `highest_exact` here because we are already at the upper bound.
+        return high;
     }
 
-    // Take the best result
-    let result = results.iter().min().expect("results iter is non-empty");
-    result.price
-}
+    while high - low > 1 {
+        let mid = low + (high - low) / 2;
+        let f_mid = f(mid);
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
-struct PriceResult {
-    price: u128,
-    mandate_diff: u128,
-}
-
-impl PartialOrd for PriceResult {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for PriceResult {
-    fn cmp(&self, other: &Self) -> Ordering {
-        match self.mandate_diff.cmp(&other.mandate_diff) {
-            Ordering::Equal => self.price.cmp(&other.price),
-            Ordering::Greater => Ordering::Greater,
-            Ordering::Less => Ordering::Less,
+        match f_mid.cmp(&target) {
+            Ordering::Equal => return highest_exact(mid, high, target, f),
+            Ordering::Less => high = mid,
+            Ordering::Greater => low = mid,
         }
     }
+
+    // No exact answer, return best price which gives an answer greater than
+    // `target_mandates` (which is `low` because `count_whole_mandates` is a non-increasing function).
+    low
+}
+
+/// Assume `f` is a non-increasing function (f(x) <= f(y) if x > y), `f(low) == target`
+/// and `f(high) < target`. This function uses a binary search to find the largest input, `x`
+/// such that `f(x) == target`.
+fn highest_exact<F>(low: Balance, high: Balance, target: u128, f: F) -> Balance
+where
+    F: Fn(Balance) -> u128,
+{
+    debug_assert!(low < high);
+    debug_assert_eq!(f(low), target);
+    debug_assert!(f(high) < target);
+
+    let mut low = low;
+    let mut high = high;
+
+    while high - low > 1 {
+        let mid = low + (high - low) / 2;
+        let f_mid = f(mid);
+
+        match f_mid.cmp(&target) {
+            Ordering::Equal => low = mid,
+            Ordering::Less => high = mid,
+            Ordering::Greater => unreachable!("Given function must be non-increasing"),
+        }
+    }
+
+    low
 }
 
 fn saturating_sum<I: Iterator<Item = u128>>(iter: I) -> u128 {
@@ -157,12 +163,12 @@ mod tests {
 
         // Computed price gives whole number of seats close to the target number
         let price = compute_mandate_price(config, &stakes);
-        assert_eq!(count_whole_mandates(&stakes, price), target_mandates_per_shard - 1);
+        assert_eq!(count_whole_mandates(&stakes, price), target_mandates_per_shard + 5);
 
         let target_mandates_per_shard = 2 * stakes.len();
         let config = ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
         let price = compute_mandate_price(config, &stakes);
-        assert_eq!(count_whole_mandates(&stakes, price), target_mandates_per_shard - 8);
+        assert_eq!(count_whole_mandates(&stakes, price), target_mandates_per_shard + 11);
 
         let target_mandates_per_shard = stakes.len() / 2;
         let config = ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
@@ -223,7 +229,7 @@ mod tests {
         let target_mandates_per_shard = stakes.len();
         let config = ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
         let price = compute_mandate_price(config, &stakes);
-        assert_eq!(count_whole_mandates(&stakes, price), target_mandates_per_shard + 21);
+        assert_eq!(count_whole_mandates(&stakes, price), target_mandates_per_shard + 3);
 
         let target_mandates_per_shard = 2 * stakes.len();
         let config = ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
@@ -233,7 +239,7 @@ mod tests {
         let target_mandates_per_shard = stakes.len() / 2;
         let config = ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
         let price = compute_mandate_price(config, &stakes);
-        assert_eq!(count_whole_mandates(&stakes, price), target_mandates_per_shard - 31);
+        assert_eq!(count_whole_mandates(&stakes, price), target_mandates_per_shard);
     }
 
     fn count_whole_mandates(stakes: &[u128], mandate_price: u128) -> usize {
