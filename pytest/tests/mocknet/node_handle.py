@@ -81,8 +81,12 @@ class NodeHandle:
             )
         return response['result']
 
-    def neard_runner_start(self):
-        return self.neard_runner_jsonrpc('start')
+    def neard_runner_start(self, send_interval_millis=None):
+        if send_interval_millis is None:
+            params = []
+        else:
+            params = {'send_interval_millis': send_interval_millis}
+        return self.neard_runner_jsonrpc('start', params=params)
 
     def neard_runner_stop(self):
         return self.neard_runner_jsonrpc('stop')
