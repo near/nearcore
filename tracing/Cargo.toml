@@ -1,0 +1,25 @@
+[package]
+name = "near-tracing"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+actix-cors.workspace = true
+actix-web.workspace = true
+anyhow.workspace = true
+bson.workspace = true
+clap.workspace = true
+hex.workspace = true
+mongodb.workspace = true
+opentelemetry-proto.workspace = true
+prost.workspace = true
+tokio.workspace = true
+tonic.workspace = true
+serde = { version = "1.0.192", features = ["derive"] }
+
+[lints]
+workspace = true
