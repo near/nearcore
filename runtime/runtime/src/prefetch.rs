@@ -357,9 +357,12 @@ impl TriePrefetcher {
                 return;
             };
             #[derive(borsh::BorshDeserialize)]
-            pub struct AccountRecord {
-                pub accruals: Vec<(u32, u32)>,
-                // TODO maybe need the rest of the fields? to be found out.
+            #[allow(dead_code)]
+            struct AccountRecord {
+                accruals: Vec<(u32, u32)>,
+                is_enabled: bool,
+                claim_period_refreshed_at: u32,
+                is_locked: bool,
             }
             let Ok(account_record) = borsh::from_slice::<AccountRecord>(&account_record) else {
                 tracing::debug!(
