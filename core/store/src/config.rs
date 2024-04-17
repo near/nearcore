@@ -263,7 +263,7 @@ impl Default for StoreConfig {
                 },
                 PrefetchConfig {
                     receiver: "claim.sweat".to_owned(),
-                    sender: "token.sweat".to_owned(),
+                    sender: String::new(),
                     method_name: "claim".to_owned(),
                 },
             ],
