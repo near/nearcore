@@ -7,7 +7,7 @@ use near_async::time::Clock;
 use near_async::time::{Duration, Instant};
 use near_chain::test_utils::ValidatorSchedule;
 use near_chain::types::Tip;
-use near_chain::{ChainGenesis, Provenance};
+use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::GenesisConfig;
 use near_chain_primitives::error::QueryError;
 use near_chunks::client::ShardsManagerResponse;
@@ -37,6 +37,7 @@ use near_primitives::views::{
     AccountView, FinalExecutionOutcomeView, QueryRequest, QueryResponse, QueryResponseKind,
     StateItem,
 };
+use near_store::metadata::DbKind;
 use near_store::ShardUId;
 use once_cell::sync::OnceCell;
 use std::collections::{HashMap, HashSet};
@@ -86,8 +87,40 @@ impl TestEnv {
 
     /// Process a given block in the client with index `id`.
     /// Simulate the block processing logic in `Client`, i.e, it would run catchup and then process accepted blocks and possibly produce chunks.
+    /// Runs garbage collection manually
     pub fn process_block(&mut self, id: usize, block: Block, provenance: Provenance) {
         self.clients[id].process_block_test(MaybeValidated::from(block), provenance).unwrap();
+        // runs gc
+        let runtime_adapter = self.clients[id].chain.runtime_adapter.clone();
+        let epoch_manager = self.clients[id].chain.epoch_manager.clone();
+        let gc_config = self.clients[id].config.gc.clone();
+
+        // A RPC node should do regular garbage collection.
+        if !self.clients[id].config.archive {
+            self.clients[id]
+                .chain
+                .mut_chain_store()
+                .clear_data(&gc_config, runtime_adapter, epoch_manager)
+                .unwrap();
+        } else {
+            // An archival node with split storage should perform garbage collection
+            // on the hot storage. In order to determine if split storage is enabled
+            // *and* that the migration to split storage is finished we can check
+            // the store kind. It's only set to hot after the migration is finished.
+            let store = self.clients[0].chain.chain_store().store();
+            let kind = store.get_db_kind().unwrap();
+            if kind == Some(DbKind::Hot) {
+                self.clients[id]
+                    .chain
+                    .mut_chain_store()
+                    .clear_data(&gc_config, runtime_adapter, epoch_manager)
+                    .unwrap();
+            } else {
+                // An archival node with legacy storage or in the midst of migration to split
+                // storage should do the legacy clear_archive_data.
+                self.clients[id].chain.mut_chain_store().clear_archive_data(gc_config.gc_blocks_limit, runtime_adapter).unwrap();
+            }
+        }
     }
 
     /// Produces block by given client, which may kick off chunk production.
