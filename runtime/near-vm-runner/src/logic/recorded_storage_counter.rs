@@ -1,3 +1,5 @@
+use bytesize::ByteSize;
+
 use super::errors::InconsistentStateError;
 use super::{HostError, VMLogicError};
 
@@ -20,9 +22,11 @@ impl RecordedStorageCounter {
 
         let current_size = self.get_storage_size()?;
         if current_size > self.size_limit {
+            let limit_u64 = self.size_limit.try_into().map_err(|_| {
+                VMLogicError::InconsistentStateError(InconsistentStateError::IntegerOverflow)
+            })?;
             return Err(VMLogicError::HostError(HostError::RecordedStorageExceeded {
-                size: current_size,
-                limit: self.size_limit,
+                limit: ByteSize::b(limit_u64),
             }));
         }
 

@@ -1,4 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use bytesize::ByteSize;
 use std::any::Any;
 use std::fmt::{self, Error, Formatter};
 use std::io;
@@ -211,7 +212,7 @@ pub enum HostError {
     /// Yield resumption data id is malformed.
     DataIdMalformed,
     /// Size of the recorded trie storage proof has exceeded the allowed limit.
-    RecordedStorageExceeded { size: usize, limit: usize },
+    RecordedStorageExceeded { limit: ByteSize },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -446,10 +447,10 @@ impl std::fmt::Display for HostError {
                 "Yield resume payload is {length} bytes which exceeds the {limit} byte limit"
             ),
             DataIdMalformed => write!(f, "yield resumption token is malformed"),
-            RecordedStorageExceeded { size, limit } => write!(
+            RecordedStorageExceeded { limit } => write!(
                 f,
-                "Size of the recorded trie storage proof has exceeded the allowed limit: {} > {}",
-                size, limit
+                "Size of the recorded trie storage proof has exceeded the allowed limit ({})",
+                limit
             ),
         }
     }
