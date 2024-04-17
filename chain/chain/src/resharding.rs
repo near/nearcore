@@ -465,6 +465,7 @@ impl Chain {
         // Once we build the iterator, we break it into batches using the
         // get_trie_update_batch function.
         let mut i = 0;
+        let mut total_size = 0;
         let mut iter = iter;
         loop {
             if !handle.get() {
@@ -509,7 +510,8 @@ impl Chain {
             RESHARDING_BATCH_SIZE.with_label_values(&metrics_labels).add(size as i64);
 
             i += 1;
-            tracing::debug!(target: "resharding", ?i, size=?bytesize::ByteSize::b(size), "batch processed");
+            total_size += size;
+            tracing::debug!(target: "resharding", ?i, size=?bytesize::ByteSize::b(total_size), "batch processed");
 
             // sleep between batches in order to throttle resharding and leave
             // some resource for the regular node operation

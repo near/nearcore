@@ -77,16 +77,10 @@ impl Database for SplitDB {
     /// First tries to read the data from the hot db and returns it if found.
     /// Then it tries to read the data from the cold db and returns the result.
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
-        if col == DBCol::ChunkExtra {
-            tracing::debug!(target: "store", "get raw bytes from chunk extra");
-        }
         if let Some(hot_result) = self.hot.get_raw_bytes(col, key)? {
             return Ok(Some(hot_result));
         }
         if col.is_cold() {
-            if col == DBCol::ChunkExtra {
-                tracing::debug!(target: "store", "get raw bytes from chunk extra - cold fallback");
-            }
             return self.cold.get_raw_bytes(col, key);
         }
         Ok(None)
@@ -100,10 +94,6 @@ impl Database for SplitDB {
     /// Then it tries to read the data from the cold db and returns the result.
     fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
         assert!(col.is_rc());
-
-        if col == DBCol::ChunkExtra {
-            tracing::debug!(target: "store", is_cold=?col.is_cold(), "get raw bytes from chunk extra");
-        }
 
         if let Some(hot_result) = self.hot.get_with_rc_stripped(col, key)? {
             return Ok(Some(hot_result));
