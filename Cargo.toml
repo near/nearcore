@@ -93,6 +93,7 @@ members = [
     "utils/mainnet-res",
     "utils/near-cache",
     "utils/stdx",
+    "tracing",
 ]
 
 [workspace.lints.clippy]
@@ -281,6 +282,7 @@ openssl-probe = "0.1.4"
 opentelemetry = { version = "0.22.0", features = ["trace"] }
 opentelemetry_sdk = { version = "0.22.0", features = ["rt-tokio"] }
 opentelemetry-otlp = "0.15.0"
+opentelemetry-proto = { version = "0.5.0", features = ["gen-tonic", "trace"] }
 opentelemetry-semantic-conventions = "0.14.0"
 paperclip = { version = "0.8.0", features = ["actix4"] }
 parity-wasm = { version = "0.42", default-features = false }
@@ -293,6 +295,7 @@ pretty_assertions = "1.2"
 primitive-types = { version = "0.10", default-features = false }
 proc-macro2 = "1.0.64"
 prometheus = "0.13.1"
+prost = "0.12.4"
 protobuf = "3.0.1"
 protobuf-codegen = "3.0.1"
 pwasm-utils_12 = { package = "pwasm-utils", version = "0.12" }
@@ -361,6 +364,7 @@ tokio = { version = "1.28", features = [
 tokio-stream = { version = "0.1.2", features = ["net"] }
 tokio-util = { version = "0.7.1", features = ["codec", "io"] }
 toml = "0.5.8"
+tonic = "0.11.0"
 tqdm = "0.4.4"
 tracing = { version = "0.1.40", features = ["std"] }
 tracing-appender = "0.2.3"
