@@ -2,6 +2,7 @@ use near_async::test_loop::event_handler::LoopEventHandler;
 use near_async::test_loop::futures::TestLoopFutureSpawner;
 use near_chunks::client::ShardsManagerResponse;
 use near_network::client::ClientSenderForNetworkMessage;
+use near_network::state_witness_distribution::StateWitnessDistributionSenderForNetworkMessage;
 
 use crate::client_actions::SyncJobsSenderForClientMessage;
 use crate::client_actions::{ClientActionHandler, ClientActions, ClientSenderForClientMessage};
@@ -36,9 +37,6 @@ pub fn forward_client_messages_from_network_to_client_actions(
                 (msg.callback)(Ok(client_actions.handle(msg.message)));
             }
             ClientSenderForNetworkMessage::_chunk_state_witness(msg) => {
-                (msg.callback)(Ok(client_actions.handle(msg.message)));
-            }
-            ClientSenderForNetworkMessage::_chunk_state_witness_ack(msg) => {
                 (msg.callback)(Ok(client_actions.handle(msg.message)));
             }
             ClientSenderForNetworkMessage::_chunk_endorsement(msg) => {
@@ -95,6 +93,21 @@ pub fn forward_sync_jobs_messages_from_client_to_sync_jobs_actions(
             sync_jobs_actions.handle_load_memtrie_request(msg);
         }
     })
+}
+
+pub fn forward_messages_from_network_to_state_witness_distribution_actor() -> LoopEventHandler<
+    StateWitnessDistributionActions,
+    StateWitnessDistributionSenderForNetworkMessage,
+> {
+    LoopEventHandler::new_simple(
+        |msg: StateWitnessDistributionSenderForNetworkMessage,
+         state_witness_distribution_actions: &mut StateWitnessDistributionActions| match msg
+        {
+            StateWitnessDistributionSenderForNetworkMessage::_chunk_state_witness_ack(msg) => {
+                state_witness_distribution_actions.handle_chunk_state_witness_ack(msg.0);
+            }
+        },
+    )
 }
 
 pub fn forward_messages_from_client_to_state_witness_distribution_actor(

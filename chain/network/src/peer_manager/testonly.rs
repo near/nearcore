@@ -19,6 +19,8 @@ use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::snapshot_hosts::SnapshotHostsCache;
+use crate::state_witness_distribution::StateWitnessDistributionSenderForNetworkInput;
+use crate::state_witness_distribution::StateWitnessDistributionSenderForNetworkMessage;
 use crate::tcp;
 use crate::test_utils;
 use crate::testonly::actix::ActixSystem;
@@ -70,6 +72,7 @@ pub enum Event {
     ShardsManager(ShardsManagerRequestFromNetwork),
     Client(ClientSenderForNetworkInput),
     PeerManager(PME),
+    StateWitnessDistribution(StateWitnessDistributionSenderForNetworkInput),
 }
 
 pub(crate) struct ActorHandler {
@@ -621,12 +624,25 @@ pub(crate) async fn start(
                     send.send(Event::ShardsManager(event));
                 }
             });
+            let state_witness_distribution_sender = Sender::from_fn({
+                let send = send.clone();
+                move |event: StateWitnessDistributionSenderForNetworkMessage| match event {
+                    StateWitnessDistributionSenderForNetworkMessage::_chunk_state_witness_ack(
+                        msg,
+                    ) => send.send(Event::StateWitnessDistribution(
+                        StateWitnessDistributionSenderForNetworkInput::_chunk_state_witness_ack(
+                            msg,
+                        ),
+                    )),
+                }
+            });
             PeerManagerActor::spawn(
                 clock,
                 store,
                 cfg,
                 client_sender.break_apart().into_multi_sender(),
                 shards_manager_sender,
+                state_witness_distribution_sender.break_apart().into_multi_sender(),
                 genesis_id,
             )
             .unwrap()

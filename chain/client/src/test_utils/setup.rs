@@ -174,8 +174,11 @@ pub fn setup(
     let state_sync_adapter =
         Arc::new(RwLock::new(SyncAdapter::new(noop().into_sender(), noop().into_sender())));
 
-    let (state_witness_distribution_addr, _) =
-        StateWitnessDistributionActor::spawn(network_adapter.clone());
+    let (state_witness_distribution_addr, _) = StateWitnessDistributionActor::spawn(
+        clock.clone(),
+        network_adapter.clone(),
+        signer.clone(),
+    );
     let state_witness_distribution_adapter =
         state_witness_distribution_addr.with_auto_span_context();
 
@@ -961,7 +964,6 @@ pub fn setup_no_network_with_validity_period_and_no_epoch_sync(
 pub fn setup_client_with_runtime(
     clock: Clock,
     num_validator_seats: NumSeats,
-    account_id: Option<AccountId>,
     enable_doomslug: bool,
     network_adapter: PeerManagerAdapter,
     shards_manager_adapter: SynchronousShardsManagerAdapter,
@@ -974,9 +976,8 @@ pub fn setup_client_with_runtime(
     save_trie_changes: bool,
     snapshot_callbacks: Option<SnapshotCallbacks>,
     state_witness_distribution_adapter: StateWitnessDistributionSenderForClient,
+    validator_signer: Arc<dyn ValidatorSigner>,
 ) -> Client {
-    let validator_signer =
-        account_id.map(|x| Arc::new(create_test_signer(x.as_str())) as Arc<dyn ValidatorSigner>);
     let mut config = ClientConfig::test(
         true,
         10,
@@ -1000,7 +1001,7 @@ pub fn setup_client_with_runtime(
         runtime,
         network_adapter,
         shards_manager_adapter.into_sender(),
-        validator_signer,
+        Some(validator_signer),
         enable_doomslug,
         rng_seed,
         snapshot_callbacks,
