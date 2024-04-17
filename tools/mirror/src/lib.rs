@@ -1876,7 +1876,9 @@ async fn run<P: AsRef<Path>>(
         let stop_height = stop_height.unwrap_or(
             source_chain_access.head_height().await.context("could not fetch source chain head")?,
         );
-        TxMirror::new(source_chain_access, target_home, secret, config)?.run(Some(stop_height)).await
+        TxMirror::new(source_chain_access, target_home, secret, config)?
+            .run(Some(stop_height))
+            .await
     } else {
         tracing::warn!(target: "mirror", "FIXME: currently --online-source will skip DeployContract actions");
         TxMirror::new(crate::online::ChainAccess::new(source_home)?, target_home, secret, config)?
