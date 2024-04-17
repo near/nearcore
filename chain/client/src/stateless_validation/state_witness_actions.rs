@@ -6,7 +6,7 @@ use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_primitives::stateless_validation::{
-    ChunkStateWitness, ChunkStateWitnessAck, EncodedChunkStateWitness,
+    ChunkStateWitness, ChunkStateWitnessAck, EncodedChunkStateWitness, PartialEncodedStateWitness,
     SignedEncodedChunkStateWitness,
 };
 use near_primitives::validator_signer::ValidatorSigner;
@@ -89,8 +89,24 @@ impl StateWitnessActions {
     /// the ack message and updates the corresponding metric with it.
     /// Currently we do not raise an error for handling of witness-ack messages,
     /// as it is used only for tracking some networking metrics.
-    pub fn handle_chunk_state_witness_ack(&mut self, witness_ack: ChunkStateWitnessAck) -> () {
+    pub fn handle_chunk_state_witness_ack(&mut self, witness_ack: ChunkStateWitnessAck) {
         self.state_witness_tracker.on_witness_ack_received(witness_ack);
+    }
+
+    /// Function to handle receiving partial_encoded_state_witness message from chunk producer.
+    pub fn handle_partial_encoded_state_witness(
+        &self,
+        partial_witness: PartialEncodedStateWitness,
+    ) -> Result<(), Error> {
+        unimplemented!("{:?}", partial_witness)
+    }
+
+    /// Function to handle receiving partial_encoded_state_witness_forward message from chunk producer.
+    pub fn handle_partial_encoded_state_witness_forward(
+        &self,
+        partial_witness: PartialEncodedStateWitness,
+    ) -> Result<(), Error> {
+        unimplemented!("{:?}", partial_witness)
     }
 }
 

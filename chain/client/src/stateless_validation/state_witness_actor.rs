@@ -5,7 +5,10 @@ use near_async::messaging::Sender;
 use near_async::time::Clock;
 use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
 use near_epoch_manager::EpochManagerAdapter;
-use near_network::state_witness::ChunkStateWitnessAckMessage;
+use near_network::state_witness::{
+    ChunkStateWitnessAckMessage, PartialEncodedStateWitnessForwardMessage,
+    PartialEncodedStateWitnessMessage,
+};
 use near_network::types::PeerManagerAdapter;
 use near_o11y::{handler_debug_span, WithSpanContext};
 use near_performance_metrics_macros::perf;
@@ -75,5 +78,37 @@ impl actix::Handler<WithSpanContext<ChunkStateWitnessAckMessage>> for StateWitne
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "stateless_validation", msg);
         self.actions.handle_chunk_state_witness_ack(msg.0);
+    }
+}
+
+impl actix::Handler<WithSpanContext<PartialEncodedStateWitnessMessage>> for StateWitnessActor {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<PartialEncodedStateWitnessMessage>,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "stateless_validation", msg);
+        if let Err(err) = self.actions.handle_partial_encoded_state_witness(msg.0) {
+            tracing::error!(target: "stateless_validation", ?err, "Failed to handle PartialEncodedStateWitnessMessage");
+        }
+    }
+}
+
+impl actix::Handler<WithSpanContext<PartialEncodedStateWitnessForwardMessage>>
+    for StateWitnessActor
+{
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<PartialEncodedStateWitnessForwardMessage>,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "stateless_validation", msg);
+        if let Err(err) = self.actions.handle_partial_encoded_state_witness_forward(msg.0) {
+            tracing::error!(target: "stateless_validation", ?err, "Failed to handle PartialEncodedStateWitnessForwardMessage");
+        }
     }
 }

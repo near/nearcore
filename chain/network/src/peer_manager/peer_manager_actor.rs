@@ -995,6 +995,31 @@ impl PeerManagerActor {
                 );
                 NetworkResponses::NoResponse
             }
+            NetworkRequests::PartialEncodedStateWitness(chunk_validators, partial_witness) => {
+                for chunk_validator in chunk_validators {
+                    self.state.send_message_to_account(
+                        &self.clock,
+                        &chunk_validator,
+                        RoutedMessageBody::PartialEncodedStateWitness(partial_witness.clone()),
+                    );
+                }
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::PartialEncodedStateWitnessForward(
+                chunk_validators,
+                partial_witness,
+            ) => {
+                for chunk_validator in chunk_validators {
+                    self.state.send_message_to_account(
+                        &self.clock,
+                        &chunk_validator,
+                        RoutedMessageBody::PartialEncodedStateWitnessForward(
+                            partial_witness.clone(),
+                        ),
+                    );
+                }
+                NetworkResponses::NoResponse
+            }
         }
     }
 

@@ -124,12 +124,8 @@ impl PeerHandle {
         });
         let state_witness_sender = Sender::from_fn({
             let send = send.clone();
-            move |event: StateWitnessSenderForNetworkMessage| match event {
-                StateWitnessSenderForNetworkMessage::_chunk_state_witness_ack(msg) => {
-                    send.send(Event::StateWitness(
-                        StateWitnessSenderForNetworkInput::_chunk_state_witness_ack(msg),
-                    ))
-                }
+            move |event: StateWitnessSenderForNetworkMessage| {
+                send.send(Event::StateWitness(event.into_input()));
             }
         });
         let network_state = Arc::new(NetworkState::new(

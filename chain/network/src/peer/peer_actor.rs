@@ -27,7 +27,10 @@ use crate::routing::edge::verify_nonce;
 use crate::routing::NetworkTopologyChange;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::snapshot_hosts::SnapshotHostInfoError;
-use crate::state_witness::ChunkStateWitnessAckMessage;
+use crate::state_witness::{
+    ChunkStateWitnessAckMessage, PartialEncodedStateWitnessForwardMessage,
+    PartialEncodedStateWitnessMessage,
+};
 use crate::stats::metrics;
 use crate::tcp;
 use crate::types::{
@@ -1023,6 +1026,18 @@ impl PeerActor {
             }
             RoutedMessageBody::ChunkEndorsement(endorsement) => {
                 network_state.client.send_async(ChunkEndorsementMessage(endorsement)).await.ok();
+                None
+            }
+            RoutedMessageBody::PartialEncodedStateWitness(witness) => {
+                network_state
+                    .state_witness_adapter
+                    .send(PartialEncodedStateWitnessMessage(witness));
+                None
+            }
+            RoutedMessageBody::PartialEncodedStateWitnessForward(witness) => {
+                network_state
+                    .state_witness_adapter
+                    .send(PartialEncodedStateWitnessForwardMessage(witness));
                 None
             }
             body => {
