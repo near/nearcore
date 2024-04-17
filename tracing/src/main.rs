@@ -1,5 +1,5 @@
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use crate::collector::Collector;
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
 mod collector;
 
