@@ -488,7 +488,7 @@ impl ClientConfig {
         assert!(
             archive || save_trie_changes,
             "Configuration with archive = false and save_trie_changes = false is not supported \
-            because non-archival nodes must save trie changes in order to do do garbage collection."
+            because non-archival nodes must save trie changes in order to do garbage collection."
         );
 
         Self {
