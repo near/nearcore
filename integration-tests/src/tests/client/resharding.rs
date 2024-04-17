@@ -368,6 +368,9 @@ impl TestReshardingEnv {
                     client.postprocess_ready_blocks(Arc::new(|_| {}), should_produce_chunk);
                 assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
             }
+            // manually invoke gc
+            let gc_config = client.config.gc.clone();
+            client.chain.clear_data(&gc_config).unwrap();
             if should_catchup {
                 run_catchup(&mut env.clients[j], &[])?;
             }
