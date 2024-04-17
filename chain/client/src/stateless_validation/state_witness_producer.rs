@@ -1,8 +1,8 @@
-use near_async::messaging::{CanSend, IntoSender};
+use std::collections::HashMap;
 
+use near_async::messaging::{CanSend, IntoSender};
 use near_chain::{BlockHeader, Chain, ChainStoreAccess};
 use near_chain_primitives::Error;
-use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::log_assert_fail;
 use near_primitives::challenge::PartialState;
 use near_primitives::checked_feature;
@@ -15,9 +15,9 @@ use near_primitives::stateless_validation::{
 };
 use near_primitives::types::{AccountId, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
-use std::collections::HashMap;
 
 use crate::stateless_validation::chunk_validator::send_chunk_endorsement_to_block_producers;
+use crate::stateless_validation::state_witness_distribution_actor::DistributeChunkStateWitnessRequest;
 use crate::{metrics, Client};
 
 impl Client {
@@ -84,9 +84,8 @@ impl Client {
             chunk_validators.len(),
         );
 
-        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::ChunkStateWitness(chunk_validators, signed_witness),
-        ));
+        self.state_witness_distribution_adapter
+            .send(DistributeChunkStateWitnessRequest { chunk_validators, signed_witness });
         Ok(())
     }
 

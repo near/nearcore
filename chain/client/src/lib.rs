@@ -21,6 +21,11 @@ pub use near_network::client::{
     BlockApproval, BlockResponse, ProcessTxRequest, ProcessTxResponse, SetNetworkInfo,
 };
 pub use stateless_validation::processing_tracker::{ProcessingDoneTracker, ProcessingDoneWaiter};
+pub use stateless_validation::state_witness_distribution_actions::StateWitnessDistributionActions;
+pub use stateless_validation::state_witness_distribution_actor::{
+    DistributeChunkStateWitnessRequest, StateWitnessDistributionActor,
+    StateWitnessDistributionSenderForClientMessage,
+};
 
 pub mod adapter;
 pub mod adversarial;

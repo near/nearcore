@@ -580,6 +580,7 @@ impl TestEnv {
             self.archive,
             self.save_trie_changes,
             None,
+            self.clients[idx].state_witness_distribution_adapter.clone(),
         )
     }
 
