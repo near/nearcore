@@ -1,7 +1,8 @@
 use crate::PartialStorage;
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
-use std::collections::HashMap;
+use near_primitives::types::AccountId;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 /// A simple struct to capture a state proof as it's being accumulated.
@@ -11,11 +12,17 @@ pub struct TrieRecorder {
     /// Counts removals performed while recording.
     /// recorded_storage_size_upper_bound takes it into account when calculating the total size.
     removal_counter: usize,
+    pub read_codes_for: HashSet<AccountId>,
 }
 
 impl TrieRecorder {
     pub fn new() -> Self {
-        Self { recorded: HashMap::new(), size: 0, removal_counter: 0 }
+        Self {
+            recorded: HashMap::new(),
+            size: 0,
+            removal_counter: 0,
+            read_codes_for: Default::default(),
+        }
     }
 
     pub fn record(&mut self, hash: &CryptoHash, node: Arc<[u8]>) {
@@ -47,6 +54,10 @@ impl TrieRecorder {
         // Charge 2000 bytes for every removal
         let removals_size = self.removal_counter.saturating_mul(2000);
         self.recorded_storage_size().saturating_add(removals_size)
+    }
+
+    pub fn read_code_for(&mut self, account_id: AccountId) {
+        self.read_codes_for.insert(account_id);
     }
 }
 

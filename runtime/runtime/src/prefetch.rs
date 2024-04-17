@@ -142,10 +142,17 @@ impl TriePrefetcher {
                 }
             }
 
+            let mut code_prefetched = false;
             for action in &action_receipt.actions {
                 let Action::FunctionCall(fn_call) = action else {
                     continue;
                 };
+                if !code_prefetched {
+                    let trie_key = TrieKey::ContractCode { account_id: account_id.clone() };
+                    self.prefetch_trie_key(trie_key)?;
+                    code_prefetched = true;
+                }
+
                 if self.prefetch_api.sweat_prefetch_receivers.contains(&account_id)
                     && self.prefetch_api.sweat_prefetch_senders.contains(&receipt.predecessor_id)
                 {

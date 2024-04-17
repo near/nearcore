@@ -86,6 +86,10 @@ impl<'a> RuntimeExt<'a> {
         self.account_id
     }
 
+    pub fn mark_code(&self) {
+        self.trie_update.trie.mark_code(self.account_id.clone());
+    }
+
     pub fn get_code(&self, code_hash: CryptoHash) -> Result<Option<ContractCode>, StorageError> {
         get_code(self.trie_update, self.account_id, Some(code_hash))
     }

@@ -33,7 +33,7 @@ use near_primitives::types::{AccountId, StateRoot, StateRootNode};
 use near_vm_runner::ContractCode;
 pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fmt::Write;
 use std::hash::Hash;
 use std::rc::Rc;
@@ -724,6 +724,18 @@ impl Trie {
 
     pub fn internal_get_storage_as_caching_storage(&self) -> Option<&TrieCachingStorage> {
         self.storage.as_caching_storage()
+    }
+
+    pub fn mark_code(&self, account_id: AccountId) {
+        // debatable
+        let Some(_) = self.storage.as_caching_storage() else {
+            return;
+        };
+        let Some(recorder) = &self.recorder else {
+            return;
+        };
+        let mut r = recorder.borrow_mut();
+        r.read_code_for(account_id);
     }
 
     /// All access to trie nodes or values must go through this method, so it
@@ -1502,6 +1514,17 @@ impl Trie {
     where
         I: IntoIterator<Item = (Vec<u8>, Option<Vec<u8>>)>,
     {
+        // codes
+        let read_codes_for = if let Some(recorder) = &self.recorder {
+            recorder.borrow().read_codes_for.clone()
+        } else {
+            HashSet::default()
+        };
+        for account_id in read_codes_for {
+            let trie_key = TrieKey::ContractCode { account_id: account_id.clone() };
+            let _ = self.get(&trie_key.to_vec());
+        }
+
         match &self.memtries {
             Some(memtries) => {
                 // If we have in-memory tries, use it to construct the changes entirely (for
