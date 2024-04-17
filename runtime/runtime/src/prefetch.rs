@@ -237,11 +237,11 @@ impl TriePrefetcher {
         match res {
             Err(PrefetchError::QueueFull) => {
                 self.prefetch_queue_full.inc();
-                debug!(target: "prefetcher", "I/O scheduler input queue is full, dropping prefetch request");
+                debug!(target: "runtime::prefetch", "I/O scheduler input queue is full, dropping prefetch request");
             }
             Err(PrefetchError::QueueDisconnected) => {
                 // This shouldn't have happened, hence logging warning here
-                warn!(target: "prefetcher", "I/O scheduler input queue is disconnected, dropping prefetch request");
+                warn!(target: "runtime::prefetch", "I/O scheduler input queue is disconnected, dropping prefetch request");
             }
             Ok(()) => self.prefetch_enqueued.inc(),
         };
@@ -340,13 +340,24 @@ impl TriePrefetcher {
             // Just read this directly for now since this is temporary anyway
             let prefetcher_storage = prefetch_api.make_storage();
             let trie = Trie::new(prefetcher_storage, trie_root, None);
-            let Ok(Some(account_record)) = trie.get(&trie_key.to_vec()) else { return };
+            let Ok(Some(account_record)) = trie.get(&trie_key.to_vec()) else {
+                tracing::debug!(
+                    target: "runtime::prefetch",
+                    message = "could not load AccountRecord",
+                    key = ?trie_key,
+                );
+                return;
+            };
             #[derive(borsh::BorshDeserialize)]
             pub struct AccountRecord {
                 pub accruals: Vec<(u32, u32)>,
                 // TODO maybe need the rest of the fields? to be found out.
             }
             let Ok(account_record) = borsh::from_slice::<AccountRecord>(&account_record) else {
+                tracing::debug!(
+                    target: "runtime::prefetch",
+                    message = "could not decode AccountRecord",
+                );
                 return;
             };
 

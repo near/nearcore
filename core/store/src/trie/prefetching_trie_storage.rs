@@ -491,13 +491,22 @@ impl PrefetchApi {
                             Trie::new(Rc::new(prefetcher_storage.clone()), trie_root, None);
                         let storage_key = trie_key.to_vec();
                         metric_prefetch_sent.inc();
-                        if let Ok(_maybe_value) = prefetcher_trie.get(&storage_key) {
-                            near_o11y::io_trace!(count: "prefetch");
-                        } else {
-                            // This may happen in rare occasions and can be ignored safely.
-                            // See comments in `TriePrefetchingStorage::retrieve_raw_bytes`.
-                            near_o11y::io_trace!(count: "prefetch_failure");
-                            metric_prefetch_fail.inc();
+                        match prefetcher_trie.get(&storage_key) {
+                            Ok(_maybe_value) => {
+                                near_o11y::io_trace!(count: "prefetch");
+                            }
+                            Err(e) => {
+                                tracing::debug!(
+                                    target: "store::trie::prefetch",
+                                    message = "prefetching failure",
+                                    error = %e,
+                                    key = ?trie_key
+                                );
+                                // This may happen in rare occasions and can be ignored safely.
+                                // See comments in `TriePrefetchingStorage::retrieve_raw_bytes`.
+                                near_o11y::io_trace!(count: "prefetch_failure");
+                                metric_prefetch_fail.inc();
+                            }
                         }
                     }
                 }
