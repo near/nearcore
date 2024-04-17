@@ -337,7 +337,7 @@ impl TriePrefetcher {
         predecessor: AccountId,
     ) -> Result<(), PrefetchError> {
         let Self { prefetch_api, trie_root, .. } = self;
-        let trie_root = trie_root.clone();
+        let trie_root = *trie_root;
         let prefetch_api = prefetch_api.clone();
         rayon::spawn(move || {
             let mut account_data_key = Vec::with_capacity(4 + 8 + predecessor.len());

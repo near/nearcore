@@ -424,8 +424,8 @@ impl PrefetchApi {
             claim_sweat_prefetch_config,
             kaiching_prefetch_config,
             shard_uid,
-            store: store.clone(),
-            shard_cache: shard_cache.clone(),
+            store,
+            shard_cache,
         };
         let (shutdown_tx, shutdown_rx) = crossbeam::channel::bounded(1);
         let handles = (0..NUM_IO_THREADS)
