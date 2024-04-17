@@ -6,7 +6,6 @@ use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::ReshardingResponse;
 use near_chain::types::ChainConfig;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
-use near_chain_configs::ReshardingConfig;
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::EpochManagerAdapter;
@@ -31,7 +30,7 @@ pub(crate) struct ReshardingCommand {
 
 impl ReshardingCommand {
     pub(crate) fn run(&self, mut config: NearConfig, home_dir: &Path) -> anyhow::Result<()> {
-        Self::config_resharding(&mut config);
+        Self::check_resharding_config(&mut config);
 
         let mut chain = self.get_chain(config, home_dir)?;
 
@@ -124,15 +123,16 @@ impl ReshardingCommand {
         Ok(chain)
     }
 
-    fn config_resharding(config: &mut NearConfig) {
-        let resharding_config = ReshardingConfig {
-            batch_size: bytesize::ByteSize::mb(100),
-            batch_delay: time::Duration::ZERO,
-            retry_delay: time::Duration::ZERO,
-            initial_delay: time::Duration::ZERO,
-            max_poll_time: time::Duration::ZERO,
+    // Rely on the regular config but make sure it's configured correctly for
+    // the on demand resharding. It's executed while the node is not running so
+    // it should be as fast as possible - there should be no throttling.
+    fn check_resharding_config(config: &mut NearConfig) {
+        if config.config.resharding_config.batch_delay != time::Duration::ZERO {
+            panic!("batch_delay must be zero for on demand resharding");
         };
-        config.client_config.resharding_config.update(resharding_config);
-        config.config.resharding_config = resharding_config;
+
+        if config.client_config.resharding_config.get().batch_delay != time::Duration::ZERO {
+            panic!("batch_delay must be zero for on demand resharding");
+        };
     }
 }
