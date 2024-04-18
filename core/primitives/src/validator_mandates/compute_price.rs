@@ -229,6 +229,10 @@ mod tests {
         let target_mandates_per_shard = stakes.len();
         let config = ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
         let price = compute_mandate_price(config, &stakes);
+        // In this case it was not possible to find a seat price that exactly results
+        // in the target number of mandates. This is simply due to the discrete nature
+        // of the problem. But the algorithm still gets very close (3 out of 1000 is
+        // 0.3% off the target).
         assert_eq!(count_whole_mandates(&stakes, price), target_mandates_per_shard + 3);
 
         let target_mandates_per_shard = 2 * stakes.len();
