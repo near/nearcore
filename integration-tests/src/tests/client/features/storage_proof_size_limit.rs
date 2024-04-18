@@ -81,7 +81,7 @@ fn test_storage_proof_size_limit() {
     }
 
     let after_writes_block_hash = env.clients[0].chain.head().unwrap().last_block_hash;
-    // read_n_megabytes reads keys between from..to, (to - from + 1) MB of data in total.
+    // read_n_megabytes reads keys between from..to, (to - from) MB of data in total.
     let mut make_read_transaction = |from: u8, to: u8| {
         let action = Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "read_n_megabytes".to_string(),
