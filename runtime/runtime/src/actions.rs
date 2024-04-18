@@ -42,7 +42,6 @@ use near_vm_runner::precompile_contract;
 use near_vm_runner::ContractCode;
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
 
-use near_primitives::trie_key::TrieKey;
 use std::sync::Arc;
 
 /// Returns `ContractCode` (if exists) for the given `account` or returns `StorageError`.
