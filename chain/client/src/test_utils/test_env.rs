@@ -564,7 +564,6 @@ impl TestEnv {
         self.clients[idx] = setup_client_with_runtime(
             self.clock.clone(),
             num_validator_seats,
-            Some(self.get_client_id(idx).clone()),
             false,
             self.network_adapters[idx].clone().as_multi_sender(),
             self.shards_manager_adapters[idx].clone(),
@@ -576,6 +575,8 @@ impl TestEnv {
             self.archive,
             self.save_trie_changes,
             None,
+            self.clients[idx].state_witness_adapter.clone(),
+            self.clients[idx].validator_signer.clone().unwrap(),
         )
     }
 

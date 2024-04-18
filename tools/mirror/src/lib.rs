@@ -407,11 +407,7 @@ trait ChainAccess {
 
     async fn head_height(&self) -> Result<BlockHeight, ChainError>;
 
-    async fn get_txs(
-        &self,
-        height: BlockHeight,
-        shards: &[ShardId],
-    ) -> Result<SourceBlock, ChainError>;
+    async fn get_txs(&self, height: BlockHeight) -> Result<SourceBlock, ChainError>;
 
     async fn get_next_block_height(&self, height: BlockHeight) -> Result<BlockHeight, ChainError>;
 
@@ -477,7 +473,6 @@ struct TxMirror<T: ChainAccess> {
     db: DB,
     target_genesis_height: BlockHeight,
     target_min_block_production_delay: Duration,
-    tracked_shards: Vec<ShardId>,
     secret: Option<[u8; crate::secret::SECRET_LEN]>,
     default_extra_key: SecretKey,
 }
@@ -896,7 +891,6 @@ impl<T: ChainAccess> TxMirror<T> {
                 .client_config
                 .min_block_production_delay
                 .unsigned_abs(),
-            tracked_shards: target_config.config.tracked_shards,
             secret,
             default_extra_key,
         })
@@ -1444,33 +1438,13 @@ impl<T: ChainAccess> TxMirror<T> {
         create_account_height: BlockHeight,
         ref_hash: CryptoHash,
         tracker: &mut crate::chain_tracker::TxTracker,
-        chunks: &mut Vec<MappedChunk>,
+        txs: &mut Vec<TargetChainTx>,
     ) -> anyhow::Result<()> {
-        let source_block = self
-            .source_chain_access
-            .get_txs(create_account_height, &self.tracked_shards)
-            .await
-            .with_context(|| {
+        let source_block =
+            self.source_chain_access.get_txs(create_account_height).await.with_context(|| {
                 format!("Failed fetching chunks for source chain #{}", create_account_height)
             })?;
-        let mut added_chunk = false;
         for ch in source_block.chunks {
-            let txs = match chunks.iter_mut().find(|c| c.shard_id == ch.shard_id) {
-                Some(c) => &mut c.txs,
-                None => {
-                    // It doesnt really matter which one we put it in, since we're just going to send them all anyway
-                    tracing::warn!(
-                        "got unexpected source chunk shard id {} for #{}",
-                        ch.shard_id,
-                        create_account_height
-                    );
-                    if chunks.is_empty() {
-                        chunks.push(MappedChunk { shard_id: 0, txs: Vec::new() });
-                        added_chunk = true;
-                    }
-                    &mut chunks[0].txs
-                }
-            };
             for (idx, source_tx) in ch.transactions.into_iter().enumerate() {
                 self.add_tx_function_call_keys(
                     &source_tx,
@@ -1500,9 +1474,6 @@ impl<T: ChainAccess> TxMirror<T> {
                 .await?;
             }
         }
-        if added_chunk && chunks[0].txs.is_empty() {
-            chunks.clear();
-        }
         Ok(())
     }
 
@@ -1516,11 +1487,8 @@ impl<T: ChainAccess> TxMirror<T> {
         ref_hash: CryptoHash,
         tracker: &mut crate::chain_tracker::TxTracker,
     ) -> anyhow::Result<MappedBlock> {
-        let source_block = self
-            .source_chain_access
-            .get_txs(source_height, &self.tracked_shards)
-            .await
-            .with_context(|| {
+        let source_block =
+            self.source_chain_access.get_txs(source_height).await.with_context(|| {
                 format!("Failed fetching chunks for source chain #{}", source_height)
             })?;
 
@@ -1586,8 +1554,20 @@ impl<T: ChainAccess> TxMirror<T> {
             chunks.push(MappedChunk { txs, shard_id: ch.shard_id });
         }
         if let Some(create_account_height) = create_account_height {
-            self.add_create_account_txs(create_account_height, ref_hash, tracker, &mut chunks)
+            if !chunks.is_empty() {
+                // just add them to shard 0's transactions instead of caring about which one to put it in. Doesn't really
+                // matter since in the end we're just sending all of them
+                self.add_create_account_txs(
+                    create_account_height,
+                    ref_hash,
+                    tracker,
+                    &mut chunks[0].txs,
+                )
                 .await?;
+            } else {
+                // shouldn't happen
+                tracing::warn!("something is wrong as there are no chunks to send transactions for at height {}", source_height);
+            }
         }
         Ok(MappedBlock { source_height, source_hash: source_block.hash, chunks })
     }
@@ -1803,20 +1783,15 @@ impl<T: ChainAccess> TxMirror<T> {
         let (target_height, target_head) = self.index_target_chain(&mut tracker).await?;
         if last_stored_height.is_none() {
             // send any extra function call-initiated create accounts for the first few blocks right now
-            let chunks = self
-                .tracked_shards
-                .iter()
-                .map(|s| MappedChunk { shard_id: *s, txs: Vec::new() })
-                .collect();
             // we set source_hash to 0 because we don't actually care about it here, and it doesn't even exist since these are
             // not transactions corresponding to some actual block, but just extra txs create account actions in the first few blocks.
             let mut block = MappedBlock {
                 source_hash: CryptoHash::default(),
                 source_height: last_height,
-                chunks,
+                chunks: vec![MappedChunk { shard_id: 0, txs: Vec::new() }],
             };
             for h in next_heights {
-                self.add_create_account_txs(h, target_head, &mut tracker, &mut block.chunks)
+                self.add_create_account_txs(h, target_head, &mut tracker, &mut block.chunks[0].txs)
                     .await?;
             }
             if block.chunks.iter().any(|c| !c.txs.is_empty()) {

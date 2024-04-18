@@ -14,7 +14,6 @@ use near_primitives::types::{AccountId, BlockHeight, TransactionOrReceiptId};
 use near_primitives::views::{
     AccessKeyPermissionView, ExecutionOutcomeWithIdView, QueryRequest, QueryResponseKind,
 };
-use near_primitives_core::types::ShardId;
 use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
 use std::path::Path;
 use std::sync::Arc;
@@ -111,25 +110,15 @@ impl crate::ChainAccess for ChainAccess {
         Ok(self.chain.head()?.height)
     }
 
-    async fn get_txs(
-        &self,
-        height: BlockHeight,
-        shards: &[ShardId],
-    ) -> Result<SourceBlock, ChainError> {
+    async fn get_txs(&self, height: BlockHeight) -> Result<SourceBlock, ChainError> {
         let block_hash = self.chain.get_block_hash_by_height(height)?;
         let block = self
             .chain
             .get_block(&block_hash)
             .with_context(|| format!("Can't get block {} at height {}", &block_hash, height))?;
 
-        // of course simpler/faster to just have an array of bools but this is a one liner and who cares :)
-        let shards = shards.iter().collect::<std::collections::HashSet<_>>();
-
         let mut chunks = Vec::new();
         for chunk in block.chunks().iter() {
-            if !shards.contains(&chunk.shard_id()) {
-                continue;
-            }
             let chunk = match self.chain.get_chunk(&chunk.chunk_hash()) {
                 Ok(c) => c,
                 Err(e) => {

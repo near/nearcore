@@ -11,6 +11,7 @@ use crate::peer_manager::connection;
 use crate::peer_manager::network_state::{NetworkState, WhitelistNode};
 use crate::peer_manager::peer_store;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
+use crate::state_witness::StateWitnessSenderForNetwork;
 use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
@@ -207,6 +208,7 @@ impl PeerManagerActor {
         config: config::NetworkConfig,
         client: ClientSenderForNetwork,
         shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
+        state_witness_adapter: StateWitnessSenderForNetwork,
         genesis_id: GenesisId,
     ) -> anyhow::Result<actix::Addr<Self>> {
         let config = config.verify().context("config")?;
@@ -237,6 +239,7 @@ impl PeerManagerActor {
             genesis_id,
             client,
             shards_manager_adapter,
+            state_witness_adapter,
             whitelist_nodes,
         ));
         arbiter.spawn({
@@ -990,6 +993,31 @@ impl PeerManagerActor {
                     &target,
                     RoutedMessageBody::ChunkEndorsement(endorsement),
                 );
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple) => {
+                for (chunk_validator, partial_witness) in validator_witness_tuple {
+                    self.state.send_message_to_account(
+                        &self.clock,
+                        &chunk_validator,
+                        RoutedMessageBody::PartialEncodedStateWitness(partial_witness),
+                    );
+                }
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::PartialEncodedStateWitnessForward(
+                chunk_validators,
+                partial_witness,
+            ) => {
+                for chunk_validator in chunk_validators {
+                    self.state.send_message_to_account(
+                        &self.clock,
+                        &chunk_validator,
+                        RoutedMessageBody::PartialEncodedStateWitnessForward(
+                            partial_witness.clone(),
+                        ),
+                    );
+                }
                 NetworkResponses::NoResponse
             }
         }
