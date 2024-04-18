@@ -81,6 +81,7 @@ class RecompressStorageTestCase(unittest.TestCase):
                 'apply-range',
                 '--start-index=0',
                 '--verbose-output',
+                'sequential',
             )
 
         # Restart all nodes with the new database
