@@ -38,12 +38,12 @@ impl Memory {
 
         Ok(Self {
             store: store.clone(),
-            vm_memory: VMMemory {
-                from: memory,
+            vm_memory: VMMemory::new(
+                memory,
                 // We are creating it from the host, and therefore there is no
                 // associated instance with this memory
-                instance_ref: None,
-            },
+                None,
+            ),
         })
     }
 
