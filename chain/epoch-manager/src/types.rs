@@ -134,8 +134,12 @@ impl EpochInfoAggregator {
         }
 
         // Step 2: update shard tracker
+
+        // Note: a possible optimization is to access the epoch_manager cache of this value.
+        let chunk_validator_assignment = epoch_info.sample_chunk_validators(prev_block_height + 1);
+
         for (i, mask) in block_info.chunk_mask().iter().enumerate() {
-            let chunk_validator_id = EpochManager::chunk_producer_from_info(
+            let chunk_producer_id = EpochManager::chunk_producer_from_info(
                 epoch_info,
                 prev_block_height + 1,
                 i as ShardId,
@@ -143,14 +147,14 @@ impl EpochInfoAggregator {
             .unwrap();
             let tracker = self.shard_tracker.entry(i as ShardId).or_insert_with(HashMap::new);
             tracker
-                .entry(chunk_validator_id)
+                .entry(chunk_producer_id)
                 .and_modify(|stats| {
                     if *mask {
                         *stats.produced_mut() += 1;
                     } else {
                         debug!(
                             target: "epoch_tracker",
-                            chunk_validator = ?epoch_info.validator_account_id(chunk_validator_id),
+                            chunk_validator = ?epoch_info.validator_account_id(chunk_producer_id),
                             shard_id = i,
                             block_height = prev_block_height + 1,
                             "Missed chunk");
@@ -158,6 +162,26 @@ impl EpochInfoAggregator {
                     *stats.expected_mut() += 1;
                 })
                 .or_insert_with(|| ChunkValidatorStats::new_with_production(u64::from(*mask), 1));
+
+            let chunk_validators = chunk_validator_assignment
+                .get(i)
+                .map_or::<&[(u64, u128)], _>(&[], Vec::as_slice)
+                .iter()
+                .map(|(id, _)| *id);
+            for chunk_validator_id in chunk_validators {
+                tracker
+                    .entry(chunk_validator_id)
+                    .and_modify(|stats| {
+                        let endorsement_stats = stats.endorsement_stats_mut();
+                        if *mask {
+                            endorsement_stats.produced += 1;
+                        }
+                        endorsement_stats.expected += 1;
+                    })
+                    .or_insert_with(|| {
+                        ChunkValidatorStats::new_with_endorsement(u64::from(*mask), 1)
+                    });
+            }
         }
 
         // Step 3: update version tracker

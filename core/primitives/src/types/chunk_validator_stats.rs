@@ -61,6 +61,13 @@ impl ChunkValidatorStats {
         })
     }
 
+    pub const fn new_with_endorsement(produced: u64, expected: u64) -> Self {
+        Self::V2(ChunkValidatorStatsV2 {
+            production: NValidatorStats { produced: NU64(0), expected: NU64(0) },
+            endorsement: ValidatorStats { produced, expected },
+        })
+    }
+
     pub fn produced(&self) -> NumBlocks {
         match self {
             Self::V1(v1) => v1.produced,
@@ -93,6 +100,25 @@ impl ChunkValidatorStats {
         match self {
             Self::V1(_) => &Self::DEFAULT_STATS,
             Self::V2(v2) => &v2.endorsement,
+        }
+    }
+
+    pub fn endorsement_stats_mut(&mut self) -> &mut ValidatorStats {
+        match self {
+            Self::V1(v1) => {
+                *self = Self::V2(ChunkValidatorStatsV2 {
+                    production: NValidatorStats {
+                        produced: NU64(v1.produced),
+                        expected: NU64(v1.expected),
+                    },
+                    endorsement: ValidatorStats::default(),
+                });
+                match self {
+                    Self::V2(v2) => &mut v2.endorsement,
+                    _ => unreachable!("self assigned V2 variant"),
+                }
+            }
+            Self::V2(v2) => &mut v2.endorsement,
         }
     }
 }
@@ -202,6 +228,60 @@ impl BorshDeserialize for ChunkValidatorStats {
         let auto_borsh: AutoBorsh = borsh::from_slice(&serialized_bytes)?;
         Ok(auto_borsh.into())
     }
+}
+
+#[test]
+fn test_mutability() {
+    let mut stats = ChunkValidatorStats::V1(ValidatorStats::default());
+
+    *stats.expected_mut() += 1;
+    assert_eq!(stats, ChunkValidatorStats::V1(ValidatorStats { produced: 0, expected: 1 }));
+
+    *stats.produced_mut() += 1;
+    assert_eq!(stats, ChunkValidatorStats::V1(ValidatorStats { produced: 1, expected: 1 }));
+
+    // Getting endorsement stats for V1 automatically upgrades to V2.
+    let endorsement_stats = stats.endorsement_stats_mut();
+    endorsement_stats.produced += 10;
+    endorsement_stats.expected += 10;
+
+    assert_eq!(
+        stats,
+        ChunkValidatorStats::V2(ChunkValidatorStatsV2 {
+            production: NValidatorStats { produced: NU64(1), expected: NU64(1) },
+            endorsement: ValidatorStats { produced: 10, expected: 10 }
+        })
+    );
+
+    *stats.expected_mut() += 1;
+    assert_eq!(
+        stats,
+        ChunkValidatorStats::V2(ChunkValidatorStatsV2 {
+            production: NValidatorStats { produced: NU64(1), expected: NU64(2) },
+            endorsement: ValidatorStats { produced: 10, expected: 10 }
+        })
+    );
+
+    *stats.produced_mut() += 1;
+    assert_eq!(
+        stats,
+        ChunkValidatorStats::V2(ChunkValidatorStatsV2 {
+            production: NValidatorStats { produced: NU64(2), expected: NU64(2) },
+            endorsement: ValidatorStats { produced: 10, expected: 10 }
+        })
+    );
+
+    let endorsement_stats = stats.endorsement_stats_mut();
+    endorsement_stats.produced += 10;
+    endorsement_stats.expected += 10;
+
+    assert_eq!(
+        stats,
+        ChunkValidatorStats::V2(ChunkValidatorStatsV2 {
+            production: NValidatorStats { produced: NU64(2), expected: NU64(2) },
+            endorsement: ValidatorStats { produced: 20, expected: 20 }
+        })
+    );
 }
 
 #[test]
