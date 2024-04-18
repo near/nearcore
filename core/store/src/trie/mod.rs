@@ -738,16 +738,19 @@ impl Trie {
         let Some(recorder) = &self.recorder else {
             return;
         };
-        let mut r = recorder.borrow_mut();
-        if r.read_codes_for.contains(&account_id) {
-            return;
+        {
+            let mut r = recorder.borrow_mut();
+            if r.read_codes_for.contains(&account_id) {
+                return;
+            }
+            r.read_codes_for.insert(account_id.clone());
         }
 
-        r.read_codes_for.insert(account_id.clone());
         // Get ValueRef to update upper bound.
         let key = TrieKey::ContractCode { account_id };
         let value_ref = self.get_optimized_ref(&key.to_vec(), KeyLookupMode::FlatStorage);
         if let Ok(Some(value_ref)) = value_ref {
+            let mut r = recorder.borrow_mut();
             r.record_code(value_ref.len());
         }
     }
