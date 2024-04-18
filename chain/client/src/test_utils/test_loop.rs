@@ -42,6 +42,12 @@ pub fn forward_client_messages_from_network_to_client_actions(
             ClientSenderForNetworkMessage::_chunk_endorsement(msg) => {
                 (msg.callback)(Ok(client_actions.handle(msg.message)));
             }
+            ClientSenderForNetworkMessage::_contract_code_request(msg) => {
+                (msg.callback)(Ok(client_actions.handle(msg.message)));
+            }
+            ClientSenderForNetworkMessage::_contract_code_response(msg) => {
+                (msg.callback)(Ok(client_actions.handle(msg.message)));
+            }
             _ => {
                 return Err(msg);
             }

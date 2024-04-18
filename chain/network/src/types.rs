@@ -269,6 +269,10 @@ pub enum NetworkRequests {
     PartialEncodedStateWitness(Vec<(AccountId, PartialEncodedStateWitness)>),
     /// Message from chunk validator to all other chunk validators to forward state witness part.
     PartialEncodedStateWitnessForward(Vec<AccountId>, PartialEncodedStateWitness),
+    /// TODO
+    ContractCodeRequest(AccoundId, ContractCodeRequest),
+    /// TODO
+    ContractCodeResponse(AccoundId, ContractCodeResponse),
 }
 
 /// Combines peer address info, chain.

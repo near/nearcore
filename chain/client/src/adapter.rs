@@ -27,5 +27,7 @@ pub fn client_sender_for_network(
         announce_account: view_client_addr.into_sender(),
         chunk_state_witness: client_addr.clone().into_sender(),
         chunk_endorsement: client_addr.into_sender(),
+        contract_code_request: client_addr.into_sender(),
+        contract_code_response: client_addr.into_sender(),
     }
 }

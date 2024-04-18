@@ -1040,6 +1040,14 @@ impl PeerActor {
                     .send(PartialEncodedStateWitnessForwardMessage(witness));
                 None
             }
+            RoutedMessageBody::ContractCodeRequest(request) => {
+                network_state.client.send_async(ContractCodeRequest(request)).await.ok();
+                None
+            }
+            RoutedMessageBody::ContractCodeResponse(response) => {
+                network_state.client.send_async(ContractCodeResponse(response)).await.ok();
+                None
+            }
             body => {
                 tracing::error!(target: "network", "Peer received unexpected message type: {:?}", body);
                 None

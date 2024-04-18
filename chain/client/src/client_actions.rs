@@ -9,6 +9,7 @@
 use crate::client::AdvProduceBlocksMode;
 use crate::client::{Client, EPOCH_START_INFO_BLOCKS};
 use crate::config_updater::ConfigUpdater;
+use crate::stateless_validation::code_sync::{ContractCodeRequest, ContractCodeResponse};
 use crate::debug::new_network_info_view;
 use crate::info::{display_sync_status, InfoHelper};
 use crate::sync::adapter::{SyncMessage, SyncShardInfo};
@@ -1888,6 +1889,17 @@ impl ClientActionHandler<ContractCodeRequest> for ClientActions {
     fn handle(&mut self, msg: ContractCodeRequest) -> Self::Result {
         if let Err(err) = self.client.process_contract_code_request(msg.0, None) {
             tracing::error!(target: "client", ?err, "Error processing contract code request");
+        }
+    }
+}
+
+impl ClientActionHandler<ContractCodeResponse> for ClientActions {
+    type Result = ();
+
+    #[perf]
+    fn handle(&mut self, msg: ContractCodeResponse) -> Self::Result {
+        if let Err(err) = self.client.process_contract_code_response(msg.0, None) {
+            tracing::error!(target: "client", ?err, "Error processing contract code response");
         }
     }
 }
