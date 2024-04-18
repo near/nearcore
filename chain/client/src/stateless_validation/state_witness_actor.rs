@@ -4,12 +4,12 @@ use actix::Actor;
 use near_async::messaging::Sender;
 use near_async::time::Clock;
 use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
+use near_epoch_manager::EpochManagerAdapter;
 use near_network::state_witness::ChunkStateWitnessAckMessage;
 use near_network::types::PeerManagerAdapter;
 use near_o11y::{handler_debug_span, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::stateless_validation::ChunkStateWitness;
-use near_primitives::types::AccountId;
 use near_primitives::validator_signer::ValidatorSigner;
 
 use super::state_witness_actions::StateWitnessActions;
@@ -23,10 +23,11 @@ impl StateWitnessActor {
         clock: Clock,
         network_adapter: PeerManagerAdapter,
         my_signer: Arc<dyn ValidatorSigner>,
+        epoch_manager: Arc<dyn EpochManagerAdapter>,
     ) -> (actix::Addr<Self>, actix::ArbiterHandle) {
         let arbiter = actix::Arbiter::new().handle();
         let addr = Self::start_in_arbiter(&arbiter, |_ctx| Self {
-            actions: StateWitnessActions::new(clock, network_adapter, my_signer),
+            actions: StateWitnessActions::new(clock, network_adapter, my_signer, epoch_manager),
         });
         (addr, arbiter)
     }
@@ -39,7 +40,6 @@ impl actix::Actor for StateWitnessActor {
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub struct DistributeStateWitnessRequest {
-    pub chunk_validators: Vec<AccountId>,
     pub state_witness: ChunkStateWitness,
 }
 

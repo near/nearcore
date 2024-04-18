@@ -286,7 +286,7 @@ fn test_client_with_multi_test_loop() {
         let shards_manager = ShardsManager::new(
             builder.clock(),
             Some(accounts[idx].clone()),
-            epoch_manager,
+            epoch_manager.clone(),
             shard_tracker,
             builder.sender().for_index(idx).into_sender(),
             builder.sender().for_index(idx).into_sender(),
@@ -322,6 +322,7 @@ fn test_client_with_multi_test_loop() {
             builder.clock(),
             builder.sender().for_index(idx).into_multi_sender(),
             validator_signer,
+            epoch_manager,
         );
 
         let data = TestData {
