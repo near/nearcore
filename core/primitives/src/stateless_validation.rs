@@ -311,24 +311,6 @@ pub struct StoredChunkStateTransitionData {
     pub receipts_hash: CryptoHash,
 }
 
-/// Request contains a list of AccountIds for which we want to get the contract code.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct ContractCodeRequest {
-    pub account_ids: Vec<AccountId>,
-}
-
-/// A list of this struct is contained in the ContractCodeResponse.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct ContractCodeResponseItem {
-    pub account_id: AccountId,
-    pub code: Vec<u8>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct ContractCodeResponse {
-    pub items: Vec<ContractCodeResponseItem>,
-}
-
 #[derive(Debug)]
 pub struct EndorsementStats {
     pub total_stake: Balance,
