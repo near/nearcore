@@ -13,7 +13,7 @@ use ethabi::{ethereum_types::U256, Address};
 use near_sdk::{AccountId, NearToken};
 
 // TODO(eth-implicit): Decide on chain id.
-pub const CHAIN_ID: u64 = 0x4ea7;
+pub const CHAIN_ID: u64 = std::include!("CHAIN_ID");
 const U64_MAX: U256 = U256([u64::MAX, 0, 0, 0]);
 /// Only up to this amount of yoctoNear can be directly mentioned in an action,
 /// the rest should be included in the `value` field of the Ethereum transaction.

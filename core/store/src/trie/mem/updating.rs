@@ -1306,6 +1306,7 @@ mod tests {
                         key.push(nibble0 << 4 | nibble1);
                     }
                 }
+
                 let mut value_length = rand::thread_rng().gen_range(0..=10);
                 if value_length == 10 {
                     value_length = 8000; // make a long value that is not inlined

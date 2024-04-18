@@ -52,6 +52,15 @@ where
     };
     resource.push(KeyValue::new(SERVICE_NAME, service_name));
 
+    let overriding_vars = ["OTEL_BSP_MAX_CONCURRENT_EXPORTS", "OTEL_BSP_MAX_QUEUE_SIZE"];
+    let batch_config = if overriding_vars.iter().any(|v| std::env::var_os(v).is_some()) {
+        opentelemetry_sdk::trace::BatchConfigBuilder::default()
+    } else {
+        opentelemetry_sdk::trace::BatchConfigBuilder::default()
+            .with_max_concurrent_exports(2)
+            .with_max_queue_size(4096)
+    }
+    .build();
     let tracer = opentelemetry_otlp::new_pipeline()
         .tracing()
         .with_exporter(opentelemetry_otlp::new_exporter().tonic())
@@ -61,6 +70,7 @@ where
                 .with_id_generator(RandomIdGenerator::default())
                 .with_resource(Resource::new(resource)),
         )
+        .with_batch_config(batch_config)
         .install_batch(opentelemetry_sdk::runtime::Tokio)
         .unwrap();
     let layer = tracing_opentelemetry::layer().with_tracer(tracer).with_filter(filter);

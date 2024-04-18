@@ -621,6 +621,10 @@ impl EpochInfoProvider for MockEpochInfoProvider {
     fn minimum_stake(&self, _prev_block_hash: &CryptoHash) -> Result<Balance, EpochError> {
         Ok(0)
     }
+
+    fn chain_id(&self) -> String {
+        "localnet".into()
+    }
 }
 
 /// Encode array of `u64` to be passed as a smart contract argument.

@@ -9,9 +9,9 @@ use crate::checked_feature;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{merklize, verify_path, MerklePath};
 use crate::num_rational::Rational32;
+use crate::reed_solomon::ReedSolomonWrapper;
 use crate::sharding::{
-    ChunkHashHeight, EncodedShardChunk, ReedSolomonWrapper, ShardChunk, ShardChunkHeader,
-    ShardChunkHeaderV1,
+    ChunkHashHeight, EncodedShardChunk, ShardChunk, ShardChunkHeader, ShardChunkHeaderV1,
 };
 use crate::types::{Balance, BlockHeight, EpochId, Gas, NumBlocks, StateRoot};
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};

@@ -9,9 +9,10 @@ use near_network::test_utils::MockPeerManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{self, MerklePath};
 use near_primitives::receipt::Receipt;
+use near_primitives::reed_solomon::ReedSolomonWrapper;
 use near_primitives::sharding::{
     EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV2,
-    ReedSolomonWrapper, ShardChunkHeader,
+    ShardChunkHeader,
 };
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::MerkleHash;

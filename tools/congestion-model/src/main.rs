@@ -206,6 +206,33 @@ fn strategy(strategy_name: &str, num_shards: usize) -> Vec<Box<dyn CongestionStr
             "New TX last" => Box::<NewTxLast>::default(),
             "Traffic Light" => Box::<TrafficLight>::default(),
             "Smooth Traffic Light" => Box::<SmoothTrafficLight>::default(),
+            // Trade essentially unbounded outgoing delays for higher
+            // utilization. If run for long enough, it will still fill the
+            // buffer and hit a memory limit, but full throughput can be
+            // sustained for a long time this way.
+            "STL_MAX_UTIL" => Box::new(
+                SmoothTrafficLight::default()
+                    .with_smooth_slow_down(false)
+                    .with_gas_limits(50 * PGAS, u64::MAX)
+                    .with_tx_reject_threshold(0.125),
+            ),
+            "STL_HIGH_UTIL" => Box::new(
+                SmoothTrafficLight::default()
+                    .with_smooth_slow_down(false)
+                    .with_gas_limits(50 * PGAS, 50 * PGAS)
+                    .with_tx_reject_threshold(0.125),
+            ),
+            // Keep queues short enough that the can be emptied in one round.
+            "STL_MIN_DELAY" => Box::new(
+                SmoothTrafficLight::default()
+                    .with_gas_limits(1300 * TGAS, 1 * PGAS)
+                    .with_tx_reject_threshold(0.95),
+            ),
+            "STL_LOW_DELAY" => Box::new(
+                SmoothTrafficLight::default()
+                    .with_gas_limits(5 * PGAS, 1 * PGAS)
+                    .with_tx_reject_threshold(0.5),
+            ),
             "NEP" => Box::<NepStrategy>::default(),
             "NEP 200MB" => Box::new(
                 NepStrategy::default().with_memory_limits(ByteSize::mb(100), ByteSize::mb(100)),
@@ -331,6 +358,10 @@ fn parse_strategy_names(strategy_name: &str) -> Vec<String> {
         "New TX last".to_string(),
         "Traffic Light".to_string(),
         "Smooth Traffic Light".to_string(),
+        "STL_MAX_UTIL".to_string(),
+        "STL_HIGH_UTIL".to_string(),
+        "STL_MIN_DELAY".to_string(),
+        "STL_LOW_DELAY".to_string(),
         "NEP".to_string(),
         "NEP 200MB".to_string(),
         "NEP 450/50MB".to_string(),

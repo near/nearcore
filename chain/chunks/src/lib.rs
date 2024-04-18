@@ -111,10 +111,11 @@ use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{verify_path, MerklePath};
 use near_primitives::receipt::Receipt;
+use near_primitives::reed_solomon::ReedSolomonWrapper;
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, EncodedShardChunkBody, PartialEncodedChunk,
-    PartialEncodedChunkPart, PartialEncodedChunkV2, ReceiptProof, ReedSolomonWrapper, ShardChunk,
-    ShardChunkHeader, ShardProof,
+    PartialEncodedChunkPart, PartialEncodedChunkV2, ReceiptProof, ShardChunk, ShardChunkHeader,
+    ShardProof, TransactionReceipt,
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::ValidatorStake;
@@ -397,7 +398,7 @@ impl ShardsManager {
 
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(ancestor_hash)?;
 
-        for part_ord in 0..self.rs.total_shard_count() {
+        for part_ord in 0..self.epoch_manager.num_total_parts() {
             let part_ord = part_ord as u64;
             if cache_entry.is_some_and(|cache_entry| cache_entry.parts.contains_key(&part_ord)) {
                 continue;
@@ -988,34 +989,18 @@ impl ShardsManager {
         // Construct EncodedShardChunk.  If we earlier determined that we will
         // need parity parts, instruct the constructor to calculate them as
         // well.  Otherwise we won’t bother.
-        let (parts, encoded_length) = match EncodedShardChunk::encode_transaction_receipts(
-            &mut self.rs,
-            chunk.transactions().to_vec(),
-            &outgoing_receipts,
-        ) {
-            Ok(result) => result,
-            Err(err) => {
-                warn!(target: "chunks",
-                       "Not sending {:?}, failed to encode transactions and receipts: {}",
-                       chunk.chunk_hash(), err);
-                return;
-            }
-        };
-        if header.encoded_length() != encoded_length {
+        let (parts, encoded_length) = self
+            .rs
+            .encode(TransactionReceipt(chunk.transactions().to_vec(), outgoing_receipts.to_vec()));
+
+        if header.encoded_length() != encoded_length as u64 {
             warn!(target: "chunks",
                    "Not sending {:?}, expected encoded length doesn’t match calculated: {} != {}",
                    chunk.chunk_hash(), header.encoded_length(), encoded_length);
             return;
         }
 
-        let mut content = EncodedShardChunkBody { parts };
-        if let Err(err) = content.reconstruct(&mut self.rs) {
-            warn!(target: "chunks",
-                   "Not sending {:?}, failed to reconstruct RS parity parts: {}",
-                   chunk.chunk_hash(), err);
-            return;
-        }
-
+        let content = EncodedShardChunkBody { parts };
         let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
         if header.encoded_merkle_root() != encoded_merkle_root {
             warn!(target: "chunks",
@@ -1049,11 +1034,7 @@ impl ShardsManager {
         }
     }
 
-    // pub for testing
-    pub fn check_chunk_complete(
-        chunk: &mut EncodedShardChunk,
-        rs: &mut ReedSolomonWrapper,
-    ) -> ChunkStatus {
+    fn check_chunk_complete(&mut self, chunk: &mut EncodedShardChunk) -> ChunkStatus {
         let _span = debug_span!(
             target: "chunks",
             "check_chunk_complete",
@@ -1061,29 +1042,30 @@ impl ShardsManager {
             shard_id = chunk.cloned_header().shard_id(),
             chunk_hash = ?chunk.chunk_hash())
         .entered();
-        let data_parts = rs.data_shard_count();
-        if chunk.content().num_fetched_parts() >= data_parts {
-            if let Ok(_) = chunk.content_mut().reconstruct(rs) {
-                let (merkle_root, merkle_paths) = chunk.content().get_merkle_hash_and_paths();
-                if merkle_root == chunk.encoded_merkle_root() {
-                    debug!(target: "chunks", "Complete");
-                    ChunkStatus::Complete(merkle_paths)
-                } else {
-                    debug!(
-                        target: "chunks",
-                        ?merkle_root,
-                        chunk_encoded_merkle_root = ?chunk.encoded_merkle_root(),
-                        "Invalid: Wrong merkle root");
-                    ChunkStatus::Invalid
-                }
-            } else {
-                debug!(target: "chunks", "Invalid: Failed to reconstruct");
-                ChunkStatus::Invalid
-            }
-        } else {
+
+        let data_parts = self.epoch_manager.num_data_parts();
+        if chunk.content().num_fetched_parts() < data_parts {
             debug!(target: "chunks", num_fetched_parts = chunk.content().num_fetched_parts(), data_parts, "Incomplete");
-            ChunkStatus::Incomplete
+            return ChunkStatus::Incomplete;
         }
+
+        let encoded_length = chunk.encoded_length();
+        if let Err(err) = self.rs.decode::<TransactionReceipt>(
+            chunk.content_mut().parts.as_mut_slice(),
+            encoded_length as usize,
+        ) {
+            debug!(target: "chunks", ?err, "Invalid: Failed to decode");
+            return ChunkStatus::Invalid;
+        }
+
+        let (merkle_root, merkle_paths) = chunk.content().get_merkle_hash_and_paths();
+        if merkle_root != chunk.encoded_merkle_root() {
+            debug!(target: "chunks", ?merkle_root, chunk_encoded_merkle_root = ?chunk.encoded_merkle_root(), "Invalid: Wrong merkle root");
+            return ChunkStatus::Invalid;
+        }
+
+        debug!(target: "chunks", "Complete");
+        ChunkStatus::Complete(merkle_paths)
     }
 
     /// Add a part to current encoded chunk stored in memory. It's present only if One Part was present and signed correctly.
@@ -1108,7 +1090,7 @@ impl ShardsManager {
         &mut self,
         mut encoded_chunk: EncodedShardChunk,
     ) -> Result<Option<(ShardChunk, PartialEncodedChunk)>, Error> {
-        match ShardsManager::check_chunk_complete(&mut encoded_chunk, &mut self.rs) {
+        match self.check_chunk_complete(&mut encoded_chunk) {
             ChunkStatus::Complete(merkle_paths) => {
                 self.requested_partial_encoded_chunks.remove(&encoded_chunk.chunk_hash());
                 match decode_encoded_chunk(
@@ -1145,7 +1127,7 @@ impl ShardsManager {
         }
 
         // check part merkle proofs
-        let num_total_parts = self.rs.total_shard_count();
+        let num_total_parts = self.epoch_manager.num_total_parts();
         for part_info in forward.parts.iter() {
             self.validate_part(forward.merkle_root, part_info, num_total_parts)?;
         }
@@ -1192,7 +1174,7 @@ impl ShardsManager {
 
     fn insert_forwarded_chunk(&mut self, forward: PartialEncodedChunkForwardMsg) {
         let chunk_hash = forward.chunk_hash.clone();
-        let num_total_parts = self.rs.total_shard_count() as u64;
+        let num_total_parts = self.epoch_manager.num_total_parts() as u64;
         match self.chunk_forwards_cache.get_mut(&chunk_hash) {
             None => {
                 // Never seen this chunk hash before, collect the parts and cache them
@@ -1430,9 +1412,9 @@ impl ShardsManager {
             if entry.complete {
                 return Ok(ProcessPartialEncodedChunkResult::Known);
             }
-            debug!(target: "chunks", num_parts_in_cache = entry.parts.len(), total_needed = self.rs.data_shard_count());
+            debug!(target: "chunks", num_parts_in_cache = entry.parts.len(), total_needed = self.epoch_manager.num_data_parts());
         } else {
-            debug!(target: "chunks", num_parts_in_cache = 0, total_needed = self.rs.data_shard_count());
+            debug!(target: "chunks", num_parts_in_cache = 0, total_needed = self.epoch_manager.num_data_parts());
         }
 
         // 1.b Checking chunk height
@@ -1473,7 +1455,7 @@ impl ShardsManager {
         let partial_encoded_chunk = partial_encoded_chunk.as_ref().into_inner();
 
         // 1.d Checking part_ords' validity
-        let num_total_parts = self.rs.total_shard_count();
+        let num_total_parts = self.epoch_manager.num_total_parts();
         for part_info in partial_encoded_chunk.parts.iter() {
             // TODO: only validate parts we care about
             // https://github.com/near/nearcore/issues/5885
@@ -1683,7 +1665,7 @@ impl ShardsManager {
             let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
             let mut encoded_chunk = EncodedShardChunk::from_header(
                 header.clone(),
-                self.rs.total_shard_count(),
+                self.epoch_manager.num_total_parts(),
                 protocol_version,
             );
 
@@ -1904,7 +1886,7 @@ impl ShardsManager {
         prev_block_hash: &CryptoHash,
         chunk_entry: &EncodedChunksCacheEntry,
     ) -> Result<bool, Error> {
-        for part_ord in 0..self.rs.total_shard_count() {
+        for part_ord in 0..self.epoch_manager.num_total_parts() {
             let part_ord = part_ord as u64;
             if !chunk_entry.parts.contains_key(&part_ord) {
                 if need_part(
@@ -1982,7 +1964,7 @@ impl ShardsManager {
 
         let mut block_producer_mapping = HashMap::new();
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
-        for part_ord in 0..self.rs.total_shard_count() {
+        for part_ord in 0..self.epoch_manager.num_total_parts() {
             let part_ord = part_ord as u64;
             let to_whom = self.epoch_manager.get_part_owner(&epoch_id, part_ord).unwrap();
 
