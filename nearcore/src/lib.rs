@@ -24,8 +24,7 @@ use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::sync::adapter::SyncAdapter;
 use near_client::{
-    start_client, start_view_client, ClientActor, ConfigUpdater, StateWitnessDistributionActor,
-    ViewClientActor,
+    start_client, start_view_client, ClientActor, ConfigUpdater, StateWitnessActor, ViewClientActor,
 };
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
@@ -347,19 +346,14 @@ pub fn start_with_config_and_synchronization(
         get_make_snapshot_callback(state_snapshot_actor, runtime.get_flat_storage_manager());
     let snapshot_callbacks = SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
 
-    let (state_witness_distribution_actor, state_witness_distribution_arbiter) =
-        if config.validator_signer.is_some() {
-            let my_signer = config.validator_signer.clone().unwrap();
-            let (state_witness_distribution_actor, state_witness_distribution_arbiter) =
-                StateWitnessDistributionActor::spawn(
-                    Clock::real(),
-                    network_adapter.as_multi_sender(),
-                    my_signer,
-                );
-            (Some(state_witness_distribution_actor), Some(state_witness_distribution_arbiter))
-        } else {
-            (None, None)
-        };
+    let (state_witness_actor, state_witness_arbiter) = if config.validator_signer.is_some() {
+        let my_signer = config.validator_signer.clone().unwrap();
+        let (state_witness_actor, state_witness_arbiter) =
+            StateWitnessActor::spawn(Clock::real(), network_adapter.as_multi_sender(), my_signer);
+        (Some(state_witness_actor), Some(state_witness_arbiter))
+    } else {
+        (None, None)
+    };
 
     let (client_actor, client_arbiter_handle, resharding_handle) = start_client(
         Clock::real(),
@@ -378,7 +372,7 @@ pub fn start_with_config_and_synchronization(
         shutdown_signal,
         adv,
         config_updater,
-        state_witness_distribution_actor
+        state_witness_actor
             .clone()
             .map(|actor| actor.with_auto_span_context().into_multi_sender())
             .unwrap_or_else(|| noop().into_multi_sender()),
@@ -423,7 +417,7 @@ pub fn start_with_config_and_synchronization(
         config.network_config,
         client_sender_for_network(client_actor.clone(), view_client.clone()),
         shards_manager_adapter.as_sender(),
-        state_witness_distribution_actor
+        state_witness_actor
             .map(|actor| actor.with_auto_span_context().into_multi_sender())
             .unwrap_or_else(|| noop().into_multi_sender()),
         genesis_id,
@@ -477,8 +471,8 @@ pub fn start_with_config_and_synchronization(
     if let Some(db_metrics_arbiter) = db_metrics_arbiter {
         arbiters.push(db_metrics_arbiter);
     }
-    if let Some(state_witness_distribution_arbiter) = state_witness_distribution_arbiter {
-        arbiters.push(state_witness_distribution_arbiter);
+    if let Some(state_witness_arbiter) = state_witness_arbiter {
+        arbiters.push(state_witness_arbiter);
     }
 
     Ok(NearNode {

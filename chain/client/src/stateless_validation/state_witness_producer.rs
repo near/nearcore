@@ -15,7 +15,7 @@ use near_primitives::stateless_validation::{
 use near_primitives::types::{AccountId, EpochId};
 
 use crate::stateless_validation::chunk_validator::send_chunk_endorsement_to_block_producers;
-use crate::stateless_validation::state_witness_distribution_actor::DistributeChunkStateWitnessRequest;
+use crate::stateless_validation::state_witness_actor::DistributeStateWitnessRequest;
 use crate::Client;
 
 impl Client {
@@ -66,8 +66,8 @@ impl Client {
         // Remove ourselves from the list of chunk validators. Network can't send messages to ourselves.
         chunk_validators.retain(|validator| validator != my_signer.validator_id());
 
-        self.state_witness_distribution_adapter
-            .send(DistributeChunkStateWitnessRequest { chunk_validators, state_witness });
+        self.state_witness_adapter
+            .send(DistributeStateWitnessRequest { chunk_validators, state_witness });
         Ok(())
     }
 

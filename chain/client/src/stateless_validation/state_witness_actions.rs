@@ -12,10 +12,10 @@ use near_primitives::validator_signer::ValidatorSigner;
 
 use crate::metrics;
 
-use super::state_witness_distribution_actor::DistributeChunkStateWitnessRequest;
+use super::state_witness_actor::DistributeStateWitnessRequest;
 use super::state_witness_tracker::ChunkStateWitnessTracker;
 
-pub struct StateWitnessDistributionActions {
+pub struct StateWitnessActions {
     /// Adapter to send messages to the network.
     network_adapter: PeerManagerAdapter,
     /// Validator signer to sign the state witness.
@@ -24,7 +24,7 @@ pub struct StateWitnessDistributionActions {
     state_witness_tracker: ChunkStateWitnessTracker,
 }
 
-impl StateWitnessDistributionActions {
+impl StateWitnessActions {
     pub fn new(
         clock: Clock,
         network_adapter: PeerManagerAdapter,
@@ -37,11 +37,11 @@ impl StateWitnessDistributionActions {
         }
     }
 
-    pub fn handle_distribute_chunk_state_witness_request(
+    pub fn handle_distribute_state_witness_request(
         &mut self,
-        msg: DistributeChunkStateWitnessRequest,
+        msg: DistributeStateWitnessRequest,
     ) -> Result<(), Error> {
-        let DistributeChunkStateWitnessRequest { chunk_validators, state_witness } = msg;
+        let DistributeStateWitnessRequest { chunk_validators, state_witness } = msg;
 
         let signed_witness = create_signed_witness(&state_witness, self.my_signer.as_ref())?;
 

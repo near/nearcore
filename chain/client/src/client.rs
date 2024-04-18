@@ -7,8 +7,7 @@ use crate::debug::BlockProductionTracker;
 use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
 use crate::stateless_validation::chunk_endorsement_tracker::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validator::ChunkValidator;
-use crate::stateless_validation::state_witness_distribution_actor::StateWitnessDistributionSenderForClient;
-use crate::stateless_validation::state_witness_tracker::ChunkStateWitnessTracker;
+use crate::stateless_validation::state_witness_actor::StateWitnessSenderForClient;
 use crate::sync::adapter::SyncShardInfo;
 use crate::sync::block::BlockSync;
 use crate::sync::epoch::EpochSync;
@@ -189,11 +188,8 @@ pub struct Client {
     pub chunk_inclusion_tracker: ChunkInclusionTracker,
     /// Tracks chunk endorsements received from chunk validators. Used to filter out chunks ready for inclusion
     pub chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
-    /// Tracks a collection of state witnesses sent from chunk producers to chunk validators.
-    pub state_witness_tracker: ChunkStateWitnessTracker,
-    /// Adapter to send request to state_witness_distribution_actor to distribute state witness.
-    pub state_witness_distribution_adapter: StateWitnessDistributionSenderForClient,
-
+    /// Adapter to send request to state_witness_actor to distribute state witness.
+    pub state_witness_adapter: StateWitnessSenderForClient,
     // Optional value used for the Chunk Distribution Network Feature.
     chunk_distribution_network: Option<ChunkDistributionNetwork>,
 }
@@ -255,7 +251,7 @@ impl Client {
         rng_seed: RngSeed,
         snapshot_callbacks: Option<SnapshotCallbacks>,
         async_computation_spawner: Arc<dyn AsyncComputationSpawner>,
-        state_witness_distribution_adapter: StateWitnessDistributionSenderForClient,
+        state_witness_adapter: StateWitnessSenderForClient,
     ) -> Result<Self, Error> {
         let doomslug_threshold_mode = if enable_doomslug {
             DoomslugThresholdMode::TwoThirds
@@ -410,8 +406,7 @@ impl Client {
             chunk_validator,
             chunk_inclusion_tracker: ChunkInclusionTracker::new(),
             chunk_endorsement_tracker,
-            state_witness_tracker: ChunkStateWitnessTracker::new(clock),
-            state_witness_distribution_adapter,
+            state_witness_adapter,
             chunk_distribution_network,
         })
     }
