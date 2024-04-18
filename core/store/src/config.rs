@@ -255,11 +255,18 @@ impl Default for StoreConfig {
                 "oracle.sweat".to_owned(),
                 "sweat_the_oracle.testnet".to_owned(),
             ],
-            claim_sweat_prefetch_config: vec![PrefetchConfig {
-                receiver: "claim.sweat".to_owned(),
-                sender: "token.sweat".to_owned(),
-                method_name: "record_batch_for_hold".to_owned(),
-            }],
+            claim_sweat_prefetch_config: vec![
+                PrefetchConfig {
+                    receiver: "claim.sweat".to_owned(),
+                    sender: "token.sweat".to_owned(),
+                    method_name: "record_batch_for_hold".to_owned(),
+                },
+                PrefetchConfig {
+                    receiver: "claim.sweat".to_owned(),
+                    sender: String::new(),
+                    method_name: "claim".to_owned(),
+                },
+            ],
             kaiching_prefetch_config: vec![PrefetchConfig {
                 receiver: "earn.kaiching".to_owned(),
                 sender: "wallet.kaiching".to_owned(),

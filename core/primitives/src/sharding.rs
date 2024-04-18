@@ -1,6 +1,7 @@
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, merklize, verify_path, MerklePath};
 use crate::receipt::Receipt;
+use crate::reed_solomon::ReedSolomonWrapper;
 use crate::transaction::SignedTransaction;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
 use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot};
@@ -9,8 +10,6 @@ use crate::version::{ProtocolFeature, ProtocolVersion, SHARD_CHUNK_HEADER_UPGRAD
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
 use near_fmt::AbbrBytes;
-use reed_solomon_erasure::galois_8::{Field, ReedSolomon};
-use reed_solomon_erasure::ReconstructShard;
 use std::cmp::Ordering;
 use std::sync::Arc;
 use tracing::debug_span;
@@ -858,14 +857,6 @@ impl EncodedShardChunkBody {
         fetched_parts
     }
 
-    /// Returns true if reconstruction was successful
-    pub fn reconstruct(
-        &mut self,
-        rs: &mut ReedSolomonWrapper,
-    ) -> Result<(), reed_solomon_erasure::Error> {
-        rs.reconstruct(self.parts.as_mut_slice())
-    }
-
     pub fn get_merkle_hash_and_paths(&self) -> (MerkleHash, Vec<MerklePath>) {
         let parts: Vec<&[u8]> =
             self.parts.iter().map(|x| x.as_deref().unwrap()).collect::<Vec<_>>();
@@ -877,32 +868,12 @@ impl EncodedShardChunkBody {
 pub struct ReceiptList<'a>(pub ShardId, pub &'a [Receipt]);
 
 #[derive(BorshSerialize, BorshDeserialize)]
-struct TransactionReceipt(Vec<SignedTransaction>, Vec<Receipt>);
+pub struct TransactionReceipt(pub Vec<SignedTransaction>, pub Vec<Receipt>);
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub struct EncodedShardChunkV1 {
     pub header: ShardChunkHeaderV1,
     pub content: EncodedShardChunkBody,
-}
-
-impl EncodedShardChunkV1 {
-    pub fn chunk_hash(&self) -> ChunkHash {
-        self.header.chunk_hash()
-    }
-
-    pub fn decode_chunk(&self, data_parts: usize) -> Result<ShardChunkV1, std::io::Error> {
-        let transaction_receipts = EncodedShardChunk::decode_transaction_receipts(
-            &self.content.parts[0..data_parts],
-            self.header.inner.encoded_length,
-        )?;
-
-        Ok(ShardChunkV1 {
-            chunk_hash: self.header.chunk_hash(),
-            header: self.header.clone(),
-            transactions: transaction_receipts.0,
-            prev_outgoing_receipts: transaction_receipts.1,
-        })
-    }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
@@ -1003,37 +974,6 @@ impl EncodedShardChunk {
         TransactionReceipt::try_from_slice(&encoded_data)
     }
 
-    pub fn encode_transaction_receipts(
-        rs: &ReedSolomonWrapper,
-        transactions: Vec<SignedTransaction>,
-        outgoing_receipts: &[Receipt],
-    ) -> Result<(Vec<Option<Box<[u8]>>>, u64), std::io::Error> {
-        let mut bytes =
-            borsh::to_vec(&TransactionReceipt(transactions, outgoing_receipts.to_vec()))?;
-
-        let mut parts = Vec::with_capacity(rs.total_shard_count());
-        let data_parts = rs.data_shard_count();
-        let total_parts = rs.total_shard_count();
-        let encoded_length = bytes.len();
-
-        if bytes.len() % data_parts != 0 {
-            bytes.extend((bytes.len() % data_parts..data_parts).map(|_| 0));
-        }
-        let shard_length = (encoded_length + data_parts - 1) / data_parts;
-        assert_eq!(bytes.len(), shard_length * data_parts);
-
-        for i in 0..data_parts {
-            parts.push(Some(
-                bytes[i * shard_length..(i + 1) * shard_length].to_vec().into_boxed_slice()
-                    as Box<[u8]>,
-            ));
-        }
-        for _ in data_parts..total_parts {
-            parts.push(None);
-        }
-        Ok((parts, encoded_length as u64))
-    }
-
     pub fn new(
         prev_block_hash: CryptoHash,
         prev_state_root: StateRoot,
@@ -1053,10 +993,8 @@ impl EncodedShardChunk {
         protocol_version: ProtocolVersion,
     ) -> Result<(Self, Vec<MerklePath>), std::io::Error> {
         let (transaction_receipts_parts, encoded_length) =
-            Self::encode_transaction_receipts(rs, transactions, prev_outgoing_receipts)?;
-
-        let mut content = EncodedShardChunkBody { parts: transaction_receipts_parts };
-        content.reconstruct(rs).unwrap();
+            rs.encode(TransactionReceipt(transactions, prev_outgoing_receipts.to_vec()));
+        let content = EncodedShardChunkBody { parts: transaction_receipts_parts };
         let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
 
         let block_header_v3_version = Some(ProtocolFeature::BlockHeaderV3.protocol_version());
@@ -1069,7 +1007,7 @@ impl EncodedShardChunk {
                 prev_state_root,
                 prev_outcome_root,
                 encoded_merkle_root,
-                encoded_length,
+                encoded_length as u64,
                 height,
                 shard_id,
                 prev_gas_used,
@@ -1092,7 +1030,7 @@ impl EncodedShardChunk {
                 prev_state_root,
                 prev_outcome_root,
                 encoded_merkle_root,
-                encoded_length,
+                encoded_length as u64,
                 height,
                 shard_id,
                 prev_gas_used,
@@ -1111,7 +1049,7 @@ impl EncodedShardChunk {
                 prev_state_root,
                 prev_outcome_root,
                 encoded_merkle_root,
-                encoded_length,
+                encoded_length as u64,
                 height,
                 shard_id,
                 prev_gas_used,
@@ -1203,17 +1141,9 @@ impl EncodedShardChunk {
             shard_id = self.cloned_header().shard_id(),
             chunk_hash = ?self.chunk_hash())
         .entered();
-        let parts = match self {
-            Self::V1(chunk) => &chunk.content.parts[0..data_parts],
-            Self::V2(chunk) => &chunk.content.parts[0..data_parts],
-        };
-        let encoded_length = match self {
-            Self::V1(chunk) => chunk.header.inner.encoded_length,
-            Self::V2(chunk) => chunk.header.encoded_length(),
-        };
 
-        let transaction_receipts = Self::decode_transaction_receipts(parts, encoded_length)?;
-
+        let transaction_receipts =
+            Self::decode_transaction_receipts(&self.content().parts, self.encoded_length())?;
         match self {
             Self::V1(chunk) => Ok(ShardChunk::V1(ShardChunkV1 {
                 chunk_hash: chunk.header.chunk_hash(),
@@ -1229,47 +1159,5 @@ impl EncodedShardChunk {
                 prev_outgoing_receipts: transaction_receipts.1,
             })),
         }
-    }
-}
-
-/// The ttl for a reed solomon instance to control memory usage. This number below corresponds to
-/// roughly 60MB of memory usage.
-const RS_TTL: u64 = 2 * 1024;
-
-/// Wrapper around reed solomon which occasionally resets the underlying
-/// reed solomon instead to work around the memory leak in reed solomon
-/// implementation <https://github.com/darrenldl/reed-solomon-erasure/issues/74>
-pub struct ReedSolomonWrapper {
-    rs: ReedSolomon,
-    ttl: u64,
-}
-
-impl ReedSolomonWrapper {
-    pub fn new(data_shards: usize, parity_shards: usize) -> Self {
-        ReedSolomonWrapper {
-            rs: ReedSolomon::new(data_shards, parity_shards).unwrap(),
-            ttl: RS_TTL,
-        }
-    }
-
-    pub fn reconstruct<T: ReconstructShard<Field>>(
-        &mut self,
-        slices: &mut [T],
-    ) -> Result<(), reed_solomon_erasure::Error> {
-        let res = self.rs.reconstruct(slices);
-        self.ttl -= 1;
-        if self.ttl == 0 {
-            *self =
-                ReedSolomonWrapper::new(self.rs.data_shard_count(), self.rs.parity_shard_count());
-        }
-        res
-    }
-
-    pub fn data_shard_count(&self) -> usize {
-        self.rs.data_shard_count()
-    }
-
-    pub fn total_shard_count(&self) -> usize {
-        self.rs.total_shard_count()
     }
 }

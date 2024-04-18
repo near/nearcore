@@ -47,7 +47,7 @@ enum ColdStoreCopyResult {
     OtherBlockCopied,
 }
 
-/// The ColdStoreError indicates what errors were encoutered while copying a blocks and running sanity checks.
+/// The ColdStoreError indicates what errors were encountered while copying a blocks and running sanity checks.
 #[derive(thiserror::Error, Debug)]
 pub enum ColdStoreError {
     #[error("Cold head is ahead of final head. cold head height: {cold_head_height} final head height {hot_final_head_height}")]

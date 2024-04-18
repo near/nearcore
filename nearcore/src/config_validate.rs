@@ -32,7 +32,7 @@ impl<'a> ConfigValidator<'a> {
     /// this function would check all conditions, and add all error messages to ConfigValidator.errors
     fn validate_all_conditions(&mut self) {
         if !self.config.archive && self.config.save_trie_changes == Some(false) {
-            let error_message = "Configuration with archive = false and save_trie_changes = false is not supported because non-archival nodes must save trie changes in order to do do garbage collection.".to_string();
+            let error_message = "Configuration with archive = false and save_trie_changes = false is not supported because non-archival nodes must save trie changes in order to do garbage collection.".to_string();
             self.validation_errors.push_config_semantics_error(error_message);
         }
 
@@ -198,7 +198,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "\\nconfig.json semantic issue: Configuration with archive = false and save_trie_changes = false is not supported because non-archival nodes must save trie changes in order to do do garbage collection.\\nconfig.json semantic issue: gc config values should all be greater than 0"
+        expected = "\\nconfig.json semantic issue: Configuration with archive = false and save_trie_changes = false is not supported because non-archival nodes must save trie changes in order to do garbage collection.\\nconfig.json semantic issue: gc config values should all be greater than 0"
     )]
     fn test_multiple_config_validation_errors() {
         let mut config = Config::default();

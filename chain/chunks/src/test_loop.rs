@@ -25,9 +25,10 @@ use near_network::{
 use near_primitives::{
     hash::CryptoHash,
     merkle::{self, MerklePath},
+    reed_solomon::ReedSolomonWrapper,
     sharding::{
         EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkV2, ReceiptProof,
-        ReedSolomonWrapper, ShardChunkHeader,
+        ShardChunkHeader,
     },
     test_utils::create_test_signer,
     types::{AccountId, BlockHeight, BlockHeightDelta, MerkleHash, NumShards, ShardId},
