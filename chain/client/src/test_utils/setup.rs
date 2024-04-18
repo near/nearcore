@@ -872,7 +872,7 @@ pub fn setup_mock_all_validators(
                         | NetworkRequests::ChunkStateWitness(_, _)
                         | NetworkRequests::ChunkStateWitnessAck(_, _)
                         | NetworkRequests::ChunkEndorsement(_, _)
-                        | NetworkRequests::PartialEncodedStateWitness(_, _)
+                        | NetworkRequests::PartialEncodedStateWitness(_)
                         | NetworkRequests::PartialEncodedStateWitnessForward(_, _) => {}
                     };
                 }
