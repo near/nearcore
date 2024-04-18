@@ -92,12 +92,16 @@ impl<'a> RuntimeExt<'a> {
 
     pub fn get_code(&self, code_hash: CryptoHash) -> Result<Option<ContractCode>, StorageError> {
         // Directly read code from caching storage to avoid nondeterministic recording.
-        if let Some(caching_storage) =
-            self.trie_update.trie.internal_get_storage_as_caching_storage()
-        {
-            let raw_code = caching_storage.retrieve_raw_bytes(&code_hash)?;
+        if let Some(storage) = self.trie_update.trie.internal_get_storage_as_caching_storage() {
+            let raw_code = storage.retrieve_raw_bytes(&code_hash)?;
             return Ok(Some(ContractCode::new(raw_code.to_vec(), Some(code_hash))));
         }
+
+        if let Some(storage) = self.trie_update.trie.internal_get_storage_as_partial_storage() {
+            let raw_code = storage.retrieve_raw_bytes(&code_hash)?;
+            return Ok(Some(ContractCode::new(raw_code.to_vec(), Some(code_hash))));
+        }
+
         get_code(self.trie_update, self.account_id, Some(code_hash))
     }
 

@@ -726,6 +726,10 @@ impl Trie {
         self.storage.as_caching_storage()
     }
 
+    pub fn internal_get_storage_as_partial_storage(&self) -> Option<&TrieMemoryPartialStorage> {
+        self.storage.as_partial_storage()
+    }
+
     pub fn mark_code(&self, account_id: AccountId) {
         // debatable
         let Some(_) = self.storage.as_caching_storage() else {
