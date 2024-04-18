@@ -8,7 +8,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::version::PROTOCOL_VERSION;
 use num_rational::Ratio;
-use std::sync::Arc;
 
 #[test]
 fn build_chain() {
@@ -35,7 +34,7 @@ fn build_chain() {
     if cfg!(feature = "nightly") {
         insta::assert_snapshot!(hash, @"CyVdmcpdfz8VAqZFN4zbZLTRcbcnAUzRJwNgxbgeEUMU");
     } else {
-        insta::assert_snapshot!(hash, @"CxmRfDBCbukRuksZMKEwHe6o8zqc2eZFsXmbQvPygwYi");
+        insta::assert_snapshot!(hash, @"2WHohfYksQnwKwSEoTKpkseu2RWthbGf9kmGetgHgfQQ");
     }
 
     for i in 1..5 {
@@ -53,7 +52,7 @@ fn build_chain() {
     if cfg!(feature = "nightly") {
         insta::assert_snapshot!(hash, @"72j1xRcBZpPtyo2rpPBPRspL6Q9LCju2Doa8KFhYPNJt");
     } else {
-        insta::assert_snapshot!(hash, @"6tqFaqvsAjrtkuPfnuXz2pJ1VPt1kvF95hVJR7x9JhXG");
+        insta::assert_snapshot!(hash, @"HJuuENeSwwikoR9BZA7cSonxAPZgY5mKQWL2pSXwjAwZ");
     }
 }
 
@@ -101,11 +100,7 @@ fn build_chain_with_orphans() {
     );
     chain.process_block_test(&None, blocks.pop().unwrap()).unwrap();
     while wait_for_all_blocks_in_processing(&mut chain) {
-        chain.postprocess_ready_blocks(
-            &None,
-            &mut BlockProcessingArtifact::default(),
-            Arc::new(|_| {}),
-        );
+        chain.postprocess_ready_blocks(&None, &mut BlockProcessingArtifact::default(), None);
     }
     assert_eq!(chain.head().unwrap().height, 10);
     assert_matches!(

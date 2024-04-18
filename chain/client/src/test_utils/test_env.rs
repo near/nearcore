@@ -256,11 +256,7 @@ impl TestEnv {
         while let Some(msg) = self.client_adapters[id].pop() {
             match msg {
                 ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk } => {
-                    self.clients[id].on_chunk_completed(
-                        partial_chunk,
-                        shard_chunk,
-                        Arc::new(|_| {}),
-                    );
+                    self.clients[id].on_chunk_completed(partial_chunk, shard_chunk, None);
                 }
                 ShardsManagerResponse::InvalidChunk(encoded_chunk) => {
                     self.clients[id].on_invalid_chunk(encoded_chunk);
@@ -568,7 +564,6 @@ impl TestEnv {
         self.clients[idx] = setup_client_with_runtime(
             self.clock.clone(),
             num_validator_seats,
-            Some(self.get_client_id(idx).clone()),
             false,
             self.network_adapters[idx].clone().as_multi_sender(),
             self.shards_manager_adapters[idx].clone(),
@@ -580,6 +575,8 @@ impl TestEnv {
             self.archive,
             self.save_trie_changes,
             None,
+            self.clients[idx].state_witness_adapter.clone(),
+            self.clients[idx].validator_signer.clone().unwrap(),
         )
     }
 

@@ -459,7 +459,7 @@ fn test_node_after_simulated_sync() {
             &None,
             sync_hash,
             &mut BlockProcessingArtifact::default(),
-            Arc::new(|_| {}),
+            None,
         )
         .unwrap();
 

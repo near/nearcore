@@ -13,15 +13,15 @@ use crate::debug::new_network_info_view;
 use crate::info::{display_sync_status, InfoHelper};
 use crate::sync::adapter::{SyncMessage, SyncShardInfo};
 use crate::sync::state::{StateSync, StateSyncResult};
-use crate::{metrics, StatusResponse};
+use crate::{metrics, DistributeStateWitnessRequest, StatusResponse};
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawner};
 use near_async::messaging::{CanSend, Sender};
 use near_async::time::{Clock, Utc};
 use near_async::time::{Duration, Instant};
 use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
 use near_chain::chain::{
-    ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest, BlockCatchUpResponse,
-    LoadMemtrieRequest, LoadMemtrieResponse,
+    ApplyChunksDoneMessage, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
+    BlockCatchUpResponse, LoadMemtrieRequest, LoadMemtrieResponse,
 };
 use near_chain::resharding::{ReshardingRequest, ReshardingResponse};
 use near_chain::test_utils::format_hash;
@@ -29,7 +29,7 @@ use near_chain::test_utils::format_hash;
 use near_chain::ChainStoreAccess;
 use near_chain::{
     byzantine_assert, near_chain_primitives, Block, BlockHeader, BlockProcessingArtifact,
-    DoneApplyChunkCallback, Provenance,
+    Provenance,
 };
 use near_chain_configs::{ClientConfig, LogSummaryStyle};
 use near_chain_primitives::error::EpochErrorResultToChainError;
@@ -41,8 +41,8 @@ use near_client_primitives::types::{
 };
 use near_network::client::{
     BlockApproval, BlockHeadersResponse, BlockResponse, ChunkEndorsementMessage,
-    ChunkStateWitnessAckMessage, ChunkStateWitnessMessage, ProcessTxRequest, ProcessTxResponse,
-    RecvChallenge, SetNetworkInfo, StateResponse,
+    ChunkStateWitnessMessage, ProcessTxRequest, ProcessTxResponse, RecvChallenge, SetNetworkInfo,
+    StateResponse,
 };
 use near_network::types::ReasonForBan;
 use near_network::types::{
@@ -93,6 +93,10 @@ pub struct SyncJobsSenderForClient {
     pub load_memtrie: Sender<LoadMemtrieRequest>,
     pub block_catch_up: Sender<BlockCatchUpRequest>,
     pub resharding: Sender<ReshardingRequest>,
+}
+
+pub struct StateWitnessSenderForClient {
+    pub distribute_chunk_state_witness: Sender<DistributeStateWitnessRequest>,
 }
 
 pub struct ClientActions {
@@ -257,7 +261,7 @@ impl ClientActionHandler<NetworkAdversarialMessage> for ClientActions {
                     let _ = self.client.start_process_block(
                         block.into(),
                         Provenance::PRODUCED,
-                        self.get_apply_chunks_done_callback(),
+                        Some(self.myself_sender.apply_chunks_done.clone()),
                     );
                     blocks_produced += 1;
                     if blocks_produced == num_blocks {
@@ -344,7 +348,7 @@ impl ClientActionHandler<BlockResponse> for ClientActions {
                 block,
                 peer_id,
                 was_requested,
-                self.get_apply_chunks_done_callback(),
+                Some(self.myself_sender.apply_chunks_done.clone()),
             );
         } else {
             match self.client.epoch_manager.get_epoch_id_from_prev_block(block.header().prev_hash())
@@ -669,13 +673,6 @@ impl ClientActionHandler<GetNetworkInfo> for ClientActions {
         })
     }
 }
-
-/// `ApplyChunksDoneMessage` is a message that signals the finishing of applying chunks of a block.
-/// Upon receiving this message, ClientActors knows that it's time to finish processing the blocks that
-/// just finished applying chunks.
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
-pub struct ApplyChunksDoneMessage;
 
 impl ClientActionHandler<ApplyChunksDoneMessage> for ClientActions {
     type Result = ();
@@ -1097,8 +1094,9 @@ impl ClientActions {
     /// and we want to prioritize block processing.
     fn try_process_unfinished_blocks(&mut self) {
         let _span = debug_span!(target: "client", "try_process_unfinished_blocks").entered();
-        let (accepted_blocks, errors) =
-            self.client.postprocess_ready_blocks(self.get_apply_chunks_done_callback(), true);
+        let (accepted_blocks, errors) = self
+            .client
+            .postprocess_ready_blocks(Some(self.myself_sender.apply_chunks_done.clone()), true);
         if !errors.is_empty() {
             error!(target: "client", ?errors, "try_process_unfinished_blocks got errors");
         }
@@ -1156,7 +1154,7 @@ impl ClientActions {
             let res = self.client.start_process_block(
                 block,
                 Provenance::PRODUCED,
-                self.get_apply_chunks_done_callback(),
+                Some(self.myself_sender.apply_chunks_done.clone()),
             );
             if let Err(e) = &res {
                 match e {
@@ -1244,16 +1242,6 @@ impl ClientActions {
             self.send_block_metrics(&block);
             self.check_send_announce_account(*block.header().last_final_block());
         }
-    }
-
-    /// Returns the callback function that will be passed to various functions that may trigger
-    /// the processing of new blocks. This callback will be called at the end of applying chunks
-    /// for every block.
-    fn get_apply_chunks_done_callback(&self) -> DoneApplyChunkCallback {
-        let myself_sender = self.myself_sender.clone();
-        Arc::new(move |_| {
-            myself_sender.send(ApplyChunksDoneMessage {});
-        })
     }
 
     fn receive_headers(&mut self, headers: Vec<BlockHeader>, peer_id: PeerId) -> bool {
@@ -1399,7 +1387,7 @@ impl ClientActions {
                 &self.sync_jobs_sender.load_memtrie,
                 &self.sync_jobs_sender.block_catch_up,
                 &self.sync_jobs_sender.resharding,
-                self.get_apply_chunks_done_callback(),
+                Some(self.myself_sender.apply_chunks_done.clone()),
                 self.state_parts_future_spawner.as_ref(),
             ) {
                 error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), err);
@@ -1643,7 +1631,7 @@ impl ClientActions {
                                 &me,
                                 sync_hash,
                                 &mut block_processing_artifacts,
-                                self.get_apply_chunks_done_callback(),
+                                Some(self.myself_sender.apply_chunks_done.clone()),
                             ));
 
                             self.client
@@ -1816,7 +1804,7 @@ impl ClientActionHandler<ShardsManagerResponse> for ClientActions {
                 self.client.on_chunk_completed(
                     partial_chunk,
                     shard_chunk,
-                    self.get_apply_chunks_done_callback(),
+                    Some(self.myself_sender.apply_chunks_done.clone()),
                 );
             }
             ShardsManagerResponse::InvalidChunk(encoded_chunk) => {
@@ -1862,14 +1850,6 @@ impl ClientActionHandler<ChunkStateWitnessMessage> for ClientActions {
         if let Err(err) = self.client.process_chunk_state_witness(msg.0, None) {
             tracing::error!(target: "client", ?err, "Error processing chunk state witness");
         }
-    }
-}
-
-impl ClientActionHandler<ChunkStateWitnessAckMessage> for ClientActions {
-    type Result = ();
-
-    fn handle(&mut self, msg: ChunkStateWitnessAckMessage) -> Self::Result {
-        self.client.process_chunk_state_witness_ack(msg.0);
     }
 }
 

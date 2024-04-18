@@ -1,8 +1,8 @@
-use near_async::messaging::{CanSend, IntoSender};
+use std::collections::HashMap;
 
+use near_async::messaging::{CanSend, IntoSender};
 use near_chain::{BlockHeader, Chain, ChainStoreAccess};
 use near_chain_primitives::Error;
-use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::log_assert_fail;
 use near_primitives::challenge::PartialState;
 use near_primitives::checked_feature;
@@ -10,15 +10,13 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::stateless_validation::{
-    ChunkStateTransition, ChunkStateWitness, ChunkStateWitnessAck, EncodedChunkStateWitness,
-    SignedEncodedChunkStateWitness, StoredChunkStateTransitionData,
+    ChunkStateTransition, ChunkStateWitness, StoredChunkStateTransitionData,
 };
 use near_primitives::types::{AccountId, EpochId};
-use near_primitives::validator_signer::ValidatorSigner;
-use std::collections::HashMap;
 
 use crate::stateless_validation::chunk_validator::send_chunk_endorsement_to_block_producers;
-use crate::{metrics, Client};
+use crate::stateless_validation::state_witness_actor::DistributeStateWitnessRequest;
+use crate::Client;
 
 impl Client {
     /// Distributes the chunk state witness to chunk validators that are
@@ -36,27 +34,23 @@ impl Client {
             return Ok(());
         }
 
-        let chunk_header = chunk.cloned_header();
-        let mut chunk_validators = self
-            .epoch_manager
-            .get_chunk_validator_assignments(
-                epoch_id,
-                chunk_header.shard_id(),
-                chunk_header.height_created(),
-            )?
-            .ordered_chunk_validators();
-
         let my_signer = self.validator_signer.as_ref().ok_or(Error::NotAValidator)?.clone();
-        let witness = self.create_state_witness(
+        let state_witness = self.create_state_witness(
             my_signer.validator_id().clone(),
             prev_block_header,
             prev_chunk_header,
             chunk,
             transactions_storage_proof,
         )?;
-        let signed_witness = create_signed_witness(&witness, my_signer.as_ref())?;
 
-        if chunk_validators.contains(my_signer.validator_id()) {
+        let chunk_header = chunk.cloned_header();
+        let shard_id = chunk_header.shard_id();
+        let height = chunk_header.height_created();
+        if self
+            .epoch_manager
+            .get_chunk_validator_assignments(epoch_id, shard_id, height)?
+            .contains(my_signer.validator_id())
+        {
             // Bypass state witness validation if we created state witness. Endorse the chunk immediately.
             send_chunk_endorsement_to_block_producers(
                 &chunk_header,
@@ -66,37 +60,9 @@ impl Client {
                 self.chunk_endorsement_tracker.as_ref(),
             );
         }
-        // Remove ourselves from the list of chunk validators. Network can't send messages to ourselves.
-        chunk_validators.retain(|validator| validator != my_signer.validator_id());
 
-        tracing::debug!(
-            target: "stateless_validation",
-            "Sending chunk state witness for chunk {:?} to chunk validators {:?}",
-            chunk.chunk_hash(),
-            chunk_validators,
-        );
-
-        // Record the witness in order to match the incoming acks for measuring round-trip times.
-        // See process_chunk_state_witness_ack for the handling of the ack messages.
-        self.state_witness_tracker.record_witness_sent(
-            &witness,
-            signed_witness.witness_bytes.size_bytes(),
-            chunk_validators.len(),
-        );
-
-        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::ChunkStateWitness(chunk_validators, signed_witness),
-        ));
+        self.state_witness_adapter.send(DistributeStateWitnessRequest { state_witness });
         Ok(())
-    }
-
-    /// Handles the state witness ack message from the chunk validator.
-    /// It computes the round-trip time between sending the state witness and receiving
-    /// the ack message and updates the corresponding metric with it.
-    /// Currently we do not raise an error for handling of witness-ack messages,
-    /// as it is used only for tracking some networking metrics.
-    pub fn process_chunk_state_witness_ack(&mut self, witness_ack: ChunkStateWitnessAck) -> () {
-        self.state_witness_tracker.on_witness_ack_received(witness_ack);
     }
 
     pub(crate) fn create_state_witness(
@@ -299,27 +265,4 @@ impl Client {
         }
         Ok(source_receipt_proofs)
     }
-}
-
-fn create_signed_witness(
-    witness: &ChunkStateWitness,
-    my_signer: &dyn ValidatorSigner,
-) -> Result<SignedEncodedChunkStateWitness, Error> {
-    let shard_id_label = witness.chunk_header.shard_id().to_string();
-    let encode_timer = metrics::CHUNK_STATE_WITNESS_ENCODE_TIME
-        .with_label_values(&[shard_id_label.as_str()])
-        .start_timer();
-    let (witness_bytes, raw_witness_size) = EncodedChunkStateWitness::encode(&witness)?;
-    encode_timer.observe_duration();
-    let signed_witness = SignedEncodedChunkStateWitness {
-        signature: my_signer.sign_chunk_state_witness(&witness_bytes),
-        witness_bytes,
-    };
-    metrics::CHUNK_STATE_WITNESS_TOTAL_SIZE
-        .with_label_values(&[shard_id_label.as_str()])
-        .observe(signed_witness.witness_bytes.size_bytes() as f64);
-    metrics::CHUNK_STATE_WITNESS_RAW_SIZE
-        .with_label_values(&[shard_id_label.as_str()])
-        .observe(raw_witness_size as f64);
-    Ok(signed_witness)
 }

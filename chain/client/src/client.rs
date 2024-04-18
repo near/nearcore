@@ -7,7 +7,7 @@ use crate::debug::BlockProductionTracker;
 use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
 use crate::stateless_validation::chunk_endorsement_tracker::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validator::ChunkValidator;
-use crate::stateless_validation::state_witness_tracker::ChunkStateWitnessTracker;
+use crate::stateless_validation::state_witness_actor::StateWitnessSenderForClient;
 use crate::sync::adapter::SyncShardInfo;
 use crate::sync::block::BlockSync;
 use crate::sync::epoch::EpochSync;
@@ -22,8 +22,8 @@ use near_async::messaging::IntoSender;
 use near_async::messaging::{CanSend, Sender};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::chain::{
-    ApplyStatePartsRequest, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
-    LoadMemtrieRequest, VerifyBlockHashAndSignatureResult,
+    ApplyChunksDoneMessage, ApplyStatePartsRequest, BlockCatchUpRequest, BlockMissingChunks,
+    BlocksCatchUpState, LoadMemtrieRequest, VerifyBlockHashAndSignatureResult,
 };
 use near_chain::flat_storage_creator::FlatStorageCreator;
 use near_chain::orphan::OrphanMissingChunks;
@@ -36,8 +36,8 @@ use near_chain::types::{
     StorageDataSource,
 };
 use near_chain::{
-    BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis, ChainStoreAccess,
-    DoneApplyChunkCallback, Doomslug, DoomslugThresholdMode, Provenance,
+    BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis, ChainStoreAccess, Doomslug,
+    DoomslugThresholdMode, Provenance,
 };
 use near_chain_configs::{ClientConfig, LogSummaryStyle, UpdateableClientConfig};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
@@ -167,19 +167,16 @@ pub struct Client {
     /// Last time the head was updated, or our head was rebroadcasted. Used to re-broadcast the head
     /// again to prevent network from stalling if a large percentage of the network missed a block
     last_time_head_progress_made: Instant,
-
     /// Block production timing information. Used only for debug purposes.
     /// Stores approval information and production time of the block
     pub block_production_info: BlockProductionTracker,
     /// Chunk production timing information. Used only for debug purposes.
     pub chunk_production_info: lru::LruCache<(BlockHeight, ShardId), ChunkProduction>,
-
     /// Cached precomputed set of TIER1 accounts.
     /// See send_network_chain_info().
     tier1_accounts_cache: Option<(EpochId, Arc<AccountKeys>)>,
     /// Used when it is needed to create flat storage in background for some shards.
     flat_storage_creator: Option<FlatStorageCreator>,
-
     /// When the "sync block" was requested.
     /// The "sync block" is the last block of the previous epoch, i.e. `prev_hash` of the `sync_hash` block.
     pub last_time_sync_block_requested: Option<near_async::time::Utc>,
@@ -191,9 +188,8 @@ pub struct Client {
     pub chunk_inclusion_tracker: ChunkInclusionTracker,
     /// Tracks chunk endorsements received from chunk validators. Used to filter out chunks ready for inclusion
     pub chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
-    /// Tracks a collection of state witnesses sent from chunk producers to chunk validators.
-    pub state_witness_tracker: ChunkStateWitnessTracker,
-
+    /// Adapter to send request to state_witness_actor to distribute state witness.
+    pub state_witness_adapter: StateWitnessSenderForClient,
     // Optional value used for the Chunk Distribution Network Feature.
     chunk_distribution_network: Option<ChunkDistributionNetwork>,
 }
@@ -255,6 +251,7 @@ impl Client {
         rng_seed: RngSeed,
         snapshot_callbacks: Option<SnapshotCallbacks>,
         async_computation_spawner: Arc<dyn AsyncComputationSpawner>,
+        state_witness_adapter: StateWitnessSenderForClient,
     ) -> Result<Self, Error> {
         let doomslug_threshold_mode = if enable_doomslug {
             DoomslugThresholdMode::TwoThirds
@@ -409,7 +406,7 @@ impl Client {
             chunk_validator,
             chunk_inclusion_tracker: ChunkInclusionTracker::new(),
             chunk_endorsement_tracker,
-            state_witness_tracker: ChunkStateWitnessTracker::new(clock),
+            state_witness_adapter,
             chunk_distribution_network,
         })
     }
@@ -1047,7 +1044,7 @@ impl Client {
         block: Block,
         peer_id: PeerId,
         was_requested: bool,
-        apply_chunks_done_callback: DoneApplyChunkCallback,
+        apply_chunks_done_sender: Option<Sender<ApplyChunksDoneMessage>>,
     ) {
         let hash = *block.hash();
         let prev_hash = *block.header().prev_hash();
@@ -1062,8 +1059,7 @@ impl Client {
             was_requested)
         .entered();
 
-        let res =
-            self.receive_block_impl(block, peer_id, was_requested, apply_chunks_done_callback);
+        let res = self.receive_block_impl(block, peer_id, was_requested, apply_chunks_done_sender);
         // Log the errors here. Note that the real error handling logic is already
         // done within process_block_impl, this is just for logging.
         if let Err(err) = res {
@@ -1097,7 +1093,7 @@ impl Client {
         block: Block,
         peer_id: PeerId,
         was_requested: bool,
-        apply_chunks_done_callback: DoneApplyChunkCallback,
+        apply_chunks_done_sender: Option<Sender<ApplyChunksDoneMessage>>,
     ) -> Result<(), near_chain::Error> {
         let _span =
             debug_span!(target: "chain", "receive_block_impl", was_requested, ?peer_id).entered();
@@ -1126,7 +1122,7 @@ impl Client {
         self.verify_and_rebroadcast_block(&block, was_requested, &peer_id)?;
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
-        let res = self.start_process_block(block, provenance, apply_chunks_done_callback);
+        let res = self.start_process_block(block, provenance, apply_chunks_done_sender);
         match &res {
             Err(near_chain::Error::Orphan) => {
                 debug!(target: "chain", ?prev_hash, "Orphan error");
@@ -1225,12 +1221,12 @@ impl Client {
     /// Start the processing of a block. Note that this function will return before
     /// the full processing is finished because applying chunks is done asynchronously
     /// in the rayon thread pool.
-    /// `apply_chunks_done_callback`: a callback that will be called when applying chunks is finished.
+    /// `apply_chunks_done_sender`: a callback that will be called when applying chunks is finished.
     pub fn start_process_block(
         &mut self,
         block: MaybeValidated<Block>,
         provenance: Provenance,
-        apply_chunks_done_callback: DoneApplyChunkCallback,
+        apply_chunks_done_sender: Option<Sender<ApplyChunksDoneMessage>>,
     ) -> Result<(), near_chain::Error> {
         let _span = debug_span!(
                 target: "chain",
@@ -1250,7 +1246,7 @@ impl Client {
                 block,
                 provenance,
                 &mut block_processing_artifacts,
-                apply_chunks_done_callback,
+                apply_chunks_done_sender,
             )
         };
 
@@ -1288,7 +1284,7 @@ impl Client {
     /// blocks.
     pub fn postprocess_ready_blocks(
         &mut self,
-        apply_chunks_done_callback: DoneApplyChunkCallback,
+        apply_chunks_done_sender: Option<Sender<ApplyChunksDoneMessage>>,
         should_produce_chunk: bool,
     ) -> (Vec<CryptoHash>, HashMap<CryptoHash, near_chain::Error>) {
         let _span = debug_span!(target: "client", "postprocess_ready_blocks", should_produce_chunk)
@@ -1301,7 +1297,7 @@ impl Client {
         let (accepted_blocks, errors) = self.chain.postprocess_ready_blocks(
             &me,
             &mut block_processing_artifacts,
-            apply_chunks_done_callback,
+            apply_chunks_done_sender,
         );
         if accepted_blocks.iter().any(|accepted_block| accepted_block.status.is_new_head()) {
             self.shards_manager_adapter.send(ShardsManagerRequestFromClient::UpdateChainHeads {
@@ -1398,7 +1394,7 @@ impl Client {
         &mut self,
         partial_chunk: PartialEncodedChunk,
         shard_chunk: Option<ShardChunk>,
-        apply_chunks_done_callback: DoneApplyChunkCallback,
+        apply_chunks_done_sender: Option<Sender<ApplyChunksDoneMessage>>,
     ) {
         let chunk_header = partial_chunk.cloned_header();
         self.chain.blocks_delay_tracker.mark_chunk_completed(&chunk_header);
@@ -1413,7 +1409,7 @@ impl Client {
         // We're marking chunk as accepted.
         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
         // If this was the last chunk that was missing for a block, it will be processed now.
-        self.process_blocks_with_missing_chunks(apply_chunks_done_callback)
+        self.process_blocks_with_missing_chunks(apply_chunks_done_sender)
     }
 
     /// Called asynchronously when the ShardsManager finishes processing a chunk but the chunk
@@ -1883,7 +1879,7 @@ impl Client {
     /// Check if any block with missing chunks is ready to be processed
     pub fn process_blocks_with_missing_chunks(
         &mut self,
-        apply_chunks_done_callback: DoneApplyChunkCallback,
+        apply_chunks_done_sender: Option<Sender<ApplyChunksDoneMessage>>,
     ) {
         let _span = debug_span!(target: "client", "process_blocks_with_missing_chunks").entered();
         let me =
@@ -1892,7 +1888,7 @@ impl Client {
         self.chain.check_blocks_with_missing_chunks(
             &me.map(|x| x.clone()),
             &mut blocks_processing_artifacts,
-            apply_chunks_done_callback,
+            apply_chunks_done_sender,
         );
         self.process_block_processing_artifact(blocks_processing_artifacts);
     }
@@ -2330,7 +2326,7 @@ impl Client {
         load_memtrie_scheduler: &Sender<LoadMemtrieRequest>,
         block_catch_up_task_scheduler: &Sender<BlockCatchUpRequest>,
         resharding_scheduler: &Sender<ReshardingRequest>,
-        apply_chunks_done_callback: DoneApplyChunkCallback,
+        apply_chunks_done_sender: Option<Sender<ApplyChunksDoneMessage>>,
         state_parts_future_spawner: &dyn FutureSpawner,
     ) -> Result<(), Error> {
         let _span = debug_span!(target: "sync", "run_catchup").entered();
@@ -2442,7 +2438,7 @@ impl Client {
                             me,
                             &sync_hash,
                             &mut block_processing_artifacts,
-                            apply_chunks_done_callback.clone(),
+                            apply_chunks_done_sender.clone(),
                             &blocks_catch_up_state.done_blocks,
                         )?;
 
