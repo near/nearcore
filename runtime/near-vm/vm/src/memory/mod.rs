@@ -5,7 +5,6 @@
 //!
 //! `LinearMemory` is to WebAssembly linear memories what `Table` is to WebAssembly tables.
 
-use crate::mmap::Mmap;
 use crate::vmcontext::VMMemoryDefinition;
 use near_vm_types::{MemoryType, Pages};
 use std::fmt;
@@ -109,12 +108,4 @@ pub trait Memory: fmt::Debug + Send + Sync {
     ///
     /// The pointer returned in [`VMMemoryDefinition`] must be valid for the lifetime of this memory.
     fn vmmemory(&self) -> NonNull<VMMemoryDefinition>;
-}
-
-#[derive(Debug)]
-struct WasmMmap {
-    // Our OS allocation of mmap'd memory.
-    alloc: Mmap,
-    // The current logical size in wasm pages of this linear memory.
-    size: Pages,
 }

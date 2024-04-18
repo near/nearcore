@@ -1,5 +1,6 @@
 use crate::mmap::Mmap;
 use crate::vmcontext::VMMemoryDefinition;
+use crate::{Memory, MemoryError, MemoryStyle};
 use more_asserts::assert_ge;
 use near_vm_types::{Bytes, MemoryType, Pages};
 use std::borrow::BorrowMut;
@@ -7,7 +8,14 @@ use std::cell::UnsafeCell;
 use std::convert::TryInto;
 use std::ptr::NonNull;
 use std::sync::Mutex;
-use crate::{MemoryError, MemoryStyle, Memory, memory::WasmMmap};
+
+#[derive(Debug)]
+struct WasmMmap {
+    // Our OS allocation of mmap'd memory.
+    alloc: Mmap,
+    // The current logical size in wasm pages of this linear memory.
+    size: Pages,
+}
 
 /// A linear memory instance.
 #[derive(Debug)]
