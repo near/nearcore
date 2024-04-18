@@ -10,11 +10,17 @@ license.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+actix-cors.workspace = true
+actix-web.workspace = true
 anyhow.workspace = true
+bson.workspace = true
+clap.workspace = true
+mongodb.workspace = true
 opentelemetry-proto.workspace = true
 prost.workspace = true
 tokio.workspace = true
 tonic.workspace = true
+serde = { version = "1.0.192", features = ["derive"] }
 
 [lints]
 workspace = true
