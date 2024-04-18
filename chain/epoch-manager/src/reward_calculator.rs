@@ -170,8 +170,6 @@ impl RewardCalculator {
                     }
                 };
 
-            println!("{} {:?}", account_id, (average_produced_numer, average_produced_denom));
-
             let online_min_numer = U256::from(*self.online_min_threshold.numer() as u64);
             let online_min_denom = U256::from(*self.online_min_threshold.denom() as u64);
             // If average of produced blocks below online min threshold, validator gets 0 reward.

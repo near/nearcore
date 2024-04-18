@@ -788,13 +788,28 @@ fn test_get_validator_info() {
     let staking_transaction = stake(1, &signer, &block_producers[0], 0);
     let mut expected_blocks = [0, 0];
     let mut expected_chunks = [0, 0];
+    let mut expected_endorsements = [0, 0];
     let update_validator_stats =
-        |env: &mut TestEnv, expected_blocks: &mut [u64], expected_chunks: &mut [u64]| {
+        |env: &mut TestEnv,
+         expected_blocks: &mut [u64],
+         expected_chunks: &mut [u64],
+         expected_endorsements: &mut [u64]| {
             let epoch_id = env.head.epoch_id.clone();
             let height = env.head.height;
             let em = env.runtime.epoch_manager.read();
             let bp = em.get_block_producer_info(&epoch_id, height).unwrap();
             let cp = em.get_chunk_producer_info(&epoch_id, height, 0).unwrap();
+            let stateless_validators =
+                em.get_chunk_validator_assignments(&epoch_id, 0, height).ok();
+
+            if let Some(vs) = stateless_validators {
+                if vs.contains(&validators[0]) {
+                    expected_endorsements[0] += 1;
+                }
+                if vs.contains(&validators[1]) {
+                    expected_endorsements[1] += 1;
+                }
+            }
 
             if bp.account_id() == "test1" {
                 expected_blocks[0] += 1;
@@ -809,13 +824,23 @@ fn test_get_validator_info() {
             }
         };
     env.step_default(vec![staking_transaction]);
-    update_validator_stats(&mut env, &mut expected_blocks, &mut expected_chunks);
+    update_validator_stats(
+        &mut env,
+        &mut expected_blocks,
+        &mut expected_chunks,
+        &mut expected_endorsements,
+    );
     assert!(env
         .epoch_manager
         .get_validator_info(ValidatorInfoIdentifier::EpochId(env.head.epoch_id.clone()))
         .is_err());
     env.step_default(vec![]);
-    update_validator_stats(&mut env, &mut expected_blocks, &mut expected_chunks);
+    update_validator_stats(
+        &mut env,
+        &mut expected_blocks,
+        &mut expected_chunks,
+        &mut expected_endorsements,
+    );
     let mut current_epoch_validator_info = vec![
         CurrentEpochValidatorInfo {
             account_id: "test1".parse().unwrap(),
@@ -829,6 +854,10 @@ fn test_get_validator_info() {
             num_expected_chunks: expected_chunks[0],
             num_produced_chunks_per_shard: vec![expected_chunks[0]],
             num_expected_chunks_per_shard: vec![expected_chunks[0]],
+            num_produced_endorsements: expected_endorsements[0],
+            num_expected_endorsements: expected_endorsements[0],
+            num_expected_endorsements_per_shard: vec![expected_endorsements[0]],
+            num_produced_endorsements_per_shard: vec![expected_endorsements[0]],
         },
         CurrentEpochValidatorInfo {
             account_id: "test2".parse().unwrap(),
@@ -842,6 +871,10 @@ fn test_get_validator_info() {
             num_expected_chunks: expected_chunks[1],
             num_produced_chunks_per_shard: vec![expected_chunks[1]],
             num_expected_chunks_per_shard: vec![expected_chunks[1]],
+            num_produced_endorsements: expected_endorsements[1],
+            num_expected_endorsements: expected_endorsements[1],
+            num_expected_endorsements_per_shard: vec![expected_endorsements[1]],
+            num_produced_endorsements_per_shard: vec![expected_endorsements[1]],
         },
     ];
     let next_epoch_validator_info = vec![
@@ -882,8 +915,14 @@ fn test_get_validator_info() {
     );
     expected_blocks = [0, 0];
     expected_chunks = [0, 0];
+    expected_endorsements = [0, 0];
     env.step_default(vec![]);
-    update_validator_stats(&mut env, &mut expected_blocks, &mut expected_chunks);
+    update_validator_stats(
+        &mut env,
+        &mut expected_blocks,
+        &mut expected_chunks,
+        &mut expected_endorsements,
+    );
     let response = env
         .epoch_manager
         .get_validator_info(ValidatorInfoIdentifier::BlockHash(env.head.last_block_hash))
@@ -895,12 +934,24 @@ fn test_get_validator_info() {
     current_epoch_validator_info[0].num_expected_chunks = expected_chunks[0];
     current_epoch_validator_info[0].num_produced_chunks_per_shard = vec![expected_chunks[0]];
     current_epoch_validator_info[0].num_expected_chunks_per_shard = vec![expected_chunks[0]];
+    current_epoch_validator_info[0].num_produced_endorsements = expected_endorsements[0];
+    current_epoch_validator_info[0].num_expected_endorsements = expected_endorsements[0];
+    current_epoch_validator_info[0].num_produced_endorsements_per_shard =
+        vec![expected_endorsements[0]];
+    current_epoch_validator_info[0].num_expected_endorsements_per_shard =
+        vec![expected_endorsements[0]];
     current_epoch_validator_info[1].num_produced_blocks = expected_blocks[1];
     current_epoch_validator_info[1].num_expected_blocks = expected_blocks[1];
     current_epoch_validator_info[1].num_produced_chunks = expected_chunks[1];
     current_epoch_validator_info[1].num_expected_chunks = expected_chunks[1];
     current_epoch_validator_info[1].num_produced_chunks_per_shard = vec![expected_chunks[1]];
     current_epoch_validator_info[1].num_expected_chunks_per_shard = vec![expected_chunks[1]];
+    current_epoch_validator_info[1].num_produced_endorsements = expected_endorsements[1];
+    current_epoch_validator_info[1].num_expected_endorsements = expected_endorsements[1];
+    current_epoch_validator_info[1].num_produced_endorsements_per_shard =
+        vec![expected_endorsements[1]];
+    current_epoch_validator_info[1].num_expected_endorsements_per_shard =
+        vec![expected_endorsements[1]];
     assert_eq!(response.current_validators, current_epoch_validator_info);
     assert_eq!(
         response.next_validators,
