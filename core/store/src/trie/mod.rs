@@ -735,7 +735,17 @@ impl Trie {
             return;
         };
         let mut r = recorder.borrow_mut();
-        r.read_code_for(account_id);
+        if r.read_codes_for.contains(&account_id) {
+            return;
+        }
+
+        r.read_codes_for.insert(account_id.clone());
+        // Get ValueRef to update upper bound.
+        let key = TrieKey::ContractCode { account_id };
+        let value_ref = self.get_optimized_ref(&key.to_vec(), KeyLookupMode::FlatStorage);
+        if let Ok(Some(value_ref)) = value_ref {
+            r.record_code(value_ref.len());
+        }
     }
 
     /// All access to trie nodes or values must go through this method, so it
