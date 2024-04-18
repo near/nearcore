@@ -4915,10 +4915,50 @@ consistent interfaces.</p>
 <p>It is still more straightforward to skip all the setup necessary for tracing, but relying
 exclusively on logs only increases noise for the other developers and makes it ever so slightly
 harder to extract signal in the future. Keep this trade off in mind.</p>
+<h3 id="spans"><a class="header" href="#spans">Spans</a></h3>
+<p>We have a <a href="practices/workflows/../style.html#spans">style guide section on the use of Spans</a>, please make yourself
+familiar with it.</p>
+<p>Every <code>tracing::debug_span!()</code> creates a new span, and usually it is attached to its parent
+automatically.</p>
+<p>However, a few corner cases exist.</p>
+<ul>
+<li>
+<p><code>do_apply_chunks()</code> starts 4 sub-tasks in parallel and waits for their completion. To make it
+work, the parent span is passed explicitly to the sub-tasks.</p>
+</li>
+<li>
+<p>Messages to actix workers. If you do nothing, that the traces are limited to work done in a
+single actor. But that is very restrictive and not useful enough. To workaround that, each actix
+message gets attached <code>opentelemetry::Context</code>. That context somehow represents the information
+about the parent span. This mechanism is the reason you see annoying <code>.with_span_context()</code>
+function calls whenever you send a message to an actix Actor.</p>
+</li>
+<li>
+<p>Inter-process tracing is theoretically available, but I have never tested it. The plan was to
+test it as soon as the Canary images get updated 😭 Therefore it most likely doesn’t work. Each
+<code>PeerMessage</code> is injected with <code>TraceContext</code> (1, 2) and the receiving node extracts that context
+and all spans generated in handling that message should be parented to the trace from another node.</p>
+</li>
+<li>
+<p>Some spans are created using <code>info_span!()</code> but they are few and mostly for the logs. Exporting
+only info-level spans doesn’t give any useful tracing information in Grafana.</p>
+</li>
+<li>
+<p><code>actix::Actor::handle()</code> deserves a special note. The design choice was to provide a macro that
+lets us easily annotate every implementation of <code>actix::Actor::handle()</code>. This macro sets the
+following span attributes:</p>
+<ul>
+<li><code>actor</code> to the name of the struct that implements actix::Actor</li>
+<li><code>handler</code> to the name of the message struct</li>
+</ul>
+<p>And it lets you provide more span attributes. In the example, ClientActor specifies <code>msg_type</code>,
+which in all cases is identical to <code>handler</code>.</p>
+</li>
+</ul>
 <h2 id="configuration"><a class="header" href="#configuration">Configuration</a></h2>
-<p><a href="https://github.com/PagodaPlatform/tf-near-node/blob/main/doc/otlp.md">The OTLP documentation page in our terraform
-repository</a> documents the
-steps necessary to start moving the trace data from the node to our Grafana Cloud instance. Once
+<p><a href="https://nearone.getoutline.com/doc/tracing-in-grafana-RgJUJZF2C0">The Tracing documentation page in nearone's
+Outline</a> documents the steps
+necessary to start moving the trace data from the node to Nearone's Grafana Cloud instance. Once
 you set up your nodes, you can use the explore page to verify that the traces are coming through.</p>
 <p><img src="practices/workflows/../../images/explore-traces.png" alt="Image displaying the Grafana explore page interacting with the grafana-nearinc-traces data source, with Service Name filter set to =~&quot;neard:mocknet-mainnet-94194484-nagisa-10402-test-vzx2.near|neard:mocknet-mainnet-94194484-nagisa-10402-test-xdwp.near&quot; and showing some traces having been found" /></p>
 <p>If the traces are not coming through quite yet, consider using the ability to set logging
@@ -4931,7 +4971,9 @@ configuration at runtime. Create <code>$NEARD_HOME/log_config.json</code> file w
 <p>and invoke <code>sudo pkill -HUP neard</code>. Double check that the collector is running as well.</p>
 <blockquote style="background: rgba(255, 200, 0, 0.1); border: 5px solid rgba(255, 200, 0, 0.4);">
 <p><strong>Good to know</strong>: You can modify the event/span/log targets you’re interested in just like when
-setting the <code>RUST_LOG</code> environment variable.</p>
+setting the <code>RUST_LOG</code> environment variable, including target filters. If you're setting verbose
+levels, consider selecting specific targets you're interested in too. This will help to keep trace
+ingest costs down.</p>
 <p>For more information about the dynamic settings refer to <code>core/dyn-configs</code> code in the repository.</p>
 </blockquote>
 <h3 id="local-development"><a class="header" href="#local-development">Local development</a></h3>
@@ -4948,11 +4990,33 @@ wish.</p>
 <h2 id="visualization"><a class="header" href="#visualization">Visualization</a></h2>
 <p>Now that the data is arriving into the databases, it is time to visualize the data to determine
 what you want to know about the node. The only general advise I have here is to check that the data
-source is indeed tempo or loki. Try out visualizations other than time series. For example the
-author was interested in checking the execution speed before and after a change in a component.
-To make the comparison visual, the span of interest was graphed using the histogram visualization
-in order to obtain the following result. Note: you can hover your mouse on the image to see the
-visualization of the baseline performance.</p>
+source is indeed tempo or loki.</p>
+<h3 id="explore"><a class="header" href="#explore">Explore</a></h3>
+<p>Initial exploration is best done with Grafana's Explore tool or some other mechanism to query and
+display individual traces.</p>
+<p>The query builder available in Grafana makes the process quite straightforward to start with, but
+is also somewhat limited. Underlying <a href="https://grafana.com/docs/tempo/latest/traceql/">TraceQL has many more
+features</a> that are not available through the
+builder. For example, you can query data in somewhat of a relational manner, such as this query
+below queries only spans named <code>process_receipt</code> that take 50ms when run as part of <code>new_chunk</code>
+processing for shard 3!</p>
+<pre><code>{ name=&quot;new_chunk&quot; &amp;&amp; span.shard_id = &quot;3&quot; } &gt;&gt; { name=&quot;process_receipt&quot; &amp;&amp; duration &gt; 50ms }
+</code></pre>
+<blockquote style="background: rgba(255, 200, 0, 0.1); border: 5px solid rgba(255, 200, 0, 0.4);">
+<p><strong>Good to know</strong>: When querying, keep in mind the &quot;Options&quot; dropdown that allows you to specify the
+limit of results and the format in which these results are presented! In particular, the
+&quot;Traces/Spans&quot; toggle will affect the durations shown in the result table.</p>
+</blockquote>
+<p>Once you click on a span of interest, Grafana will open you a view with the trace that contains
+said span, where you can inspect both the overall trace and the properties of the span:</p>
+<p><img src="practices/workflows/../../images/span-details.png" alt="Image displaying a specific trace with two of the spans expanded to show their details" /></p>
+<h3 id="dashboards"><a class="header" href="#dashboards">Dashboards</a></h3>
+<p>Once you have arrived at an interesting query, you may be inclined to create a dashboard that
+summarizes the data without having to dig into individual traces and spans.</p>
+<p>As an example the author was interested in checking the execution speed before and after a change
+in a component. To make the comparison visual, the span of interest was graphed using the histogram
+visualization in order to obtain the following result. In this graph the Y axis displays the number
+of occurrences for spans that took X-axis long to complete.</p>
 <div id="image-comparison">
 <img src="practices/workflows/../../images/compile-and-load-before.png" class="before" />
 <img src="practices/workflows/../../images/compile-and-load-after.png" class="after" />
@@ -4973,8 +5037,30 @@ visualization of the baseline performance.</p>
     opacity: 1;
 }
 </style>
+<p>In general most of the panels work with tracing results directly but some of the most interesting
+ones do not. It is necessary to experiment with certain options and settings to have grafana panels
+start showing data. Some notable examples:</p>
+<ol>
+<li>Time series – a “Prepare time series” data transformation with “Multi-frame time series” has to
+be added;</li>
+<li>Histogram – make sure to use &quot;spans&quot; table format option;</li>
+<li>Heatmap - set “Calculate from data” option to “Yes”;</li>
+<li>Bar chart – works out of the box, but x axis won't be readable ever.</li>
+</ol>
 <p>You can also add a panel that shows all the trace events in a log-like representation using the log
-visualization.</p>
+or table visualization.</p>
+<h3 id="multiple-nodes"><a class="header" href="#multiple-nodes">Multiple nodes</a></h3>
+<p>One frequently asked question is whether Grafana lets you distinguish between nodes that export
+tracing information.</p>
+<p>The answer is yes.</p>
+<p>In addition to span attributes, each span has resource attributes. There you'll find properties
+like <code>node_id</code> which uniquely identify a node.</p>
+<ul>
+<li><code>account_id</code> is the <code>account_id</code> from <code>validator_key.json</code>;</li>
+<li><code>chain_id</code> is taken from <code>genesis.json</code>;</li>
+<li><code>node_id</code> is the public key from <code>node_key.json</code>;</li>
+<li><code>service.name</code> is <code>account_id</code> if that is available, otherwise it is <code>node_id</code>.</li>
+</ul>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="code-style"><a class="header" href="#code-style">Code Style</a></h1>
 <p>This document specifies the code style to use in the nearcore repository. The
 primary goal here is to achieve consistency, maintain it over time, and cut down
@@ -5327,7 +5413,7 @@ of the more advanced tracing subscribers. Of particular interest would be those
 that output events as JSON, or those that publish data to distributed event
 collection systems such as opentelemetry. Maintaining this rule will also
 usually result in faster execution (when logs at the relevant level are enabled.)</p>
-<h3 id="spans"><a class="header" href="#spans">Spans</a></h3>
+<h3 id="spans-1"><a class="header" href="#spans-1">Spans</a></h3>
 <p>Use the <a href="https://docs.rs/tracing/latest/tracing/#spans">spans</a> to introduce
 context and grouping to and between events instead of manually adding such
 information as part of the events themselves. Most of the subscribers ingesting
