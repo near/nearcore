@@ -1496,11 +1496,11 @@ impl Runtime {
                 break;
             }
 
-            let key = TrieKey::DelayedReceipt { index: delayed_receipts_indices.first_index };
+            let key = TrieKey::DelayedReceipt { index: current_delayed_receipt_index };
             let receipt: Receipt = get(&state_update, &key)?.ok_or_else(|| {
                 StorageError::StorageInconsistentState(format!(
                     "Delayed receipt #{} should be in the state",
-                    delayed_receipts_indices.first_index
+                    current_delayed_receipt_index
                 ))
             })?;
 
