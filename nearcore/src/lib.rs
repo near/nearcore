@@ -23,8 +23,9 @@ use near_chain_configs::SyncConfig;
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::sync::adapter::SyncAdapter;
-use near_client::{    
-    start_client, start_view_client, ClientActor, ConfigUpdater, StartClientResult, StateWitnessActor, ViewClientActor,
+use near_client::{
+    start_client, start_view_client, ClientActor, ConfigUpdater, StartClientResult,
+    StateWitnessActor, ViewClientActor,
 };
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;

@@ -117,7 +117,11 @@ impl TestEnv {
             } else {
                 // An archival node with legacy storage or in the midst of migration to split
                 // storage should do the legacy clear_archive_data.
-                self.clients[id].chain.mut_chain_store().clear_archive_data(gc_config.gc_blocks_limit, runtime_adapter).unwrap();
+                self.clients[id]
+                    .chain
+                    .mut_chain_store()
+                    .clear_archive_data(gc_config.gc_blocks_limit, runtime_adapter)
+                    .unwrap();
             }
         }
     }

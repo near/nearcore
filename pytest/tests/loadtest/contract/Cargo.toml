@@ -4,6 +4,9 @@ version = "0.1.0"
 authors = ["Near Inc <hello@near.org>"]
 edition = "2018"
 
+[lints]
+workspace = true
+
 [workspace]
 members = []
 

@@ -834,6 +834,8 @@ def apply_config_changes(node_dir, client_config_change):
         'archive',
         'consensus.block_fetch_horizon',
         'consensus.min_block_production_delay',
+        'consensus.max_block_production_delay',
+        'consensus.max_block_wait_delay',
         'consensus.state_sync_timeout',
         'expected_shutdown',
         'log_summary_period',

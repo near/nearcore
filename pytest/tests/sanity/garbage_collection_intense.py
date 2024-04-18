@@ -6,13 +6,13 @@
 import sys, time
 import pathlib
 import string, random, json
+import subprocess
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
-from configured_logger import logger
 from transaction import sign_deploy_contract_tx, sign_function_call_tx
-from utils import load_test_contract, load_binary_file, wait_for_blocks
+from utils import load_test_contract, wait_for_blocks
 
 EPOCH_LENGTH = 5
 TARGET_HEIGHT = 300
@@ -74,9 +74,7 @@ nodes = start_cluster(
 keys = [''.join(random.choices(string.ascii_lowercase, k=3)) for _ in range(20)]
 key_refcount = {x: 0 for x in keys}
 nonce = 1
-repo_dir = pathlib.Path(__file__).resolve().parents[2]
-path = repo_dir / 'tests/loadtest/contract/target/wasm32-unknown-unknown/release/loadtest_contract.wasm'
-contract = load_binary_file(path)
+contract = load_test_contract()
 
 last_block_hash = nodes[0].get_latest_block().hash_bytes
 tx = sign_deploy_contract_tx(nodes[0].signer_key, contract, nonce,
@@ -90,34 +88,36 @@ while True:
     block_id = nodes[1].get_latest_block()
     if int(block_id.height) > TARGET_HEIGHT:
         break
-    for key in keys:
+    for i in range(1, 20):
+        start = 0
         block_hash = nodes[1].get_latest_block().hash_bytes
-        args = {"key": key}
+        args = start.to_bytes(8, 'little') + i.to_bytes(8, 'little')
         if random.random() > 0.5:
             tx = sign_function_call_tx(nodes[0].signer_key,
-                                   nodes[0].signer_key.account_id, 'insert_key',
-                                   json.dumps(args).encode('utf-8'), GAS, 0, nonce,
+                                   nodes[0].signer_key.account_id, 'insert_strings',
+                                   args, GAS, 0, nonce,
                                    block_hash)
         else:
             tx = sign_function_call_tx(nodes[0].signer_key,
-                                   nodes[0].signer_key.account_id, 'delete_key',
-                                   json.dumps(args).encode('utf-8'), GAS, 0, nonce,
+                                   nodes[0].signer_key.account_id, 'delete_strings',
+                                   args, GAS, 0, nonce,
                                    block_hash)
         res = nodes[1].send_tx(tx)
         assert 'result' in res, res
         nonce += 1
     
 # delete all keys
-for key in keys:
-    args = {"key": key}
+for i in range(1, 20):
+    start = 0
+    args = start.to_bytes(8, 'little') + i.to_bytes(8, 'little')
     block_id = nodes[1].get_latest_block()
     tx = sign_function_call_tx(nodes[0].signer_key,
-                                       nodes[0].signer_key.account_id, 'delete_key',
-                                       json.dumps(args).encode('utf-8'), GAS, 0, nonce,
+                                       nodes[0].signer_key.account_id, 'delete_strings',
+                                       args, GAS, 0, nonce,
                                        block_id.hash_bytes)
     res = nodes[1].send_tx_and_wait(tx, 2)
     assert 'result' in res, res
-    key_refcount[key] -= 1
+    assert 'SuccessValue' in res['result']['status'], res
     nonce += 1
 
 # wait for the deletions to be garbage collected

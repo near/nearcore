@@ -29,7 +29,7 @@ node_config["consensus.max_block_production_delay"] = {
     "secs": 0,
     "nanos": 300000000
 }
-node_config["consensus.max_block_wait"] = {
+node_config["consensus.max_block_wait_delay"] = {
     "secs": 0,
     "nanos": 600000000
 }
