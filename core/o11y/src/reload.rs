@@ -1,7 +1,7 @@
 use crate::opentelemetry::get_opentelemetry_filter;
 use crate::{log_config, log_counter, BuildEnvFilterError, EnvFilterBuilder, OpenTelemetryLevel};
 use once_cell::sync::OnceCell;
-use opentelemetry::sdk::trace::Tracer;
+use opentelemetry_sdk::trace::Tracer;
 use std::str::FromStr as _;
 use tracing_appender::non_blocking::NonBlocking;
 use tracing_opentelemetry::OpenTelemetryLayer;

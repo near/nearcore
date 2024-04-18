@@ -22,6 +22,14 @@
 
 ### Non-protocol Changes
 
+* Limit overcharging by decoupling minimum_new_receipt_gas from the function call and setting it to a constant value. [#10941](https://github.com/near/nearcore/pull/10941)
+* These PRs introduce a change in the default behaviour of `broadcast_tx_commit`,`send_tx`, `tx, EXPERIMENTAL_tx_status` RPC methods. The default behaviour no longer waits for refund receipts.
+  If you do need to wait for refund receipts, you need ask about it explicitly by using TxExecutionStatus::Final option ("wait_until": "FINAL" in the json request). More information in the
+  [#10792](https://github.com/near/nearcore/pull/10792) [#10948](https://github.com/near/nearcore/pull/10948)
+* Adds improvements to the `sweat` contract prefetcher logic. Add new prefetcher logic for `kaiching` contract. [#10899](https://github.com/near/nearcore/pull/10899)
+* Improves prefetcher logic to speedup chunk finalization by prefetching keys related to refund receipts and actions such as: Delegate, AddKey, DeleteKey. [#10936](https://github.com/near/nearcore/pull/10936)
+* Add more metrics for receipt processing. [#10944](https://github.com/near/nearcore/pull/10944)
+
 ## 1.37.0
 
 ### Protocol Changes

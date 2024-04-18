@@ -12,8 +12,6 @@ use std::io;
 use std::sync::Arc;
 
 #[cfg(test)]
-mod testonly;
-#[cfg(test)]
 mod tests;
 
 pub struct AccountIdFormat;
@@ -228,6 +226,13 @@ impl Store {
     pub fn new_update(&mut self) -> StoreUpdate {
         Default::default()
     }
+
+    #[tracing::instrument(
+        target = "network::store::schema",
+        level = "trace",
+        "Store::commit",
+        skip_all
+    )]
     pub fn commit(&mut self, update: StoreUpdate) -> Result<(), Error> {
         self.0.write(update.0)
     }
@@ -255,7 +260,7 @@ impl StoreUpdate {
     pub fn set<C: Column>(&mut self, k: &<C::Key as Format>::T, v: &<C::Value as Format>::T) {
         self.0.set(C::COL, to_vec::<C::Key>(k), to_vec::<C::Value>(v))
     }
-    pub fn delete<C: Column>(&mut self, k: &<C::Key as Format>::T) {
+    pub fn _delete<C: Column>(&mut self, k: &<C::Key as Format>::T) {
         self.0.delete(C::COL, to_vec::<C::Key>(k))
     }
 }

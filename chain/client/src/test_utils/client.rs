@@ -20,7 +20,8 @@ use near_network::types::HighestHeightPeerInfo;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, PartialMerkleTree};
-use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper, ShardChunk};
+use near_primitives::reed_solomon::ReedSolomonWrapper;
+use near_primitives::sharding::{EncodedShardChunk, ShardChunk};
 use near_primitives::stateless_validation::ChunkEndorsement;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockHeight, ShardId};
@@ -286,6 +287,7 @@ pub fn run_catchup(
     loop {
         client.run_catchup(
             highest_height_peers,
+            &noop().into_sender(),
             &noop().into_sender(),
             &block_catch_up,
             &resharding,

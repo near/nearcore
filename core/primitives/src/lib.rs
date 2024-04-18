@@ -18,6 +18,7 @@ pub mod network;
 pub mod profile_data_v2;
 pub mod rand;
 pub mod receipt;
+pub mod reed_solomon;
 pub mod runtime;
 pub mod sandbox;
 pub mod shard_layout;

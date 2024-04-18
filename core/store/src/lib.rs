@@ -360,6 +360,15 @@ impl Store {
     /// Loads state (`State` and `FlatState` columns) from given file.
     ///
     /// See [`Self::save_state_to_file`] for description of the file format.
+    #[tracing::instrument(
+        level = "info",
+        // FIXME: start moving things into tighter modules so that its easier to selectively trace
+        // specific things.
+        target = "store",
+        "Store::load_state_from_file",
+        skip_all,
+        fields(filename = %filename.display())
+    )]
     pub fn load_state_from_file(&self, filename: &Path) -> io::Result<()> {
         let file = File::open(filename)?;
         let mut file = std::io::BufReader::new(file);
@@ -500,7 +509,7 @@ impl StoreUpdate {
     ) {
         assert!(column.is_rc(), "can't update refcount: {column}");
         let value = refcount::encode_negative_refcount(decrease);
-        self.transaction.update_refcount(column, key.to_vec(), value)
+        self.transaction.update_refcount(column, key.to_vec(), value.to_vec())
     }
 
     /// Same as `self.decrement_refcount_by(column, key, 1)`.
@@ -574,7 +583,24 @@ impl StoreUpdate {
         self.transaction.merge(other.transaction)
     }
 
-    #[tracing::instrument(level = "trace", target = "store", "StoreUpdate::commit", skip_all)]
+    #[tracing::instrument(
+        level = "trace",
+        target = "store::update",
+        // FIXME: start moving things into tighter modules so that its easier to selectively trace
+        // specific things.
+        "StoreUpdate::commit",
+        skip_all,
+        fields(
+            transaction.ops.len = self.transaction.ops.len(),
+            total_bytes,
+            inserts,
+            sets,
+            rc_ops,
+            deletes,
+            delete_all_ops,
+            delete_range_ops
+        )
+    )]
     pub fn commit(self) -> io::Result<()> {
         debug_assert!(
             {
@@ -597,25 +623,76 @@ impl StoreUpdate {
             "Transaction overwrites itself: {:?}",
             self
         );
-        for op in &self.transaction.ops {
-            match op {
-                DBOp::Insert { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "insert", col = %col, key = %StorageKey(key), size = value.len(), value = %AbbrBytes(value),)
-                }
-                DBOp::Set { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "set", col = %col, key = %StorageKey(key), size = value.len(), value = %AbbrBytes(value))
-                }
-                DBOp::UpdateRefcount { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "update_rc", col = %col, key = %StorageKey(key), size = value.len(), value = %AbbrBytes(value))
-                }
-                DBOp::Delete { col, key } => {
-                    tracing::trace!(target: "store", db_op = "delete", col = %col, key = %StorageKey(key))
-                }
-                DBOp::DeleteAll { col } => {
-                    tracing::trace!(target: "store", db_op = "delete_all", col = %col)
-                }
-                DBOp::DeleteRange { col, from, to } => {
-                    tracing::trace!(target: "store", db_op = "delete_range", col = %col, from = %StorageKey(from), to = %StorageKey(to))
+        let span = tracing::Span::current();
+        if !span.is_disabled() {
+            let [mut insert_count, mut set_count, mut update_rc_count] = [0u64; 3];
+            let [mut delete_count, mut delete_all_count, mut delete_range_count] = [0u64; 3];
+            let mut total_bytes = 0;
+            for op in &self.transaction.ops {
+                total_bytes += op.bytes();
+                let count = match op {
+                    DBOp::Set { .. } => &mut set_count,
+                    DBOp::Insert { .. } => &mut insert_count,
+                    DBOp::UpdateRefcount { .. } => &mut update_rc_count,
+                    DBOp::Delete { .. } => &mut delete_count,
+                    DBOp::DeleteAll { .. } => &mut delete_all_count,
+                    DBOp::DeleteRange { .. } => &mut delete_range_count,
+                };
+                *count += 1;
+            }
+            span.record("inserts", insert_count);
+            span.record("sets", set_count);
+            span.record("rc_ops", update_rc_count);
+            span.record("deletes", delete_count);
+            span.record("delete_all_ops", delete_all_count);
+            span.record("delete_range_ops", delete_range_count);
+            span.record("total_bytes", total_bytes);
+        }
+        if tracing::event_enabled!(target: "store::update::transactions", tracing::Level::TRACE) {
+            for op in &self.transaction.ops {
+                match op {
+                    DBOp::Insert { col, key, value } => tracing::trace!(
+                        target: "store::update::transactions",
+                        db_op = "insert",
+                        %col,
+                        key = %StorageKey(key),
+                        size = value.len(),
+                        value = %AbbrBytes(value),
+                    ),
+                    DBOp::Set { col, key, value } => tracing::trace!(
+                        target: "store::update::transactions",
+                        db_op = "set",
+                        %col,
+                        key = %StorageKey(key),
+                        size = value.len(),
+                        value = %AbbrBytes(value)
+                    ),
+                    DBOp::UpdateRefcount { col, key, value } => tracing::trace!(
+                        target: "store::update::transactions",
+                        db_op = "update_rc",
+                        %col,
+                        key = %StorageKey(key),
+                        size = value.len(),
+                        value = %AbbrBytes(value)
+                    ),
+                    DBOp::Delete { col, key } => tracing::trace!(
+                        target: "store::update::transactions",
+                        db_op = "delete",
+                        %col,
+                        key = %StorageKey(key)
+                    ),
+                    DBOp::DeleteAll { col } => tracing::trace!(
+                        target: "store::update::transactions",
+                        db_op = "delete_all",
+                        %col
+                    ),
+                    DBOp::DeleteRange { col, from, to } => tracing::trace!(
+                        target: "store::update::transactions",
+                        db_op = "delete_range",
+                        %col,
+                        from = %StorageKey(from),
+                        to = %StorageKey(to)
+                    ),
                 }
             }
         }

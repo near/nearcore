@@ -12,6 +12,9 @@ use crate::peer_manager::peer_manager_actor;
 use crate::peer_manager::peer_store;
 use crate::private_actix::SendMessage;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
+use crate::state_witness::{
+    StateWitnessSenderForNetworkInput, StateWitnessSenderForNetworkMessage,
+};
 use crate::store;
 use crate::tcp;
 use crate::testonly::actix::ActixSystem;
@@ -42,6 +45,7 @@ pub(crate) enum Event {
     ShardsManager(ShardsManagerRequestFromNetwork),
     Client(ClientSenderForNetworkInput),
     Network(peer_manager_actor::Event),
+    StateWitness(StateWitnessSenderForNetworkInput),
 }
 
 pub(crate) struct PeerHandle {
@@ -118,6 +122,12 @@ impl PeerHandle {
                 send.send(Event::ShardsManager(event));
             }
         });
+        let state_witness_sender = Sender::from_fn({
+            let send = send.clone();
+            move |event: StateWitnessSenderForNetworkMessage| {
+                send.send(Event::StateWitness(event.into_input()));
+            }
+        });
         let network_state = Arc::new(NetworkState::new(
             &clock,
             store.clone(),
@@ -126,6 +136,7 @@ impl PeerHandle {
             cfg.chain.genesis_id.clone(),
             client_sender.break_apart().into_multi_sender(),
             shards_manager_sender,
+            state_witness_sender.break_apart().into_multi_sender(),
             vec![],
         ));
         let actix = ActixSystem::spawn({

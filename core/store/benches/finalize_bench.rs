@@ -22,11 +22,12 @@ use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePathItem};
 use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum};
+use near_primitives::reed_solomon::ReedSolomonWrapper;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart,
-    PartialEncodedChunkV2, ReceiptProof, ReedSolomonWrapper, ShardChunk, ShardChunkHeader,
-    ShardChunkHeaderV3, ShardChunkV2, ShardProof,
+    PartialEncodedChunkV2, ReceiptProof, ShardChunk, ShardChunkHeader, ShardChunkHeaderV3,
+    ShardChunkV2, ShardProof,
 };
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::types::AccountId;

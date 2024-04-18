@@ -15,7 +15,7 @@ slow receipts.
 
 ## Setup 
 
-When compiling neard (or the paramater estimator) with `feature=io_trace` it
+When compiling neard (or the parameter estimator) with `feature=io_trace` it
 instruments the binary code with fine-grained database operations tracking.
 
 *Aside: We don't enable it by default because we are afraid the overhead could be

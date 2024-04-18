@@ -726,6 +726,8 @@ pub struct StatusResponse {
     pub node_key: Option<PublicKey>,
     /// Uptime of the node.
     pub uptime_sec: i64,
+    /// Genesis hash of the chain.
+    pub genesis_hash: CryptoHash,
     /// Information about last blocks, network, epoch and chain & chunk info.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detailed_debug_status: Option<DetailedDebugStatus>,
@@ -1933,14 +1935,23 @@ pub enum ReceiptEnumView {
         output_data_receivers: Vec<DataReceiverView>,
         input_data_ids: Vec<CryptoHash>,
         actions: Vec<ActionView>,
+        #[serde(default = "default_is_promise")]
         is_promise_yield: bool,
     },
     Data {
         data_id: CryptoHash,
         #[serde_as(as = "Option<Base64>")]
         data: Option<Vec<u8>>,
+        #[serde(default = "default_is_promise")]
         is_promise_resume: bool,
     },
+}
+
+// Default value used when deserializing ReceiptEnumViews which are missing either the
+// `is_promise_yield` or `is_promise_resume` fields. Data which is missing this field was
+// serialized before the introduction of yield execution.
+fn default_is_promise() -> bool {
+    false
 }
 
 impl From<Receipt> for ReceiptView {
