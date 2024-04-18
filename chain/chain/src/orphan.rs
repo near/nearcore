@@ -1,3 +1,5 @@
+use crate::chain::ApplyChunksDoneMessage;
+use near_async::messaging::Sender;
 use near_async::time::{Duration, Instant};
 use near_chain_primitives::Error;
 use near_primitives::block::Block;
@@ -10,7 +12,7 @@ use std::fmt::{Debug, Formatter};
 use tracing::{debug, debug_span};
 
 use crate::missing_chunks::BlockLike;
-use crate::{metrics, BlockProcessingArtifact, Chain, DoneApplyChunkCallback, Provenance};
+use crate::{metrics, BlockProcessingArtifact, Chain, Provenance};
 
 /// Maximum number of orphans chain can store.
 const MAX_ORPHAN_SIZE: usize = 1024;
@@ -362,7 +364,7 @@ impl Chain {
         me: &Option<AccountId>,
         prev_hash: CryptoHash,
         block_processing_artifacts: &mut BlockProcessingArtifact,
-        apply_chunks_done_callback: DoneApplyChunkCallback,
+        apply_chunks_done_sender: Option<Sender<ApplyChunksDoneMessage>>,
     ) {
         let _span = debug_span!(
             target: "chain",
@@ -393,7 +395,7 @@ impl Chain {
                     orphan.block,
                     orphan.provenance,
                     block_processing_artifacts,
-                    apply_chunks_done_callback.clone(),
+                    apply_chunks_done_sender.clone(),
                 );
                 if let Err(err) = res {
                     debug!(target: "chain", "Orphan {:?} declined, error: {:?}", block_hash, err);

@@ -35,7 +35,6 @@ use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::Arc;
 use tracing::debug;
 
 #[cfg(feature = "nightly")]
@@ -359,13 +358,12 @@ impl TestReshardingEnv {
             // because we want to call run_catchup before finish processing this block. This simulates
             // that catchup and block processing run in parallel.
             let block = MaybeValidated::from(block.clone());
-            client.start_process_block(block, Provenance::NONE, Arc::new(|_| {})).unwrap();
+            client.start_process_block(block, Provenance::NONE, None).unwrap();
             if should_catchup {
                 run_catchup(client, &[])?;
             }
             while wait_for_all_blocks_in_processing(&mut client.chain) {
-                let (_, errors) =
-                    client.postprocess_ready_blocks(Arc::new(|_| {}), should_produce_chunk);
+                let (_, errors) = client.postprocess_ready_blocks(None, should_produce_chunk);
                 assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
             }
             if should_catchup {
