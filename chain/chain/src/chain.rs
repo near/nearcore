@@ -1341,7 +1341,7 @@ impl Chain {
     /// these blocks that are ready.
     /// `block_processing_artifacts`: Callers can pass an empty object or an existing BlockProcessingArtifact.
     ///              This function will add the effect from processing this block to there.
-    /// `apply_chunks_done_sender`: An ApplyChunksDoneMessage message will be send via this sender after apply_chunks is finished
+    /// `apply_chunks_done_sender`: An ApplyChunksDoneMessage message will be sent via this sender after apply_chunks is finished
     ///              (so it also happens asynchronously in the rayon thread pool). Callers can
     ///              use this sender as a way to receive notifications when apply chunks are done
     ///              so it can call postprocess_ready_blocks.
