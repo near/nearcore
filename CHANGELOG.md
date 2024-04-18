@@ -6,6 +6,14 @@
 
 ### Non-protocol Changes
 
+## 1.40.0
+
+### Protocol Changes
+
+**No Changes**
+
+### Non-protocol Changes
+
 ## 1.39.0
 
 ### Protocol Changes
