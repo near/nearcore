@@ -27,8 +27,8 @@ use near_primitives::merkle::merklize;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
 use near_primitives::stateless_validation::{
-    ChunkEndorsement, ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessSize,
-    SignedEncodedChunkStateWitness,
+    ChunkEndorsement, ChunkProductionKey, ChunkStateWitness, ChunkStateWitnessAck,
+    ChunkStateWitnessSize, SignedEncodedChunkStateWitness,
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -46,6 +46,8 @@ use std::sync::Arc;
 // Keeping a threshold of 5 block producers should be sufficient for most scenarios.
 const NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT: u64 = 5;
 
+const RECEIVED_STATE_WITNESSES_CACHE_SIZE: usize = 100;
+
 /// A module that handles chunk validation logic. Chunk validation refers to a
 /// critical process of stateless validation, where chunk validators (certain
 /// validators selected to validate the chunk) verify that the chunk's state
@@ -60,6 +62,7 @@ pub struct ChunkValidator {
     chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
     orphan_witness_pool: OrphanStateWitnessPool,
     validation_spawner: Arc<dyn AsyncComputationSpawner>,
+    received_witnesses: lru::LruCache<ChunkProductionKey, ()>,
 }
 
 impl ChunkValidator {
@@ -80,6 +83,7 @@ impl ChunkValidator {
             chunk_endorsement_tracker,
             orphan_witness_pool: OrphanStateWitnessPool::new(orphan_witness_pool_size),
             validation_spawner,
+            received_witnesses: lru::LruCache::new(RECEIVED_STATE_WITNESSES_CACHE_SIZE),
         }
     }
 
@@ -89,7 +93,7 @@ impl ChunkValidator {
     /// The chunk is validated asynchronously, if you want to wait for the processing to finish
     /// you can use the `processing_done_tracker` argument (but it's optional, it's safe to pass None there).
     pub fn start_validating_chunk(
-        &self,
+        &mut self,
         state_witness: ChunkStateWitness,
         chain: &Chain,
         processing_done_tracker: Option<ProcessingDoneTracker>,
@@ -102,6 +106,8 @@ impl ChunkValidator {
                 state_witness.epoch_id, prev_block_hash, epoch_id
             )));
         }
+
+        self.check_duplicate_witness(&state_witness)?;
 
         let pre_validation_result = pre_validate_chunk_state_witness(
             &state_witness,
@@ -140,6 +146,24 @@ impl ChunkValidator {
                 }
             }
         });
+        Ok(())
+    }
+
+    /// Verifies that we haven't already processed state witness for the corresponding
+    /// (shard_id, epoch_id, height_created). This protects against malicious chunk
+    /// producers wasting stateless validator resources by making it apply chunk multiple
+    /// times.
+    fn check_duplicate_witness(&mut self, state_witness: &ChunkStateWitness) -> Result<(), Error> {
+        let chunk_production_key = ChunkProductionKey::from_witness(&state_witness);
+        if self.received_witnesses.contains(&chunk_production_key) {
+            return Err(Error::DuplicateChunkStateWitness(format!(
+                "Already received witness for height {} shard {} epoch {:?}",
+                chunk_production_key.height_created,
+                chunk_production_key.shard_id,
+                chunk_production_key.epoch_id,
+            )));
+        }
+        self.received_witnesses.push(chunk_production_key, ());
         Ok(())
     }
 }

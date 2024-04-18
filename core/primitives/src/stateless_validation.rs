@@ -376,6 +376,27 @@ impl ChunkValidatorAssignments {
     }
 }
 
+/// This struct contains combination of fields that uniquely identify chunk production.
+/// It means that for a given instance only one chunk could be produced.
+/// The main use case it to track processed state witness in order to protect stateless
+/// validator against malicious chunk producers.
+#[derive(Hash, PartialEq, Eq)]
+pub struct ChunkProductionKey {
+    pub shard_id: ShardId,
+    pub epoch_id: EpochId,
+    pub height_created: BlockHeight,
+}
+
+impl ChunkProductionKey {
+    pub fn from_witness(witness: &ChunkStateWitness) -> Self {
+        Self {
+            shard_id: witness.chunk_header.shard_id(),
+            epoch_id: witness.epoch_id.clone(),
+            height_created: witness.chunk_header.height_created(),
+        }
+    }
+}
+
 fn decompress_with_limit(data: &[u8], limit: usize) -> std::io::Result<Vec<u8>> {
     let mut buf = Vec::new().limit(limit).writer();
     match zstd::stream::copy_decode(data, &mut buf) {
