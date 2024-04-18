@@ -101,6 +101,12 @@ pub fn forward_messages_from_network_to_state_witness_actor(
         StateWitnessSenderForNetworkMessage::_chunk_state_witness_ack(msg) => {
             state_witness_actions.handle_chunk_state_witness_ack(msg.0);
         }
+        StateWitnessSenderForNetworkMessage::_partial_encoded_state_witness(msg) => {
+            state_witness_actions.handle_partial_encoded_state_witness(msg.0).unwrap();
+        }
+        StateWitnessSenderForNetworkMessage::_partial_encoded_state_witness_forward(msg) => {
+            state_witness_actions.handle_partial_encoded_state_witness_forward(msg.0).unwrap();
+        }
     })
 }
 

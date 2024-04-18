@@ -19,6 +19,10 @@ use near_primitives_core::types::{AccountId, Balance, BlockHeight, ShardId};
 /// This is a messy workaround until we know what to do with NEP 483.
 type SignatureDifferentiator = String;
 
+// TODO(shreyan): Fill this struct
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct PartialEncodedStateWitness {}
+
 /// Represents bytes of encoded ChunkStateWitness.
 /// For now encoding is raw borsh serialization, later we plan
 /// adding compression on top of that.
