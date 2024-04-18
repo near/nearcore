@@ -5,6 +5,7 @@ use std::io;
 pub(crate) mod rocksdb;
 
 mod colddb;
+mod mixeddb;
 mod splitdb;
 
 pub mod refcount;
@@ -14,6 +15,7 @@ mod testdb;
 mod database_tests;
 
 pub use self::colddb::ColdDB;
+pub use self::mixeddb::{MixedDB, ReadOrder};
 pub use self::rocksdb::RocksDB;
 pub use self::splitdb::SplitDB;
 
@@ -71,6 +73,17 @@ impl DBOp {
             DBOp::Delete { col, .. } => col,
             DBOp::DeleteAll { col } => col,
             DBOp::DeleteRange { col, .. } => col,
+        }
+    }
+
+    pub fn bytes(&self) -> usize {
+        match self {
+            DBOp::Set { key, value, .. } => key.len() + value.len(),
+            DBOp::Insert { key, value, .. } => key.len() + value.len(),
+            DBOp::UpdateRefcount { key, value, .. } => key.len() + value.len(),
+            DBOp::Delete { key, .. } => key.len(),
+            DBOp::DeleteAll { .. } => 0,
+            DBOp::DeleteRange { from, to, .. } => from.len() + to.len(),
         }
     }
 }

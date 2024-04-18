@@ -33,7 +33,7 @@ use near_primitives::types::{AccountId, StateRoot, StateRootNode};
 use near_vm_runner::ContractCode;
 pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::hash::Hash;
 use std::rc::Rc;
@@ -80,7 +80,7 @@ pub struct TrieCosts {
 }
 
 /// Whether a key lookup will be performed through flat storage or through iterating the trie
-#[derive(PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum KeyLookupMode {
     FlatStorage,
     Trie,
@@ -449,12 +449,12 @@ impl TrieRefcountSubtraction {
 /// Helps produce a list of additions and subtractions to the trie,
 /// especially in the case where deletions don't carry the full value.
 pub struct TrieRefcountDeltaMap {
-    map: HashMap<CryptoHash, (Option<Vec<u8>>, i32)>,
+    map: BTreeMap<CryptoHash, (Option<Vec<u8>>, i32)>,
 }
 
 impl TrieRefcountDeltaMap {
     pub fn new() -> Self {
-        Self { map: HashMap::new() }
+        Self { map: BTreeMap::new() }
     }
 
     pub fn add(&mut self, hash: CryptoHash, data: Vec<u8>, refcount: u32) {
@@ -469,8 +469,9 @@ impl TrieRefcountDeltaMap {
     }
 
     pub fn into_changes(self) -> (Vec<TrieRefcountAddition>, Vec<TrieRefcountSubtraction>) {
-        let mut insertions = Vec::new();
-        let mut deletions = Vec::new();
+        let num_insertions = self.map.iter().filter(|(_h, (_v, rc))| *rc > 0).count();
+        let mut insertions = Vec::with_capacity(num_insertions);
+        let mut deletions = Vec::with_capacity(self.map.len().saturating_sub(num_insertions));
         for (hash, (value, rc)) in self.map.into_iter() {
             if rc > 0 {
                 insertions.push(TrieRefcountAddition {
@@ -683,6 +684,15 @@ impl Trie {
             .unwrap_or_default()
     }
 
+    /// Size of the recorded state proof plus some additional size added to cover removals.
+    /// An upper-bound estimation of the true recorded size after finalization.
+    pub fn recorded_storage_size_upper_bound(&self) -> usize {
+        self.recorder
+            .as_ref()
+            .map(|recorder| recorder.borrow().recorded_storage_size_upper_bound())
+            .unwrap_or_default()
+    }
+
     /// Constructs a Trie from the partial storage (i.e. state proof) that
     /// was returned from recorded_storage(). If used to access the same trie
     /// nodes as when the partial storage was generated, this trie will behave
@@ -742,9 +752,16 @@ impl Trie {
 
     #[cfg(test)]
     fn memory_usage_verify(&self, memory: &NodesStorage, handle: NodeHandle) -> u64 {
+        // Cannot compute memory usage naively if given only partial storage.
+        if self.storage.as_partial_storage().is_some() {
+            return 0;
+        }
+        // We don't want to impact recorded storage by retrieving nodes for
+        // this sanity check.
         if self.recorder.is_some() {
             return 0;
         }
+
         let TrieNodeWithSize { node, memory_usage } = match handle {
             NodeHandle::InMemory(h) => memory.node_ref(h).clone(),
             NodeHandle::Hash(h) => self.retrieve_node(&h).expect("storage failure").1,
@@ -1121,12 +1138,6 @@ impl Trie {
         }
     }
 
-    #[tracing::instrument(
-        level = "trace",
-        target = "store::trie",
-        "Trie::move_node_to_mutable",
-        skip_all
-    )]
     fn move_node_to_mutable(
         &self,
         memory: &mut NodesStorage,
@@ -1829,7 +1840,7 @@ mod tests {
     fn test_contains_key() {
         let sid = ShardUId::single_shard();
         let bid = CryptoHash::default();
-        let tries = TestTriesBuilder::new().with_flat_storage().build();
+        let tries = TestTriesBuilder::new().with_flat_storage(true).build();
         let initial = vec![
             (vec![99, 44, 100, 58, 58, 49], Some(vec![1])),
             (vec![99, 44, 100, 58, 58, 50], Some(vec![1])),
@@ -1923,7 +1934,9 @@ mod tests {
             let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
 
             // Those known keys.
-            for (key, value) in trie_changes.into_iter().collect::<HashMap<_, _>>() {
+            for (key, value) in
+                trie_changes.into_iter().collect::<std::collections::HashMap<_, _>>()
+            {
                 if let Some(value) = value {
                     let want = Some(Ok((key.clone(), value)));
                     let mut iterator = trie.iter().unwrap();

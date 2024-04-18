@@ -1,5 +1,5 @@
 import './FloatingChunksView.scss';
-import { useQuery } from 'react-query';
+import { useQuery } from '@tanstack/react-query';
 import { fetchChainProcessingStatus } from './api';
 
 type FloatingChunksViewProps = {

@@ -1,9 +1,9 @@
 use crate::accounts_data::AccountDataError;
 use crate::client::{
     AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
-    BlockResponse, ChunkEndorsementMessage, ChunkStateWitnessAckMessage, ChunkStateWitnessMessage,
-    ProcessTxRequest, RecvChallenge, StateRequestHeader, StateRequestPart, StateResponse,
-    TxStatusRequest, TxStatusResponse,
+    BlockResponse, ChunkEndorsementMessage, ChunkStateWitnessMessage, ProcessTxRequest,
+    RecvChallenge, StateRequestHeader, StateRequestPart, StateResponse, TxStatusRequest,
+    TxStatusResponse,
 };
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
@@ -27,6 +27,7 @@ use crate::routing::edge::verify_nonce;
 use crate::routing::NetworkTopologyChange;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::snapshot_hosts::SnapshotHostInfoError;
+use crate::state_witness::ChunkStateWitnessAckMessage;
 use crate::stats::metrics;
 use crate::tcp;
 use crate::types::{
@@ -35,7 +36,7 @@ use crate::types::{
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, ActorContext as _, ActorFutureExt as _, AsyncContext as _};
 use lru::LruCache;
-use near_async::messaging::SendAsync;
+use near_async::messaging::{CanSend, SendAsync};
 use near_async::time;
 use near_crypto::Signature;
 use near_o11y::{handler_debug_span, log_assert, WithSpanContext};
@@ -1017,7 +1018,7 @@ impl PeerActor {
                 None
             }
             RoutedMessageBody::ChunkStateWitnessAck(ack) => {
-                network_state.client.send_async(ChunkStateWitnessAckMessage(ack)).await.ok();
+                network_state.state_witness_adapter.send(ChunkStateWitnessAckMessage(ack));
                 None
             }
             RoutedMessageBody::ChunkEndorsement(endorsement) => {
