@@ -66,6 +66,7 @@ use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 use near_store::DBCol;
 use near_store::ShardUId;
 use near_telemetry::TelemetryEvent;
+use near_vm_runner::ContractCode;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
@@ -1876,6 +1877,17 @@ impl ClientActionHandler<ChunkEndorsementMessage> for ClientActions {
     fn handle(&mut self, msg: ChunkEndorsementMessage) -> Self::Result {
         if let Err(err) = self.client.process_chunk_endorsement(msg.0) {
             tracing::error!(target: "client", ?err, "Error processing chunk endorsement");
+        }
+    }
+}
+
+impl ClientActionHandler<ContractCodeRequest> for ClientActions {
+    type Result = ();
+
+    #[perf]
+    fn handle(&mut self, msg: ContractCodeRequest) -> Self::Result {
+        if let Err(err) = self.client.process_contract_code_request(msg.0, None) {
+            tracing::error!(target: "client", ?err, "Error processing contract code request");
         }
     }
 }

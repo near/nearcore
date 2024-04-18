@@ -6,7 +6,7 @@ use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::stateless_validation::{ChunkEndorsement, SignedEncodedChunkStateWitness};
+use near_primitives::stateless_validation::{ChunkEndorsement, SignedEncodedChunkStateWitness, ContractCodeRequest, ContractCodeResponse};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
@@ -143,4 +143,6 @@ pub struct ClientSenderForNetwork {
         AsyncSender<AnnounceAccountRequest, Result<Vec<AnnounceAccount>, ReasonForBan>>,
     pub chunk_state_witness: AsyncSender<ChunkStateWitnessMessage, ()>,
     pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, ()>,
+    pub contract_code_request: AsyncSender<ContractCodeRequest, ()>,
+    pub contract_code_response: AsyncSender<ContractCodeResponse, ()>,
 }
