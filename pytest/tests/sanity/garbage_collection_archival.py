@@ -71,6 +71,21 @@ archival_config = {
         }
     },
     "archive": True,
+    "save_trie_changes": True,
+    "split_storage": {
+      "enable_split_storage_view_client": True,
+      "cold_store_initial_migration_loop_sleep_duration": {
+          "secs": 0,
+          "nanos": 100000000
+      },
+      "cold_store_loop_sleep_duration": {
+          "secs": 0,
+          "nanos": 100000000
+      },
+    },
+    "cold_store": {
+        "path": "cold-data",
+    },
     "tracked_shards": [0]
 }
 
@@ -91,7 +106,7 @@ keys = [''.join(random.choices(string.ascii_lowercase, k=3)) for _ in range(20)]
 key_to_block_hash = {}
 nonce = 1
 time.sleep(1)
-block_id = nodes[1].get_latest_block()
+block_id = nodes[1].get_latest_block(check_storage=False)
 
 # insert all accounts
 for key in keys:
@@ -106,7 +121,7 @@ print("keys inserted")
 # delete all accounts
 for key in keys:
     print(f"deleting {key}")
-    block_id = nodes[1].get_latest_block()
+    block_id = nodes[1].get_latest_block(check_storage=False)
     account_id = f"{key}.{nodes[0].signer_key.account_id}"
     key = Key(account_id, nodes[0].signer_key.pk, nodes[0].signer_key.sk)
     tx = sign_delete_account_tx(
@@ -117,7 +132,7 @@ for key in keys:
     assert 'SuccessValue' in res['result']['status'], res
 
 # wait for the deletions to be garbage collected
-deletion_finish_block_height = int(nodes[1].get_latest_block().height)
+deletion_finish_block_height = int(nodes[1].get_latest_block(check_storage=False).height)
 wait_for_blocks(nodes[1], target=deletion_finish_block_height + EPOCH_LENGTH * 6)
 
 # check that querying a validator node on the block at which the key inserted fails,
@@ -138,6 +153,7 @@ for key in keys:
             "account_id": f"{key}.{nodes[0].signer_key.account_id}",
             "block_id": block_hash
         })
+    assert 'result' in res, res
     assert res['result']['amount'] == str(NEAR_BASE)
 
     # check that the history cannot be queried on a nonarchival node
