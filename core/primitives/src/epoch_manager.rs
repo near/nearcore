@@ -149,6 +149,10 @@ impl AllEpochConfig {
         config
     }
 
+    pub fn chain_id(&self) -> &str {
+        &self.chain_id
+    }
+
     fn config_stateless_net(
         config: &mut EpochConfig,
         chain_id: &str,

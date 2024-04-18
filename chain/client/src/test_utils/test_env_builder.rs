@@ -1,4 +1,7 @@
+use crate::StateWitnessActions;
+
 use super::setup::{setup_client_with_runtime, setup_synchronous_shards_manager};
+use super::synchronous_state_witness_adapter::SynchronousStateWitnessAdapter;
 use super::test_env::TestEnv;
 use super::{AccountIndices, TEST_SEED};
 use actix_rt::System;
@@ -16,6 +19,7 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_manager::{AllEpochConfigTestOverrides, RngSeed};
+use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, NumShards};
 use near_store::config::StateSnapshotType;
 use near_store::test_utils::create_test_store;
@@ -323,13 +327,8 @@ impl TestEnvBuilder {
             .ensure_contract_caches();
         let home_dirs = builder.home_dirs.clone().unwrap();
         let stores = builder.stores.clone().unwrap();
-        let contract_caches = builder
-            .contract_caches
-            .as_ref()
-            .unwrap()
-            .iter()
-            .map(|c| c.handle())
-            .collect::<Vec<_>>();
+        let contract_caches =
+            builder.contract_caches.as_ref().unwrap().iter().map(|c| c.handle()).collect_vec();
         let epoch_managers = builder.epoch_managers.clone().unwrap();
         let runtimes = multizip((
             home_dirs,
@@ -513,7 +512,7 @@ impl TestEnvBuilder {
         let network_adapters = self.network_adapters.unwrap();
         let client_adapters = (0..num_clients)
             .map(|_| Arc::new(MockClientAdapterForShardsManager::default()))
-            .collect::<Vec<_>>();
+            .collect_vec();
         let shards_manager_adapters = (0..num_clients)
             .map(|i| {
                 let clock = clock.clone();
@@ -533,7 +532,7 @@ impl TestEnvBuilder {
                     &chain_genesis,
                 )
             })
-            .collect::<Vec<_>>();
+            .collect_vec();
         let clients = (0..num_clients)
                 .map(|i| {
                     let account_id = clients[i].clone();
@@ -561,10 +560,16 @@ impl TestEnvBuilder {
                         make_snapshot_callback,
                         delete_snapshot_callback,
                     };
+                    let validator_signer = Arc::new(create_test_signer(clients[i].as_str()));
+                    let state_witness_adapter = SynchronousStateWitnessAdapter::new(StateWitnessActions::new(
+                        clock.clone(),
+                        network_adapters[i].clone().as_multi_sender(),
+                        validator_signer.clone(),
+                        epoch_manager.clone().into_adapter(),
+                    ));
                     setup_client_with_runtime(
                         clock.clone(),
                         u64::try_from(num_validators).unwrap(),
-                        Some(account_id),
                         false,
                         network_adapter.as_multi_sender(),
                         shards_manager_adapter,
@@ -576,6 +581,8 @@ impl TestEnvBuilder {
                         self.archive,
                         self.save_trie_changes,
                         Some(snapshot_callbacks),
+                        state_witness_adapter.into_multi_sender(),
+                        validator_signer,
                     )
                 })
                 .collect();

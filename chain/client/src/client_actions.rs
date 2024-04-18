@@ -13,7 +13,7 @@ use crate::debug::new_network_info_view;
 use crate::info::{display_sync_status, InfoHelper};
 use crate::sync::adapter::{SyncMessage, SyncShardInfo};
 use crate::sync::state::{StateSync, StateSyncResult};
-use crate::{metrics, StatusResponse};
+use crate::{metrics, DistributeStateWitnessRequest, StatusResponse};
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawner};
 use near_async::messaging::{CanSend, Sender};
 use near_async::time::{Clock, Utc};
@@ -41,8 +41,8 @@ use near_client_primitives::types::{
 };
 use near_network::client::{
     BlockApproval, BlockHeadersResponse, BlockResponse, ChunkEndorsementMessage,
-    ChunkStateWitnessAckMessage, ChunkStateWitnessMessage, ProcessTxRequest, ProcessTxResponse,
-    RecvChallenge, SetNetworkInfo, StateResponse,
+    ChunkStateWitnessMessage, ProcessTxRequest, ProcessTxResponse, RecvChallenge, SetNetworkInfo,
+    StateResponse,
 };
 use near_network::types::ReasonForBan;
 use near_network::types::{
@@ -93,6 +93,10 @@ pub struct SyncJobsSenderForClient {
     pub load_memtrie: Sender<LoadMemtrieRequest>,
     pub block_catch_up: Sender<BlockCatchUpRequest>,
     pub resharding: Sender<ReshardingRequest>,
+}
+
+pub struct StateWitnessSenderForClient {
+    pub distribute_chunk_state_witness: Sender<DistributeStateWitnessRequest>,
 }
 
 pub struct ClientActions {
@@ -1862,14 +1866,6 @@ impl ClientActionHandler<ChunkStateWitnessMessage> for ClientActions {
         if let Err(err) = self.client.process_chunk_state_witness(msg.0, None) {
             tracing::error!(target: "client", ?err, "Error processing chunk state witness");
         }
-    }
-}
-
-impl ClientActionHandler<ChunkStateWitnessAckMessage> for ClientActions {
-    type Result = ();
-
-    fn handle(&mut self, msg: ChunkStateWitnessAckMessage) -> Self::Result {
-        self.client.process_chunk_state_witness_ack(msg.0);
     }
 }
 
