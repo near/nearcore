@@ -50,18 +50,17 @@ fn main() -> anyhow::Result<()> {
     openssl_probe::init_ssl_cert_env_vars();
     near_performance_metrics::process::schedule_printing_performance_stats(Duration::from_secs(60));
 
-    // The default FD soft limit in linux is 1024.
-    // We use more than that, for example we support up to 1000 TCP
-    // connections, using 5 FDs per each connection.
-    // We consider 65535 to be a reasonable limit for this binary,
-    // and we enforce it here. We also set the hard limit to the same value
-    // to prevent the inner logic from trying to bump it further:
-    // FD limit is a global variable, so it shouldn't be modified in an
-    // uncoordinated way.
-    const FD_LIMIT: u64 = 65535;
+    // Retrieve FD_LIMIT from an environment variable with a default value of 65535.
+    let fd_limit_default = 65535; // Default value
+    let fd_limit_str = env::var("FD_LIMIT").unwrap_or_else(|_| fd_limit_default.to_string());
+    let fd_limit = fd_limit_str.parse::<u64>().context("Failed to parse FD_LIMIT from environment variable")?;
+
+    // Retrieve the current hard limit
     let (_, hard) = rlimit::Resource::NOFILE.get().context("rlimit::Resource::NOFILE::get()")?;
-    rlimit::Resource::NOFILE.set(FD_LIMIT, FD_LIMIT).context(format!(
-        "couldn't set the file descriptor limit to {FD_LIMIT}, hard limit = {hard}"
+    // Attempt to set both the soft and hard limits to fd_limit
+    rlimit::Resource::NOFILE.set(fd_limit, fd_limit).context(format!(
+        "couldn't set the file descriptor limit to {}, hard limit = {}",
+        fd_limit, hard
     ))?;
 
     NeardCmd::parse_and_run()
