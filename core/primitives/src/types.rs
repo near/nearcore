@@ -14,6 +14,10 @@ use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::sync::Arc;
 
+mod chunk_validator_stats;
+
+pub use chunk_validator_stats::{ChunkValidatorStats, ChunkValidatorStatsV2};
+
 /// Hash used by to store state root.
 pub type StateRoot = CryptoHash;
 
@@ -915,7 +919,7 @@ pub struct ValidatorStats {
 #[derive(Debug, BorshSerialize, BorshDeserialize, PartialEq, Eq)]
 pub struct BlockChunkValidatorStats {
     pub block_stats: ValidatorStats,
-    pub chunk_stats: ValidatorStats,
+    pub chunk_stats: ChunkValidatorStats,
 }
 
 #[derive(serde::Deserialize, Debug, arbitrary::Arbitrary, PartialEq, Eq)]

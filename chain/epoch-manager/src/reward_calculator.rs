@@ -89,22 +89,24 @@ impl RewardCalculator {
         let total_stake: Balance = validator_stake.values().sum();
         for (account_id, stats) in validator_block_chunk_stats {
             // Uptime is an average of block produced / expected and chunk produced / expected.
-            let (average_produced_numer, average_produced_denom) =
-                if stats.block_stats.expected == 0 && stats.chunk_stats.expected == 0 {
-                    (U256::from(0), U256::from(1))
-                } else if stats.block_stats.expected == 0 {
-                    (U256::from(stats.chunk_stats.produced), U256::from(stats.chunk_stats.expected))
-                } else if stats.chunk_stats.expected == 0 {
-                    (U256::from(stats.block_stats.produced), U256::from(stats.block_stats.expected))
-                } else {
-                    (
-                        U256::from(
-                            stats.block_stats.produced * stats.chunk_stats.expected
-                                + stats.chunk_stats.produced * stats.block_stats.expected,
-                        ),
-                        U256::from(2 * stats.chunk_stats.expected * stats.block_stats.expected),
-                    )
-                };
+            let (average_produced_numer, average_produced_denom) = if stats.block_stats.expected
+                == 0
+                && stats.chunk_stats.expected() == 0
+            {
+                (U256::from(0), U256::from(1))
+            } else if stats.block_stats.expected == 0 {
+                (U256::from(stats.chunk_stats.produced()), U256::from(stats.chunk_stats.expected()))
+            } else if stats.chunk_stats.expected() == 0 {
+                (U256::from(stats.block_stats.produced), U256::from(stats.block_stats.expected))
+            } else {
+                (
+                    U256::from(
+                        stats.block_stats.produced * stats.chunk_stats.expected()
+                            + stats.chunk_stats.produced() * stats.block_stats.expected,
+                    ),
+                    U256::from(2 * stats.chunk_stats.expected() * stats.block_stats.expected),
+                )
+            };
             let online_min_numer = U256::from(*self.online_min_threshold.numer() as u64);
             let online_min_denom = U256::from(*self.online_min_threshold.denom() as u64);
             // If average of produced blocks below online min threshold, validator gets 0 reward.
@@ -113,13 +115,13 @@ impl RewardCalculator {
             let reward = if average_produced_numer * online_min_denom
                 < online_min_numer * average_produced_denom
                 || (chunk_only_producers_enabled
-                    && stats.chunk_stats.expected == 0
+                    && stats.chunk_stats.expected() == 0
                     && stats.block_stats.expected == 0)
                 // This is for backwards compatibility. In 2021 December, after we changed to 4 shards,
                 // mainnet was ran without SynchronizeBlockChunkProduction for some time and it's
                 // possible that some validators have expected blocks or chunks to be zero.
                 || (!chunk_only_producers_enabled
-                    && (stats.chunk_stats.expected == 0 || stats.block_stats.expected == 0))
+                    && (stats.chunk_stats.expected() == 0 || stats.block_stats.expected == 0))
             {
                 0
             } else {
@@ -153,7 +155,7 @@ impl RewardCalculator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use near_primitives::types::{BlockChunkValidatorStats, ValidatorStats};
+    use near_primitives::types::{BlockChunkValidatorStats, ChunkValidatorStats, ValidatorStats};
     use near_primitives::version::PROTOCOL_VERSION;
     use num_rational::Ratio;
     use std::collections::HashMap;
@@ -176,14 +178,17 @@ mod tests {
                 "test1".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 0, expected: 0 },
-                    chunk_stats: ValidatorStats { produced: 0, expected: 0 },
+                    chunk_stats: ChunkValidatorStats::default(),
                 },
             ),
             (
                 "test2".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 0, expected: 1 },
-                    chunk_stats: ValidatorStats { produced: 0, expected: 1 },
+                    chunk_stats: ChunkValidatorStats::V1(ValidatorStats {
+                        produced: 0,
+                        expected: 1,
+                    }),
                 },
             ),
         ]);
@@ -227,21 +232,30 @@ mod tests {
                 "test1".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 945, expected: 1000 },
-                    chunk_stats: ValidatorStats { produced: 945, expected: 1000 },
+                    chunk_stats: ChunkValidatorStats::V1(ValidatorStats {
+                        produced: 945,
+                        expected: 1000,
+                    }),
                 },
             ),
             (
                 "test2".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 999, expected: 1000 },
-                    chunk_stats: ValidatorStats { produced: 999, expected: 1000 },
+                    chunk_stats: ChunkValidatorStats::V1(ValidatorStats {
+                        produced: 999,
+                        expected: 1000,
+                    }),
                 },
             ),
             (
                 "test3".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 850, expected: 1000 },
-                    chunk_stats: ValidatorStats { produced: 850, expected: 1000 },
+                    chunk_stats: ChunkValidatorStats::V1(ValidatorStats {
+                        produced: 850,
+                        expected: 1000,
+                    }),
                 },
             ),
         ]);
@@ -292,7 +306,10 @@ mod tests {
                 "test1".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 945, expected: 1000 },
-                    chunk_stats: ValidatorStats { produced: 945, expected: 1000 },
+                    chunk_stats: ChunkValidatorStats::V1(ValidatorStats {
+                        produced: 945,
+                        expected: 1000,
+                    }),
                 },
             ),
             // chunk only producer
@@ -300,7 +317,10 @@ mod tests {
                 "test2".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 0, expected: 0 },
-                    chunk_stats: ValidatorStats { produced: 999, expected: 1000 },
+                    chunk_stats: ChunkValidatorStats::V1(ValidatorStats {
+                        produced: 999,
+                        expected: 1000,
+                    }),
                 },
             ),
             // block only producer (not implemented right now, just for testing)
@@ -308,7 +328,7 @@ mod tests {
                 "test3".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 945, expected: 1000 },
-                    chunk_stats: ValidatorStats { produced: 0, expected: 0 },
+                    chunk_stats: ChunkValidatorStats::default(),
                 },
             ),
             // a validator that expected blocks and chunks are both 0 (this could occur with very
@@ -317,7 +337,7 @@ mod tests {
                 "test4".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 0, expected: 0 },
-                    chunk_stats: ValidatorStats { produced: 0, expected: 0 },
+                    chunk_stats: ChunkValidatorStats::default(),
                 },
             ),
         ]);
@@ -373,7 +393,10 @@ mod tests {
             "test".parse().unwrap(),
             BlockChunkValidatorStats {
                 block_stats: ValidatorStats { produced: 43200, expected: 43200 },
-                chunk_stats: ValidatorStats { produced: 345600, expected: 345600 },
+                chunk_stats: ChunkValidatorStats::V1(ValidatorStats {
+                    produced: 345600,
+                    expected: 345600,
+                }),
             },
         )]);
         let validator_stake = HashMap::from([("test".parse().unwrap(), 500_000 * 10_u128.pow(24))]);
