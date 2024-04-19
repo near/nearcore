@@ -1,6 +1,6 @@
 use crate::logic::{MemSlice, MemoryLike};
 use near_vm_types::{MemoryType, Pages};
-use near_vm_vm::{LinearMemory, Memory, MemoryStyle, VMMemory};
+use near_vm_vm::{LinearMemory, MemoryStyle, VMMemory};
 use std::borrow::Cow;
 use std::sync::Arc;
 

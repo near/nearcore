@@ -7,7 +7,7 @@
 use crate::func_data_registry::VMFuncRef;
 use crate::global::Global;
 use crate::instance::Instance;
-use crate::memory::Memory;
+use crate::memory::LinearMemory;
 use crate::sig_registry::VMSharedSignatureIndex;
 use crate::table::Table;
 use crate::trap::{Trap, TrapCode};
@@ -291,7 +291,7 @@ pub struct VMMemoryImport {
     pub definition: NonNull<VMMemoryDefinition>,
 
     /// A pointer to the `Memory` that owns the memory description.
-    pub from: Arc<dyn Memory>,
+    pub from: Arc<LinearMemory>,
 }
 
 #[cfg(test)]

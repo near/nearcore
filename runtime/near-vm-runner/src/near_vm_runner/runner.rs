@@ -24,7 +24,9 @@ use near_vm_engine::universal::{
     UniversalExecutableRef,
 };
 use near_vm_types::{FunctionIndex, InstanceConfig, MemoryType, Pages, WASM_PAGE_SIZE};
-use near_vm_vm::{Artifact, Instantiatable, LinearTable, Memory, MemoryStyle, TrapCode, VMMemory};
+use near_vm_vm::{
+    Artifact, Instantiatable, LinearMemory, LinearTable, MemoryStyle, TrapCode, VMMemory,
+};
 use std::mem::size_of;
 use std::sync::{Arc, OnceLock};
 
@@ -461,7 +463,7 @@ impl near_vm_vm::Tunables for &NearVM {
         &self,
         ty: &MemoryType,
         _style: &MemoryStyle,
-    ) -> Result<std::sync::Arc<dyn Memory>, near_vm_vm::MemoryError> {
+    ) -> Result<std::sync::Arc<LinearMemory>, near_vm_vm::MemoryError> {
         // We do not support arbitrary Host memories. The only memory contracts may use is the
         // memory imported via `env.memory`.
         Err(near_vm_vm::MemoryError::CouldNotGrow {
@@ -475,7 +477,7 @@ impl near_vm_vm::Tunables for &NearVM {
         ty: &MemoryType,
         _style: &MemoryStyle,
         _vm_definition_location: std::ptr::NonNull<near_vm_vm::VMMemoryDefinition>,
-    ) -> Result<std::sync::Arc<dyn Memory>, near_vm_vm::MemoryError> {
+    ) -> Result<std::sync::Arc<LinearMemory>, near_vm_vm::MemoryError> {
         // We do not support VM memories. The only memory contracts may use is the memory imported
         // via `env.memory`.
         Err(near_vm_vm::MemoryError::CouldNotGrow {
