@@ -1028,10 +1028,10 @@ impl InstanceHandle {
             Ok(local) => Arc::clone(&instance.memories[local]),
             Err(import) => Arc::clone(&instance.imported_memory(import).from),
         };
-        Some(crate::VMMemory {
+        Some(crate::VMMemory::new(
             from,
-            instance_ref: Some(WeakOrStrongInstanceRef::Strong(self.instance().clone())),
-        })
+            Some(WeakOrStrongInstanceRef::Strong(self.instance().clone())),
+        ))
     }
 
     /// Return the indexed `VMMemoryDefinition`.

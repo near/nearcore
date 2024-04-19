@@ -66,7 +66,7 @@ impl NearVmMemory {
     }
 
     pub(super) fn vm(&self) -> VMMemory {
-        VMMemory { from: self.0.clone(), instance_ref: None }
+        VMMemory::new(self.0.clone(), None)
     }
 }
 
