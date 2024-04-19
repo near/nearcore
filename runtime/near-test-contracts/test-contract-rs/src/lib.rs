@@ -324,6 +324,47 @@ pub unsafe fn write_random_value() {
     storage_write(data.len() as _, data.as_ptr() as _, value.len() as _, value.as_ptr() as _, 1);
 }
 
+/// Write a 1MB value under the given key.
+/// Key is of type u8. Value is made up of the key repeated a million times.
+#[no_mangle]
+pub unsafe fn write_one_megabyte() {
+    input(0);
+    if register_len(0) != size_of::<u8>() as u64 {
+        panic();
+    }
+    let mut key: u8 = 0;
+    read_register(0, &mut key as *mut u8 as u64);
+
+    let value = vec![key; 1_000_000];
+    storage_write(
+        size_of::<u8>() as u64,
+        &mut key as *mut u8 as u64,
+        value.len() as u64,
+        value.as_ptr() as u64,
+        0,
+    );
+}
+
+/// Read n megabytes of data between from..to
+/// Reads values that were written using `write_one_megabyte`.
+/// The input is a pair of u8 values `from` and `to.
+#[no_mangle]
+pub unsafe fn read_n_megabytes() {
+    input(0);
+    assert_eq!(register_len(0), 2 * size_of::<u8>() as u64);
+    let mut input_data = [0u8; 2 * size_of::<u8>()];
+    read_register(0, input_data.as_mut_ptr() as *mut u8 as u64);
+
+    let from = input_data[0];
+    let to = input_data[1];
+
+    for key in from..to {
+        let result = storage_read(size_of::<u8>() as u64, &key as *const u8 as u64, 0);
+        assert_eq!(result, 1);
+        assert_eq!(register_len(0), 1_000_000);
+    }
+}
+
 #[no_mangle]
 pub unsafe fn read_value() {
     input(0);
