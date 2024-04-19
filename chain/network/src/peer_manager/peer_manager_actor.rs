@@ -1020,6 +1020,28 @@ impl PeerManagerActor {
                 }
                 NetworkResponses::NoResponse
             }
+            NetworkRequests::ContractCodeRequest(target, request) => {
+                if self.state.send_message_to_account(
+                    &self.clock,
+                    &target,
+                    RoutedMessageBody::ContractCodeRequest(request),
+                ) {
+                    NetworkResponses::NoResponse
+                } else {
+                    NetworkResponses::RouteNotFound
+                }
+            }
+            NetworkRequests::ContractCodeResponse(target, response) => {
+                if self.state.send_message_to_account(
+                    &self.clock,
+                    &target,
+                    RoutedMessageBody::ContractCodeResponse(response),
+                ) {
+                    NetworkResponses::NoResponse
+                } else {
+                    NetworkResponses::RouteNotFound
+                }
+            }
         }
     }
 

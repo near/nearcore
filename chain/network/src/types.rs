@@ -16,6 +16,7 @@ use near_async::time;
 use near_crypto::PublicKey;
 use near_primitives::block::{ApprovalMessage, Block, GenesisId};
 use near_primitives::challenge::Challenge;
+use near_primitives::contract_code_sync::{ContractCodeRequest, ContractCodeResponse};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
@@ -269,10 +270,12 @@ pub enum NetworkRequests {
     PartialEncodedStateWitness(Vec<(AccountId, PartialEncodedStateWitness)>),
     /// Message from chunk validator to all other chunk validators to forward state witness part.
     PartialEncodedStateWitnessForward(Vec<AccountId>, PartialEncodedStateWitness),
-    /// TODO
-    ContractCodeRequest(AccoundId, ContractCodeRequest),
-    /// TODO
-    ContractCodeResponse(AccoundId, ContractCodeResponse),
+    /// Message from chunk validator to the network to request missing contract code.
+    /// TODO(#11099): Currently the AccountId belongs to the chunk producer that sent the witness with
+    /// the missing contract code. Request the code from one of the nodes tracking the respective shard.
+    ContractCodeRequest(AccountId, ContractCodeRequest),
+    /// Message sent to a chunk validator (which AccountId belongs to) to provide the missing contact code.
+    ContractCodeResponse(AccountId, ContractCodeResponse),
 }
 
 /// Combines peer address info, chain.

@@ -3,10 +3,11 @@ use crate::types::{NetworkInfo, ReasonForBan};
 use near_async::messaging::AsyncSender;
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
+use near_primitives::contract_code_sync::{ContractCodeRequest, ContractCodeResponse};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::stateless_validation::{ChunkEndorsement, SignedEncodedChunkStateWitness, ContractCodeRequest, ContractCodeResponse};
+use near_primitives::stateless_validation::{ChunkEndorsement, SignedEncodedChunkStateWitness};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
@@ -120,6 +121,14 @@ pub struct ChunkStateWitnessMessage(pub SignedEncodedChunkStateWitness);
 #[rtype(result = "()")]
 pub struct ChunkEndorsementMessage(pub ChunkEndorsement);
 
+#[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
+#[rtype(result = "()")]
+pub struct ContractCodeRequestMessage(pub ContractCodeRequest);
+
+#[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
+#[rtype(result = "()")]
+pub struct ContractCodeResponseMessage(pub ContractCodeResponse);
+
 #[derive(
     Clone, near_async::MultiSend, near_async::MultiSenderFrom, near_async::MultiSendMessage,
 )]
@@ -143,6 +152,6 @@ pub struct ClientSenderForNetwork {
         AsyncSender<AnnounceAccountRequest, Result<Vec<AnnounceAccount>, ReasonForBan>>,
     pub chunk_state_witness: AsyncSender<ChunkStateWitnessMessage, ()>,
     pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, ()>,
-    pub contract_code_request: AsyncSender<ContractCodeRequest, ()>,
-    pub contract_code_response: AsyncSender<ContractCodeResponse, ()>,
+    pub contract_code_request: AsyncSender<ContractCodeRequestMessage, ()>,
+    pub contract_code_response: AsyncSender<ContractCodeResponseMessage, ()>,
 }

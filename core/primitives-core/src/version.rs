@@ -152,6 +152,8 @@ pub enum ProtocolFeature {
     // Stateless validation: in statelessnet, shuffle shard assignments for chunk producers every
     // epoch.
     StatelessnetShuffleShardAssignmentsForChunkProducers,
+    /// Stateless validation: Chunk validator requests contract code from the network.
+    ContractCodeSync,
 }
 
 impl ProtocolFeature {
@@ -218,6 +220,7 @@ impl ProtocolFeature {
             ProtocolFeature::SingleShardTracking => 82,
             ProtocolFeature::StateWitnessSizeLimit => 83,
             ProtocolFeature::StatelessnetShuffleShardAssignmentsForChunkProducers => 84,
+            ProtocolFeature::ContractCodeSync => 85,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]

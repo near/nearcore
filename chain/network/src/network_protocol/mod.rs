@@ -7,6 +7,7 @@ mod peer;
 mod proto_conv;
 mod state_sync;
 pub use edge::*;
+use near_primitives::contract_code_sync::{ContractCodeRequest, ContractCodeResponse};
 use near_primitives::stateless_validation::ChunkEndorsement;
 use near_primitives::stateless_validation::ChunkStateWitnessAck;
 use near_primitives::stateless_validation::PartialEncodedStateWitness;
@@ -616,6 +617,12 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::PartialEncodedStateWitnessForward(_) => {
                 write!(f, "PartialEncodedStateWitnessForward")
             }
+            RoutedMessageBody::ContractCodeRequest(request) => write!(
+                f,
+                "ContractCodeRequest for {:?}",
+                request.account_ids.iter().map(|id| id.as_ref()).collect::<Vec<&str>>().join(", ")
+            ),
+            RoutedMessageBody::ContractCodeResponse(_response) => write!(f, "ContractCodeResponse"),
         }
     }
 }

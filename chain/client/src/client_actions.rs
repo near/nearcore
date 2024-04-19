@@ -9,7 +9,6 @@
 use crate::client::AdvProduceBlocksMode;
 use crate::client::{Client, EPOCH_START_INFO_BLOCKS};
 use crate::config_updater::ConfigUpdater;
-use crate::stateless_validation::code_sync::{ContractCodeRequest, ContractCodeResponse};
 use crate::debug::new_network_info_view;
 use crate::info::{display_sync_status, InfoHelper};
 use crate::sync::adapter::{SyncMessage, SyncShardInfo};
@@ -42,8 +41,8 @@ use near_client_primitives::types::{
 };
 use near_network::client::{
     BlockApproval, BlockHeadersResponse, BlockResponse, ChunkEndorsementMessage,
-    ChunkStateWitnessMessage, ProcessTxRequest, ProcessTxResponse, RecvChallenge, SetNetworkInfo,
-    StateResponse,
+    ChunkStateWitnessMessage, ContractCodeRequestMessage, ContractCodeResponseMessage,
+    ProcessTxRequest, ProcessTxResponse, RecvChallenge, SetNetworkInfo, StateResponse,
 };
 use near_network::types::ReasonForBan;
 use near_network::types::{
@@ -67,7 +66,6 @@ use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 use near_store::DBCol;
 use near_store::ShardUId;
 use near_telemetry::TelemetryEvent;
-use near_vm_runner::ContractCode;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
@@ -1882,23 +1880,23 @@ impl ClientActionHandler<ChunkEndorsementMessage> for ClientActions {
     }
 }
 
-impl ClientActionHandler<ContractCodeRequest> for ClientActions {
+impl ClientActionHandler<ContractCodeRequestMessage> for ClientActions {
     type Result = ();
 
     #[perf]
-    fn handle(&mut self, msg: ContractCodeRequest) -> Self::Result {
-        if let Err(err) = self.client.process_contract_code_request(msg.0, None) {
+    fn handle(&mut self, msg: ContractCodeRequestMessage) -> Self::Result {
+        if let Err(err) = self.client.process_contract_code_request(msg.0) {
             tracing::error!(target: "client", ?err, "Error processing contract code request");
         }
     }
 }
 
-impl ClientActionHandler<ContractCodeResponse> for ClientActions {
+impl ClientActionHandler<ContractCodeResponseMessage> for ClientActions {
     type Result = ();
 
     #[perf]
-    fn handle(&mut self, msg: ContractCodeResponse) -> Self::Result {
-        if let Err(err) = self.client.process_contract_code_response(msg.0, None) {
+    fn handle(&mut self, msg: ContractCodeResponseMessage) -> Self::Result {
+        if let Err(err) = self.client.process_contract_code_response(msg.0) {
             tracing::error!(target: "client", ?err, "Error processing contract code response");
         }
     }
