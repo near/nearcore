@@ -7,7 +7,6 @@ use near_async::time::Clock;
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
-use near_primitives::checked_feature;
 use near_primitives::reed_solomon::ReedSolomonWrapper;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::{
@@ -84,13 +83,8 @@ impl StateWitnessActions {
             chunk_validators.len(),
         );
 
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        if !checked_feature!("stable", PartialEncodedStateWitness, protocol_version) {
-            // TODO(stateless_validation): Deprecate once we send state witness in parts.
-            self.send_state_witness(witness_bytes, chunk_validators);
-        } else {
-            self.send_state_witness_parts(epoch_id, chunk_header, witness_bytes, chunk_validators)?;
-        }
+        // TODO(stateless_validation): Replace with call to send_state_witness_parts after full implementation
+        self.send_state_witness(witness_bytes, chunk_validators);
 
         Ok(())
     }
@@ -119,6 +113,7 @@ impl StateWitnessActions {
     // Break the state witness into parts and send each part to the corresponding chunk validator owner.
     // The chunk validator owner will then forward the part to all other chunk validators.
     // Each chunk validator would collect the parts and reconstruct the state witness.
+    #[allow(unused)]
     fn send_state_witness_parts(
         &mut self,
         epoch_id: EpochId,
