@@ -104,7 +104,7 @@ fn setup_network_node(
         None,
         noop().into_multi_sender(),
     )
-    .0;
+    .client_actor;
     let view_client_actor = start_view_client(
         Clock::real(),
         config.validator.as_ref().map(|v| v.account_id()),
