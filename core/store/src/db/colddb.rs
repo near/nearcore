@@ -1,4 +1,5 @@
 use near_o11y::{log_assert, log_assert_fail};
+use near_primitives::shard_layout::{ShardLayout, ShardLayoutError, ShardUId};
 
 use crate::db::refcount::set_refcount;
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database};
@@ -38,6 +39,78 @@ impl ColdDB {
     fn log_assert_is_in_colddb(col: DBCol) {
         log_assert!(col.is_in_colddb(), "{}", Self::err_msg(col));
     }
+
+    fn get_with_rc_stripped_state(
+        &self,
+        col: DBCol,
+        key: &[u8],
+    ) -> Result<Option<DBSlice<'_>>, std::io::Error> {
+        let result = self.cold.get_with_rc_stripped(col, key);
+        if result.is_ok() {
+            return result;
+        }
+
+        // If the key is not found it could be due to data loss during the
+        // V1->V2 or V2->V3 resharding. In that case we may still be able to
+        // find the missing trie node saved under the parent shard uid.
+
+        let shard_uid = ShardUId::try_from(&key[0..8]).unwrap();
+        match shard_uid.version {
+            2 => {
+                let shard_layout = ShardLayout::get_simple_nightshade_layout_v2();
+                let parent_shard_layout = ShardLayout::get_simple_nightshade_layout();
+
+                let parent_key =
+                    get_parent_key(&shard_layout, &parent_shard_layout, shard_uid, key);
+                let Ok(parent_key) = parent_key else {
+                    return result;
+                };
+
+                let parent_result = self.cold.get_with_rc_stripped(col, &parent_key);
+                if parent_result.is_ok() {
+                    return parent_result;
+                } else {
+                    return result;
+                }
+            }
+            3 => {
+                let shard_layout = ShardLayout::get_simple_nightshade_layout_v3();
+                let parent_shard_layout = ShardLayout::get_simple_nightshade_layout_v2();
+
+                let parent_key =
+                    get_parent_key(&shard_layout, &parent_shard_layout, shard_uid, key);
+                let Ok(parent_key) = parent_key else {
+                    return result;
+                };
+
+                let parent_result = self.cold.get_with_rc_stripped(col, &parent_key);
+                if parent_result.is_ok() {
+                    return parent_result;
+                } else {
+                    return result;
+                }
+            }
+            _ => {}
+        }
+
+        result
+    }
+}
+
+fn get_parent_key(
+    shard_layout: &ShardLayout,
+    parent_shard_layout: &ShardLayout,
+    shard_uid: ShardUId,
+    key: &[u8],
+) -> Result<Vec<u8>, ShardLayoutError> {
+    let parent_shard_id = shard_layout.get_parent_shard_id(shard_uid.shard_id())?;
+    let parent_shard_uid =
+        ShardUId::from_shard_id_and_layout(parent_shard_id, &parent_shard_layout);
+
+    let mut parent_key = key.to_vec();
+    let parent_shard_uid_bytes = parent_shard_uid.to_bytes();
+    parent_key[0..8].copy_from_slice(&parent_shard_uid_bytes);
+    Ok(parent_key)
 }
 
 impl Database for ColdDB {
@@ -50,7 +123,12 @@ impl Database for ColdDB {
     /// Returns value for given `key` forcing a reference count decoding.
     fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<DBSlice<'_>>> {
         Self::check_is_in_colddb(col)?;
-        self.cold.get_with_rc_stripped(col, key)
+
+        if col == DBCol::State {
+            self.get_with_rc_stripped_state(col, key)
+        } else {
+            self.cold.get_with_rc_stripped(col, key)
+        }
     }
 
     /// Iterates over all values in a column.

@@ -45,7 +45,10 @@ impl ReshardingCommand {
         let response = Chain::build_state_for_split_shards(resharding_request);
         let ReshardingResponse { sync_hash, new_state_roots: state_roots, .. } = response;
 
-        chain.build_state_for_split_shards_postprocessing(shard_uid, &sync_hash, state_roots?)?;
+        let state_roots = state_roots?;
+        tracing::info!(target: "resharding", ?state_roots, "state roots");
+
+        chain.build_state_for_split_shards_postprocessing(shard_uid, &sync_hash, state_roots)?;
 
         Ok(())
     }
@@ -70,7 +73,6 @@ impl ReshardingCommand {
         let write_config = &config.config.store;
         let write_db = RocksDB::open(write_path, write_config, Mode::ReadWrite, Temperature::Hot)?;
         let write_db = Arc::new(write_db);
-        println!("opened write db {write_path:?}");
 
         // Prepare the full mixed db.
         // It will read, in order, from write, hot and cold.

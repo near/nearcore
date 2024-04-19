@@ -4153,6 +4153,7 @@ dependencies = [
  "strum",
  "tempfile",
  "time",
+ "tracing",
 ]
 
 [[package]]
