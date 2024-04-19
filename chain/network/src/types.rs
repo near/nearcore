@@ -259,6 +259,7 @@ pub enum NetworkRequests {
     TxStatus(AccountId, AccountId, CryptoHash),
     /// A challenge to invalidate a block.
     Challenge(Challenge),
+    /// TODO(stateless_validation): Deprecate once we send state witness in parts.
     /// A chunk's state witness.
     ChunkStateWitness(Vec<AccountId>, SignedEncodedChunkStateWitness),
     /// Acknowledgement to a chunk's state witness, sent back to the originating chunk producer.
