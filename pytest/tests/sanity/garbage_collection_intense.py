@@ -40,13 +40,13 @@ client_config = {
     "rpc": {
         "polling_config": {
             "polling_interval": {
-            "secs": 0,
-            "nanos": 10000000
-          },
-        "polling_timeout": {
-            "secs": 10,
-            "nanos": 0
-          }
+                "secs": 0,
+                "nanos": 10000000
+            },
+            "polling_timeout": {
+                "secs": 10,
+                "nanos": 0
+            }
         }
     }
 }
@@ -94,27 +94,26 @@ while True:
         args = start.to_bytes(8, 'little') + i.to_bytes(8, 'little')
         if random.random() > 0.5:
             tx = sign_function_call_tx(nodes[0].signer_key,
-                                   nodes[0].signer_key.account_id, 'insert_strings',
-                                   args, GAS, 0, nonce,
-                                   block_hash)
+                                       nodes[0].signer_key.account_id,
+                                       'insert_strings', args, GAS, 0, nonce,
+                                       block_hash)
         else:
             tx = sign_function_call_tx(nodes[0].signer_key,
-                                   nodes[0].signer_key.account_id, 'delete_strings',
-                                   args, GAS, 0, nonce,
-                                   block_hash)
+                                       nodes[0].signer_key.account_id,
+                                       'delete_strings', args, GAS, 0, nonce,
+                                       block_hash)
         res = nodes[1].send_tx(tx)
         assert 'result' in res, res
         nonce += 1
-    
+
 # delete all keys
 for i in range(1, 20):
     start = 0
     args = start.to_bytes(8, 'little') + i.to_bytes(8, 'little')
     block_id = nodes[1].get_latest_block()
     tx = sign_function_call_tx(nodes[0].signer_key,
-                                       nodes[0].signer_key.account_id, 'delete_strings',
-                                       args, GAS, 0, nonce,
-                                       block_id.hash_bytes)
+                               nodes[0].signer_key.account_id, 'delete_strings',
+                               args, GAS, 0, nonce, block_id.hash_bytes)
     res = nodes[1].send_tx_and_wait(tx, 2)
     assert 'result' in res, res
     assert 'SuccessValue' in res['result']['status'], res
@@ -122,12 +121,14 @@ for i in range(1, 20):
 
 # wait for the deletions to be garbage collected
 deletion_finish_block_height = int(nodes[1].get_latest_block().height)
-wait_for_blocks(nodes[1], target=deletion_finish_block_height + EPOCH_LENGTH * 6)
+wait_for_blocks(nodes[1],
+                target=deletion_finish_block_height + EPOCH_LENGTH * 6)
 
 # check that querying a garbage collected block gives Error::GarbageCollected
-res = nodes[1].json_rpc('query', {
-            "request_type": "view_account",
-            "account_id": nodes[0].signer_key.account_id,
-            "block_id": deletion_finish_block_height
-        })
+res = nodes[1].json_rpc(
+    'query', {
+        "request_type": "view_account",
+        "account_id": nodes[0].signer_key.account_id,
+        "block_id": deletion_finish_block_height
+    })
 assert res['error']['cause']['name'] == "GARBAGE_COLLECTED_BLOCK", res
