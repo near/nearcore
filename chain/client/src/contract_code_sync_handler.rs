@@ -8,7 +8,7 @@ impl Client {
         &mut self,
         _request: ContractCodeRequest,
     ) -> Result<(), Error> {
-        // TODO(#11099): Implement this.
+        // TODO(#11099): Implement this - Return the contract code that belong to the given accounts.
         unimplemented!()
     }
 
@@ -16,7 +16,7 @@ impl Client {
         &mut self,
         _response: ContractCodeResponse,
     ) -> Result<(), Error> {
-        // TODO(#11099): Implement this.
+        // TODO(#11099): Implement this - Initiate compilation of the contract code.
         unimplemented!()
     }
 }
