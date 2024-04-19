@@ -31,6 +31,10 @@ node1_config.update({
     },
     "tracked_shards": [0],
     "gc_blocks_limit": 10,
+    "gc_step_period": {
+        "secs": 0,
+        "nanos": 100000000
+    }
 })
 
 nodes = start_cluster(

@@ -1,5 +1,5 @@
 use crate::block_processing_utils::{
-    BlockPreprocessInfo, BlockProcessingArtifact, BlocksInProcessing, DoneApplyChunkCallback,
+    BlockPreprocessInfo, BlockProcessingArtifact, BlocksInProcessing,
 };
 use crate::blocks_delay_tracker::BlocksDelayTracker;
 use crate::chain_update::ChainUpdate;
@@ -131,6 +131,13 @@ enum ApplyChunksMode {
     CatchingUp,
     NotCaughtUp,
 }
+
+/// `ApplyChunksDoneMessage` is a message that signals the finishing of applying chunks of a block.
+/// Upon receiving this message, ClientActors know that it's time to finish processing the blocks that
+/// just finished applying chunks.
+#[derive(actix::Message, Debug)]
+#[rtype(result = "()")]
+pub struct ApplyChunksDoneMessage;
 
 /// Contains information for missing chunks in a block
 pub struct BlockMissingChunks {
@@ -1334,9 +1341,9 @@ impl Chain {
     /// these blocks that are ready.
     /// `block_processing_artifacts`: Callers can pass an empty object or an existing BlockProcessingArtifact.
     ///              This function will add the effect from processing this block to there.
-    /// `apply_chunks_done_callback`: This callback will be called after apply_chunks are finished
+    /// `apply_chunks_done_sender`: An ApplyChunksDoneMessage message will be sent via this sender after apply_chunks is finished
     ///              (so it also happens asynchronously in the rayon thread pool). Callers can
-    ///              use this callback as a way to receive notifications when apply chunks are done
+    ///              use this sender as a way to receive notifications when apply chunks are done
     ///              so it can call postprocess_ready_blocks.
     pub fn start_process_block_async(
         &mut self,
@@ -1344,7 +1351,7 @@ impl Chain {
         block: MaybeValidated<Block>,
         provenance: Provenance,
         block_processing_artifacts: &mut BlockProcessingArtifact,
-        apply_chunks_done_callback: DoneApplyChunkCallback,
+        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) -> Result<(), Error> {
         let _span =
             debug_span!(target: "chain", "start_process_block_async", ?provenance).entered();
@@ -1358,7 +1365,7 @@ impl Chain {
             block,
             provenance,
             block_processing_artifacts,
-            apply_chunks_done_callback,
+            apply_chunks_done_sender,
             block_received_time,
         );
 
@@ -1386,7 +1393,7 @@ impl Chain {
         &mut self,
         me: &Option<AccountId>,
         block_processing_artifacts: &mut BlockProcessingArtifact,
-        apply_chunks_done_callback: DoneApplyChunkCallback,
+        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) -> (Vec<AcceptedBlock>, HashMap<CryptoHash, Error>) {
         let _span = debug_span!(target: "chain", "postprocess_ready_blocks_chain").entered();
         let mut accepted_blocks = vec![];
@@ -1397,7 +1404,7 @@ impl Chain {
                 block_hash,
                 apply_result,
                 block_processing_artifacts,
-                apply_chunks_done_callback.clone(),
+                apply_chunks_done_sender.clone(),
             ) {
                 Err(e) => {
                     errors.insert(block_hash, e);
@@ -1558,7 +1565,7 @@ impl Chain {
         me: &Option<AccountId>,
         sync_hash: CryptoHash,
         block_processing_artifacts: &mut BlockProcessingArtifact,
-        apply_chunks_done_callback: DoneApplyChunkCallback,
+        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "sync", "reset_heads_post_state_sync").entered();
         // Get header we were syncing into.
@@ -1583,7 +1590,7 @@ impl Chain {
         // Check if there are any orphans unlocked by this state sync.
         // We can't fail beyond this point because the caller will not process accepted blocks
         //    and the blocks with missing chunks if this method fails
-        self.check_orphans(me, hash, block_processing_artifacts, apply_chunks_done_callback);
+        self.check_orphans(me, hash, block_processing_artifacts, apply_chunks_done_sender);
         Ok(())
     }
 
@@ -1595,7 +1602,7 @@ impl Chain {
         block: MaybeValidated<Block>,
         provenance: Provenance,
         block_processing_artifact: &mut BlockProcessingArtifact,
-        apply_chunks_done_callback: DoneApplyChunkCallback,
+        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
         block_received_time: Instant,
     ) -> Result<(), Error> {
         let block_height = block.header().height();
@@ -1712,7 +1719,7 @@ impl Chain {
             block_height,
             apply_chunk_work,
             apply_chunks_done_marker,
-            apply_chunks_done_callback.clone(),
+            apply_chunks_done_sender,
         );
 
         Ok(())
@@ -1720,14 +1727,14 @@ impl Chain {
 
     /// Applying chunks async by starting the work at the rayon thread pool
     /// `apply_chunks_done_marker`: a marker that will be set to true once applying chunks is finished
-    /// `apply_chunks_done_callback`: a callback that will be called once applying chunks is finished
+    /// `apply_chunks_done_sender`: a sender to send a ApplyChunksDoneMessage message once applying chunks is finished
     fn schedule_apply_chunks(
         &self,
         block_hash: CryptoHash,
         block_height: BlockHeight,
         work: Vec<UpdateShardJob>,
         apply_chunks_done_marker: Arc<OnceCell<()>>,
-        apply_chunks_done_callback: DoneApplyChunkCallback,
+        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) {
         let sc = self.apply_chunks_sender.clone();
         self.apply_chunks_spawner.spawn("apply_chunks", move || {
@@ -1740,7 +1747,9 @@ impl Chain {
                 // This should never happen, if it does, it means there is a bug in our code.
                 log_assert!(false, "apply chunks are called twice for block {block_hash:?}");
             }
-            apply_chunks_done_callback(block_hash);
+            if let Some(sender) = apply_chunks_done_sender {
+                sender.send(ApplyChunksDoneMessage {});
+            }
         });
     }
 
@@ -1777,7 +1786,7 @@ impl Chain {
         block_hash: CryptoHash,
         apply_results: Vec<(ShardId, Result<ShardUpdateResult, Error>)>,
         block_processing_artifacts: &mut BlockProcessingArtifact,
-        apply_chunks_done_callback: DoneApplyChunkCallback,
+        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) -> Result<AcceptedBlock, Error> {
         let timer = metrics::BLOCK_POSTPROCESSING_TIME.start_timer();
         let (block, block_preprocess_info) =
@@ -1894,12 +1903,7 @@ impl Chain {
             block_start_processing_time,
         );
 
-        self.check_orphans(
-            me,
-            *block.hash(),
-            block_processing_artifacts,
-            apply_chunks_done_callback,
-        );
+        self.check_orphans(me, *block.hash(), block_processing_artifacts, apply_chunks_done_sender);
 
         // Determine the block status of this block (whether it is a side fork and updates the chain head)
         // Block status is needed in Client::on_block_accepted_with_optional_chunk_produce to
@@ -2199,7 +2203,7 @@ impl Chain {
         &mut self,
         me: &Option<AccountId>,
         block_processing_artifact: &mut BlockProcessingArtifact,
-        apply_chunks_done_callback: DoneApplyChunkCallback,
+        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) {
         let blocks = self.blocks_with_missing_chunks.ready_blocks();
         if !blocks.is_empty() {
@@ -2213,7 +2217,7 @@ impl Chain {
                 block.block,
                 block.provenance,
                 block_processing_artifact,
-                apply_chunks_done_callback.clone(),
+                apply_chunks_done_sender.clone(),
             );
             match res {
                 Ok(_) => {
@@ -3025,7 +3029,7 @@ impl Chain {
         me: &Option<AccountId>,
         epoch_first_block: &CryptoHash,
         block_processing_artifacts: &mut BlockProcessingArtifact,
-        apply_chunks_done_callback: DoneApplyChunkCallback,
+        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
         affected_blocks: &[CryptoHash],
     ) -> Result<(), Error> {
         debug!(
@@ -3062,7 +3066,7 @@ impl Chain {
                 me,
                 *hash,
                 block_processing_artifacts,
-                apply_chunks_done_callback.clone(),
+                apply_chunks_done_sender.clone(),
             );
         }
 

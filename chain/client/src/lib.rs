@@ -11,11 +11,12 @@ pub use near_client_primitives::types::{
 pub use crate::client::{Client, ProduceChunkResult};
 #[cfg(feature = "test_features")]
 pub use crate::client_actions::NetworkAdversarialMessage;
-pub use crate::client_actor::{start_client, ClientActor};
+pub use crate::client_actor::{start_client, ClientActor, StartClientResult};
 pub use crate::config_updater::ConfigUpdater;
 pub use crate::stateless_validation::chunk_validator::orphan_witness_handling::HandleOrphanWitnessOutcome;
 pub use crate::sync::adapter::{SyncAdapter, SyncMessage};
 pub use crate::view_client::{start_view_client, ViewClientActor};
+pub use gc_actor::start_gc_actor;
 pub use near_client_primitives::debug::DebugStatus;
 pub use near_network::client::{
     BlockApproval, BlockResponse, ProcessTxRequest, ProcessTxResponse, SetNetworkInfo,
@@ -36,6 +37,7 @@ mod client_actor;
 mod config_updater;
 mod contract_code_sync_handler;
 pub mod debug;
+pub mod gc_actor;
 mod info;
 mod metrics;
 mod stateless_validation;

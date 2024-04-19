@@ -38,12 +38,12 @@ impl Memory {
 
         Ok(Self {
             store: store.clone(),
-            vm_memory: VMMemory {
-                from: memory,
+            vm_memory: VMMemory::new(
+                memory,
                 // We are creating it from the host, and therefore there is no
                 // associated instance with this memory
-                instance_ref: None,
-            },
+                None,
+            ),
         })
     }
 
@@ -54,7 +54,7 @@ impl Memory {
 
     /// Returns the [`MemoryType`] of the `Memory`.
     pub fn ty(&self) -> MemoryType {
-        self.vm_memory.from.ty()
+        self.vm_memory.from().ty()
     }
 
     /// Returns the [`Store`] where the `Memory` belongs.
@@ -84,28 +84,28 @@ impl Memory {
     /// by resizing this Memory.
     #[allow(clippy::mut_from_ref)]
     pub unsafe fn data_unchecked_mut(&self) -> &mut [u8] {
-        let definition = self.vm_memory.from.vmmemory();
+        let definition = self.vm_memory.from().vmmemory();
         let def = definition.as_ref();
         slice::from_raw_parts_mut(def.base, def.current_length.try_into().unwrap())
     }
 
     /// Returns the pointer to the raw bytes of the `Memory`.
     pub fn data_ptr(&self) -> *mut u8 {
-        let definition = self.vm_memory.from.vmmemory();
+        let definition = self.vm_memory.from().vmmemory();
         let def = unsafe { definition.as_ref() };
         def.base
     }
 
     /// Returns the size (in bytes) of the `Memory`.
     pub fn data_size(&self) -> u64 {
-        let definition = self.vm_memory.from.vmmemory();
+        let definition = self.vm_memory.from().vmmemory();
         let def = unsafe { definition.as_ref() };
         def.current_length.try_into().unwrap()
     }
 
     /// Returns the size (in [`Pages`]) of the `Memory`.
     pub fn size(&self) -> Pages {
-        self.vm_memory.from.size()
+        self.vm_memory.from().size()
     }
 
     /// Return a "view" of the currently accessible memory. By
