@@ -10,6 +10,7 @@ pessimistic_gas_price_inflation: {
 
 # Stateless validation config
 storage_proof_size_soft_limit: 999_999_999_999_999
+storage_proof_size_receipt_limit: 999_999_999_999_999
 
 # Account creation config
 min_allowed_top_level_account_length: 0

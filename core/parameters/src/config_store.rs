@@ -39,6 +39,7 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (64, include_config!("64.yaml")),
     (66, include_config!("66.yaml")),
     (83, include_config!("83.yaml")),
+    (85, include_config!("85.yaml")),
     (129, include_config!("129.yaml")),
     // Introduce ETH-implicit accounts.
     (138, include_config!("138.yaml")),

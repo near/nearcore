@@ -150,6 +150,10 @@ impl External for MockedExternal {
         TrieNodesCount { db_reads: 0, mem_reads: 0 }
     }
 
+    fn get_recorded_storage_size(&self) -> usize {
+        0
+    }
+
     fn validator_stake(&self, account_id: &AccountId) -> Result<Option<Balance>> {
         Ok(self.validators.get(account_id).cloned())
     }
