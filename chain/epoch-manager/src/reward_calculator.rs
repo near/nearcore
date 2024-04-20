@@ -249,10 +249,7 @@ mod tests {
                 "test2".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 0, expected: 1 },
-                    chunk_stats: ChunkValidatorStats::V1(ValidatorStats {
-                        produced: 0,
-                        expected: 1,
-                    }),
+                    chunk_stats: ChunkValidatorStats::v1(0, 1),
                 },
             ),
         ]);
@@ -296,30 +293,21 @@ mod tests {
                 "test1".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 945, expected: 1000 },
-                    chunk_stats: ChunkValidatorStats::V1(ValidatorStats {
-                        produced: 945,
-                        expected: 1000,
-                    }),
+                    chunk_stats: ChunkValidatorStats::v1(945, 1000),
                 },
             ),
             (
                 "test2".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 999, expected: 1000 },
-                    chunk_stats: ChunkValidatorStats::V1(ValidatorStats {
-                        produced: 999,
-                        expected: 1000,
-                    }),
+                    chunk_stats: ChunkValidatorStats::v1(999, 1000),
                 },
             ),
             (
                 "test3".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 850, expected: 1000 },
-                    chunk_stats: ChunkValidatorStats::V1(ValidatorStats {
-                        produced: 850,
-                        expected: 1000,
-                    }),
+                    chunk_stats: ChunkValidatorStats::v1(850, 1000),
                 },
             ),
         ]);
@@ -370,10 +358,7 @@ mod tests {
                 "test1".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 945, expected: 1000 },
-                    chunk_stats: ChunkValidatorStats::V1(ValidatorStats {
-                        produced: 945,
-                        expected: 1000,
-                    }),
+                    chunk_stats: ChunkValidatorStats::v1(945, 1000),
                 },
             ),
             // chunk only producer
@@ -381,10 +366,7 @@ mod tests {
                 "test2".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 0, expected: 0 },
-                    chunk_stats: ChunkValidatorStats::V1(ValidatorStats {
-                        produced: 999,
-                        expected: 1000,
-                    }),
+                    chunk_stats: ChunkValidatorStats::v1(999, 1000),
                 },
             ),
             // block only producer (not implemented right now, just for testing)

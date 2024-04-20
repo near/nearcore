@@ -53,6 +53,10 @@ impl ChunkValidatorStats {
         })
     }
 
+    pub const fn v1(produced: u64, expected: u64) -> Self {
+        Self::V1(ValidatorStats { produced, expected })
+    }
+
     pub const fn new_with_endorsement(produced: u64, expected: u64) -> Self {
         Self::V2(ChunkValidatorStatsV2 {
             production: ValidatorStats { produced: 0, expected: 0 },
@@ -129,13 +133,13 @@ fn v1_v2_eq(v1: &ValidatorStats, v2: &ChunkValidatorStatsV2) -> bool {
 
 #[test]
 fn test_mutability() {
-    let mut stats = ChunkValidatorStats::V1(ValidatorStats::default());
+    let mut stats = ChunkValidatorStats::v1(0, 0);
 
     *stats.expected_mut() += 1;
-    assert_eq!(stats, ChunkValidatorStats::V1(ValidatorStats { produced: 0, expected: 1 }));
+    assert_eq!(stats, ChunkValidatorStats::v1(0, 1));
 
     *stats.produced_mut() += 1;
-    assert_eq!(stats, ChunkValidatorStats::V1(ValidatorStats { produced: 1, expected: 1 }));
+    assert_eq!(stats, ChunkValidatorStats::v1(1, 1));
 
     // Getting endorsement stats for V1 automatically upgrades to V2.
     let endorsement_stats = stats.endorsement_stats_mut();
@@ -185,7 +189,7 @@ fn test_mutability() {
 fn test_eq() {
     const PRODUCED: u64 = 123;
     const EXPECTED: u64 = 456;
-    let v1 = ChunkValidatorStats::V1(ValidatorStats { produced: PRODUCED, expected: EXPECTED });
+    let v1 = ChunkValidatorStats::v1(PRODUCED, EXPECTED);
     let v2 = ChunkValidatorStats::new_with_production(PRODUCED, EXPECTED);
 
     // V1 and V2 can be equal if the endorsements parts of V2 are zero.
