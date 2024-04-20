@@ -1264,7 +1264,10 @@ impl JsonRpcHandler {
     /// After store validator is done, resume GC by sending another message to GC Actor.
     /// This ensures that store validator is not run concurrently with another thread that may modify storage.
     async fn adv_check_store(&self, _params: Value) -> Result<Value, RpcError> {
-        self.gc_sender.send_async(near_client::gc_actor::NetworkAdversarialMessage::StopGC).await.map_err(|_| RpcError::server_error::<String>(None))?;
+        self.gc_sender
+            .send_async(near_client::gc_actor::NetworkAdversarialMessage::StopGC)
+            .await
+            .map_err(|_| RpcError::server_error::<String>(None))?;
         let ret_val = match self
             .client_sender
             .send_async(near_client::NetworkAdversarialMessage::AdvCheckStorageConsistency)
@@ -1276,7 +1279,10 @@ impl JsonRpcHandler {
             },
             _ => Err(RpcError::server_error::<String>(None)),
         }?;
-        self.gc_sender.send_async(near_client::gc_actor::NetworkAdversarialMessage::ResumeGC).await.map_err(|_| RpcError::server_error::<String>(None))?;
+        self.gc_sender
+            .send_async(near_client::gc_actor::NetworkAdversarialMessage::ResumeGC)
+            .await
+            .map_err(|_| RpcError::server_error::<String>(None))?;
         Ok(ret_val)
     }
 }
@@ -1475,8 +1481,7 @@ pub fn start_http(
     client_sender: ClientSenderForRpc,
     view_client_sender: ViewClientSenderForRpc,
     peer_manager_sender: PeerManagerSenderForRpc,
-    #[cfg(feature = "test_features")]
-    gc_sender: GCSenderForRpc,
+    #[cfg(feature = "test_features")] gc_sender: GCSenderForRpc,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
 ) -> Vec<(&'static str, actix_web::dev::ServerHandle)> {
     let RpcConfig {

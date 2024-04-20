@@ -1,4 +1,6 @@
 use crate::metrics;
+#[cfg(feature = "test_features")]
+use actix::Handler;
 use actix::{Actor, Addr, Arbiter, ArbiterHandle, AsyncContext, Context};
 use near_chain::{types::RuntimeAdapter, ChainStore, ChainStoreAccess};
 use near_chain_configs::{ClientConfig, GCConfig};
@@ -7,8 +9,6 @@ use near_primitives::types::BlockHeight;
 use near_store::{metadata::DbKind, Store};
 use std::sync::Arc;
 use tracing::warn;
-#[cfg(feature = "test_features")]
-use actix::Handler;
 
 /// An actor for garbage collection that runs in its own thread
 /// The actor runs periodically, as determined by `gc_step_period`,
@@ -20,7 +20,7 @@ pub struct GCActor {
     gc_config: GCConfig,
     is_archive: bool,
     /// In some tests we may want to temporarily disable GC
-    no_gc: bool
+    no_gc: bool,
 }
 
 impl GCActor {
@@ -79,7 +79,7 @@ impl GCActor {
             }
             timer.observe_duration();
         }
-        
+
         ctx.run_later(self.gc_config.gc_step_period, move |act, ctx| {
             act.gc(ctx);
         });
@@ -94,7 +94,6 @@ impl Actor for GCActor {
     }
 }
 
-
 #[cfg(feature = "test_features")]
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
@@ -107,18 +106,14 @@ pub enum NetworkAdversarialMessage {
 impl Handler<NetworkAdversarialMessage> for GCActor {
     type Result = ();
 
-    fn handle(
-        &mut self,
-        msg: NetworkAdversarialMessage,
-        _ctx: &mut Self::Context,
-    ) -> Self::Result {
+    fn handle(&mut self, msg: NetworkAdversarialMessage, _ctx: &mut Self::Context) -> Self::Result {
         match msg {
             NetworkAdversarialMessage::StopGC => {
                 self.no_gc = true;
             }
             NetworkAdversarialMessage::ResumeGC => {
                 self.no_gc = false;
-            },
+            }
         }
     }
 }

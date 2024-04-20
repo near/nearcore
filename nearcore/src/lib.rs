@@ -368,7 +368,7 @@ pub fn start_with_config_and_synchronization(
         #[cfg(feature = "test_features")]
         gc_actor,
         #[cfg(not(feature = "test_features"))]
-        gc_actor: _,
+            gc_actor: _,
     } = start_client(
         Clock::real(),
         config.client_config.clone(),
