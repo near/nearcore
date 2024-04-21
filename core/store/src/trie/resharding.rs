@@ -85,6 +85,9 @@ impl ShardTries {
                         // in `changes.processed_yield_timeouts`.
                     }
                 },
+                // TODO: figure out what we need to do here
+                TrieKey::BufferedReceiptIndices => todo!(),
+                TrieKey::BufferedReceipt { .. } => todo!(),
                 TrieKey::Account { account_id }
                 | TrieKey::ContractCode { account_id }
                 | TrieKey::AccessKey { account_id, .. }

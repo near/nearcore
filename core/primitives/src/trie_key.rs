@@ -3,6 +3,7 @@ use std::mem::size_of;
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_crypto::PublicKey;
+use near_primitives_core::types::ShardId;
 
 use crate::hash::CryptoHash;
 use crate::types::AccountId;
@@ -50,9 +51,14 @@ pub mod col {
     /// This column id is used when storing the postponed PromiseYield receipts
     /// (`primitives::receipt::Receipt`).
     pub const PROMISE_YIELD_RECEIPT: u8 = 12;
+    /// Indics of outgoing receipts. A singleton per shard.
+    pub const BUFFERED_RECEIPT_INDICES: u8 = 13;
+    /// Outgoing receipts that need to be buffered due to congestion +
+    /// backpressure on the receiving shard.
+    pub const BUFFERED_RECEIPT: u8 = 14;
     /// All columns except those used for the delayed receipts queue and the yielded promises
     /// queue, which are both global state for the shard.
-    pub const COLUMNS_WITH_ACCOUNT_ID_IN_KEY: [(u8, &str); 9] = [
+    pub const COLUMNS_WITH_ACCOUNT_ID_IN_KEY: [(u8, &str); 11] = [
         (ACCOUNT, "Account"),
         (CONTRACT_CODE, "ContractCode"),
         (ACCESS_KEY, "AccessKey"),
@@ -62,6 +68,8 @@ pub mod col {
         (POSTPONED_RECEIPT, "PostponedReceipt"),
         (CONTRACT_DATA, "ContractData"),
         (PROMISE_YIELD_RECEIPT, "PromiseYieldReceipt"),
+        (BUFFERED_RECEIPT_INDICES, "BufferedReceiptIndices"),
+        (BUFFERED_RECEIPT, "BufferedReceipt"),
     ];
 }
 
@@ -109,6 +117,14 @@ pub enum TrieKey {
     /// Used to store the postponed promise yield receipt `primitives::receipt::Receipt`
     /// for a given receiver's `AccountId` and a given `data_id`.
     PromiseYieldReceipt { receiver_id: AccountId, data_id: CryptoHash },
+    /// Used to store indices of the buffered receipts queues per shard.
+    /// NOTE: It is a singleton per shard, holding indices for all outgoing shards.
+    BufferedReceiptIndices,
+    /// Used to store a buffered receipt `primitives::receipt::Receipt` for a
+    /// given index `u64` and receiving shard. There is one unique queue
+    /// per ordered shard pair. The trie for shard X stores all queues for pairs
+    /// (X,*).
+    BufferedReceipt { receiving_shard: ShardId, index: u64 },
 }
 
 /// Provides `len` function.
@@ -177,6 +193,12 @@ impl TrieKey {
                     + account_id.len()
                     + ACCOUNT_DATA_SEPARATOR.len()
                     + key.len()
+            }
+            TrieKey::BufferedReceiptIndices => col::BUFFERED_RECEIPT_INDICES.len(),
+            TrieKey::BufferedReceipt { index, receiving_shard } => {
+                col::BUFFERED_RECEIPT.len()
+                    + std::mem::size_of_val(receiving_shard)
+                    + std::mem::size_of_val(index)
             }
         }
     }
@@ -250,6 +272,12 @@ impl TrieKey {
                 buf.push(ACCOUNT_DATA_SEPARATOR);
                 buf.extend(data_id.as_ref());
             }
+            TrieKey::BufferedReceiptIndices => buf.push(col::BUFFERED_RECEIPT_INDICES),
+            TrieKey::BufferedReceipt { index, receiving_shard } => {
+                buf.push(col::BUFFERED_RECEIPT);
+                buf.extend(&receiving_shard.to_le_bytes());
+                buf.extend(&index.to_le_bytes());
+            }
         };
         debug_assert_eq!(expected_len, buf.len() - start_len);
     }
@@ -276,6 +304,8 @@ impl TrieKey {
             TrieKey::PromiseYieldIndices => None,
             TrieKey::PromiseYieldTimeout { .. } => None,
             TrieKey::PromiseYieldReceipt { receiver_id, .. } => Some(receiver_id.clone()),
+            TrieKey::BufferedReceiptIndices => None,
+            TrieKey::BufferedReceipt { .. } => None,
         }
     }
 }
