@@ -13,6 +13,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::block::Tip;
 use near_primitives::challenge::SlashedValidator;
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardLayout;
@@ -2807,6 +2808,8 @@ fn test_chunk_header(h: &[CryptoHash], signer: &dyn ValidatorSigner) -> ShardChu
         h[2],
         vec![],
         signer,
+        PROTOCOL_VERSION,
+        CongestionInfo::default(),
     ))
 }
 

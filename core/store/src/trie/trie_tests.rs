@@ -211,9 +211,11 @@ mod trie_storage_tests {
     use crate::{DBCol, Store, TrieChanges, TrieConfig};
     use assert_matches::assert_matches;
     use near_o11y::testonly::init_test_logger;
+    use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::hash::hash;
     use near_primitives::shard_layout::get_block_shard_uid;
     use near_primitives::types::chunk_extra::ChunkExtra;
+    use near_primitives::version::PROTOCOL_VERSION;
 
     fn create_store_with_values(values: &[Vec<u8>], shard_uid: ShardUId) -> Store {
         let tries = TestTriesBuilder::new().build();
@@ -439,8 +441,16 @@ mod trie_storage_tests {
 
         let store = create_test_store();
         // ChunkExtra is needed for in-memory trie loading code to query state roots.
-        let chunk_extra =
-            ChunkExtra::new(&Trie::EMPTY_ROOT, CryptoHash::default(), Vec::new(), 0, 0, 0);
+        let chunk_extra = ChunkExtra::new(
+            &Trie::EMPTY_ROOT,
+            CryptoHash::default(),
+            Vec::new(),
+            0,
+            0,
+            0,
+            PROTOCOL_VERSION,
+            CongestionInfo::default(),
+        );
         let mut update_for_chunk_extra = store.store_update();
         update_for_chunk_extra
             .set_ser(

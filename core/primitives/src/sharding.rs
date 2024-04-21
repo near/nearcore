@@ -1,3 +1,4 @@
+use crate::congestion_info::CongestionInfo;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, merklize, verify_path, MerklePath};
 use crate::receipt::Receipt;
@@ -69,6 +70,7 @@ pub struct StateSyncInfo {
 pub mod shard_chunk_header_inner;
 pub use shard_chunk_header_inner::{
     ShardChunkHeaderInner, ShardChunkHeaderInnerV1, ShardChunkHeaderInnerV2,
+    ShardChunkHeaderInnerV3,
 };
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
@@ -190,22 +192,48 @@ impl ShardChunkHeaderV3 {
         tx_root: CryptoHash,
         prev_validator_proposals: Vec<ValidatorStake>,
         signer: &dyn ValidatorSigner,
+        protocol_version: ProtocolVersion,
+        congestion_info: CongestionInfo,
     ) -> Self {
-        let inner = ShardChunkHeaderInner::V2(ShardChunkHeaderInnerV2 {
-            prev_block_hash,
-            prev_state_root,
-            prev_outcome_root,
-            encoded_merkle_root,
-            encoded_length,
-            height_created: height,
-            shard_id,
-            prev_gas_used,
-            gas_limit,
-            prev_balance_burnt,
-            prev_outgoing_receipts_root,
-            tx_root,
-            prev_validator_proposals,
-        });
+        let inner =
+            if ProtocolFeature::Nep539CongestionControl.protocol_version() <= protocol_version {
+                ShardChunkHeaderInner::V3(ShardChunkHeaderInnerV3 {
+                    prev_block_hash,
+                    prev_state_root,
+                    prev_outcome_root,
+                    encoded_merkle_root,
+                    encoded_length,
+                    height_created: height,
+                    shard_id,
+                    prev_gas_used,
+                    gas_limit,
+                    prev_balance_burnt,
+                    prev_outgoing_receipts_root,
+                    tx_root,
+                    prev_validator_proposals,
+                    // note: Unpacking the struct here to avoid versioning `CongestionInfo`.
+                    delayed_receipts_gas: congestion_info.delayed_receipts_gas,
+                    buffered_receipts_gas: congestion_info.buffered_receipts_gas,
+                    receipt_bytes: congestion_info.receipt_bytes,
+                    allowed_shard: congestion_info.allowed_shard,
+                })
+            } else {
+                ShardChunkHeaderInner::V2(ShardChunkHeaderInnerV2 {
+                    prev_block_hash,
+                    prev_state_root,
+                    prev_outcome_root,
+                    encoded_merkle_root,
+                    encoded_length,
+                    height_created: height,
+                    shard_id,
+                    prev_gas_used,
+                    gas_limit,
+                    prev_balance_burnt,
+                    prev_outgoing_receipts_root,
+                    tx_root,
+                    prev_validator_proposals,
+                })
+            };
         Self::from_inner(inner, signer)
     }
 
@@ -401,6 +429,15 @@ impl ShardChunkHeader {
             ShardChunkHeader::V1(header) => header.hash.clone(),
             ShardChunkHeader::V2(header) => header.hash.clone(),
             ShardChunkHeader::V3(header) => header.hash.clone(),
+        }
+    }
+
+    #[inline]
+    pub fn congestion_info(&self) -> Option<CongestionInfo> {
+        match self {
+            ShardChunkHeader::V1(_) => None,
+            ShardChunkHeader::V2(_) => None,
+            ShardChunkHeader::V3(header) => header.inner.congestion_info(),
         }
     }
 
@@ -989,6 +1026,7 @@ impl EncodedShardChunk {
         transactions: Vec<SignedTransaction>,
         prev_outgoing_receipts: &[Receipt],
         prev_outgoing_receipts_root: CryptoHash,
+        congestion_info: CongestionInfo,
         signer: &dyn ValidatorSigner,
         protocol_version: ProtocolVersion,
     ) -> Result<(Self, Vec<MerklePath>), std::io::Error> {
@@ -1059,6 +1097,8 @@ impl EncodedShardChunk {
                 tx_root,
                 prev_validator_proposals,
                 signer,
+                protocol_version,
+                congestion_info,
             );
             let chunk = EncodedShardChunkV2 { header: ShardChunkHeader::V3(header), content };
             Ok((Self::V2(chunk), merkle_paths))

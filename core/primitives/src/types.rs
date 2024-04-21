@@ -733,11 +733,14 @@ pub struct BlockExtra {
 }
 
 pub mod chunk_extra {
+    use crate::congestion_info::CongestionInfo;
     use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
     use crate::types::StateRoot;
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_primitives_core::hash::CryptoHash;
     use near_primitives_core::types::{Balance, Gas};
+    use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
+    use near_vm_runner::logic::ProtocolVersion;
 
     pub use super::ChunkExtraV1;
 
@@ -746,6 +749,7 @@ pub mod chunk_extra {
     pub enum ChunkExtra {
         V1(ChunkExtraV1),
         V2(ChunkExtraV2),
+        V3(ChunkExtraV3),
     }
 
     #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq)]
@@ -764,9 +768,47 @@ pub mod chunk_extra {
         pub balance_burnt: Balance,
     }
 
+    /// V2 -> V3: add congestion info fields.
+    #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq)]
+    pub struct ChunkExtraV3 {
+        /// Post state root after applying give chunk.
+        pub state_root: StateRoot,
+        /// Root of merklizing results of receipts (transactions) execution.
+        pub outcome_root: CryptoHash,
+        /// Validator proposals produced by given chunk.
+        pub validator_proposals: Vec<ValidatorStake>,
+        /// Actually how much gas were used.
+        pub gas_used: Gas,
+        /// Gas limit, allows to increase or decrease limit based on expected time vs real time for computing the chunk.
+        pub gas_limit: Gas,
+        /// Total balance burnt after processing the current chunk.
+        pub balance_burnt: Balance,
+
+        // Fields of `CongestionInfo` inlined to avoid adding another layer of
+        // versioning.
+        /// Sum of gas in currently delayed receipts.
+        pub delayed_receipts_gas: u128,
+        /// Sum of gas in currently buffered receipts.
+        pub buffered_receipts_gas: u128,
+        /// Size of borsh serialized receipts stored in state because they
+        /// were delayed, buffered, postponed, or yielded.
+        pub receipt_bytes: u64,
+        /// If fully congested, only this shard can forward receipts.
+        pub allowed_shard: u64,
+    }
+
     impl ChunkExtra {
         pub fn new_with_only_state_root(state_root: &StateRoot) -> Self {
-            Self::new(state_root, CryptoHash::default(), vec![], 0, 0, 0)
+            Self::new(
+                state_root,
+                CryptoHash::default(),
+                vec![],
+                0,
+                0,
+                0,
+                PROTOCOL_VERSION,
+                CongestionInfo::default(),
+            )
         }
 
         pub fn new(
@@ -776,15 +818,32 @@ pub mod chunk_extra {
             gas_used: Gas,
             gas_limit: Gas,
             balance_burnt: Balance,
+            protocol_version: ProtocolVersion,
+            congestion_info: CongestionInfo,
         ) -> Self {
-            Self::V2(ChunkExtraV2 {
-                state_root: *state_root,
-                outcome_root,
-                validator_proposals,
-                gas_used,
-                gas_limit,
-                balance_burnt,
-            })
+            if ProtocolFeature::Nep539CongestionControl.protocol_version() <= protocol_version {
+                Self::V3(ChunkExtraV3 {
+                    state_root: *state_root,
+                    outcome_root,
+                    validator_proposals,
+                    gas_used,
+                    gas_limit,
+                    balance_burnt,
+                    delayed_receipts_gas: congestion_info.delayed_receipts_gas,
+                    buffered_receipts_gas: congestion_info.buffered_receipts_gas,
+                    receipt_bytes: congestion_info.receipt_bytes,
+                    allowed_shard: congestion_info.allowed_shard,
+                })
+            } else {
+                Self::V2(ChunkExtraV2 {
+                    state_root: *state_root,
+                    outcome_root,
+                    validator_proposals,
+                    gas_used,
+                    gas_limit,
+                    balance_burnt,
+                })
+            }
         }
 
         #[inline]
@@ -792,6 +851,7 @@ pub mod chunk_extra {
             match self {
                 Self::V1(v1) => &v1.outcome_root,
                 Self::V2(v2) => &v2.outcome_root,
+                Self::V3(v3) => &v3.outcome_root,
             }
         }
 
@@ -800,6 +860,7 @@ pub mod chunk_extra {
             match self {
                 Self::V1(v1) => &v1.state_root,
                 Self::V2(v2) => &v2.state_root,
+                Self::V3(v3) => &v3.state_root,
             }
         }
 
@@ -808,6 +869,7 @@ pub mod chunk_extra {
             match self {
                 Self::V1(v1) => &mut v1.state_root,
                 Self::V2(v2) => &mut v2.state_root,
+                Self::V3(v3) => &mut v3.state_root,
             }
         }
 
@@ -816,6 +878,7 @@ pub mod chunk_extra {
             match self {
                 Self::V1(v1) => ValidatorStakeIter::v1(&v1.validator_proposals),
                 Self::V2(v2) => ValidatorStakeIter::new(&v2.validator_proposals),
+                Self::V3(v3) => ValidatorStakeIter::new(&v3.validator_proposals),
             }
         }
 
@@ -824,6 +887,7 @@ pub mod chunk_extra {
             match self {
                 Self::V1(v1) => v1.gas_limit,
                 Self::V2(v2) => v2.gas_limit,
+                Self::V3(v3) => v3.gas_limit,
             }
         }
 
@@ -832,6 +896,7 @@ pub mod chunk_extra {
             match self {
                 Self::V1(v1) => v1.gas_used,
                 Self::V2(v2) => v2.gas_used,
+                Self::V3(v3) => v3.gas_used,
             }
         }
 
@@ -840,6 +905,21 @@ pub mod chunk_extra {
             match self {
                 Self::V1(v1) => v1.balance_burnt,
                 Self::V2(v2) => v2.balance_burnt,
+                Self::V3(v3) => v3.balance_burnt,
+            }
+        }
+
+        #[inline]
+        pub fn congestion_info(&self) -> Option<CongestionInfo> {
+            match self {
+                Self::V1(_) => None,
+                Self::V2(_) => None,
+                Self::V3(v3) => Some(CongestionInfo {
+                    delayed_receipts_gas: v3.delayed_receipts_gas,
+                    buffered_receipts_gas: v3.buffered_receipts_gas,
+                    receipt_bytes: v3.receipt_bytes,
+                    allowed_shard: v3.allowed_shard,
+                }),
             }
         }
     }
