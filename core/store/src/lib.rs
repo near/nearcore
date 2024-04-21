@@ -21,15 +21,16 @@ use metadata::{DbKind, DbVersion, KIND_KEY, VERSION_KEY};
 use near_crypto::PublicKey;
 use near_fmt::{AbbrBytes, StorageKey};
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::errors::IntegerOverflowError;
 pub use near_primitives::errors::{MissingTrieValueContext, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout, Receipt, ReceiptEnum,
-    ReceivedData,
+    BufferedReceiptIndices, DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout,
+    Receipt, ReceiptEnum, ReceivedData, ShardBufferedReceiptIndices,
 };
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
-use near_primitives::types::{AccountId, BlockHeight, StateRoot};
+use near_primitives::types::{AccountId, BlockHeight, ShardId, StateRoot};
 use near_vm_runner::{CompiledContractInfo, ContractCode, ContractRuntimeCache};
 use once_cell::sync::Lazy;
 use std::fs::File;
@@ -900,6 +901,38 @@ pub fn has_promise_yield_receipt(
     data_id: CryptoHash,
 ) -> Result<bool, StorageError> {
     trie.contains_key(&TrieKey::PromiseYieldReceipt { receiver_id, data_id })
+}
+
+pub fn get_buffered_receipt_indices(
+    trie: &dyn TrieAccess,
+) -> Result<BufferedReceiptIndices, StorageError> {
+    Ok(get(trie, &TrieKey::BufferedReceiptIndices)?.unwrap_or_default())
+}
+
+pub fn remove_buffered_receipt(
+    state_update: &mut TrieUpdate,
+    index: u64,
+    receiving_shard: ShardId,
+) {
+    state_update.remove(TrieKey::BufferedReceipt { index, receiving_shard });
+}
+
+// Adds the given receipt into the end of the buffered receipt queue for the
+// given receiver shard.
+pub fn push_buffered_receipt(
+    state_update: &mut TrieUpdate,
+    receipts_indices: &mut ShardBufferedReceiptIndices,
+    receipt: &Receipt,
+    receiving_shard: ShardId,
+) -> Result<(), IntegerOverflowError> {
+    set(
+        state_update,
+        TrieKey::BufferedReceipt { index: receipts_indices.next_available_index, receiving_shard },
+        receipt,
+    );
+    receipts_indices.next_available_index =
+        receipts_indices.next_available_index.checked_add(1).ok_or(IntegerOverflowError)?;
+    Ok(())
 }
 
 pub fn set_access_key(
