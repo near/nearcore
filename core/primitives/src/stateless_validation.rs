@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::challenge::PartialState;
+use crate::congestion_info::CongestionInfo;
 use crate::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader, ShardChunkHeaderV3};
 use crate::transaction::SignedTransaction;
 use crate::types::EpochId;
@@ -10,6 +11,7 @@ use bytes::BufMut;
 use near_crypto::{PublicKey, Signature};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance, BlockHeight, ShardId};
+use near_primitives_core::version::PROTOCOL_VERSION;
 
 /// An arbitrary static string to make sure that this struct cannot be
 /// serialized to look identical to another serialized struct. For chunk
@@ -212,6 +214,8 @@ impl ChunkStateWitness {
             Default::default(),
             Default::default(),
             &EmptyValidatorSigner::default(),
+            PROTOCOL_VERSION,
+            CongestionInfo::default(),
         ));
         Self::new(
             "alice.near".parse().unwrap(),

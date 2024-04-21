@@ -1265,6 +1265,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             processed_delayed_receipts: vec![],
             processed_yield_timeouts: vec![],
             applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
+            congestion_info: todo!(),
         })
     }
 

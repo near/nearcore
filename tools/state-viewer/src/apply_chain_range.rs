@@ -231,6 +231,8 @@ fn apply_block_from_range(
                 return;
             }
         }
+        let prev_chunk_extra =
+            chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap();
         runtime_adapter
             .apply_chunk(
                 RuntimeStorageConfig::new(*chunk_inner.prev_state_root(), use_flat_storage),
@@ -244,6 +246,7 @@ fn apply_block_from_range(
                 ApplyChunkBlockContext::from_header(
                     block.header(),
                     prev_block.header().next_gas_price(),
+                    prev_block.shards_congestion_info(),
                 ),
                 &receipts,
                 chunk.transactions(),
@@ -268,6 +271,7 @@ fn apply_block_from_range(
                 ApplyChunkBlockContext::from_header(
                     block.header(),
                     block.header().next_gas_price(),
+                    todo!("fix state viewer"),
                 ),
                 &[],
                 &[],
@@ -275,6 +279,8 @@ fn apply_block_from_range(
             .unwrap()
     };
 
+    let protocol_version =
+        epoch_manager.get_epoch_protocol_version(block.header().epoch_id()).unwrap();
     let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
     let chunk_extra = ChunkExtra::new(
         &apply_result.new_root,
@@ -283,6 +289,8 @@ fn apply_block_from_range(
         apply_result.total_gas_burnt,
         genesis.config.gas_limit,
         apply_result.total_balance_burnt,
+        protocol_version,
+        apply_result.congestion_info,
     );
 
     let state_update =

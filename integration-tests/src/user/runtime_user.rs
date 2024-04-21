@@ -6,6 +6,7 @@ use near_chain_configs::MIN_GAS_PRICE;
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_parameters::RuntimeConfig;
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::errors::{RuntimeError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
@@ -156,6 +157,7 @@ impl RuntimeUser {
             prev_block_hash: Default::default(),
             block_hash: Default::default(),
             block_timestamp: 0,
+            shard_id: todo!("fix integration tests"),
             epoch_height: 0,
             gas_price: MIN_GAS_PRICE,
             gas_limit: None,
@@ -167,6 +169,8 @@ impl RuntimeUser {
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
+            // TODO: Probably should create a hashmap per shard and fill a default congestion info for each
+            congestion_info: HashMap::default(),
         }
     }
 
@@ -284,6 +288,7 @@ impl User for RuntimeUser {
             block_height: apply_state.block_height,
             prev_block_hash: apply_state.prev_block_hash,
             block_hash: apply_state.block_hash,
+            shard_id: todo!("fix integration tests"),
             epoch_id: apply_state.epoch_id,
             epoch_height: apply_state.epoch_height,
             block_timestamp: apply_state.block_timestamp,

@@ -5,12 +5,15 @@ use near_crypto::vrf::Value;
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_primitives::block::Block;
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::network::PeerId;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::sharding::ShardChunkHeaderV3;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::utils::MaybeValidated;
+use near_primitives::version::PROTOCOL_VERSION;
+use std::sync::Arc;
 
 /// Only process one block per height
 /// Test that if a node receives two blocks at the same height, it doesn't process the second one
@@ -76,6 +79,8 @@ fn test_bad_shard_id() {
         chunk.tx_root(),
         chunk.prev_validator_proposals().collect(),
         &validator_signer,
+        PROTOCOL_VERSION,
+        CongestionInfo::default(),
     );
     modified_chunk.height_included = 2;
     chunks[0] = ShardChunkHeader::V3(modified_chunk);

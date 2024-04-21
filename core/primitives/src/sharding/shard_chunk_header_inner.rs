@@ -1,3 +1,4 @@
+use crate::congestion_info::CongestionInfo;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
 use crate::types::StateRoot;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -8,6 +9,7 @@ use near_primitives_core::types::{Balance, BlockHeight, Gas, ShardId};
 pub enum ShardChunkHeaderInner {
     V1(ShardChunkHeaderInnerV1),
     V2(ShardChunkHeaderInnerV2),
+    V3(ShardChunkHeaderInnerV3),
 }
 
 impl ShardChunkHeaderInner {
@@ -16,6 +18,7 @@ impl ShardChunkHeaderInner {
         match self {
             Self::V1(inner) => &inner.prev_state_root,
             Self::V2(inner) => &inner.prev_state_root,
+            Self::V3(inner) => &inner.prev_state_root,
         }
     }
 
@@ -24,6 +27,7 @@ impl ShardChunkHeaderInner {
         match self {
             Self::V1(inner) => &inner.prev_block_hash,
             Self::V2(inner) => &inner.prev_block_hash,
+            Self::V3(inner) => &inner.prev_block_hash,
         }
     }
 
@@ -32,6 +36,7 @@ impl ShardChunkHeaderInner {
         match self {
             Self::V1(inner) => inner.gas_limit,
             Self::V2(inner) => inner.gas_limit,
+            Self::V3(inner) => inner.gas_limit,
         }
     }
 
@@ -40,6 +45,7 @@ impl ShardChunkHeaderInner {
         match self {
             Self::V1(inner) => inner.prev_gas_used,
             Self::V2(inner) => inner.prev_gas_used,
+            Self::V3(inner) => inner.prev_gas_used,
         }
     }
 
@@ -48,6 +54,7 @@ impl ShardChunkHeaderInner {
         match self {
             Self::V1(inner) => ValidatorStakeIter::v1(&inner.prev_validator_proposals),
             Self::V2(inner) => ValidatorStakeIter::new(&inner.prev_validator_proposals),
+            Self::V3(inner) => ValidatorStakeIter::new(&inner.prev_validator_proposals),
         }
     }
 
@@ -56,6 +63,7 @@ impl ShardChunkHeaderInner {
         match self {
             Self::V1(inner) => inner.height_created,
             Self::V2(inner) => inner.height_created,
+            Self::V3(inner) => inner.height_created,
         }
     }
 
@@ -64,6 +72,7 @@ impl ShardChunkHeaderInner {
         match self {
             Self::V1(inner) => inner.shard_id,
             Self::V2(inner) => inner.shard_id,
+            Self::V3(inner) => inner.shard_id,
         }
     }
 
@@ -72,6 +81,7 @@ impl ShardChunkHeaderInner {
         match self {
             Self::V1(inner) => &inner.prev_outcome_root,
             Self::V2(inner) => &inner.prev_outcome_root,
+            Self::V3(inner) => &inner.prev_outcome_root,
         }
     }
 
@@ -80,6 +90,7 @@ impl ShardChunkHeaderInner {
         match self {
             Self::V1(inner) => &inner.encoded_merkle_root,
             Self::V2(inner) => &inner.encoded_merkle_root,
+            Self::V3(inner) => &inner.encoded_merkle_root,
         }
     }
 
@@ -88,6 +99,7 @@ impl ShardChunkHeaderInner {
         match self {
             Self::V1(inner) => inner.encoded_length,
             Self::V2(inner) => inner.encoded_length,
+            Self::V3(inner) => inner.encoded_length,
         }
     }
 
@@ -96,6 +108,7 @@ impl ShardChunkHeaderInner {
         match self {
             Self::V1(inner) => inner.prev_balance_burnt,
             Self::V2(inner) => inner.prev_balance_burnt,
+            Self::V3(inner) => inner.prev_balance_burnt,
         }
     }
 
@@ -104,6 +117,7 @@ impl ShardChunkHeaderInner {
         match self {
             Self::V1(inner) => &inner.prev_outgoing_receipts_root,
             Self::V2(inner) => &inner.prev_outgoing_receipts_root,
+            Self::V3(inner) => &inner.prev_outgoing_receipts_root,
         }
     }
 
@@ -112,6 +126,21 @@ impl ShardChunkHeaderInner {
         match self {
             Self::V1(inner) => &inner.tx_root,
             Self::V2(inner) => &inner.tx_root,
+            Self::V3(inner) => &inner.tx_root,
+        }
+    }
+
+    #[inline]
+    pub fn congestion_info(&self) -> Option<CongestionInfo> {
+        match self {
+            Self::V1(_) => None,
+            Self::V2(_) => None,
+            Self::V3(v3) => Some(CongestionInfo {
+                delayed_receipts_gas: v3.delayed_receipts_gas,
+                buffered_receipts_gas: v3.buffered_receipts_gas,
+                receipt_bytes: v3.receipt_bytes,
+                allowed_shard: v3.allowed_shard,
+            }),
         }
     }
 }
@@ -167,4 +196,43 @@ pub struct ShardChunkHeaderInnerV2 {
     pub tx_root: CryptoHash,
     /// Validator proposals from the previous chunk.
     pub prev_validator_proposals: Vec<ValidatorStake>,
+}
+
+// V2 -> V3: Add incoming_congestion and general_congestion fields.
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
+pub struct ShardChunkHeaderInnerV3 {
+    /// Previous block hash.
+    pub prev_block_hash: CryptoHash,
+    pub prev_state_root: StateRoot,
+    /// Root of the outcomes from execution transactions and results of the previous chunk.
+    pub prev_outcome_root: CryptoHash,
+    pub encoded_merkle_root: CryptoHash,
+    pub encoded_length: u64,
+    pub height_created: BlockHeight,
+    /// Shard index.
+    pub shard_id: ShardId,
+    /// Gas used in the previous chunk.
+    pub prev_gas_used: Gas,
+    /// Gas limit voted by validators.
+    pub gas_limit: Gas,
+    /// Total balance burnt in the previous chunk.
+    pub prev_balance_burnt: Balance,
+    /// Previous chunk's outgoing receipts merkle root.
+    pub prev_outgoing_receipts_root: CryptoHash,
+    /// Tx merkle root.
+    pub tx_root: CryptoHash,
+    /// Validator proposals from the previous chunk.
+    pub prev_validator_proposals: Vec<ValidatorStake>,
+
+    // Fields of `CongestionInfo` inlined to avoid adding another layer of
+    // versioning.
+    /// Sum of gas in currently delayed receipts.
+    pub delayed_receipts_gas: u128,
+    /// Sum of gas in currently buffered receipts.
+    pub buffered_receipts_gas: u128,
+    /// Size of borsh serialized receipts stored in state because they
+    /// were delayed, buffered, postponed, or yielded.
+    pub receipt_bytes: u64,
+    /// If fully congested, only this shard can forward receipts.
+    pub allowed_shard: u64,
 }

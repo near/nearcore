@@ -35,6 +35,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::ShardId;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::PartialStorage;
+use near_vm_runner::logic::ProtocolVersion;
 use orphan_witness_pool::OrphanStateWitnessPool;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -153,15 +154,15 @@ pub(crate) fn validate_prepared_transactions(
     storage_config: RuntimeStorageConfig,
     transactions: &[SignedTransaction],
 ) -> Result<PreparedTransactions, Error> {
-    let parent_block_header =
-        chain.chain_store().get_block_header(chunk_header.prev_block_hash())?;
+    // TODO: Is it okay to read full block here?
+    let parent_block = chain.chain_store().get_block(chunk_header.prev_block_hash())?;
 
     runtime_adapter.prepare_transactions(
         storage_config,
         chunk_header.into(),
-        (&parent_block_header).into(),
+        (&parent_block).into(),
         &mut TransactionGroupIteratorWrapper::new(transactions),
-        &mut chain.transaction_validity_check(parent_block_header),
+        &mut chain.transaction_validity_check(parent_block.header().clone()),
         None,
     )
 }
@@ -278,8 +279,14 @@ pub(crate) fn pre_validate_chunk_state_witness(
     }
 
     let main_transition_params = if last_chunk_block.header().is_genesis() {
+        // TODO: check if this epoch_id / protocol version is right for genesis
+        let epoch_id = epoch_manager
+            .get_next_epoch_id_from_prev_block(last_chunk_block.header().prev_hash())?;
         MainTransition::Genesis {
-            chunk_extra: chain.genesis_chunk_extra(shard_id)?,
+            chunk_extra: chain.genesis_chunk_extra(
+                shard_id,
+                epoch_manager.get_epoch_protocol_version(&epoch_id)?,
+            )?,
             block_hash: *last_chunk_block.hash(),
             shard_id,
         }
@@ -292,7 +299,7 @@ pub(crate) fn pre_validate_chunk_state_witness(
             block: Chain::get_apply_chunk_block_context(
                 epoch_manager,
                 last_chunk_block.header(),
-                &store.get_previous_header(last_chunk_block.header())?,
+                &store.get_block(last_chunk_block.header().prev_hash())?,
                 true,
             )?,
             is_first_block_with_chunk_of_version: false,
@@ -314,7 +321,7 @@ pub(crate) fn pre_validate_chunk_state_witness(
                 Ok(Chain::get_apply_chunk_block_context(
                     epoch_manager,
                     block.header(),
-                    &store.get_previous_header(block.header())?,
+                    &store.get_block(block.header().prev_hash())?,
                     false,
                 )?)
             })
@@ -468,6 +475,7 @@ pub(crate) fn validate_chunk_state_witness(
     let epoch_id = epoch_manager.get_epoch_id(&block_hash)?;
     let shard_uid = epoch_manager
         .shard_id_to_uid(pre_validation_output.main_transition_params.shard_id(), &epoch_id)?;
+    let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
     let (mut chunk_extra, outgoing_receipts) = match pre_validation_output.main_transition_params {
         MainTransition::Genesis { chunk_extra, .. } => (chunk_extra, vec![]),
         MainTransition::NewChunk(new_chunk_data) => {
@@ -486,7 +494,10 @@ pub(crate) fn validate_chunk_state_witness(
                 epoch_manager,
             )?;
             let outgoing_receipts = std::mem::take(&mut main_apply_result.outgoing_receipts);
-            (apply_result_to_chunk_extra(main_apply_result, &chunk_header), outgoing_receipts)
+            (
+                apply_result_to_chunk_extra(main_apply_result, &chunk_header, protocol_version),
+                outgoing_receipts,
+            )
         }
     };
     if chunk_extra.state_root() != &state_witness.main_state_transition.post_state_root {
@@ -562,6 +573,7 @@ pub(crate) fn validate_chunk_state_witness(
 fn apply_result_to_chunk_extra(
     apply_result: ApplyChunkResult,
     chunk: &ShardChunkHeader,
+    protocol_version: ProtocolVersion,
 ) -> ChunkExtra {
     let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
     ChunkExtra::new(
@@ -571,6 +583,8 @@ fn apply_result_to_chunk_extra(
         apply_result.total_gas_burnt,
         chunk.gas_limit(),
         apply_result.total_balance_burnt,
+        protocol_version,
+        apply_result.congestion_info,
     )
 }
 

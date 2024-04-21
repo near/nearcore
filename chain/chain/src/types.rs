@@ -10,6 +10,7 @@ use near_pool::types::TransactionGroupIterator;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::challenge::{ChallengesResult, PartialState};
 use near_primitives::checked_feature;
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
@@ -113,6 +114,7 @@ pub struct ApplyChunkResult {
     /// Note that applied receipts are not necessarily executed as they can
     /// be delayed.
     pub applied_receipts_hash: CryptoHash,
+    pub congestion_info: CongestionInfo,
 }
 
 impl ApplyChunkResult {
@@ -285,10 +287,15 @@ pub struct ApplyChunkBlockContext {
     pub gas_price: Balance,
     pub challenges_result: ChallengesResult,
     pub random_seed: CryptoHash,
+    pub congestion_info: HashMap<ShardId, CongestionInfo>,
 }
 
 impl ApplyChunkBlockContext {
-    pub fn from_header(header: &BlockHeader, gas_price: Balance) -> Self {
+    pub fn from_header(
+        header: &BlockHeader,
+        gas_price: Balance,
+        congestion_info: HashMap<ShardId, CongestionInfo>,
+    ) -> Self {
         Self {
             height: header.height(),
             block_hash: *header.hash(),
@@ -297,6 +304,7 @@ impl ApplyChunkBlockContext {
             gas_price,
             challenges_result: header.challenges_result().clone(),
             random_seed: *header.random_value(),
+            congestion_info,
         }
     }
 }
@@ -336,14 +344,17 @@ pub struct PrepareTransactionsBlockContext {
     pub next_gas_price: Balance,
     pub height: BlockHeight,
     pub block_hash: CryptoHash,
+    pub congestion_info: HashMap<ShardId, CongestionInfo>,
 }
 
-impl From<&BlockHeader> for PrepareTransactionsBlockContext {
-    fn from(header: &BlockHeader) -> Self {
+impl From<&Block> for PrepareTransactionsBlockContext {
+    fn from(block: &Block) -> Self {
+        let header = block.header();
         Self {
             next_gas_price: header.next_gas_price(),
             height: header.height(),
             block_hash: *header.hash(),
+            congestion_info: block.shards_congestion_info(),
         }
     }
 }

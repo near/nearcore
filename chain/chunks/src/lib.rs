@@ -107,6 +107,7 @@ use near_network::types::{
 };
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_primitives::block::Tip;
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{verify_path, MerklePath};
@@ -1916,6 +1917,7 @@ impl ShardsManager {
         prev_outgoing_receipts: &[Receipt],
         prev_outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
+        congestion_info: CongestionInfo,
         signer: &dyn ValidatorSigner,
         rs: &mut ReedSolomonWrapper,
         protocol_version: ProtocolVersion,
@@ -1935,6 +1937,7 @@ impl ShardsManager {
             transactions,
             prev_outgoing_receipts,
             prev_outgoing_receipts_root,
+            congestion_info,
             signer,
             protocol_version,
         )

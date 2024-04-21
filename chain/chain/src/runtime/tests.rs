@@ -87,6 +87,7 @@ impl NightshadeRuntime {
                     gas_limit,
                     is_new_chunk: true,
                     is_first_block_with_chunk_of_version: false,
+                    congestion_info: todo!("fix runtime tests"),
                 },
                 ApplyChunkBlockContext {
                     height,
@@ -96,6 +97,7 @@ impl NightshadeRuntime {
                     gas_price,
                     challenges_result: challenges_result.clone(),
                     random_seed: CryptoHash::default(),
+                    congestion_info: todo!("fix runtime tests"),
                 },
                 receipts,
                 transactions,
@@ -1585,6 +1587,7 @@ fn prepare_transactions(
             next_gas_price: env.runtime.genesis_config.min_gas_price,
             height: env.head.height,
             block_hash: env.head.last_block_hash,
+            congestion_info: todo!("fix runtime tests"),
         },
         transaction_groups,
         &mut |tx: &SignedTransaction| -> bool {

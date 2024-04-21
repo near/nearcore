@@ -884,6 +884,7 @@ impl Client {
         let gas_used = chunk_extra.gas_used();
         #[cfg(feature = "test_features")]
         let gas_used = if self.produce_invalid_chunks { gas_used + 1 } else { gas_used };
+        let congestion_info = chunk_extra.congestion_info().unwrap_or_default();
         let (encoded_chunk, merkle_paths) = ShardsManager::create_encoded_shard_chunk(
             prev_block_hash,
             *chunk_extra.state_root(),
@@ -898,6 +899,7 @@ impl Client {
             &outgoing_receipts,
             outgoing_receipts_root,
             tx_root,
+            congestion_info,
             &*validator_signer,
             &mut self.rs_for_chunk_production,
             protocol_version,
@@ -991,7 +993,8 @@ impl Client {
     ) -> Result<PreparedTransactions, Error> {
         let Self { chain, sharded_tx_pool, runtime_adapter: runtime, .. } = self;
         let shard_id = shard_uid.shard_id as ShardId;
-        let prev_block_header = chain.get_block_header(&prev_block_hash)?;
+        // TODO: Is it okay to read full block here?
+        let prev_block = chain.get_block(&prev_block_hash)?;
 
         let prepared_transactions = if let Some(mut iter) =
             sharded_tx_pool.get_pool_iterator(shard_uid)
@@ -1005,9 +1008,9 @@ impl Client {
             runtime.prepare_transactions(
                 storage_config,
                 PrepareTransactionsChunkContext { shard_id, gas_limit: chunk_extra.gas_limit() },
-                (&prev_block_header).into(),
+                (&prev_block).into(),
                 &mut iter,
-                &mut chain.transaction_validity_check(prev_block_header),
+                &mut chain.transaction_validity_check(prev_block.header().clone()),
                 self.config.produce_chunk_add_transactions_time_limit.get(),
             )?
         } else {

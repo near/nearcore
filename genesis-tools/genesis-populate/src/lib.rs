@@ -13,6 +13,7 @@ use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{genesis_chunks, Tip};
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardUId};
 use near_primitives::state_record::StateRecord;
@@ -259,6 +260,8 @@ impl GenesisBuilder {
                     0,
                     self.genesis.config.gas_limit,
                     0,
+                    self.genesis.config.protocol_version,
+                    CongestionInfo::default(),
                 ),
             );
         }
