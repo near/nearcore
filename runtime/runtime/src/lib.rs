@@ -44,11 +44,13 @@ use near_primitives::utils::{
     create_receipt_id_from_transaction,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_store::trie::receipts_column_helper::ReceiptIterator;
 use near_store::{
-    get, get_account, get_postponed_receipt, get_promise_yield_receipt, get_received_data,
-    has_received_data, remove_postponed_receipt, remove_promise_yield_receipt, set, set_account,
-    set_delayed_receipt, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
-    PartialStorage, StorageError, Trie, TrieChanges, TrieUpdate,
+    get, get_account, get_buffered_receipt_indices, get_postponed_receipt,
+    get_promise_yield_receipt, get_received_data, has_received_data, remove_postponed_receipt,
+    remove_promise_yield_receipt, set, set_account, set_delayed_receipt, set_postponed_receipt,
+    set_promise_yield_receipt, set_received_data, PartialStorage, StorageError, Trie, TrieChanges,
+    TrieUpdate,
 };
 use near_store::{set_access_key, set_code};
 use near_vm_runner::logic::types::PromiseResult;
@@ -71,6 +73,7 @@ pub mod ext;
 mod metrics;
 mod prefetch;
 pub mod receipt_manager;
+mod receipt_sink;
 pub mod state_viewer;
 mod verifier;
 
@@ -523,7 +526,7 @@ impl Runtime {
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
         receipt: &Receipt,
-        outgoing_receipts: &mut Vec<Receipt>,
+        receipt_sink: &mut receipt_sink::ReceiptSink,
         validator_proposals: &mut Vec<ValidatorStake>,
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
@@ -805,14 +808,22 @@ impl Runtime {
                     &new_receipt.receipt,
                     ReceiptEnum::Action(_) | ReceiptEnum::PromiseYield(_)
                 );
-                outgoing_receipts.push(new_receipt);
-                if is_action {
-                    Some(receipt_id)
+
+                let res = receipt_sink.forward_or_buffer_receipt(
+                    new_receipt,
+                    apply_state,
+                    state_update,
+                    epoch_info_provider,
+                );
+                if let Err(e) = res {
+                    Some(Err(e))
+                } else if is_action {
+                    Some(Ok(receipt_id))
                 } else {
                     None
                 }
             })
-            .collect();
+            .collect::<Result<_, _>>()?;
 
         let status = match result.result {
             Ok(ReturnData::ReceiptIndex(receipt_index)) => {
@@ -921,7 +932,7 @@ impl Runtime {
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
         receipt: &Receipt,
-        outgoing_receipts: &mut Vec<Receipt>,
+        receipt_sink: &mut receipt_sink::ReceiptSink,
         validator_proposals: &mut Vec<ValidatorStake>,
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
@@ -989,7 +1000,7 @@ impl Runtime {
                                 state_update,
                                 apply_state,
                                 &ready_receipt,
-                                outgoing_receipts,
+                                receipt_sink,
                                 validator_proposals,
                                 stats,
                                 epoch_info_provider,
@@ -1043,7 +1054,7 @@ impl Runtime {
                             state_update,
                             apply_state,
                             receipt,
-                            outgoing_receipts,
+                            receipt_sink,
                             validator_proposals,
                             stats,
                             epoch_info_provider,
@@ -1094,7 +1105,7 @@ impl Runtime {
                             state_update,
                             apply_state,
                             &yield_receipt,
-                            outgoing_receipts,
+                            receipt_sink,
                             validator_proposals,
                             stats,
                             epoch_info_provider,
@@ -1359,6 +1370,8 @@ impl Runtime {
         let mut delayed_receipts_indices: DelayedReceiptIndices =
             get(&state_update, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default();
         let initial_delayed_receipt_indices = delayed_receipts_indices.clone();
+        // TODO: unchecked hash map access
+        let mut congestion_info = apply_state.congestion_info[&apply_state.shard_id].clone();
 
         if !apply_state.is_new_chunk
             && protocol_version >= ProtocolFeature::FixApplyChunks.protocol_version()
@@ -1378,7 +1391,8 @@ impl Runtime {
                 proof,
                 delayed_receipts_count: delayed_receipts_indices.len(),
                 metrics: None,
-                congestion_info: todo!(),
+                // nothing was processed, copy receipts info from previous chunk
+                congestion_info: congestion_info,
             });
         }
 
@@ -1388,6 +1402,26 @@ impl Runtime {
         let mut outcomes = vec![];
         let mut processed_delayed_receipts = vec![];
         let mut metrics = metrics::ApplyMetrics::default();
+
+        let mut outgoing_limit: HashMap<ShardId, Gas> = apply_state
+            .congestion_info
+            .iter()
+            .map(|(&shard_id, congestion)| {
+                (shard_id, congestion.outgoing_limit(apply_state.shard_id))
+            })
+            .collect();
+        let mut buffered_receipts_indices = get_buffered_receipt_indices(&state_update.trie)?;
+        let initial_buffered_receipts_indices = buffered_receipts_indices.clone();
+        let mut receipt_sink = receipt_sink::ReceiptSink {
+            congestion_info: &mut congestion_info,
+            outgoing_limit: &mut outgoing_limit,
+            buffered_receipts_indices: &mut buffered_receipts_indices,
+            outgoing_receipts: &mut outgoing_receipts,
+        };
+
+        // Forward buffered receipts from previous chunks.
+        receipt_sink.forward_from_buffer(&mut state_update, apply_state)?;
+
         total.add(gas_used_for_migrations, gas_used_for_migrations)?;
 
         for signed_transaction in transactions {
@@ -1400,7 +1434,12 @@ impl Runtime {
             if receipt.receiver_id == signed_transaction.transaction.signer_id {
                 local_receipts.push(receipt);
             } else {
-                outgoing_receipts.push(receipt);
+                receipt_sink.forward_or_buffer_receipt(
+                    receipt,
+                    apply_state,
+                    &mut state_update,
+                    epoch_info_provider,
+                )?;
             }
 
             total.add(
@@ -1441,7 +1480,7 @@ impl Runtime {
                 state_update,
                 apply_state,
                 receipt,
-                &mut outgoing_receipts,
+                &mut receipt_sink,
                 &mut validator_proposals,
                 &mut stats,
                 epoch_info_provider,
@@ -1696,6 +1735,10 @@ impl Runtime {
             set(&mut state_update, TrieKey::PromiseYieldIndices, &promise_yield_indices);
         }
 
+        if buffered_receipts_indices != initial_buffered_receipts_indices {
+            set(&mut state_update, TrieKey::BufferedReceiptIndices, &buffered_receipts_indices);
+        }
+
         check_balance(
             &apply_state.config,
             &state_update,
@@ -1759,7 +1802,7 @@ impl Runtime {
             proof,
             delayed_receipts_count: delayed_receipts_indices.len(),
             metrics: Some(metrics),
-            congestion_info: todo!(),
+            congestion_info,
         })
     }
 
@@ -1845,19 +1888,6 @@ fn action_transfer_or_implicit_account_creation(
     })
 }
 
-/// Iterate all columns in the trie holding unprocessed receipts and
-/// computes the storage consumption as well as attached gas.
-///
-/// This is an IO intensive operation! Only do it to bootstrap the
-/// `CongestionInfo`. In normal operation, this information is kept up
-/// to date and passed from chunk to chunk through chunk extra fields.
-pub fn compute_congestion_info(
-    trie: &dyn near_store::TrieAccess,
-    config: &RuntimeConfig,
-) -> Result<CongestionInfo, StorageError> {
-    todo!()
-}
-
 struct TotalResourceGuard {
     gas: u64,
     compute: u64,
@@ -1877,6 +1907,97 @@ impl TotalResourceGuard {
         self.compute = safe_add_compute(self.compute, compute)?;
         Ok(())
     }
+}
+
+// TODO: find better home for this code, maybe rename
+fn receipt_congestion_gas(
+    receipt: &Receipt,
+    config: &RuntimeConfig,
+) -> Result<Gas, IntegerOverflowError> {
+    match &receipt.receipt {
+        ReceiptEnum::Action(action_receipt) => {
+            // account for gas guaranteed to be used for executing the receipts
+            let prepaid_exec_gas = safe_add_gas(
+                total_prepaid_exec_fees(config, &action_receipt.actions, &receipt.receiver_id)?,
+                config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
+            )?;
+            // account for gas guaranteed to be used for creating new receipts
+            let prepaid_send_gas = total_prepaid_send_fees(config, &action_receipt.actions)?;
+            let prepaid_gas = safe_add_gas(prepaid_exec_gas, prepaid_send_gas)?;
+
+            // account for gas potentially used for dynamic execution
+            let gas_attached_to_fns = total_prepaid_gas(&action_receipt.actions)?;
+            let gas = safe_add_gas(gas_attached_to_fns, prepaid_gas)?;
+
+            Ok(gas)
+        }
+        ReceiptEnum::Data(_data_receipt) => {
+            // TODO: would it make sense to account at least some minimum?
+            Ok(0)
+        }
+        // TODO: can we treat those like action / data receipts?
+        ReceiptEnum::PromiseYield(_) => todo!(),
+        ReceiptEnum::PromiseResume(_) => todo!(),
+    }
+}
+
+/// Iterate all columns in the trie holding unprocessed receipts and
+/// computes the storage consumption as well as attached gas.
+///
+/// This is an IO intensive operation! Only do it to bootstrap the
+/// `CongestionInfo`. In normal operation, this information is kept up
+/// to date and passed from chunk to chunk through chunk extra fields.
+pub fn compute_congestion_info(
+    trie: &dyn near_store::TrieAccess,
+    config: &RuntimeConfig,
+) -> Result<CongestionInfo, StorageError> {
+    let mut delayed_receipts_gas: u64 = 0;
+    let mut receipt_bytes: u64 = 0;
+    let mut buffered_receipts_gas: u64 = 0;
+
+    for receipt_result in ReceiptIterator::delayed_receipts(trie)? {
+        let receipt = receipt_result?;
+        let gas = receipt_congestion_gas(&receipt, config).map_err(int_overflow_to_storage_err)?;
+        // TODO u128 math
+        delayed_receipts_gas =
+            safe_add_gas(delayed_receipts_gas, gas).map_err(int_overflow_to_storage_err)?;
+
+        let memory = receipt_size(&receipt).map_err(int_overflow_to_storage_err)? as u64;
+        receipt_bytes = receipt_bytes.checked_add(memory).ok_or_else(overflow_storage_err)?;
+    }
+
+    for receipt_result in ReceiptIterator::buffered_receipts(trie)? {
+        let receipt = receipt_result?;
+        let gas = receipt_congestion_gas(&receipt, config).map_err(int_overflow_to_storage_err)?;
+        // TODO u128 math
+        buffered_receipts_gas =
+            safe_add_gas(buffered_receipts_gas, gas).map_err(int_overflow_to_storage_err)?;
+        let memory = receipt_size(&receipt).map_err(int_overflow_to_storage_err)? as u64;
+        receipt_bytes = receipt_bytes.checked_add(memory).ok_or_else(overflow_storage_err)?;
+    }
+
+    Ok(CongestionInfo {
+        delayed_receipts_gas: delayed_receipts_gas as u128,
+        buffered_receipts_gas: buffered_receipts_gas as u128,
+        receipt_bytes,
+        // TODO: does this matter in the bootstrapped info?
+        allowed_shard: 0,
+    })
+}
+
+fn receipt_size(receipt: &Receipt) -> Result<usize, IntegerOverflowError> {
+    // `borsh::object_length` may only fail when the total size overflows u32
+    borsh::object_length(&receipt).map_err(|_| IntegerOverflowError)
+}
+
+fn int_overflow_to_storage_err(_err: IntegerOverflowError) -> StorageError {
+    overflow_storage_err()
+}
+
+fn overflow_storage_err() -> StorageError {
+    StorageError::StorageInconsistentState(
+        "Calculations on stored receipt overflows calculations".to_owned(),
+    )
 }
 
 #[cfg(test)]
@@ -3055,6 +3176,8 @@ mod tests {
 
 /// Interface provided for gas cost estimations.
 pub mod estimator {
+    use std::collections::HashMap;
+
     use super::Runtime;
     use crate::{ApplyState, ApplyStats};
     use near_primitives::errors::RuntimeError;
@@ -3062,7 +3185,7 @@ pub mod estimator {
     use near_primitives::transaction::ExecutionOutcomeWithId;
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::types::EpochInfoProvider;
-    use near_store::TrieUpdate;
+    use near_store::{get_buffered_receipt_indices, TrieUpdate};
 
     pub fn apply_action_receipt(
         state_update: &mut TrieUpdate,
@@ -3073,11 +3196,20 @@ pub mod estimator {
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
+        // The estimator does not take congestion into account.
+        // Just create a limitless  receipt sink that always forwards.
+        let mut receipt_sink = super::receipt_sink::ReceiptSink {
+            congestion_info: &mut Default::default(),
+            // no limits set for any shards => limitless
+            outgoing_limit: &mut HashMap::new(),
+            buffered_receipts_indices: &mut get_buffered_receipt_indices(&state_update.trie)?,
+            outgoing_receipts,
+        };
         Runtime {}.apply_action_receipt(
             state_update,
             apply_state,
             receipt,
-            outgoing_receipts,
+            &mut receipt_sink,
             validator_proposals,
             stats,
             epoch_info_provider,
