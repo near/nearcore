@@ -542,7 +542,7 @@ fn read_node_from_db(
         .map_err(|_| StorageError::StorageInternalError)?
         .ok_or(StorageError::MissingTrieValue(MissingTrieValueContext::TrieStorage, *hash));
     if val.is_err() {
-        tracing::info!(target: "trie_storage", ?shard_uid, ?hash, "read_node_from_db missing trie value");
+        tracing::info!(target: "trie_storage", ?shard_uid, ?hash, ?val, "read_node_from_db error");
     }
     let val = val?;
     Ok(val.into())
