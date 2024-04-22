@@ -1320,7 +1320,7 @@ impl Runtime {
             compute: 0,
         };
 
-        prefetch_manager.prefetch_all_transacitons(transactions);
+        prefetch_manager.prefetch_all_transactions(transactions);
 
         let mut stats = ApplyStats::default();
 
@@ -1907,7 +1907,7 @@ impl PrefetchManager {
         self.prefetcher.is_some()
     }
 
-    fn prefetch_all_transacitons(&mut self, transactions: &[SignedTransaction]) {
+    fn prefetch_all_transactions(&mut self, transactions: &[SignedTransaction]) {
         if let Some(prefetcher) = &mut self.prefetcher {
             // Prefetcher is allowed to fail
             _ = prefetcher.prefetch_transactions_data(transactions);
