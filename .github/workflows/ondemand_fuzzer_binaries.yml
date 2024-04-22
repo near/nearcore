@@ -54,8 +54,8 @@ jobs:
 
       - name: Installing nightly rust
         run: |
-          rustup install nightly
-          rustup default nightly
+          # rustup install nightly
+          # rustup default nightly
 
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
