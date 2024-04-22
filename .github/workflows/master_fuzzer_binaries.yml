@@ -27,7 +27,7 @@ jobs:
         uses: "google-github-actions/auth@v2"
         with:
           workload_identity_provider: "projects/346595944828/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-          service_account: "github-service-account@nearone-services.iam.gserviceaccount.com"
+          service_account: "github-service-account@nearone-clusterfuzz.iam.gserviceaccount.com"
 
       - name: Installing nightly rust
         run: |

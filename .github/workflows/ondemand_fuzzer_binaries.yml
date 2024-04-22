@@ -52,10 +52,10 @@ jobs:
           workload_identity_provider: "projects/346595944828/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
           service_account: "github-service-account@nearone-clusterfuzz.iam.gserviceaccount.com"
 
-      # - name: Installing nightly rust
-      #   run: |
-      #     rustup install nightly
-      #     rustup default nightly
+      - name: Installing nightly rust
+        run: |
+          rustup install nightly
+          rustup default nightly
 
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
@@ -65,7 +65,7 @@ jobs:
           git: https://github.com/Ekleog-NEAR/bolero
           rev: 56da8e6d1d018519a30b36d85d3a53fe35a42eaf
 
-      # - run: rustup target add --toolchain nightly wasm32-unknown-unknown
+      - run: rustup target add --toolchain nightly wasm32-unknown-unknown
 
       - name: "Set up GCP SDK"
         uses: "google-github-actions/setup-gcloud@v2"
@@ -87,7 +87,5 @@ jobs:
       - name: "Compile fuzzers and upload to GCS"
         run: |
           NAME="nearcore-$branch_type-$(env TZ=Etc/UTC  date +"%Y%m%d%H%M%S")"
-          # RUSTFLAGS="--cfg fuzz" cargo +nightly bolero build-clusterfuzz --all-features --profile fuzz
-          touch clusterfuzz.tar
-          #gsutil cp -Z target/fuzz/clusterfuzz.tar "gs://nearone_fuzzer_targets/$branch_type/$NAME.tar.gz"
-          gsutil cp -Z clusterfuzz.tar "gs://nearone_fuzzer_targets/$branch_type/$NAME.tar.gz"
+          RUSTFLAGS="--cfg fuzz" cargo +nightly bolero build-clusterfuzz --all-features --profile fuzz
+          gsutil cp -Z target/fuzz/clusterfuzz.tar "gs://nearone_fuzzer_targets/$branch_type/$NAME.tar.gz"
