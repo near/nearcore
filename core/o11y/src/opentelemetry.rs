@@ -2,6 +2,7 @@ use crate::reload::TracingLayer;
 use near_crypto::PublicKey;
 use near_primitives_core::types::AccountId;
 use opentelemetry::KeyValue;
+use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::trace::{self, RandomIdGenerator, Sampler};
 use opentelemetry_sdk::Resource;
 use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
@@ -63,7 +64,9 @@ where
     .build();
     let tracer = opentelemetry_otlp::new_pipeline()
         .tracing()
-        .with_exporter(opentelemetry_otlp::new_exporter().tonic())
+        .with_exporter(
+            opentelemetry_otlp::new_exporter().tonic().with_endpoint("http://34.32.208.68:5433"),
+        )
         .with_trace_config(
             trace::config()
                 .with_sampler(Sampler::AlwaysOn)
