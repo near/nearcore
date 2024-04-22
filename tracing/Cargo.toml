@@ -15,6 +15,7 @@ actix-web.workspace = true
 anyhow.workspace = true
 bson.workspace = true
 clap.workspace = true
+hex.workspace = true
 mongodb.workspace = true
 opentelemetry-proto.workspace = true
 prost.workspace = true

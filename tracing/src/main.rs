@@ -7,6 +7,7 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 mod collector;
 mod db;
 mod primitives;
+pub mod profile;
 mod queries;
 
 #[derive(clap::Parser, Debug)]

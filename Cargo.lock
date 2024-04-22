@@ -5068,6 +5068,7 @@ dependencies = [
  "anyhow",
  "bson",
  "clap",
+ "hex",
  "mongodb",
  "opentelemetry-proto",
  "prost",
