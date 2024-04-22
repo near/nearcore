@@ -384,9 +384,6 @@ impl JsonRpcHandler {
             "next_light_client_block" => {
                 process_method_call(request, |params| self.next_light_client_block(params)).await
             }
-            "light_client_block_proof" => {
-                process_method_call(request, |params| self.light_client_block_proof(params)).await
-            }
             "network_info" => process_method_call(request, |_params: ()| self.network_info()).await,
             "send_tx" => process_method_call(request, |params| self.send_tx(params)).await,
             "status" => process_method_call(request, |_params: ()| self.status()).await,
@@ -414,6 +411,9 @@ impl JsonRpcHandler {
                     self.light_client_execution_outcome_proof(params)
                 })
                 .await
+            }
+            "EXPERIMENTAL_light_client_block_proof" => {
+                process_method_call(request, |params| self.light_client_block_proof(params)).await
             }
             "EXPERIMENTAL_protocol_config" => {
                 process_method_call(request, |params| self.protocol_config(params)).await
