@@ -195,41 +195,40 @@ impl ShardChunkHeaderV3 {
         congestion_info: CongestionInfo,
         signer: &dyn ValidatorSigner,
     ) -> Self {
-        let inner =
-            if ProtocolFeature::Nep539CongestionControl.protocol_version() <= protocol_version {
-                ShardChunkHeaderInner::V3(ShardChunkHeaderInnerV3 {
-                    prev_block_hash,
-                    prev_state_root,
-                    prev_outcome_root,
-                    encoded_merkle_root,
-                    encoded_length,
-                    height_created: height,
-                    shard_id,
-                    prev_gas_used,
-                    gas_limit,
-                    prev_balance_burnt,
-                    prev_outgoing_receipts_root,
-                    tx_root,
-                    prev_validator_proposals,
-                    congestion_info,
-                })
-            } else {
-                ShardChunkHeaderInner::V2(ShardChunkHeaderInnerV2 {
-                    prev_block_hash,
-                    prev_state_root,
-                    prev_outcome_root,
-                    encoded_merkle_root,
-                    encoded_length,
-                    height_created: height,
-                    shard_id,
-                    prev_gas_used,
-                    gas_limit,
-                    prev_balance_burnt,
-                    prev_outgoing_receipts_root,
-                    tx_root,
-                    prev_validator_proposals,
-                })
-            };
+        let inner = if ProtocolFeature::CongestionControl.protocol_version() <= protocol_version {
+            ShardChunkHeaderInner::V3(ShardChunkHeaderInnerV3 {
+                prev_block_hash,
+                prev_state_root,
+                prev_outcome_root,
+                encoded_merkle_root,
+                encoded_length,
+                height_created: height,
+                shard_id,
+                prev_gas_used,
+                gas_limit,
+                prev_balance_burnt,
+                prev_outgoing_receipts_root,
+                tx_root,
+                prev_validator_proposals,
+                congestion_info,
+            })
+        } else {
+            ShardChunkHeaderInner::V2(ShardChunkHeaderInnerV2 {
+                prev_block_hash,
+                prev_state_root,
+                prev_outcome_root,
+                encoded_merkle_root,
+                encoded_length,
+                height_created: height,
+                shard_id,
+                prev_gas_used,
+                gas_limit,
+                prev_balance_burnt,
+                prev_outgoing_receipts_root,
+                tx_root,
+                prev_validator_proposals,
+            })
+        };
         Self::from_inner(inner, signer)
     }
 

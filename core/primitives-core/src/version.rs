@@ -156,8 +156,8 @@ pub enum ProtocolFeature {
     // Receipts which generate storage proofs larger than this limit will be rejected.
     // Protocol 85 also decreased the soft per-chunk storage proof limit to 3MB.
     PerReceiptHardStorageProofLimit,
-    /// Cross-shard congestion control according to NEP-539.
-    Nep539CongestionControl,
+    /// Cross-shard congestion control according to https://github.com/near/NEPs/pull/539.
+    CongestionControl,
 }
 
 impl ProtocolFeature {
@@ -234,7 +234,7 @@ impl ProtocolFeature {
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
             ProtocolFeature::NonrefundableStorage => 140,
             ProtocolFeature::SimpleNightshadeV3 => 141,
-            ProtocolFeature::Nep539CongestionControl => 142,
+            ProtocolFeature::CongestionControl => 142,
         }
     }
 }

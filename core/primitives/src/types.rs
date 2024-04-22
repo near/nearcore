@@ -811,7 +811,7 @@ pub mod chunk_extra {
             protocol_version: ProtocolVersion,
             congestion_info: CongestionInfo,
         ) -> Self {
-            if protocol_version >= ProtocolFeature::Nep539CongestionControl.protocol_version() {
+            if protocol_version >= ProtocolFeature::CongestionControl.protocol_version() {
                 Self::V3(ChunkExtraV3 {
                     state_root: *state_root,
                     outcome_root,
