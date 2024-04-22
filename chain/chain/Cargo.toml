@@ -44,6 +44,7 @@ near-performance-metrics.workspace = true
 near-performance-metrics-macros.workspace = true
 near-pool.workspace = true
 near-primitives.workspace = true
+near-primitives-core.workspace = true
 near-store.workspace = true
 node-runtime.workspace = true
 near-parameters.workspace = true

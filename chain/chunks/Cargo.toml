@@ -32,6 +32,7 @@ near-chain-configs.workspace = true
 near-crypto.workspace = true
 near-epoch-manager.workspace = true
 near-primitives.workspace = true
+near-primitives-core.workspace = true
 near-chunks-primitives.workspace = true
 near-store.workspace = true
 near-network.workspace = true

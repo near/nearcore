@@ -1,11 +1,9 @@
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
-use std::io;
-
+use crate::byzantine_assert;
+use crate::chunks_store::ReadOnlyChunksStore;
+use crate::types::{Block, BlockHeader, LatestKnown};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
 use near_cache::CellLruCache;
-
 use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
@@ -25,6 +23,7 @@ use near_primitives::sharding::{
 use near_primitives::state_sync::{
     ReceiptProofResponse, ShardStateSyncResponseHeader, StateHeaderKey, StateSyncDumpProgress,
 };
+use near_primitives::stateless_validation::StoredChunkStateTransitionData;
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof,
     SignedTransaction,
@@ -41,17 +40,16 @@ use near_primitives::utils::{
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::LightClientBlockView;
+use near_primitives_core::cryptohashmap::CryptoHashMap;
+use near_store::db::{StoreStatistics, STATE_SYNC_DUMP_KEY};
 use near_store::{
     DBCol, KeyForStateChanges, PartialStorage, Store, StoreUpdate, WrappedTrieChanges,
     CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
     LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, TAIL_KEY,
 };
-
-use crate::byzantine_assert;
-use crate::chunks_store::ReadOnlyChunksStore;
-use crate::types::{Block, BlockHeader, LatestKnown};
-use near_primitives::stateless_validation::StoredChunkStateTransitionData;
-use near_store::db::{StoreStatistics, STATE_SYNC_DUMP_KEY};
+use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet};
+use std::io;
 use std::sync::Arc;
 
 /// lru cache size
@@ -1405,26 +1403,26 @@ impl ChainStoreAccess for ChainStore {
 /// Cache update for ChainStore
 #[derive(Default)]
 pub(crate) struct ChainStoreCacheUpdate {
-    blocks: HashMap<CryptoHash, Block>,
-    headers: HashMap<CryptoHash, BlockHeader>,
-    block_extras: HashMap<CryptoHash, Arc<BlockExtra>>,
+    blocks: CryptoHashMap<Block>,
+    headers: CryptoHashMap<BlockHeader>,
+    block_extras: CryptoHashMap<Arc<BlockExtra>>,
     chunk_extras: HashMap<(CryptoHash, ShardUId), Arc<ChunkExtra>>,
     chunks: HashMap<ChunkHash, Arc<ShardChunk>>,
     partial_chunks: HashMap<ChunkHash, Arc<PartialEncodedChunk>>,
     block_hash_per_height: HashMap<BlockHeight, HashMap<EpochId, HashSet<CryptoHash>>>,
     pub(crate) height_to_hashes: HashMap<BlockHeight, Option<CryptoHash>>,
-    next_block_hashes: HashMap<CryptoHash, CryptoHash>,
-    epoch_light_client_blocks: HashMap<CryptoHash, Arc<LightClientBlockView>>,
+    next_block_hashes: CryptoHashMap<CryptoHash>,
+    epoch_light_client_blocks: CryptoHashMap<Arc<LightClientBlockView>>,
     outgoing_receipts: HashMap<(CryptoHash, ShardId), Arc<Vec<Receipt>>>,
     incoming_receipts: HashMap<(CryptoHash, ShardId), Arc<Vec<ReceiptProof>>>,
     outcomes: HashMap<(CryptoHash, CryptoHash), ExecutionOutcomeWithProof>,
     outcome_ids: HashMap<(CryptoHash, ShardId), Vec<CryptoHash>>,
     invalid_chunks: HashMap<ChunkHash, Arc<EncodedShardChunk>>,
-    receipt_id_to_shard_id: HashMap<CryptoHash, ShardId>,
-    transactions: HashMap<CryptoHash, Arc<SignedTransaction>>,
-    receipts: HashMap<CryptoHash, Arc<Receipt>>,
-    block_refcounts: HashMap<CryptoHash, u64>,
-    block_merkle_tree: HashMap<CryptoHash, Arc<PartialMerkleTree>>,
+    receipt_id_to_shard_id: CryptoHashMap<ShardId>,
+    transactions: CryptoHashMap<Arc<SignedTransaction>>,
+    receipts: CryptoHashMap<Arc<Receipt>>,
+    block_refcounts: CryptoHashMap<u64>,
+    block_merkle_tree: CryptoHashMap<Arc<PartialMerkleTree>>,
     block_ordinal_to_hash: HashMap<NumBlocks, CryptoHash>,
     processed_block_heights: HashSet<BlockHeight>,
 }

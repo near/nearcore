@@ -8,7 +8,8 @@ use near_primitives::views::{
     BlockProcessingInfo, BlockProcessingStatus, ChainProcessingInfo, ChunkProcessingInfo,
     ChunkProcessingStatus, DroppedReason,
 };
-use std::collections::{hash_map::Entry, BTreeMap, HashMap};
+use near_primitives_core::cryptohashmap;
+use std::collections::{BTreeMap, HashMap};
 use std::mem;
 use tracing::error;
 
@@ -27,7 +28,7 @@ pub struct BlocksDelayTracker {
     clock: Clock,
     // A block is added at the first time it was received, and
     // removed if it is too far from the chain head.
-    blocks: HashMap<CryptoHash, BlockTrackingStats>,
+    blocks: cryptohashmap::CryptoHashMap<BlockTrackingStats>,
     // Maps block height to block hash. Used for gc.
     // Theoretically, each block height should only have one block, if our block processing code
     // works correctly. We are storing a vector here just in case.
@@ -133,7 +134,7 @@ impl BlocksDelayTracker {
     pub fn new(clock: Clock) -> Self {
         Self {
             clock,
-            blocks: HashMap::new(),
+            blocks: Default::default(),
             blocks_height_map: BTreeMap::new(),
             chunks: HashMap::new(),
             floating_chunks: HashMap::new(),
@@ -144,7 +145,7 @@ impl BlocksDelayTracker {
     pub fn mark_block_received(&mut self, block: &Block) {
         let block_hash = block.header().hash();
 
-        if let Entry::Vacant(entry) = self.blocks.entry(*block_hash) {
+        if let cryptohashmap::Entry::Vacant(entry) = self.blocks.entry(*block_hash) {
             let height = block.header().height();
             let chunks = block
                 .chunks()

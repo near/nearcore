@@ -1,7 +1,7 @@
 use near_async::time;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap};
+use std::collections::{btree_map, BTreeMap, BTreeSet};
 
 /// default value for `capacity`
 const DEFAULT_CAPACITY: usize = 100_000;
@@ -54,7 +54,7 @@ pub struct RouteBackCache {
     remove_frequent_min_size: usize,
     /// Main map from message hash to time where it was created + target peer
     /// Size: O(capacity)
-    main: HashMap<CryptoHash, (time::Instant, PeerId)>,
+    main: near_primitives_core::cryptohashmap::CryptoHashMap<(time::Instant, PeerId)>,
     /// Number of records allocated by each PeerId.
     /// The size is stored with negative sign, to order in PeerId in decreasing order.
     /// To avoid handling with negative number all sizes are added by capacity.
@@ -84,7 +84,7 @@ impl RouteBackCache {
             capacity,
             evict_timeout,
             remove_frequent_min_size,
-            main: HashMap::new(),
+            main: Default::default(),
             size_per_target: BTreeSet::new(),
             record_per_target: BTreeMap::new(),
         }

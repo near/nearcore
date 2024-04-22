@@ -47,6 +47,7 @@ near-fmt.workspace = true
 near-o11y.workspace = true
 near-parameters.workspace = true
 near-primitives.workspace = true
+near-primitives-core.workspace = true
 near-vm-runner.workspace = true
 
 [dev-dependencies]

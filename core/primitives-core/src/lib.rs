@@ -8,5 +8,6 @@ pub mod hash;
 pub mod serialize;
 pub mod types;
 pub mod version;
+pub mod cryptohashmap;
 
 pub use enum_map;

@@ -1,3 +1,4 @@
+use crate::config::safe_add_gas;
 use near_crypto::PublicKey;
 use near_primitives::action::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
@@ -10,9 +11,6 @@ use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight, Nonce};
 use near_vm_runner::logic::HostError;
 use near_vm_runner::logic::VMLogicError;
-use std::collections::HashMap;
-
-use crate::config::safe_add_gas;
 
 /// near_vm_runner::types is not public.
 type ReceiptIndex = u64;
@@ -48,13 +46,13 @@ pub struct DataReceiptMetadata {
     pub is_promise_resume: bool,
 }
 
-#[derive(Default, Clone, PartialEq)]
+#[derive(Default, Clone)]
 pub struct ReceiptManager {
     pub(super) action_receipts: ActionReceipts,
     pub(super) data_receipts: DataReceipts,
     pub(super) gas_weights: Vec<(FunctionCallActionIndex, GasWeight)>,
     /// For new promise yields, map from input data id to index in `action_receipts`
-    promise_yield_receipt_index: HashMap<CryptoHash, usize>,
+    promise_yield_receipt_index: near_primitives_core::cryptohashmap::CryptoHashMap<usize>,
 }
 
 /// Indexes the [`ReceiptManager`]'s action receipts and actions.

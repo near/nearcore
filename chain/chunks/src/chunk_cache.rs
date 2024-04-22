@@ -1,11 +1,10 @@
-use std::collections::{HashMap, HashSet};
-
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunkPart, PartialEncodedChunkV2, ReceiptProof, ShardChunkHeader,
 };
 use near_primitives::types::{BlockHeight, BlockHeightDelta, ShardId};
-use std::collections::hash_map::Entry::Occupied;
+use near_primitives_core::cryptohashmap;
+use std::collections::{HashMap, HashSet};
 use tracing::warn;
 
 // This file implements EncodedChunksCache, which provides three main functionalities:
@@ -64,7 +63,7 @@ pub struct EncodedChunksCache {
     height_to_shard_to_chunk: HashMap<BlockHeight, HashMap<ShardId, ChunkHash>>,
     /// A map from a block hash to a set of incomplete chunks (does not have all parts and receipts yet)
     /// whose previous block is the block hash.
-    incomplete_chunks: HashMap<CryptoHash, HashSet<ChunkHash>>,
+    incomplete_chunks: cryptohashmap::CryptoHashMap<HashSet<ChunkHash>>,
 }
 
 impl EncodedChunksCacheEntry {
@@ -109,7 +108,7 @@ impl EncodedChunksCache {
             encoded_chunks: HashMap::new(),
             height_map: HashMap::new(),
             height_to_shard_to_chunk: HashMap::new(),
-            incomplete_chunks: HashMap::new(),
+            incomplete_chunks: Default::default(),
         }
     }
 
@@ -160,7 +159,9 @@ impl EncodedChunksCache {
         prev_block_hash: &CryptoHash,
         chunk_hash: &ChunkHash,
     ) {
-        if let Occupied(mut entry) = self.incomplete_chunks.entry(*prev_block_hash) {
+        if let cryptohashmap::Entry::Occupied(mut entry) =
+            self.incomplete_chunks.entry(*prev_block_hash)
+        {
             entry.get_mut().remove(chunk_hash);
             if entry.get().is_empty() {
                 entry.remove();

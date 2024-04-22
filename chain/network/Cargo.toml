@@ -57,6 +57,7 @@ near-crypto.workspace = true
 near-performance-metrics.workspace = true
 near-performance-metrics-macros.workspace = true
 near-primitives.workspace = true
+near-primitives-core.workspace = true
 near-store.workspace = true
 
 [dev-dependencies]
