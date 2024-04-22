@@ -540,7 +540,11 @@ fn read_node_from_db(
     let val = store
         .get(DBCol::State, key.as_ref())
         .map_err(|_| StorageError::StorageInternalError)?
-        .ok_or(StorageError::MissingTrieValue(MissingTrieValueContext::TrieStorage, *hash))?;
+        .ok_or(StorageError::MissingTrieValue(MissingTrieValueContext::TrieStorage, *hash));
+    if val.is_err() {
+        tracing::info!(target: "trie_storage", ?shard_uid, ?hash, "read_node_from_db missing trie value");
+    }
+    let val = val?;
     Ok(val.into())
 }
 

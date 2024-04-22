@@ -51,6 +51,7 @@ impl TrieViewer {
         state_update: &TrieUpdate,
         account_id: &AccountId,
     ) -> Result<Account, errors::ViewAccountError> {
+        tracing::info!(target: "runtime", ?account_id, "view account");
         get_account(state_update, account_id)?.ok_or_else(|| {
             errors::ViewAccountError::AccountDoesNotExist {
                 requested_account_id: account_id.clone(),
