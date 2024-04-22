@@ -135,12 +135,7 @@ impl ShardChunkHeaderInner {
         match self {
             Self::V1(_) => None,
             Self::V2(_) => None,
-            Self::V3(v3) => Some(CongestionInfo {
-                delayed_receipts_gas: v3.delayed_receipts_gas,
-                buffered_receipts_gas: v3.buffered_receipts_gas,
-                receipt_bytes: v3.receipt_bytes,
-                allowed_shard: v3.allowed_shard,
-            }),
+            Self::V3(v3) => v3.congestion_info.into(),
         }
     }
 }
@@ -198,7 +193,7 @@ pub struct ShardChunkHeaderInnerV2 {
     pub prev_validator_proposals: Vec<ValidatorStake>,
 }
 
-// V2 -> V3: Add incoming_congestion and general_congestion fields.
+// V2 -> V3: Add congestion info fields.
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
 pub struct ShardChunkHeaderInnerV3 {
     /// Previous block hash.
@@ -223,16 +218,6 @@ pub struct ShardChunkHeaderInnerV3 {
     pub tx_root: CryptoHash,
     /// Validator proposals from the previous chunk.
     pub prev_validator_proposals: Vec<ValidatorStake>,
-
-    // Fields of `CongestionInfo` inlined to avoid adding another layer of
-    // versioning.
-    /// Sum of gas in currently delayed receipts.
-    pub delayed_receipts_gas: u128,
-    /// Sum of gas in currently buffered receipts.
-    pub buffered_receipts_gas: u128,
-    /// Size of borsh serialized receipts stored in state because they
-    /// were delayed, buffered, postponed, or yielded.
-    pub receipt_bytes: u64,
-    /// If fully congested, only this shard can forward receipts.
-    pub allowed_shard: u64,
+    /// Congestion info.
+    pub congestion_info: CongestionInfo,
 }

@@ -783,18 +783,8 @@ pub mod chunk_extra {
         pub gas_limit: Gas,
         /// Total balance burnt after processing the current chunk.
         pub balance_burnt: Balance,
-
-        // Fields of `CongestionInfo` inlined to avoid adding another layer of
-        // versioning.
-        /// Sum of gas in currently delayed receipts.
-        pub delayed_receipts_gas: u128,
-        /// Sum of gas in currently buffered receipts.
-        pub buffered_receipts_gas: u128,
-        /// Size of borsh serialized receipts stored in state because they
-        /// were delayed, buffered, postponed, or yielded.
-        pub receipt_bytes: u64,
-        /// If fully congested, only this shard can forward receipts.
-        pub allowed_shard: u64,
+        /// Congestion info.
+        congestion_info: CongestionInfo,
     }
 
     impl ChunkExtra {
@@ -821,7 +811,7 @@ pub mod chunk_extra {
             protocol_version: ProtocolVersion,
             congestion_info: CongestionInfo,
         ) -> Self {
-            if ProtocolFeature::Nep539CongestionControl.protocol_version() <= protocol_version {
+            if protocol_version >= ProtocolFeature::Nep539CongestionControl.protocol_version() {
                 Self::V3(ChunkExtraV3 {
                     state_root: *state_root,
                     outcome_root,
@@ -829,10 +819,7 @@ pub mod chunk_extra {
                     gas_used,
                     gas_limit,
                     balance_burnt,
-                    delayed_receipts_gas: congestion_info.delayed_receipts_gas,
-                    buffered_receipts_gas: congestion_info.buffered_receipts_gas,
-                    receipt_bytes: congestion_info.receipt_bytes,
-                    allowed_shard: congestion_info.allowed_shard,
+                    congestion_info,
                 })
             } else {
                 Self::V2(ChunkExtraV2 {
@@ -914,12 +901,7 @@ pub mod chunk_extra {
             match self {
                 Self::V1(_) => None,
                 Self::V2(_) => None,
-                Self::V3(v3) => Some(CongestionInfo {
-                    delayed_receipts_gas: v3.delayed_receipts_gas,
-                    buffered_receipts_gas: v3.buffered_receipts_gas,
-                    receipt_bytes: v3.receipt_bytes,
-                    allowed_shard: v3.allowed_shard,
-                }),
+                Self::V3(v3) => v3.congestion_info.into(),
             }
         }
     }

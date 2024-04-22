@@ -211,11 +211,7 @@ impl ShardChunkHeaderV3 {
                     prev_outgoing_receipts_root,
                     tx_root,
                     prev_validator_proposals,
-                    // note: Unpacking the struct here to avoid versioning `CongestionInfo`.
-                    delayed_receipts_gas: congestion_info.delayed_receipts_gas,
-                    buffered_receipts_gas: congestion_info.buffered_receipts_gas,
-                    receipt_bytes: congestion_info.receipt_bytes,
-                    allowed_shard: congestion_info.allowed_shard,
+                    congestion_info,
                 })
             } else {
                 ShardChunkHeaderInner::V2(ShardChunkHeaderInnerV2 {
