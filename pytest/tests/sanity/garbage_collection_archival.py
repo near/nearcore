@@ -168,3 +168,6 @@ for key in keys:
             "block_id": block_hash
         })
     assert 'error' in res, res
+
+nodes[1].check_store()
+nodes[2].check_store()
