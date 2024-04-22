@@ -63,7 +63,6 @@ mod trie_recording_tests {
     use borsh::BorshDeserialize;
     use near_primitives::challenge::PartialState;
     use near_primitives::congestion_info::CongestionInfo;
-    use near_primitives::congestion_info::StoredReceiptsInfo;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
     use near_primitives::state::ValueRef;

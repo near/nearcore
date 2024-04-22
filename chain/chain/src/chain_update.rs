@@ -747,37 +747,39 @@ impl<'a> ChainUpdate<'a> {
         let chunk_header = chunk.cloned_header();
         let gas_limit = chunk_header.gas_limit();
         // TODO: Is this the right epoch ID?
-        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, block_header.epoch_id())?;
-        let prev_chunk_extra =
-            self.chain_store_update.get_chunk_extra(block_header.prev_hash(), &shard_uid)?;
+        // let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, block_header.epoch_id())?;
+        // let prev_chunk_extra =
+        //     self.chain_store_update.get_chunk_extra(block_header.prev_hash(), &shard_uid)?;
         let prev_block = self.chain_store_update.get_block(block_header.prev_hash())?;
         // This is set to false because the value is only relevant
         // during protocol version RestoreReceiptsAfterFixApplyChunks.
         // TODO(nikurt): Determine the value correctly.
         let is_first_block_with_chunk_of_version = false;
 
-        let congestion_info = match prev_chunk_extra.congestion_info() {
-            Some(it) => it.clone(),
-            None => {
-                // No receipts information stored previously. If the cross-shard
-                // congestion feature is not enabled, simply return a dummy value,
-                // it won't be used anyway.
-                // If the feature is enabled but the info is not available, it must
-                // be the first chunk with the feature. In that case, compute it.
+        // TODO(congestion_control) The congestion info should be computed from
+        // the state directly.
+        // let congestion_info = match prev_chunk_extra.congestion_info() {
+        //     Some(it) => it.clone(),
+        //     None => {
+        //         // No receipts information stored previously. If the cross-shard
+        //         // congestion feature is not enabled, simply return a dummy value,
+        //         // it won't be used anyway.
+        //         // If the feature is enabled but the info is not available, it must
+        //         // be the first chunk with the feature. In that case, compute it.
 
-                // TODO: check if we can really use flat storage here
-                let use_flat_storage = true;
-                let trie = self.runtime_adapter.get_trie_for_shard(
-                    shard_id,
-                    block_header.prev_hash(),
-                    *prev_chunk_extra.state_root(),
-                    use_flat_storage,
-                )?;
-                let prev_epoch_id = self.epoch_manager.get_epoch_id(block_header.prev_hash())?;
-                let config = self.runtime_adapter.get_protocol_config(&prev_epoch_id)?;
-                node_runtime::compute_congestion_info(&trie, &config.runtime_config)?
-            }
-        };
+        //         // TODO: check if we can really use flat storage here
+        //         let use_flat_storage = true;
+        //         let trie = self.runtime_adapter.get_trie_for_shard(
+        //             shard_id,
+        //             block_header.prev_hash(),
+        //             *prev_chunk_extra.state_root(),
+        //             use_flat_storage,
+        //         )?;
+        //         let prev_epoch_id = self.epoch_manager.get_epoch_id(block_header.prev_hash())?;
+        //         let config = self.runtime_adapter.get_protocol_config(&prev_epoch_id)?;
+        //         node_runtime::compute_congestion_info(&trie, &config.runtime_config)?
+        //     }
+        // };
 
         let apply_result = self.runtime_adapter.apply_chunk(
             RuntimeStorageConfig::new(chunk_header.prev_state_root(), true),

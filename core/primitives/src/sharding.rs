@@ -178,6 +178,7 @@ impl ShardChunkHeaderV3 {
     }
 
     pub fn new(
+        protocol_version: ProtocolVersion,
         prev_block_hash: CryptoHash,
         prev_state_root: StateRoot,
         prev_outcome_root: CryptoHash,
@@ -191,9 +192,8 @@ impl ShardChunkHeaderV3 {
         prev_outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         prev_validator_proposals: Vec<ValidatorStake>,
-        signer: &dyn ValidatorSigner,
-        protocol_version: ProtocolVersion,
         congestion_info: CongestionInfo,
+        signer: &dyn ValidatorSigner,
     ) -> Self {
         let inner =
             if ProtocolFeature::Nep539CongestionControl.protocol_version() <= protocol_version {
@@ -1083,6 +1083,7 @@ impl EncodedShardChunk {
             Ok((Self::V2(chunk), merkle_paths))
         } else {
             let header = ShardChunkHeaderV3::new(
+                protocol_version,
                 prev_block_hash,
                 prev_state_root,
                 prev_outcome_root,
@@ -1096,9 +1097,8 @@ impl EncodedShardChunk {
                 prev_outgoing_receipts_root,
                 tx_root,
                 prev_validator_proposals,
-                signer,
-                protocol_version,
                 congestion_info,
+                signer,
             );
             let chunk = EncodedShardChunkV2 { header: ShardChunkHeader::V3(header), content };
             Ok((Self::V2(chunk), merkle_paths))

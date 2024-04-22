@@ -200,6 +200,7 @@ impl ChunkStateWitness {
 
     pub fn new_dummy(height: BlockHeight, shard_id: ShardId, prev_block_hash: CryptoHash) -> Self {
         let header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+            PROTOCOL_VERSION,
             prev_block_hash,
             Default::default(),
             Default::default(),
@@ -213,9 +214,8 @@ impl ChunkStateWitness {
             Default::default(),
             Default::default(),
             Default::default(),
-            &EmptyValidatorSigner::default(),
-            PROTOCOL_VERSION,
             CongestionInfo::default(),
+            &EmptyValidatorSigner::default(),
         ));
         Self::new(
             "alice.near".parse().unwrap(),

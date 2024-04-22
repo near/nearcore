@@ -1365,6 +1365,8 @@ impl Runtime {
         {
             let (trie, trie_changes, state_changes) = state_update.finalize()?;
             let proof = trie.recorded_storage();
+            // TODO(congestion_control)
+            let congestion_info = CongestionInfo::default();
             return Ok(ApplyResult {
                 state_root: trie_changes.new_root,
                 trie_changes,
@@ -1378,7 +1380,7 @@ impl Runtime {
                 proof,
                 delayed_receipts_count: delayed_receipts_indices.len(),
                 metrics: None,
-                congestion_info: todo!(),
+                congestion_info,
             });
         }
 
@@ -1746,6 +1748,8 @@ impl Runtime {
         metrics::CHUNK_RECORDED_SIZE_UPPER_BOUND_RATIO
             .observe(chunk_recorded_size_upper_bound / f64::max(1.0, chunk_recorded_size));
         let proof = trie.recorded_storage();
+        // TODO(congestion_control)
+        let congestion_info = CongestionInfo::default();
         Ok(ApplyResult {
             state_root,
             trie_changes,
@@ -1759,7 +1763,7 @@ impl Runtime {
             proof,
             delayed_receipts_count: delayed_receipts_indices.len(),
             metrics: Some(metrics),
-            congestion_info: todo!(),
+            congestion_info,
         })
     }
 
@@ -1852,8 +1856,8 @@ fn action_transfer_or_implicit_account_creation(
 /// `CongestionInfo`. In normal operation, this information is kept up
 /// to date and passed from chunk to chunk through chunk extra fields.
 pub fn compute_congestion_info(
-    trie: &dyn near_store::TrieAccess,
-    config: &RuntimeConfig,
+    _trie: &dyn near_store::TrieAccess,
+    _config: &RuntimeConfig,
 ) -> Result<CongestionInfo, StorageError> {
     todo!()
 }

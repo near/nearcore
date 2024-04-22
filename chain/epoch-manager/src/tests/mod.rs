@@ -2794,6 +2794,7 @@ fn test_max_kickout_stake_ratio() {
 
 fn test_chunk_header(h: &[CryptoHash], signer: &dyn ValidatorSigner) -> ShardChunkHeader {
     ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+        PROTOCOL_VERSION,
         h[0],
         h[2],
         h[2],
@@ -2807,9 +2808,8 @@ fn test_chunk_header(h: &[CryptoHash], signer: &dyn ValidatorSigner) -> ShardChu
         h[2],
         h[2],
         vec![],
-        signer,
-        PROTOCOL_VERSION,
         CongestionInfo::default(),
+        signer,
     ))
 }
 

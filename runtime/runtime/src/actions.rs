@@ -1175,7 +1175,6 @@ mod tests {
     use crate::near_primitives::shard_layout::ShardUId;
     use near_primitives::account::FunctionCallPermission;
     use near_primitives::action::delegate::NonDelegateAction;
-    use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::errors::InvalidAccessKeyError;
     use near_primitives::hash::hash;
     use near_primitives::runtime::migration_data::MigrationFlags;
