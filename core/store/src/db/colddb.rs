@@ -57,6 +57,9 @@ impl ColdDB {
         let shard_uid = ShardUId::try_from(&key[0..8]).unwrap();
         match shard_uid.version {
             2 => {
+                // DO NOT COMMIT THIS
+                tracing::info!(target: "store", ?shard_uid, "falling back to parent shard");
+
                 let shard_layout = ShardLayout::get_simple_nightshade_layout_v2();
                 let parent_shard_layout = ShardLayout::get_simple_nightshade_layout();
 
@@ -74,6 +77,9 @@ impl ColdDB {
                 }
             }
             3 => {
+                // DO NOT COMMIT THIS
+                tracing::info!(target: "store", ?shard_uid, "falling back to parent shard");
+
                 let shard_layout = ShardLayout::get_simple_nightshade_layout_v3();
                 let parent_shard_layout = ShardLayout::get_simple_nightshade_layout_v2();
 
@@ -90,7 +96,10 @@ impl ColdDB {
                     return result;
                 }
             }
-            _ => {}
+            _ => {
+                // DO NOT COMMIT THIS
+                tracing::info!(target: "store", ?shard_uid, "falling back to parent shard - unsupported version");
+            }
         }
 
         result
