@@ -88,6 +88,6 @@ jobs:
         run: |
           NAME="nearcore-$branch_type-$(env TZ=Etc/UTC  date +"%Y%m%d%H%M%S")"
           # RUSTFLAGS="--cfg fuzz" cargo +nightly bolero build-clusterfuzz --all-features --profile fuzz
-          touch test_clusterfuzz.tar
+          touch clusterfuzz.tar
           #gsutil cp -Z target/fuzz/clusterfuzz.tar "gs://nearone_fuzzer_targets/$branch_type/$NAME.tar.gz"
           gsutil cp -Z clusterfuzz.tar "gs://nearone_fuzzer_targets/$branch_type/$NAME.tar.gz"
