@@ -125,6 +125,9 @@ fn get_parent_key(
 impl Database for ColdDB {
     /// Returns raw bytes for given `key` ignoring any reference count decoding if any.
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<DBSlice<'_>>> {
+        if col == DBCol::State {
+            tracing::info!(target: "store", "get_raw_bytes state");
+        }
         Self::check_is_in_colddb(col)?;
         self.cold.get_raw_bytes(col, key)
     }

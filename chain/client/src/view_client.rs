@@ -315,6 +315,8 @@ impl ViewClientActor {
     }
 
     fn handle_query(&mut self, msg: Query) -> Result<QueryResponse, QueryError> {
+        tracing::info!(target: "rpc", ?msg, "handle query");
+
         let header = self.get_block_header_by_reference(&msg.block_reference);
         let header = match header {
             Ok(Some(header)) => Ok(header),
