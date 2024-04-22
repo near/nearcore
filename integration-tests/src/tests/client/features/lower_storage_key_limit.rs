@@ -24,7 +24,6 @@ fn protocol_upgrade() {
 
     let old_protocol_version =
         near_primitives::version::ProtocolFeature::LowerStorageKeyLimit.protocol_version() - 1;
-    let new_protocol_version = old_protocol_version + 1;
     let new_storage_key_limit = 2usize.pow(11); // 2 KB
     let args: Vec<u8> = vec![1u8; new_storage_key_limit + 1]
         .into_iter()
@@ -95,7 +94,7 @@ fn protocol_upgrade() {
         assert_matches!(final_result.status, FinalExecutionStatus::SuccessValue(_));
     }
 
-    env.upgrade_protocol(new_protocol_version);
+    env.upgrade_protocol_to_latest_version();
 
     // Re-run the transaction, check that execution fails.
     {

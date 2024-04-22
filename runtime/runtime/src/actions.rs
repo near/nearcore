@@ -57,8 +57,9 @@ fn get_contract_code(
     if checked_feature!("stable", EthImplicitAccounts, protocol_version)
         && account_id.get_account_type() == AccountType::EthImplicitAccount
     {
-        assert!(code_hash == *wallet_contract_magic_bytes().hash());
-        return Ok(Some(wallet_contract()));
+        let chain_id = runtime_ext.chain_id();
+        assert!(&code_hash == wallet_contract_magic_bytes(&chain_id).hash());
+        return Ok(Some(wallet_contract(&chain_id)));
     }
     runtime_ext.get_code(code_hash).map(|option| option.map(Arc::new))
 }
@@ -561,6 +562,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
     block_height: BlockHeight,
     current_protocol_version: ProtocolVersion,
     nonrefundable_storage_transfer: bool,
+    epoch_info_provider: &dyn EpochInfoProvider,
 ) {
     *actor_id = account_id.clone();
 
@@ -607,10 +609,12 @@ pub(crate) fn action_implicit_account_creation_transfer(
         // It holds because in the only calling site, we've checked the permissions before.
         AccountType::EthImplicitAccount => {
             if checked_feature!("stable", EthImplicitAccounts, current_protocol_version) {
+                let chain_id = epoch_info_provider.chain_id();
+
                 // We deploy "near[wallet contract hash]" magic bytes as the contract code,
                 // to mark that this is a neard-defined contract. It will not be used on a function call.
                 // Instead, neard-defined Wallet Contract implementation will be used.
-                let magic_bytes = wallet_contract_magic_bytes();
+                let magic_bytes = wallet_contract_magic_bytes(&chain_id);
 
                 let storage_usage = fee_config.storage_usage_config.num_bytes_account
                     + magic_bytes.code().len() as u64
@@ -630,7 +634,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
                 // Note this contract is shared among ETH-implicit accounts and `precompile_contract`
                 // is a no-op if the contract was already compiled.
                 precompile_contract(
-                    &wallet_contract(),
+                    &wallet_contract(&chain_id),
                     &apply_state.config.wasm_config,
                     apply_state.cache.as_deref(),
                 )

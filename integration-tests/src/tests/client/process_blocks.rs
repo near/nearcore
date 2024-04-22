@@ -1645,8 +1645,7 @@ fn test_gc_after_state_sync() {
     assert_eq!(env.clients[1].runtime_adapter.get_gc_stop_height(&sync_hash), 0);
     // mimic what we do in possible_targets
     assert!(env.clients[1].epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash).is_ok());
-    let tries = env.clients[1].runtime_adapter.get_tries();
-    env.clients[1].chain.clear_data(tries, &Default::default()).unwrap();
+    env.clients[1].chain.clear_data(&Default::default()).unwrap();
 }
 
 #[test]
@@ -1885,7 +1884,7 @@ fn test_gc_tail_update() {
             &None,
             *sync_block.hash(),
             &mut BlockProcessingArtifact::default(),
-            Arc::new(|_| {}),
+            None,
         )
         .unwrap();
     env.process_block(1, blocks.pop().unwrap(), Provenance::NONE);
@@ -2285,7 +2284,7 @@ fn test_validate_chunk_extra() {
         .persist_and_distribute_encoded_chunk(encoded_chunk, merkle_paths, receipts, validator_id)
         .unwrap();
     env.clients[0].chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
-    env.clients[0].process_blocks_with_missing_chunks(Arc::new(|_| {}));
+    env.clients[0].process_blocks_with_missing_chunks(None);
     let accepted_blocks = env.clients[0].finish_block_in_processing(block1.hash());
     assert_eq!(accepted_blocks.len(), 1);
     env.resume_block_processing(block2.hash());
@@ -2421,7 +2420,7 @@ fn test_catchup_gas_price_change() {
         }
     });
     env.clients[1].chain.schedule_apply_state_parts(0, sync_hash, num_parts, &f).unwrap();
-    env.clients[1].chain.set_state_finalize(0, sync_hash, Ok(())).unwrap();
+    env.clients[1].chain.set_state_finalize(0, sync_hash).unwrap();
     let chunk_extra_after_sync =
         env.clients[1].chain.get_chunk_extra(blocks[4].hash(), &ShardUId::single_shard()).unwrap();
     let expected_chunk_extra =

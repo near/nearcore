@@ -5,6 +5,7 @@ pub mod errors;
 pub mod gas_counter;
 mod logic;
 pub mod mocks;
+pub mod recorded_storage_counter;
 pub mod test_utils;
 #[cfg(test)]
 mod tests;

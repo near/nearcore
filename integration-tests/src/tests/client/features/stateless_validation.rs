@@ -334,7 +334,7 @@ fn test_chunk_state_witness_bad_shard_id() {
     let invalid_shard_id = 1000000000;
     let witness = ChunkStateWitness::new_dummy(upper_height, invalid_shard_id, previous_block);
     let signed_witness = SignedEncodedChunkStateWitness {
-        witness_bytes: EncodedChunkStateWitness::encode(&witness),
+        witness_bytes: EncodedChunkStateWitness::encode(&witness).unwrap().0,
         signature: Default::default(),
     };
 

@@ -3,12 +3,15 @@
 
 use crate::global::Global;
 use crate::instance::WeakOrStrongInstanceRef;
-use crate::memory::{Memory, MemoryStyle};
 use crate::table::{Table, TableStyle};
 use crate::vmcontext::{VMFunctionBody, VMFunctionEnvironment, VMFunctionKind, VMTrampoline};
 use crate::VMSharedSignatureIndex;
-use near_vm_types::{MemoryType, TableType};
+use near_vm_types::TableType;
 use std::sync::Arc;
+
+mod vmmemory;
+
+pub use vmmemory::VMMemory;
 
 /// The value of an export passed from one instance to another.
 #[derive(Debug)]
@@ -131,55 +134,6 @@ impl VMTable {
 impl From<VMTable> for VMExtern {
     fn from(table: VMTable) -> Self {
         Self::Table(table)
-    }
-}
-
-/// A memory export value.
-#[derive(Debug, Clone)]
-pub struct VMMemory {
-    /// Pointer to the containing `Memory`.
-    pub from: Arc<dyn Memory>,
-
-    /// A “reference” to the instance through the
-    /// `InstanceRef`. `None` if it is a host memory.
-    pub instance_ref: Option<WeakOrStrongInstanceRef>,
-}
-
-/// # Safety
-/// This is correct because there is no non-threadsafe logic directly in this type;
-/// correct use of the raw memory from multiple threads via `definition` requires `unsafe`
-/// and is the responsibility of the user of this type.
-unsafe impl Send for VMMemory {}
-
-/// # Safety
-/// This is correct because the values directly in `definition` should be considered immutable
-/// and the type is both `Send` and `Clone` (thus marking it `Sync` adds no new behavior, it
-/// only makes this type easier to use)
-unsafe impl Sync for VMMemory {}
-
-impl VMMemory {
-    /// Get the type for this exported memory
-    pub fn ty(&self) -> MemoryType {
-        self.from.ty()
-    }
-
-    /// Get the style for this exported memory
-    pub fn style(&self) -> &MemoryStyle {
-        self.from.style()
-    }
-
-    /// Returns whether or not the two `VMMemory`s refer to the same Memory.
-    pub fn same(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.from, &other.from)
-    }
-
-    /// Converts the stored instance ref into a strong `InstanceRef` if it is weak.
-    /// Returns None if it cannot be upgraded.
-    pub fn upgrade_instance_ref(&mut self) -> Option<()> {
-        if let Some(ref mut ir) = self.instance_ref {
-            *ir = ir.upgrade()?;
-        }
-        Some(())
     }
 }
 

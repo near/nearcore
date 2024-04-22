@@ -27,7 +27,8 @@ use near_primitives::merkle::merklize;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
 use near_primitives::stateless_validation::{
-    ChunkEndorsement, ChunkStateWitness, ChunkStateWitnessAck, SignedEncodedChunkStateWitness,
+    ChunkEndorsement, ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessSize,
+    SignedEncodedChunkStateWitness,
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -624,12 +625,31 @@ impl Client {
         signed_witness: SignedEncodedChunkStateWitness,
         processing_done_tracker: Option<ProcessingDoneTracker>,
     ) -> Result<(), Error> {
-        let witness = self.partially_validate_state_witness(&signed_witness)?;
+        let (witness, raw_witness_size) = self.partially_validate_state_witness(&signed_witness)?;
 
         // Send the acknowledgement for the state witness back to the chunk producer.
         // This is currently used for network roundtrip time measurement, so we do not need to
         // wait for validation to finish.
         self.send_state_witness_ack(&witness);
+
+        // Avoid processing state witness for old chunks.
+        // In particular it is impossible for a chunk created at a height
+        // that doesn't exceed the height of the current final block to be
+        // included in the chain. This addresses both network-delayed messages
+        // as well as malicious behavior of a chunk producer.
+        if let Ok(final_head) = self.chain.final_head() {
+            if witness.chunk_header.height_created() <= final_head.height {
+                tracing::debug!(
+                    target: "stateless_validation",
+                    chunk_hash=?witness.chunk_header.chunk_hash(),
+                    shard_id=witness.chunk_header.shard_id(),
+                    witness_height=witness.chunk_header.height_created(),
+                    final_height=final_head.height,
+                    "Skipping state witness below the last final block",
+                );
+                return Ok(());
+            }
+        }
 
         match self.chain.get_block(witness.chunk_header.prev_block_hash()) {
             Ok(block) => self.process_chunk_state_witness_with_prev_block(
@@ -639,10 +659,7 @@ impl Client {
             ),
             Err(Error::DBNotFoundErr(_)) => {
                 // Previous block isn't available at the moment, add this witness to the orphan pool.
-                self.handle_orphan_state_witness(
-                    witness,
-                    signed_witness.witness_bytes.size_bytes(),
-                )?;
+                self.handle_orphan_state_witness(witness, raw_witness_size)?;
                 Ok(())
             }
             Err(err) => Err(err),
@@ -681,8 +698,10 @@ impl Client {
     fn partially_validate_state_witness(
         &self,
         signed_witness: &SignedEncodedChunkStateWitness,
-    ) -> Result<ChunkStateWitness, Error> {
-        let witness = signed_witness.witness_bytes.decode()?;
+    ) -> Result<(ChunkStateWitness, ChunkStateWitnessSize), Error> {
+        let decode_start = std::time::Instant::now();
+        let (witness, raw_witness_size) = signed_witness.witness_bytes.decode()?;
+        let decode_elapsed_seconds = decode_start.elapsed().as_secs_f64();
         let chunk_header = &witness.chunk_header;
         let witness_height = chunk_header.height_created();
         let witness_shard = chunk_header.shard_id();
@@ -731,6 +750,11 @@ impl Client {
             return Err(Error::InvalidChunkStateWitness("Invalid signature".to_string()));
         }
 
-        Ok(witness)
+        // Record metrics after validating the witness
+        metrics::CHUNK_STATE_WITNESS_DECODE_TIME
+            .with_label_values(&[&witness_shard.to_string()])
+            .observe(decode_elapsed_seconds);
+
+        Ok((witness, raw_witness_size))
     }
 }

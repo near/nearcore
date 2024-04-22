@@ -433,6 +433,7 @@ impl Runtime {
                     state_update,
                     apply_state,
                     actor_id,
+                    epoch_info_provider,
                 )?;
             }
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
@@ -449,6 +450,7 @@ impl Runtime {
                     state_update,
                     apply_state,
                     actor_id,
+                    epoch_info_provider,
                 )?;
             }
             Action::Stake(stake) => {
@@ -1424,6 +1426,9 @@ impl Runtime {
             )
             .entered();
             let node_counter_before = state_update.trie().get_trie_nodes_count();
+            let recorded_storage_size_before = state_update.trie().recorded_storage_size();
+            let storage_proof_size_upper_bound_before =
+                state_update.trie().recorded_storage_size_upper_bound();
             let result = self.process_receipt(
                 state_update,
                 apply_state,
@@ -1436,6 +1441,26 @@ impl Runtime {
             let node_counter_after = state_update.trie().get_trie_nodes_count();
             tracing::trace!(target: "runtime", ?node_counter_before, ?node_counter_after);
 
+            let recorded_storage_diff = state_update
+                .trie()
+                .recorded_storage_size()
+                .saturating_sub(recorded_storage_size_before)
+                as f64;
+            let recorded_storage_upper_bound_diff = state_update
+                .trie()
+                .recorded_storage_size_upper_bound()
+                .saturating_sub(storage_proof_size_upper_bound_before)
+                as f64;
+            metrics::RECEIPT_RECORDED_SIZE.observe(recorded_storage_diff);
+            metrics::RECEIPT_RECORDED_SIZE_UPPER_BOUND.observe(recorded_storage_upper_bound_diff);
+            let recorded_storage_proof_ratio =
+                recorded_storage_upper_bound_diff / f64::max(1.0, recorded_storage_diff);
+            // Record the ratio only for large receipts, small receipts can have a very high ratio,
+            // but the ratio is not that important for them.
+            if recorded_storage_upper_bound_diff > 100_000. {
+                metrics::RECEIPT_RECORDED_SIZE_UPPER_BOUND_RATIO
+                    .observe(recorded_storage_proof_ratio);
+            }
             if let Some(outcome_with_id) = result? {
                 let gas_burnt = outcome_with_id.outcome.gas_burnt;
                 let compute_usage = outcome_with_id
@@ -1472,8 +1497,9 @@ impl Runtime {
         }
         for receipt in local_receipts.iter() {
             if total.compute >= compute_limit
-                || proof_size_limit
-                    .is_some_and(|limit| state_update.trie.recorded_storage_size() > limit)
+                || proof_size_limit.is_some_and(|limit| {
+                    state_update.trie.recorded_storage_size_upper_bound() > limit
+                })
             {
                 set_delayed_receipt(&mut state_update, &mut delayed_receipts_indices, receipt);
             } else {
@@ -1494,8 +1520,9 @@ impl Runtime {
         let mut delayed_receipt_count = 0;
         while delayed_receipts_indices.first_index < delayed_receipts_indices.next_available_index {
             if total.compute >= compute_limit
-                || proof_size_limit
-                    .is_some_and(|limit| state_update.trie.recorded_storage_size() > limit)
+                || proof_size_limit.is_some_and(|limit| {
+                    state_update.trie.recorded_storage_size_upper_bound() > limit
+                })
             {
                 break;
             }
@@ -1555,8 +1582,9 @@ impl Runtime {
             )
             .map_err(RuntimeError::ReceiptValidationError)?;
             if total.compute >= compute_limit
-                || proof_size_limit
-                    .is_some_and(|limit| state_update.trie.recorded_storage_size() > limit)
+                || proof_size_limit.is_some_and(|limit| {
+                    state_update.trie.recorded_storage_size_upper_bound() > limit
+                })
             {
                 set_delayed_receipt(&mut state_update, &mut delayed_receipts_indices, receipt);
             } else {
@@ -1581,8 +1609,9 @@ impl Runtime {
         let yield_processing_start = std::time::Instant::now();
         while promise_yield_indices.first_index < promise_yield_indices.next_available_index {
             if total.compute >= compute_limit
-                || proof_size_limit
-                    .is_some_and(|limit| state_update.trie.recorded_storage_size() > limit)
+                || proof_size_limit.is_some_and(|limit| {
+                    state_update.trie.recorded_storage_size_upper_bound() > limit
+                })
             {
                 break;
             }
@@ -1672,6 +1701,9 @@ impl Runtime {
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
         self.apply_state_patch(&mut state_update, state_patch);
+        let chunk_recorded_size_upper_bound =
+            state_update.trie.recorded_storage_size_upper_bound() as f64;
+        metrics::CHUNK_RECORDED_SIZE_UPPER_BOUND.observe(chunk_recorded_size_upper_bound);
         let (trie, trie_changes, state_changes) = state_update.finalize()?;
         if let Some(prefetcher) = &prefetcher {
             // Only clear the prefetcher queue after finalize is done because as part of receipt
@@ -1701,6 +1733,10 @@ impl Runtime {
         }
 
         let state_root = trie_changes.new_root;
+        let chunk_recorded_size = trie.recorded_storage_size() as f64;
+        metrics::CHUNK_RECORDED_SIZE.observe(chunk_recorded_size);
+        metrics::CHUNK_RECORDED_SIZE_UPPER_BOUND_RATIO
+            .observe(chunk_recorded_size_upper_bound / f64::max(1.0, chunk_recorded_size));
         let proof = trie.recorded_storage();
         Ok(ApplyResult {
             state_root,
@@ -1757,6 +1793,7 @@ fn action_transfer_or_implicit_account_creation(
     state_update: &mut TrieUpdate,
     apply_state: &ApplyState,
     actor_id: &mut AccountId,
+    epoch_info_provider: &dyn EpochInfoProvider,
 ) -> Result<(), RuntimeError> {
     Ok(if let Some(account) = account.as_mut() {
         if nonrefundable {
@@ -1794,6 +1831,7 @@ fn action_transfer_or_implicit_account_creation(
             apply_state.block_height,
             apply_state.current_protocol_version,
             nonrefundable,
+            epoch_info_provider,
         );
     })
 }

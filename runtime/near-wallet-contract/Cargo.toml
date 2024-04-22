@@ -13,10 +13,8 @@ publish = false
 workspace = true
 
 [dependencies]
-near-vm-runner.workspace = true
-
-[dev-dependencies]
 near-primitives-core.workspace = true
+near-vm-runner.workspace = true
 
 [build-dependencies]
 anyhow.workspace = true

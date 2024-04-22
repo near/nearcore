@@ -4,6 +4,9 @@
 
 use super::block_stats::BlockStats;
 use super::peer_manager_mock::PeerManagerMock;
+use crate::stateless_validation::state_witness_actor::{
+    StateWitnessActor, StateWitnessSenderForClient,
+};
 use crate::{start_view_client, Client, ClientActor, SyncAdapter, SyncStatus, ViewClientActor};
 use actix::{Actor, Addr, AsyncContext, Context};
 use futures::{future, FutureExt};
@@ -170,6 +173,15 @@ pub fn setup(
 
     let state_sync_adapter =
         Arc::new(RwLock::new(SyncAdapter::new(noop().into_sender(), noop().into_sender())));
+
+    let (state_witness_addr, _) = StateWitnessActor::spawn(
+        clock.clone(),
+        network_adapter.clone(),
+        signer.clone(),
+        epoch_manager.clone(),
+    );
+    let state_witness_adapter = state_witness_addr.with_auto_span_context();
+
     let client = Client::new(
         clock.clone(),
         config.clone(),
@@ -185,6 +197,7 @@ pub fn setup(
         TEST_SEED,
         None,
         Arc::new(RayonAsyncComputationSpawner),
+        state_witness_adapter.into_multi_sender(),
     )
     .unwrap();
     let client_actor = ClientActor::new(
@@ -855,16 +868,12 @@ pub fn setup_mock_all_validators(
                         | NetworkRequests::BanPeer { .. }
                         | NetworkRequests::TxStatus(_, _, _)
                         | NetworkRequests::SnapshotHostInfo { .. }
-                        | NetworkRequests::Challenge(_) => {}
-                        NetworkRequests::ChunkStateWitness(_, _) => {
-                            // TODO(#10265): Implement for integration tests.
-                        },
-                        NetworkRequests::ChunkStateWitnessAck(_, _) => {
-                            // TODO(#10790): Implement for integration tests.
-                        },
-                        NetworkRequests::ChunkEndorsement(_, _) => {
-                            // TODO(#10265): Implement for integration tests.
-                        },
+                        | NetworkRequests::Challenge(_)
+                        | NetworkRequests::ChunkStateWitness(_, _)
+                        | NetworkRequests::ChunkStateWitnessAck(_, _)
+                        | NetworkRequests::ChunkEndorsement(_, _)
+                        | NetworkRequests::PartialEncodedStateWitness(_)
+                        | NetworkRequests::PartialEncodedStateWitnessForward(_, _) => {}
                     };
                 }
                 resp
@@ -951,7 +960,6 @@ pub fn setup_no_network_with_validity_period_and_no_epoch_sync(
 pub fn setup_client_with_runtime(
     clock: Clock,
     num_validator_seats: NumSeats,
-    account_id: Option<AccountId>,
     enable_doomslug: bool,
     network_adapter: PeerManagerAdapter,
     shards_manager_adapter: SynchronousShardsManagerAdapter,
@@ -963,9 +971,9 @@ pub fn setup_client_with_runtime(
     archive: bool,
     save_trie_changes: bool,
     snapshot_callbacks: Option<SnapshotCallbacks>,
+    state_witness_adapter: StateWitnessSenderForClient,
+    validator_signer: Arc<dyn ValidatorSigner>,
 ) -> Client {
-    let validator_signer =
-        account_id.map(|x| Arc::new(create_test_signer(x.as_str())) as Arc<dyn ValidatorSigner>);
     let mut config = ClientConfig::test(
         true,
         10,
@@ -989,11 +997,12 @@ pub fn setup_client_with_runtime(
         runtime,
         network_adapter,
         shards_manager_adapter.into_sender(),
-        validator_signer,
+        Some(validator_signer),
         enable_doomslug,
         rng_seed,
         snapshot_callbacks,
         Arc::new(RayonAsyncComputationSpawner),
+        state_witness_adapter,
     )
     .unwrap();
     client.sync_status = SyncStatus::NoSync;

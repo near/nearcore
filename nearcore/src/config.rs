@@ -228,7 +228,7 @@ pub struct Config {
     /// If save_trie_changes is not set it will get inferred from the `archive` field as follows:
     /// save_trie_changes = !archive
     /// save_trie_changes should be set to true iff
-    /// - archive if false - non-archival nodes need trie changes to perform garbage collection
+    /// - archive is false - non-archival nodes need trie changes to perform garbage collection
     /// - archive is true and cold_store is configured - node working in split storage mode
     /// needs trie changes in order to do garbage collection on hot and populate cold State column.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1480,9 +1480,19 @@ mod tests {
             // values is probably not worth it but there may be some other defaults
             // we want to ensure that they happen.
             let want_gc = if has_gc {
-                GCConfig { gc_blocks_limit: 42, gc_fork_clean_step: 420, gc_num_epochs_to_keep: 24 }
+                GCConfig {
+                    gc_blocks_limit: 42,
+                    gc_fork_clean_step: 420,
+                    gc_num_epochs_to_keep: 24,
+                    gc_step_period: std::time::Duration::from_secs(1),
+                }
             } else {
-                GCConfig { gc_blocks_limit: 2, gc_fork_clean_step: 100, gc_num_epochs_to_keep: 5 }
+                GCConfig {
+                    gc_blocks_limit: 2,
+                    gc_fork_clean_step: 100,
+                    gc_num_epochs_to_keep: 5,
+                    gc_step_period: std::time::Duration::from_secs(1),
+                }
             };
             assert_eq!(want_gc, config.gc);
 
