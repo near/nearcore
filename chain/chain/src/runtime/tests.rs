@@ -791,9 +791,9 @@ fn test_get_validator_info() {
     let mut expected_endorsements = [0, 0];
     let update_validator_stats =
         |env: &mut TestEnv,
-         expected_blocks: &mut [u64],
-         expected_chunks: &mut [u64],
-         expected_endorsements: &mut [u64]| {
+         expected_blocks: &mut [u64; 2],
+         expected_chunks: &mut [u64; 2],
+         expected_endorsements: &mut [u64; 2]| {
             let epoch_id = env.head.epoch_id.clone();
             let height = env.head.height;
             let em = env.runtime.epoch_manager.read();
