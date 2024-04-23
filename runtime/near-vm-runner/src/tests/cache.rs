@@ -220,7 +220,7 @@ fn test_near_vm_artifact_output_stability() {
     // Note that this test is a best-effort fish net. Some changes that should modify the hash will
     // fall through the cracks here, but hopefully it should catch most of the fish just fine.
     let seeds = [2, 3, 5, 7, 11, 13, 17];
-    let prepared_hashes = [
+    let prepared_hashes = [ // See the above comment if you want to change this
         15237011375120738807,
         3750594434467176559,
         2196541628148102482,
@@ -230,7 +230,7 @@ fn test_near_vm_artifact_output_stability() {
         4095228008100475322,
     ];
     let mut got_prepared_hashes = Vec::with_capacity(seeds.len());
-    let compiled_hashes = [
+    let compiled_hashes = [ // See the above comment if you want to change this
         4853457605418485197,
         13732980080772388685,
         1799532188931870758,
