@@ -242,4 +242,21 @@ impl RawMarkerTable {
         self.data.push(Some(data));
         self.length += 1;
     }
+
+    pub fn add_instant_marker(
+        &mut self,
+        string_table: &mut StringTableBuilder,
+        name: &str,
+        time: f64,
+        category: IndexIntoCategoryList,
+        data: MarkerPayload,
+    ) {
+        self.name.push(string_table.insert(name));
+        self.start_time.push(Some(time));
+        self.end_time.push(None);
+        self.phase.push(0);
+        self.category.push(category);
+        self.data.push(Some(data));
+        self.length += 1;
+    }
 }

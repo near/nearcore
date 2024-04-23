@@ -291,6 +291,22 @@ async fn profile(
                         .chain([("type".to_string(), "span".to_string())].into_iter())
                         .collect(),
                 );
+                for event in span.events {
+                    thread.markers.add_instant_marker(
+                        &mut strings,
+                        &format!("{} ({})", node, thread_id),
+                        (event.time_unix_nano as i64 - req.start_timestamp_unix_ms * 1000000)
+                            as f64
+                            / 1000000.0,
+                        0,
+                        event
+                            .attributes
+                            .iter()
+                            .map(|kv| (kv.key.clone(), stringify_value(kv.value.as_ref())))
+                            .chain([("name".to_string(), event.name.clone())].into_iter())
+                            .collect(),
+                    );
+                }
             }
         }
     }
