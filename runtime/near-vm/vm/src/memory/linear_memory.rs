@@ -1,6 +1,6 @@
 use crate::mmap::Mmap;
 use crate::vmcontext::VMMemoryDefinition;
-use crate::{Memory, MemoryError, MemoryStyle};
+use crate::{MemoryError, MemoryStyle};
 use more_asserts::assert_ge;
 use near_vm_types::{Bytes, MemoryType, Pages};
 use std::borrow::BorrowMut;
@@ -178,9 +178,9 @@ impl LinearMemory {
     }
 }
 
-impl Memory for LinearMemory {
+impl LinearMemory {
     /// Returns the type for this memory.
-    fn ty(&self) -> MemoryType {
+    pub fn ty(&self) -> MemoryType {
         let minimum = self.size();
         let mut out = self.memory;
         out.minimum = minimum;
@@ -189,12 +189,12 @@ impl Memory for LinearMemory {
     }
 
     /// Returns the memory style for this memory.
-    fn style(&self) -> &MemoryStyle {
+    pub fn style(&self) -> &MemoryStyle {
         &self.style
     }
 
     /// Returns the number of allocated wasm pages.
-    fn size(&self) -> Pages {
+    pub fn size(&self) -> Pages {
         // TODO: investigate this function for race conditions
         unsafe {
             let md_ptr = self.get_vm_memory_definition();
@@ -207,7 +207,7 @@ impl Memory for LinearMemory {
     ///
     /// Returns `None` if memory can't be grown by the specified amount
     /// of wasm pages.
-    fn grow(&self, delta: Pages) -> Result<Pages, MemoryError> {
+    pub fn grow(&self, delta: Pages) -> Result<Pages, MemoryError> {
         let mut mmap_guard = self.mmap.lock().unwrap();
         let mmap = mmap_guard.borrow_mut();
         // Optimization of memory.grow 0 calls.
@@ -278,7 +278,7 @@ impl Memory for LinearMemory {
     }
 
     /// Return a `VMMemoryDefinition` for exposing the memory to compiled wasm code.
-    fn vmmemory(&self) -> NonNull<VMMemoryDefinition> {
+    pub fn vmmemory(&self) -> NonNull<VMMemoryDefinition> {
         let _mmap_guard = self.mmap.lock().unwrap();
         unsafe { self.get_vm_memory_definition() }
     }

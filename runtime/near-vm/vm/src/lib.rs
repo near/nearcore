@@ -45,7 +45,7 @@ pub use crate::instance::{
     initialize_host_envs, ImportFunctionEnv, ImportInitializerFuncPtr, InstanceAllocator,
     InstanceHandle, WeakOrStrongInstanceRef,
 };
-pub use crate::memory::{LinearMemory, Memory, MemoryError, MemoryStyle};
+pub use crate::memory::{LinearMemory, MemoryError, MemoryStyle};
 pub use crate::mmap::Mmap;
 pub use crate::probestack::PROBESTACK;
 pub use crate::resolver::{

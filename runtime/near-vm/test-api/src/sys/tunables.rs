@@ -3,8 +3,8 @@ use near_vm_compiler::Target;
 use near_vm_types::Pages;
 use near_vm_vm::MemoryError;
 use near_vm_vm::{
-    LinearMemory, LinearTable, Memory, MemoryStyle, Table, TableStyle, Tunables,
-    VMMemoryDefinition, VMTableDefinition,
+    LinearMemory, LinearTable, MemoryStyle, Table, TableStyle, Tunables, VMMemoryDefinition,
+    VMTableDefinition,
 };
 use std::ptr::NonNull;
 use std::sync::Arc;
@@ -105,7 +105,7 @@ impl Tunables for BaseTunables {
         &self,
         ty: &MemoryType,
         style: &MemoryStyle,
-    ) -> Result<Arc<dyn Memory>, MemoryError> {
+    ) -> Result<Arc<LinearMemory>, MemoryError> {
         Ok(Arc::new(LinearMemory::new(&ty, &style)?))
     }
 
@@ -119,7 +119,7 @@ impl Tunables for BaseTunables {
         ty: &MemoryType,
         style: &MemoryStyle,
         vm_definition_location: NonNull<VMMemoryDefinition>,
-    ) -> Result<Arc<dyn Memory>, MemoryError> {
+    ) -> Result<Arc<LinearMemory>, MemoryError> {
         Ok(Arc::new(LinearMemory::from_definition(&ty, &style, vm_definition_location)?))
     }
 
