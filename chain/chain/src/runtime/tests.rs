@@ -89,7 +89,6 @@ impl NightshadeRuntime {
                     gas_limit,
                     is_new_chunk: true,
                     is_first_block_with_chunk_of_version: false,
-                    // congestion_info: todo!("fix runtime tests"),
                 },
                 ApplyChunkBlockContext {
                     height,

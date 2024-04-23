@@ -1859,7 +1859,8 @@ pub fn compute_congestion_info(
     _trie: &dyn near_store::TrieAccess,
     _config: &RuntimeConfig,
 ) -> Result<CongestionInfo, StorageError> {
-    todo!()
+    // TODO(congestion_info)
+    Ok(CongestionInfo::default())
 }
 
 struct TotalResourceGuard {
