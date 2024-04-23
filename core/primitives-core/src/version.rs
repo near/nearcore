@@ -202,9 +202,6 @@ impl ProtocolFeature {
             ProtocolFeature::RestrictTla
             | ProtocolFeature::TestnetFewerBlockProducers
             | ProtocolFeature::SimpleNightshadeV2 => 64,
-            // The SimpleNightshadeV3 should not be enabled in statelessnet.
-            // TODO(resharding) clean up after stake wars is over.
-            #[cfg(not(feature = "statelessnet_protocol"))]
             ProtocolFeature::SimpleNightshadeV3 => 65,
             ProtocolFeature::DecreaseFunctionCallBaseCost => 66,
 
@@ -234,8 +231,6 @@ impl ProtocolFeature {
             ProtocolFeature::EthImplicitAccounts => 138,
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
             ProtocolFeature::NonrefundableStorage => 140,
-            #[cfg(feature = "statelessnet_protocol")]
-            ProtocolFeature::SimpleNightshadeV3 => 141,
         }
     }
 }
