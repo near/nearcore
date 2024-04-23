@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 mod chunk_validator_stats;
 
-pub use chunk_validator_stats::{ChunkValidatorStats, ChunkValidatorStatsV2};
+pub use chunk_validator_stats::ChunkValidatorStats;
 
 /// Hash used by to store state root.
 pub type StateRoot = CryptoHash;

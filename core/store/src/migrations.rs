@@ -295,7 +295,15 @@ pub fn migrate_38_to_39(store: &Store) -> anyhow::Result<()> {
                 .map(|(shard_id, legacy_stats)| {
                     let new_stats = legacy_stats
                         .into_iter()
-                        .map(|(validator_id, stats)| (validator_id, ChunkValidatorStats::V1(stats)))
+                        .map(|(validator_id, stats)| {
+                            (
+                                validator_id,
+                                ChunkValidatorStats::new_with_production(
+                                    stats.produced,
+                                    stats.expected,
+                                ),
+                            )
+                        })
                         .collect();
                     (shard_id, new_stats)
                 })
@@ -322,7 +330,10 @@ pub fn migrate_38_to_39(store: &Store) -> anyhow::Result<()> {
                 .map(|(account_id, stats)| {
                     let new_stats = BlockChunkValidatorStats {
                         block_stats: stats.block_stats,
-                        chunk_stats: ChunkValidatorStats::V1(stats.chunk_stats),
+                        chunk_stats: ChunkValidatorStats::new_with_production(
+                            stats.chunk_stats.produced,
+                            stats.chunk_stats.expected,
+                        ),
                     };
                     (account_id, new_stats)
                 })

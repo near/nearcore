@@ -1346,10 +1346,10 @@ impl EpochManager {
                             .get(info.account_id())
                             .unwrap_or(&BlockChunkValidatorStats {
                                 block_stats: ValidatorStats { produced: 0, expected: 0 },
-                                chunk_stats: ChunkValidatorStats::V1(ValidatorStats {
-                                    produced: 0,
-                                    expected: 0,
-                                }),
+                                chunk_stats: ChunkValidatorStats {
+                                    production: ValidatorStats { produced: 0, expected: 0 },
+                                    endorsement: ValidatorStats { produced: 0, expected: 0 },
+                                },
                             });
                         let mut shards = validator_to_shard[validator_id]
                             .iter()
