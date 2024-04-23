@@ -91,12 +91,12 @@ impl RewardCalculator {
             // Uptime is an average of block produced / expected, chunk produced / expected,
             // and chunk endorsed produced / expected.
 
-            let expected_blocks_produced = stats.block_stats.expected;
-            let expected_chunks_produced = stats.chunk_stats.expected();
+            let expected_blocks = stats.block_stats.expected;
+            let expected_chunks = stats.chunk_stats.expected();
             let expected_endorsements = stats.chunk_stats.endorsement_stats().expected;
 
             let (average_produced_numer, average_produced_denom) =
-                match (expected_blocks_produced, expected_chunks_produced, expected_endorsements) {
+                match (expected_blocks, expected_chunks, expected_endorsements) {
                     // Validator was not expected to do anything
                     (0, 0, 0) => (U256::from(0), U256::from(1)),
                     // Validator was a stateless validator only (not expected to produce anything)
@@ -105,66 +105,55 @@ impl RewardCalculator {
                         (U256::from(endorsement_stats.produced), U256::from(expected_endorsements))
                     }
                     // Validator was a chunk-only producer
-                    (0, expected_chunks_produced, 0) => (
-                        U256::from(stats.chunk_stats.produced()),
-                        U256::from(expected_chunks_produced),
-                    ),
+                    (0, expected_chunks, 0) => {
+                        (U256::from(stats.chunk_stats.produced()), U256::from(expected_chunks))
+                    }
                     // Validator was only a block producer
-                    (expected_blocks_produced, 0, 0) => (
-                        U256::from(stats.block_stats.produced),
-                        U256::from(expected_blocks_produced),
-                    ),
+                    (expected_blocks, 0, 0) => {
+                        (U256::from(stats.block_stats.produced), U256::from(expected_blocks))
+                    }
                     // Validator produced blocks and chunks, but not endorsements
-                    (expected_blocks_produced, expected_chunks_produced, 0) => {
+                    (expected_blocks, expected_chunks, 0) => {
                         let numer = U256::from(
-                            stats.block_stats.produced * expected_chunks_produced
-                                + stats.chunk_stats.produced() * expected_blocks_produced,
+                            stats.block_stats.produced * expected_chunks
+                                + stats.chunk_stats.produced() * expected_blocks,
                         );
-                        let denom =
-                            U256::from(2 * expected_chunks_produced * expected_blocks_produced);
+                        let denom = U256::from(2 * expected_chunks * expected_blocks);
                         (numer, denom)
                     }
                     // Validator produced chunks and endorsements, but not blocks
-                    (0, expected_chunks_produced, expected_endorsements) => {
+                    (0, expected_chunks, expected_endorsements) => {
                         let endorsement_stats = stats.chunk_stats.endorsement_stats();
                         let numer = U256::from(
-                            endorsement_stats.produced * expected_chunks_produced
+                            endorsement_stats.produced * expected_chunks
                                 + stats.chunk_stats.produced() * expected_endorsements,
                         );
-                        let denom =
-                            U256::from(2 * expected_chunks_produced * expected_endorsements);
+                        let denom = U256::from(2 * expected_chunks * expected_endorsements);
                         (numer, denom)
                     }
                     // Validator produced blocks and endorsements, but not chunks
-                    (expected_blocks_produced, 0, expected_endorsements) => {
+                    (expected_blocks, 0, expected_endorsements) => {
                         let endorsement_stats = stats.chunk_stats.endorsement_stats();
                         let numer = U256::from(
-                            endorsement_stats.produced * expected_blocks_produced
+                            endorsement_stats.produced * expected_blocks
                                 + stats.block_stats.produced * expected_endorsements,
                         );
-                        let denom =
-                            U256::from(2 * expected_blocks_produced * expected_endorsements);
+                        let denom = U256::from(2 * expected_blocks * expected_endorsements);
                         (numer, denom)
                     }
                     // Validator did all the things
-                    (expected_blocks_produced, expected_chunks_produced, expected_endorsements) => {
+                    (expected_blocks, expected_chunks, expected_endorsements) => {
                         let produced_blocks = stats.block_stats.produced;
                         let produced_chunks = stats.chunk_stats.produced();
                         let produced_endorsements = stats.chunk_stats.endorsement_stats().produced;
 
                         let numer = U256::from(
-                            produced_blocks * expected_chunks_produced * expected_endorsements
-                                + produced_chunks
-                                    * expected_blocks_produced
-                                    * expected_endorsements
-                                + produced_endorsements
-                                    * expected_blocks_produced
-                                    * expected_chunks_produced,
+                            produced_blocks * expected_chunks * expected_endorsements
+                                + produced_chunks * expected_blocks * expected_endorsements
+                                + produced_endorsements * expected_blocks * expected_chunks,
                         );
                         let denom = U256::from(
-                            3 * expected_chunks_produced
-                                * expected_blocks_produced
-                                * expected_endorsements,
+                            3 * expected_chunks * expected_blocks * expected_endorsements,
                         );
                         (numer, denom)
                     }
@@ -178,14 +167,14 @@ impl RewardCalculator {
             let reward = if average_produced_numer * online_min_denom
                 < online_min_numer * average_produced_denom
                 || (chunk_only_producers_enabled
-                    && expected_chunks_produced == 0
-                    && expected_blocks_produced == 0
+                    && expected_chunks == 0
+                    && expected_blocks == 0
                     && expected_endorsements == 0)
                 // This is for backwards compatibility. In 2021 December, after we changed to 4 shards,
                 // mainnet was ran without SynchronizeBlockChunkProduction for some time and it's
                 // possible that some validators have expected blocks or chunks to be zero.
                 || (!chunk_only_producers_enabled
-                    && (expected_chunks_produced == 0 || expected_blocks_produced == 0))
+                    && (expected_chunks == 0 || expected_blocks == 0))
             {
                 0
             } else {
