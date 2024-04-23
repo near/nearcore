@@ -247,7 +247,7 @@ def make_legacy_records(neard_binary_path, traffic_generator_home, node_homes,
                         node_home / '.near/setup/records.json')
 
 
-def fork_db(neard_binary_path, target_home_dir, home_dir, setup_dir):
+def fork_db(neard_binary_path, target_home_dir, setup_dir):
     copy_source_home(target_home_dir, setup_dir)
 
     run_cmd([
@@ -269,11 +269,9 @@ def fork_db(neard_binary_path, target_home_dir, home_dir, setup_dir):
 
 def make_forked_network(neard_binary_path, traffic_generator_home, node_homes,
                         source_home_dir, target_home_dir):
-    for (home_dir, setup_dir) in [
-        (h / '.near', h / '.near/setup') for h in node_homes
-    ] + [(traffic_generator_home / '.near/target',
-          traffic_generator_home / '.near/setup')]:
-        fork_db(neard_binary_path, target_home_dir, home_dir, setup_dir)
+    for setup_dir in [h / '.near/setup' for h in node_homes
+                     ] + [traffic_generator_home / '.near/setup']:
+        fork_db(neard_binary_path, target_home_dir, setup_dir)
 
 
 def mkdirs(local_mocknet_path):
