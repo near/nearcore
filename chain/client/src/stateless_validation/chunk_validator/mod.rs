@@ -632,7 +632,9 @@ impl Client {
         // wait for validation to finish.
         self.send_state_witness_ack(&witness);
 
-        self.chain.chain_store.save_lateset_chunk_state_witness(&witness)?;
+        if self.config.save_latest_witnesses {
+            self.chain.chain_store.save_lateset_chunk_state_witness(&witness)?;
+        }
 
         // Avoid processing state witness for old chunks.
         // In particular it is impossible for a chunk created at a height
