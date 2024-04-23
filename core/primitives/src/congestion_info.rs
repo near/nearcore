@@ -1,15 +1,27 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::types::{Gas, ShardId};
 
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CongestionInfo {
+    V1(CongestionInfoV1),
+}
+
 /// Stores the congestion level of a shard.
+/// TODO(congestion_control) - implement versioning
 #[derive(BorshSerialize, BorshDeserialize, Default, Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CongestionInfo {
+pub struct CongestionInfoV1 {
+    /// If fully congested, only this shard can forward receipts.
+    pub allowed_shard: u32,
+
     /// The congestion level of the shard where 0 means not congested and 255
     /// means fully congested.
     pub congestion_level: u8,
+}
 
-    /// If fully congested, only this shard can forward receipts.
-    pub allowed_shard: u32,
+impl Default for CongestionInfo {
+    fn default() -> Self {
+        Self::V1(CongestionInfoV1::default())
+    }
 }
 
 impl CongestionInfo {

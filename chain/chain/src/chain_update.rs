@@ -14,6 +14,7 @@ use near_chain_primitives::error::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::EpochManagerAdapter;
+use near_o11y::log_assert;
 use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
 #[cfg(feature = "new_epoch_sync")]
@@ -157,7 +158,7 @@ impl<'a> ChainUpdate<'a> {
     /// Postprocess resharding results and do the necessary update on chain for
     /// resharding results.
     /// - Store the chunk extras and trie changes for the apply results.
-    /// - Store the state changes to be applided later for the store results.
+    /// - Store the state changes to be applied later for the store results.
     fn process_resharding_results(
         &mut self,
         block: &Block,
@@ -234,6 +235,9 @@ impl<'a> ChainUpdate<'a> {
                 // TODO(resharding) make sure that is the case.
                 assert_eq!(num_split_shards, results.len() as u64);
 
+                let epoch_id = self.epoch_manager.get_epoch_id(block_hash)?;
+                let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+
                 for result in results {
                     let gas_burnt = if gas_res > 0 {
                         gas_res -= 1;
@@ -249,11 +253,6 @@ impl<'a> ChainUpdate<'a> {
                         balance_split
                     };
 
-                    // TODO: Check with someone who knows about resharding if this is right.
-                    let epoch_id =
-                        self.epoch_manager.get_next_epoch_id_from_prev_block(prev_hash)?;
-                    let protocol_version =
-                        self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
                     let new_chunk_extra = ChunkExtra::new(
                         protocol_version,
                         &result.new_root,
@@ -262,10 +261,12 @@ impl<'a> ChainUpdate<'a> {
                         gas_burnt,
                         gas_limit,
                         balance_burnt,
-                        // TODO(congestion_control)
-                        // TODO(resharding)
-                        // If `CongestionControl` is enabled, we need to compute
-                        // it by iterating actual receipts.
+                        // TODO(congestion_control) set congestion info for resharding
+                        // TODO(resharding) set congestion info for resharding
+                        // For now just copy paste the congestion info from the
+                        // parent shard. It breaks the invariant that congestion
+                        // info is deterministically computed from the shard
+                        // state but otherwise it is deterministic and should work.
                         chunk_extra.congestion_info().unwrap_or_default(),
                     );
                     sum_gas_used += gas_burnt;
@@ -327,8 +328,7 @@ impl<'a> ChainUpdate<'a> {
                     ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
                 let shard_id = shard_uid.shard_id();
 
-                // TODO: Check with someone who know better about epoch management if this is right.
-                let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_hash)?;
+                let epoch_id = self.epoch_manager.get_epoch_id(&block_hash)?;
                 let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
                 // Save state root after applying transactions.
@@ -390,7 +390,18 @@ impl<'a> ChainUpdate<'a> {
                 let old_extra = self.chain_store_update.get_chunk_extra(prev_hash, &shard_uid)?;
 
                 let mut new_extra = ChunkExtra::clone(&old_extra);
+                // Even if the chunk is missing the state root may change.
+                // Currently the only reason why that may happen is if the
+                // validator rewards are distributed.
                 *new_extra.state_root_mut() = apply_result.new_root;
+                // The congestion information should remain the same for missing
+                // chunks. It is calculated deterministically from delayed
+                // receipts queue and buffered receipts buffers and those should
+                // remain unchanged.
+                log_assert!(
+                    old_extra.congestion_info().unwrap_or_default() == apply_result.congestion_info,
+                    "The congestion information should remain unchanged for missing chunks."
+                );
 
                 let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
                 let store_update = flat_storage_manager.save_flat_state_changes(
@@ -748,40 +759,11 @@ impl<'a> ChainUpdate<'a> {
 
         let chunk_header = chunk.cloned_header();
         let gas_limit = chunk_header.gas_limit();
-        // TODO: Is this the right epoch ID?
-        // let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, block_header.epoch_id())?;
-        // let prev_chunk_extra =
-        //     self.chain_store_update.get_chunk_extra(block_header.prev_hash(), &shard_uid)?;
         let prev_block = self.chain_store_update.get_block(block_header.prev_hash())?;
         // This is set to false because the value is only relevant
         // during protocol version RestoreReceiptsAfterFixApplyChunks.
         // TODO(nikurt): Determine the value correctly.
         let is_first_block_with_chunk_of_version = false;
-
-        // TODO(congestion_control) The congestion info should be computed from
-        // the state directly.
-        // let congestion_info = match prev_chunk_extra.congestion_info() {
-        //     Some(it) => it.clone(),
-        //     None => {
-        //         // No receipts information stored previously. If the cross-shard
-        //         // congestion feature is not enabled, simply return a dummy value,
-        //         // it won't be used anyway.
-        //         // If the feature is enabled but the info is not available, it must
-        //         // be the first chunk with the feature. In that case, compute it.
-
-        //         // TODO: check if we can really use flat storage here
-        //         let use_flat_storage = true;
-        //         let trie = self.runtime_adapter.get_trie_for_shard(
-        //             shard_id,
-        //             block_header.prev_hash(),
-        //             *prev_chunk_extra.state_root(),
-        //             use_flat_storage,
-        //         )?;
-        //         let prev_epoch_id = self.epoch_manager.get_epoch_id(block_header.prev_hash())?;
-        //         let config = self.runtime_adapter.get_protocol_config(&prev_epoch_id)?;
-        //         node_runtime::compute_congestion_info(&trie, &config.runtime_config)?
-        //     }
-        // };
 
         let apply_result = self.runtime_adapter.apply_chunk(
             RuntimeStorageConfig::new(chunk_header.prev_state_root(), true),
@@ -824,9 +806,7 @@ impl<'a> ChainUpdate<'a> {
 
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);
 
-        // TODO: Check with someone who know better about epoch management if this is right.
-        let epoch_id =
-            self.epoch_manager.get_epoch_id_from_prev_block(&block_header.prev_hash())?;
+        let epoch_id = self.epoch_manager.get_epoch_id(block_header.hash())?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
         let chunk_extra = ChunkExtra::new(
