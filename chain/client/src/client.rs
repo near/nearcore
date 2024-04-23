@@ -816,7 +816,7 @@ impl Client {
 
     pub fn produce_chunk(
         &mut self,
-        prev_block_hash: CryptoHash,
+        prev_block: &Block,
         epoch_id: &EpochId,
         last_header: ShardChunkHeader,
         next_height: BlockHeight,
@@ -826,6 +826,9 @@ impl Client {
         let _timer =
             metrics::PRODUCE_CHUNK_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
         let _span = tracing::debug_span!(target: "client", "produce_chunk", next_height, shard_id, ?epoch_id).entered();
+
+        let prev_block_hash = *prev_block.hash();
+
         let validator_signer = self
             .validator_signer
             .as_ref()
@@ -864,7 +867,7 @@ impl Client {
             .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?;
 
         let prepared_transactions =
-            self.prepare_transactions(shard_uid, prev_block_hash, chunk_extra.as_ref())?;
+            self.prepare_transactions(shard_uid, prev_block, chunk_extra.as_ref())?;
         #[cfg(feature = "test_features")]
         let prepared_transactions = Self::maybe_insert_invalid_transaction(
             prepared_transactions,
@@ -988,13 +991,11 @@ impl Client {
     fn prepare_transactions(
         &mut self,
         shard_uid: ShardUId,
-        prev_block_hash: CryptoHash,
+        prev_block: &Block,
         chunk_extra: &ChunkExtra,
     ) -> Result<PreparedTransactions, Error> {
         let Self { chain, sharded_tx_pool, runtime_adapter: runtime, .. } = self;
         let shard_id = shard_uid.shard_id as ShardId;
-        // TODO: Is it okay to read full block here?
-        let prev_block = chain.get_block(&prev_block_hash)?;
 
         let prepared_transactions = if let Some(mut iter) =
             sharded_tx_pool.get_pool_iterator(shard_uid)
@@ -1008,7 +1009,7 @@ impl Client {
             runtime.prepare_transactions(
                 storage_config,
                 PrepareTransactionsChunkContext { shard_id, gas_limit: chunk_extra.gas_limit() },
-                (&prev_block).into(),
+                prev_block.into(),
                 &mut iter,
                 &mut chain.transaction_validity_check(prev_block.header().clone()),
                 self.config.produce_chunk_add_transactions_time_limit.get(),
@@ -1731,13 +1732,7 @@ impl Client {
                 .with_label_values(&[&shard_id.to_string()])
                 .start_timer();
             let last_header = Chain::get_prev_chunk_header(epoch_manager, block, shard_id).unwrap();
-            match self.produce_chunk(
-                *block.hash(),
-                &epoch_id,
-                last_header.clone(),
-                next_height,
-                shard_id,
-            ) {
+            match self.produce_chunk(block, &epoch_id, last_header.clone(), next_height, shard_id) {
                 Ok(Some(result)) => {
                     let shard_chunk = self
                         .persist_and_distribute_encoded_chunk(
