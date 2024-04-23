@@ -18,15 +18,16 @@ workspace = true
 backtrace.workspace = true
 cfg-if.workspace = true
 finite-wasm.workspace = true
+hashbrown.workspace = true
 indexmap.workspace = true
 libc.workspace = true
 memoffset.workspace = true
 more-asserts.workspace = true
+near-vm-types.workspace = true
 region.workspace = true
 rkyv.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-near-vm-types.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi.workspace = true

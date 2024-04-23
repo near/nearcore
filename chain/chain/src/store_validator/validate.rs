@@ -1,5 +1,4 @@
 use crate::StoreValidator;
-
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
@@ -337,10 +336,10 @@ pub(crate) fn chunk_tx_exists(
 ) -> Result<(), StoreValidatorError> {
     for tx in shard_chunk.transactions().iter() {
         let tx_hash = tx.get_hash();
-        sv.inner.tx_refcount.entry(tx_hash).and_modify(|x| *x += 1).or_insert(1);
+        sv.inner.tx_refcount.entry(tx_hash).and_modify(|_, x| *x += 1).or_insert(1);
     }
     for receipt in shard_chunk.prev_outgoing_receipts().iter() {
-        sv.inner.receipt_refcount.entry(receipt.get_hash()).and_modify(|x| *x += 1).or_insert(1);
+        sv.inner.receipt_refcount.entry(receipt.get_hash()).and_modify(|_, x| *x += 1).or_insert(1);
     }
     for tx in shard_chunk.transactions().iter() {
         let tx_hash = tx.get_hash();
@@ -456,7 +455,7 @@ pub(crate) fn block_increment_refcount(
 ) -> Result<(), StoreValidatorError> {
     if block.header().height() != sv.config.genesis_height {
         let prev_hash = block.header().prev_hash();
-        sv.inner.block_refcount.entry(*prev_hash).and_modify(|x| *x += 1).or_insert(1);
+        sv.inner.block_refcount.entry(*prev_hash).and_modify(|_, x| *x += 1).or_insert(1);
     }
     Ok(())
 }

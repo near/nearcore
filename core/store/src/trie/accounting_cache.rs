@@ -5,7 +5,6 @@ use near_o11y::metrics::prometheus::core::{GenericCounter, GenericGauge};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Deterministic cache to store trie nodes that have been accessed so far
@@ -44,7 +43,7 @@ pub struct TrieAccountingCache {
     enable: bool,
     /// Cache of trie node hash -> trie node body, or a leaf value hash ->
     /// leaf value.
-    cache: HashMap<CryptoHash, Arc<[u8]>>,
+    cache: near_primitives_core::cryptohashmap::CryptoHashMap<Arc<[u8]>>,
     /// The number of times a key was accessed by reading from the underlying
     /// storage. (This does not necessarily mean it was accessed from *disk*,
     /// as the underlying storage layer may have a best-effort cache.)
@@ -78,7 +77,13 @@ impl TrieAccountingCache {
                 accounting_cache_size: metrics::CHUNK_CACHE_SIZE.with_label_values(&metrics_labels),
             }
         });
-        Self { enable: false, cache: HashMap::new(), db_read_nodes: 0, mem_read_nodes: 0, metrics }
+        Self {
+            enable: false,
+            cache: Default::default(),
+            db_read_nodes: 0,
+            mem_read_nodes: 0,
+            metrics,
+        }
     }
 
     pub fn set_enabled(&mut self, enabled: bool) {

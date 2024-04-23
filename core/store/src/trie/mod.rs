@@ -30,10 +30,10 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_prefix;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, StateRoot, StateRootNode};
-use near_primitives_core::cryptohashmap::CryptoHashMap;
 use near_vm_runner::ContractCode;
 pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::hash::Hash;
 use std::rc::Rc;
@@ -449,12 +449,12 @@ impl TrieRefcountSubtraction {
 /// Helps produce a list of additions and subtractions to the trie,
 /// especially in the case where deletions don't carry the full value.
 pub struct TrieRefcountDeltaMap {
-    map: CryptoHashMap<(Option<Vec<u8>>, i32)>,
+    map: BTreeMap<CryptoHash, (Option<Vec<u8>>, i32)>,
 }
 
 impl TrieRefcountDeltaMap {
     pub fn new() -> Self {
-        Self { map: Default::default() }
+        Self { map: BTreeMap::new() }
     }
 
     pub fn add(&mut self, hash: CryptoHash, data: Vec<u8>, refcount: u32) {

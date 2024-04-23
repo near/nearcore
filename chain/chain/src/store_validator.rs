@@ -18,6 +18,7 @@ use near_primitives::transaction::ExecutionOutcomeWithProof;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, BlockHeight, EpochId};
 use near_primitives::utils::{get_block_shard_id_rev, get_outcome_id_block_hash_rev};
+use near_primitives_core::cryptohashmap::CryptoHashMap;
 use near_store::db::refcount;
 use near_store::{DBCol, Store, TrieChanges};
 use std::collections::{HashMap, HashSet};
@@ -35,9 +36,9 @@ pub struct StoreValidatorCache {
     chunk_tail: BlockHeight,
     block_heights_less_tail: Vec<CryptoHash>,
 
-    tx_refcount: HashMap<CryptoHash, u64>,
-    receipt_refcount: HashMap<CryptoHash, u64>,
-    block_refcount: HashMap<CryptoHash, u64>,
+    tx_refcount: CryptoHashMap<u64>,
+    receipt_refcount: CryptoHashMap<u64>,
+    block_refcount: CryptoHashMap<u64>,
     genesis_blocks: Vec<CryptoHash>,
 }
 
@@ -49,9 +50,9 @@ impl StoreValidatorCache {
             tail: 0,
             chunk_tail: 0,
             block_heights_less_tail: vec![],
-            tx_refcount: HashMap::new(),
-            receipt_refcount: HashMap::new(),
-            block_refcount: HashMap::new(),
+            tx_refcount: Default::default(),
+            receipt_refcount: Default::default(),
+            block_refcount: Default::default(),
             genesis_blocks: vec![],
         }
     }

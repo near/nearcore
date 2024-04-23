@@ -45,6 +45,14 @@ impl<V> CryptoHashMap<V> {
         Self { table: HashTable::with_capacity(cap) }
     }
 
+    pub fn len(&self) -> usize {
+        self.table.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn iter(&self) -> hashbrown::hash_table::Iter<'_, (CryptoHash, V)> {
         self.table.iter()
     }
@@ -81,15 +89,25 @@ impl<V> CryptoHashMap<V> {
         self.get(key).is_some()
     }
 
-    pub fn len(&self) -> usize {
-        self.table.len()
-    }
-
     pub fn remove(&mut self, key: &CryptoHash) -> Option<V> {
         match self.entry(*key) {
             Entry::Occupied(o) => Some(o.entry.remove().0 .1),
             Entry::Vacant(_) => None,
         }
+    }
+
+    pub fn reserve(&mut self, additional: usize) {
+        self.table.reserve(additional, hasher);
+    }
+
+    pub fn extend<T: IntoIterator<Item = (CryptoHash, V)>>(&mut self, iter: T) {
+        let iter = iter.into_iter();
+        let reserve =
+            if self.is_empty() { iter.size_hint().0 } else { (iter.size_hint().0 + 1) / 2 };
+        self.reserve(reserve);
+        iter.for_each(move |(k, v)| {
+            self.insert(k, v);
+        });
     }
 }
 
@@ -100,6 +118,17 @@ impl<V> IntoIterator for CryptoHashMap<V> {
 
     fn into_iter(self) -> Self::IntoIter {
         self.table.into_iter()
+    }
+}
+
+impl<V> FromIterator<(CryptoHash, V)> for CryptoHashMap<V> {
+    fn from_iter<T: IntoIterator<Item = (CryptoHash, V)>>(iter: T) -> Self {
+        let iter = iter.into_iter();
+        let mut map = Self::with_capacity(iter.size_hint().0);
+        iter.for_each(|(k, v)| {
+            map.insert(k, v);
+        });
+        map
     }
 }
 
@@ -126,6 +155,21 @@ impl<'a, V> Entry<'a, V> {
         match self {
             Entry::Occupied(o) => o.into_mut(),
             Entry::Vacant(v) => v.insert(value).into_mut(),
+        }
+    }
+
+    pub fn and_modify<F>(self, f: F) -> Self
+    where
+        F: FnOnce(&mut CryptoHash, &mut V),
+    {
+        match self {
+            Entry::Occupied(entry) => {
+                let ((mut k, mut v), entry) = entry.entry.remove();
+                f(&mut k, &mut v);
+                let entry = entry.insert((k, v));
+                Entry::Occupied(OccupiedEntry { entry })
+            }
+            Entry::Vacant(entry) => Entry::Vacant(entry),
         }
     }
 }

@@ -26,11 +26,13 @@ use crate::trie::{
 use crate::{metrics, PartialStorage, StorageError, Trie, TrieChanges};
 use borsh::BorshDeserialize;
 use near_primitives::challenge::PartialState;
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::hash;
+use near_primitives::hash::CryptoHash;
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_part::PartId;
 use near_primitives::state_record::is_contract_code_key;
 use near_primitives::types::{ShardId, StateRoot};
+use near_primitives_core::cryptohashmap::CryptoHashMap;
 use near_vm_runner::ContractCode;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -256,7 +258,7 @@ impl Trie {
             path_boundary_nodes.iter().map(|entry| (hash(entry), entry.clone())).collect();
         let mut disk_read_hashes: HashSet<_> = boundary_nodes_storage.keys().cloned().collect();
         disk_read_hashes.extend(value_refs.iter().map(|(_, hash)| hash));
-        let mut all_nodes: HashMap<CryptoHash, Arc<[u8]>> = HashMap::new();
+        let mut all_nodes: CryptoHashMap<Arc<[u8]>> = Default::default();
         all_nodes.extend(boundary_nodes_storage);
         all_nodes.extend(
             local_state_part_nodes

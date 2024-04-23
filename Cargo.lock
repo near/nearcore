@@ -5091,6 +5091,7 @@ dependencies = [
  "cc",
  "cfg-if 1.0.0",
  "finite-wasm",
+ "hashbrown 0.14.2",
  "indexmap 1.9.2",
  "libc",
  "memoffset 0.8.0",

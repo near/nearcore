@@ -10,8 +10,9 @@ use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::ShardId;
+use near_primitives_core::cryptohashmap;
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 pub(crate) struct BoundedQueue<T> {
@@ -304,8 +305,8 @@ pub trait TrieStorage {
 /// visited_nodes are to validate that partial storage doesn't contain unnecessary nodes.
 #[derive(Default)]
 pub struct TrieMemoryPartialStorage {
-    pub(crate) recorded_storage: HashMap<CryptoHash, Arc<[u8]>>,
-    pub(crate) visited_nodes: RefCell<HashSet<CryptoHash>>,
+    pub(crate) recorded_storage: cryptohashmap::CryptoHashMap<Arc<[u8]>>,
+    pub(crate) visited_nodes: RefCell<cryptohashmap::CryptoHashMap<()>>,
 }
 
 impl TrieStorage for TrieMemoryPartialStorage {
@@ -316,7 +317,7 @@ impl TrieStorage for TrieMemoryPartialStorage {
                 *hash,
             ));
         if result.is_ok() {
-            self.visited_nodes.borrow_mut().insert(*hash);
+            self.visited_nodes.borrow_mut().insert(*hash, ());
         }
         result
     }
@@ -327,7 +328,7 @@ impl TrieStorage for TrieMemoryPartialStorage {
 }
 
 impl TrieMemoryPartialStorage {
-    pub fn new(recorded_storage: HashMap<CryptoHash, Arc<[u8]>>) -> Self {
+    pub fn new(recorded_storage: cryptohashmap::CryptoHashMap<Arc<[u8]>>) -> Self {
         Self { recorded_storage, visited_nodes: Default::default() }
     }
 
@@ -337,7 +338,7 @@ impl TrieMemoryPartialStorage {
             self.recorded_storage
                 .iter()
                 .filter_map(|(node_hash, value)| {
-                    if touched_nodes.contains(node_hash) {
+                    if touched_nodes.contains_key(node_hash) {
                         Some(value.clone())
                     } else {
                         None
