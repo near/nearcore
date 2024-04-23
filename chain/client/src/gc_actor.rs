@@ -1,4 +1,6 @@
 use crate::metrics;
+#[cfg(feature = "test_features")]
+use actix::Handler;
 use actix::{Actor, Addr, Arbiter, ArbiterHandle, AsyncContext, Context};
 use near_chain::{types::RuntimeAdapter, ChainStore, ChainStoreAccess};
 use near_chain_configs::{ClientConfig, GCConfig};
@@ -17,6 +19,8 @@ pub struct GCActor {
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     gc_config: GCConfig,
     is_archive: bool,
+    /// In some tests we may want to temporarily disable GC
+    no_gc: bool,
 }
 
 impl GCActor {
@@ -34,6 +38,7 @@ impl GCActor {
             gc_config,
             epoch_manager,
             is_archive,
+            no_gc: false,
         }
     }
 
@@ -67,12 +72,14 @@ impl GCActor {
     }
 
     fn gc(&mut self, ctx: &mut Context<GCActor>) {
-        let timer = metrics::GC_TIME.start_timer();
-        if let Err(e) = self.clear_data() {
-            warn!(target: "garbage collection", "Error in gc: {}", e);
+        if !self.no_gc {
+            let timer = metrics::GC_TIME.start_timer();
+            if let Err(e) = self.clear_data() {
+                warn!(target: "garbage collection", "Error in gc: {}", e);
+            }
+            timer.observe_duration();
         }
 
-        timer.observe_duration();
         ctx.run_later(self.gc_config.gc_step_period, move |act, ctx| {
             act.gc(ctx);
         });
@@ -84,6 +91,30 @@ impl Actor for GCActor {
 
     fn started(&mut self, ctx: &mut Self::Context) {
         self.gc(ctx);
+    }
+}
+
+#[cfg(feature = "test_features")]
+#[derive(actix::Message, Debug)]
+#[rtype(result = "()")]
+pub enum NetworkAdversarialMessage {
+    StopGC,
+    ResumeGC,
+}
+
+#[cfg(feature = "test_features")]
+impl Handler<NetworkAdversarialMessage> for GCActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: NetworkAdversarialMessage, _ctx: &mut Self::Context) -> Self::Result {
+        match msg {
+            NetworkAdversarialMessage::StopGC => {
+                self.no_gc = true;
+            }
+            NetworkAdversarialMessage::ResumeGC => {
+                self.no_gc = false;
+            }
+        }
     }
 }
 

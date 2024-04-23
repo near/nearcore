@@ -144,7 +144,7 @@ class BaseNode(object):
         self._proxy_local_stopped = None
         self.proxy = None
         self.store_tests = 0
-        self.is_check_store = False
+        self.is_check_store = True
 
     def change_config(self, overrides: typing.Dict[str, typing.Any]) -> None:
         """Change client config.json of a node by applying given overrides.

@@ -84,6 +84,8 @@ nonce += 1
 assert 'SuccessValue' in res['result']['status']
 time.sleep(1)
 
+nodes[1].stop_checking_store()
+
 while True:
     block_id = nodes[1].get_latest_block()
     if int(block_id.height) > TARGET_HEIGHT:
@@ -132,3 +134,5 @@ res = nodes[1].json_rpc(
         "block_id": deletion_finish_block_height
     })
 assert res['error']['cause']['name'] == "GARBAGE_COLLECTED_BLOCK", res
+
+nodes[1].check_store()

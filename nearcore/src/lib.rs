@@ -365,6 +365,10 @@ pub fn start_with_config_and_synchronization(
         client_arbiter_handle,
         resharding_handle,
         gc_arbiter_handle,
+        #[cfg(feature = "test_features")]
+        gc_actor,
+        #[cfg(not(feature = "test_features"))]
+            gc_actor: _,
     } = start_client(
         Clock::real(),
         config.client_config.clone(),
@@ -450,6 +454,8 @@ pub fn start_with_config_and_synchronization(
             client_actor.clone().with_auto_span_context().into_multi_sender(),
             view_client.clone().with_auto_span_context().into_multi_sender(),
             network_actor.into_multi_sender(),
+            #[cfg(feature = "test_features")]
+            gc_actor.into_multi_sender(),
             Arc::new(entity_debug_handler),
         ));
     }

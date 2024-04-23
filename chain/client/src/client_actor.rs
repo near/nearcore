@@ -33,6 +33,7 @@ use std::sync::{Arc, RwLock};
 use tokio::sync::broadcast;
 
 use crate::client_actions::{ClientActionHandler, ClientActions, ClientSenderForClient};
+use crate::gc_actor::GCActor;
 use crate::start_gc_actor;
 use crate::stateless_validation::state_witness_actor::StateWitnessSenderForClient;
 use crate::sync_jobs_actions::SyncJobsActions;
@@ -181,6 +182,7 @@ fn wait_until_genesis(genesis_time: &Utc) {
 
 pub struct StartClientResult {
     pub client_actor: Addr<ClientActor>,
+    pub gc_actor: Addr<GCActor>,
     pub client_arbiter_handle: ArbiterHandle,
     pub resharding_handle: ReshardingHandle,
     pub gc_arbiter_handle: ArbiterHandle,
@@ -231,7 +233,7 @@ pub fn start_client(
     .unwrap();
     let resharding_handle = client.chain.resharding_handle.clone();
 
-    let (_, gc_arbiter_handle) = start_gc_actor(
+    let (gc_actor, gc_arbiter_handle) = start_gc_actor(
         runtime.store().clone(),
         genesis_height,
         client_config.clone(),
@@ -262,5 +264,6 @@ pub fn start_client(
         client_arbiter_handle,
         resharding_handle,
         gc_arbiter_handle,
+        gc_actor,
     }
 }
