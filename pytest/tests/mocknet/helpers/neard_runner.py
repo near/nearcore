@@ -314,6 +314,15 @@ class NeardRunner:
                 '--home',
                 os.path.join(self.neard_home, 'setup'),
                 'database',
+                'run-migrations',
+            ]
+            logging.info(f'running {" ".join(cmd)}')
+            subprocess.check_call(cmd)
+            cmd = [
+                self.data['binaries'][0]['system_path'],
+                '--home',
+                self.setup_path(),
+                'database',
                 'make-snapshot',
                 '--destination',
                 self.target_near_home_path(),
