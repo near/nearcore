@@ -611,13 +611,13 @@ impl Chain {
         genesis_protocol_version: ProtocolVersion,
     ) -> ChunkExtra {
         ChunkExtra::new(
+            genesis_protocol_version,
             state_root,
             CryptoHash::default(),
             vec![],
             0,
             gas_limit,
             0,
-            genesis_protocol_version,
             CongestionInfo::default(),
         )
     }

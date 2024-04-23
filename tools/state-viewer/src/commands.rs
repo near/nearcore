@@ -736,17 +736,17 @@ pub(crate) fn replay_chain(
 }
 
 pub(crate) fn resulting_chunk_extra(result: &ApplyChunkResult, gas_limit: Gas) -> ChunkExtra {
-    // TODO: is it okay to use latest protocol version hre for the chunk extra?
+    // TODO(congestion_control): is it okay to use latest protocol version here for the chunk extra?
     let protocol_version = PROTOCOL_VERSION;
     let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&result.outcomes);
     ChunkExtra::new(
+        protocol_version,
         &result.new_root,
         outcome_root,
         result.validator_proposals.clone(),
         result.total_gas_burnt,
         gas_limit,
         result.total_balance_burnt,
-        protocol_version,
         result.congestion_info.clone(),
     )
 }

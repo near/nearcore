@@ -537,13 +537,14 @@ mod tests {
         state_root: CryptoHash,
     ) {
         let chunk_extra = ChunkExtra::new(
+            // TODO(congestion_control) - use correct protocol_version
+            PROTOCOL_VERSION,
             &state_root,
             CryptoHash::default(),
             Vec::new(),
             0,
             0,
             0,
-            PROTOCOL_VERSION,
             CongestionInfo::default(),
         );
         let mut store_update = store.store_update();

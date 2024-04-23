@@ -125,13 +125,13 @@ mod trie_recording_tests {
 
         // ChunkExtra is needed for in-memory trie loading code to query state roots.
         let chunk_extra = ChunkExtra::new(
+            PROTOCOL_VERSION,
             &state_root,
             CryptoHash::default(),
             Vec::new(),
             0,
             0,
             0,
-            PROTOCOL_VERSION,
             CongestionInfo::default(),
         );
         let mut update_for_chunk_extra = tries_for_building.store_update();

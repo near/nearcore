@@ -281,13 +281,13 @@ fn apply_block_from_range(
         epoch_manager.get_epoch_protocol_version(block.header().epoch_id()).unwrap();
     let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
     let chunk_extra = ChunkExtra::new(
+        protocol_version,
         &apply_result.new_root,
         outcome_root,
         apply_result.validator_proposals,
         apply_result.total_gas_burnt,
         genesis.config.gas_limit,
         apply_result.total_balance_burnt,
-        protocol_version,
         apply_result.congestion_info,
     );
 

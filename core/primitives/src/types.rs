@@ -790,25 +790,27 @@ pub mod chunk_extra {
     impl ChunkExtra {
         pub fn new_with_only_state_root(state_root: &StateRoot) -> Self {
             Self::new(
+                // TODO(congestion_control) - this should be protocol version of
+                // the state root
+                PROTOCOL_VERSION,
                 state_root,
                 CryptoHash::default(),
                 vec![],
                 0,
                 0,
                 0,
-                PROTOCOL_VERSION,
                 CongestionInfo::default(),
             )
         }
 
         pub fn new(
+            protocol_version: ProtocolVersion,
             state_root: &StateRoot,
             outcome_root: CryptoHash,
             validator_proposals: Vec<ValidatorStake>,
             gas_used: Gas,
             gas_limit: Gas,
             balance_burnt: Balance,
-            protocol_version: ProtocolVersion,
             congestion_info: CongestionInfo,
         ) -> Self {
             if protocol_version >= ProtocolFeature::CongestionControl.protocol_version() {

@@ -255,15 +255,17 @@ impl<'a> ChainUpdate<'a> {
                     let protocol_version =
                         self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
                     let new_chunk_extra = ChunkExtra::new(
+                        protocol_version,
                         &result.new_root,
                         outcome_root,
                         validator_proposals_by_shard.remove(&result.shard_uid).unwrap_or_default(),
                         gas_burnt,
                         gas_limit,
                         balance_burnt,
-                        protocol_version,
-                        // TODO: If `Nep539CongestionControl` is enabled, we
-                        // need to compute it by iterating actual receipts.
+                        // TODO(congestion_control)
+                        // TODO(resharding)
+                        // If `CongestionControl` is enabled, we need to compute
+                        // it by iterating actual receipts.
                         chunk_extra.congestion_info().unwrap_or_default(),
                     );
                     sum_gas_used += gas_burnt;
@@ -334,13 +336,13 @@ impl<'a> ChainUpdate<'a> {
                     block_hash,
                     &shard_uid,
                     ChunkExtra::new(
+                        protocol_version,
                         &apply_result.new_root,
                         outcome_root,
                         apply_result.validator_proposals,
                         apply_result.total_gas_burnt,
                         gas_limit,
                         apply_result.total_balance_burnt,
-                        protocol_version,
                         apply_result.congestion_info,
                     ),
                 );
@@ -828,13 +830,13 @@ impl<'a> ChainUpdate<'a> {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
         let chunk_extra = ChunkExtra::new(
+            protocol_version,
             &apply_result.new_root,
             outcome_root,
             apply_result.validator_proposals,
             apply_result.total_gas_burnt,
             gas_limit,
             apply_result.total_balance_burnt,
-            protocol_version,
             apply_result.congestion_info,
         );
         self.chain_store_update.save_chunk_extra(block_header.hash(), &shard_uid, chunk_extra);

@@ -577,13 +577,13 @@ fn apply_result_to_chunk_extra(
 ) -> ChunkExtra {
     let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
     ChunkExtra::new(
+        protocol_version,
         &apply_result.new_root,
         outcome_root,
         apply_result.validator_proposals,
         apply_result.total_gas_burnt,
         chunk.gas_limit(),
         apply_result.total_balance_burnt,
-        protocol_version,
         apply_result.congestion_info,
     )
 }

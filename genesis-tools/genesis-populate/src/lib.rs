@@ -254,13 +254,13 @@ impl GenesisBuilder {
                     &self.genesis.config.shard_layout,
                 ),
                 ChunkExtra::new(
+                    self.genesis.config.protocol_version,
                     state_root,
                     CryptoHash::default(),
                     vec![],
                     0,
                     self.genesis.config.gas_limit,
                     0,
-                    self.genesis.config.protocol_version,
                     CongestionInfo::default(),
                 ),
             );
