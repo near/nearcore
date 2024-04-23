@@ -304,6 +304,7 @@ async fn profile(
                             .iter()
                             .map(|kv| (kv.key.clone(), stringify_value(kv.value.as_ref())))
                             .chain([("name".to_string(), event.name.clone())].into_iter())
+                            .chain([("type".to_string(), "span-event".to_string())].into_iter())
                             .collect(),
                     );
                 }
