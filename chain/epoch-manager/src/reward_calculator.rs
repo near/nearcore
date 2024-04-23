@@ -428,12 +428,9 @@ mod tests {
                 "test1".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 945, expected: 1000 },
-                    chunk_stats: {
-                        let mut tmp = ChunkValidatorStats::new_with_production(944, 1000);
-                        let endorsements = tmp.endorsement_stats_mut();
-                        endorsements.produced = 946;
-                        endorsements.expected = 1000;
-                        tmp
+                    chunk_stats: ChunkValidatorStats {
+                        production: ValidatorStats { produced: 944, expected: 1000 },
+                        endorsement: ValidatorStats { produced: 946, expected: 1000 },
                     },
                 },
             ),
@@ -442,12 +439,9 @@ mod tests {
                 "test2".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 0, expected: 0 },
-                    chunk_stats: {
-                        let mut tmp = ChunkValidatorStats::new_with_production(998, 1000);
-                        let endorsements = tmp.endorsement_stats_mut();
-                        endorsements.produced = 1000;
-                        endorsements.expected = 1000;
-                        tmp
+                    chunk_stats: ChunkValidatorStats {
+                        production: ValidatorStats { produced: 998, expected: 1000 },
+                        endorsement: ValidatorStats { produced: 1000, expected: 1000 },
                     },
                 },
             ),
@@ -520,12 +514,9 @@ mod tests {
             "test".parse().unwrap(),
             BlockChunkValidatorStats {
                 block_stats: ValidatorStats { produced: 43200, expected: 43200 },
-                chunk_stats: {
-                    let mut tmp = ChunkValidatorStats::new_with_production(345600, 345600);
-                    let endorsements = tmp.endorsement_stats_mut();
-                    endorsements.produced = 345600;
-                    endorsements.expected = 345600;
-                    tmp
+                chunk_stats: ChunkValidatorStats {
+                    production: ValidatorStats { produced: 345600, expected: 345600 },
+                    endorsement: ValidatorStats { produced: 345600, expected: 345600 },
                 },
             },
         )]);
