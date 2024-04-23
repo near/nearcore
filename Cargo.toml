@@ -121,8 +121,8 @@ arbitrary = { version = "1.2.3", features = ["derive"] }
 arc-swap = "1.5"
 assert_matches = "1.5.0"
 async-trait = "0.1.58"
-aurora-engine-transactions = { git = "https://github.com/aurora-is-near/aurora-engine.git", tag = "3.6.1" }
-aurora-engine-types = { git = "https://github.com/aurora-is-near/aurora-engine.git", tag = "3.6.1" }
+aurora-engine-transactions = "1.1"
+aurora-engine-types = "1.1"
 awc = { version = "3", features = ["openssl"] }
 backtrace = "0.3"
 base64 = "0.21"
