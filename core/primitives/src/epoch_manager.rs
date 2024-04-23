@@ -158,6 +158,7 @@ impl AllEpochConfig {
         chain_id: &str,
         protocol_version: ProtocolVersion,
     ) {
+        config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers = true;
         // StatelessNet only.
         if chain_id == near_primitives_core::chains::STATELESSNET {
             // Lower the kickout threshold so the network is more stable while
