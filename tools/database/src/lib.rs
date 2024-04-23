@@ -10,6 +10,7 @@ mod corrupt;
 mod make_snapshot;
 mod memtrie;
 mod run_migrations;
+mod show_latest_witnesses;
 mod state_perf;
 mod utils;
 mod write_to_db;
