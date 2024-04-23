@@ -729,7 +729,7 @@ fn test_validator_reward_one_validator() {
         "test2".parse().unwrap(),
         BlockChunkValidatorStats {
             block_stats: ValidatorStats { produced: 1, expected: 1 },
-            chunk_stats: ValidatorStats { produced: 1, expected: 1 },
+            chunk_stats: ChunkValidatorStats::new_with_production(1, 1),
         },
     );
     let mut validator_stakes = HashMap::new();
@@ -819,14 +819,14 @@ fn test_validator_reward_weight_by_stake() {
         "test1".parse().unwrap(),
         BlockChunkValidatorStats {
             block_stats: ValidatorStats { produced: 1, expected: 1 },
-            chunk_stats: ValidatorStats { produced: 1, expected: 1 },
+            chunk_stats: ChunkValidatorStats::new_with_production(1, 1),
         },
     );
     validator_online_ratio.insert(
         "test2".parse().unwrap(),
         BlockChunkValidatorStats {
             block_stats: ValidatorStats { produced: 1, expected: 1 },
-            chunk_stats: ValidatorStats { produced: 1, expected: 1 },
+            chunk_stats: ChunkValidatorStats::new_with_production(1, 1),
         },
     );
     let mut validators_stakes = HashMap::new();
@@ -942,7 +942,7 @@ fn test_reward_multiple_shards() {
         "test2".parse().unwrap(),
         BlockChunkValidatorStats {
             block_stats: ValidatorStats { produced: 1, expected: 1 },
-            chunk_stats: ValidatorStats { produced: 1, expected: 1 },
+            chunk_stats: ChunkValidatorStats::new_with_production(1, 1),
         },
     );
     let mut validators_stakes = HashMap::new();
@@ -2591,18 +2591,18 @@ fn test_validator_kickout_sanity() {
             (
                 0,
                 HashMap::from([
-                    (0, ValidatorStats { produced: 100, expected: 100 }),
-                    (1, ValidatorStats { produced: 80, expected: 100 }),
-                    (2, ValidatorStats { produced: 70, expected: 100 }),
+                    (0, ChunkValidatorStats::new_with_production(100, 100)),
+                    (1, ChunkValidatorStats::new_with_production(80, 100)),
+                    (2, ChunkValidatorStats::new_with_production(70, 100)),
                 ]),
             ),
             (
                 1,
                 HashMap::from([
-                    (0, ValidatorStats { produced: 70, expected: 100 }),
-                    (1, ValidatorStats { produced: 79, expected: 100 }),
-                    (3, ValidatorStats { produced: 100, expected: 100 }),
-                    (4, ValidatorStats { produced: 100, expected: 100 }),
+                    (0, ChunkValidatorStats::new_with_production(70, 100)),
+                    (1, ChunkValidatorStats::new_with_production(79, 100)),
+                    (3, ChunkValidatorStats::new_with_production(100, 100)),
+                    (4, ChunkValidatorStats::new_with_production(100, 100)),
                 ]),
             ),
         ]),
@@ -2624,35 +2624,35 @@ fn test_validator_kickout_sanity() {
                 "test0".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 100, expected: 100 },
-                    chunk_stats: ValidatorStats { produced: 170, expected: 200 }
+                    chunk_stats: ChunkValidatorStats::new_with_production(170, 200),
                 }
             ),
             (
                 "test1".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 90, expected: 100 },
-                    chunk_stats: ValidatorStats { produced: 159, expected: 200 }
+                    chunk_stats: ChunkValidatorStats::new_with_production(159, 200),
                 }
             ),
             (
                 "test2".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 100, expected: 100 },
-                    chunk_stats: ValidatorStats { produced: 70, expected: 100 }
+                    chunk_stats: ChunkValidatorStats::new_with_production(70, 100),
                 }
             ),
             (
                 "test3".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 89, expected: 100 },
-                    chunk_stats: ValidatorStats { produced: 100, expected: 100 }
+                    chunk_stats: ChunkValidatorStats::new_with_production(100, 100),
                 }
             ),
             (
                 "test4".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 0, expected: 0 },
-                    chunk_stats: ValidatorStats { produced: 100, expected: 100 }
+                    chunk_stats: ChunkValidatorStats::new_with_production(100, 100),
                 }
             ),
         ])
@@ -2696,15 +2696,15 @@ fn test_max_kickout_stake_ratio() {
         (
             0,
             HashMap::from([
-                (0, ValidatorStats { produced: 0, expected: 100 }),
-                (1, ValidatorStats { produced: 0, expected: 100 }),
+                (0, ChunkValidatorStats::new_with_production(0, 100)),
+                (1, ChunkValidatorStats::new_with_production(0, 100)),
             ]),
         ),
         (
             1,
             HashMap::from([
-                (2, ValidatorStats { produced: 100, expected: 100 }),
-                (4, ValidatorStats { produced: 50, expected: 100 }),
+                (2, ChunkValidatorStats::new_with_production(100, 100)),
+                (4, ChunkValidatorStats::new_with_production(50, 100)),
             ]),
         ),
     ]);
@@ -2735,35 +2735,35 @@ fn test_max_kickout_stake_ratio() {
             "test0".parse().unwrap(),
             BlockChunkValidatorStats {
                 block_stats: ValidatorStats { produced: 50, expected: 100 },
-                chunk_stats: ValidatorStats { produced: 0, expected: 100 },
+                chunk_stats: ChunkValidatorStats::new_with_production(0, 100),
             },
         ),
         (
             "test1".parse().unwrap(),
             BlockChunkValidatorStats {
                 block_stats: ValidatorStats { produced: 70, expected: 100 },
-                chunk_stats: ValidatorStats { produced: 0, expected: 100 },
+                chunk_stats: ChunkValidatorStats::new_with_production(0, 100),
             },
         ),
         (
             "test2".parse().unwrap(),
             BlockChunkValidatorStats {
                 block_stats: ValidatorStats { produced: 70, expected: 100 },
-                chunk_stats: ValidatorStats { produced: 100, expected: 100 },
+                chunk_stats: ChunkValidatorStats::new_with_production(100, 100),
             },
         ),
         (
             "test3".parse().unwrap(),
             BlockChunkValidatorStats {
                 block_stats: ValidatorStats { produced: 0, expected: 0 },
-                chunk_stats: ValidatorStats { produced: 0, expected: 0 },
+                chunk_stats: ChunkValidatorStats::default(),
             },
         ),
         (
             "test4".parse().unwrap(),
             BlockChunkValidatorStats {
                 block_stats: ValidatorStats { produced: 0, expected: 0 },
-                chunk_stats: ValidatorStats { produced: 50, expected: 100 },
+                chunk_stats: ChunkValidatorStats::new_with_production(50, 100),
             },
         ),
     ]);
