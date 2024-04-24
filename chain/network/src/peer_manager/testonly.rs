@@ -68,6 +68,7 @@ impl actix::Handler<WithNetworkState> for PeerManagerActor {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum Event {
     ShardsManager(ShardsManagerRequestFromNetwork),
     Client(ClientSenderForNetworkInput),

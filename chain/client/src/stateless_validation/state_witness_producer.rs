@@ -61,7 +61,11 @@ impl Client {
             );
         }
 
-        self.state_witness_adapter.send(DistributeStateWitnessRequest { state_witness });
+        self.state_witness_adapter.send(DistributeStateWitnessRequest {
+            epoch_id: epoch_id.clone(),
+            chunk_header,
+            state_witness,
+        });
         Ok(())
     }
 
