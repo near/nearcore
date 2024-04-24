@@ -494,10 +494,9 @@ pub(crate) fn validate_chunk_state_witness(
                 epoch_manager,
             )?;
             let outgoing_receipts = std::mem::take(&mut main_apply_result.outgoing_receipts);
-            (
-                apply_result_to_chunk_extra(main_apply_result, &chunk_header, protocol_version),
-                outgoing_receipts,
-            )
+            let chunk_extra =
+                apply_result_to_chunk_extra(protocol_version, main_apply_result, &chunk_header);
+            (chunk_extra, outgoing_receipts)
         }
     };
     if chunk_extra.state_root() != &state_witness.main_state_transition.post_state_root {
@@ -571,9 +570,9 @@ pub(crate) fn validate_chunk_state_witness(
 }
 
 fn apply_result_to_chunk_extra(
+    protocol_version: ProtocolVersion,
     apply_result: ApplyChunkResult,
     chunk: &ShardChunkHeader,
-    protocol_version: ProtocolVersion,
 ) -> ChunkExtra {
     let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
     ChunkExtra::new(

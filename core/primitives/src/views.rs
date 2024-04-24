@@ -1099,6 +1099,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
 impl From<ChunkHeaderView> for ShardChunkHeader {
     fn from(view: ChunkHeaderView) -> Self {
         let mut header = ShardChunkHeaderV3 {
+            // TODO(congestion_control) handle the new version
             inner: ShardChunkHeaderInner::V2(ShardChunkHeaderInnerV2 {
                 prev_block_hash: view.prev_block_hash,
                 prev_state_root: view.prev_state_root,

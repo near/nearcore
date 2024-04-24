@@ -193,7 +193,7 @@ pub struct ShardChunkHeaderInnerV2 {
     pub prev_validator_proposals: Vec<ValidatorStake>,
 }
 
-// V2 -> V3: Add congestion info fields.
+// V2 -> V3: Add congestion info.
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
 pub struct ShardChunkHeaderInnerV3 {
     /// Previous block hash.

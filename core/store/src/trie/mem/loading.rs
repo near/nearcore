@@ -537,7 +537,6 @@ mod tests {
         state_root: CryptoHash,
     ) {
         let chunk_extra = ChunkExtra::new(
-            // TODO(congestion_control) - use correct protocol_version
             PROTOCOL_VERSION,
             &state_root,
             CryptoHash::default(),

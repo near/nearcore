@@ -1365,7 +1365,7 @@ impl Runtime {
         {
             let (trie, trie_changes, state_changes) = state_update.finalize()?;
             let proof = trie.recorded_storage();
-            // TODO(congestion_control) - get the info from state
+            // TODO(congestion_control) - calculate the congestion info
             let congestion_info = CongestionInfo::default();
             return Ok(ApplyResult {
                 state_root: trie_changes.new_root,
@@ -1748,7 +1748,7 @@ impl Runtime {
         metrics::CHUNK_RECORDED_SIZE_UPPER_BOUND_RATIO
             .observe(chunk_recorded_size_upper_bound / f64::max(1.0, chunk_recorded_size));
         let proof = trie.recorded_storage();
-        // TODO(congestion_control) - get the info from state
+        // TODO(congestion_control) - calculate the congestion info
         let congestion_info = CongestionInfo::default();
         Ok(ApplyResult {
             state_root,
