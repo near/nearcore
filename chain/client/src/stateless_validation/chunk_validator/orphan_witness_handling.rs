@@ -117,6 +117,8 @@ impl Client {
             match self.chain.get_block_header(new_block.header().last_final_block()) {
                 Ok(block_header) => block_header,
                 Err(err) => {
+                    // TODO(wacban) this error happens often in integration
+                    // tests when the last final block is genesis / genesis.prev.
                     tracing::error!(
                         target: "client",
                         last_final_block = ?new_block.header().last_final_block(),

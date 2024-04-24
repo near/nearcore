@@ -234,7 +234,8 @@ impl<'a> ChainUpdate<'a> {
                 // TODO(resharding) make sure that is the case.
                 assert_eq!(num_split_shards, results.len() as u64);
 
-                let epoch_id = self.epoch_manager.get_epoch_id(block_hash)?;
+                // let epoch_id = self.epoch_manager.get_epoch_id(block_hash)?;
+                let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
                 let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
                 for result in results {
@@ -327,7 +328,8 @@ impl<'a> ChainUpdate<'a> {
                     ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
                 let shard_id = shard_uid.shard_id();
 
-                let epoch_id = self.epoch_manager.get_epoch_id(&block_hash)?;
+                // let epoch_id = self.epoch_manager.get_epoch_id(&block_hash)?;
+                let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
                 let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
                 // Save state root after applying transactions.
