@@ -233,7 +233,6 @@ impl ProtocolFeature {
             ProtocolFeature::EthImplicitAccounts => 138,
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
             ProtocolFeature::NonrefundableStorage => 140,
-            ProtocolFeature::SimpleNightshadeV3 => 141,
             ProtocolFeature::CongestionControl => 142,
         }
     }
