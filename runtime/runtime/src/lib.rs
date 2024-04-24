@@ -1495,26 +1495,38 @@ impl Runtime {
         let mut delayed_receipts_keys = Vec::new();
         let mut delayed_receipts = Vec::new();
         let mut current_delayed_receipt_index = delayed_receipts_indices.first_index;
-        let skip_delayed_receipts = total.compute >= compute_limit
-            || proof_size_limit
-                .is_some_and(|limit| state_update.trie.recorded_storage_size() > limit);
-        while current_delayed_receipt_index < delayed_receipts_indices.next_available_index {
-            if skip_delayed_receipts {
-                break;
+        let mut load_delayed_receipts_batch = |total: &TotalResourceGuard,
+                                               state_update: &TrieUpdate,
+                                               delayed_receipts_indices: &DelayedReceiptIndices,
+                                               delayed_receipts: &mut Vec<Receipt>,
+                                               delayed_receipts_keys: &mut Vec<TrieKey>|
+         -> Result<(), RuntimeError> {
+            if total.compute >= compute_limit
+                || proof_size_limit
+                    .is_some_and(|limit| state_update.trie.recorded_storage_size() > limit)
+            {
+                return Ok(());
             }
 
-            let key = TrieKey::DelayedReceipt { index: current_delayed_receipt_index };
-            let receipt: Receipt = get(&state_update, &key)?.ok_or_else(|| {
-                StorageError::StorageInconsistentState(format!(
-                    "Delayed receipt #{} should be in the state",
-                    current_delayed_receipt_index
-                ))
-            })?;
+            let mut num_loaded = 0;
+            while num_loaded < look_ahead_len
+                && current_delayed_receipt_index < delayed_receipts_indices.next_available_index
+            {
+                let key = TrieKey::DelayedReceipt { index: current_delayed_receipt_index };
+                let receipt: Receipt = get(state_update, &key)?.ok_or_else(|| {
+                    StorageError::StorageInconsistentState(format!(
+                        "Delayed receipt #{} should be in the state",
+                        current_delayed_receipt_index
+                    ))
+                })?;
 
-            delayed_receipts_keys.push(key);
-            delayed_receipts.push(receipt);
-            current_delayed_receipt_index += 1;
-        }
+                num_loaded += 1;
+                delayed_receipts_keys.push(key);
+                delayed_receipts.push(receipt);
+                current_delayed_receipt_index += 1;
+            }
+            Ok(())
+        };
 
         // We first process local receipts. They contain staking, local contract calls, etc.
         // Prefetching for local receipts was invoked above.
@@ -1535,6 +1547,13 @@ impl Runtime {
             // Chances are delayed receipts will be processed, so start prefetching.
             // Invoke prefetcher possibly multiple times to fill its work queue.
             if local_receipts.len() - i <= look_ahead_len {
+                load_delayed_receipts_batch(
+                    &total,
+                    &state_update,
+                    &delayed_receipts_indices,
+                    &mut delayed_receipts,
+                    &mut delayed_receipts_keys,
+                )?;
                 prefetch_manager.prefetch_next_delayed_receipts(&delayed_receipts);
             }
         }
@@ -1545,20 +1564,43 @@ impl Runtime {
             total.compute,
         );
 
+        // Prefetching delayed receipts above wasn't triggered, so start it.
+        // Loading delayed receipts is required not only for performance but also for correctness,
+        // to have a delayed receipt available in below's loop first iteration.
+        if local_receipts.len() == 0 {
+            load_delayed_receipts_batch(
+                &total,
+                &state_update,
+                &delayed_receipts_indices,
+                &mut delayed_receipts,
+                &mut delayed_receipts_keys,
+            )?;
+            prefetch_manager.prefetch_next_delayed_receipts(&delayed_receipts);
+        }
+
         // Then we process the delayed receipts. It's a backlog of receipts from the past blocks.
         // TODO refactor to avoid cloning and `receipt`
         let delayed_processing_start = std::time::Instant::now();
-        let mut delayed_receipt_count = 0;
-        for (i, (key, receipt)) in
-            delayed_receipts_keys.into_iter().zip(delayed_receipts.iter()).enumerate()
-        {
+        let mut num_processed_delayed_receipts = 0;
+        while delayed_receipts_indices.first_index < delayed_receipts_indices.next_available_index {
             if total.compute >= compute_limit
                 || proof_size_limit
                     .is_some_and(|limit| state_update.trie.recorded_storage_size() > limit)
             {
                 break;
             }
-            delayed_receipt_count += 1;
+
+            // Before entering this loop, `load_delayed_receipts_batch` was called above.
+            // It is called again in the body of the loop, therefore
+            // `num_processed_delayed_receipts < delayed_receipts.len()`
+            let receipt = delayed_receipts
+                .get(num_processed_delayed_receipts)
+                .expect("delayed receipt should be loaded")
+                .clone();
+            let key = delayed_receipts_keys
+                .get(num_processed_delayed_receipts)
+                .expect("delayed receipt key should be loaded")
+                .clone();
 
             // Validating the delayed receipt. If it fails, it's likely the state is inconsistent.
             validate_receipt(
@@ -1573,21 +1615,30 @@ impl Runtime {
                 ))
             })?;
 
-            state_update.remove(key.clone());
+            state_update.remove(key);
             // Math checked above: first_index is less than next_available_index
             delayed_receipts_indices.first_index += 1;
-            process_receipt(receipt, &mut state_update, &mut total)?;
-            processed_delayed_receipts.push(receipt.clone());
+            process_receipt(&receipt, &mut state_update, &mut total)?;
+            processed_delayed_receipts.push(receipt);
 
-            if i % look_ahead_len == 0 {
+            if num_processed_delayed_receipts % look_ahead_len == 0 {
+                load_delayed_receipts_batch(
+                    &total,
+                    &state_update,
+                    &delayed_receipts_indices,
+                    &mut delayed_receipts,
+                    &mut delayed_receipts_keys,
+                )?;
                 prefetch_manager.prefetch_next_delayed_receipts(&delayed_receipts);
             }
-            if delayed_receipts.len() - i == 1 {
+            if delayed_receipts.len() - num_processed_delayed_receipts == 1 {
                 prefetch_manager.prefetch_next_incoming_receipts(incoming_receipts);
             }
+
+            num_processed_delayed_receipts += 1;
         }
         metrics.delayed_receipts_done(
-            delayed_receipt_count,
+            num_processed_delayed_receipts.try_into().expect("too many delayed receipts"),
             delayed_processing_start.elapsed(),
             total.gas,
             total.compute,
