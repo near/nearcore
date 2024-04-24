@@ -1411,6 +1411,11 @@ impl Runtime {
         }
         metrics.tx_processing_done(total.gas, total.compute);
 
+        if transactions.is_empty() {
+            // Local receipt prefetching above wasn't triggered.
+            prefetch_manager.prefetch_next_local_receipts(&local_receipts);
+        }
+
         let mut process_receipt = |receipt: &Receipt,
                                    state_update: &mut TrieUpdate,
                                    total: &mut TotalResourceGuard|
@@ -1567,7 +1572,7 @@ impl Runtime {
         // Prefetching delayed receipts above wasn't triggered, so start it.
         // Loading delayed receipts is required not only for performance but also for correctness,
         // to have a delayed receipt available in below's loop first iteration.
-        if local_receipts.len() == 0 {
+        if local_receipts.is_empty() {
             load_delayed_receipts_batch(
                 &total,
                 &state_update,
@@ -1643,6 +1648,11 @@ impl Runtime {
             total.gas,
             total.compute,
         );
+
+        if delayed_receipts.is_empty() {
+            // Incoming receipt prefetching above wasn't triggered.
+            prefetch_manager.prefetch_next_incoming_receipts(incoming_receipts);
+        }
 
         // And then we process the new incoming receipts. These are receipts from other shards.
         let incoming_processing_start = std::time::Instant::now();
