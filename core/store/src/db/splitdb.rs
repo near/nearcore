@@ -71,6 +71,9 @@ impl SplitDB {
 }
 
 impl Database for SplitDB {
+    fn drop_column_family(&mut self, col: DBCol) -> std::io::Result<()> {
+        unimplemented!()
+    }
     /// Returns raw bytes for given `key` ignoring any reference count decoding
     /// if any.
     ///

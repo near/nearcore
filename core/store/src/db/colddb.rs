@@ -118,6 +118,10 @@ impl Database for ColdDB {
     ) -> anyhow::Result<()> {
         self.cold.create_checkpoint(path, columns_to_keep)
     }
+
+    fn drop_column_family(&mut self, col: DBCol) -> std::io::Result<()> {
+        unimplemented!()
+    }
 }
 
 /// Adjust database operation to be performed on cold storage.

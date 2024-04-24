@@ -64,6 +64,9 @@ impl MixedDB {
 }
 
 impl Database for MixedDB {
+    fn drop_column_family(&mut self, col: DBCol) -> std::io::Result<()> {
+        unimplemented!()
+    }
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
         if let Some(first_result) = self.first_db().get_raw_bytes(col, key)? {
             return Ok(Some(first_result));

@@ -5,6 +5,7 @@ use crate::analyse_high_load::HighLoadStatsCommand;
 use crate::analyze_delayed_receipt::AnalyzeDelayedReceiptCommand;
 use crate::compact::RunCompactionCommand;
 use crate::corrupt::CorruptStateSnapshotCommand;
+use crate::drop_family::DropColumnFamilyCommand;
 use crate::make_snapshot::MakeSnapshotCommand;
 use crate::memtrie::LoadMemTrieCommand;
 use crate::run_migrations::RunMigrationsCommand;

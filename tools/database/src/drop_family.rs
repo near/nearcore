@@ -12,8 +12,8 @@ pub(crate) struct DropColumnFamilyCommand {
 
 impl DropColumnFamilyCommand {
     pub(crate) fn run(&self, home: &PathBuf) -> anyhow::Result<()> {
-        let db = open_rocksdb(home, near_store::Mode::ReadWrite)?;
-        db.drop_column_family(resolve_column(col_name)?);
+        let mut db = open_rocksdb(home, near_store::Mode::ReadWrite)?;
+        db.drop_column_family(resolve_column(&self.column)?);
         eprintln!("Compaction is finished!");
         Ok(())
     }

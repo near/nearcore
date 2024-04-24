@@ -415,7 +415,7 @@ impl Database for RocksDB {
         Ok(())
     }
 
-    fn drop_column_family(&self, col: DBCol) -> io::Result<()> {
+    fn drop_column_family(&mut self, col: DBCol) -> io::Result<()> {
         self.db.drop_cf(col_name(col)).map_err(io::Error::other)
     }
 

@@ -33,6 +33,9 @@ impl TestDB {
 }
 
 impl Database for TestDB {
+    fn drop_column_family(&mut self, col: DBCol) -> std::io::Result<()> {
+        unimplemented!()
+    }
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
         Ok(self.db.read().unwrap()[col].get(key).cloned().map(DBSlice::from_vec))
     }
