@@ -32,7 +32,7 @@ fn build_chain() {
     //     cargo insta test --accept -p near-chain --features nightly -- tests::simple_chain::build_chain
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
-        insta::assert_snapshot!(hash, @"CyVdmcpdfz8VAqZFN4zbZLTRcbcnAUzRJwNgxbgeEUMU");
+        insta::assert_snapshot!(hash, @"CJaRGRZy7GE3KkSp55HE8VheYHzPr11nRpsh9rK9F1ag");
     } else {
         insta::assert_snapshot!(hash, @"2WHohfYksQnwKwSEoTKpkseu2RWthbGf9kmGetgHgfQQ");
     }

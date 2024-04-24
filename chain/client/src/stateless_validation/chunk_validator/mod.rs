@@ -435,6 +435,7 @@ fn validate_receipt_proof(
     Ok(())
 }
 
+#[allow(clippy::large_enum_variant)]
 enum MainTransition {
     Genesis { chunk_extra: ChunkExtra, block_hash: CryptoHash, shard_id: ShardId },
     NewChunk(NewChunkData),
