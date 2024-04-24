@@ -226,10 +226,12 @@ impl Mmap {
     #[cfg(not(target_os = "windows"))]
     pub fn reset(&mut self) -> Result<(), String> {
         unsafe {
-            self.as_mut_ptr().write_bytes(0, self.accessible_len);
-            region::protect(self.as_ptr(), self.accessible_len, region::Protection::NONE)
-                .map_err(|e| e.to_string())?;
-            self.accessible_len = 0;
+            if self.accessible_len > 0 {
+                self.as_mut_ptr().write_bytes(0, self.accessible_len);
+                region::protect(self.as_ptr(), self.accessible_len, region::Protection::NONE)
+                    .map_err(|e| e.to_string())?;
+                self.accessible_len = 0;
+            }
             Ok(())
         }
     }
@@ -326,5 +328,15 @@ mod tests {
         assert_eq!(round_up_to_page_size(1, 4096), 4096);
         assert_eq!(round_up_to_page_size(4096, 4096), 4096);
         assert_eq!(round_up_to_page_size(4097, 4096), 8192);
+    }
+
+    #[test]
+    fn alloc_and_reset() {
+        let mut map = Mmap::accessible_reserved(64 * 1024, 128 * 1024).unwrap();
+        assert_eq!(map.accessible_len, 64 * 1024);
+        map.reset().unwrap();
+        assert_eq!(map.accessible_len, 0);
+        map.make_accessible(16 * 1024).unwrap();
+        assert_eq!(map.accessible_len, 16 * 1024);
     }
 }
