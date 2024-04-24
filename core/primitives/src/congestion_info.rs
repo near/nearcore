@@ -1,21 +1,31 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::types::{Gas, ShardId};
 
+/// The CongestionInfo stores information about the congestion of a shard. It is
+/// used by other shards to throttle the transactions and receipts to prevent
+/// unbounded growth of the queues and buffers in the system.
+///
+/// The CongestionInfo is a part of the ChunkHeader. It is versioned and each
+/// version should not be changed. Rather a new version with the desired changes
+/// should be added and used in place of the old one. When adding new versions
+/// please also update the default.
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CongestionInfo {
     V1(CongestionInfoV1),
 }
 
 /// Stores the congestion level of a shard.
-/// TODO(congestion_control) - implement versioning
 #[derive(BorshSerialize, BorshDeserialize, Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CongestionInfoV1 {
+    /// Sum of gas in currently delayed receipts.
+    pub delayed_receipts_gas: u128,
+    /// Sum of gas in currently buffered receipts.
+    pub buffered_receipts_gas: u128,
+    /// Size of borsh serialized receipts stored in state because they
+    /// were delayed, buffered, postponed, or yielded.
+    pub receipt_bytes: u64,
     /// If fully congested, only this shard can forward receipts.
-    pub allowed_shard: u32,
-
-    /// The congestion level of the shard where 0 means not congested and 255
-    /// means fully congested.
-    pub congestion_level: u8,
+    pub allowed_shard: u16,
 }
 
 impl Default for CongestionInfo {
