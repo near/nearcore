@@ -469,7 +469,7 @@ struct MirrorConfig {
     /// mainnet blocks to appear in consecutive target chain blocks, we will
     /// wait this long before sending each mainnet block's worth of transactions.
     /// TODO: add an option to target a specific number of transactions per second
-    tx_send_interval: Option<Duration>,
+    tx_batch_interval: Option<Duration>,
 }
 
 const CREATE_ACCOUNT_DELTA: usize = 5;
@@ -1810,7 +1810,7 @@ impl<T: ChainAccess> TxMirror<T> {
 
         let mut tracker = crate::chain_tracker::TxTracker::new(
             self.target_min_block_production_delay,
-            self.config.tx_send_interval,
+            self.config.tx_batch_interval,
             next_heights.iter(),
             stop_height,
         );

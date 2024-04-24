@@ -743,7 +743,7 @@ class NeardRunner:
                         nanos = (send_interval_millis % 1000) * 1000000
                         json.dump(
                             {
-                                'tx_send_interval': {
+                                'tx_batch_interval': {
                                     'secs': secs,
                                     'nanos': nanos
                                 }

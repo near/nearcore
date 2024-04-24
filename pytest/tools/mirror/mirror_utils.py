@@ -233,7 +233,7 @@ class MirrorProcess:
         with open(dot_near() / f'{MIRROR_DIR}/stdout', 'ab') as stdout, \
             open(dot_near() / f'{MIRROR_DIR}/stderr', 'ab') as stderr, \
             open(config_path, 'w') as mirror_config:
-            json.dump({'tx_send_interval': {
+            json.dump({'tx_batch_interval': {
                 'secs': 0,
                 'nanos': 600000000
             }}, mirror_config)
