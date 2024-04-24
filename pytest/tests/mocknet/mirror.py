@@ -335,7 +335,8 @@ def start_traffic_cmd(args, traffic_generator, nodes):
     logger.info(
         "waiting a bit after validators started before starting traffic")
     time.sleep(10)
-    traffic_generator.neard_runner_start()
+    traffic_generator.neard_runner_start(
+        batch_interval_millis=args.batch_interval_millis)
     logger.info(
         f'test running. to check the traffic sent, try running "curl --silent http://{traffic_generator.ip_addr()}:{traffic_generator.neard_port()}/metrics | grep near_mirror"'
     )
@@ -423,6 +424,15 @@ if __name__ == '__main__':
         help=
         'Starts all nodes and starts neard mirror run on the traffic generator.'
     )
+    start_traffic_parser.add_argument(
+        '--batch-interval-millis',
+        type=int,
+        help=
+        '''Interval in millis between sending each mainnet block\'s worth of transactions.
+        Without this flag, the traffic generator will try to match the per-block load on mainnet.
+        So, transactions from consecutive mainnet blocks will be be sent with delays
+        between them such that they will probably appear in consecutive mocknet blocks.
+        ''')
     start_traffic_parser.set_defaults(func=start_traffic_cmd)
 
     start_nodes_parser = subparsers.add_parser(

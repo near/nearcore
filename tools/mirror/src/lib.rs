@@ -458,6 +458,16 @@ fn execution_status_good(status: &ExecutionStatusView) -> bool {
     )
 }
 
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+struct MirrorConfig {
+    /// Delay between sending batches of mainnet transactions. If this is
+    /// given, then instead of trying to get the transactions in consecutive
+    /// mainnet blocks to appear in consecutive target chain blocks, we will
+    /// wait this long before sending each mainnet block's worth of transactions.
+    /// TODO: add an option to target a specific number of transactions per second
+    tx_batch_interval: Option<Duration>,
+}
+
 const CREATE_ACCOUNT_DELTA: usize = 5;
 
 struct TxMirror<T: ChainAccess> {
@@ -475,6 +485,7 @@ struct TxMirror<T: ChainAccess> {
     target_min_block_production_delay: Duration,
     secret: Option<[u8; crate::secret::SECRET_LEN]>,
     default_extra_key: SecretKey,
+    config: MirrorConfig,
 }
 
 fn open_db<P: AsRef<Path>>(home: P, config: &NearConfig) -> anyhow::Result<DB> {
@@ -854,6 +865,7 @@ impl<T: ChainAccess> TxMirror<T> {
         source_chain_access: T,
         target_home: P,
         secret: Option<[u8; crate::secret::SECRET_LEN]>,
+        config: MirrorConfig,
     ) -> anyhow::Result<Self> {
         let target_config =
             nearcore::config::load_config(target_home.as_ref(), GenesisValidationMode::UnsafeFast)
@@ -893,6 +905,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 .unsigned_abs(),
             secret,
             default_extra_key,
+            config,
         })
     }
 
@@ -1777,6 +1790,7 @@ impl<T: ChainAccess> TxMirror<T> {
 
         let mut tracker = crate::chain_tracker::TxTracker::new(
             self.target_min_block_production_delay,
+            self.config.tx_batch_interval,
             next_heights.iter(),
             stop_height,
         );
@@ -1821,16 +1835,28 @@ async fn run<P: AsRef<Path>>(
     secret: Option<[u8; crate::secret::SECRET_LEN]>,
     stop_height: Option<BlockHeight>,
     online_source: bool,
+    config_path: Option<P>,
 ) -> anyhow::Result<()> {
+    let config: MirrorConfig = match config_path {
+        Some(p) => {
+            let c = std::fs::read_to_string(p.as_ref())
+                .with_context(|| format!("Could not read config from {}", p.as_ref().display()))?;
+            serde_json::from_str(&c)
+                .with_context(|| format!("Could not parse config from {}", p.as_ref().display()))?
+        }
+        None => Default::default(),
+    };
     if !online_source {
         let source_chain_access = crate::offline::ChainAccess::new(source_home)?;
         let stop_height = stop_height.unwrap_or(
             source_chain_access.head_height().await.context("could not fetch source chain head")?,
         );
-        TxMirror::new(source_chain_access, target_home, secret)?.run(Some(stop_height)).await
+        TxMirror::new(source_chain_access, target_home, secret, config)?
+            .run(Some(stop_height))
+            .await
     } else {
         tracing::warn!(target: "mirror", "FIXME: currently --online-source will skip DeployContract actions");
-        TxMirror::new(crate::online::ChainAccess::new(source_home)?, target_home, secret)?
+        TxMirror::new(crate::online::ChainAccess::new(source_home)?, target_home, secret, config)?
             .run(stop_height)
             .await
     }
