@@ -633,7 +633,7 @@ impl Client {
         self.send_state_witness_ack(&witness);
 
         if self.config.save_latest_witnesses {
-            self.chain.chain_store.save_lateset_chunk_state_witness(&witness)?;
+            self.chain.chain_store.save_latest_chunk_state_witness(&witness)?;
         }
 
         // Avoid processing state witness for old chunks.

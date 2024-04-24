@@ -44,7 +44,7 @@ impl Client {
         )?;
 
         if self.config.save_latest_witnesses {
-            self.chain.chain_store.save_lateset_chunk_state_witness(&state_witness)?;
+            self.chain.chain_store.save_latest_chunk_state_witness(&state_witness)?;
         }
 
         let chunk_header = chunk.cloned_header();

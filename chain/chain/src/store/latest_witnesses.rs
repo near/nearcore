@@ -38,7 +38,7 @@ pub struct LatestWitnessesKey {
 
 impl LatestWitnessesKey {
     /// `LatestWitnessesKey` has custom serialization to ensure that the binary representation
-    /// starts with big-endan height and shard_id.
+    /// starts with big-endian height and shard_id.
     /// This allows to query using a key prefix to find all witnesses for a given height (and shard_id).
     fn serialized(&self) -> [u8; 32] {
         let mut result = [0u8; 32];
@@ -69,7 +69,7 @@ impl ChainStore {
     /// The witness is stored in `DBCol::LatestChunkStateWitnesses`.
     /// This function does a read-before-write. Don't call it in parallel on the same database,
     /// or there will be race conditions.
-    pub fn save_lateset_chunk_state_witness(
+    pub fn save_latest_chunk_state_witness(
         &mut self,
         witness: &ChunkStateWitness,
     ) -> Result<(), std::io::Error> {
@@ -97,7 +97,7 @@ impl ChainStore {
 
         // Go over witnesses with increasing (height, shard_id) and remove them until the limits are satisfied.
         // Height and shard id are stored in big-endian representation, so sorting the binary representation is
-        // the same as sorting the integeres.
+        // the same as sorting the integers.
         let mut store_update = self.store().store_update();
         for item in self.store().iter(DBCol::LatestChunkStateWitnesses) {
             if info.is_within_limits() {
