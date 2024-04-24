@@ -56,6 +56,7 @@ enum SubCommand {
     HighLoadStats(HighLoadStatsCommand),
     // Analyze congestion through delayed receipts
     AnalyzeDelayedReceipt(AnalyzeDelayedReceiptCommand),
+    DropColumnFamily(DropColumnFamilyCommand),
 }
 
 impl DatabaseCommand {
@@ -87,6 +88,7 @@ impl DatabaseCommand {
             SubCommand::WriteCryptoHash(cmd) => cmd.run(home),
             SubCommand::HighLoadStats(cmd) => cmd.run(home),
             SubCommand::AnalyzeDelayedReceipt(cmd) => cmd.run(home),
+            SubCommand::DropColumnFamily(cmd) => cmd.run(home),
         }
     }
 }

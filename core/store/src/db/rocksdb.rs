@@ -415,6 +415,10 @@ impl Database for RocksDB {
         Ok(())
     }
 
+    fn drop_column_family(&self, col: DBCol) -> io::Result<()> {
+        self.db.drop_cf(col_name(col)).map_err(io::Error::other)
+    }
+
     #[tracing::instrument(
         target = "store::db::rocksdb",
         level = "debug",

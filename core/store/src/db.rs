@@ -239,6 +239,8 @@ pub trait Database: Sync + Send {
     /// is blocking until compaction finishes. Otherwise, this is a no-op.
     fn compact(&self) -> io::Result<()>;
 
+    fn drop_column_family(&self, col: DBCol) -> io::Result<()>;
+
     /// Returns statistics about the database if available.
     fn get_store_statistics(&self) -> Option<StoreStatistics>;
 

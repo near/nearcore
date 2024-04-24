@@ -7,6 +7,7 @@ mod block_iterators;
 pub mod commands;
 mod compact;
 mod corrupt;
+mod drop_family;
 mod make_snapshot;
 mod memtrie;
 mod run_migrations;
