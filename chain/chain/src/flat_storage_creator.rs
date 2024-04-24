@@ -115,7 +115,7 @@ impl FlatStorageShardCreator {
                     &mut store_update,
                     shard_uid,
                     key,
-                    Some(FlatStateValue::value_ref(&value)),
+                    Some(FlatStateValue::inlined(&value)),
                 );
                 num_items += 1;
             }
