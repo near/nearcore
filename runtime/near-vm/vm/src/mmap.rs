@@ -25,6 +25,7 @@ pub struct Mmap {
     // the coordination all happens at the OS layer.
     ptr: usize,
     len: usize,
+    accessible_len: usize,
 }
 
 impl Mmap {
@@ -34,7 +35,7 @@ impl Mmap {
         // contains code to create a non-null dangling pointer value when
         // constructed empty, so we reuse that here.
         let empty = Vec::<u8>::new();
-        Self { ptr: empty.as_ptr() as usize, len: 0 }
+        Self { ptr: empty.as_ptr() as usize, len: 0, accessible_len: 0 }
     }
 
     /// Create a new `Mmap` pointing to at least `size` bytes of page-aligned accessible memory.
@@ -79,7 +80,7 @@ impl Mmap {
                 return Err(io::Error::last_os_error().to_string());
             }
 
-            Self { ptr: ptr as usize, len: mapping_size }
+            Self { ptr: ptr as usize, len: mapping_size, accessible_len: accessible_size }
         } else {
             // Reserve the mapping size.
             let ptr = unsafe {
@@ -96,11 +97,11 @@ impl Mmap {
                 return Err(io::Error::last_os_error().to_string());
             }
 
-            let mut result = Self { ptr: ptr as usize, len: mapping_size };
+            let mut result = Self { ptr: ptr as usize, len: mapping_size, accessible_len: 0 };
 
             if accessible_size != 0 {
                 // Commit the accessible size.
-                result.make_accessible(0, accessible_size)?;
+                result.make_accessible(accessible_size)?;
             }
 
             result
@@ -152,57 +153,110 @@ impl Mmap {
                 return Err(io::Error::last_os_error().to_string());
             }
 
-            let mut result = Self { ptr: ptr as usize, len: mapping_size };
+            let mut result = Self { ptr: ptr as usize, len: mapping_size, accessible_len: 0 };
 
             if accessible_size != 0 {
                 // Commit the accessible size.
-                result.make_accessible(0, accessible_size)?;
+                result.make_accessible(accessible_size)?;
             }
 
             result
         })
     }
 
-    /// Make the memory starting at `start` and extending for `len` bytes accessible.
-    /// `start` and `len` must be native page-size multiples and describe a range within
+    /// Make the memory accessible for `len` bytes.
+    /// `len` must be a native page-size multiple and describe a range within
     /// `self`'s reserved memory.
     #[cfg(not(target_os = "windows"))]
-    pub fn make_accessible(&mut self, start: usize, len: usize) -> Result<(), String> {
+    pub fn make_accessible(&mut self, new_len: usize) -> Result<(), String> {
         let page_size = region::page::size();
-        assert_eq!(start & (page_size - 1), 0);
-        assert_eq!(len & (page_size - 1), 0);
-        assert_lt!(len, self.len);
-        assert_lt!(start, self.len - len);
+        assert_eq!(new_len & (page_size - 1), 0);
+        assert_lt!(new_len, self.len);
+        let Some(additional_len) = new_len.checked_sub(self.accessible_len) else {
+            return Ok(());
+        };
 
         // Commit the accessible size.
-        unsafe { region::protect(self.as_ptr().add(start), len, region::Protection::READ_WRITE) }
-            .map_err(|e| e.to_string())
+        unsafe {
+            region::protect(
+                self.as_ptr().add(self.accessible_len),
+                additional_len,
+                region::Protection::READ_WRITE,
+            )
+        }
+        .map_err(|e| e.to_string())?;
+        self.accessible_len = new_len;
+        Ok(())
     }
 
-    /// Make the memory starting at `start` and extending for `len` bytes accessible.
-    /// `start` and `len` must be native page-size multiples and describe a range within
+    /// Make the memory accessible for `len` bytes.
+    /// `len` must be a native page-size multiple and describe a range within
     /// `self`'s reserved memory.
     #[cfg(target_os = "windows")]
-    pub fn make_accessible(&mut self, start: usize, len: usize) -> Result<(), String> {
+    pub fn make_accessible(&mut self, new_len: usize) -> Result<(), String> {
         use winapi::ctypes::c_void;
         use winapi::um::memoryapi::VirtualAlloc;
         use winapi::um::winnt::{MEM_COMMIT, PAGE_READWRITE};
         let page_size = region::page::size();
-        assert_eq!(start & (page_size - 1), 0);
-        assert_eq!(len & (page_size - 1), 0);
-        assert_lt!(len, self.len);
-        assert_lt!(start, self.len - len);
+        assert_eq!(new_len & (page_size - 1), 0);
+        assert_lt!(new_len, self.len);
+        let Some(additional_len) = new_len.checked_sub(self.accessible_len) else {
+            return Ok(());
+        };
 
         // Commit the accessible size.
         if unsafe {
-            VirtualAlloc(self.as_ptr().add(start) as *mut c_void, len, MEM_COMMIT, PAGE_READWRITE)
+            VirtualAlloc(
+                self.as_ptr().add(self.accessible_len) as *mut c_void,
+                new_len,
+                MEM_COMMIT,
+                PAGE_READWRITE,
+            )
         }
         .is_null()
         {
             return Err(io::Error::last_os_error().to_string());
         }
 
+        self.accessible_len = new_len;
         Ok(())
+    }
+
+    /// Resets the mmap, putting all byte values back to 0 and resetting the accessible length
+    #[cfg(not(target_os = "windows"))]
+    pub fn reset(&mut self) -> Result<(), String> {
+        unsafe {
+            self.as_mut_ptr().write_bytes(0, self.accessible_len);
+            region::protect(self.as_ptr(), self.accessible_len, region::Protection::NONE)
+                .map_err(|e| e.to_string())?;
+            self.accessible_len = 0;
+            Ok(())
+        }
+    }
+
+    /// Resets the mmap, putting all byte values back to 0 and resetting the accessible length
+    #[cfg(target_os = "windows")]
+    pub fn reset(&mut self) -> Result<(), String> {
+        use winapi::ctypes::c_void;
+        use winapi::um::memoryapi::VirtualAlloc;
+        use winapi::um::winnt::{MEM_COMMIT, PAGE_NOACCESS};
+
+        // Commit the accessible size.
+        unsafe {
+            self.as_mut_ptr().write_bytes(0, self.accessible_len);
+            if VirtualAlloc(
+                self.as_ptr() as *mut c_void,
+                self.accessible_len,
+                MEM_COMMIT,
+                PAGE_NOACCESS,
+            )
+            .is_null()
+            {
+                return Err(io::Error::last_os_error().to_string());
+            }
+            self.accessible_len = 0;
+            Ok(())
+        }
     }
 
     /// Return the allocated memory as a slice of u8.

@@ -70,8 +70,15 @@ impl LinearMemory {
     ///
     /// This creates a `LinearMemory` with owned metadata: this can be used to create a memory
     /// that will be imported into Wasm modules.
-    pub fn new(memory: &MemoryType, style: &MemoryStyle) -> Result<Self, MemoryError> {
-        unsafe { Self::new_internal(memory, style, None) }
+    ///
+    /// If `from_mmap` is passed in, then this linear memory will attempt to reuse the underlying
+    /// allocation from there.
+    pub fn new(
+        memory: &MemoryType,
+        style: &MemoryStyle,
+        from_mmap: Option<Mmap>,
+    ) -> Result<Self, MemoryError> {
+        unsafe { Self::new_internal(memory, style, None, from_mmap) }
     }
 
     /// Create a new linear memory instance with specified minimum and maximum number of wasm pages.
@@ -86,7 +93,7 @@ impl LinearMemory {
         style: &MemoryStyle,
         vm_memory_location: NonNull<VMMemoryDefinition>,
     ) -> Result<Self, MemoryError> {
-        Self::new_internal(memory, style, Some(vm_memory_location))
+        Self::new_internal(memory, style, Some(vm_memory_location), None)
     }
 
     /// Build a `LinearMemory` with either self-owned or VM owned metadata.
@@ -94,6 +101,7 @@ impl LinearMemory {
         memory: &MemoryType,
         style: &MemoryStyle,
         vm_memory_location: Option<NonNull<VMMemoryDefinition>>,
+        from_mmap: Option<Mmap>,
     ) -> Result<Self, MemoryError> {
         if memory.minimum > Pages::max_value() {
             return Err(MemoryError::MinimumMemoryTooLarge {
@@ -133,11 +141,20 @@ impl LinearMemory {
         let mapped_pages = memory.minimum;
         let mapped_bytes = mapped_pages.bytes();
 
-        let mut mmap = WasmMmap {
-            alloc: Mmap::accessible_reserved(mapped_bytes.0, request_bytes)
-                .map_err(MemoryError::Region)?,
-            size: memory.minimum,
+        let alloc = if let Some(alloc) = from_mmap {
+            // For now we always request the same size, because our prepare step hardcodes a maximum size
+            // of 64 MiB. This could change in the future, at which point this assert will start triggering
+            // and we’ll need to think of a better way to handle things.
+            assert_eq!(
+                alloc.len(),
+                request_bytes,
+                "Multiple data memory mmap's had different maximal lengths"
+            );
+            alloc
+        } else {
+            Mmap::accessible_reserved(mapped_bytes.0, request_bytes).map_err(MemoryError::Region)?
         };
+        let mut mmap = WasmMmap { alloc, size: memory.minimum };
 
         let base_ptr = mmap.alloc.as_mut_ptr();
         let mem_length = memory.minimum.bytes().0;
@@ -161,6 +178,13 @@ impl LinearMemory {
             memory: *memory,
             style: style.clone(),
         })
+    }
+
+    /// Discard this linear memory, turning it back into a raw allocation ready for reuse
+    pub fn into_mmap(self) -> Result<Mmap, String> {
+        let mut res = self.mmap.into_inner().unwrap().alloc;
+        res.reset()?;
+        Ok(res)
     }
 
     /// Get the `VMMemoryDefinition`.
@@ -239,7 +263,6 @@ impl LinearMemory {
         }
 
         let delta_bytes = delta.bytes().0;
-        let prev_bytes = prev_pages.bytes().0;
         let new_bytes = new_pages.bytes().0;
 
         if new_bytes > mmap.alloc.len() - self.offset_guard_size {
@@ -261,7 +284,7 @@ impl LinearMemory {
             mmap.alloc = new_mmap;
         } else if delta_bytes > 0 {
             // Make the newly allocated pages accessible.
-            mmap.alloc.make_accessible(prev_bytes, delta_bytes).map_err(MemoryError::Region)?;
+            mmap.alloc.make_accessible(new_bytes).map_err(MemoryError::Region)?;
         }
 
         mmap.size = new_pages;

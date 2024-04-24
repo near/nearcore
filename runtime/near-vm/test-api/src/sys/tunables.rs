@@ -106,7 +106,7 @@ impl Tunables for BaseTunables {
         ty: &MemoryType,
         style: &MemoryStyle,
     ) -> Result<Arc<LinearMemory>, MemoryError> {
-        Ok(Arc::new(LinearMemory::new(&ty, &style)?))
+        Ok(Arc::new(LinearMemory::new(&ty, &style, None)?))
     }
 
     /// Create a memory owned by the VM given a [`MemoryType`] and a [`MemoryStyle`].

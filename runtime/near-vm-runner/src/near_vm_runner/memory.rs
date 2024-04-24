@@ -1,16 +1,19 @@
 use crate::logic::{MemSlice, MemoryLike};
 use near_vm_types::{MemoryType, Pages};
-use near_vm_vm::{LinearMemory, MemoryStyle, VMMemory};
+use near_vm_vm::{LinearMemory, MemoryStyle, Mmap, VMMemory};
 use std::borrow::Cow;
 use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct NearVmMemory(Arc<LinearMemory>);
 
+pub struct PreallocatedMemory(Mmap);
+
 impl NearVmMemory {
     pub fn new(
         initial_memory_pages: u32,
         max_memory_pages: u32,
+        from_preallocated: Option<PreallocatedMemory>,
     ) -> Result<Self, near_vm_vm::MemoryError> {
         let max_pages = Pages(max_memory_pages);
         Ok(NearVmMemory(Arc::new(LinearMemory::new(
@@ -19,7 +22,17 @@ impl NearVmMemory {
                 bound: max_pages,
                 offset_guard_size: near_vm_types::WASM_PAGE_SIZE as u64,
             },
+            from_preallocated.map(|m| m.0),
         )?)))
+    }
+
+    #[cfg(unused)] // TODO: this will be used once we reuse the memories
+    pub fn into_preallocated(self) -> Result<PreallocatedMemory, String> {
+        Ok(PreallocatedMemory(
+            Arc::into_inner(self.0)
+                .ok_or("Multiple references to NearVmMemory prevent its reuse")?
+                .into_mmap()?,
+        ))
     }
 
     /// Returns pointer to memory at the specified offset provided that there’s

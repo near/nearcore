@@ -304,6 +304,7 @@ impl NearVM {
         let mut memory = NearVmMemory::new(
             self.config.limit_config.initial_memory_pages,
             self.config.limit_config.max_memory_pages,
+            None, // TODO: this should actually reuse the memories
         )
         .expect("Cannot create memory for a contract call");
         // FIXME: this mostly duplicates the `run_module` method.
@@ -637,7 +638,7 @@ mod tests {
     #[test]
     fn test_memory_like() {
         crate::logic::test_utils::test_memory_like(|| {
-            Box::new(super::NearVmMemory::new(1, 1).unwrap())
+            Box::new(super::NearVmMemory::new(1, 1, None).unwrap())
         });
     }
 }
