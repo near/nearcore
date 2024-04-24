@@ -336,7 +336,7 @@ def start_traffic_cmd(args, traffic_generator, nodes):
         "waiting a bit after validators started before starting traffic")
     time.sleep(10)
     traffic_generator.neard_runner_start(
-        send_interval_millis=args.send_interval_millis)
+        batch_interval_millis=args.batch_interval_millis)
     logger.info(
         f'test running. to check the traffic sent, try running "curl --silent http://{traffic_generator.ip_addr()}:{traffic_generator.neard_port()}/metrics | grep near_mirror"'
     )
@@ -425,7 +425,7 @@ if __name__ == '__main__':
         'Starts all nodes and starts neard mirror run on the traffic generator.'
     )
     start_traffic_parser.add_argument(
-        '--send-interval-millis',
+        '--batch-interval-millis',
         type=int,
         help=
         '''Interval in millis between sending each mainnet block\'s worth of transactions.
