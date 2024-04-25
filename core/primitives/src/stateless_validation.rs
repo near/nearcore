@@ -33,6 +33,7 @@ impl PartialEncodedStateWitness {
     pub fn new(
         epoch_id: EpochId,
         chunk_header: ShardChunkHeader,
+        num_parts: usize,
         part_ord: usize,
         part: Vec<u8>,
         encoded_length: usize,
@@ -41,6 +42,7 @@ impl PartialEncodedStateWitness {
         let inner = PartialEncodedStateWitnessInner::new(
             epoch_id,
             chunk_header,
+            num_parts,
             part_ord,
             part,
             encoded_length,
@@ -62,6 +64,10 @@ impl PartialEncodedStateWitness {
         &self.inner.chunk_header
     }
 
+    pub fn num_parts(&self) -> usize {
+        self.inner.num_parts
+    }
+
     // Return (part_ord, part, encoded_length)
     pub fn decompose(self) -> (usize, Box<[u8]>, usize) {
         (self.inner.part_ord, self.inner.part, self.inner.encoded_length)
@@ -72,6 +78,7 @@ impl PartialEncodedStateWitness {
 pub struct PartialEncodedStateWitnessInner {
     epoch_id: EpochId,
     chunk_header: ShardChunkHeader,
+    num_parts: usize,
     part_ord: usize,
     part: Box<[u8]>,
     encoded_length: usize,
@@ -82,6 +89,7 @@ impl PartialEncodedStateWitnessInner {
     fn new(
         epoch_id: EpochId,
         chunk_header: ShardChunkHeader,
+        num_parts: usize,
         part_ord: usize,
         part: Vec<u8>,
         encoded_length: usize,
@@ -89,6 +97,7 @@ impl PartialEncodedStateWitnessInner {
         Self {
             epoch_id,
             chunk_header,
+            num_parts,
             part_ord,
             part: part.into_boxed_slice(),
             encoded_length,

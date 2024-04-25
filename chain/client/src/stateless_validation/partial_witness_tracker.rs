@@ -1,9 +1,7 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use lru::LruCache;
 use near_chain::Error;
-use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::reed_solomon::ReedSolomonWrapper;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::stateless_validation::{EncodedChunkStateWitness, PartialEncodedStateWitness};
@@ -105,8 +103,6 @@ impl CacheEntry {
 /// by the chunk producer and distributed to validators. Note that we do not need all the parts of to
 /// recreate the full state witness.
 pub struct PartialEncodedStateWitnessTracker {
-    /// Epoch manager to get the set of chunk validators
-    epoch_manager: Arc<dyn EpochManagerAdapter>,
     /// Keeps track of state witness parts received from chunk producers.
     parts_cache: LruCache<ChunkHash, CacheEntry>,
     /// Reed Solomon encoder for decoding state witness parts.
@@ -114,9 +110,8 @@ pub struct PartialEncodedStateWitnessTracker {
 }
 
 impl PartialEncodedStateWitnessTracker {
-    pub fn new(epoch_manager: Arc<dyn EpochManagerAdapter>) -> Self {
+    pub fn new() -> Self {
         Self {
-            epoch_manager,
             parts_cache: LruCache::new(NUM_CHUNKS_IN_WITNESS_TRACKER_CACHE),
             rs_map: RsMap::new(),
         }
@@ -126,12 +121,7 @@ impl PartialEncodedStateWitnessTracker {
         &mut self,
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
-        let chunk_validators = self.epoch_manager.get_chunk_validator_assignments(
-            &partial_witness.epoch_id(),
-            partial_witness.chunk_header().shard_id(),
-            partial_witness.chunk_header().height_created(),
-        )?;
-        let rs = self.rs_map.entry(chunk_validators.len());
+        let rs = self.rs_map.entry(partial_witness.num_parts());
 
         PartialEncodedStateWitnessTracker::maybe_insert_new_entry_in_parts_cache(
             &partial_witness,

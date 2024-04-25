@@ -43,12 +43,11 @@ impl StateWitnessActions {
         my_signer: Arc<dyn ValidatorSigner>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
     ) -> Self {
-        let partial_witness_tracker = PartialEncodedStateWitnessTracker::new(epoch_manager.clone());
         Self {
             network_adapter,
             my_signer,
             epoch_manager,
-            partial_witness_tracker,
+            partial_witness_tracker: PartialEncodedStateWitnessTracker::new(),
             state_witness_tracker: ChunkStateWitnessTracker::new(clock),
             rs_map: RsMap::new(),
         }
@@ -138,6 +137,7 @@ impl StateWitnessActions {
                 let partial_witness = PartialEncodedStateWitness::new(
                     epoch_id.clone(),
                     chunk_header.clone(),
+                    rs.total_parts(),
                     part_ord,
                     part.unwrap().to_vec(),
                     encoded_length,
