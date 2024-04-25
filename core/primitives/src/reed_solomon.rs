@@ -1,121 +1,51 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
-use reed_solomon_erasure::galois_8::{Field, ReedSolomon};
-use reed_solomon_erasure::ReconstructShard;
-use std::cell::RefCell;
+use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::io::Error;
 
-/// The ttl for a reed solomon instance to control memory usage. This number below corresponds to
-/// roughly 60MB of memory usage.
-const RS_TTL: u64 = 2 * 1024;
+// Encode function takes a serializable object and returns a tuple of parts and length of encoded data
+pub fn rs_encode<T: BorshSerialize>(rs: &ReedSolomon, data: T) -> (Vec<Option<Box<[u8]>>>, usize) {
+    let mut bytes = borsh::to_vec(&data).unwrap();
+    let encoded_length = bytes.len();
 
-/// Wrapper around reed solomon which occasionally resets the underlying
-/// reed solomon instead to work around the memory leak in reed solomon
-/// implementation <https://github.com/darrenldl/reed-solomon-erasure/issues/74>
-pub struct ReedSolomonWrapper {
-    rs: RefCell<ReedSolomon>,
-    ttl: RefCell<u64>,
+    let data_parts = rs.data_shard_count();
+    let part_length = (encoded_length + data_parts - 1) / data_parts;
+
+    // Pad the bytes to be a multiple of `part_length`
+    // Convert encoded data into `data_shard_count` number of parts and pad with `parity_shard_count` None values
+    // with 4 data_parts and 2 parity_parts
+    // b'aaabbbcccd' -> [Some(b'aaa'), Some(b'bbb'), Some(b'ccc'), Some(b'd00'), None, None]
+    bytes.resize(data_parts * part_length, 0);
+    let mut parts = bytes
+        .chunks_exact(part_length)
+        .map(|chunk| Some(chunk.to_vec().into_boxed_slice()))
+        .chain(itertools::repeat_n(None, rs.parity_shard_count()))
+        .collect_vec();
+
+    // Fine to unwrap here as we just constructed the parts
+    rs.reconstruct(&mut parts).unwrap();
+
+    (parts, encoded_length)
 }
 
-impl ReedSolomonWrapper {
-    pub fn new(data_shards: usize, parity_shards: usize) -> Self {
-        ReedSolomonWrapper {
-            rs: RefCell::new(ReedSolomon::new(data_shards, parity_shards).unwrap()),
-            ttl: RefCell::new(RS_TTL),
-        }
+// Decode function is the reverse of encode function. It takes parts and length of encoded data
+// and returns the deserialized object.
+// Return an error if the reed solomon decoding fails or borsh deserialization fails.
+pub fn rs_decode<T: BorshDeserialize>(
+    rs: &ReedSolomon,
+    parts: &mut [Option<Box<[u8]>>],
+    encoded_length: usize,
+) -> Result<T, Error> {
+    if let Err(err) = rs.reconstruct(parts) {
+        return Err(Error::other(err));
     }
 
-    pub fn total_parts(&self) -> usize {
-        self.rs.borrow().total_shard_count()
-    }
+    let encoded_data = parts
+        .iter()
+        .flat_map(|option| option.as_ref().expect("Missing shard").iter())
+        .cloned()
+        .take(encoded_length)
+        .collect_vec();
 
-    pub fn data_parts(&self) -> usize {
-        self.rs.borrow().data_shard_count()
-    }
-
-    // Encode function takes a serializable object and returns a tuple of parts and length of encoded data
-    pub fn encode<T: BorshSerialize>(&self, data: T) -> (Vec<Option<Box<[u8]>>>, usize) {
-        let mut bytes = borsh::to_vec(&data).unwrap();
-        let encoded_length = bytes.len();
-
-        let data_parts = self.rs.borrow().data_shard_count();
-        let part_length = (encoded_length + data_parts - 1) / data_parts;
-
-        // Pad the bytes to be a multiple of `part_length`
-        // Convert encoded data into `data_shard_count` number of parts and pad with `parity_shard_count` None values
-        // with 4 data_parts and 2 parity_parts
-        // b'aaabbbcccd' -> [Some(b'aaa'), Some(b'bbb'), Some(b'ccc'), Some(b'd00'), None, None]
-        bytes.resize(data_parts * part_length, 0);
-        let mut parts = bytes
-            .chunks_exact(part_length)
-            .map(|chunk| Some(chunk.to_vec().into_boxed_slice()))
-            .chain(itertools::repeat_n(None, self.rs.borrow().parity_shard_count()))
-            .collect_vec();
-
-        // Fine to unwrap here as we just constructed the parts
-        self.reconstruct(&mut parts).unwrap();
-
-        (parts, encoded_length)
-    }
-
-    // Decode function is the reverse of encode function. It takes parts and length of encoded data
-    // and returns the deserialized object.
-    // Return an error if the reed solomon decoding fails or borsh deserialization fails.
-    pub fn decode<T: BorshDeserialize>(
-        &self,
-        parts: &mut [Option<Box<[u8]>>],
-        encoded_length: usize,
-    ) -> Result<T, Error> {
-        if let Err(err) = self.reconstruct(parts) {
-            return Err(Error::other(err));
-        }
-
-        let encoded_data = parts
-            .iter()
-            .flat_map(|option| option.as_ref().expect("Missing shard").iter())
-            .cloned()
-            .take(encoded_length)
-            .collect_vec();
-
-        T::try_from_slice(&encoded_data)
-    }
-
-    fn reconstruct<T: ReconstructShard<Field>>(
-        &self,
-        slices: &mut [T],
-    ) -> Result<(), reed_solomon_erasure::Error> {
-        self.ttl.replace_with(|ttl| *ttl - 1);
-        if *self.ttl.borrow() == 0 {
-            let data_shards = self.rs.borrow().data_shard_count();
-            let parity_shards = self.rs.borrow().parity_shard_count();
-            self.rs.replace(ReedSolomon::new(data_shards, parity_shards).unwrap());
-            self.ttl.replace(RS_TTL);
-        }
-        self.rs.borrow().reconstruct(slices)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use rand::Rng;
-
-    use super::{ReedSolomonWrapper, RS_TTL};
-
-    #[test]
-    pub fn test_wrapper_replace() {
-        let data_shards = 5;
-        let parity_shards = 2;
-        let rs = ReedSolomonWrapper::new(data_shards, parity_shards);
-        let mut rng = rand::thread_rng();
-        for _ in 0..RS_TTL + 5 {
-            let (mut parts, encoded_length) = rs.encode("random_data".to_string());
-            for _ in 0..parity_shards {
-                parts[rng.gen_range(0..(data_shards + parity_shards))] = None;
-            }
-            assert_eq!(
-                rs.decode::<String>(&mut parts, encoded_length).unwrap(),
-                "random_data".to_string()
-            );
-        }
-    }
+    T::try_from_slice(&encoded_data)
 }

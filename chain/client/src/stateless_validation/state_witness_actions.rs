@@ -7,7 +7,7 @@ use near_async::time::Clock;
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
-use near_primitives::reed_solomon::ReedSolomonWrapper;
+use near_primitives::reed_solomon::rs_encode;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::{
     ChunkStateWitness, ChunkStateWitnessAck, EncodedChunkStateWitness, PartialEncodedStateWitness,
@@ -15,6 +15,7 @@ use near_primitives::stateless_validation::{
 };
 use near_primitives::types::{AccountId, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
+use reed_solomon_erasure::galois_8::ReedSolomon;
 
 use crate::metrics;
 
@@ -32,7 +33,7 @@ pub struct StateWitnessActions {
     state_witness_tracker: ChunkStateWitnessTracker,
     /// Reed Solomon encoder for encoding state witness parts.
     /// We keep one wrapper for each length of chunk_validators to avoid re-creating the encoder.
-    rs_map: HashMap<usize, ReedSolomonWrapper>,
+    rs_map: HashMap<usize, ReedSolomon>,
 }
 
 impl StateWitnessActions {
@@ -125,9 +126,9 @@ impl StateWitnessActions {
         let rs = self.rs_map.entry(chunk_validators.len()).or_insert_with(|| {
             let total_parts = chunk_validators.len();
             let data_parts = std::cmp::max(total_parts * 2 / 3, 1);
-            ReedSolomonWrapper::new(data_parts, total_parts - data_parts)
+            ReedSolomon::new(data_parts, total_parts - data_parts).unwrap()
         });
-        let (parts, encoded_length) = rs.encode(witness_bytes);
+        let (parts, encoded_length) = rs_encode(&rs, witness_bytes);
 
         let validator_witness_tuple = chunk_validators
             .iter()

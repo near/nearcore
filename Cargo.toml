@@ -304,7 +304,7 @@ rand_hc = "0.3.1"
 rand_xorshift = "0.3"
 rayon = "1.5"
 redis = "0.23.0"
-reed-solomon-erasure = "4"
+reed-solomon-erasure = "6.0.0"
 regex = "1.7.1"
 region = "3.0"
 reqwest = { version = "0.11.14", features = ["blocking"] }
