@@ -14,7 +14,7 @@ pub struct DelayedReceiptQueue {
 }
 
 /// Read-only iterator over receipt queues stored in the state trie.
-/// 
+///
 /// This iterator currently only supports delayed receipts but is already
 /// written general to work with the new queues that are going to be added for
 /// congestion control.
