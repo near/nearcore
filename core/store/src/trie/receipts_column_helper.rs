@@ -109,22 +109,23 @@ mod tests {
     use near_primitives::shard_layout::ShardUId;
 
     #[test]
-    fn test_receipts_iterator() {
+    fn test_delayed_receipts_queue() {
         // empty queues
-        check_delayed_receipt_iterator(&[]);
+        check_delayed_receipt_queue(&[]);
 
         // with random receipts
         let mut rng = rand::thread_rng();
-        check_delayed_receipt_iterator(&gen_receipts(&mut rng, 1));
-        check_delayed_receipt_iterator(&gen_receipts(&mut rng, 10));
-        check_delayed_receipt_iterator(&gen_receipts(&mut rng, 1000));
+        check_delayed_receipt_queue(&gen_receipts(&mut rng, 1));
+        check_delayed_receipt_queue(&gen_receipts(&mut rng, 10));
+        check_delayed_receipt_queue(&gen_receipts(&mut rng, 1000));
     }
 
     /// Add given receipts to the delayed receipts queue, then use
     /// `ReceiptIterator` to read them back and assert it has the same receipts
-    /// in the same order.
+    /// in the same order. Then pop from the queue and check they are the same
+    /// receipts.
     #[track_caller]
-    fn check_delayed_receipt_iterator(input_receipts: &[Receipt]) {
+    fn check_delayed_receipt_queue(input_receipts: &[Receipt]) {
         let mut trie = init_state();
         let mut queue = DelayedReceiptQueue::load(&trie).expect("creating queue must not fail");
 
@@ -139,10 +140,17 @@ mod tests {
 
         // check 2: write back and load again to see if values are persisted
         queue.write_back(&mut trie);
-        let queue = DelayedReceiptQueue::load(&trie).expect("creating queue must not fail");
+        let mut queue = DelayedReceiptQueue::load(&trie).expect("creating queue must not fail");
         let iterated_receipts: Vec<Receipt> =
             queue.iter(&trie).collect::<Result<_, _>>().expect("iterating should not fail");
-        assert_eq!(input_receipts, iterated_receipts, "receipts were not persisted");
+        assert_eq!(input_receipts, iterated_receipts, "receipts were not persisted correctly");
+
+        // check 3: pop receipts from queue and check if all are returned in the right order
+        let mut popped = vec![];
+        while let Some(receipt) = queue.pop(&mut trie).expect("pop must not fail") {
+            popped.push(receipt);
+        }
+        assert_eq!(input_receipts, popped, "receipts were not popped correctly");
     }
 
     fn init_state() -> TrieUpdate {
