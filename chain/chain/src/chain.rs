@@ -1860,6 +1860,12 @@ impl Chain {
                     true,
                 )
             };
+            tracing::debug!(
+                target: "chain",
+                "Updating flat storage for shard {} need_flat_storage_update: {}",
+                shard_id,
+                need_flat_storage_update
+            );
 
             if need_flat_storage_update {
                 let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
@@ -2796,7 +2802,7 @@ impl Chain {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let mut height = shard_state_header.chunk_height_included();
         let mut chain_update = self.chain_update();
-        chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?;
+        let shard_uid = chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?;
         chain_update.commit()?;
 
         // We restored the state on height `shard_state_header.chunk.header.height_included`.
@@ -2811,6 +2817,12 @@ impl Chain {
             } else {
                 break;
             }
+        }
+
+        let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
+        if let Some(flat_storage) = flat_storage_manager.get_flat_storage_for_shard(shard_uid) {
+            let header = self.get_block_header(&sync_hash)?;
+            flat_storage.update_flat_head(header.prev_hash(), true).unwrap();
         }
 
         Ok(())
