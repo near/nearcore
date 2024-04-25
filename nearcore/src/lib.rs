@@ -323,6 +323,7 @@ pub fn start_with_config_and_synchronization(
     let network_adapter = LateBoundSender::new();
     let shards_manager_adapter = LateBoundSender::new();
     let client_adapter_for_shards_manager = LateBoundSender::new();
+    let client_adapter_for_state_witness_actor = LateBoundSender::new();
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
     let view_client = start_view_client(
@@ -352,6 +353,7 @@ pub fn start_with_config_and_synchronization(
         let (state_witness_actor, state_witness_arbiter) = StateWitnessActor::spawn(
             Clock::real(),
             network_adapter.as_multi_sender(),
+            client_adapter_for_state_witness_actor.as_multi_sender(),
             my_signer,
             epoch_manager.clone(),
         );
@@ -395,6 +397,7 @@ pub fn start_with_config_and_synchronization(
         client_adapter_for_sync.bind(client_actor.clone().with_auto_span_context())
     };
     client_adapter_for_shards_manager.bind(client_actor.clone().with_auto_span_context());
+    client_adapter_for_state_witness_actor.bind(client_actor.clone().with_auto_span_context());
     let (shards_manager_actor, shards_manager_arbiter_handle) = start_shards_manager(
         epoch_manager.clone(),
         shard_tracker.clone(),

@@ -15,6 +15,7 @@ use near_primitives::stateless_validation::{
 use near_primitives::types::{AccountId, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
 
+use crate::client_actions::ClientSenderForStateWitness;
 use crate::metrics;
 
 use super::partial_witness_tracker::{PartialEncodedStateWitnessTracker, RsMap};
@@ -41,14 +42,16 @@ impl StateWitnessActions {
     pub fn new(
         clock: Clock,
         network_adapter: PeerManagerAdapter,
+        client_sender: ClientSenderForStateWitness,
         my_signer: Arc<dyn ValidatorSigner>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
     ) -> Self {
+        let partial_witness_tracker = PartialEncodedStateWitnessTracker::new(client_sender);
         Self {
             network_adapter,
             my_signer,
             epoch_manager,
-            partial_witness_tracker: PartialEncodedStateWitnessTracker::new(),
+            partial_witness_tracker,
             state_witness_tracker: ChunkStateWitnessTracker::new(clock),
             rs_map: RsMap::new(),
         }

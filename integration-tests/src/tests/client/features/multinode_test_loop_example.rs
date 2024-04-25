@@ -22,7 +22,8 @@ use near_chunks::test_loop::{
 };
 use near_chunks::ShardsManager;
 use near_client::client_actions::{
-    ClientActions, ClientSenderForClientMessage, SyncJobsSenderForClientMessage,
+    ClientActions, ClientSenderForClientMessage, ClientSenderForStateWitnessMessage,
+    SyncJobsSenderForClientMessage,
 };
 use near_client::sync_jobs_actions::{
     ClientSenderForSyncJobsMessage, SyncJobsActions, SyncJobsSenderForSyncJobsMessage,
@@ -34,6 +35,7 @@ use near_client::test_utils::test_loop::{
     forward_client_messages_from_sync_jobs_to_client_actions,
     forward_messages_from_client_to_state_witness_actor,
     forward_messages_from_network_to_state_witness_actor,
+    forward_messages_from_state_witness_actor_to_client,
     forward_sync_jobs_messages_from_client_to_sync_jobs_actions,
 };
 use near_client::{
@@ -146,6 +148,8 @@ enum TestEvent {
     StateWitnessSenderForClient(StateWitnessSenderForClientMessage),
     /// Message from Network to StateWitnessActor.
     StateWitnessSenderForNetwork(StateWitnessSenderForNetworkMessage),
+    /// Message from StateWitnessActor to Client.
+    ClientSenderForStateWitness(ClientSenderForStateWitnessMessage),
 }
 
 const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
@@ -321,6 +325,10 @@ fn test_client_with_multi_test_loop() {
         let state_witness_actions = StateWitnessActions::new(
             builder.clock(),
             builder.sender().for_index(idx).into_multi_sender(),
+            builder
+                .sender()
+                .for_index(idx)
+                .into_wrapped_multi_sender::<ClientSenderForStateWitnessMessage, _>(),
             validator_signer,
             epoch_manager,
         );
@@ -358,6 +366,9 @@ fn test_client_with_multi_test_loop() {
             forward_client_messages_from_sync_jobs_to_client_actions().widen().for_index(idx),
         );
         test.register_handler(forward_client_messages_from_shards_manager().widen().for_index(idx));
+        test.register_handler(
+            forward_messages_from_state_witness_actor_to_client().widen().for_index(idx),
+        );
         // TODO: handle state sync adapter -> client.
 
         // Messages to the SyncJobs component.

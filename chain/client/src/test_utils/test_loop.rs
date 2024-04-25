@@ -4,8 +4,8 @@ use near_chunks::client::ShardsManagerResponse;
 use near_network::client::ClientSenderForNetworkMessage;
 use near_network::state_witness::StateWitnessSenderForNetworkMessage;
 
-use crate::client_actions::SyncJobsSenderForClientMessage;
 use crate::client_actions::{ClientActionHandler, ClientActions, ClientSenderForClientMessage};
+use crate::client_actions::{ClientSenderForStateWitnessMessage, SyncJobsSenderForClientMessage};
 use crate::stateless_validation::state_witness_actions::StateWitnessActions;
 use crate::stateless_validation::state_witness_actor::StateWitnessSenderForClientMessage;
 use crate::sync_jobs_actions::ClientSenderForSyncJobsMessage;
@@ -115,6 +115,15 @@ pub fn forward_messages_from_client_to_state_witness_actor(
     LoopEventHandler::new_simple(|msg, state_witness_actions: &mut StateWitnessActions| match msg {
         StateWitnessSenderForClientMessage::_distribute_chunk_state_witness(msg) => {
             state_witness_actions.handle_distribute_state_witness_request(msg).unwrap();
+        }
+    })
+}
+
+pub fn forward_messages_from_state_witness_actor_to_client(
+) -> LoopEventHandler<ClientActions, ClientSenderForStateWitnessMessage> {
+    LoopEventHandler::new_simple(|msg, client_actions: &mut ClientActions| match msg {
+        ClientSenderForStateWitnessMessage::_receive_chunk_state_witness(msg) => {
+            client_actions.handle(msg)
         }
     })
 }

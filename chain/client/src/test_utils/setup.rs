@@ -177,6 +177,7 @@ pub fn setup(
     let (state_witness_addr, _) = StateWitnessActor::spawn(
         clock.clone(),
         network_adapter.clone(),
+        noop().into_multi_sender(),
         signer.clone(),
         epoch_manager.clone(),
     );

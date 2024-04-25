@@ -357,7 +357,7 @@ impl TestEnv {
                         witness_processing_done_waiters.push(processing_done_tracker.make_waiter());
 
                         let processing_result =
-                            self.client(account_id).process_chunk_state_witness(
+                            self.client(account_id).process_signed_chunk_state_witness(
                                 state_witness.clone(),
                                 Some(processing_done_tracker),
                             );

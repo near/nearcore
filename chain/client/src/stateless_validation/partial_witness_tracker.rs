@@ -1,11 +1,15 @@
 use std::collections::HashMap;
 
 use lru::LruCache;
+use near_async::messaging::CanSend;
+use near_chain::chain::ReceiveChunkStateWitnessMessage;
 use near_chain::Error;
 use near_primitives::reed_solomon::rs_decode;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::stateless_validation::{EncodedChunkStateWitness, PartialEncodedStateWitness};
 use reed_solomon_erasure::galois_8::ReedSolomon;
+
+use crate::client_actions::ClientSenderForStateWitness;
 
 /// Max number of chunks to keep in the witness tracker cache. We reach here only after validation
 /// of the partial_witness so the LRU cache size need not be too large.
@@ -104,6 +108,8 @@ impl CacheEntry {
 /// by the chunk producer and distributed to validators. Note that we do not need all the parts of to
 /// recreate the full state witness.
 pub struct PartialEncodedStateWitnessTracker {
+    /// Sender to send the encoded state witness to the client actor.
+    client_sender: ClientSenderForStateWitness,
     /// Keeps track of state witness parts received from chunk producers.
     parts_cache: LruCache<ChunkHash, CacheEntry>,
     /// Reed Solomon encoder for decoding state witness parts.
@@ -111,8 +117,9 @@ pub struct PartialEncodedStateWitnessTracker {
 }
 
 impl PartialEncodedStateWitnessTracker {
-    pub fn new() -> Self {
+    pub fn new(client_sender: ClientSenderForStateWitness) -> Self {
         Self {
+            client_sender,
             parts_cache: LruCache::new(NUM_CHUNKS_IN_WITNESS_TRACKER_CACHE),
             rs_map: RsMap::new(),
         }
@@ -133,8 +140,8 @@ impl PartialEncodedStateWitnessTracker {
         let chunk_hash = partial_witness.chunk_header().chunk_hash();
         let entry = self.parts_cache.get_mut(&chunk_hash).unwrap();
 
-        if let Some(_witness) = entry.insert_in_cache_entry(partial_witness, rs) {
-            // TODO(stateless_validation): Send encoded state witness to client here.
+        if let Some(encoded_witness) = entry.insert_in_cache_entry(partial_witness, rs) {
+            self.client_sender.send(ReceiveChunkStateWitnessMessage(encoded_witness));
         }
         Ok(())
     }

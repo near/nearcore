@@ -340,7 +340,7 @@ fn test_chunk_state_witness_bad_shard_id() {
 
     // Client should reject this ChunkStateWitness and the error message should mention "shard"
     tracing::info!(target: "test", "Processing invalid ChunkStateWitness");
-    let res = env.clients[0].process_chunk_state_witness(signed_witness, None);
+    let res = env.clients[0].process_signed_chunk_state_witness(signed_witness, None);
     let error = res.unwrap_err();
     let error_message = format!("{}", error).to_lowercase();
     tracing::info!(target: "test", "error message: {}", error_message);
