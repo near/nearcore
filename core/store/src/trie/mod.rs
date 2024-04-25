@@ -49,6 +49,7 @@ pub mod mem;
 mod nibble_slice;
 mod prefetching_trie_storage;
 mod raw_node;
+pub mod receipts_column_helper;
 pub mod resharding;
 mod shard_tries;
 mod state_parts;

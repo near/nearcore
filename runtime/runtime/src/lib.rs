@@ -42,11 +42,12 @@ use near_primitives::utils::{
     create_receipt_id_from_transaction,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::{
     get, get_account, get_postponed_receipt, get_promise_yield_receipt, get_received_data,
     has_received_data, remove_postponed_receipt, remove_promise_yield_receipt, set, set_account,
-    set_delayed_receipt, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
-    PartialStorage, StorageError, Trie, TrieChanges, TrieUpdate,
+    set_postponed_receipt, set_promise_yield_receipt, set_received_data, PartialStorage,
+    StorageError, Trie, TrieChanges, TrieUpdate,
 };
 use near_store::{set_access_key, set_code};
 use near_vm_runner::logic::types::PromiseResult;
@@ -1349,9 +1350,7 @@ impl Runtime {
             receipts_to_restore.as_slice()
         };
 
-        let mut delayed_receipts_indices: DelayedReceiptIndices =
-            get(&state_update, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default();
-        let initial_delayed_receipt_indices = delayed_receipts_indices.clone();
+        let mut delayed_receipts = DelayedReceiptQueue::load(&state_update)?;
 
         if !apply_state.is_new_chunk
             && protocol_version >= ProtocolFeature::FixApplyChunks.protocol_version()
@@ -1369,7 +1368,7 @@ impl Runtime {
                 processed_delayed_receipts: vec![],
                 processed_yield_timeouts: vec![],
                 proof,
-                delayed_receipts_count: delayed_receipts_indices.len(),
+                delayed_receipts_count: delayed_receipts.len(),
                 metrics: None,
             });
         }
@@ -1501,7 +1500,7 @@ impl Runtime {
                     state_update.trie.recorded_storage_size_upper_bound() > limit
                 })
             {
-                set_delayed_receipt(&mut state_update, &mut delayed_receipts_indices, receipt);
+                delayed_receipts.push(&mut state_update, receipt)?;
             } else {
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
                 // the `verify_and_charge_transaction`.
@@ -1518,7 +1517,7 @@ impl Runtime {
         // Then we process the delayed receipts. It's a backlog of receipts from the past blocks.
         let delayed_processing_start = std::time::Instant::now();
         let mut delayed_receipt_count = 0;
-        while delayed_receipts_indices.first_index < delayed_receipts_indices.next_available_index {
+        while delayed_receipts.len() > 0 {
             if total.compute >= compute_limit
                 || proof_size_limit.is_some_and(|limit| {
                     state_update.trie.recorded_storage_size_upper_bound() > limit
@@ -1527,13 +1526,7 @@ impl Runtime {
                 break;
             }
             delayed_receipt_count += 1;
-            let key = TrieKey::DelayedReceipt { index: delayed_receipts_indices.first_index };
-            let receipt: Receipt = get(&state_update, &key)?.ok_or_else(|| {
-                StorageError::StorageInconsistentState(format!(
-                    "Delayed receipt #{} should be in the state",
-                    delayed_receipts_indices.first_index
-                ))
-            })?;
+            let receipt = delayed_receipts.pop(&mut state_update)?.expect("queue is not empty");
 
             if let Some(prefetcher) = &mut prefetcher {
                 // Prefetcher is allowed to fail
@@ -1548,14 +1541,11 @@ impl Runtime {
             )
             .map_err(|e| {
                 StorageError::StorageInconsistentState(format!(
-                    "Delayed receipt #{} in the state is invalid: {}",
-                    delayed_receipts_indices.first_index, e
+                    "Delayed receipt {:?} in the state is invalid: {}",
+                    receipt, e
                 ))
             })?;
 
-            state_update.remove(key);
-            // Math checked above: first_index is less than next_available_index
-            delayed_receipts_indices.first_index += 1;
             process_receipt(&receipt, &mut state_update, &mut total)?;
             processed_delayed_receipts.push(receipt);
         }
@@ -1586,7 +1576,7 @@ impl Runtime {
                     state_update.trie.recorded_storage_size_upper_bound() > limit
                 })
             {
-                set_delayed_receipt(&mut state_update, &mut delayed_receipts_indices, receipt);
+                delayed_receipts.push(&mut state_update, receipt)?;
             } else {
                 process_receipt(receipt, &mut state_update, &mut total)?;
             }
@@ -1680,9 +1670,8 @@ impl Runtime {
         );
 
         let _span = tracing::debug_span!(target: "runtime", "apply_commit").entered();
-        if delayed_receipts_indices != initial_delayed_receipt_indices {
-            set(&mut state_update, TrieKey::DelayedReceiptIndices, &delayed_receipts_indices);
-        }
+        let delayed_receipts_count = delayed_receipts.len();
+        delayed_receipts.write_back(&mut state_update);
 
         if promise_yield_indices != initial_promise_yield_indices {
             set(&mut state_update, TrieKey::PromiseYieldIndices, &promise_yield_indices);
@@ -1749,7 +1738,7 @@ impl Runtime {
             processed_delayed_receipts,
             processed_yield_timeouts,
             proof,
-            delayed_receipts_count: delayed_receipts_indices.len(),
+            delayed_receipts_count,
             metrics: Some(metrics),
         })
     }
