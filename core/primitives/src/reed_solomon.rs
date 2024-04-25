@@ -36,7 +36,7 @@ pub fn rs_decode<T: BorshDeserialize>(
     parts: &mut [Option<Box<[u8]>>],
     encoded_length: usize,
 ) -> Result<T, Error> {
-    if let Err(err) = rs.reconstruct(parts) {
+    if let Err(err) = rs.reconstruct_data(parts) {
         return Err(Error::other(err));
     }
 
