@@ -1860,6 +1860,12 @@ impl Chain {
                     true,
                 )
             };
+            tracing::debug!(
+                target: "chain",
+                "Updating flat storage for shard {} need_flat_storage_update: {}",
+                shard_id,
+                need_flat_storage_update
+            );
 
             if need_flat_storage_update {
                 let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;

@@ -131,6 +131,8 @@ impl FlatStorageManager {
                     }
                 }
             });
+        } else {
+            tracing::warn!(target: "store", ?shard_uid, block_height=?block.header().height(), "No flat storage!!!");
         }
         Ok(())
     }
