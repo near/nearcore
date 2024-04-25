@@ -20,7 +20,6 @@ use near_network::types::HighestHeightPeerInfo;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, PartialMerkleTree};
-use near_primitives::reed_solomon::ReedSolomonWrapper;
 use near_primitives::sharding::{EncodedShardChunk, ShardChunk};
 use near_primitives::stateless_validation::ChunkEndorsement;
 use near_primitives::transaction::SignedTransaction;
@@ -28,6 +27,7 @@ use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::PROTOCOL_VERSION;
 use num_rational::Ratio;
+use reed_solomon_erasure::galois_8::ReedSolomon;
 
 impl Client {
     /// Unlike Client::start_process_block, which returns before the block finishes processing
@@ -188,7 +188,7 @@ pub fn create_chunk(
         let data_parts = client.chain.epoch_manager.num_data_parts();
         let decoded_chunk = chunk.decode_chunk(data_parts).unwrap();
         let parity_parts = total_parts - data_parts;
-        let rs = ReedSolomonWrapper::new(data_parts, parity_parts);
+        let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
 
         let signer = client.validator_signer.as_ref().unwrap().clone();
         let header = chunk.cloned_header();

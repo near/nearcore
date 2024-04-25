@@ -38,6 +38,7 @@ pin-project.workspace = true
 protobuf.workspace = true
 rand.workspace = true
 rayon.workspace = true
+reed-solomon-erasure.workspace = true
 serde.workspace = true
 smart-default.workspace = true
 sha2.workspace = true
