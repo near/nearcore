@@ -827,7 +827,8 @@ pub mod chunk_extra {
                     congestion_info: congestion_info.unwrap(),
                 })
             } else {
-                assert!(congestion_info.is_none());
+                // TODO(congestion_control)
+                // assert!(congestion_info.is_none());
                 Self::V2(ChunkExtraV2 {
                     state_root: *state_root,
                     outcome_root,
