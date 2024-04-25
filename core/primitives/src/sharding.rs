@@ -980,7 +980,7 @@ impl EncodedShardChunk {
         prev_outcome_root: CryptoHash,
         height: BlockHeight,
         shard_id: ShardId,
-        rs: &mut ReedSolomonWrapper,
+        rs: &ReedSolomonWrapper,
         prev_gas_used: Gas,
         gas_limit: Gas,
         prev_balance_burnt: Balance,

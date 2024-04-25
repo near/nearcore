@@ -188,7 +188,7 @@ pub fn create_chunk(
         let data_parts = client.chain.epoch_manager.num_data_parts();
         let decoded_chunk = chunk.decode_chunk(data_parts).unwrap();
         let parity_parts = total_parts - data_parts;
-        let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
+        let rs = ReedSolomonWrapper::new(data_parts, parity_parts);
 
         let signer = client.validator_signer.as_ref().unwrap().clone();
         let header = chunk.cloned_header();
@@ -198,7 +198,7 @@ pub fn create_chunk(
             header.prev_outcome_root(),
             header.height_created(),
             header.shard_id(),
-            &mut rs,
+            &rs,
             header.prev_gas_used(),
             header.gas_limit(),
             header.prev_balance_burnt(),

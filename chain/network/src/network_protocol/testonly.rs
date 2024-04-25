@@ -182,7 +182,7 @@ pub fn make_challenge<R: Rng>(rng: &mut R) -> Challenge {
 pub fn make_chunk_parts(chunk: ShardChunk) -> Vec<PartialEncodedChunkPart> {
     let total_shard_count = 10;
     let parity_shard_count = 5;
-    let mut rs = ReedSolomonWrapper::new(total_shard_count, parity_shard_count);
+    let rs = ReedSolomonWrapper::new(total_shard_count, parity_shard_count);
     let transaction_receipts =
         (chunk.transactions().to_vec(), chunk.prev_outgoing_receipts().to_vec());
     let (parts, _) = rs.encode(transaction_receipts);

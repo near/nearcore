@@ -800,7 +800,7 @@ impl ShardsManager {
     }
 
     pub fn process_partial_encoded_chunk_request(
-        &mut self,
+        &self,
         request: PartialEncodedChunkRequestMsg,
         route_back: CryptoHash,
     ) {
@@ -836,7 +836,7 @@ impl ShardsManager {
     /// an explanation of that part of the return value.
     /// Ensures the receipts in the response are in a deterministic order.
     fn prepare_partial_encoded_chunk_response(
-        &mut self,
+        &self,
         request: PartialEncodedChunkRequestMsg,
     ) -> (PartialEncodedChunkResponseSource, PartialEncodedChunkResponseMsg) {
         let (src, mut response_msg) = self.prepare_partial_encoded_chunk_response_unsorted(request);
@@ -847,7 +847,7 @@ impl ShardsManager {
     }
 
     fn prepare_partial_encoded_chunk_response_unsorted(
-        &mut self,
+        &self,
         request: PartialEncodedChunkRequestMsg,
     ) -> (PartialEncodedChunkResponseSource, PartialEncodedChunkResponseMsg) {
         let PartialEncodedChunkRequestMsg { chunk_hash, part_ords, mut tracking_shards } = request;
@@ -962,8 +962,8 @@ impl ShardsManager {
     /// expensive operation.  If possible, the request should be served from
     /// EncodedChunksCacheEntry or PartialEncodedChunk instead.
     // pub for testing
-    pub fn lookup_partial_encoded_chunk_from_chunk_storage(
-        &mut self,
+    fn lookup_partial_encoded_chunk_from_chunk_storage(
+        &self,
         part_ords: HashSet<u64>,
         tracking_shards: HashSet<ShardId>,
         response: &mut PartialEncodedChunkResponseMsg,
@@ -1917,7 +1917,7 @@ impl ShardsManager {
         prev_outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         signer: &dyn ValidatorSigner,
-        rs: &mut ReedSolomonWrapper,
+        rs: &ReedSolomonWrapper,
         protocol_version: ProtocolVersion,
     ) -> Result<(EncodedShardChunk, Vec<MerklePath>), Error> {
         EncodedShardChunk::new(
@@ -2697,7 +2697,7 @@ mod test {
     #[test]
     fn test_chunk_response_for_uncached_partial_chunk() {
         let mut fixture = ChunkTestFixture::default();
-        let mut shards_manager = ShardsManager::new(
+        let shards_manager = ShardsManager::new(
             FakeClock::default().clock(),
             Some(fixture.mock_shard_tracker.clone()),
             Arc::new(fixture.epoch_manager.clone()),
@@ -2729,7 +2729,7 @@ mod test {
     #[test]
     fn test_chunk_response_for_uncached_shard_chunk() {
         let mut fixture = ChunkTestFixture::default();
-        let mut shards_manager = ShardsManager::new(
+        let shards_manager = ShardsManager::new(
             FakeClock::default().clock(),
             Some(fixture.mock_shard_tracker.clone()),
             Arc::new(fixture.epoch_manager.clone()),
@@ -2887,7 +2887,7 @@ mod test {
     #[test]
     fn test_chunk_response_empty_request() {
         let fixture = ChunkTestFixture::default();
-        let mut shards_manager = ShardsManager::new(
+        let shards_manager = ShardsManager::new(
             FakeClock::default().clock(),
             Some(fixture.mock_shard_tracker.clone()),
             Arc::new(fixture.epoch_manager.clone()),
@@ -2911,7 +2911,7 @@ mod test {
     #[test]
     fn test_chunk_response_for_nonexistent_chunk() {
         let fixture = ChunkTestFixture::default();
-        let mut shards_manager = ShardsManager::new(
+        let shards_manager = ShardsManager::new(
             FakeClock::default().clock(),
             Some(fixture.mock_shard_tracker.clone()),
             Arc::new(fixture.epoch_manager.clone()),
@@ -2935,7 +2935,7 @@ mod test {
     #[test]
     fn test_chunk_response_for_request_including_invalid_part_ord() {
         let mut fixture = ChunkTestFixture::default();
-        let mut shards_manager = ShardsManager::new(
+        let shards_manager = ShardsManager::new(
             FakeClock::default().clock(),
             Some(fixture.mock_shard_tracker.clone()),
             Arc::new(fixture.epoch_manager.clone()),
@@ -2969,7 +2969,7 @@ mod test {
     fn test_chunk_response_for_request_with_duplicate_part_ords() {
         // We should not return any duplicates.
         let mut fixture = ChunkTestFixture::default();
-        let mut shards_manager = ShardsManager::new(
+        let shards_manager = ShardsManager::new(
             FakeClock::default().clock(),
             Some(fixture.mock_shard_tracker.clone()),
             Arc::new(fixture.epoch_manager.clone()),
