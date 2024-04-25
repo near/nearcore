@@ -16,7 +16,7 @@ anyhow.workspace = true
 clap.workspace = true
 tracing.workspace = true
 
-nearcore = { workspace = true, features = ["new_epoch_sync"] }
+nearcore.workspace = true
 near-chain.workspace = true
 near-chain-configs.workspace = true
 near-epoch-manager.workspace = true
