@@ -1630,7 +1630,6 @@ fn prepare_transactions(
     storage_config: RuntimeStorageConfig,
 ) -> Result<PreparedTransactions, Error> {
     // TODO(congestion_info)
-    // let congestion_info = CongestionInfo::default();
     let congestion_info_map = HashMap::new();
     env.runtime.prepare_transactions(
         storage_config,

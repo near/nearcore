@@ -173,7 +173,7 @@ impl ShardChunkHeaderV3 {
     pub fn compute_hash(inner: &ShardChunkHeaderInner) -> ChunkHash {
         let inner_bytes = borsh::to_vec(&inner).expect("Failed to serialize");
         let inner_hash = hash(&inner_bytes);
-        
+
         ChunkHash(combine_hash(&inner_hash, inner.encoded_merkle_root()))
     }
 

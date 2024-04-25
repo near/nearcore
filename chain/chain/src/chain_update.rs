@@ -263,10 +263,6 @@ impl<'a> ChainUpdate<'a> {
                         balance_burnt,
                         // TODO(congestion_control) set congestion info for resharding
                         // TODO(resharding) set congestion info for resharding
-                        // For now just copy paste the congestion info from the
-                        // parent shard. It breaks the invariant that congestion
-                        // info is deterministically computed from the shard
-                        // state but otherwise it is deterministic and should work.
                         chunk_extra.congestion_info(),
                     );
                     sum_gas_used += gas_burnt;
@@ -328,7 +324,6 @@ impl<'a> ChainUpdate<'a> {
                     ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
                 let shard_id = shard_uid.shard_id();
 
-                // let epoch_id = self.epoch_manager.get_epoch_id(&block_hash)?;
                 let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
                 let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
