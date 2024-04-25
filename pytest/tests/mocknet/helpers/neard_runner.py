@@ -1013,10 +1013,8 @@ class NeardRunner:
             '--destination',
             backup_dir
         ]
-        self.run_neard(cmd)
-        running = True
-        while running:
-            _, running, exit_code = self.poll_neard()
+        logging.info(f'running {" ".join(cmd)}')
+        exit_code = subprocess.check_call(cmd)
         logging.info(f'copying data dir to {backup_dir} finished with code {exit_code}')
         # Copy config, genesis and node_key to the backup folder to use them to restore the db.
         for file in ["config.json", "genesis.json", "node_key.json"]:
@@ -1072,8 +1070,9 @@ class NeardRunner:
         # Before using snapshots for backup we used to copy the 'data' folder.
         # This is useful to be able to restore from backups done the old way.
         if not os.path.exists(os.path.join(backup_path, 'data')):
+            # TODO: Remove this branch once we no longer support old backups
             shutil.copytree(backup_path, self.target_near_home_path('data'))
-            exit_code = 0
+            logging.info(f'data dir restored by copying files from {backup_path}')
         else:
             cmd = [
                 self.data['current_neard_path'], '--home',
@@ -1084,11 +1083,9 @@ class NeardRunner:
                 '--destination',
                 self.target_near_home_path()
             ]
-            self.run_neard(cmd)
-            running = True
-            while running:
-                _, running, exit_code = self.poll_neard()
-        logging.info(f'data dir restoration terminated with code {exit_code}')
+            logging.info(f'running {" ".join(cmd)}')
+            exit_code = subprocess.check_call(cmd)
+            logging.info(f'snapshot restoration of {backup_path} terminated with code {exit_code}')
 
     def reset_near_home(self):
         backup_id = self.data['state_data']
