@@ -24,7 +24,8 @@ use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::sync::adapter::SyncAdapter;
 use near_client::{
-    start_client, start_view_client, ClientActor, ConfigUpdater, StateWitnessActor, ViewClientActor,
+    start_client, start_view_client, ClientActor, ConfigUpdater, StartClientResult,
+    StateWitnessActor, ViewClientActor,
 };
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
@@ -359,7 +360,16 @@ pub fn start_with_config_and_synchronization(
         (None, None)
     };
 
-    let (client_actor, client_arbiter_handle, resharding_handle) = start_client(
+    let StartClientResult {
+        client_actor,
+        client_arbiter_handle,
+        resharding_handle,
+        gc_arbiter_handle,
+        #[cfg(feature = "test_features")]
+        gc_actor,
+        #[cfg(not(feature = "test_features"))]
+            gc_actor: _,
+    } = start_client(
         Clock::real(),
         config.client_config.clone(),
         chain_genesis.clone(),
@@ -444,6 +454,8 @@ pub fn start_with_config_and_synchronization(
             client_actor.clone().with_auto_span_context().into_multi_sender(),
             view_client.clone().with_auto_span_context().into_multi_sender(),
             network_actor.into_multi_sender(),
+            #[cfg(feature = "test_features")]
+            gc_actor.into_multi_sender(),
             Arc::new(entity_debug_handler),
         ));
     }
@@ -471,6 +483,7 @@ pub fn start_with_config_and_synchronization(
         shards_manager_arbiter_handle,
         trie_metrics_arbiter,
         state_snapshot_arbiter,
+        gc_arbiter_handle,
     ];
     if let Some(db_metrics_arbiter) = db_metrics_arbiter {
         arbiters.push(db_metrics_arbiter);

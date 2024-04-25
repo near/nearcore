@@ -19,13 +19,85 @@ use near_primitives_core::types::{AccountId, Balance, BlockHeight, ShardId};
 /// This is a messy workaround until we know what to do with NEP 483.
 type SignatureDifferentiator = String;
 
-// TODO(shreyan): Fill this struct
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct PartialEncodedStateWitness {}
+pub struct PartialEncodedStateWitness {
+    inner: PartialEncodedStateWitnessInner,
+    pub signature: Signature,
+}
+
+impl PartialEncodedStateWitness {
+    pub fn new(
+        epoch_id: EpochId,
+        chunk_header: ShardChunkHeader,
+        part_ord: usize,
+        part: Vec<u8>,
+        encoded_length: usize,
+        signer: &dyn ValidatorSigner,
+    ) -> Self {
+        let inner = PartialEncodedStateWitnessInner::new(
+            epoch_id,
+            chunk_header,
+            part_ord,
+            part,
+            encoded_length,
+        );
+        let signature = signer.sign_partial_encoded_state_witness(&inner);
+        Self { inner, signature }
+    }
+
+    pub fn verify(&self, public_key: &PublicKey) -> bool {
+        let data = borsh::to_vec(&self.inner).unwrap();
+        self.signature.verify(&data, public_key)
+    }
+
+    pub fn epoch_id(&self) -> &EpochId {
+        &self.inner.epoch_id
+    }
+
+    pub fn chunk_header(&self) -> &ShardChunkHeader {
+        &self.inner.chunk_header
+    }
+
+    pub fn part_ord(&self) -> usize {
+        self.inner.part_ord
+    }
+
+    pub fn part(&self) -> &[u8] {
+        &self.inner.part
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct PartialEncodedStateWitnessInner {
+    epoch_id: EpochId,
+    chunk_header: ShardChunkHeader,
+    part_ord: usize,
+    part: Box<[u8]>,
+    encoded_length: usize,
+    signature_differentiator: SignatureDifferentiator,
+}
+
+impl PartialEncodedStateWitnessInner {
+    fn new(
+        epoch_id: EpochId,
+        chunk_header: ShardChunkHeader,
+        part_ord: usize,
+        part: Vec<u8>,
+        encoded_length: usize,
+    ) -> Self {
+        Self {
+            epoch_id,
+            chunk_header,
+            part_ord,
+            part: part.into_boxed_slice(),
+            encoded_length,
+            signature_differentiator: "PartialEncodedStateWitness".to_owned(),
+        }
+    }
+}
 
 /// Represents bytes of encoded ChunkStateWitness.
-/// For now encoding is raw borsh serialization, later we plan
-/// adding compression on top of that.
+/// This is the compressed version of borsh-serialized state witness.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct EncodedChunkStateWitness(Box<[u8]>);
 
@@ -63,6 +135,7 @@ impl EncodedChunkStateWitness {
     }
 }
 
+// TODO(stateless_validation): Deprecate once we send state witness in parts.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct SignedEncodedChunkStateWitness {
     /// The content of the witness. It is convenient have it as bytes in order
@@ -102,10 +175,12 @@ pub struct ChunkStateWitness {
     /// with chunk_header.prev_block_hash().
     /// This is needed to validate signature when the previous block is not yet
     /// available on the validator side (aka orphan state witness).
+    /// TODO(stateless_validation): Deprecate once we send state witness in parts.
     pub epoch_id: EpochId,
     /// The chunk header that this witness is for. While this is not needed
     /// to apply the state transition, it is needed for a chunk validator to
     /// produce a chunk endorsement while knowing what they are endorsing.
+    /// TODO(stateless_validation): Deprecate once we send state witness in parts.
     pub chunk_header: ShardChunkHeader,
     /// The base state and post-state-root of the main transition where we
     /// apply transactions and receipts. Corresponds to the state transition
@@ -165,6 +240,7 @@ pub struct ChunkStateWitness {
     /// accounts have appropriate balances, access keys, nonces, etc.
     pub new_transactions: Vec<SignedTransaction>,
     pub new_transactions_validation_state: PartialState,
+    // TODO(stateless_validation): Deprecate once we send state witness in parts.
     signature_differentiator: SignatureDifferentiator,
 }
 

@@ -158,7 +158,16 @@ def prompt_flags(args):
         args.neard_binary_path = sys.stdin.readline().strip()
         assert len(args.neard_binary_path) > 0
 
-    if not args.legacy_records and args.fork_height is None:
+    if args.fork_height is not None:
+        if not args.legacy_records:
+            print(
+                '--legacy-records not given. Assuming it based on --fork-height'
+            )
+            args.legacy_records = True
+    elif args.target_home_dir is not None:
+        if args.legacy_records:
+            sys.exit('cannot give --target-home-dir and --legacy-records')
+    elif not args.legacy_records:
         print(
             'prepare nodes with fork-network tool instead of genesis records JSON? [yes/no]:'
         )

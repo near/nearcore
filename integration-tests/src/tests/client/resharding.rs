@@ -35,7 +35,6 @@ use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::Arc;
 use tracing::debug;
 
 #[cfg(feature = "nightly")]
@@ -47,7 +46,6 @@ const SIMPLE_NIGHTSHADE_PROTOCOL_VERSION: ProtocolVersion =
 const SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION: ProtocolVersion =
     ProtocolFeature::SimpleNightshadeV2.protocol_version();
 
-#[cfg(not(feature = "statelessnet_protocol"))]
 const SIMPLE_NIGHTSHADE_V3_PROTOCOL_VERSION: ProtocolVersion =
     ProtocolFeature::SimpleNightshadeV3.protocol_version();
 
@@ -64,7 +62,6 @@ enum ReshardingType {
     // In the V1->V2 resharding outgoing receipts are reassigned to lowest index child.
     V2,
     // In the V2->V3 resharding outgoing receipts are reassigned to lowest index child.
-    #[cfg(not(feature = "statelessnet_protocol"))]
     V3,
     // In V3->TESTONLY resharding outgoing receipts are reassigned to lowest index child.
     #[cfg(feature = "nightly")]
@@ -75,7 +72,6 @@ fn get_target_protocol_version(resharding_type: &ReshardingType) -> ProtocolVers
     match resharding_type {
         ReshardingType::V1 => SIMPLE_NIGHTSHADE_PROTOCOL_VERSION,
         ReshardingType::V2 => SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION,
-        #[cfg(not(feature = "statelessnet_protocol"))]
         ReshardingType::V3 => SIMPLE_NIGHTSHADE_V3_PROTOCOL_VERSION,
         #[cfg(feature = "nightly")]
         ReshardingType::TESTONLY => SIMPLE_NIGHTSHADE_TESTONLY_PROTOCOL_VERSION,
@@ -90,7 +86,6 @@ fn get_parent_shard_uids(resharding_type: &ReshardingType) -> Vec<ShardUId> {
     let shard_layout = match resharding_type {
         ReshardingType::V1 => ShardLayout::v0_single_shard(),
         ReshardingType::V2 => ShardLayout::get_simple_nightshade_layout(),
-        #[cfg(not(feature = "statelessnet_protocol"))]
         ReshardingType::V3 => ShardLayout::get_simple_nightshade_layout_v2(),
         #[cfg(feature = "nightly")]
         ReshardingType::TESTONLY => ShardLayout::get_simple_nightshade_layout_v3(),
@@ -108,7 +103,6 @@ fn get_expected_shards_num(
         match resharding_type {
             ReshardingType::V1 => 1,
             ReshardingType::V2 => 4,
-            #[cfg(not(feature = "statelessnet_protocol"))]
             ReshardingType::V3 => 5,
             #[cfg(feature = "nightly")]
             ReshardingType::TESTONLY => 6,
@@ -117,7 +111,6 @@ fn get_expected_shards_num(
         match resharding_type {
             ReshardingType::V1 => 4,
             ReshardingType::V2 => 5,
-            #[cfg(not(feature = "statelessnet_protocol"))]
             ReshardingType::V3 => 6,
             #[cfg(feature = "nightly")]
             ReshardingType::TESTONLY => 7,
@@ -359,15 +352,17 @@ impl TestReshardingEnv {
             // because we want to call run_catchup before finish processing this block. This simulates
             // that catchup and block processing run in parallel.
             let block = MaybeValidated::from(block.clone());
-            client.start_process_block(block, Provenance::NONE, Arc::new(|_| {})).unwrap();
+            client.start_process_block(block, Provenance::NONE, None).unwrap();
             if should_catchup {
                 run_catchup(client, &[])?;
             }
             while wait_for_all_blocks_in_processing(&mut client.chain) {
-                let (_, errors) =
-                    client.postprocess_ready_blocks(Arc::new(|_| {}), should_produce_chunk);
+                let (_, errors) = client.postprocess_ready_blocks(None, should_produce_chunk);
                 assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
             }
+            // manually invoke gc
+            let gc_config = client.config.gc.clone();
+            client.chain.clear_data(&gc_config).unwrap();
             if should_catchup {
                 run_catchup(&mut env.clients[j], &[])?;
             }
@@ -830,7 +825,6 @@ fn check_outgoing_receipts_reassigned_impl(
                 assert!(outgoing_receipts.is_empty());
             }
         }
-        #[cfg(not(feature = "statelessnet_protocol"))]
         ReshardingType::V3 => {
             // In V2->V3 resharding the outgoing receipts should be reassigned
             // to the lowest index child of the parent shard.
@@ -1081,19 +1075,16 @@ fn test_shard_layout_upgrade_simple_v2_seed_44() {
     test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 44, false);
 }
 
-#[cfg(not(feature = "statelessnet_protocol"))]
 #[test]
 fn test_shard_layout_upgrade_simple_v3_seed_42() {
     test_shard_layout_upgrade_simple_impl(ReshardingType::V3, 42, false);
 }
 
-#[cfg(not(feature = "statelessnet_protocol"))]
 #[test]
 fn test_shard_layout_upgrade_simple_v3_seed_43() {
     test_shard_layout_upgrade_simple_impl(ReshardingType::V3, 43, false);
 }
 
-#[cfg(not(feature = "statelessnet_protocol"))]
 #[test]
 fn test_shard_layout_upgrade_simple_v3_seed_44() {
     test_shard_layout_upgrade_simple_impl(ReshardingType::V3, 44, false);
@@ -1156,7 +1147,6 @@ fn test_resharding_with_different_db_kind_v2() {
     test_resharding_with_different_db_kind_impl(ReshardingType::V2);
 }
 
-#[cfg(not(feature = "statelessnet_protocol"))]
 #[test]
 fn test_resharding_with_different_db_kind_v3() {
     test_resharding_with_different_db_kind_impl(ReshardingType::V3);
@@ -1216,7 +1206,6 @@ fn test_shard_layout_upgrade_gc_v2() {
     test_shard_layout_upgrade_gc_impl(ReshardingType::V2, 44);
 }
 
-#[cfg(not(feature = "statelessnet_protocol"))]
 #[test]
 fn test_shard_layout_upgrade_gc_v3() {
     test_shard_layout_upgrade_gc_impl(ReshardingType::V3, 44);
@@ -1519,7 +1508,6 @@ fn test_shard_layout_upgrade_cross_contract_calls_v2_seed_44() {
 // Test cross contract calls
 // This test case tests postponed receipts and delayed receipts
 #[test]
-#[cfg(not(feature = "statelessnet_protocol"))]
 fn test_shard_layout_upgrade_cross_contract_calls_v3_seed_42() {
     test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V3, 42);
 }
@@ -1527,7 +1515,6 @@ fn test_shard_layout_upgrade_cross_contract_calls_v3_seed_42() {
 // Test cross contract calls
 // This test case tests postponed receipts and delayed receipts
 #[test]
-#[cfg(not(feature = "statelessnet_protocol"))]
 fn test_shard_layout_upgrade_cross_contract_calls_v3_seed_43() {
     test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V3, 43);
 }
@@ -1535,7 +1522,6 @@ fn test_shard_layout_upgrade_cross_contract_calls_v3_seed_43() {
 // Test cross contract calls
 // This test case tests postponed receipts and delayed receipts
 #[test]
-#[cfg(not(feature = "statelessnet_protocol"))]
 fn test_shard_layout_upgrade_cross_contract_calls_v3_seed_44() {
     test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V3, 44);
 }
@@ -1775,19 +1761,16 @@ fn test_shard_layout_upgrade_incoming_receipts_v2_seed_44() {
     test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V2, 44);
 }
 
-#[cfg(not(feature = "statelessnet_protocol"))]
 #[test]
 fn test_shard_layout_upgrade_incoming_receipts_v3_seed_42() {
     test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V3, 42);
 }
 
-#[cfg(not(feature = "statelessnet_protocol"))]
 #[test]
 fn test_shard_layout_upgrade_incoming_receipts_v3_seed_43() {
     test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V3, 43);
 }
 
-#[cfg(not(feature = "statelessnet_protocol"))]
 #[test]
 fn test_shard_layout_upgrade_incoming_receipts_v3_seed_44() {
     test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V3, 44);
@@ -1960,19 +1943,16 @@ fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v2_seed_44() {
 
 // V3 tests
 
-#[cfg(not(feature = "statelessnet_protocol"))]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_low_missing_prob_v3() {
     test_shard_layout_upgrade_missing_chunks(ReshardingType::V3, 0.1, 42);
 }
 
-#[cfg(not(feature = "statelessnet_protocol"))]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_mid_missing_prob_v3() {
     test_shard_layout_upgrade_missing_chunks(ReshardingType::V3, 0.5, 42);
 }
 
-#[cfg(not(feature = "statelessnet_protocol"))]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v3() {
     test_shard_layout_upgrade_missing_chunks(ReshardingType::V3, 0.9, 42);
@@ -2080,7 +2060,6 @@ fn test_shard_layout_upgrade_error_handling_v2() {
     test_shard_layout_upgrade_error_handling_impl(ReshardingType::V2, 42, false);
 }
 
-#[cfg(not(feature = "statelessnet_protocol"))]
 #[test]
 fn test_shard_layout_upgrade_error_handling_v3() {
     test_shard_layout_upgrade_error_handling_impl(ReshardingType::V3, 42, false);

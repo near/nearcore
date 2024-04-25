@@ -252,8 +252,9 @@ dependencies = [
 
 [[package]]
 name = "aurora-engine-modexp"
-version = "1.0.0"
-source = "git+https://github.com/aurora-is-near/aurora-engine.git?rev=c03a2d8610cd27a9decb91b3bddb107db2177b29#c03a2d8610cd27a9decb91b3bddb107db2177b29"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0aef7712851e524f35fbbb74fa6599c5cd8692056a1c36f9ca0d2001b670e7e5"
 dependencies = [
  "hex",
  "num",
@@ -261,8 +262,9 @@ dependencies = [
 
 [[package]]
 name = "aurora-engine-precompiles"
-version = "1.0.0"
-source = "git+https://github.com/aurora-is-near/aurora-engine.git?rev=c03a2d8610cd27a9decb91b3bddb107db2177b29#c03a2d8610cd27a9decb91b3bddb107db2177b29"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d791fd36d9748858b3dbbca4c03852d532db90b54ffad32cbc35676f71e6eaa2"
 dependencies = [
  "aurora-engine-modexp",
  "aurora-engine-sdk",
@@ -280,8 +282,9 @@ dependencies = [
 
 [[package]]
 name = "aurora-engine-sdk"
-version = "1.0.0"
-source = "git+https://github.com/aurora-is-near/aurora-engine.git?rev=c03a2d8610cd27a9decb91b3bddb107db2177b29#c03a2d8610cd27a9decb91b3bddb107db2177b29"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5b6e2be9f43b5f076fab979eea0b1d9c51fd3eebf19a9d3ef045f84407dd6aa8"
 dependencies = [
  "aurora-engine-types",
  "base64 0.21.7",
@@ -291,8 +294,9 @@ dependencies = [
 
 [[package]]
 name = "aurora-engine-transactions"
-version = "1.0.0"
-source = "git+https://github.com/aurora-is-near/aurora-engine.git?rev=c03a2d8610cd27a9decb91b3bddb107db2177b29#c03a2d8610cd27a9decb91b3bddb107db2177b29"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c1db56484af273b161a3d1a8096b874d45be3469bdca2dcec1d10a4448f85ac0"
 dependencies = [
  "aurora-engine-precompiles",
  "aurora-engine-sdk",
@@ -303,8 +307,9 @@ dependencies = [
 
 [[package]]
 name = "aurora-engine-types"
-version = "1.0.0"
-source = "git+https://github.com/aurora-is-near/aurora-engine.git?rev=c03a2d8610cd27a9decb91b3bddb107db2177b29#c03a2d8610cd27a9decb91b3bddb107db2177b29"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d0137a412059ef8c93654805c6639229cd2e21ecd9bdabe2be2a912f7bb819b5"
 dependencies = [
  "base64 0.21.7",
  "borsh 1.3.1",
@@ -1245,7 +1250,8 @@ dependencies = [
 [[package]]
 name = "evm"
 version = "0.39.1"
-source = "git+https://github.com/aurora-is-near/sputnikvm.git?tag=v0.39.1#0334a09d6b6e83ff3a8da992e33f29ba95e0c9fe"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a49a4e11987c51220aa89dbe1a5cc877f5079fa6864c0a5b4533331db44e9365"
 dependencies = [
  "auto_impl",
  "ethereum",
@@ -1260,16 +1266,18 @@ dependencies = [
 
 [[package]]
 name = "evm-core"
-version = "0.39.1"
-source = "git+https://github.com/aurora-is-near/sputnikvm.git?tag=v0.39.1#0334a09d6b6e83ff3a8da992e33f29ba95e0c9fe"
+version = "0.39.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f1f13264b044cb66f0602180f0bc781c29accb41ff560669a3ec15858d5b606"
 dependencies = [
  "primitive-types 0.12.2",
 ]
 
 [[package]]
 name = "evm-gasometer"
-version = "0.39.1"
-source = "git+https://github.com/aurora-is-near/sputnikvm.git?tag=v0.39.1#0334a09d6b6e83ff3a8da992e33f29ba95e0c9fe"
+version = "0.39.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8d43eadc395bd1a52990787ca1495c26b0248165444912be075c28909a853b8c"
 dependencies = [
  "evm-core",
  "evm-runtime",
@@ -1278,8 +1286,9 @@ dependencies = [
 
 [[package]]
 name = "evm-runtime"
-version = "0.39.1"
-source = "git+https://github.com/aurora-is-near/sputnikvm.git?tag=v0.39.1#0334a09d6b6e83ff3a8da992e33f29ba95e0c9fe"
+version = "0.39.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2aa5b32f59ec582a5651978004e5c784920291263b7dcb6de418047438e37f4f"
 dependencies = [
  "auto_impl",
  "evm-core",
@@ -3528,9 +3537,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.22.2"
+version = "0.22.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e87c9956bd9807afa1f77e0f7594af32566e830e088a5576d27c5b6f30f49d41"
+checksum = "bf4ef73721ac7bcd79b2b315da7779d8fc09718c6b3d2d1b2d94850eb8c18432"
 dependencies = [
  "log",
  "ring",

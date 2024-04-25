@@ -8,7 +8,9 @@ use crate::challenge::ChallengeBody;
 use crate::hash::CryptoHash;
 use crate::network::{AnnounceAccount, PeerId};
 use crate::sharding::ChunkHash;
-use crate::stateless_validation::{ChunkEndorsementInner, EncodedChunkStateWitness};
+use crate::stateless_validation::{
+    ChunkEndorsementInner, EncodedChunkStateWitness, PartialEncodedStateWitnessInner,
+};
 use crate::telemetry::TelemetryInfo;
 use crate::types::{AccountId, BlockHeight, EpochId};
 
@@ -37,11 +39,17 @@ pub trait ValidatorSigner: Sync + Send {
     /// Signs approval of given parent hash and reference hash.
     fn sign_approval(&self, inner: &ApprovalInner, target_height: BlockHeight) -> Signature;
 
-    /// Signs approval of the given chunk.
+    /// Signs chunk endorsement to be sent to block producer.
     fn sign_chunk_endorsement(&self, inner: &ChunkEndorsementInner) -> Signature;
 
-    /// Signs approval of the given chunk.
+    /// Signs chunk state witness to be sent to all validators.
     fn sign_chunk_state_witness(&self, witness_bytes: &EncodedChunkStateWitness) -> Signature;
+
+    /// Signs partial encoded state witness to be sent and forwarded to all validators.
+    fn sign_partial_encoded_state_witness(
+        &self,
+        part: &PartialEncodedStateWitnessInner,
+    ) -> Signature;
 
     /// Signs challenge body.
     fn sign_challenge(&self, challenge_body: &ChallengeBody) -> (CryptoHash, Signature);
@@ -120,6 +128,13 @@ impl ValidatorSigner for EmptyValidatorSigner {
     }
 
     fn sign_chunk_state_witness(&self, _witness_bytes: &EncodedChunkStateWitness) -> Signature {
+        Signature::default()
+    }
+
+    fn sign_partial_encoded_state_witness(
+        &self,
+        _part: &PartialEncodedStateWitnessInner,
+    ) -> Signature {
         Signature::default()
     }
 
@@ -220,6 +235,13 @@ impl ValidatorSigner for InMemoryValidatorSigner {
 
     fn sign_chunk_state_witness(&self, witness_bytes: &EncodedChunkStateWitness) -> Signature {
         self.signer.sign(witness_bytes.as_slice())
+    }
+
+    fn sign_partial_encoded_state_witness(
+        &self,
+        part: &PartialEncodedStateWitnessInner,
+    ) -> Signature {
+        self.signer.sign(&borsh::to_vec(part).unwrap())
     }
 
     fn sign_challenge(&self, challenge_body: &ChallengeBody) -> (CryptoHash, Signature) {

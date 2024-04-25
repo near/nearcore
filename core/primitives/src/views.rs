@@ -2109,6 +2109,18 @@ pub struct CurrentEpochValidatorInfo {
     pub num_produced_chunks_per_shard: Vec<NumBlocks>,
     #[serde(default)]
     pub num_expected_chunks_per_shard: Vec<NumBlocks>,
+    #[serde(default, skip_serializing_if = "num_blocks_is_zero")]
+    pub num_produced_endorsements: NumBlocks,
+    #[serde(default, skip_serializing_if = "num_blocks_is_zero")]
+    pub num_expected_endorsements: NumBlocks,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub num_produced_endorsements_per_shard: Vec<NumBlocks>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub num_expected_endorsements_per_shard: Vec<NumBlocks>,
+}
+
+fn num_blocks_is_zero(n: &NumBlocks) -> bool {
+    n == &0
 }
 
 #[derive(

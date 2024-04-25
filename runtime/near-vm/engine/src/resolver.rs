@@ -170,8 +170,10 @@ pub fn resolve_imports(
                     export_memory_style.offset_guard_size(),
                     import_memory_style.offset_guard_size()
                 );
-                memory_imports
-                    .push(VMMemoryImport { definition: ex.from.vmmemory(), from: ex.from.clone() });
+                memory_imports.push(VMMemoryImport {
+                    definition: ex.from().vmmemory(),
+                    from: ex.from().clone(),
+                });
             }
 
             (Export::Global(ex), VMImportType::Global(im)) if ex.from.ty() == im => {

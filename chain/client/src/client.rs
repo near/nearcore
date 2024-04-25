@@ -22,8 +22,8 @@ use near_async::messaging::IntoSender;
 use near_async::messaging::{CanSend, Sender};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::chain::{
-    ApplyStatePartsRequest, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
-    LoadMemtrieRequest, VerifyBlockHashAndSignatureResult,
+    ApplyChunksDoneMessage, ApplyStatePartsRequest, BlockCatchUpRequest, BlockMissingChunks,
+    BlocksCatchUpState, LoadMemtrieRequest, VerifyBlockHashAndSignatureResult,
 };
 use near_chain::flat_storage_creator::FlatStorageCreator;
 use near_chain::orphan::OrphanMissingChunks;
@@ -36,8 +36,8 @@ use near_chain::types::{
     StorageDataSource,
 };
 use near_chain::{
-    BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis, ChainStoreAccess,
-    DoneApplyChunkCallback, Doomslug, DoomslugThresholdMode, Provenance,
+    BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis, ChainStoreAccess, Doomslug,
+    DoomslugThresholdMode, Provenance,
 };
 use near_chain_configs::{ClientConfig, LogSummaryStyle, UpdateableClientConfig};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
@@ -58,7 +58,6 @@ use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, Set
 use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, ReasonForBan,
 };
-use near_o11y::log_assert;
 use near_o11y::WithSpanContextExt;
 use near_pool::InsertTransactionResult;
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
@@ -83,7 +82,6 @@ use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{CatchupStatusView, DroppedReason};
-use near_store::metadata::DbKind;
 use near_store::ShardUId;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
@@ -1044,7 +1042,7 @@ impl Client {
         block: Block,
         peer_id: PeerId,
         was_requested: bool,
-        apply_chunks_done_callback: DoneApplyChunkCallback,
+        apply_chunks_done_sender: Option<Sender<ApplyChunksDoneMessage>>,
     ) {
         let hash = *block.hash();
         let prev_hash = *block.header().prev_hash();
@@ -1059,8 +1057,7 @@ impl Client {
             was_requested)
         .entered();
 
-        let res =
-            self.receive_block_impl(block, peer_id, was_requested, apply_chunks_done_callback);
+        let res = self.receive_block_impl(block, peer_id, was_requested, apply_chunks_done_sender);
         // Log the errors here. Note that the real error handling logic is already
         // done within process_block_impl, this is just for logging.
         if let Err(err) = res {
@@ -1094,7 +1091,7 @@ impl Client {
         block: Block,
         peer_id: PeerId,
         was_requested: bool,
-        apply_chunks_done_callback: DoneApplyChunkCallback,
+        apply_chunks_done_sender: Option<Sender<ApplyChunksDoneMessage>>,
     ) -> Result<(), near_chain::Error> {
         let _span =
             debug_span!(target: "chain", "receive_block_impl", was_requested, ?peer_id).entered();
@@ -1123,7 +1120,7 @@ impl Client {
         self.verify_and_rebroadcast_block(&block, was_requested, &peer_id)?;
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
-        let res = self.start_process_block(block, provenance, apply_chunks_done_callback);
+        let res = self.start_process_block(block, provenance, apply_chunks_done_sender);
         match &res {
             Err(near_chain::Error::Orphan) => {
                 debug!(target: "chain", ?prev_hash, "Orphan error");
@@ -1222,12 +1219,12 @@ impl Client {
     /// Start the processing of a block. Note that this function will return before
     /// the full processing is finished because applying chunks is done asynchronously
     /// in the rayon thread pool.
-    /// `apply_chunks_done_callback`: a callback that will be called when applying chunks is finished.
+    /// `apply_chunks_done_sender`: a callback that will be called when applying chunks is finished.
     pub fn start_process_block(
         &mut self,
         block: MaybeValidated<Block>,
         provenance: Provenance,
-        apply_chunks_done_callback: DoneApplyChunkCallback,
+        apply_chunks_done_sender: Option<Sender<ApplyChunksDoneMessage>>,
     ) -> Result<(), near_chain::Error> {
         let _span = debug_span!(
                 target: "chain",
@@ -1247,7 +1244,7 @@ impl Client {
                 block,
                 provenance,
                 &mut block_processing_artifacts,
-                apply_chunks_done_callback,
+                apply_chunks_done_sender,
             )
         };
 
@@ -1285,7 +1282,7 @@ impl Client {
     /// blocks.
     pub fn postprocess_ready_blocks(
         &mut self,
-        apply_chunks_done_callback: DoneApplyChunkCallback,
+        apply_chunks_done_sender: Option<Sender<ApplyChunksDoneMessage>>,
         should_produce_chunk: bool,
     ) -> (Vec<CryptoHash>, HashMap<CryptoHash, near_chain::Error>) {
         let _span = debug_span!(target: "client", "postprocess_ready_blocks", should_produce_chunk)
@@ -1298,7 +1295,7 @@ impl Client {
         let (accepted_blocks, errors) = self.chain.postprocess_ready_blocks(
             &me,
             &mut block_processing_artifacts,
-            apply_chunks_done_callback,
+            apply_chunks_done_sender,
         );
         if accepted_blocks.iter().any(|accepted_block| accepted_block.status.is_new_head()) {
             self.shards_manager_adapter.send(ShardsManagerRequestFromClient::UpdateChainHeads {
@@ -1395,7 +1392,7 @@ impl Client {
         &mut self,
         partial_chunk: PartialEncodedChunk,
         shard_chunk: Option<ShardChunk>,
-        apply_chunks_done_callback: DoneApplyChunkCallback,
+        apply_chunks_done_sender: Option<Sender<ApplyChunksDoneMessage>>,
     ) {
         let chunk_header = partial_chunk.cloned_header();
         self.chain.blocks_delay_tracker.mark_chunk_completed(&chunk_header);
@@ -1410,7 +1407,7 @@ impl Client {
         // We're marking chunk as accepted.
         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
         // If this was the last chunk that was missing for a block, it will be processed now.
-        self.process_blocks_with_missing_chunks(apply_chunks_done_callback)
+        self.process_blocks_with_missing_chunks(apply_chunks_done_sender)
     }
 
     /// Called asynchronously when the ShardsManager finishes processing a chunk but the chunk
@@ -1574,18 +1571,6 @@ impl Client {
                 self.chain.get_block_header(last_final_block).map_or(0, |header| header.height())
             };
             self.chain.blocks_with_missing_chunks.prune_blocks_below_height(last_finalized_height);
-
-            {
-                let _span = tracing::debug_span!(
-                    target: "client",
-                    "garbage_collection",
-                    block_hash = ?block.hash(),
-                    height = block.header().height())
-                .entered();
-                let _gc_timer = metrics::GC_TIME.start_timer();
-                let result = self.clear_data();
-                log_assert!(result.is_ok(), "Can't clear old data, {:?}", result);
-            }
 
             // send_network_chain_info should be called whenever the chain head changes.
             // See send_network_chain_info() for more details.
@@ -1880,7 +1865,7 @@ impl Client {
     /// Check if any block with missing chunks is ready to be processed
     pub fn process_blocks_with_missing_chunks(
         &mut self,
-        apply_chunks_done_callback: DoneApplyChunkCallback,
+        apply_chunks_done_sender: Option<Sender<ApplyChunksDoneMessage>>,
     ) {
         let _span = debug_span!(target: "client", "process_blocks_with_missing_chunks").entered();
         let me =
@@ -1889,7 +1874,7 @@ impl Client {
         self.chain.check_blocks_with_missing_chunks(
             &me.map(|x| x.clone()),
             &mut blocks_processing_artifacts,
-            apply_chunks_done_callback,
+            apply_chunks_done_sender,
         );
         self.process_block_processing_artifact(blocks_processing_artifacts);
     }
@@ -2327,7 +2312,7 @@ impl Client {
         load_memtrie_scheduler: &Sender<LoadMemtrieRequest>,
         block_catch_up_task_scheduler: &Sender<BlockCatchUpRequest>,
         resharding_scheduler: &Sender<ReshardingRequest>,
-        apply_chunks_done_callback: DoneApplyChunkCallback,
+        apply_chunks_done_sender: Option<Sender<ApplyChunksDoneMessage>>,
         state_parts_future_spawner: &dyn FutureSpawner,
     ) -> Result<(), Error> {
         let _span = debug_span!(target: "sync", "run_catchup").entered();
@@ -2439,7 +2424,7 @@ impl Client {
                             me,
                             &sync_hash,
                             &mut block_processing_artifacts,
-                            apply_chunks_done_callback.clone(),
+                            apply_chunks_done_sender.clone(),
                             &blocks_catch_up_state.done_blocks,
                         )?;
 
@@ -2542,29 +2527,6 @@ impl Client {
             None => true,
         };
         Ok(result)
-    }
-
-    fn clear_data(&mut self) -> Result<(), near_chain::Error> {
-        // A RPC node should do regular garbage collection.
-        if !self.config.archive {
-            let tries = self.runtime_adapter.get_tries();
-            return self.chain.clear_data(tries, &self.config.gc);
-        }
-
-        // An archival node with split storage should perform garbage collection
-        // on the hot storage. In order to determine if split storage is enabled
-        // *and* that the migration to split storage is finished we can check
-        // the store kind. It's only set to hot after the migration is finished.
-        let store = self.chain.chain_store().store();
-        let kind = store.get_db_kind()?;
-        if kind == Some(DbKind::Hot) {
-            let tries = self.runtime_adapter.get_tries();
-            return self.chain.clear_data(tries, &self.config.gc);
-        }
-
-        // An archival node with legacy storage or in the midst of migration to split
-        // storage should do the legacy clear_archive_data.
-        self.chain.clear_archive_data(self.config.gc.gc_blocks_limit)
     }
 }
 

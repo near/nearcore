@@ -347,14 +347,14 @@ fn verify_block_stats(
                     .get(&shard_id)
                     .unwrap()
                     .values()
-                    .map(|value| value.produced)
+                    .map(|value| value.produced())
                     .sum::<u64>();
                 let sum_expected = aggregator
                     .shard_tracker
                     .get(&shard_id)
                     .unwrap()
                     .values()
-                    .map(|value| value.expected)
+                    .map(|value| value.expected())
                     .sum::<u64>();
                 assert_eq!(sum_produced, blocks_in_epoch);
                 assert_eq!(sum_expected, blocks_in_epoch_expected);

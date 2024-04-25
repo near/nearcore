@@ -12,7 +12,9 @@ use near_network::state_witness::{
 use near_network::types::PeerManagerAdapter;
 use near_o11y::{handler_debug_span, WithSpanContext};
 use near_performance_metrics_macros::perf;
+use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::ChunkStateWitness;
+use near_primitives::types::EpochId;
 use near_primitives::validator_signer::ValidatorSigner;
 
 use super::state_witness_actions::StateWitnessActions;
@@ -43,6 +45,8 @@ impl actix::Actor for StateWitnessActor {
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub struct DistributeStateWitnessRequest {
+    pub epoch_id: EpochId,
+    pub chunk_header: ShardChunkHeader,
     pub state_witness: ChunkStateWitness,
 }
 

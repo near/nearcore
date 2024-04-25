@@ -489,11 +489,22 @@ class NeardRunner:
 
         return True
 
-    def do_start(self):
+    def do_start(self, batch_interval_millis=None):
+        if batch_interval_millis is not None and not isinstance(
+                batch_interval_millis, int):
+            raise ValueError(
+                f'batch_interval_millis: {batch_interval_millis} not an int')
         with self.lock:
             state = self.get_state()
             if state == TestState.STOPPED:
-                self.start_neard()
+                if batch_interval_millis is not None and not self.is_traffic_generator(
+                ):
+                    logging.warn(
+                        f'got batch_interval_millis = {batch_interval_millis} on non traffic generator node. Ignoring it.'
+                    )
+                    batch_interval_millis = None
+                # TODO: restart it if we get a different batch_interval_millis than last time
+                self.start_neard(batch_interval_millis)
                 self.set_state(TestState.RUNNING)
                 self.save_data()
             elif state != TestState.RUNNING:
@@ -704,7 +715,7 @@ class NeardRunner:
         self.save_data()
 
     # If this is a regular node, starts neard run. If it's a traffic generator, starts neard mirror run
-    def start_neard(self):
+    def start_neard(self, batch_interval_millis=None):
         for i in range(20, -1, -1):
             old_log = os.path.join(self.neard_logs_dir, f'log-{i}.txt')
             new_log = os.path.join(self.neard_logs_dir, f'log-{i+1}.txt')
@@ -725,6 +736,22 @@ class NeardRunner:
                     self.target_near_home_path(),
                     '--no-secret',
                 ]
+                if batch_interval_millis is not None:
+                    with open(self.target_near_home_path('mirror-config.json'),
+                              'w') as f:
+                        secs = batch_interval_millis // 1000
+                        nanos = (batch_interval_millis % 1000) * 1000000
+                        json.dump(
+                            {
+                                'tx_batch_interval': {
+                                    'secs': secs,
+                                    'nanos': nanos
+                                }
+                            },
+                            f,
+                            indent=2)
+                    cmd.append('--config-path')
+                    cmd.append(self.target_near_home_path('mirror-config.json'))
             else:
                 cmd = [
                     self.data['current_neard_path'], '--log-span-events',
