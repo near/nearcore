@@ -1002,12 +1002,25 @@ class NeardRunner:
             logging.warn(f'{backup_dir} already exists')
             self.set_state(TestState.ERROR)
             return
+        # Make a RockDB snapshot of the db to save space. This takes advantage of the immutability of sst files.
         logging.info(f'copying data dir to {backup_dir}')
-        shutil.copytree(self.target_near_home_path('data'),
-                        backup_dir,
-                        dirs_exist_ok=True)
-        logging.info(f'copied data dir to {backup_dir}')
-
+        cmd = [
+            self.data['current_neard_path'], '--home',
+            self.target_near_home_path(),
+            '--unsafe-fast-startup',
+            'database',
+            'make-snapshot',
+            '--destination',
+            backup_dir
+        ]
+        self.run_neard(cmd)
+        running = True
+        while running:
+            _, running, exit_code = self.poll_neard()
+        logging.info(f'copying data dir to {backup_dir} finished with code {exit_code}')
+        # Copy config, genesis and node_key to the backup folder to use them to restore the db.
+        for file in ["config.json", "genesis.json", "node_key.json"]:
+            shutil.copyfile(self.target_near_home_path(file), os.path.join(backup_dir, file))
         backups = self.data.get('backups', {})
         if name in backups:
             # shouldn't happen if we check this in do_make_backups(), but fine to be paranoid and at least warn here
@@ -1054,6 +1067,29 @@ class NeardRunner:
             self.kill_neard()
             self.make_initial_backup()
 
+    def run_restore_from_backup_cmd(self, backup_path):
+        logging.info(f'restoring data dir from backup at {backup_path}')
+        # Before using snapshots for backup we used to copy the 'data' folder.
+        # This is useful to be able to restore from backups done the old way.
+        if not os.path.exists(os.path.join(backup_path, 'data')):
+            shutil.copytree(backup_path, self.target_near_home_path('data'))
+            exit_code = 0
+        else:
+            cmd = [
+                self.data['current_neard_path'], '--home',
+                backup_path,
+                '--unsafe-fast-startup',
+                'database',
+                'make-snapshot',
+                '--destination',
+                self.target_near_home_path()
+            ]
+            self.run_neard(cmd)
+            running = True
+            while running:
+                _, running, exit_code = self.poll_neard()
+        logging.info(f'data dir restoration terminated with code {exit_code}')
+
     def reset_near_home(self):
         backup_id = self.data['state_data']
         if backup_id is None:
@@ -1068,9 +1104,7 @@ class NeardRunner:
             shutil.rmtree(self.target_near_home_path('data'))
         except FileNotFoundError:
             pass
-        logging.info(f'restoring data dir from backup at {backup_path}')
-        shutil.copytree(backup_path, self.target_near_home_path('data'))
-        logging.info('data dir restored')
+        self.run_restore_from_backup_cmd(backup_path)
         self.set_state(TestState.STOPPED)
         self.save_data()
 
