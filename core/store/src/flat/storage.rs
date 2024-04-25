@@ -186,7 +186,6 @@ impl FlatStorageInner {
         let current_flat_head_height = self.flat_head.height;
 
         let mut new_head = block_hash;
-        tracing::debug!(target: "store", "get_new_flat_head, shard id {}, cur new head {}, old flat head {}, old flat height {}", self.shard_uid.shard_id(), block_hash, current_flat_head_hash, current_flat_head_height);
         let mut blocks_with_changes = 0;
         // Delays updating flat head, keeps this many blocks with non-empty flat
         // state changes between the requested flat head and the chosen head to
@@ -204,7 +203,6 @@ impl FlatStorageInner {
             new_head = match metadata.prev_block_with_changes {
                 None => {
                     // The block has flat state changes.
-                    tracing::debug!(target: "store", "get_new_flat_head, prev_block_with_changes is None");
                     blocks_with_changes += 1;
                     if blocks_with_changes == Self::BLOCKS_WITH_CHANGES_FLAT_HEAD_GAP {
                         break;
@@ -212,7 +210,6 @@ impl FlatStorageInner {
                     metadata.block.prev_hash
                 }
                 Some(BlockWithChangesInfo { hash, height, .. }) => {
-                    tracing::debug!(target: "store", "get_new_flat_head, prev_block_with_changes is Some, hash {}, height {}", hash, height);
                     // The block has no flat state changes.
                     if height <= current_flat_head_height {
                         return Ok(current_flat_head_hash);
@@ -374,9 +371,7 @@ impl FlatStorage {
         strict: bool,
     ) -> Result<(), FlatStorageError> {
         let mut guard = self.0.write().expect(crate::flat::POISONED_LOCK_ERR);
-        tracing::debug!(target: "store", "update_flat_head, shard id {}, block hash {}", guard.shard_uid.shard_id(), block_hash);
         if !guard.move_head_enabled {
-            tracing::debug!(target: "store", "update_flat_head, shard id {}, move head disabled", guard.shard_uid.shard_id());
             return Ok(());
         }
 

@@ -1,13 +1,8 @@
 #!/usr/bin/env python3
-# Spins up one validating node.
-# Spins a non-validating node that tracks some shards and the set of tracked shards changes regularly.
-# The node gets stopped, and gets restarted close to an epoch boundary but in a way to trigger state sync.
-#
-# After the state sync the node has to do a catchup.
-#
-# Note that the test must generate outgoing receipts for most shards almost
-# every block in order to crash if creation of partial encoded chunks becomes
-# non-deterministic.
+# Spins up 4 validating nodes and 1 non-validating node. There are four shards in this test.
+# Send random transactions between shards.
+# Stop all validating nodes at random times and restart them.
+# Repeat the process a few times and make sure the network can progress over a few epochs.
 
 import pathlib
 import random
