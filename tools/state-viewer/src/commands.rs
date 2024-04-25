@@ -747,7 +747,7 @@ pub(crate) fn resulting_chunk_extra(result: &ApplyChunkResult, gas_limit: Gas) -
         result.total_gas_burnt,
         gas_limit,
         result.total_balance_burnt,
-        result.congestion_info.clone(),
+        result.congestion_info,
     )
 }
 

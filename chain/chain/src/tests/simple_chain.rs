@@ -50,7 +50,7 @@ fn build_chain() {
 
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
-        insta::assert_snapshot!(hash, @"72j1xRcBZpPtyo2rpPBPRspL6Q9LCju2Doa8KFhYPNJt");
+        insta::assert_snapshot!(hash, @"HoQty43QCe2RPp3iZWv61TaJWW18pTqaHu2t5hWtnVir");
     } else {
         insta::assert_snapshot!(hash, @"HJuuENeSwwikoR9BZA7cSonxAPZgY5mKQWL2pSXwjAwZ");
     }
