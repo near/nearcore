@@ -9,13 +9,34 @@ use near_primitives_core::types::{Gas, ShardId};
 /// version should not be changed. Rather a new version with the desired changes
 /// should be added and used in place of the old one. When adding new versions
 /// please also update the default.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+)]
 pub enum CongestionInfo {
     V1(CongestionInfoV1),
 }
 
 /// Stores the congestion level of a shard.
-#[derive(BorshSerialize, BorshDeserialize, Default, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Default,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+)]
 pub struct CongestionInfoV1 {
     /// Sum of gas in currently delayed receipts.
     pub delayed_receipts_gas: u128,

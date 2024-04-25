@@ -449,7 +449,7 @@ mod trie_storage_tests {
             0,
             0,
             0,
-            CongestionInfo::default(),
+            Some(CongestionInfo::default()),
         );
         let mut update_for_chunk_extra = store.store_update();
         update_for_chunk_extra

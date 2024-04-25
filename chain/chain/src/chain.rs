@@ -618,8 +618,17 @@ impl Chain {
             0,
             gas_limit,
             0,
-            CongestionInfo::default(),
+            Self::get_genesis_congestion_info(genesis_protocol_version),
         )
+    }
+
+    fn get_genesis_congestion_info(protocol_version: ProtocolVersion) -> Option<CongestionInfo> {
+        if protocol_version >= ProtocolFeature::CongestionControl.protocol_version() {
+            // TODO(congestion_control) - properly initialize
+            Some(CongestionInfo::default())
+        } else {
+            None
+        }
     }
 
     pub fn genesis_chunk_extra(

@@ -13,6 +13,7 @@ use crate::block_header::{
 use crate::block_header::{BlockHeaderInnerRestV4, BlockHeaderV4};
 use crate::challenge::{Challenge, ChallengesResult};
 use crate::checked_feature;
+use crate::congestion_info::CongestionInfo;
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, MerklePath};
@@ -21,7 +22,7 @@ use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptE
 use crate::serialize::dec_format;
 use crate::sharding::{
     ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderInnerV2,
-    ShardChunkHeaderV3,
+    ShardChunkHeaderInnerV3, ShardChunkHeaderV3,
 };
 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
 use crate::transaction::NonrefundableStorageTransferAction;
@@ -1064,6 +1065,7 @@ pub struct ChunkHeaderView {
     pub outgoing_receipts_root: CryptoHash,
     pub tx_root: CryptoHash,
     pub validator_proposals: Vec<ValidatorStakeView>,
+    pub congestion_info: Option<CongestionInfo>,
     pub signature: Signature,
 }
 
@@ -1091,6 +1093,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             outgoing_receipts_root: *inner.prev_outgoing_receipts_root(),
             tx_root: *inner.tx_root(),
             validator_proposals: inner.prev_validator_proposals().map(Into::into).collect(),
+            congestion_info: inner.congestion_info(),
             signature,
         }
     }
@@ -1098,33 +1101,62 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
 
 impl From<ChunkHeaderView> for ShardChunkHeader {
     fn from(view: ChunkHeaderView) -> Self {
-        let mut header = ShardChunkHeaderV3 {
-            // TODO(congestion_control) handle the new version
-            inner: ShardChunkHeaderInner::V2(ShardChunkHeaderInnerV2 {
-                prev_block_hash: view.prev_block_hash,
-                prev_state_root: view.prev_state_root,
-                prev_outcome_root: view.outcome_root,
-                encoded_merkle_root: view.encoded_merkle_root,
-                encoded_length: view.encoded_length,
-                height_created: view.height_created,
-                shard_id: view.shard_id,
-                prev_gas_used: view.gas_used,
-                gas_limit: view.gas_limit,
-                prev_balance_burnt: view.balance_burnt,
-                prev_outgoing_receipts_root: view.outgoing_receipts_root,
-                tx_root: view.tx_root,
-                prev_validator_proposals: view
-                    .validator_proposals
-                    .into_iter()
-                    .map(Into::into)
-                    .collect(),
-            }),
-            height_included: view.height_included,
-            signature: view.signature,
-            hash: ChunkHash::default(),
-        };
-        header.init();
-        ShardChunkHeader::V3(header)
+        if let Some(congestion_info) = view.congestion_info {
+            let mut header = ShardChunkHeaderV3 {
+                inner: ShardChunkHeaderInner::V3(ShardChunkHeaderInnerV3 {
+                    prev_block_hash: view.prev_block_hash,
+                    prev_state_root: view.prev_state_root,
+                    prev_outcome_root: view.outcome_root,
+                    encoded_merkle_root: view.encoded_merkle_root,
+                    encoded_length: view.encoded_length,
+                    height_created: view.height_created,
+                    shard_id: view.shard_id,
+                    prev_gas_used: view.gas_used,
+                    gas_limit: view.gas_limit,
+                    prev_balance_burnt: view.balance_burnt,
+                    prev_outgoing_receipts_root: view.outgoing_receipts_root,
+                    tx_root: view.tx_root,
+                    prev_validator_proposals: view
+                        .validator_proposals
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
+                    congestion_info,
+                }),
+                height_included: view.height_included,
+                signature: view.signature,
+                hash: ChunkHash::default(),
+            };
+            header.init();
+            ShardChunkHeader::V3(header)
+        } else {
+            let mut header = ShardChunkHeaderV3 {
+                inner: ShardChunkHeaderInner::V2(ShardChunkHeaderInnerV2 {
+                    prev_block_hash: view.prev_block_hash,
+                    prev_state_root: view.prev_state_root,
+                    prev_outcome_root: view.outcome_root,
+                    encoded_merkle_root: view.encoded_merkle_root,
+                    encoded_length: view.encoded_length,
+                    height_created: view.height_created,
+                    shard_id: view.shard_id,
+                    prev_gas_used: view.gas_used,
+                    gas_limit: view.gas_limit,
+                    prev_balance_burnt: view.balance_burnt,
+                    prev_outgoing_receipts_root: view.outgoing_receipts_root,
+                    tx_root: view.tx_root,
+                    prev_validator_proposals: view
+                        .validator_proposals
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
+                }),
+                height_included: view.height_included,
+                signature: view.signature,
+                hash: ChunkHash::default(),
+            };
+            header.init();
+            ShardChunkHeader::V3(header)
+        }
     }
 }
 

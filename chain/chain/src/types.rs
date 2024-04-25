@@ -114,7 +114,10 @@ pub struct ApplyChunkResult {
     /// Note that applied receipts are not necessarily executed as they can
     /// be delayed.
     pub applied_receipts_hash: CryptoHash,
-    pub congestion_info: CongestionInfo,
+    /// The congestion info of the shard after applying the chunk. This field
+    /// should be set to None for chunks before the CongestionControl protocol
+    /// version and Some otherwise.
+    pub congestion_info: Option<CongestionInfo>,
 }
 
 impl ApplyChunkResult {

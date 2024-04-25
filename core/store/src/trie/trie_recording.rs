@@ -132,7 +132,7 @@ mod trie_recording_tests {
             0,
             0,
             0,
-            CongestionInfo::default(),
+            Some(CongestionInfo::default()),
         );
         let mut update_for_chunk_extra = tries_for_building.store_update();
         update_for_chunk_extra

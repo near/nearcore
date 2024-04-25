@@ -173,7 +173,7 @@ impl ShardChunkHeaderV3 {
     pub fn compute_hash(inner: &ShardChunkHeaderInner) -> ChunkHash {
         let inner_bytes = borsh::to_vec(&inner).expect("Failed to serialize");
         let inner_hash = hash(&inner_bytes);
-
+        
         ChunkHash(combine_hash(&inner_hash, inner.encoded_merkle_root()))
     }
 
@@ -440,12 +440,23 @@ impl ShardChunkHeader {
     pub fn valid_for(&self, version: ProtocolVersion) -> bool {
         const BLOCK_HEADER_V3_VERSION: ProtocolVersion =
             ProtocolFeature::BlockHeaderV3.protocol_version();
+        const CONGESTION_CONTROL_VERSION: ProtocolVersion =
+            ProtocolFeature::CongestionControl.protocol_version();
+
         match &self {
             ShardChunkHeader::V1(_) => version < SHARD_CHUNK_HEADER_UPGRADE_VERSION,
             ShardChunkHeader::V2(_) => {
                 SHARD_CHUNK_HEADER_UPGRADE_VERSION <= version && version < BLOCK_HEADER_V3_VERSION
             }
-            ShardChunkHeader::V3(_) => BLOCK_HEADER_V3_VERSION <= version,
+            ShardChunkHeader::V3(header) => match header.inner {
+                ShardChunkHeaderInner::V1(_) => {
+                    version >= BLOCK_HEADER_V3_VERSION && version < CONGESTION_CONTROL_VERSION
+                }
+                ShardChunkHeaderInner::V2(_) => {
+                    version >= BLOCK_HEADER_V3_VERSION && version < CONGESTION_CONTROL_VERSION
+                }
+                ShardChunkHeaderInner::V3(_) => version >= CONGESTION_CONTROL_VERSION,
+            },
         }
     }
 

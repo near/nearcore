@@ -783,15 +783,14 @@ pub mod chunk_extra {
         pub gas_limit: Gas,
         /// Total balance burnt after processing the current chunk.
         pub balance_burnt: Balance,
-        /// Congestion info.
+        /// Congestion info. This field should be set to None for chunks before
+        /// the congestion control protocol version and Some otherwise.
         congestion_info: CongestionInfo,
     }
 
     impl ChunkExtra {
         pub fn new_with_only_state_root(state_root: &StateRoot) -> Self {
             Self::new(
-                // TODO(congestion_control) - this should be protocol version of
-                // the state root
                 PROTOCOL_VERSION,
                 state_root,
                 CryptoHash::default(),
@@ -799,7 +798,10 @@ pub mod chunk_extra {
                 0,
                 0,
                 0,
-                CongestionInfo::default(),
+                // TODO(congestion_control) - this breaks the invariant that
+                // congestion info is set when protocol version is greater equal
+                // to the congestion control protocol version.
+                None,
             )
         }
 
@@ -811,9 +813,10 @@ pub mod chunk_extra {
             gas_used: Gas,
             gas_limit: Gas,
             balance_burnt: Balance,
-            congestion_info: CongestionInfo,
+            congestion_info: Option<CongestionInfo>,
         ) -> Self {
             if protocol_version >= ProtocolFeature::CongestionControl.protocol_version() {
+                assert!(congestion_info.is_some());
                 Self::V3(ChunkExtraV3 {
                     state_root: *state_root,
                     outcome_root,
@@ -821,9 +824,10 @@ pub mod chunk_extra {
                     gas_used,
                     gas_limit,
                     balance_burnt,
-                    congestion_info,
+                    congestion_info: congestion_info.unwrap(),
                 })
             } else {
+                assert!(congestion_info.is_none());
                 Self::V2(ChunkExtraV2 {
                     state_root: *state_root,
                     outcome_root,

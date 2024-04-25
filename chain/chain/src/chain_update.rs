@@ -267,7 +267,7 @@ impl<'a> ChainUpdate<'a> {
                         // parent shard. It breaks the invariant that congestion
                         // info is deterministically computed from the shard
                         // state but otherwise it is deterministic and should work.
-                        chunk_extra.congestion_info().unwrap_or_default(),
+                        chunk_extra.congestion_info(),
                     );
                     sum_gas_used += gas_burnt;
                     sum_balance_burnt += balance_burnt;

@@ -544,7 +544,7 @@ mod tests {
             0,
             0,
             0,
-            CongestionInfo::default(),
+            Some(CongestionInfo::default()),
         );
         let mut store_update = store.store_update();
         store_update

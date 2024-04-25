@@ -261,7 +261,7 @@ impl GenesisBuilder {
                     0,
                     self.genesis.config.gas_limit,
                     0,
-                    CongestionInfo::default(),
+                    Some(CongestionInfo::default()),
                 ),
             );
         }
