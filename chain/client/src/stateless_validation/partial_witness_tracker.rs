@@ -2,9 +2,10 @@ use std::collections::HashMap;
 
 use lru::LruCache;
 use near_chain::Error;
-use near_primitives::reed_solomon::ReedSolomonWrapper;
+use near_primitives::reed_solomon::rs_decode;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::stateless_validation::{EncodedChunkStateWitness, PartialEncodedStateWitness};
+use reed_solomon_erasure::galois_8::ReedSolomon;
 
 /// Max number of chunks to keep in the witness tracker cache. We reach here only after validation
 /// of the partial_witness so the LRU cache size need not be too large.
@@ -19,7 +20,7 @@ const RATIO_DATA_PARTS: f32 = 0.8;
 /// We keep one wrapper for each length of chunk_validators to avoid re-creating the encoder.
 /// This is used by `PartialEncodedStateWitnessTracker`
 pub struct RsMap {
-    rs_map: HashMap<usize, ReedSolomonWrapper>,
+    rs_map: HashMap<usize, ReedSolomon>,
 }
 
 impl RsMap {
@@ -27,10 +28,10 @@ impl RsMap {
         Self { rs_map: HashMap::new() }
     }
 
-    pub fn entry(&mut self, total_parts: usize) -> &ReedSolomonWrapper {
+    pub fn entry(&mut self, total_parts: usize) -> &ReedSolomon {
         self.rs_map.entry(total_parts).or_insert_with(|| {
             let data_parts = std::cmp::max((total_parts as f32 * RATIO_DATA_PARTS) as usize, 1);
-            ReedSolomonWrapper::new(data_parts, total_parts - data_parts)
+            ReedSolomon::new(data_parts, total_parts - data_parts).unwrap()
         })
     }
 }
@@ -57,7 +58,7 @@ impl CacheEntry {
     pub fn insert_in_cache_entry(
         &mut self,
         partial_witness: PartialEncodedStateWitness,
-        rs: &ReedSolomonWrapper,
+        rs: &ReedSolomon,
     ) -> Option<EncodedChunkStateWitness> {
         let chunk_hash = partial_witness.chunk_header().chunk_hash();
         let (part_ord, part, encoded_length) = partial_witness.decompose();
@@ -87,7 +88,7 @@ impl CacheEntry {
             return None;
         }
         self.is_decoded = true;
-        match rs.decode(&mut self.parts, encoded_length) {
+        match rs_decode(&rs, &mut self.parts, encoded_length) {
             Ok(encoded_chunk_state_witness) => Some(encoded_chunk_state_witness),
             Err(err) => {
                 // We ideally never expect the decoding to fail. In case it does, we received a bad part
@@ -143,14 +144,14 @@ impl PartialEncodedStateWitnessTracker {
     fn maybe_insert_new_entry_in_parts_cache(
         partial_witness: &PartialEncodedStateWitness,
         parts_cache: &mut LruCache<ChunkHash, CacheEntry>,
-        rs: &ReedSolomonWrapper,
+        rs: &ReedSolomon,
     ) {
         // Insert a new entry into the cache for the chunk hash.
         let chunk_hash = partial_witness.chunk_header().chunk_hash();
         if parts_cache.contains(&chunk_hash) {
             return;
         }
-        let new_entry = CacheEntry::new(rs.total_parts(), rs.data_parts());
+        let new_entry = CacheEntry::new(rs.total_shard_count(), rs.data_shard_count());
         if let Some((evicted_chunk_hash, evicted_entry)) = parts_cache.push(chunk_hash, new_entry) {
             // Check if the evicted entry has been fully decoded and processed.
             if !evicted_entry.is_decoded {
