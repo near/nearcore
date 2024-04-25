@@ -4,9 +4,7 @@
 
 use super::block_stats::BlockStats;
 use super::peer_manager_mock::PeerManagerMock;
-use crate::stateless_validation::state_witness_actor::{
-    StateWitnessActor, StateWitnessSenderForClient,
-};
+use crate::stateless_validation::state_witness_actor::StateWitnessActor;
 use crate::{start_view_client, Client, ClientActor, SyncAdapter, SyncStatus, ViewClientActor};
 use actix::{Actor, Addr, AsyncContext, Context};
 use futures::{future, FutureExt};
@@ -971,7 +969,6 @@ pub fn setup_client_with_runtime(
     archive: bool,
     save_trie_changes: bool,
     snapshot_callbacks: Option<SnapshotCallbacks>,
-    state_witness_adapter: StateWitnessSenderForClient,
     validator_signer: Arc<dyn ValidatorSigner>,
 ) -> Client {
     let mut config = ClientConfig::test(
@@ -1002,7 +999,7 @@ pub fn setup_client_with_runtime(
         rng_seed,
         snapshot_callbacks,
         Arc::new(RayonAsyncComputationSpawner),
-        state_witness_adapter,
+        noop().into_multi_sender(),
     )
     .unwrap();
     client.sync_status = SyncStatus::NoSync;

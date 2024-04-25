@@ -1,7 +1,4 @@
-use crate::StateWitnessActions;
-
 use super::setup::{setup_client_with_runtime, setup_synchronous_shards_manager};
-use super::synchronous_state_witness_adapter::SynchronousStateWitnessAdapter;
 use super::test_env::TestEnv;
 use super::{AccountIndices, TEST_SEED};
 use actix_rt::System;
@@ -561,12 +558,6 @@ impl TestEnvBuilder {
                         delete_snapshot_callback,
                     };
                     let validator_signer = Arc::new(create_test_signer(clients[i].as_str()));
-                    let state_witness_adapter = SynchronousStateWitnessAdapter::new(StateWitnessActions::new(
-                        clock.clone(),
-                        network_adapters[i].clone().as_multi_sender(),
-                        validator_signer.clone(),
-                        epoch_manager.clone().into_adapter(),
-                    ));
                     setup_client_with_runtime(
                         clock.clone(),
                         u64::try_from(num_validators).unwrap(),
@@ -581,7 +572,6 @@ impl TestEnvBuilder {
                         self.archive,
                         self.save_trie_changes,
                         Some(snapshot_callbacks),
-                        state_witness_adapter.into_multi_sender(),
                         validator_signer,
                     )
                 })
