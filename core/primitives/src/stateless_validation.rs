@@ -19,6 +19,10 @@ use near_primitives_core::types::{AccountId, Balance, BlockHeight, ShardId};
 /// This is a messy workaround until we know what to do with NEP 483.
 type SignatureDifferentiator = String;
 
+/// Represents the Reed Solomon erasure encoded parts of the `EncodedChunkStateWitness`.
+/// These are created and signed by the chunk producer and sent to the chunk validators.
+/// Note that the chunk validators do not require all the parts of the state witness to
+/// reconstruct the full state witness due to the Reed Solomon erasure encoding.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct PartialEncodedStateWitness {
     inner: PartialEncodedStateWitnessInner,
@@ -58,12 +62,9 @@ impl PartialEncodedStateWitness {
         &self.inner.chunk_header
     }
 
-    pub fn part_ord(&self) -> usize {
-        self.inner.part_ord
-    }
-
-    pub fn part(&self) -> &[u8] {
-        &self.inner.part
+    // Return (part_ord, part, encoded_length)
+    pub fn decompose(self) -> (usize, Box<[u8]>, usize) {
+        (self.inner.part_ord, self.inner.part, self.inner.encoded_length)
     }
 }
 
@@ -415,6 +416,10 @@ impl ChunkValidatorAssignments {
     pub fn new(assignments: Vec<(AccountId, Balance)>) -> Self {
         let chunk_validators = assignments.iter().map(|(id, _)| id.clone()).collect();
         Self { assignments, chunk_validators }
+    }
+
+    pub fn len(&self) -> usize {
+        self.assignments.len()
     }
 
     pub fn contains(&self, account_id: &AccountId) -> bool {
