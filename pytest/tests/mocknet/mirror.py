@@ -349,10 +349,18 @@ def update_binaries_cmd(args, traffic_generator, nodes):
 
 
 def run_remote_cmd(args, traffic_generator, nodes):
+    targeted = []
     if args.all or args.traffic:
-        cmd_utils.run_cmd(traffic_generator.node.node, args.cmd)
+        targeted.append(traffic_generator)
     if args.all or args.nodes:
-        pmap(lambda node: cmd_utils.run_cmd(node.node.node, args.cmd), nodes)
+        targeted.extend(nodes)
+    if args.filter is not None:
+        targeted = [h for h in targeted if re.search(args.filter, h.name())]
+    if len(targeted) == 0:
+        logger.error(f'No hosts selected. Change filters and try again.')
+        return
+    logger.info(f'Running cmd on {"".join([h.name() for h in targeted ])}')
+    pmap(lambda node: cmd_utils.run_cmd(node.node.node, args.cmd), targeted)
 
 
 if __name__ == '__main__':
@@ -499,6 +507,10 @@ if __name__ == '__main__':
     run_cmd_parser.add_argument('--traffic',
                                 action='store_true',
                                 help='Run on traffic host')
+    run_cmd_parser.add_argument(
+        '--filter',
+        type=str,
+        help='Filter through the selected nodes using regex.')
     run_cmd_parser.set_defaults(func=run_remote_cmd)
 
     args = parser.parse_args()
