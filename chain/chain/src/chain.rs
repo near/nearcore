@@ -2819,10 +2819,11 @@ impl Chain {
             }
         }
 
-        let header = self.get_block_header(&sync_hash)?;
         let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
-        let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
-        flat_storage.update_flat_head(header.prev_hash(), true).unwrap();
+        if let Some(flat_storage) = flat_storage_manager.get_flat_storage_for_shard(shard_uid) {
+            let header = self.get_block_header(&sync_hash)?;
+            flat_storage.update_flat_head(header.prev_hash(), true).unwrap();
+        }
 
         Ok(())
     }

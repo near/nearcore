@@ -41,6 +41,8 @@ pytest --timeout=600 sanity/state_sync_routed.py manytx 115 --features nightly
 # working on a fix / deciding whether to remove them.
 #pytest --timeout=300 sanity/state_sync_late.py notx
 #pytest --timeout=300 sanity/state_sync_late.py notx --features nightly
+pytest sanity/single_shard_tracking.py
+pytest sanity/single_shard_tracking.py --features nightly
 
 pytest --timeout=3600 sanity/state_sync_massive.py
 pytest --timeout=3600 sanity/state_sync_massive_validator.py
