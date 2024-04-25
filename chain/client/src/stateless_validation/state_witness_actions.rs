@@ -186,7 +186,8 @@ impl StateWitnessActions {
         self.validate_partial_encoded_state_witness(&partial_witness)?;
 
         // Store the partial encoded state witness for self.
-        self.store_partial_encoded_state_witness(partial_witness.clone())?;
+        self.partial_witness_tracker
+            .store_partial_encoded_state_witness(partial_witness.clone())?;
 
         // Forward the part to all the chunk validators.
         let chunk_validators = self
@@ -214,7 +215,7 @@ impl StateWitnessActions {
         self.validate_partial_encoded_state_witness(&partial_witness)?;
 
         // Store the partial encoded state witness for self.
-        self.store_partial_encoded_state_witness(partial_witness)?;
+        self.partial_witness_tracker.store_partial_encoded_state_witness(partial_witness)?;
 
         Ok(())
     }
@@ -224,14 +225,6 @@ impl StateWitnessActions {
         partial_witness: &PartialEncodedStateWitness,
     ) -> Result<(), Error> {
         unimplemented!("{:?}", partial_witness)
-    }
-
-    fn store_partial_encoded_state_witness(
-        &mut self,
-        partial_witness: PartialEncodedStateWitness,
-    ) -> Result<(), Error> {
-        self.partial_witness_tracker.store_partial_encoded_state_witness(partial_witness)?;
-        Ok(())
     }
 }
 
