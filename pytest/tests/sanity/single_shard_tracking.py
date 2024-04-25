@@ -92,15 +92,19 @@ def call_function(op, key, nonce, signer_key, last_block_hash, node):
 
 
 def main():
-    node_config_dump, node_config_sync = state_sync_lib.get_state_sync_configs_pair()
+    node_config_dump, node_config_sync = state_sync_lib.get_state_sync_configs_pair(
+    )
     node_config_sync["tracked_shards"] = []
     node_config_sync["store.load_mem_tries_for_tracked_shards"] = True
     node_config_dump["store.load_mem_tries_for_tracked_shards"] = True
     configs = {x: node_config_sync for x in range(4)}
     configs[4] = node_config_dump
 
-    nodes = start_cluster(4, 1, 4, None,
-        [["epoch_length", EPOCH_LENGTH], ["shuffle_shard_assignment_for_chunk_producers", True], ["block_producer_kickout_threshold", 20], ["chunk_producer_kickout_threshold", 20]], configs)
+    nodes = start_cluster(
+        4, 1, 4, None, [["epoch_length", EPOCH_LENGTH],
+                        ["shuffle_shard_assignment_for_chunk_producers", True],
+                        ["block_producer_kickout_threshold", 20],
+                        ["chunk_producer_kickout_threshold", 20]], configs)
 
     for node in nodes:
         node.stop_checking_store()
@@ -114,7 +118,7 @@ def main():
     result = nodes[0].send_tx_and_wait(deploy_contract_tx, 10)
     assert 'result' in result and 'error' not in result, (
         'Expected "result" and no "error" in response, got: {}'.format(result))
-    
+
     nonce = 2
     keys = []
     nonce, keys = random_workload_until(EPOCH_LENGTH * 2, nonce, keys, nodes[0],
@@ -122,8 +126,9 @@ def main():
     for i in range(2, 6):
         print(f"iteration {i} starts")
         stop_height = random.randint(1, EPOCH_LENGTH)
-        nonce, keys = random_workload_until(EPOCH_LENGTH * i + stop_height, nonce, keys, nodes[i // 5],
-                                        nodes[(i+1) // 5], nodes[4])
+        nonce, keys = random_workload_until(EPOCH_LENGTH * i + stop_height,
+                                            nonce, keys, nodes[i // 5],
+                                            nodes[(i + 1) // 5], nodes[4])
         for i in range(4):
             nodes[i].kill()
         time.sleep(2)
