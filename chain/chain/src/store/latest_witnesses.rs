@@ -5,6 +5,9 @@
 //! the witness with the oldest height is removed from the database.
 //! At the moment this module is used only for debugging purposes.
 
+use std::io::ErrorKind;
+
+use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::ChunkStateWitness;
 use near_primitives::types::EpochId;
 use near_store::DBCol;
@@ -49,6 +52,26 @@ impl LatestWitnessesKey {
         result[16..48].copy_from_slice(&self.epoch_id.0 .0);
         result[48..].copy_from_slice(&self.random_uuid);
         result
+    }
+
+    pub fn deserialize(data: &[u8]) -> Result<LatestWitnessesKey, std::io::Error> {
+        if data.len() != 64 {
+            return Err(std::io::Error::new(
+                ErrorKind::InvalidInput,
+                format!(
+                    "Cannot deserialize LatestWitnessesKey, expected 64 bytes, got {}",
+                    data.len()
+                ),
+            ));
+        }
+
+        // Data length is known, so it's safe to unwrap the slices, they'll fit.
+        Ok(LatestWitnessesKey {
+            height: u64::from_be_bytes(data[0..8].try_into().unwrap()),
+            shard_id: u64::from_be_bytes(data[8..16].try_into().unwrap()),
+            epoch_id: EpochId(CryptoHash(data[16..48].try_into().unwrap())),
+            random_uuid: data[48..].try_into().unwrap(),
+        })
     }
 }
 
@@ -137,17 +160,46 @@ impl ChainStore {
     /// Queries `DBCol::LatestChunkStateWitnesses` using a key prefix to find all witnesses that match the criteria.
     pub fn get_latest_witnesses(
         &self,
-        height: u64,
+        height: Option<u64>,
         shard_id: Option<u64>,
+        epoch_id: Option<EpochId>,
     ) -> Result<Vec<ChunkStateWitness>, std::io::Error> {
         let mut key_prefix: Vec<u8> = Vec::new();
-        key_prefix.extend_from_slice(&height.to_be_bytes());
-        if let Some(id) = shard_id {
-            key_prefix.extend_from_slice(&id.to_be_bytes());
+        if let Some(h) = height {
+            key_prefix.extend_from_slice(&h.to_be_bytes());
+
+            if let Some(id) = shard_id {
+                key_prefix.extend_from_slice(&id.to_be_bytes());
+            }
         }
-        self.store()
+
+        let mut result: Vec<ChunkStateWitness> = Vec::new();
+
+        for read_result in self
+            .store()
             .iter_prefix_ser::<ChunkStateWitness>(DBCol::LatestChunkStateWitnesses, &key_prefix)
-            .map(|res| res.map(|(_key, value)| value))
-            .collect()
+        {
+            let (key_bytes, witness) = read_result?;
+
+            let key = LatestWitnessesKey::deserialize(&key_bytes)?;
+            if let Some(h) = height {
+                if key.height != h {
+                    continue;
+                }
+            }
+            if let Some(id) = shard_id {
+                if key.shard_id != id {
+                    continue;
+                }
+            }
+            if let Some(epoch) = &epoch_id {
+                if &key.epoch_id != epoch {
+                    continue;
+                }
+            }
+            result.push(witness);
+        }
+
+        Ok(result)
     }
 }

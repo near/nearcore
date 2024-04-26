@@ -2,18 +2,23 @@ use std::rc::Rc;
 
 use clap::Parser;
 use near_chain::ChainStore;
+use near_primitives::types::EpochId;
 use near_store::Store;
 use nearcore::NearConfig;
 
 #[derive(Parser)]
 pub struct LatestWitnessesCmd {
-    /// Block height (required)
+    /// Block height
     #[arg(long)]
-    height: u64,
+    height: Option<u64>,
 
-    /// Shard id (optional)
+    /// Shard id
     #[arg(long)]
     shard_id: Option<u64>,
+
+    /// Epoch Id
+    #[arg(long)]
+    epoch_id: Option<EpochId>,
 
     /// Pretty-print using the "{:#?}" formatting.
     #[arg(long)]
@@ -29,14 +34,17 @@ impl LatestWitnessesCmd {
         let chain_store =
             Rc::new(ChainStore::new(store, near_config.genesis.config.genesis_height, false));
 
-        let witnesses = chain_store.get_latest_witnesses(self.height, self.shard_id).unwrap();
+        let witnesses = chain_store
+            .get_latest_witnesses(self.height, self.shard_id, self.epoch_id.clone())
+            .unwrap();
         println!("Found {} witnesses:", witnesses.len());
         for (i, witness) in witnesses.iter().enumerate() {
             println!(
-                "#{} (height: {}, shard_id: {}):",
+                "#{} (height: {}, shard_id: {}, epoch_id: {:?}):",
                 i,
                 witness.chunk_header.height_created(),
-                witness.chunk_header.shard_id()
+                witness.chunk_header.shard_id(),
+                witness.epoch_id
             );
             if self.pretty {
                 println!("{:#?}", witness);
