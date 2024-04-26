@@ -4602,7 +4602,7 @@ pub struct BlockCatchUpResponse {
 
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]
-pub struct ReceiveChunkStateWitnessMessage(pub EncodedChunkStateWitness);
+pub struct ProcessChunkStateWitnessMessage(pub EncodedChunkStateWitness);
 
 /// Helper to track blocks catch up
 /// Lifetime of a block_hash is as follows:

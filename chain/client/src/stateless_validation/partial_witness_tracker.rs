@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use lru::LruCache;
 use near_async::messaging::CanSend;
-use near_chain::chain::ReceiveChunkStateWitnessMessage;
+use near_chain::chain::ProcessChunkStateWitnessMessage;
 use near_chain::Error;
 use near_primitives::reed_solomon::rs_decode;
 use near_primitives::sharding::ChunkHash;
@@ -141,7 +141,7 @@ impl PartialEncodedStateWitnessTracker {
         let entry = self.parts_cache.get_mut(&chunk_hash).unwrap();
 
         if let Some(encoded_witness) = entry.insert_in_cache_entry(partial_witness, rs) {
-            self.client_sender.send(ReceiveChunkStateWitnessMessage(encoded_witness));
+            self.client_sender.send(ProcessChunkStateWitnessMessage(encoded_witness));
         }
         Ok(())
     }

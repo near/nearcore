@@ -21,7 +21,7 @@ use near_async::time::{Duration, Instant};
 use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
 use near_chain::chain::{
     ApplyChunksDoneMessage, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
-    BlockCatchUpResponse, LoadMemtrieRequest, LoadMemtrieResponse, ReceiveChunkStateWitnessMessage,
+    BlockCatchUpResponse, LoadMemtrieRequest, LoadMemtrieResponse, ProcessChunkStateWitnessMessage,
 };
 use near_chain::resharding::{ReshardingRequest, ReshardingResponse};
 use near_chain::test_utils::format_hash;
@@ -98,7 +98,7 @@ pub struct SyncJobsSenderForClient {
 #[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
 #[multi_send_message_derive(Debug)]
 pub struct ClientSenderForStateWitness {
-    pub receive_chunk_state_witness: Sender<ReceiveChunkStateWitnessMessage>,
+    pub receive_chunk_state_witness: Sender<ProcessChunkStateWitnessMessage>,
 }
 
 pub struct ClientActions {
@@ -1860,11 +1860,11 @@ impl ClientActionHandler<ChunkStateWitnessMessage> for ClientActions {
     }
 }
 
-impl ClientActionHandler<ReceiveChunkStateWitnessMessage> for ClientActions {
+impl ClientActionHandler<ProcessChunkStateWitnessMessage> for ClientActions {
     type Result = ();
 
     #[perf]
-    fn handle(&mut self, msg: ReceiveChunkStateWitnessMessage) -> Self::Result {
+    fn handle(&mut self, msg: ProcessChunkStateWitnessMessage) -> Self::Result {
         if let Err(err) = self.client.process_chunk_state_witness(msg.0, None) {
             tracing::error!(target: "client", ?err, "Error processing chunk state witness");
         }
