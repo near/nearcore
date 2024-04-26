@@ -37,6 +37,9 @@ impl DelayedReceiptQueue {
         state_update: &mut TrieUpdate,
         receipt: &Receipt,
     ) -> Result<(), StorageError> {
+        if cfg!(debug_assertions) {
+            self.debug_check_unchanged(state_update);
+        }
         let index = self.indices.next_available_index;
         set(state_update, TrieKey::DelayedReceipt { index }, receipt);
 
@@ -48,6 +51,9 @@ impl DelayedReceiptQueue {
     }
 
     pub fn pop(&mut self, state_update: &mut TrieUpdate) -> Result<Option<Receipt>, StorageError> {
+        if cfg!(debug_assertions) {
+            self.debug_check_unchanged(state_update);
+        }
         if self.indices.first_index >= self.indices.next_available_index {
             return Ok(None);
         }
@@ -70,6 +76,9 @@ impl DelayedReceiptQueue {
     }
 
     pub fn iter<'a>(&self, trie: &'a dyn TrieAccess) -> ReceiptIterator<'a> {
+        if cfg!(debug_assertions) {
+            self.debug_check_unchanged(trie);
+        }
         ReceiptIterator {
             trie_keys: Box::new(
                 (self.indices.first_index..self.indices.next_available_index)
@@ -77,6 +86,19 @@ impl DelayedReceiptQueue {
             ),
             trie,
         }
+    }
+
+    /// Check the queue has not been modified in the trie view.
+    ///
+    /// This is a semi-expensive operation. The values should be cached in
+    /// memory in at least one layer. But we still want to avoid it in
+    /// production.
+    #[cfg(debug_assertions)]
+    fn debug_check_unchanged(&self, trie: &dyn TrieAccess) {
+        debug_assert_eq!(
+            self.indices,
+            get(trie, &TrieKey::DelayedReceiptIndices).unwrap().unwrap_or_default()
+        );
     }
 }
 
