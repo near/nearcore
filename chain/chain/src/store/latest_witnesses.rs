@@ -45,7 +45,7 @@ impl LatestWitnessesKey {
     /// `LatestWitnessesKey` has custom serialization to ensure that the binary representation
     /// starts with big-endian height and shard_id.
     /// This allows to query using a key prefix to find all witnesses for a given height (and shard_id).
-    fn serialized(&self) -> [u8; 64] {
+    pub fn serialized(&self) -> [u8; 64] {
         let mut result = [0u8; 64];
         result[..8].copy_from_slice(&self.height.to_be_bytes());
         result[8..16].copy_from_slice(&self.shard_id.to_be_bytes());
