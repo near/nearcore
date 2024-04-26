@@ -1,6 +1,6 @@
 use crate::{get, set, TrieAccess, TrieUpdate};
-use near_primitives::errors::StorageError;
-use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
+use near_primitives::errors::{IntegerOverflowError, StorageError};
+use near_primitives::receipt::{Receipt, TrieQueueIndices};
 use near_primitives::trie_key::TrieKey;
 
 /// Read-only iterator over receipt queues stored in the state trie.
@@ -9,7 +9,8 @@ use near_primitives::trie_key::TrieKey;
 /// written general to work with the new queues that are going to be added for
 /// congestion control.
 pub struct ReceiptIterator<'a> {
-    trie_keys: Box<dyn Iterator<Item = TrieKey>>,
+    indices: std::ops::Range<u64>,
+    trie_queue: &'a dyn TrieQueue,
     trie: &'a dyn TrieAccess,
 }
 
@@ -23,61 +24,82 @@ pub struct ReceiptIterator<'a> {
 /// But if you load two instances of this type at the same time, modifications
 /// on one won't be synced to the other!
 pub struct DelayedReceiptQueue {
-    indices: DelayedReceiptIndices,
+    indices: TrieQueueIndices,
 }
 
-impl DelayedReceiptQueue {
-    pub fn load(trie: &dyn TrieAccess) -> Result<Self, StorageError> {
-        let indices = get(trie, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default();
-        Ok(Self { indices })
-    }
+/// Common code for persistent queues stored in the trie.
+///
+/// Here we use a trait to share code between different implementations of the
+/// queue. Each impl defines how it loads and stores the queue indices and the
+/// queue items. Based on that, a common push(), pop(), len(), and iter()
+/// implementation is provided as trait default implementation.
+pub trait TrieQueue {
+    /// Read queue indices of the queue from the trie, depending on impl.
+    fn load_indices(&self, trie: &dyn TrieAccess) -> Result<TrieQueueIndices, StorageError>;
 
-    pub fn push(
+    /// Read indices from a cached field.
+    fn indices(&self) -> TrieQueueIndices;
+
+    /// Read and write indices from a cached field.
+    fn indices_mut(&mut self) -> &mut TrieQueueIndices;
+
+    /// Write changed indices back to the trie, using the correct trie key
+    /// depending on impl.
+    fn write_indices(&self, state_update: &mut TrieUpdate);
+
+    /// Construct the the trie key for a queue item depending on impl.
+    fn trie_key(&self, queue_index: u64) -> TrieKey;
+
+    fn push(
         &mut self,
         state_update: &mut TrieUpdate,
         receipt: &Receipt,
-    ) -> Result<(), StorageError> {
+    ) -> Result<(), IntegerOverflowError> {
         self.debug_check_unchanged(state_update);
-        let index = self.indices.next_available_index;
-        set(state_update, TrieKey::DelayedReceipt { index }, receipt);
 
-        self.indices.next_available_index = index
-            .checked_add(1)
-            .expect("Next available index for delayed receipt exceeded the integer limit");
-        set(state_update, TrieKey::DelayedReceiptIndices, &self.indices);
+        let index = self.indices().next_available_index;
+        let key = self.trie_key(index);
+        set(state_update, key, receipt);
+
+        self.indices_mut().next_available_index =
+            index.checked_add(1).ok_or(IntegerOverflowError)?;
+        self.write_indices(state_update);
         Ok(())
     }
 
-    pub fn pop(&mut self, state_update: &mut TrieUpdate) -> Result<Option<Receipt>, StorageError> {
+    fn pop(&mut self, state_update: &mut TrieUpdate) -> Result<Option<Receipt>, StorageError> {
         self.debug_check_unchanged(state_update);
-        if self.indices.first_index >= self.indices.next_available_index {
+
+        let indices = self.indices();
+        if indices.first_index >= indices.next_available_index {
             return Ok(None);
         }
-        let key = TrieKey::DelayedReceipt { index: self.indices.first_index };
+        let key = self.trie_key(indices.first_index);
         let receipt: Receipt = get(state_update, &key)?.ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
-                "Delayed receipt #{} should be in the state",
-                self.indices.first_index
+                "Receipt #{} should be in the state",
+                indices.first_index
             ))
         })?;
         state_update.remove(key);
         // Math checked above, first_index < next_available_index
-        self.indices.first_index += 1;
-        set(state_update, TrieKey::DelayedReceiptIndices, &self.indices);
+        self.indices_mut().first_index += 1;
+        self.write_indices(state_update);
         Ok(Some(receipt))
     }
 
-    pub fn len(&self) -> u64 {
-        self.indices.len()
+    fn len(&self) -> u64 {
+        self.indices().len()
     }
 
-    pub fn iter<'a>(&self, trie: &'a dyn TrieAccess) -> ReceiptIterator<'a> {
+    fn iter<'a>(&'a self, trie: &'a dyn TrieAccess) -> ReceiptIterator<'a>
+    where
+        Self: Sized,
+    {
         self.debug_check_unchanged(trie);
         ReceiptIterator {
-            trie_keys: Box::new(
-                (self.indices.first_index..self.indices.next_available_index)
-                    .map(move |index| TrieKey::DelayedReceipt { index }),
-            ),
+            indices: self.indices().first_index..self.indices().next_available_index,
+            trie_queue: self,
             trie,
         }
     }
@@ -89,14 +111,41 @@ impl DelayedReceiptQueue {
     /// production.
     #[cfg(debug_assertions)]
     fn debug_check_unchanged(&self, trie: &dyn TrieAccess) {
-        debug_assert_eq!(
-            self.indices,
-            get(trie, &TrieKey::DelayedReceiptIndices).unwrap().unwrap_or_default()
-        );
+        debug_assert_eq!(self.indices(), self.load_indices(trie).unwrap());
     }
+
     #[cfg(not(debug_assertions))]
     fn debug_check_unchanged(&self, _trie: &dyn TrieAccess) {
         // nop in release build
+    }
+}
+
+impl DelayedReceiptQueue {
+    pub fn load(trie: &dyn TrieAccess) -> Result<Self, StorageError> {
+        let indices = crate::get_delayed_receipt_indices(trie)?;
+        Ok(Self { indices: indices.into() })
+    }
+}
+
+impl TrieQueue for DelayedReceiptQueue {
+    fn load_indices(&self, trie: &dyn TrieAccess) -> Result<TrieQueueIndices, StorageError> {
+        crate::get_delayed_receipt_indices(trie).map(TrieQueueIndices::from)
+    }
+
+    fn indices(&self) -> TrieQueueIndices {
+        self.indices.clone()
+    }
+
+    fn indices_mut(&mut self) -> &mut TrieQueueIndices {
+        &mut self.indices
+    }
+
+    fn write_indices(&self, state_update: &mut TrieUpdate) {
+        set(state_update, TrieKey::DelayedReceiptIndices, &self.indices);
+    }
+
+    fn trie_key(&self, index: u64) -> TrieKey {
+        TrieKey::DelayedReceipt { index }
     }
 }
 
@@ -104,7 +153,8 @@ impl<'a> Iterator for ReceiptIterator<'a> {
     type Item = Result<Receipt, StorageError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let key = self.trie_keys.next()?;
+        let index = self.indices.next()?;
+        let key = self.trie_queue.trie_key(index);
         let result = match get(self.trie, &key) {
             Err(e) => Err(e),
             Ok(None) => Err(StorageError::StorageInconsistentState(

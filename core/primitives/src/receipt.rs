@@ -257,5 +257,32 @@ pub struct PromiseYieldTimeout {
     pub expires_at: BlockHeight,
 }
 
+/// Stores indices for a persistent queue in the state trie.
+#[derive(Default, BorshSerialize, BorshDeserialize, Clone, PartialEq, Debug)]
+pub struct TrieQueueIndices {
+    // First inclusive index in the queue.
+    pub first_index: u64,
+    // Exclusive end index of the queue
+    pub next_available_index: u64,
+}
+
+impl TrieQueueIndices {
+    pub fn len(&self) -> u64 {
+        self.next_available_index - self.first_index
+    }
+}
+
+impl From<DelayedReceiptIndices> for TrieQueueIndices {
+    fn from(other: DelayedReceiptIndices) -> Self {
+        Self { first_index: other.first_index, next_available_index: other.next_available_index }
+    }
+}
+
+impl From<TrieQueueIndices> for DelayedReceiptIndices {
+    fn from(other: TrieQueueIndices) -> Self {
+        Self { first_index: other.first_index, next_available_index: other.next_available_index }
+    }
+}
+
 /// Map of shard to list of receipts to send to it.
 pub type ReceiptResult = HashMap<ShardId, Vec<Receipt>>;
