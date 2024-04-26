@@ -92,6 +92,9 @@ class LocalTestNeardRunner:
         # handled by local_test_setup_cmd()
         return
 
+    def run_cmd(self, cmd):
+        logger.error("Does not make sense to run command on local test.")
+
     def init_python(self):
         return
 

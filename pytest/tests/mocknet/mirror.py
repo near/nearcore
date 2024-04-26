@@ -360,7 +360,7 @@ def run_remote_cmd(args, traffic_generator, nodes):
         logger.error(f'No hosts selected. Change filters and try again.')
         return
     logger.info(f'Running cmd on {"".join([h.name() for h in targeted ])}')
-    pmap(lambda node: cmd_utils.run_cmd(node.node.node, args.cmd), targeted)
+    pmap(lambda node: node.run_cmd(args.cmd), targeted)
 
 
 if __name__ == '__main__':
