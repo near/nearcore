@@ -11,6 +11,22 @@ publish = false
 [lints]
 workspace = true
 
+# Ignore unused dependencies. 
+# They are unused when new_epoch_sync feature is not set.
+[package.metadata.cargo-udeps.ignore]
+normal = [
+    "anyhow",
+    "clap",
+    "tracing",
+
+    "nearcore",
+    "near-chain",
+    "near-chain-configs",
+    "near-epoch-manager",
+    "near-primitives",
+    "near-store",
+]
+
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
@@ -25,4 +41,4 @@ near-store.workspace = true
 
 [features]
 default = []
-new_epoch_sync = []
+new_epoch_sync = ["nearcore/new_epoch_sync"]
