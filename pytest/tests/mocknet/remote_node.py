@@ -55,7 +55,7 @@ class RemoteNeardRunner:
                             config)
 
     def run_cmd(self, cmd, raise_on_fail=False, return_on_fail=False):
-        r = cmd_utils.run_cmd(self.node,cmd, raise_on_fail, return_on_fail)
+        r = cmd_utils.run_cmd(self.node, cmd, raise_on_fail, return_on_fail)
         return r
 
     def init_python(self):

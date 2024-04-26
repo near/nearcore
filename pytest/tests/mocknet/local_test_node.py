@@ -93,7 +93,9 @@ class LocalTestNeardRunner:
         return
 
     def run_cmd(self, cmd, raise_on_fail=False, return_on_fail=False):
-        logger.error("Does not make sense to run command on local host. The behaviour may not be the desired one.")
+        logger.error(
+            "Does not make sense to run command on local host. The behaviour may not be the desired one."
+        )
 
     def init_python(self):
         return
