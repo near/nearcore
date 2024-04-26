@@ -54,9 +54,9 @@ class RemoteNeardRunner:
                             os.path.join(self.neard_runner_home, 'config.json'),
                             config)
 
-    def run_cmd(self, cmd):
-        r = cmd_utils.run_cmd(self.node,cmd)
-        return r.stdout
+    def run_cmd(self, cmd, raise_on_fail=False, return_on_fail=False):
+        r = cmd_utils.run_cmd(self.node,cmd, raise_on_fail, return_on_fail)
+        return r
 
     def init_python(self):
         cmd = f'cd {self.neard_runner_home} && python3 -m virtualenv venv -p $(which python3)' \
