@@ -284,5 +284,15 @@ impl From<TrieQueueIndices> for DelayedReceiptIndices {
     }
 }
 
+/// Stores indices for a persistent queue for buffered receipts that couldn't be
+/// forwarded.
+///
+/// This is the singleton value stored in the `BUFFERED_RECEIPT_INDICES` trie
+/// column.
+#[derive(Default, BorshSerialize, BorshDeserialize, Clone, PartialEq, Debug)]
+pub struct BufferedReceiptIndices {
+    pub shard_buffers: std::collections::BTreeMap<ShardId, TrieQueueIndices>,
+}
+
 /// Map of shard to list of receipts to send to it.
 pub type ReceiptResult = HashMap<ShardId, Vec<Receipt>>;

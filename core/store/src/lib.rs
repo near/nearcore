@@ -24,8 +24,8 @@ use near_primitives::account::{AccessKey, Account};
 pub use near_primitives::errors::{MissingTrieValueContext, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout, Receipt, ReceiptEnum,
-    ReceivedData,
+    BufferedReceiptIndices, DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout,
+    Receipt, ReceiptEnum, ReceivedData,
 };
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
@@ -900,6 +900,12 @@ pub fn has_promise_yield_receipt(
     data_id: CryptoHash,
 ) -> Result<bool, StorageError> {
     trie.contains_key(&TrieKey::PromiseYieldReceipt { receiver_id, data_id })
+}
+
+pub fn get_buffered_receipt_indices(
+    trie: &dyn TrieAccess,
+) -> Result<BufferedReceiptIndices, StorageError> {
+    Ok(get(trie, &TrieKey::BufferedReceiptIndices)?.unwrap_or_default())
 }
 
 pub fn set_access_key(
