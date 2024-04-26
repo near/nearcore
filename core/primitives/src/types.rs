@@ -817,7 +817,7 @@ pub mod chunk_extra {
         ) -> Self {
             if protocol_version >= ProtocolFeature::CongestionControl.protocol_version() {
                 // TODO(congestion_control)
-                // assert!(congestion_info.is_some());
+                assert!(congestion_info.is_some());
                 Self::V3(ChunkExtraV3 {
                     state_root: *state_root,
                     outcome_root,
