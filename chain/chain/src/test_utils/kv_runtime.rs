@@ -1,8 +1,8 @@
 use super::ValidatorSchedule;
 use crate::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, ApplyResultForResharding,
-    PrepareTransactionsBlockContext, PrepareTransactionsChunkContext, PreparedTransactions,
-    RuntimeAdapter, RuntimeStorageConfig,
+    ApplyChunkBlockContext, ApplyChunkReason, ApplyChunkResult, ApplyChunkShardContext,
+    ApplyResultForResharding, PrepareTransactionsBlockContext, PrepareTransactionsChunkContext,
+    PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
 };
 use crate::BlockHeader;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -1101,6 +1101,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn apply_chunk(
         &self,
         storage_config: RuntimeStorageConfig,
+        _apply_reason: ApplyChunkReason,
         chunk: ApplyChunkShardContext,
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],

@@ -4,8 +4,8 @@ use crate::metrics::{SHARD_LAYOUT_NUM_SHARDS, SHARD_LAYOUT_VERSION};
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 
 use crate::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, ReshardingResults,
-    RuntimeAdapter, RuntimeStorageConfig,
+    ApplyChunkBlockContext, ApplyChunkReason, ApplyChunkResult, ApplyChunkShardContext,
+    ReshardingResults, RuntimeAdapter, RuntimeStorageConfig,
 };
 use crate::update_shard::{NewChunkResult, OldChunkResult, ReshardingResult, ShardUpdateResult};
 use crate::{metrics, DoomslugThresholdMode};
@@ -738,6 +738,7 @@ impl<'a> ChainUpdate<'a> {
 
         let apply_result = self.runtime_adapter.apply_chunk(
             RuntimeStorageConfig::new(chunk_header.prev_state_root(), true),
+            ApplyChunkReason::UpdateShard,
             ApplyChunkShardContext {
                 shard_id,
                 gas_limit,
@@ -835,6 +836,7 @@ impl<'a> ChainUpdate<'a> {
 
         let apply_result = self.runtime_adapter.apply_chunk(
             RuntimeStorageConfig::new(*chunk_extra.state_root(), true),
+            ApplyChunkReason::UpdateShard,
             ApplyChunkShardContext {
                 shard_id,
                 last_validator_proposals: chunk_extra.validator_proposals(),

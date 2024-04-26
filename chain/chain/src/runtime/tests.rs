@@ -81,6 +81,7 @@ impl NightshadeRuntime {
         let mut result = self
             .apply_chunk(
                 RuntimeStorageConfig::new(*state_root, true),
+                ApplyChunkReason::UpdateShard,
                 ApplyChunkShardContext {
                     shard_id,
                     last_validator_proposals,

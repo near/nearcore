@@ -3,8 +3,8 @@ use borsh::BorshDeserialize;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
-    RuntimeStorageConfig,
+    ApplyChunkBlockContext, ApplyChunkReason, ApplyChunkResult, ApplyChunkShardContext,
+    RuntimeAdapter, RuntimeStorageConfig,
 };
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
@@ -133,6 +133,7 @@ pub(crate) fn apply_chunk(
     Ok((
         runtime.apply_chunk(
             RuntimeStorageConfig::new(prev_state_root, use_flat_storage),
+            ApplyChunkReason::UpdateShard,
             ApplyChunkShardContext {
                 shard_id,
                 last_validator_proposals: chunk_header.prev_validator_proposals(),

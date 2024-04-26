@@ -1,7 +1,8 @@
 use crate::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, ApplyResultForResharding,
-    PrepareTransactionsBlockContext, PrepareTransactionsChunkContext, PrepareTransactionsLimit,
-    PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig, StorageDataSource, Tip,
+    ApplyChunkBlockContext, ApplyChunkReason, ApplyChunkResult, ApplyChunkShardContext,
+    ApplyResultForResharding, PrepareTransactionsBlockContext, PrepareTransactionsChunkContext,
+    PrepareTransactionsLimit, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
+    StorageDataSource, Tip,
 };
 use crate::Error;
 use borsh::BorshDeserialize;
@@ -246,6 +247,7 @@ impl NightshadeRuntime {
     fn process_state_update(
         &self,
         trie: Trie,
+        apply_reason: ApplyChunkReason,
         chunk: ApplyChunkShardContext,
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],
@@ -420,7 +422,7 @@ impl NightshadeRuntime {
             .with_label_values(&[&shard_label])
             .set(apply_result.delayed_receipts_count as i64);
         if let Some(mut metrics) = apply_result.metrics {
-            metrics.report(&shard_label);
+            metrics.report(&shard_label, &apply_reason.to_string());
         }
 
         let total_balance_burnt = apply_result
@@ -864,6 +866,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn apply_chunk(
         &self,
         storage_config: RuntimeStorageConfig,
+        apply_reason: ApplyChunkReason,
         chunk: ApplyChunkShardContext,
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],
@@ -903,6 +906,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         match self.process_state_update(
             trie,
+            apply_reason,
             chunk,
             block,
             receipts,
