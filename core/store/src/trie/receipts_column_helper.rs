@@ -37,9 +37,7 @@ impl DelayedReceiptQueue {
         state_update: &mut TrieUpdate,
         receipt: &Receipt,
     ) -> Result<(), StorageError> {
-        if cfg!(debug_assertions) {
-            self.debug_check_unchanged(state_update);
-        }
+        self.debug_check_unchanged(state_update);
         let index = self.indices.next_available_index;
         set(state_update, TrieKey::DelayedReceipt { index }, receipt);
 
@@ -51,9 +49,7 @@ impl DelayedReceiptQueue {
     }
 
     pub fn pop(&mut self, state_update: &mut TrieUpdate) -> Result<Option<Receipt>, StorageError> {
-        if cfg!(debug_assertions) {
-            self.debug_check_unchanged(state_update);
-        }
+        self.debug_check_unchanged(state_update);
         if self.indices.first_index >= self.indices.next_available_index {
             return Ok(None);
         }
@@ -76,9 +72,7 @@ impl DelayedReceiptQueue {
     }
 
     pub fn iter<'a>(&self, trie: &'a dyn TrieAccess) -> ReceiptIterator<'a> {
-        if cfg!(debug_assertions) {
-            self.debug_check_unchanged(trie);
-        }
+        self.debug_check_unchanged(trie);
         ReceiptIterator {
             trie_keys: Box::new(
                 (self.indices.first_index..self.indices.next_available_index)
@@ -99,6 +93,10 @@ impl DelayedReceiptQueue {
             self.indices,
             get(trie, &TrieKey::DelayedReceiptIndices).unwrap().unwrap_or_default()
         );
+    }
+    #[cfg(not(debug_assertions))]
+    fn debug_check_unchanged(&self, _trie: &dyn TrieAccess) {
+        // nop in release build
     }
 }
 
