@@ -1,14 +1,12 @@
-use std::path::PathBuf;
 use std::rc::Rc;
 
 use clap::Parser;
 use near_chain::ChainStore;
-use near_chain_configs::GenesisValidationMode;
-use near_store::{Mode, NodeStorage};
-use nearcore::load_config;
+use near_store::Store;
+use nearcore::NearConfig;
 
 #[derive(Parser)]
-pub(crate) struct ShowLatestWitnessesCommand {
+pub struct LatestWitnessesCmd {
     /// Block height (required)
     #[arg(long)]
     height: u64,
@@ -26,18 +24,8 @@ pub(crate) struct ShowLatestWitnessesCommand {
     binary: bool,
 }
 
-impl ShowLatestWitnessesCommand {
-    pub(crate) fn run(&self, home: &PathBuf) -> anyhow::Result<()> {
-        let near_config = load_config(home, GenesisValidationMode::Full).unwrap();
-        let node_storage = NodeStorage::opener(
-            home,
-            near_config.client_config.archive,
-            &near_config.config.store,
-            near_config.config.cold_store.as_ref(),
-        )
-        .open_in_mode(Mode::ReadOnly)
-        .unwrap();
-        let store = node_storage.get_split_store().unwrap_or_else(|| node_storage.get_hot_store());
+impl LatestWitnessesCmd {
+    pub(crate) fn run(&self, near_config: NearConfig, store: Store) {
         let chain_store =
             Rc::new(ChainStore::new(store, near_config.genesis.config.genesis_height, false));
 
@@ -58,7 +46,5 @@ impl ShowLatestWitnessesCommand {
                 println!("{:?}", witness);
             }
         }
-
-        Ok(())
     }
 }

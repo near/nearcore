@@ -6,6 +6,7 @@ pub mod cli;
 mod commands;
 mod contract_accounts;
 mod epoch_info;
+mod latest_witnesses;
 mod rocksdb_stats;
 mod scan_db;
 mod state_changes;

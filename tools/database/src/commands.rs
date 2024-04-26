@@ -8,7 +8,6 @@ use crate::corrupt::CorruptStateSnapshotCommand;
 use crate::make_snapshot::MakeSnapshotCommand;
 use crate::memtrie::LoadMemTrieCommand;
 use crate::run_migrations::RunMigrationsCommand;
-use crate::show_latest_witnesses::ShowLatestWitnessesCommand;
 use crate::state_perf::StatePerfCommand;
 use crate::write_to_db::WriteCryptoHashCommand;
 use clap::Parser;
@@ -57,9 +56,6 @@ enum SubCommand {
     HighLoadStats(HighLoadStatsCommand),
     // Analyze congestion through delayed receipts
     AnalyzeDelayedReceipt(AnalyzeDelayedReceiptCommand),
-    /// Print observed ChunkStateWitnesses at the given block height (and shard id).
-    /// Observed witnesses are only saved when `save_latest_witnesses` is set to true in config.json.
-    ShowLatestWitnesses(ShowLatestWitnessesCommand),
 }
 
 impl DatabaseCommand {
@@ -91,7 +87,6 @@ impl DatabaseCommand {
             SubCommand::WriteCryptoHash(cmd) => cmd.run(home),
             SubCommand::HighLoadStats(cmd) => cmd.run(home),
             SubCommand::AnalyzeDelayedReceipt(cmd) => cmd.run(home),
-            SubCommand::ShowLatestWitnesses(cmd) => cmd.run(home),
         }
     }
 }
