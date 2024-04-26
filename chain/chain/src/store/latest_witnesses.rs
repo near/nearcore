@@ -6,6 +6,7 @@
 //! At the moment this module is used only for debugging purposes.
 
 use near_primitives::stateless_validation::ChunkStateWitness;
+use near_primitives::types::EpochId;
 use near_store::DBCol;
 
 use crate::ChainStoreAccess;
@@ -27,10 +28,11 @@ const SINGLE_LATEST_WITNESS_MAX_SIZE: ByteSize = ByteSize::mb(128);
 /// Maximum number of latest witnesses stored in the database.
 const LATEST_WITNESSES_MAX_COUNT: u64 = 60 * 30;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LatestWitnessesKey {
     pub height: u64,
     pub shard_id: u64,
+    pub epoch_id: EpochId,
     /// Each witness has a random UUID to ensure that the key is unique.
     /// It allows to store multiple witnesses with the same height and shard_id.
     pub random_uuid: [u8; 16],
@@ -40,11 +42,12 @@ impl LatestWitnessesKey {
     /// `LatestWitnessesKey` has custom serialization to ensure that the binary representation
     /// starts with big-endian height and shard_id.
     /// This allows to query using a key prefix to find all witnesses for a given height (and shard_id).
-    fn serialized(&self) -> [u8; 32] {
-        let mut result = [0u8; 32];
+    fn serialized(&self) -> [u8; 64] {
+        let mut result = [0u8; 64];
         result[..8].copy_from_slice(&self.height.to_be_bytes());
         result[8..16].copy_from_slice(&self.shard_id.to_be_bytes());
-        result[16..].copy_from_slice(&self.random_uuid);
+        result[16..48].copy_from_slice(&self.epoch_id.0 .0);
+        result[48..].copy_from_slice(&self.random_uuid);
         result
     }
 }
@@ -116,6 +119,7 @@ impl ChainStore {
         let key = LatestWitnessesKey {
             height: witness.chunk_header.height_created(),
             shard_id: witness.chunk_header.shard_id(),
+            epoch_id: witness.epoch_id.clone(),
             random_uuid,
         };
         store_update.set(DBCol::LatestChunkStateWitnesses, &key.serialized(), &serialized_witness);
