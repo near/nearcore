@@ -1670,8 +1670,6 @@ impl Runtime {
         );
 
         let _span = tracing::debug_span!(target: "runtime", "apply_commit").entered();
-        let delayed_receipts_count = delayed_receipts.len();
-        delayed_receipts.write_back(&mut state_update);
 
         if promise_yield_indices != initial_promise_yield_indices {
             set(&mut state_update, TrieKey::PromiseYieldIndices, &promise_yield_indices);
@@ -1738,7 +1736,7 @@ impl Runtime {
             processed_delayed_receipts,
             processed_yield_timeouts,
             proof,
-            delayed_receipts_count,
+            delayed_receipts_count: delayed_receipts.len(),
             metrics: Some(metrics),
         })
     }

@@ -3,14 +3,17 @@ use near_primitives::errors::StorageError;
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
 use near_primitives::trie_key::TrieKey;
 
-/// Type safe access to delayed receipts queue stored in the state.
+/// Type safe access to delayed receipts queue stored in the state. Only use one
+/// at the time for the same queue!
 ///
-/// The struct keeps changes to indices in fields and only writes it back to
-/// state once, when `DelayedReceiptsQueue::write_back()` is called.
-#[must_use = "modified indices must be written back to state"]
+/// The struct keeps a in-memory copy of the queue indics to avoid reading it
+/// from the trie on every access. Modification are written back to the
+/// TrieUpdate immediately on every update.
+///
+/// But if you load two instance of this type at the same time, modifications on
+/// onw won't be synced to the other!
 pub struct DelayedReceiptQueue {
     indices: DelayedReceiptIndices,
-    dirty: bool,
 }
 
 /// Read-only iterator over receipt queues stored in the state trie.
@@ -26,7 +29,7 @@ pub struct ReceiptIterator<'a> {
 impl DelayedReceiptQueue {
     pub fn load(trie: &dyn TrieAccess) -> Result<Self, StorageError> {
         let indices = get(trie, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default();
-        Ok(Self { indices, dirty: false })
+        Ok(Self { indices })
     }
 
     pub fn push(
@@ -40,7 +43,7 @@ impl DelayedReceiptQueue {
         self.indices.next_available_index = index
             .checked_add(1)
             .expect("Next available index for delayed receipt exceeded the integer limit");
-        self.dirty = true;
+        set(state_update, TrieKey::DelayedReceiptIndices, &self.indices);
         Ok(())
     }
 
@@ -58,16 +61,8 @@ impl DelayedReceiptQueue {
         state_update.remove(key);
         // Math checked above, first_index < next_available_index
         self.indices.first_index += 1;
-
-        self.dirty = true;
+        set(state_update, TrieKey::DelayedReceiptIndices, &self.indices);
         Ok(Some(receipt))
-    }
-
-    /// Write changes of queue indices to state update.
-    pub fn write_back(self, state_update: &mut TrieUpdate) {
-        if self.dirty {
-            set(state_update, TrieKey::DelayedReceiptIndices, &self.indices);
-        }
     }
 
     pub fn len(&self) -> u64 {
@@ -135,11 +130,11 @@ mod tests {
         let iterated_receipts: Vec<Receipt> =
             queue.iter(&trie).collect::<Result<_, _>>().expect("iterating should not fail");
 
-        // check 1: receipts should be in queue even before writing back
+        // check 1: receipts should be in queue and contained in the iterator
         assert_eq!(input_receipts, iterated_receipts, "receipts were not recorded in queue");
 
-        // check 2: write back and load again to see if values are persisted
-        queue.write_back(&mut trie);
+        // check 2: drop queue and load another one to see if values are persisted
+        drop(queue);
         let mut queue = DelayedReceiptQueue::load(&trie).expect("creating queue must not fail");
         let iterated_receipts: Vec<Receipt> =
             queue.iter(&trie).collect::<Result<_, _>>().expect("iterating should not fail");
