@@ -26,6 +26,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
     AccountId, BlockExtra, BlockHeight, BlockHeightDelta, NumShards, ShardId,
 };
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::LightClientBlockView;
 use std::collections::HashMap;
 #[cfg(feature = "new_epoch_sync")]
@@ -234,7 +235,6 @@ impl<'a> ChainUpdate<'a> {
                 // TODO(resharding) make sure that is the case.
                 assert_eq!(num_split_shards, results.len() as u64);
 
-                // let epoch_id = self.epoch_manager.get_epoch_id(block_hash)?;
                 let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
                 let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
@@ -253,6 +253,13 @@ impl<'a> ChainUpdate<'a> {
                         balance_split
                     };
 
+                    if protocol_version >= ProtocolFeature::CongestionControl.protocol_version() {
+                        // This will likely break resharding integration tests
+                        // when congestion control is enabled. Let's mark them
+                        // ignore when that happens.
+                        todo!("implement resharding and congestion control integration");
+                    }
+
                     let new_chunk_extra = ChunkExtra::new(
                         protocol_version,
                         &result.new_root,
@@ -263,7 +270,7 @@ impl<'a> ChainUpdate<'a> {
                         balance_burnt,
                         // TODO(congestion_control) set congestion info for resharding
                         // TODO(resharding) set congestion info for resharding
-                        chunk_extra.congestion_info(),
+                        None,
                     );
                     sum_gas_used += gas_burnt;
                     sum_balance_burnt += balance_burnt;

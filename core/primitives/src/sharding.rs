@@ -449,10 +449,7 @@ impl ShardChunkHeader {
                 SHARD_CHUNK_HEADER_UPGRADE_VERSION <= version && version < BLOCK_HEADER_V3_VERSION
             }
             ShardChunkHeader::V3(header) => match header.inner {
-                ShardChunkHeaderInner::V1(_) => {
-                    version >= BLOCK_HEADER_V3_VERSION && version < CONGESTION_CONTROL_VERSION
-                }
-                ShardChunkHeaderInner::V2(_) => {
+                ShardChunkHeaderInner::V1(_) | ShardChunkHeaderInner::V2(_) => {
                     version >= BLOCK_HEADER_V3_VERSION && version < CONGESTION_CONTROL_VERSION
                 }
                 ShardChunkHeaderInner::V3(_) => version >= CONGESTION_CONTROL_VERSION,
