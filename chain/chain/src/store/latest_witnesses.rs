@@ -109,6 +109,7 @@ impl ChainStore {
                 serialized_witness.len(),
                 SINGLE_LATEST_WITNESS_MAX_SIZE.as_u64()
             );
+            return Ok(());
         }
 
         // Read the current `LatestWitnessesInfo`, or create a new one if there is none.
