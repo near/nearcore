@@ -26,14 +26,13 @@ type SignatureDifferentiator = String;
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct PartialEncodedStateWitness {
     inner: PartialEncodedStateWitnessInner,
-    pub signature: Signature,
+    signature: Signature,
 }
 
 impl PartialEncodedStateWitness {
     pub fn new(
         epoch_id: EpochId,
         chunk_header: ShardChunkHeader,
-        num_parts: usize,
         part_ord: usize,
         part: Vec<u8>,
         encoded_length: usize,
@@ -42,7 +41,6 @@ impl PartialEncodedStateWitness {
         let inner = PartialEncodedStateWitnessInner::new(
             epoch_id,
             chunk_header,
-            num_parts,
             part_ord,
             part,
             encoded_length,
@@ -60,12 +58,16 @@ impl PartialEncodedStateWitness {
         &self.inner.epoch_id
     }
 
-    pub fn chunk_header(&self) -> &ShardChunkHeader {
-        &self.inner.chunk_header
+    pub fn shard_id(&self) -> ShardId {
+        self.inner.shard_id
     }
 
-    pub fn num_parts(&self) -> usize {
-        self.inner.num_parts
+    pub fn height_created(&self) -> BlockHeight {
+        self.inner.height_created
+    }
+
+    pub fn part_ord(&self) -> usize {
+        self.inner.part_ord
     }
 
     // Return (part_ord, part, encoded_length)
@@ -77,8 +79,8 @@ impl PartialEncodedStateWitness {
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct PartialEncodedStateWitnessInner {
     epoch_id: EpochId,
-    chunk_header: ShardChunkHeader,
-    num_parts: usize,
+    shard_id: ShardId,
+    height_created: BlockHeight,
     part_ord: usize,
     part: Box<[u8]>,
     encoded_length: usize,
@@ -89,15 +91,14 @@ impl PartialEncodedStateWitnessInner {
     fn new(
         epoch_id: EpochId,
         chunk_header: ShardChunkHeader,
-        num_parts: usize,
         part_ord: usize,
         part: Vec<u8>,
         encoded_length: usize,
     ) -> Self {
         Self {
             epoch_id,
-            chunk_header,
-            num_parts,
+            shard_id: chunk_header.shard_id(),
+            height_created: chunk_header.height_created(),
             part_ord,
             part: part.into_boxed_slice(),
             encoded_length,
@@ -179,6 +180,7 @@ impl ChunkStateWitnessAck {
 /// chunk attests to.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ChunkStateWitness {
+    /// TODO(stateless_validation): Deprecate once we send state witness in parts.
     pub chunk_producer: AccountId,
     /// EpochId corresponds to the next block after chunk's previous block.
     /// This is effectively the output of EpochManager::get_epoch_id_from_prev_block

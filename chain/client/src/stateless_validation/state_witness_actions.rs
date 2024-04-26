@@ -46,7 +46,8 @@ impl StateWitnessActions {
         my_signer: Arc<dyn ValidatorSigner>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
     ) -> Self {
-        let partial_witness_tracker = PartialEncodedStateWitnessTracker::new(client_sender);
+        let partial_witness_tracker =
+            PartialEncodedStateWitnessTracker::new(client_sender, epoch_manager.clone());
         Self {
             network_adapter,
             my_signer,
@@ -141,7 +142,6 @@ impl StateWitnessActions {
                 let partial_witness = PartialEncodedStateWitness::new(
                     epoch_id.clone(),
                     chunk_header.clone(),
-                    rs.total_shard_count(),
                     part_ord,
                     part.unwrap().to_vec(),
                     encoded_length,
@@ -198,8 +198,8 @@ impl StateWitnessActions {
             .epoch_manager
             .get_chunk_validator_assignments(
                 partial_witness.epoch_id(),
-                partial_witness.chunk_header().shard_id(),
-                partial_witness.chunk_header().height_created(),
+                partial_witness.shard_id(),
+                partial_witness.height_created(),
             )?
             .ordered_chunk_validators();
 
@@ -224,11 +224,54 @@ impl StateWitnessActions {
         Ok(())
     }
 
+    /// Function to validate the partial encoded state witness. We check the following
+    /// - shard_id is valid
+    /// - we are one of the validators for the chunk
+    /// - part_ord is valid and within range of the number of expected parts for this chunk
+    /// - partial_witness signature is valid and from the expected chunk_producer
+    /// TODO(stateless_validation): Include checks from handle_orphan_state_witness in orphan_witness_handling.rs
+    /// These include checks based on epoch_id validity, witness size, height_created, distance from chain head, etc.
     fn validate_partial_encoded_state_witness(
         &self,
         partial_witness: &PartialEncodedStateWitness,
     ) -> Result<(), Error> {
-        unimplemented!("{:?}", partial_witness)
+        if !self
+            .epoch_manager
+            .get_shard_layout(&partial_witness.epoch_id())?
+            .shard_ids()
+            .contains(&partial_witness.shard_id())
+        {
+            return Err(Error::InvalidPartialChunkStateWitness(format!(
+                "Invalid shard_id in PartialEncodedStateWitness: {}",
+                partial_witness.shard_id()
+            )));
+        }
+
+        // Reject witnesses for chunks for which this node isn't a validator.
+        // It's an error, as chunk producer shouldn't send the witness to a non-validator node.
+        let chunk_validator_assignments = self.epoch_manager.get_chunk_validator_assignments(
+            &partial_witness.epoch_id(),
+            partial_witness.shard_id(),
+            partial_witness.height_created(),
+        )?;
+        if !chunk_validator_assignments.contains(self.my_signer.validator_id()) {
+            return Err(Error::NotAChunkValidator);
+        }
+
+        // The expected number of parts for the Reed Solomon encoding is the number of chunk validators.
+        let num_parts = chunk_validator_assignments.len();
+        if partial_witness.part_ord() >= num_parts {
+            return Err(Error::InvalidPartialChunkStateWitness(format!(
+                "Invalid part_ord in PartialEncodedStateWitness: {}",
+                partial_witness.part_ord()
+            )));
+        }
+
+        if !self.epoch_manager.verify_partial_witness_signature(&partial_witness)? {
+            return Err(Error::InvalidPartialChunkStateWitness("Invalid signature".to_string()));
+        }
+
+        Ok(())
     }
 }
 
