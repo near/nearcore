@@ -53,6 +53,7 @@ impl LatestWitnessesCmd {
             } else {
                 println!("{:?}", witness);
             }
+            println!("");
         }
     }
 }
