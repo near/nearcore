@@ -3,19 +3,6 @@ use near_primitives::errors::StorageError;
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
 use near_primitives::trie_key::TrieKey;
 
-/// Type safe access to delayed receipts queue stored in the state. Only use one
-/// at the time for the same queue!
-///
-/// The struct keeps a in-memory copy of the queue indics to avoid reading it
-/// from the trie on every access. Modification are written back to the
-/// TrieUpdate immediately on every update.
-///
-/// But if you load two instance of this type at the same time, modifications on
-/// onw won't be synced to the other!
-pub struct DelayedReceiptQueue {
-    indices: DelayedReceiptIndices,
-}
-
 /// Read-only iterator over receipt queues stored in the state trie.
 ///
 /// This iterator currently only supports delayed receipts but is already
@@ -24,6 +11,19 @@ pub struct DelayedReceiptQueue {
 pub struct ReceiptIterator<'a> {
     trie_keys: Box<dyn Iterator<Item = TrieKey>>,
     trie: &'a dyn TrieAccess,
+}
+
+/// Type safe access to delayed receipts queue stored in the state. Only use one
+/// at the time for the same queue!
+///
+/// The struct keeps a in-memory copy of the queue indics to avoid reading it
+/// from the trie on every access. Modification are written back to the
+/// TrieUpdate immediately on every update.
+///
+/// But if you load two instances of this type at the same time, modifications
+/// on one won't be synced to the other!
+pub struct DelayedReceiptQueue {
+    indices: DelayedReceiptIndices,
 }
 
 impl DelayedReceiptQueue {
