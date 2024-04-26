@@ -156,6 +156,7 @@ mod tests {
         assert_eq!(input_receipts, iterated_receipts, "receipts were not recorded in queue");
 
         // check 2: drop queue and load another one to see if values are persisted
+        #[allow(clippy::drop_non_drop)]
         drop(queue);
         let mut queue = DelayedReceiptQueue::load(&trie).expect("creating queue must not fail");
         let iterated_receipts: Vec<Receipt> =
