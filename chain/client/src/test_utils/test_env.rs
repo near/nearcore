@@ -346,6 +346,13 @@ impl TestEnv {
         };
         let mut witness_processing_done_waiters: Vec<ProcessingDoneWaiter> = Vec::new();
 
+        // Here we are completely bypassing the state_witness_actor and directly distributing the state witness to the
+        // clients. Ideally the route should have been the following:
+        // [client] ----(DistributeStateWitnessRequest)----> [state_witness_actor]
+        // [state_witness_actor] ----(PartialEncodedStateWitness + Forward)----> [state_witness_actor]
+        // [state_witness_actor] ----(ProcessChunkStateWitnessMessage)----> [client]
+        // But we go directly from processing DistributeStateWitnessRequest to sending it to all the chunk validators.
+        // Validation of state witness is done in the state_witness_actor which should be tested by test_loop.
         let state_witness_adapters = self.state_witness_adapters.clone();
         for (client_idx, state_witness_adapter) in state_witness_adapters.iter().enumerate() {
             while let Some(request) = state_witness_adapter.pop_distribution_request() {

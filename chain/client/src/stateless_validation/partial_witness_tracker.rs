@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use borsh::{BorshDeserialize, BorshSerialize};
 use lru::LruCache;
 use near_async::messaging::CanSend;
 use near_chain::chain::ProcessChunkStateWitnessMessage;
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
-use near_primitives::reed_solomon::rs_decode;
+use near_primitives::reed_solomon::{rs_decode, rs_encode};
 use near_primitives::stateless_validation::{EncodedChunkStateWitness, PartialEncodedStateWitness};
 use near_primitives::types::{BlockHeight, ShardId};
 use reed_solomon_erasure::galois_8::ReedSolomon;
@@ -26,7 +27,7 @@ const RATIO_DATA_PARTS: f32 = 0.8;
 /// We keep one wrapper for each length of chunk_validators to avoid re-creating the encoder.
 /// This is used by `PartialEncodedStateWitnessTracker`
 pub struct RsMap {
-    rs_map: HashMap<usize, ReedSolomon>,
+    rs_map: HashMap<usize, ReedSolomonWrapper>,
 }
 
 impl RsMap {
@@ -34,11 +35,62 @@ impl RsMap {
         Self { rs_map: HashMap::new() }
     }
 
-    pub fn entry(&mut self, total_parts: usize) -> &ReedSolomon {
-        self.rs_map.entry(total_parts).or_insert_with(|| {
+    pub fn entry(&mut self, total_parts: usize) -> &ReedSolomonWrapper {
+        self.rs_map.entry(total_parts).or_insert_with(|| ReedSolomonWrapper::new(total_parts))
+    }
+}
+
+pub enum ReedSolomonWrapper {
+    SinglePart,
+    Rs(ReedSolomon),
+}
+
+impl ReedSolomonWrapper {
+    pub fn new(total_parts: usize) -> Self {
+        if total_parts == 1 {
+            Self::SinglePart
+        } else {
             let data_parts = std::cmp::max((total_parts as f32 * RATIO_DATA_PARTS) as usize, 1);
-            ReedSolomon::new(data_parts, total_parts - data_parts).unwrap()
-        })
+            Self::Rs(ReedSolomon::new(data_parts, total_parts - data_parts).unwrap())
+        }
+    }
+
+    pub fn total_shard_count(&self) -> usize {
+        match self {
+            Self::SinglePart => 1,
+            Self::Rs(rs) => rs.total_shard_count(),
+        }
+    }
+
+    pub fn data_shard_count(&self) -> usize {
+        match self {
+            Self::SinglePart => 1,
+            Self::Rs(rs) => rs.data_shard_count(),
+        }
+    }
+
+    pub fn encode<T: BorshSerialize>(&self, data: T) -> (Vec<Option<Box<[u8]>>>, usize) {
+        match self {
+            Self::SinglePart => {
+                let bytes = borsh::to_vec(&data).unwrap();
+                let encoded_length = bytes.len();
+                (vec![Some(bytes.into_boxed_slice())], encoded_length)
+            }
+            Self::Rs(rs) => rs_encode(&rs, data),
+        }
+    }
+
+    pub fn decode<T: BorshDeserialize>(
+        &self,
+        parts: &mut [Option<Box<[u8]>>],
+        encoded_length: usize,
+    ) -> Result<T, std::io::Error> {
+        match self {
+            Self::SinglePart => T::try_from_slice(
+                parts.first().unwrap_or(&None).as_ref().map(|t| t.as_ref()).unwrap_or_default(),
+            ),
+            Self::Rs(rs) => rs_decode(&rs, parts, encoded_length),
+        }
     }
 }
 
@@ -64,7 +116,7 @@ impl CacheEntry {
     pub fn insert_in_cache_entry(
         &mut self,
         partial_witness: PartialEncodedStateWitness,
-        rs: &ReedSolomon,
+        rs: &ReedSolomonWrapper,
     ) -> Option<EncodedChunkStateWitness> {
         let shard_id = partial_witness.shard_id();
         let height_created = partial_witness.height_created();
@@ -96,7 +148,7 @@ impl CacheEntry {
         if self.data_parts_present < self.data_parts_required {
             return None;
         }
-        match rs_decode(&rs, &mut self.parts, encoded_length) {
+        match rs.decode(&mut self.parts, encoded_length) {
             Ok(encoded_chunk_state_witness) => {
                 self.is_decoded = true;
                 Some(encoded_chunk_state_witness)
@@ -179,7 +231,7 @@ impl PartialEncodedStateWitnessTracker {
     fn maybe_insert_new_entry_in_parts_cache(
         partial_witness: &PartialEncodedStateWitness,
         parts_cache: &mut LruCache<(ShardId, BlockHeight), CacheEntry>,
-        rs: &ReedSolomon,
+        rs: &ReedSolomonWrapper,
     ) {
         // Insert a new entry into the cache for the chunk hash.
         let key = (partial_witness.shard_id(), partial_witness.height_created());
