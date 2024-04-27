@@ -35,6 +35,7 @@ mod client;
 pub mod client_actions;
 mod client_actor;
 mod config_updater;
+mod contract_code_sync_handler;
 pub mod debug;
 pub mod gc_actor;
 mod info;

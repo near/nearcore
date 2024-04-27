@@ -265,6 +265,8 @@ impl Network {
             }),
             chunk_state_witness: noop().into_sender(),
             chunk_endorsement: noop().into_sender(),
+            contract_code_request: noop().into_sender(),
+            contract_code_response: noop().into_sender(),
         }
     }
 }

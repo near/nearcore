@@ -873,7 +873,11 @@ pub fn setup_mock_all_validators(
                         | NetworkRequests::ChunkStateWitnessAck(_, _)
                         | NetworkRequests::ChunkEndorsement(_, _)
                         | NetworkRequests::PartialEncodedStateWitness(_)
-                        | NetworkRequests::PartialEncodedStateWitnessForward(_, _) => {}
+                        | NetworkRequests::PartialEncodedStateWitnessForward(_, _)
+                        // TODO(#11099): Implement the handling of the message.
+                        | NetworkRequests::ContractCodeRequest(_,_)
+                        // TODO(#11099): Implement the handling of the message.
+                        | NetworkRequests::ContractCodeResponse(_,_) =>  {}
                     };
                 }
                 resp

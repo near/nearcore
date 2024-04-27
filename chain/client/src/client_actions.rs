@@ -41,8 +41,8 @@ use near_client_primitives::types::{
 };
 use near_network::client::{
     BlockApproval, BlockHeadersResponse, BlockResponse, ChunkEndorsementMessage,
-    ChunkStateWitnessMessage, ProcessTxRequest, ProcessTxResponse, RecvChallenge, SetNetworkInfo,
-    StateResponse,
+    ChunkStateWitnessMessage, ContractCodeRequestMessage, ContractCodeResponseMessage,
+    ProcessTxRequest, ProcessTxResponse, RecvChallenge, SetNetworkInfo, StateResponse,
 };
 use near_network::types::ReasonForBan;
 use near_network::types::{
@@ -1865,6 +1865,28 @@ impl ClientActionHandler<ChunkEndorsementMessage> for ClientActions {
     fn handle(&mut self, msg: ChunkEndorsementMessage) -> Self::Result {
         if let Err(err) = self.client.process_chunk_endorsement(msg.0) {
             tracing::error!(target: "client", ?err, "Error processing chunk endorsement");
+        }
+    }
+}
+
+impl ClientActionHandler<ContractCodeRequestMessage> for ClientActions {
+    type Result = ();
+
+    #[perf]
+    fn handle(&mut self, msg: ContractCodeRequestMessage) -> Self::Result {
+        if let Err(err) = self.client.process_contract_code_request(msg.0) {
+            tracing::error!(target: "client", ?err, "Error processing contract code request");
+        }
+    }
+}
+
+impl ClientActionHandler<ContractCodeResponseMessage> for ClientActions {
+    type Result = ();
+
+    #[perf]
+    fn handle(&mut self, msg: ContractCodeResponseMessage) -> Self::Result {
+        if let Err(err) = self.client.process_contract_code_response(msg.0) {
+            tracing::error!(target: "client", ?err, "Error processing contract code response");
         }
     }
 }

@@ -1,9 +1,9 @@
 use crate::accounts_data::AccountDataError;
 use crate::client::{
     AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
-    BlockResponse, ChunkEndorsementMessage, ChunkStateWitnessMessage, ProcessTxRequest,
-    RecvChallenge, StateRequestHeader, StateRequestPart, StateResponse, TxStatusRequest,
-    TxStatusResponse,
+    BlockResponse, ChunkEndorsementMessage, ChunkStateWitnessMessage, ContractCodeRequestMessage,
+    ContractCodeResponseMessage, ProcessTxRequest, RecvChallenge, StateRequestHeader,
+    StateRequestPart, StateResponse, TxStatusRequest, TxStatusResponse,
 };
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
@@ -1038,6 +1038,14 @@ impl PeerActor {
                 network_state
                     .state_witness_adapter
                     .send(PartialEncodedStateWitnessForwardMessage(witness));
+                None
+            }
+            RoutedMessageBody::ContractCodeRequest(request) => {
+                network_state.client.send_async(ContractCodeRequestMessage(request)).await.ok();
+                None
+            }
+            RoutedMessageBody::ContractCodeResponse(response) => {
+                network_state.client.send_async(ContractCodeResponseMessage(response)).await.ok();
                 None
             }
             body => {

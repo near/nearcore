@@ -156,6 +156,8 @@ pub enum ProtocolFeature {
     // Receipts which generate storage proofs larger than this limit will be rejected.
     // Protocol 85 also decreased the soft per-chunk storage proof limit to 3MB.
     PerReceiptHardStorageProofLimit,
+    /// Stateless validation: Chunk validator requests contract code from the network.
+    ContractCodeSync,
 }
 
 impl ProtocolFeature {
@@ -220,6 +222,7 @@ impl ProtocolFeature {
             ProtocolFeature::StateWitnessSizeLimit => 83,
             ProtocolFeature::StatelessnetShuffleShardAssignmentsForChunkProducers => 84,
             ProtocolFeature::PerReceiptHardStorageProofLimit => 85,
+            ProtocolFeature::ContractCodeSync => 86,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
