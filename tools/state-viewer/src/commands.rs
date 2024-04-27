@@ -14,8 +14,8 @@ use itertools::Itertools;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{
-    ApplyChunkBlockContext, ApplyChunkReason, ApplyChunkResult, ApplyChunkShardContext,
-    RuntimeAdapter, RuntimeStorageConfig,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
+    RuntimeStorageConfig,
 };
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, Error};
 use near_chain_configs::GenesisChangeConfig;
@@ -23,6 +23,7 @@ use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::EpochManagerHandle;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::account::id::AccountId;
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -93,7 +94,7 @@ pub(crate) fn apply_block(
         runtime
             .apply_chunk(
                 RuntimeStorageConfig::new(*chunk_inner.prev_state_root(), use_flat_storage),
-                ApplyChunkReason::UpdateShard,
+                ApplyChunkReason::UpdateTrackedShard,
                 ApplyChunkShardContext {
                     shard_id,
                     last_validator_proposals: chunk_inner.prev_validator_proposals(),
@@ -116,7 +117,7 @@ pub(crate) fn apply_block(
         runtime
             .apply_chunk(
                 RuntimeStorageConfig::new(*chunk_extra.state_root(), use_flat_storage),
-                ApplyChunkReason::UpdateShard,
+                ApplyChunkReason::UpdateTrackedShard,
                 ApplyChunkShardContext {
                     shard_id,
                     last_validator_proposals: chunk_extra.validator_proposals(),

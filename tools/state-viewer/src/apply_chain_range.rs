@@ -2,12 +2,13 @@ use crate::cli::ApplyRangeMode;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{
-    ApplyChunkBlockContext, ApplyChunkReason, ApplyChunkResult, ApplyChunkShardContext,
-    RuntimeAdapter, RuntimeStorageConfig,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
+    RuntimeStorageConfig,
 };
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use near_chain_configs::Genesis;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::receipt::DelayedReceiptIndices;
 use near_primitives::transaction::{Action, ExecutionOutcomeWithId, ExecutionOutcomeWithProof};
 use near_primitives::trie_key::TrieKey;
@@ -234,7 +235,7 @@ fn apply_block_from_range(
         runtime_adapter
             .apply_chunk(
                 RuntimeStorageConfig::new(*chunk_inner.prev_state_root(), use_flat_storage),
-                ApplyChunkReason::UpdateShard,
+                ApplyChunkReason::UpdateTrackedShard,
                 ApplyChunkShardContext {
                     shard_id,
                     last_validator_proposals: chunk_inner.prev_validator_proposals(),
@@ -259,7 +260,7 @@ fn apply_block_from_range(
         runtime_adapter
             .apply_chunk(
                 RuntimeStorageConfig::new(*chunk_extra.state_root(), use_flat_storage),
-                ApplyChunkReason::UpdateShard,
+                ApplyChunkReason::UpdateTrackedShard,
                 ApplyChunkShardContext {
                     shard_id,
                     last_validator_proposals: chunk_extra.validator_proposals(),

@@ -4,8 +4,8 @@ use crate::metrics::{SHARD_LAYOUT_NUM_SHARDS, SHARD_LAYOUT_VERSION};
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 
 use crate::types::{
-    ApplyChunkBlockContext, ApplyChunkReason, ApplyChunkResult, ApplyChunkShardContext,
-    ReshardingResults, RuntimeAdapter, RuntimeStorageConfig,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, ReshardingResults,
+    RuntimeAdapter, RuntimeStorageConfig,
 };
 use crate::update_shard::{NewChunkResult, OldChunkResult, ReshardingResult, ShardUpdateResult};
 use crate::{metrics, DoomslugThresholdMode};
@@ -14,6 +14,7 @@ use near_chain_primitives::error::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::EpochManagerAdapter;
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
 #[cfg(feature = "new_epoch_sync")]
@@ -738,7 +739,7 @@ impl<'a> ChainUpdate<'a> {
 
         let apply_result = self.runtime_adapter.apply_chunk(
             RuntimeStorageConfig::new(chunk_header.prev_state_root(), true),
-            ApplyChunkReason::UpdateShard,
+            ApplyChunkReason::UpdateTrackedShard,
             ApplyChunkShardContext {
                 shard_id,
                 gas_limit,
@@ -836,7 +837,7 @@ impl<'a> ChainUpdate<'a> {
 
         let apply_result = self.runtime_adapter.apply_chunk(
             RuntimeStorageConfig::new(*chunk_extra.state_root(), true),
-            ApplyChunkReason::UpdateShard,
+            ApplyChunkReason::UpdateTrackedShard,
             ApplyChunkShardContext {
                 shard_id,
                 last_validator_proposals: chunk_extra.validator_proposals(),

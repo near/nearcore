@@ -7,6 +7,7 @@ use near_chain_configs::ReshardingConfig;
 use near_chain_primitives::Error;
 pub use near_epoch_manager::EpochManagerAdapter;
 use near_pool::types::TransactionGroupIterator;
+use near_primitives::apply::ApplyChunkReason;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::challenge::{ChallengesResult, PartialState};
 use near_primitives::checked_feature;
@@ -34,7 +35,6 @@ use near_store::flat::FlatStorageManager;
 use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
 use num_rational::Rational32;
 use std::collections::HashMap;
-use std::fmt::{Display, Formatter};
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum BlockStatus {
@@ -274,33 +274,6 @@ impl RuntimeStorageConfig {
             source: StorageDataSource::Db,
             state_patch: Default::default(),
         }
-    }
-}
-
-/// Indicates in which phase of block production the apply is invoked.
-/// This is currently used for debugging and tracking metrics.
-/// TODO: Consider combining ApplyChunKReason, ApplyChunkBlockContext, and ApplyChunkBlockContext
-/// under a common wrapper struct such as ApplyChunkContext.
-#[derive(Clone, Debug)]
-pub enum ApplyChunkReason {
-    /// Applying chunk to update the shards being tracked.
-    UpdateShard,
-    /// Applying chunk to validate the chunk in the case of stateless validation.n
-    ValidateChunk,
-}
-
-impl ApplyChunkReason {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            ApplyChunkReason::UpdateShard => "update_shard",
-            ApplyChunkReason::ValidateChunk => "validate_chunk",
-        }
-    }
-}
-
-impl Display for ApplyChunkReason {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
-        f.write_str(self.as_str())
     }
 }
 

@@ -240,7 +240,7 @@ impl NearVM {
                         metrics::COMPILED_CONTRACT_CACHE_MISS
                             .with_label_values(&[
                                 &context.shard_id.to_string(),
-                                &context.metrics_context.unwrap_or("unknown"),
+                                context.apply_reason.as_ref().map_or("unknown", |r| r.as_str()),
                             ])
                             .inc();
                         return Err(VMRunnerError::CacheError(CacheError::ReadError(
@@ -250,7 +250,7 @@ impl NearVM {
                     metrics::COMPILED_CONTRACT_CACHE_HIT
                         .with_label_values(&[
                             &context.shard_id.to_string(),
-                            &context.metrics_context.unwrap_or("unknown"),
+                            context.apply_reason.as_ref().map_or("unknown", |r| r.as_str()),
                         ])
                         .inc();
 

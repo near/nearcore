@@ -111,7 +111,7 @@ pub(crate) fn execute_function_call(
         view_config: view_config.clone(),
         output_data_receivers,
         shard_id: ShardUId::single_shard().shard_id(),
-        metrics_context: None,
+        apply_reason: None,
     };
 
     // Enable caching chunk mode for the function call. This allows to charge for nodes touched in a chunk only once for

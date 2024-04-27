@@ -1,12 +1,12 @@
 use crate::crypto_hash_timer::CryptoHashTimer;
 use crate::types::{
-    ApplyChunkBlockContext, ApplyChunkReason, ApplyChunkResult, ApplyChunkShardContext,
-    ApplyResultForResharding, ReshardingResults, RuntimeAdapter, RuntimeStorageConfig,
-    StorageDataSource,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, ApplyResultForResharding,
+    ReshardingResults, RuntimeAdapter, RuntimeStorageConfig, StorageDataSource,
 };
 use near_async::time::Clock;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
@@ -129,7 +129,7 @@ pub(crate) fn process_shard_update(
 ) -> Result<ShardUpdateResult, Error> {
     Ok(match shard_update_reason {
         ShardUpdateReason::NewChunk(data) => ShardUpdateResult::NewChunk(apply_new_chunk(
-            ApplyChunkReason::UpdateShard,
+            ApplyChunkReason::UpdateTrackedShard,
             parent_span,
             data,
             shard_context,
@@ -137,7 +137,7 @@ pub(crate) fn process_shard_update(
             epoch_manager,
         )?),
         ShardUpdateReason::OldChunk(data) => ShardUpdateResult::OldChunk(apply_old_chunk(
-            ApplyChunkReason::UpdateShard,
+            ApplyChunkReason::UpdateTrackedShard,
             parent_span,
             data,
             shard_context,

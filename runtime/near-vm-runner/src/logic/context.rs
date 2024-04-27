@@ -1,4 +1,5 @@
 use super::types::PublicKey;
+use near_primitives_core::apply::ApplyChunkReason;
 use near_primitives_core::config::ViewConfig;
 use near_primitives_core::types::{
     AccountId, Balance, BlockHeight, EpochHeight, Gas, ShardId, StorageUsage,
@@ -52,8 +53,10 @@ pub struct VMContext {
     /// this function call is a part of a batch and it is not the last action.
     pub output_data_receivers: Vec<AccountId>,
 
+    /// The shard that the VM is running on.
     pub shard_id: ShardId,
-    pub metrics_context: Option<&'static str>,
+    /// Reason for running the apply-chunk operation, where this VM runs as part of.
+    pub apply_reason: Option<ApplyChunkReason>,
 }
 
 impl VMContext {

@@ -13,8 +13,8 @@ use near_chain::chain::{
 };
 use near_chain::sharding::shuffle_receipt_proofs;
 use near_chain::types::{
-    ApplyChunkBlockContext, ApplyChunkReason, ApplyChunkResult, PreparedTransactions,
-    RuntimeAdapter, RuntimeStorageConfig, StorageDataSource,
+    ApplyChunkBlockContext, ApplyChunkResult, PreparedTransactions, RuntimeAdapter,
+    RuntimeStorageConfig, StorageDataSource,
 };
 use near_chain::validate::validate_chunk_with_chunk_extra_and_receipts_root;
 use near_chain::{Block, Chain, ChainStoreAccess};
@@ -22,6 +22,7 @@ use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_pool::TransactionGroupIteratorWrapper;
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
 use near_primitives::receipt::Receipt;
@@ -473,7 +474,7 @@ pub(crate) fn validate_chunk_state_witness(
         MainTransition::NewChunk(new_chunk_data) => {
             let chunk_header = new_chunk_data.chunk_header.clone();
             let NewChunkResult { apply_result: mut main_apply_result, .. } = apply_new_chunk(
-                ApplyChunkReason::ValidateChunk,
+                ApplyChunkReason::ValidateChunkStateWitness,
                 &span,
                 new_chunk_data,
                 ShardContext {
@@ -519,7 +520,7 @@ pub(crate) fn validate_chunk_state_witness(
             },
         };
         let OldChunkResult { apply_result, .. } = apply_old_chunk(
-            ApplyChunkReason::ValidateChunk,
+            ApplyChunkReason::ValidateChunkStateWitness,
             &span,
             old_chunk_data,
             ShardContext {

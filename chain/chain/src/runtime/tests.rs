@@ -9,6 +9,7 @@ use near_epoch_manager::{EpochManager, RngSeed};
 use near_pool::{
     InsertTransactionResult, PoolIteratorWrapper, TransactionGroupIteratorWrapper, TransactionPool,
 };
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::checked_feature;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
@@ -81,7 +82,7 @@ impl NightshadeRuntime {
         let mut result = self
             .apply_chunk(
                 RuntimeStorageConfig::new(*state_root, true),
-                ApplyChunkReason::UpdateShard,
+                ApplyChunkReason::UpdateTrackedShard,
                 ApplyChunkShardContext {
                     shard_id,
                     last_validator_proposals,

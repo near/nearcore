@@ -1,8 +1,8 @@
 use super::ValidatorSchedule;
 use crate::types::{
-    ApplyChunkBlockContext, ApplyChunkReason, ApplyChunkResult, ApplyChunkShardContext,
-    ApplyResultForResharding, PrepareTransactionsBlockContext, PrepareTransactionsChunkContext,
-    PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, ApplyResultForResharding,
+    PrepareTransactionsBlockContext, PrepareTransactionsChunkContext, PreparedTransactions,
+    RuntimeAdapter, RuntimeStorageConfig,
 };
 use crate::BlockHeader;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -14,6 +14,7 @@ use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::{EpochManagerAdapter, RngSeed};
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::Tip;
 use near_primitives::block_header::{Approval, ApprovalInner};
 use near_primitives::epoch_manager::block_info::BlockInfo;

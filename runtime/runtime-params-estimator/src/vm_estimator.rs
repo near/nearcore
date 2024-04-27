@@ -35,7 +35,7 @@ pub(crate) fn create_context(input: Vec<u8>) -> VMContext {
         view_config: None,
         output_data_receivers: vec![],
         shard_id: ShardUId::single_shard().shard_id(),
-        metrics_context: None,
+        apply_reason: None,
     }
 }
 
