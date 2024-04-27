@@ -49,7 +49,9 @@ use near_network::client::{
 };
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::{
-    ChunkStateWitnessAckMessage, StateWitnessSenderForNetwork, StateWitnessSenderForNetworkMessage,
+    ChunkStateWitnessAckMessage, PartialEncodedStateWitnessForwardMessage,
+    PartialEncodedStateWitnessMessage, StateWitnessSenderForNetwork,
+    StateWitnessSenderForNetworkMessage,
 };
 use near_network::test_loop::SupportsRoutingLookup;
 use near_network::types::{
@@ -599,6 +601,32 @@ pub fn route_network_messages_to_client<
                     state_witness_senders[other_idx].send(ChunkStateWitnessAckMessage(witness_ack));
                 } else {
                     tracing::warn!("Dropping state-witness-ack message to self");
+                }
+            }
+            NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple) => {
+                for (target, partial_witness) in validator_witness_tuple.into_iter() {
+                    let other_idx = data.index_for_account(&target);
+                    if other_idx != idx {
+                        state_witness_senders[other_idx]
+                            .send(PartialEncodedStateWitnessMessage(partial_witness));
+                    } else {
+                        tracing::warn!("Dropping state-witness message to self");
+                    }
+                }
+            }
+            NetworkRequests::PartialEncodedStateWitnessForward(
+                chunk_validators,
+                partial_witness,
+            ) => {
+                for target in chunk_validators {
+                    let other_idx = data.index_for_account(&target);
+                    if other_idx != idx {
+                        state_witness_senders[other_idx].send(
+                            PartialEncodedStateWitnessForwardMessage(partial_witness.clone()),
+                        );
+                    } else {
+                        tracing::warn!("Dropping state-witness-forward message to self");
+                    }
                 }
             }
             // TODO: Support more network message types as we expand the test.

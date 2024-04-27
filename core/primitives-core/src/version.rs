@@ -156,6 +156,8 @@ pub enum ProtocolFeature {
     // Receipts which generate storage proofs larger than this limit will be rejected.
     // Protocol 85 also decreased the soft per-chunk storage proof limit to 3MB.
     PerReceiptHardStorageProofLimit,
+    // Stateless validation: Distribute state witness as reed solomon encoded parts
+    PartialEncodedStateWitness,
 }
 
 impl ProtocolFeature {
@@ -220,6 +222,7 @@ impl ProtocolFeature {
             ProtocolFeature::StateWitnessSizeLimit => 83,
             ProtocolFeature::StatelessnetShuffleShardAssignmentsForChunkProducers => 84,
             ProtocolFeature::PerReceiptHardStorageProofLimit => 85,
+            ProtocolFeature::PartialEncodedStateWitness => 86,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
@@ -243,7 +246,7 @@ const STABLE_PROTOCOL_VERSION: ProtocolVersion = 67;
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "statelessnet_protocol") {
     // Current StatelessNet protocol version.
-    85
+    86
 } else if cfg!(feature = "nightly_protocol") {
     // On nightly, pick big enough version to support all features.
     140

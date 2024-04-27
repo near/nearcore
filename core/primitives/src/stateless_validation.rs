@@ -70,7 +70,7 @@ impl PartialEncodedStateWitness {
         self.inner.part_ord
     }
 
-    // Return (part_ord, part, encoded_length)
+    /// Decomposes the partial witness to return (part_ord, part, encoded_length)
     pub fn decompose(self) -> (usize, Box<[u8]>, usize) {
         (self.inner.part_ord, self.inner.part, self.inner.encoded_length)
     }

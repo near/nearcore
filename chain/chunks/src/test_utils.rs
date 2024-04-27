@@ -274,9 +274,6 @@ impl MockClientAdapterForShardsManager {
     pub fn pop(&self) -> Option<ShardsManagerResponse> {
         self.requests.write().unwrap().pop_front()
     }
-    pub fn pop_most_recent(&self) -> Option<ShardsManagerResponse> {
-        self.requests.write().unwrap().pop_back()
-    }
 }
 
 // Allows ShardsManagerActor-like behavior, except without having to spawn an actor,
