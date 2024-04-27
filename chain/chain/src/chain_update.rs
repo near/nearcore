@@ -695,7 +695,7 @@ impl<'a> ChainUpdate<'a> {
         shard_id: ShardId,
         sync_hash: CryptoHash,
         shard_state_header: ShardStateSyncResponseHeader,
-    ) -> Result<(), Error> {
+    ) -> Result<ShardUId, Error> {
         let _span =
             tracing::debug_span!(target: "sync", "chain_update_set_state_finalize").entered();
         let (chunk, incoming_receipts_proofs) = match shard_state_header {
@@ -805,7 +805,7 @@ impl<'a> ChainUpdate<'a> {
                 receipt_proof_response.1,
             );
         }
-        Ok(())
+        Ok(shard_uid)
     }
 
     pub fn set_state_finalize_on_height(

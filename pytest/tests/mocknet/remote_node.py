@@ -4,6 +4,7 @@ defines the RemoteNeardRunner class meant to be interacted with over ssh
 """
 import pathlib
 import json
+import os
 import sys
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
@@ -15,8 +16,9 @@ import mocknet
 
 class RemoteNeardRunner:
 
-    def __init__(self, node):
+    def __init__(self, node, neard_runner_home):
         self.node = node
+        self.neard_runner_home = neard_runner_home
 
     def name(self):
         return self.node.instance_name
@@ -34,27 +36,30 @@ class RemoteNeardRunner:
         if remove_home_dir:
             cmd_utils.run_cmd(
                 self.node,
-                'rm -rf /home/ubuntu/.near/neard-runner && mkdir -p /home/ubuntu/.near/neard-runner'
+                f'rm -rf {self.neard_runner_home} && mkdir -p {self.neard_runner_home}'
             )
         else:
-            cmd_utils.run_cmd(self.node,
-                              'mkdir -p /home/ubuntu/.near/neard-runner')
+            cmd_utils.run_cmd(self.node, f'mkdir -p {self.neard_runner_home}')
 
     def upload_neard_runner(self):
         self.node.machine.upload('tests/mocknet/helpers/neard_runner.py',
-                                 '/home/ubuntu/.near/neard-runner',
+                                 self.neard_runner_home,
                                  switch_user='ubuntu')
         self.node.machine.upload('tests/mocknet/helpers/requirements.txt',
-                                 '/home/ubuntu/.near/neard-runner',
+                                 self.neard_runner_home,
                                  switch_user='ubuntu')
 
     def upload_neard_runner_config(self, config):
         mocknet.upload_json(self.node,
-                            '/home/ubuntu/.near/neard-runner/config.json',
+                            os.path.join(self.neard_runner_home, 'config.json'),
                             config)
 
+    def run_cmd(self, cmd, raise_on_fail=False, return_on_fail=False):
+        r = cmd_utils.run_cmd(self.node, cmd, raise_on_fail, return_on_fail)
+        return r
+
     def init_python(self):
-        cmd = 'cd /home/ubuntu/.near/neard-runner && python3 -m virtualenv venv -p $(which python3)' \
+        cmd = f'cd {self.neard_runner_home} && python3 -m virtualenv venv -p $(which python3)' \
         ' && ./venv/bin/pip install -r requirements.txt'
         cmd_utils.run_cmd(self.node, cmd)
 
@@ -66,8 +71,8 @@ class RemoteNeardRunner:
         )
 
     def start_neard_runner(self):
-        cmd_utils.run_in_background(self.node, f'/home/ubuntu/.near/neard-runner/venv/bin/python /home/ubuntu/.near/neard-runner/neard_runner.py ' \
-            '--home /home/ubuntu/.near/neard-runner --neard-home /home/ubuntu/.near ' \
+        cmd_utils.run_in_background(self.node, f'{os.path.join(self.neard_runner_home, "venv/bin/python")} {os.path.join(self.neard_runner_home, "neard_runner.py")} ' \
+            f'--home {self.neard_runner_home} --neard-home /home/ubuntu/.near ' \
             '--neard-logs /home/ubuntu/neard-logs --port 3000', 'neard-runner.txt')
 
     def neard_runner_post(self, body):
@@ -106,6 +111,20 @@ def get_nodes(chain_id, start_height, unique_id):
 
     if traffic_generator is None:
         sys.exit(f'no traffic generator instance found')
-    return NodeHandle(RemoteNeardRunner(traffic_generator)), [
-        NodeHandle(RemoteNeardRunner(node)) for node in nodes
-    ]
+    # here we want the neard-runner home dir to be on the same disk as the target data dir since we'll be making backups
+    # on that disk
+    traffic_target_home = cmd_utils.run_cmd(
+        traffic_generator,
+        'cat /proc/mounts | grep "/home/ubuntu/.near" | grep -v "source" | head -n 1 | awk \'{print $2};\''
+    ).stdout.strip()
+    if len(traffic_target_home) < 1:
+        sys.exit(
+            f'could not find any mounts in /home/ubuntu/.near on {traffic_generator.instance_name}'
+        )
+    traffic_runner_home = os.path.join(traffic_target_home, 'neard-runner')
+    return NodeHandle(RemoteNeardRunner(
+        traffic_generator, traffic_runner_home)), [
+            NodeHandle(
+                RemoteNeardRunner(node, '/home/ubuntu/.near/neard-runner'))
+            for node in nodes
+        ]
