@@ -1,4 +1,5 @@
 mod memory;
+mod metrics;
 mod runner;
 
 pub use memory::NearVmMemory;

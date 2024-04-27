@@ -289,12 +289,18 @@ pub enum ApplyChunkReason {
     ValidateChunk,
 }
 
-impl Display for ApplyChunkReason {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
-        f.write_str(match self {
+impl ApplyChunkReason {
+    pub fn as_str(&self) -> &'static str {
+        match self {
             ApplyChunkReason::UpdateShard => "update_shard",
             ApplyChunkReason::ValidateChunk => "validate_chunk",
-        })
+        }
+    }
+}
+
+impl Display for ApplyChunkReason {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+        f.write_str(self.as_str())
     }
 }
 

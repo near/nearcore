@@ -152,6 +152,8 @@ impl RuntimeUser {
 
     fn apply_state(&self) -> ApplyState {
         ApplyState {
+            apply_reason: None,
+            shard_id: ShardUId::single_shard().shard_id(),
             block_height: 1,
             prev_block_hash: Default::default(),
             block_hash: Default::default(),
@@ -293,6 +295,7 @@ impl User for RuntimeUser {
         result.result = self
             .trie_viewer
             .call_function(
+                ShardUId::single_shard().shard_id(),
                 state_update,
                 view_state,
                 account_id,

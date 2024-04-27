@@ -15,6 +15,7 @@ use near_primitives::types::{AccountId, EpochInfoProvider, Gas};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{StateItem, ViewApplyState, ViewStateResult};
 use near_primitives_core::config::ViewConfig;
+use near_primitives_core::types::ShardId;
 use near_store::{get_access_key, get_account, get_code, TrieUpdate};
 use near_vm_runner::logic::ReturnData;
 use near_vm_runner::ContractCode;
@@ -155,6 +156,7 @@ impl TrieViewer {
 
     pub fn call_function(
         &self,
+        shard_id: ShardId,
         mut state_update: TrieUpdate,
         view_state: ViewApplyState,
         contract_id: &AccountId,
@@ -189,6 +191,8 @@ impl TrieViewer {
         let config_store = RuntimeConfigStore::new(None);
         let config = config_store.get_config(PROTOCOL_VERSION);
         let apply_state = ApplyState {
+            apply_reason: None,
+            shard_id: shard_id,
             block_height: view_state.block_height,
             // Used for legacy reasons
             prev_block_hash: view_state.prev_block_hash,

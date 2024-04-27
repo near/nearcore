@@ -42,6 +42,7 @@ use near_primitives::utils::{
     create_receipt_id_from_transaction,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives_core::types::ShardId;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::{
     get, get_account, get_postponed_receipt, get_promise_yield_receipt, get_received_data,
@@ -77,6 +78,8 @@ const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
 
 #[derive(Debug)]
 pub struct ApplyState {
+    pub apply_reason: Option<&'static str>,
+    pub shard_id: ShardId,
     /// Currently building block height.
     pub block_height: BlockHeight,
     /// Prev block hash
@@ -1960,6 +1963,8 @@ mod tests {
         store_update.commit().unwrap();
         let contract_cache = FilesystemContractRuntimeCache::test().unwrap();
         let apply_state = ApplyState {
+            apply_reason: None,
+            shard_id: ShardUId::single_shard().shard_id(),
             block_height: 1,
             prev_block_hash: Default::default(),
             block_hash: Default::default(),

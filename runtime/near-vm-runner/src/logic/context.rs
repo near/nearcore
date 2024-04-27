@@ -1,7 +1,7 @@
 use super::types::PublicKey;
 use near_primitives_core::config::ViewConfig;
 use near_primitives_core::types::{
-    AccountId, Balance, BlockHeight, EpochHeight, Gas, StorageUsage,
+    AccountId, Balance, BlockHeight, EpochHeight, Gas, ShardId, StorageUsage,
 };
 
 #[derive(Clone)]
@@ -51,6 +51,9 @@ pub struct VMContext {
     /// How many `DataReceipt`'s should receive this execution result. This should be empty if
     /// this function call is a part of a batch and it is not the last action.
     pub output_data_receivers: Vec<AccountId>,
+
+    pub shard_id: ShardId,
+    pub metrics_context: Option<&'static str>,
 }
 
 impl VMContext {

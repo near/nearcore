@@ -3,6 +3,7 @@ use std::{collections::HashMap, io, sync::Arc};
 use borsh::BorshDeserialize;
 
 use crate::runtime_utils::{get_runtime_and_trie, get_test_trie_viewer, TEST_SHARD_UID};
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::{
     account::Account,
     hash::hash as sha256,
@@ -117,6 +118,7 @@ fn test_view_call() {
         cache: None,
     };
     let result = viewer.call_function(
+        ShardUId::single_shard().shard_id(),
         root,
         view_state,
         &"test.contract".parse().unwrap(),
@@ -145,6 +147,7 @@ fn test_view_call_try_changing_storage() {
         cache: None,
     };
     let result = viewer.call_function(
+        ShardUId::single_shard().shard_id(),
         root,
         view_state,
         &"test.contract".parse().unwrap(),
@@ -177,6 +180,7 @@ fn test_view_call_with_args() {
         cache: None,
     };
     let view_call_result = viewer.call_function(
+        ShardUId::single_shard().shard_id(),
         root,
         view_state,
         &"test.contract".parse().unwrap(),
@@ -399,6 +403,7 @@ fn test_log_when_panic() {
     let mut logs = vec![];
     viewer
         .call_function(
+            ShardUId::single_shard().shard_id(),
             root,
             view_state,
             &"test.contract".parse().unwrap(),

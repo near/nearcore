@@ -4937,6 +4937,7 @@ dependencies = [
  "lru 0.12.3",
  "memoffset 0.8.0",
  "near-crypto",
+ "near-o11y",
  "near-parameters",
  "near-primitives-core",
  "near-stdx",

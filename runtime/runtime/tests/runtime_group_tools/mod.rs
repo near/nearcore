@@ -89,6 +89,8 @@ impl StandaloneRuntime {
         );
 
         let apply_state = ApplyState {
+            apply_reason: None,
+            shard_id: ShardUId::single_shard().shard_id(),
             block_height: 1,
             prev_block_hash: Default::default(),
             block_hash: Default::default(),

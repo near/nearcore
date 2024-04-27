@@ -362,6 +362,8 @@ impl NightshadeRuntime {
         );
 
         let apply_state = ApplyState {
+            apply_reason: Some(apply_reason.as_str()),
+            shard_id: chunk.shard_id,
             block_height,
             prev_block_hash: *prev_block_hash,
             block_hash,
@@ -422,7 +424,7 @@ impl NightshadeRuntime {
             .with_label_values(&[&shard_label])
             .set(apply_result.delayed_receipts_count as i64);
         if let Some(mut metrics) = apply_result.metrics {
-            metrics.report(&shard_label, &apply_reason.to_string());
+            metrics.report(&shard_label);
         }
 
         let total_balance_burnt = apply_result
@@ -1319,6 +1321,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             cache: Some(Box::new(self.compiled_contract_cache.handle())),
         };
         self.trie_viewer.call_function(
+            shard_uid.shard_id(),
             state_update,
             view_state,
             contract_id,

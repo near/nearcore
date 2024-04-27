@@ -338,22 +338,6 @@ pub static CHUNK_RECORDED_SIZE_UPPER_BOUND_RATIO: Lazy<Histogram> = Lazy::new(||
     )
     .unwrap()
 });
-pub static COMPILED_CONTRACT_CACHE_HIT: Lazy<IntCounterVec> = Lazy::new(|| {
-    try_create_int_counter_vec(
-        "near_compiled_contract_cache_hit",
-        "The number of times runtimes finds compiled code in cache",
-        &["shard_id"],
-    )
-    .unwrap()
-});
-pub static COMPILED_CONTRACT_CACHE_MISS: Lazy<IntCounterVec> = Lazy::new(|| {
-    try_create_int_counter_vec(
-        "near_compiled_contract_cache_miss",
-        "The number of times runtimes cannot find compiled code in cache",
-        &["shard_id"],
-    )
-    .unwrap()
-});
 
 /// Buckets used for burned gas in receipts.
 ///
@@ -423,8 +407,6 @@ pub struct ApplyMetrics {
     yield_timeouts_gas: u64,
     yield_timeouts_processed_total: u64,
     yield_timeouts_processing_seconds_total: f64,
-    compiled_contract_cache_hits: u64,
-    compiled_contract_cache_misses: u64,
 }
 
 impl ApplyMetrics {
@@ -500,7 +482,7 @@ impl ApplyMetrics {
     }
 
     /// Report statistics
-    pub fn report(&mut self, shard_id: &str, apply_reason: &str) {
+    pub fn report(&mut self, shard_id: &str) {
         const TERA: f64 = 1_000_000_000_000_f64;
 
         LOCAL_RECEIPT_PROCESSED_TOTAL
@@ -574,12 +556,5 @@ impl ApplyMetrics {
         CHUNK_COMPUTE
             .with_label_values(&[shard_id])
             .observe(self.accumulated_compute as f64 / TERA);
-
-        COMPILED_CONTRACT_CACHE_HIT
-            .with_label_values(&[shard_id, apply_reason])
-            .inc_by(self.compiled_contract_cache_hits);
-        COMPILED_CONTRACT_CACHE_MISS
-            .with_label_values(&[shard_id, apply_reason])
-            .inc_by(self.compiled_contract_cache_misses);
     }
 }

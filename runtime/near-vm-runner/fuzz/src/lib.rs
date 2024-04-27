@@ -1,4 +1,5 @@
 use core::fmt;
+use near_primitives::shard_layout::ShardUId;
 use near_vm_runner::internal::wasmparser::{Export, ExternalKind, Parser, Payload, TypeDef};
 use near_vm_runner::logic::VMContext;
 use near_vm_runner::ContractCode;
@@ -48,6 +49,8 @@ pub fn create_context(input: Vec<u8>) -> VMContext {
         random_seed: vec![0, 1, 2],
         view_config: None,
         output_data_receivers: vec![],
+        shard_id: ShardUId::single_shard().shard_id(),
+        metrics_context: None,
     }
 }
 

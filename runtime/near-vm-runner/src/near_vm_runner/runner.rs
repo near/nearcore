@@ -1,4 +1,4 @@
-use super::{NearVmMemory, VM_CONFIG};
+use super::{metrics, NearVmMemory, VM_CONFIG};
 use crate::cache::CompiledContractInfo;
 use crate::errors::ContractPrecompilatonResult;
 use crate::imports::near_vm::NearVmImports;
@@ -237,10 +237,22 @@ impl NearVM {
                     let key = get_contract_cache_key(code_hash, &self.config);
                     let cache_record = cache.get(&key).map_err(CacheError::ReadError)?;
                     let Some(code) = cache_record else {
+                        metrics::COMPILED_CONTRACT_CACHE_MISS
+                            .with_label_values(&[
+                                &context.shard_id.to_string(),
+                                &context.metrics_context.unwrap_or("unknown"),
+                            ])
+                            .inc();
                         return Err(VMRunnerError::CacheError(CacheError::ReadError(
                             std::io::Error::from(std::io::ErrorKind::NotFound),
                         )));
                     };
+                    metrics::COMPILED_CONTRACT_CACHE_HIT
+                        .with_label_values(&[
+                            &context.shard_id.to_string(),
+                            &context.metrics_context.unwrap_or("unknown"),
+                        ])
+                        .inc();
 
                     match &code.compiled {
                         CompiledContract::CompileModuleError(err) => {

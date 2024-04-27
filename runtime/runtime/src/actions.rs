@@ -42,6 +42,7 @@ use near_vm_runner::precompile_contract;
 use near_vm_runner::ContractCode;
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
 
+use near_primitives::shard_layout::ShardUId;
 use std::sync::Arc;
 
 /// Returns `ContractCode` (if exists) for the given `account` or returns `StorageError`.
@@ -109,6 +110,8 @@ pub(crate) fn execute_function_call(
         random_seed,
         view_config: view_config.clone(),
         output_data_receivers,
+        shard_id: ShardUId::single_shard().shard_id(),
+        metrics_context: None,
     };
 
     // Enable caching chunk mode for the function call. This allows to charge for nodes touched in a chunk only once for
@@ -1404,6 +1407,8 @@ mod tests {
 
     fn create_apply_state(block_height: BlockHeight) -> ApplyState {
         ApplyState {
+            apply_reason: None,
+            shard_id: ShardUId::single_shard().shard_id(),
             block_height,
             prev_block_hash: CryptoHash::default(),
             block_hash: CryptoHash::default(),

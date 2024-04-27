@@ -145,6 +145,8 @@ impl<'c> EstimatorContext<'c> {
         runtime_config.account_creation_config.min_allowed_top_level_account_length = 0;
 
         ApplyState {
+            apply_reason: None,
+            shard_id: ShardUId::single_shard().shard_id(),
             // Put each runtime into a separate shard.
             block_height: 1,
             // Epoch length is long enough to avoid corner cases.

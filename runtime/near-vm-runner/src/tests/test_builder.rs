@@ -27,6 +27,8 @@ pub(crate) fn test_builder() -> TestBuilder {
         random_seed: vec![0, 1, 2],
         view_config: None,
         output_data_receivers: vec![],
+        shard_id: ShardUId::single_shard().shard_id(),
+        metrics_context: None,
     };
     let mut skip = HashSet::new();
     for kind in [VMKind::Wasmer0, VMKind::Wasmer2, VMKind::NearVm, VMKind::Wasmtime] {
