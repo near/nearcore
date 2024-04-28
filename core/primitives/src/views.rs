@@ -1065,7 +1065,7 @@ pub struct ChunkHeaderView {
     pub outgoing_receipts_root: CryptoHash,
     pub tx_root: CryptoHash,
     pub validator_proposals: Vec<ValidatorStakeView>,
-    pub congestion_info: Option<CongestionInfo>,
+    pub congestion_info: Option<CongestionInfoView>,
     pub signature: Signature,
 }
 
@@ -1093,7 +1093,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             outgoing_receipts_root: *inner.prev_outgoing_receipts_root(),
             tx_root: *inner.tx_root(),
             validator_proposals: inner.prev_validator_proposals().map(Into::into).collect(),
-            congestion_info: inner.congestion_info(),
+            congestion_info: inner.congestion_info().map(Into::into),
             signature,
         }
     }
@@ -1121,7 +1121,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                         .into_iter()
                         .map(Into::into)
                         .collect(),
-                    congestion_info,
+                    congestion_info: congestion_info.into(),
                 }),
                 height_included: view.height_included,
                 signature: view.signature,
@@ -2455,6 +2455,23 @@ pub struct SplitStorageInfoView {
     pub cold_head_height: Option<BlockHeight>,
 
     pub hot_db_kind: Option<String>,
+}
+
+// TODO(congestion_control) implement CongestionInfoView
+// serde/json doesn't like 128 bit integers
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct CongestionInfoView {}
+
+impl From<CongestionInfo> for CongestionInfoView {
+    fn from(_: CongestionInfo) -> Self {
+        Self {}
+    }
+}
+
+impl From<CongestionInfoView> for CongestionInfo {
+    fn from(_: CongestionInfoView) -> Self {
+        CongestionInfo::default()
+    }
 }
 
 #[cfg(test)]

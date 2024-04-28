@@ -26,7 +26,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
     AccountId, BlockExtra, BlockHeight, BlockHeightDelta, NumShards, ShardId,
 };
-use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives::version::ProtocolFeature;
 use near_primitives::views::LightClientBlockView;
 use std::collections::HashMap;
 #[cfg(feature = "new_epoch_sync")]

@@ -701,11 +701,14 @@ impl Handler<WithSpanContext<GetBlock>> for ViewClientActor {
         tracing::debug!(target: "client", ?msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetBlock"]).start_timer();
+        tracing::info!("BOOM GetBlock 1");
         let block = self.get_block_by_reference(&msg.0)?.ok_or(GetBlockError::NotSyncedYet)?;
+        tracing::info!("BOOM GetBlock 2");
         let block_author = self
             .epoch_manager
             .get_block_producer(block.header().epoch_id(), block.header().height())
             .into_chain_error()?;
+        tracing::info!(?block, "BOOM GetBlock 3");
         Ok(BlockView::from_author_block(block_author, block))
     }
 }
