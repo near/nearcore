@@ -26,6 +26,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
     AccountId, BlockExtra, BlockHeight, BlockHeightDelta, NumShards, ShardId,
 };
+use near_primitives::version::ProtocolFeature;
 use near_primitives::views::LightClientBlockView;
 use std::collections::HashMap;
 #[cfg(feature = "new_epoch_sync")]
@@ -157,7 +158,7 @@ impl<'a> ChainUpdate<'a> {
     /// Postprocess resharding results and do the necessary update on chain for
     /// resharding results.
     /// - Store the chunk extras and trie changes for the apply results.
-    /// - Store the state changes to be applided later for the store results.
+    /// - Store the state changes to be applied later for the store results.
     fn process_resharding_results(
         &mut self,
         block: &Block,
@@ -234,6 +235,9 @@ impl<'a> ChainUpdate<'a> {
                 // TODO(resharding) make sure that is the case.
                 assert_eq!(num_split_shards, results.len() as u64);
 
+                let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
+                let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+
                 for result in results {
                     let gas_burnt = if gas_res > 0 {
                         gas_res -= 1;
@@ -249,13 +253,24 @@ impl<'a> ChainUpdate<'a> {
                         balance_split
                     };
 
+                    if protocol_version >= ProtocolFeature::CongestionControl.protocol_version() {
+                        // This will likely break resharding integration tests
+                        // when congestion control is enabled. Let's mark them
+                        // ignore when that happens.
+                        todo!("implement resharding and congestion control integration");
+                    }
+
                     let new_chunk_extra = ChunkExtra::new(
+                        protocol_version,
                         &result.new_root,
                         outcome_root,
                         validator_proposals_by_shard.remove(&result.shard_uid).unwrap_or_default(),
                         gas_burnt,
                         gas_limit,
                         balance_burnt,
+                        // TODO(congestion_control) set congestion info for resharding
+                        // TODO(resharding) set congestion info for resharding
+                        None,
                     );
                     sum_gas_used += gas_burnt;
                     sum_balance_burnt += balance_burnt;
@@ -316,17 +331,22 @@ impl<'a> ChainUpdate<'a> {
                     ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
                 let shard_id = shard_uid.shard_id();
 
+                let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
+                let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+
                 // Save state root after applying transactions.
                 self.chain_store_update.save_chunk_extra(
                     block_hash,
                     &shard_uid,
                     ChunkExtra::new(
+                        protocol_version,
                         &apply_result.new_root,
                         outcome_root,
                         apply_result.validator_proposals,
                         apply_result.total_gas_burnt,
                         gas_limit,
                         apply_result.total_balance_burnt,
+                        apply_result.congestion_info,
                     ),
                 );
 
@@ -370,10 +390,13 @@ impl<'a> ChainUpdate<'a> {
                 apply_result,
                 resharding_results,
             }) => {
+                // The chunk is missing but some fields may need to be updated
+                // anyway. Prepare a chunk extra as a copy of the old chunk
+                // extra and apply changes to it.
                 let old_extra = self.chain_store_update.get_chunk_extra(prev_hash, &shard_uid)?;
-
                 let mut new_extra = ChunkExtra::clone(&old_extra);
                 *new_extra.state_root_mut() = apply_result.new_root;
+                // TODO(congestion_control) handle missing chunks congestion info #11039
 
                 let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
                 let store_update = flat_storage_manager.save_flat_state_changes(
@@ -753,6 +776,11 @@ impl<'a> ChainUpdate<'a> {
                 gas_price,
                 challenges_result: block_header.challenges_result().clone(),
                 random_seed: *block_header.random_value(),
+                // TODO(congestion_control) The congestion info should be
+                // obtained from the previous block. However the previous block
+                // may not be available during state sync. This needs fixing!
+                // congestion_info: prev_block.shards_congestion_info(),
+                congestion_info: HashMap::new(),
             },
             &receipts,
             chunk.transactions(),
@@ -775,13 +803,19 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.merge(store_update);
 
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);
+
+        let epoch_id = self.epoch_manager.get_epoch_id(block_header.hash())?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+
         let chunk_extra = ChunkExtra::new(
+            protocol_version,
             &apply_result.new_root,
             outcome_root,
             apply_result.validator_proposals,
             apply_result.total_gas_burnt,
             gas_limit,
             apply_result.total_balance_burnt,
+            apply_result.congestion_info,
         );
         self.chain_store_update.save_chunk_extra(block_header.hash(), &shard_uid, chunk_extra);
 
@@ -842,7 +876,15 @@ impl<'a> ChainUpdate<'a> {
                 is_new_chunk: false,
                 is_first_block_with_chunk_of_version: false,
             },
-            ApplyChunkBlockContext::from_header(&block_header, prev_block_header.next_gas_price()),
+            ApplyChunkBlockContext::from_header(
+                &block_header,
+                prev_block_header.next_gas_price(),
+                // TODO(congestion_control) The congestion info should be
+                // obtained from the previous block. However the previous block
+                // may not be available during state sync. This needs fixing!
+                // congestion_info: prev_block.shards_congestion_info(),
+                HashMap::new(),
+            ),
             &[],
             &[],
         )?;
@@ -857,8 +899,12 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.merge(store_update);
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);
 
+        // The chunk is missing but some fields may need to be updated
+        // anyway. Prepare a chunk extra as a copy of the old chunk
+        // extra and apply changes to it.
         let mut new_chunk_extra = ChunkExtra::clone(&chunk_extra);
         *new_chunk_extra.state_root_mut() = apply_result.new_root;
+        // TODO(congestion_control) handle missing chunks congestion info #11039
 
         self.chain_store_update.save_chunk_extra(block_header.hash(), &shard_uid, new_chunk_extra);
         Ok(true)

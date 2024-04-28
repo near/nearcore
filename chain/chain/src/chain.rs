@@ -55,6 +55,7 @@ use near_primitives::challenge::{
     MaybeEncodedShardChunk, PartialState, SlashedValidator,
 };
 use near_primitives::checked_feature;
+use near_primitives::congestion_info::CongestionInfo;
 #[cfg(feature = "new_epoch_sync")]
 use near_primitives::epoch_manager::epoch_sync::EpochSyncInfo;
 #[cfg(feature = "new_epoch_sync")]
@@ -86,7 +87,7 @@ use near_primitives::unwrap_or_return;
 #[cfg(feature = "new_epoch_sync")]
 use near_primitives::utils::index_to_bytes;
 use near_primitives::utils::MaybeValidated;
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_primitives::version::{ProtocolFeature, ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::{
     BlockStatusView, DroppedReason, ExecutionOutcomeWithIdView, ExecutionStatusView,
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
@@ -474,7 +475,11 @@ impl Chain {
                         genesis.hash(),
                         &epoch_manager
                             .shard_id_to_uid(chunk_header.shard_id(), &EpochId::default())?,
-                        Self::create_genesis_chunk_extra(state_root, chain_genesis.gas_limit),
+                        Self::create_genesis_chunk_extra(
+                            state_root,
+                            chain_genesis.gas_limit,
+                            chain_genesis.protocol_version,
+                        ),
                     );
                 }
 
@@ -600,11 +605,37 @@ impl Chain {
         self.last_time_head_updated
     }
 
-    fn create_genesis_chunk_extra(state_root: &StateRoot, gas_limit: Gas) -> ChunkExtra {
-        ChunkExtra::new(state_root, CryptoHash::default(), vec![], 0, gas_limit, 0)
+    fn create_genesis_chunk_extra(
+        state_root: &StateRoot,
+        gas_limit: Gas,
+        genesis_protocol_version: ProtocolVersion,
+    ) -> ChunkExtra {
+        ChunkExtra::new(
+            genesis_protocol_version,
+            state_root,
+            CryptoHash::default(),
+            vec![],
+            0,
+            gas_limit,
+            0,
+            Self::get_genesis_congestion_info(genesis_protocol_version),
+        )
     }
 
-    pub fn genesis_chunk_extra(&self, shard_id: ShardId) -> Result<ChunkExtra, Error> {
+    fn get_genesis_congestion_info(protocol_version: ProtocolVersion) -> Option<CongestionInfo> {
+        if protocol_version >= ProtocolFeature::CongestionControl.protocol_version() {
+            // TODO(congestion_control) - properly initialize
+            Some(CongestionInfo::default())
+        } else {
+            None
+        }
+    }
+
+    pub fn genesis_chunk_extra(
+        &self,
+        shard_id: ShardId,
+        genesis_protocol_version: ProtocolVersion,
+    ) -> Result<ChunkExtra, Error> {
         let shard_index = shard_id as usize;
         let state_root = *get_genesis_state_roots(self.chain_store.store())?
             .ok_or_else(|| Error::Other("genesis state roots do not exist in the db".to_owned()))?
@@ -620,7 +651,7 @@ impl Chain {
                 Error::Other(format!("genesis chunk does not exist for shard {shard_index}"))
             })?
             .gas_limit();
-        Ok(Self::create_genesis_chunk_extra(&state_root, gas_limit))
+        Ok(Self::create_genesis_chunk_extra(&state_root, gas_limit, genesis_protocol_version))
     }
 
     /// Creates a light client block for the last final block from perspective of some other block
@@ -2967,12 +2998,12 @@ impl Chain {
         }
     }
 
-    /// For given pair of block headers and shard id, return information about
-    /// block necessary for processing shard update.
+    /// For a given previous block and current block header, return information
+    /// about block necessary for processing shard update.
     pub fn get_apply_chunk_block_context(
         epoch_manager: &dyn EpochManagerAdapter,
         block_header: &BlockHeader,
-        prev_block_header: &BlockHeader,
+        prev_block: &Block,
         is_new_chunk: bool,
     ) -> Result<ApplyChunkBlockContext, Error> {
         let epoch_id = block_header.epoch_id();
@@ -2984,10 +3015,11 @@ impl Chain {
         {
             block_header.next_gas_price()
         } else {
-            prev_block_header.next_gas_price()
+            prev_block.header().next_gas_price()
         };
+        let congestion_info = prev_block.shards_congestion_info();
 
-        Ok(ApplyChunkBlockContext::from_header(block_header, gas_price))
+        Ok(ApplyChunkBlockContext::from_header(block_header, gas_price, congestion_info))
     }
 
     fn block_catch_up_postprocess(
@@ -3536,7 +3568,7 @@ impl Chain {
             let block_context = Self::get_apply_chunk_block_context(
                 self.epoch_manager.as_ref(),
                 block.header(),
-                prev_block.header(),
+                &prev_block,
                 is_new_chunk,
             )?;
             if is_new_chunk {
