@@ -125,7 +125,7 @@ pub enum Error {
     /// Invalid chunk.
     /// TODO(wacban) add more detail
     #[error("Invalid Chunk")]
-    InvalidChunk,
+    InvalidChunk(String),
     /// One of the chunks has invalid proofs
     #[error("Invalid Chunk Proofs")]
     InvalidChunkProofs(Box<ChunkProofs>),
@@ -267,7 +267,7 @@ impl Error {
             | Error::InvalidBlockFutureTime(_)
             | Error::InvalidBlockHeight(_)
             | Error::InvalidBlockProposer
-            | Error::InvalidChunk
+            | Error::InvalidChunk(_)
             | Error::InvalidChunkProofs(_)
             | Error::InvalidChunkState(_)
             | Error::InvalidChunkStateWitness(_)
@@ -341,7 +341,7 @@ impl Error {
             Error::InvalidBlockFutureTime(_) => "invalid_block_future_time",
             Error::InvalidBlockHeight(_) => "invalid_block_height",
             Error::InvalidBlockProposer => "invalid_block_proposer",
-            Error::InvalidChunk => "invalid_chunk",
+            Error::InvalidChunk(_) => "invalid_chunk",
             Error::InvalidChunkProofs(_) => "invalid_chunk_proofs",
             Error::InvalidChunkState(_) => "invalid_chunk_state",
             Error::InvalidChunkStateWitness(_) => "invalid_chunk_state_witness",
