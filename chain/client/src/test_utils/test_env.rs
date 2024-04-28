@@ -391,40 +391,6 @@ impl TestEnv {
             }
         }
 
-        let network_adapters = self.network_adapters.clone();
-        for network_adapter in network_adapters {
-            network_adapter.handle_filtered(|request| match request {
-                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::ChunkStateWitness(
-                    account_ids,
-                    state_witness,
-                )) => {
-                    // Process chunk state witness for each client.
-                    for account_id in account_ids.iter() {
-                        let processing_done_tracker = ProcessingDoneTracker::new();
-                        witness_processing_done_waiters.push(processing_done_tracker.make_waiter());
-
-                        let processing_result =
-                            self.client(account_id).process_signed_chunk_state_witness(
-                                state_witness.clone(),
-                                Some(processing_done_tracker),
-                            );
-                        if !allow_errors {
-                            processing_result.unwrap();
-                        }
-                    }
-
-                    // Update output.
-                    output.found_differing_post_state_root_due_to_state_transitions |=
-                        Self::found_differing_post_state_root_due_to_state_transitions(
-                            &state_witness.witness_bytes,
-                        );
-
-                    None
-                }
-                _ => Some(request),
-            });
-        }
-
         // Wait for all state witnesses to be processed before returning.
         for processing_done_waiter in witness_processing_done_waiters {
             processing_done_waiter.wait();
