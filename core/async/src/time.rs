@@ -37,7 +37,7 @@ pub type Instant = time::Instant;
 pub type Utc = time::OffsetDateTime;
 pub type Duration = time::Duration;
 
-// Instant doesn't have a deterministic contructor,
+// Instant doesn't have a deterministic constructor,
 // however since Instant is not convertible to an unix timestamp,
 // we can snapshot Instant::now() once and treat it as a constant.
 // All observable effects will be then deterministic.
@@ -77,7 +77,7 @@ pub struct Clock(ClockInner);
 
 impl Clock {
     /// Constructor of the real clock. Use it in production code.
-    /// Preferrably construct it directly in the main() function,
+    /// Preferably construct it directly in the main() function,
     /// so that it can be faked out in every other function.
     pub fn real() -> Clock {
         Clock(ClockInner::Real)
@@ -197,7 +197,7 @@ pub struct FakeClock(Arc<Mutex<FakeClockInner>>);
 impl FakeClock {
     /// Constructor of a fake clock. Use it in tests.
     /// It supports manually moving time forward (via advance()).
-    /// You can also arbitrarly set the UTC time in runtime.
+    /// You can also arbitrarily set the UTC time in runtime.
     /// Use FakeClock::clock() when calling prod code from tests.
     pub fn new(utc: Utc) -> Self {
         Self(Arc::new(Mutex::new(FakeClockInner::new(utc))))
