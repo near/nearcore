@@ -899,9 +899,7 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::blocks::RpcBlockResponse,
         near_jsonrpc_primitives::types::blocks::RpcBlockError,
     > {
-        tracing::info!("BOOM 1");
         let block_view = self.view_client_send(GetBlock(request_data.block_reference)).await?;
-        tracing::info!(?block_view, "BOOM 2");
         Ok(near_jsonrpc_primitives::types::blocks::RpcBlockResponse { block_view })
     }
 
