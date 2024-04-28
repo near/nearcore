@@ -123,7 +123,6 @@ pub enum Error {
     #[error("Incorrect Number of Chunk Headers")]
     IncorrectNumberOfChunkHeaders,
     /// Invalid chunk.
-    /// TODO(wacban) add more detail
     #[error("Invalid Chunk")]
     InvalidChunk(String),
     /// One of the chunks has invalid proofs

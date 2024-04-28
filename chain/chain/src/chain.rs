@@ -802,7 +802,6 @@ impl Chain {
                 // https://github.com/near/nearcore/issues/4908
                 let chunks = genesis_block.chunks();
                 let genesis_chunk = chunks.get(shard_id);
-                // let genesis_chunk = genesis_chunk.ok_or(Error::InvalidChunk)?;
                 let genesis_chunk = genesis_chunk.ok_or_else(|| {
                     Error::InvalidChunk(format!(
                         "genesis chunk not found for shard {}, genesis block has {} chunks",
