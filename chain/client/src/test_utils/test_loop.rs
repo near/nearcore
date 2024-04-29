@@ -1,9 +1,14 @@
+pub mod client_actions;
+pub mod state_witness_actions;
+pub mod sync_jobs_actions;
+pub mod sync_actor;
+
 use near_async::messaging::{CanSend, SendAsync};
 use near_async::test_loop::delay_sender::DelaySender;
 use near_async::test_loop::event_handler::{LoopEventHandler, TryIntoOrSelf};
-use near_async::test_loop::futures::TestLoopFutureSpawner;
+
 use near_async::time::Duration;
-use near_chunks::client::ShardsManagerResponse;
+
 use near_network::client::{BlockApproval, BlockResponse, ChunkEndorsementMessage, ChunkStateWitnessMessage, ClientSenderForNetwork, ClientSenderForNetworkMessage, ProcessTxRequest};
 use near_network::state_witness::{ChunkStateWitnessAckMessage, StateWitnessSenderForNetwork, StateWitnessSenderForNetworkMessage};
 use near_network::test_loop::SupportsRoutingLookup;
@@ -12,103 +17,11 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, Balance, ShardId};
 use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryResponse, QueryResponseKind};
-use crate::{Client, SyncMessage};
+use crate::{Client};
+use crate::client_actions::{ClientActions};
 
-use crate::client_actions::SyncJobsSenderForClientMessage;
-use crate::client_actions::{ClientActionHandler, ClientActions, ClientSenderForClientMessage};
-use crate::stateless_validation::state_witness_actions::StateWitnessActions;
-use crate::stateless_validation::state_witness_actor::StateWitnessSenderForClientMessage;
-use crate::sync_jobs_actions::ClientSenderForSyncJobsMessage;
-use crate::sync_jobs_actions::SyncJobsActions;
 
-pub fn forward_client_messages_from_network_to_client_actions() -> LoopEventHandler<ClientActions, ClientSenderForNetworkMessage> {
-    LoopEventHandler::new(|msg, client_actions: &mut ClientActions| {
-        match msg {
-            ClientSenderForNetworkMessage::_state_response(msg) => {
-                (msg.callback)(Ok(client_actions.handle(msg.message)));
-            }
-            ClientSenderForNetworkMessage::_block_approval(msg) => {
-                (msg.callback)(Ok(client_actions.handle(msg.message)));
-            }
-            ClientSenderForNetworkMessage::_transaction(msg) => {
-                (msg.callback)(Ok(client_actions.handle(msg.message)));
-            }
-            ClientSenderForNetworkMessage::_block(msg) => {
-                (msg.callback)(Ok(client_actions.handle(msg.message)));
-            }
-            ClientSenderForNetworkMessage::_block_headers(msg) => {
-                (msg.callback)(Ok(client_actions.handle(msg.message)));
-            }
-            ClientSenderForNetworkMessage::_challenge(msg) => {
-                (msg.callback)(Ok(client_actions.handle(msg.message)));
-            }
-            ClientSenderForNetworkMessage::_network_info(msg) => {
-                (msg.callback)(Ok(client_actions.handle(msg.message)));
-            }
-            ClientSenderForNetworkMessage::_chunk_state_witness(msg) => {
-                (msg.callback)(Ok(client_actions.handle(msg.message)));
-            }
-            ClientSenderForNetworkMessage::_chunk_endorsement(msg) => {
-                (msg.callback)(Ok(client_actions.handle(msg.message)));
-            }
-            _ => {
-                return Err(msg);
-            }
-        }
-        Ok(())
-    })
-}
 
-pub fn forward_client_messages_from_client_to_client_actions() -> LoopEventHandler<ClientActions, ClientSenderForClientMessage> {
-    LoopEventHandler::new_simple(|msg, client_actions: &mut ClientActions| match msg {
-        ClientSenderForClientMessage::_apply_chunks_done(msg) => client_actions.handle(msg),
-    })
-}
-
-pub fn forward_client_messages_from_sync_jobs_to_client_actions() -> LoopEventHandler<ClientActions, ClientSenderForSyncJobsMessage> {
-    LoopEventHandler::new_simple(|msg, client_actions: &mut ClientActions| match msg {
-        ClientSenderForSyncJobsMessage::_apply_state_parts_response(msg) => {
-            client_actions.handle(msg)
-        }
-        ClientSenderForSyncJobsMessage::_block_catch_up_response(msg) => client_actions.handle(msg),
-        ClientSenderForSyncJobsMessage::_resharding_response(msg) => client_actions.handle(msg),
-        ClientSenderForSyncJobsMessage::_load_memtrie_response(msg) => client_actions.handle(msg),
-    })
-}
-
-pub fn forward_client_messages_from_shards_manager() -> LoopEventHandler<ClientActions, ShardsManagerResponse> {
-    LoopEventHandler::new_simple(|msg, client_actions: &mut ClientActions| {
-        client_actions.handle(msg);
-    })
-}
-
-pub fn forward_client_messages_from_sync_adapter() -> LoopEventHandler<ClientActions, SyncMessage> {
-    LoopEventHandler::new_simple(|msg, client_actions: &mut ClientActions| {
-        client_actions.handle(msg);
-    })
-}
-
-pub fn forward_messages_from_network_to_state_witness_actor() -> LoopEventHandler<StateWitnessActions, StateWitnessSenderForNetworkMessage> {
-    LoopEventHandler::new_simple(|msg, state_witness_actions: &mut StateWitnessActions| match msg {
-        StateWitnessSenderForNetworkMessage::_chunk_state_witness_ack(msg) => {
-            state_witness_actions.handle_chunk_state_witness_ack(msg.0);
-        }
-        StateWitnessSenderForNetworkMessage::_partial_encoded_state_witness(msg) => {
-            state_witness_actions.handle_partial_encoded_state_witness(msg.0).unwrap();
-        }
-        StateWitnessSenderForNetworkMessage::_partial_encoded_state_witness_forward(msg) => {
-            state_witness_actions.handle_partial_encoded_state_witness_forward(msg.0).unwrap();
-        }
-    })
-}
-
-pub fn forward_messages_from_client_to_state_witness_actor() -> LoopEventHandler<StateWitnessActions, StateWitnessSenderForClientMessage> {
-    LoopEventHandler::new_simple(|msg, state_witness_actions: &mut StateWitnessActions| match msg {
-        StateWitnessSenderForClientMessage::_distribute_chunk_state_witness(msg) => {
-            state_witness_actions.handle_distribute_state_witness_request(msg).unwrap();
-        }
-    })
-}
 
 pub fn print_basic_client_info_before_each_event<Data, Event>(
     idx: Option<usize>,

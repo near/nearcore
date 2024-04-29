@@ -58,8 +58,8 @@ use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, Set
 use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, ReasonForBan,
 };
-use near_o11y::log_assert;
-use near_o11y::WithSpanContextExt;
+
+
 use near_pool::InsertTransactionResult;
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::block_header::ApprovalType;
