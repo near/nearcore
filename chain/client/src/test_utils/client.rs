@@ -129,7 +129,7 @@ fn create_chunk_on_height_for_shard(
     let last_block = client.chain.get_block(&last_block_hash).unwrap();
     client
         .produce_chunk(
-            last_block_hash,
+            &last_block,
             &client.epoch_manager.get_epoch_id_from_prev_block(&last_block_hash).unwrap(),
             Chain::get_prev_chunk_header(client.epoch_manager.as_ref(), &last_block, shard_id)
                 .unwrap(),
@@ -167,7 +167,7 @@ pub fn create_chunk(
         transactions_storage_proof,
     } = client
         .produce_chunk(
-            *last_block.hash(),
+            &last_block,
             last_block.header().epoch_id(),
             last_block.chunks()[0].clone(),
             next_height,
@@ -207,6 +207,8 @@ pub fn create_chunk(
             transactions,
             decoded_chunk.prev_outgoing_receipts(),
             header.prev_outgoing_receipts_root(),
+            // TODO(congestion_control): compute if not available
+            header.congestion_info().unwrap_or_default(),
             &*signer,
             PROTOCOL_VERSION,
         )

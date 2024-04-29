@@ -8,9 +8,9 @@ use near_client::DistributeStateWitnessRequest;
 use near_client::HandleOrphanWitnessOutcome;
 use near_client::{ProcessingDoneTracker, ProcessingDoneWaiter};
 use near_o11y::testonly::init_integration_logger;
+use near_primitives::sharding::ShardChunkHeaderV3;
 use near_primitives::sharding::{
-    ChunkHash, ReceiptProof, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderInnerV2,
-    ShardProof,
+    ChunkHash, ReceiptProof, ShardChunkHeader, ShardChunkHeaderInner, ShardProof,
 };
 use near_primitives::stateless_validation::EncodedChunkStateWitness;
 use near_primitives::types::AccountId;
@@ -244,7 +244,11 @@ fn test_orphan_witness_invalid_shard_id() {
         setup_orphan_witness_test();
 
     // Set invalid shard_id in the witness header
-    modify_witness_header_inner(&mut encoded_witness, |header| header.shard_id = 10000000);
+    modify_witness_header_inner(&mut encoded_witness, |header| match &mut header.inner {
+        ShardChunkHeaderInner::V1(inner) => inner.shard_id = 10000000,
+        ShardChunkHeaderInner::V2(inner) => inner.shard_id = 10000000,
+        ShardChunkHeaderInner::V3(inner) => inner.shard_id = 10000000,
+    });
 
     // The witness should be rejected
     let error = env
@@ -294,7 +298,11 @@ fn test_orphan_witness_far_from_head() {
         setup_orphan_witness_test();
 
     let bad_height = 10000;
-    modify_witness_header_inner(&mut encoded_witness, |header| header.height_created = bad_height);
+    modify_witness_header_inner(&mut encoded_witness, |header| match &mut header.inner {
+        ShardChunkHeaderInner::V1(inner) => inner.height_created = bad_height,
+        ShardChunkHeaderInner::V2(inner) => inner.height_created = bad_height,
+        ShardChunkHeaderInner::V3(inner) => inner.height_created = bad_height,
+    });
 
     let witness = encoded_witness.decode().unwrap().0;
     let outcome =
@@ -341,15 +349,15 @@ fn test_orphan_witness_not_fully_validated() {
 }
 
 fn modify_witness_header_inner(
-    encoded_witness: &mut EncodedChunkStateWitness,
-    f: impl FnOnce(&mut ShardChunkHeaderInnerV2),
+    signed_witness: &mut SignedEncodedChunkStateWitness,
+    f: impl FnOnce(&mut ShardChunkHeaderV3),
 ) {
     let mut witness = encoded_witness.decode().unwrap().0;
+
     match &mut witness.chunk_header {
-        ShardChunkHeader::V3(header) => match &mut header.inner {
-            ShardChunkHeaderInner::V2(header_inner) => f(header_inner),
-            _ => panic!(),
-        },
+        ShardChunkHeader::V3(header) => {
+            f(header);
+        }
         _ => panic!(),
     };
     *encoded_witness = EncodedChunkStateWitness::encode(&witness).unwrap().0;

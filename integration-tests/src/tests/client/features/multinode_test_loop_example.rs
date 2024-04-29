@@ -1,10 +1,8 @@
 use derive_enum_from_into::{EnumFrom, EnumTryInto};
-use near_async::messaging::{
-    noop, CanSend, IntoMultiSender, IntoSender, MessageWithCallback, SendAsync,
-};
+use near_async::futures::FutureSpawner;
+use near_async::messaging::{noop, IntoMultiSender, IntoSender, MessageWithCallback, SendAsync};
 use near_async::test_loop::adhoc::{handle_adhoc_events, AdhocEvent, AdhocEventSender};
-use near_async::test_loop::delay_sender::DelaySender;
-use near_async::test_loop::event_handler::{ignore_events, LoopEventHandler, TryIntoOrSelf};
+use near_async::test_loop::event_handler::ignore_events;
 use near_async::test_loop::futures::{
     drive_async_computations, drive_futures, TestLoopAsyncComputationEvent,
     TestLoopDelayedActionEvent, TestLoopTask,
@@ -12,8 +10,21 @@ use near_async::test_loop::futures::{
 use near_async::test_loop::TestLoopBuilder;
 use near_async::time::Duration;
 use near_chain::chunks_store::ReadOnlyChunksStore;
+use near_chain::state_snapshot_actor::{
+    get_delete_snapshot_callback, get_make_snapshot_callback, SnapshotCallbacks,
+    StateSnapshotActions, StateSnapshotSenderForClient, StateSnapshotSenderForClientMessage,
+    StateSnapshotSenderForStateSnapshot, StateSnapshotSenderForStateSnapshotMessage,
+};
+use near_chain::test_utils::test_loop::{
+    forward_state_snapshot_messages_from_client,
+    forward_state_snapshot_messages_from_state_snapshot,
+};
+use near_chain::types::RuntimeAdapter;
 use near_chain::ChainGenesis;
-use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, GenesisRecords};
+use near_chain_configs::{
+    ClientConfig, DumpConfig, ExternalStorageConfig, ExternalStorageLocation, Genesis,
+    GenesisConfig, GenesisRecords, StateSyncConfig, SyncConfig,
+};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_loop::{
@@ -25,60 +36,63 @@ use near_client::client_actions::{
     ClientActions, ClientSenderForClientMessage, ClientSenderForStateWitnessMessage,
     SyncJobsSenderForClientMessage,
 };
+use near_client::sync::sync_actor::SyncActor;
 use near_client::sync_jobs_actions::{
     ClientSenderForSyncJobsMessage, SyncJobsActions, SyncJobsSenderForSyncJobsMessage,
 };
-use near_client::test_utils::test_loop::{
+use near_client::test_utils::test_loop::client_actions::{
     forward_client_messages_from_client_to_client_actions,
     forward_client_messages_from_network_to_client_actions,
-    forward_client_messages_from_shards_manager,
+    forward_client_messages_from_shards_manager, forward_client_messages_from_sync_adapter,
     forward_client_messages_from_sync_jobs_to_client_actions,
+};
+use near_client::test_utils::test_loop::state_witness_actions::{
     forward_messages_from_client_to_state_witness_actor,
     forward_messages_from_network_to_state_witness_actor,
-    forward_messages_from_state_witness_actor_to_client,
-    forward_sync_jobs_messages_from_client_to_sync_jobs_actions,
 };
+use near_client::test_utils::test_loop::sync_actor::{
+    forward_sync_actor_messages_from_client, forward_sync_actor_messages_from_network,
+    test_loop_sync_actor_maker, TestSyncActors,
+};
+use near_client::test_utils::test_loop::sync_jobs_actions::{
+    forward_sync_jobs_messages_from_client_to_sync_jobs_actions,
+    forward_sync_jobs_messages_from_sync_jobs_to_sync_jobs_actions,
+};
+use near_client::test_utils::test_loop::{
+    forward_messages_from_state_witness_actor_to_client, print_basic_client_info_before_each_event,
+};
+use near_client::test_utils::test_loop::{route_network_messages_to_client, ClientQueries};
 use near_client::{
     Client, StateWitnessActions, StateWitnessSenderForClientMessage, SyncAdapter, SyncMessage,
 };
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
 use near_network::client::{
-    BlockApproval, BlockResponse, ChunkEndorsementMessage, ChunkStateWitnessMessage,
     ClientSenderForNetwork, ClientSenderForNetworkMessage, ProcessTxRequest,
 };
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
-use near_network::state_witness::{
-    ChunkStateWitnessAckMessage, PartialEncodedStateWitnessForwardMessage,
-    PartialEncodedStateWitnessMessage, StateWitnessSenderForNetwork,
-    StateWitnessSenderForNetworkMessage,
-};
-use near_network::test_loop::SupportsRoutingLookup;
-use near_network::types::{
-    NetworkRequests, PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
-};
+use near_network::state_sync::StateSyncResponse;
+use near_network::state_witness::StateWitnessSenderForNetworkMessage;
+use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo};
 use near_primitives::network::PeerId;
-use near_primitives::shard_layout::ShardLayout;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state_record::StateRecord;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, AccountInfo};
 use near_primitives::utils::from_timestamp;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::{QueryRequest, QueryResponseKind};
 use near_primitives_core::account::{AccessKey, Account};
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::Balance;
 use near_store::config::StateSnapshotType;
 use near_store::genesis::initialize_genesis_state;
-use near_store::test_utils::create_test_store;
-use near_store::TrieConfig;
+use near_store::{NodeStorage, StoreConfig, TrieConfig};
 use near_vm_runner::ContractRuntimeCache;
 use near_vm_runner::FilesystemContractRuntimeCache;
+use nearcore::state_sync::StateSyncDumper;
 use nearcore::NightshadeRuntime;
 use std::collections::HashMap;
-use std::path::Path;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 #[derive(derive_more::AsMut, derive_more::AsRef)]
 struct TestData {
@@ -88,6 +102,9 @@ struct TestData {
     pub sync_jobs: SyncJobsActions,
     pub shards_manager: ShardsManager,
     pub state_witness: StateWitnessActions,
+    pub sync_actors: TestSyncActors,
+    pub state_sync_dumper: StateSyncDumper,
+    pub state_snapshot: StateSnapshotActions,
 }
 
 impl AsMut<TestData> for TestData {
@@ -133,10 +150,20 @@ enum TestEvent {
     /// Message that the SyncJobs component sends to itself.
     SyncJobsEventFromSyncJobs(SyncJobsSenderForSyncJobsMessage),
 
+    /// Message that the client sends to the SyncActor component.
+    SyncActorEventFromClient((ShardUId, SyncMessage)),
+    /// Message that the network sends to the SyncActor component.
+    SyncActorEventFromNetwork((ShardUId, StateSyncResponse)),
+
     /// Message that the client sends to the ShardsManager component.
     ShardsManagerRequestFromClient(ShardsManagerRequestFromClient),
     /// Message that the network layer sends to the ShardsManager component.
     ShardsManagerRequestFromNetwork(ShardsManagerRequestFromNetwork),
+
+    /// Message that the client sends to StateSnapshotActor.
+    StateSnapshotRequestFromClient(StateSnapshotSenderForClientMessage),
+    /// Message that the StateSnapshotActor sends to itself.
+    StateSnapshotRequestFromStateSnapshot(StateSnapshotSenderForStateSnapshotMessage),
 
     /// Outgoing network message that is sent by any of the components of this node.
     OutgoingNetworkMessage(PeerManagerMessageRequest),
@@ -195,7 +222,8 @@ fn test_client_with_multi_test_loop() {
         protocol_treasury_account: accounts[NUM_CLIENTS].clone(),
         num_block_producer_seats: 4,
         minimum_validators_per_shard: 1,
-        num_block_producer_seats_per_shard: vec![4, 4, 4, 4],
+        num_block_producer_seats_per_shard: vec![0, 0, 0, 0], // ignored
+        shuffle_shard_assignment_for_chunk_producers: true,
         ..Default::default()
     };
     let mut records = Vec::new();
@@ -223,11 +251,41 @@ fn test_client_with_multi_test_loop() {
     }
     let genesis = Genesis::new(genesis_config, GenesisRecords(records)).unwrap();
 
+    let tempdir = tempfile::tempdir().unwrap();
     let mut datas = Vec::new();
     for idx in 0..NUM_CLIENTS {
         let mut client_config = ClientConfig::test(true, 600, 2000, 4, false, true, false, false);
         client_config.max_block_wait_delay = Duration::seconds(6);
-        let store = create_test_store();
+        client_config.state_sync_enabled = true;
+        client_config.state_sync_timeout = Duration::milliseconds(100);
+        let external_storage_location =
+            ExternalStorageLocation::Filesystem { root_dir: tempdir.path().join("state_sync") };
+        client_config.state_sync = StateSyncConfig {
+            dump: Some(DumpConfig {
+                iteration_delay: Some(Duration::seconds(1)),
+                location: external_storage_location.clone(),
+                credentials_file: None,
+                restart_dump_for_shards: None,
+            }),
+            sync: SyncConfig::ExternalStorage(ExternalStorageConfig {
+                location: external_storage_location,
+                num_concurrent_requests: 1,
+                num_concurrent_requests_during_catchup: 1,
+            }),
+        };
+        client_config.tracked_shards = Vec::new();
+
+        let homedir = tempdir.path().join(format!("{}", idx));
+        std::fs::create_dir_all(&homedir).expect("Unable to create homedir");
+
+        let store_config = StoreConfig {
+            path: Some(homedir.clone()),
+            load_mem_tries_for_tracked_shards: true,
+            max_open_files: 1000,
+            ..Default::default()
+        };
+        let opener = NodeStorage::opener(&homedir, false, &store_config, None);
+        let store = opener.open().unwrap().get_hot_store();
         initialize_genesis_state(store.clone(), &genesis, None);
 
         let sync_jobs_actions = SyncJobsActions::new(
@@ -242,40 +300,60 @@ fn test_client_with_multi_test_loop() {
         );
         let chain_genesis = ChainGenesis::new(&genesis.config);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
-        let shard_tracker = ShardTracker::new(TrackedConfig::AllShards, epoch_manager.clone());
+        let shard_tracker =
+            ShardTracker::new(TrackedConfig::from_config(&client_config), epoch_manager.clone());
+
+        let sync_actors = Arc::new(Mutex::new(HashMap::<ShardUId, SyncActor>::new()));
         let state_sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
             builder.sender().for_index(idx).into_sender(),
             builder.sender().for_index(idx).into_sender(),
+            test_loop_sync_actor_maker(builder.sender().for_index(idx), sync_actors.clone()),
         )));
-        let home_dir = Path::new(".");
-        let contract_cache = FilesystemContractRuntimeCache::new(home_dir, None::<&str>)
+        let contract_cache = FilesystemContractRuntimeCache::new(&homedir, None::<&str>)
             .expect("filesystem contract cache")
             .handle();
         let runtime_adapter = NightshadeRuntime::test_with_trie_config(
-            home_dir,
+            &homedir,
             store.clone(),
             contract_cache,
             &genesis.config,
             epoch_manager.clone(),
-            TrieConfig { load_mem_tries_for_tracked_shards: true, ..Default::default() },
-            StateSnapshotType::ForReshardingOnly,
+            TrieConfig::from_store_config(&store_config),
+            StateSnapshotType::EveryEpoch,
         );
+
+        let state_snapshot = StateSnapshotActions::new(
+            runtime_adapter.get_flat_storage_manager(),
+            builder.sender().for_index(idx).into_multi_sender(),
+            runtime_adapter.get_tries(),
+            builder.sender().for_index(idx).into_wrapped_multi_sender::<StateSnapshotSenderForStateSnapshotMessage, StateSnapshotSenderForStateSnapshot>(),
+        );
+
+        let delete_snapshot_callback = get_delete_snapshot_callback(
+            builder.sender().for_index(idx).into_wrapped_multi_sender::<StateSnapshotSenderForClientMessage, StateSnapshotSenderForClient>(),
+        );
+        let make_snapshot_callback = get_make_snapshot_callback(
+            builder.sender().for_index(idx).into_wrapped_multi_sender::<StateSnapshotSenderForClientMessage, StateSnapshotSenderForClient>(),
+            runtime_adapter.get_flat_storage_manager(),
+        );
+        let snapshot_callbacks =
+            SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
 
         let validator_signer = Arc::new(create_test_signer(accounts[idx].as_str()));
         let client = Client::new(
             builder.clock(),
             client_config.clone(),
-            chain_genesis,
+            chain_genesis.clone(),
             epoch_manager.clone(),
             shard_tracker.clone(),
             state_sync_adapter,
-            runtime_adapter,
+            runtime_adapter.clone(),
             builder.sender().for_index(idx).into_multi_sender(),
             builder.sender().for_index(idx).into_sender(),
             Some(validator_signer.clone()),
             true,
             [0; 32],
-            None,
+            Some(snapshot_callbacks),
             Arc::new(
                 builder
                     .sender()
@@ -293,7 +371,7 @@ fn test_client_with_multi_test_loop() {
             builder.clock(),
             Some(accounts[idx].clone()),
             epoch_manager.clone(),
-            shard_tracker,
+            shard_tracker.clone(),
             builder.sender().for_index(idx).into_sender(),
             builder.sender().for_index(idx).into_sender(),
             ReadOnlyChunksStore::new(store),
@@ -308,7 +386,7 @@ fn test_client_with_multi_test_loop() {
                 .sender()
                 .for_index(idx)
                 .into_wrapped_multi_sender::<ClientSenderForClientMessage, _>(),
-            client_config,
+            client_config.clone(),
             PeerId::random(),
             builder.sender().for_index(idx).into_multi_sender(),
             None,
@@ -332,8 +410,24 @@ fn test_client_with_multi_test_loop() {
                 .for_index(idx)
                 .into_wrapped_multi_sender::<ClientSenderForStateWitnessMessage, _>(),
             validator_signer,
-            epoch_manager,
+            epoch_manager.clone(),
         );
+
+        let future_spawner = builder.sender().for_index(idx).into_future_spawner();
+        let state_sync_dumper = StateSyncDumper {
+            clock: builder.clock(),
+            client_config,
+            chain_genesis,
+            epoch_manager,
+            shard_tracker,
+            runtime: runtime_adapter,
+            account_id: Some(accounts[idx].clone()),
+            dump_future_runner: Box::new(move |future| {
+                future_spawner.spawn_boxed("state_sync_dumper", future);
+                Box::new(|| {})
+            }),
+            handle: None,
+        };
 
         let data = TestData {
             dummy: (),
@@ -342,12 +436,18 @@ fn test_client_with_multi_test_loop() {
             sync_jobs: sync_jobs_actions,
             shards_manager,
             state_witness: state_witness_actions,
+            sync_actors,
+            state_sync_dumper,
+            state_snapshot,
         };
         datas.push(data);
     }
 
     let mut test = builder.build(datas);
     for idx in 0..NUM_CLIENTS {
+        // Handlers that do nothing but print some information.
+        test.register_handler(print_basic_client_info_before_each_event(Some(idx)).for_index(idx));
+
         // Futures, adhoc events, async computations.
         test.register_handler(drive_futures().widen().for_index(idx));
         test.register_handler(handle_adhoc_events::<TestData>().widen().for_index(idx));
@@ -371,7 +471,7 @@ fn test_client_with_multi_test_loop() {
         test.register_handler(
             forward_messages_from_state_witness_actor_to_client().widen().for_index(idx),
         );
-        // TODO: handle state sync adapter -> client.
+        test.register_handler(forward_client_messages_from_sync_adapter().widen().for_index(idx));
 
         // Messages to the SyncJobs component.
         test.register_handler(
@@ -381,11 +481,27 @@ fn test_client_with_multi_test_loop() {
             .widen()
             .for_index(idx),
         );
-        // TODO: handle SyncJobs -> SyncJobs.
+        test.register_handler(
+            forward_sync_jobs_messages_from_sync_jobs_to_sync_jobs_actions(
+                test.sender().for_index(idx).into_future_spawner(),
+            )
+            .widen()
+            .for_index(idx),
+        );
+
+        // Messages to the SyncActor component.
+        test.register_handler(forward_sync_actor_messages_from_client().widen().for_index(idx));
+        test.register_handler(forward_sync_actor_messages_from_network().widen().for_index(idx));
 
         // Messages to the ShardsManager component.
         test.register_handler(forward_client_request_to_shards_manager().widen().for_index(idx));
         test.register_handler(forward_network_request_to_shards_manager().widen().for_index(idx));
+
+        // Messages to the StateSnapshotActor component.
+        test.register_handler(
+            forward_state_snapshot_messages_from_state_snapshot().widen().for_index(idx),
+        );
+        test.register_handler(forward_state_snapshot_messages_from_client().widen().for_index(idx));
 
         // Messages to the network layer; multi-node messages are handled below.
         test.register_handler(ignore_events::<SetChainInfo>().widen().for_index(idx));
@@ -425,7 +541,11 @@ fn test_client_with_multi_test_loop() {
                 &mut sender.into_delayed_action_runner(shutting_down),
                 Duration::milliseconds(100),
             );
-        })
+        });
+
+        test.sender().for_index(idx).send_adhoc_event("start_state_sync_dumper", move |data| {
+            data.state_sync_dumper.start().unwrap();
+        });
     }
 
     // Give it some condition to stop running at. Here we run the test until the first client
@@ -446,11 +566,16 @@ fn test_client_with_multi_test_loop() {
     }
     test.run_instant();
 
+    let first_epoch_tracked_shards = test.data.tracked_shards_for_each_client();
+    tracing::info!("First epoch tracked shards: {:?}", first_epoch_tracked_shards);
+
     let mut balances = accounts
         .iter()
         .cloned()
         .map(|account| (account, initial_balance))
         .collect::<HashMap<_, _>>();
+
+    let anchor_hash = *test.data[0].client.client.chain.get_block_by_height(10002).unwrap().hash();
     for i in 0..accounts.len() {
         let amount = ONE_NEAR * (i as u128 + 1);
         let tx = SignedTransaction::send_money(
@@ -459,13 +584,14 @@ fn test_client_with_multi_test_loop() {
             accounts[(i + 1) % accounts.len()].clone(),
             &create_user_test_signer(&accounts[i]),
             amount,
-            *test.data[0].client.client.chain.get_block_by_height(10002).unwrap().hash(),
+            anchor_hash,
         );
         *balances.get_mut(&accounts[i]).unwrap() -= amount;
         *balances.get_mut(&accounts[(i + 1) % accounts.len()]).unwrap() += amount;
         drop(
             test.sender()
                 .for_index(i % NUM_CLIENTS)
+                .with_additional_delay(Duration::milliseconds(300 * i as i64))
                 .into_wrapped_multi_sender::<ClientSenderForNetworkMessage, ClientSenderForNetwork>(
                 )
                 .send_async(ProcessTxRequest {
@@ -475,9 +601,14 @@ fn test_client_with_multi_test_loop() {
                 }),
         );
     }
+
+    // Give plenty of time for these transactions to complete.
+    test.run_for(Duration::seconds(40));
+
+    // Make sure the chain progresses for several epochs.
     test.run_until(
-        |data| data[0].client.client.chain.head().unwrap().height == 10008,
-        Duration::seconds(8),
+        |data| data[0].client.client.chain.head().unwrap().height > 10050,
+        Duration::seconds(10),
     );
 
     for account in &accounts {
@@ -489,199 +620,15 @@ fn test_client_with_multi_test_loop() {
         );
     }
 
-    // Give the test a chance to finish off remaining important events in the event loop, which can
-    // be important for properly shutting down the nodes.
-    test.shutdown_and_drain_remaining_events(Duration::seconds(1));
-}
+    let later_epoch_tracked_shards = test.data.tracked_shards_for_each_client();
+    tracing::info!("Later epoch tracked shards: {:?}", later_epoch_tracked_shards);
+    assert_ne!(first_epoch_tracked_shards, later_epoch_tracked_shards);
 
-/// Handles outgoing network messages, and turns them into incoming client messages.
-pub fn route_network_messages_to_client<
-    Data: SupportsRoutingLookup,
-    Event: TryIntoOrSelf<PeerManagerMessageRequest>
-        + From<PeerManagerMessageRequest>
-        + From<ClientSenderForNetworkMessage>
-        + From<StateWitnessSenderForNetworkMessage>,
->(
-    sender: DelaySender<(usize, Event)>,
-    network_delay: Duration,
-) -> LoopEventHandler<Data, (usize, Event)> {
-    // let mut route_back_lookup: HashMap<CryptoHash, usize> = HashMap::new();
-    // let mut next_hash: u64 = 0;
-    LoopEventHandler::new(move |event: (usize, Event), data: &mut Data| {
-        let (idx, event) = event;
-        let message = event.try_into_or_self().map_err(|event| (idx, event.into()))?;
-        let PeerManagerMessageRequest::NetworkRequests(request) = message else {
-            return Err((idx, message.into()));
-        };
-
-        let client_senders = (0..data.num_accounts())
-                .map(|idx| {
-                    sender
-                        .with_additional_delay(network_delay)
-                        .for_index(idx)
-                        .into_wrapped_multi_sender::<ClientSenderForNetworkMessage, ClientSenderForNetwork>()
-                })
-                .collect::<Vec<_>>();
-
-        let state_witness_senders = (0..data.num_accounts())
-                .map(|idx| {
-                    sender
-                        .with_additional_delay(network_delay)
-                        .for_index(idx)
-                        .into_wrapped_multi_sender::<StateWitnessSenderForNetworkMessage, StateWitnessSenderForNetwork>()
-                })
-                .collect::<Vec<_>>();
-
-        match request {
-            NetworkRequests::Block { block } => {
-                for other_idx in 0..data.num_accounts() {
-                    if other_idx != idx {
-                        drop(client_senders[other_idx].send_async(BlockResponse {
-                            block: block.clone(),
-                            peer_id: PeerId::random(),
-                            was_requested: false,
-                        }));
-                    }
-                }
-            }
-            NetworkRequests::Approval { approval_message } => {
-                let other_idx = data.index_for_account(&approval_message.target);
-                if other_idx != idx {
-                    drop(
-                        client_senders[other_idx]
-                            .send_async(BlockApproval(approval_message.approval, PeerId::random())),
-                    );
-                } else {
-                    tracing::warn!("Dropping message to self");
-                }
-            }
-            NetworkRequests::ForwardTx(account, transaction) => {
-                let other_idx = data.index_for_account(&account);
-                if other_idx != idx {
-                    drop(client_senders[other_idx].send_async(ProcessTxRequest {
-                        transaction,
-                        is_forwarded: true,
-                        check_only: false,
-                    }))
-                } else {
-                    tracing::warn!("Dropping message to self");
-                }
-            }
-            NetworkRequests::ChunkEndorsement(target, endorsement) => {
-                let other_idx = data.index_for_account(&target);
-                if other_idx != idx {
-                    drop(
-                        client_senders[other_idx].send_async(ChunkEndorsementMessage(endorsement)),
-                    );
-                } else {
-                    tracing::warn!("Dropping message to self");
-                }
-            }
-            NetworkRequests::ChunkStateWitness(targets, witness) => {
-                let other_idxes = targets
-                    .iter()
-                    .map(|account| data.index_for_account(account))
-                    .collect::<Vec<_>>();
-                for other_idx in &other_idxes {
-                    if *other_idx != idx {
-                        drop(
-                            client_senders[*other_idx]
-                                .send_async(ChunkStateWitnessMessage(witness.clone())),
-                        );
-                    } else {
-                        tracing::warn!(
-                                "ChunkStateWitness asked to send to nodes {:?}, but {} is ourselves, so skipping that",
-                                other_idxes, idx);
-                    }
-                }
-            }
-            NetworkRequests::ChunkStateWitnessAck(target, witness_ack) => {
-                let other_idx = data.index_for_account(&target);
-                if other_idx != idx {
-                    state_witness_senders[other_idx].send(ChunkStateWitnessAckMessage(witness_ack));
-                } else {
-                    tracing::warn!("Dropping state-witness-ack message to self");
-                }
-            }
-            NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple) => {
-                for (target, partial_witness) in validator_witness_tuple.into_iter() {
-                    let other_idx = data.index_for_account(&target);
-                    if other_idx != idx {
-                        state_witness_senders[other_idx]
-                            .send(PartialEncodedStateWitnessMessage(partial_witness));
-                    } else {
-                        tracing::warn!("Dropping state-witness message to self");
-                    }
-                }
-            }
-            NetworkRequests::PartialEncodedStateWitnessForward(
-                chunk_validators,
-                partial_witness,
-            ) => {
-                for target in chunk_validators {
-                    let other_idx = data.index_for_account(&target);
-                    if other_idx != idx {
-                        state_witness_senders[other_idx].send(
-                            PartialEncodedStateWitnessForwardMessage(partial_witness.clone()),
-                        );
-                    } else {
-                        tracing::warn!("Dropping state-witness-forward message to self");
-                    }
-                }
-            }
-            // TODO: Support more network message types as we expand the test.
-            _ => return Err((idx, PeerManagerMessageRequest::NetworkRequests(request).into())),
-        }
-
-        Ok(())
-    })
-}
-
-// TODO: This would be a good starting point for turning this into a test util.
-trait ClientQueries {
-    fn query_balance(&self, account: &AccountId) -> Balance;
-}
-
-impl<Data: AsRef<Client> + AsRef<AccountId>> ClientQueries for Vec<Data> {
-    fn query_balance(&self, account_id: &AccountId) -> Balance {
-        let client: &Client = self[0].as_ref();
-        let head = client.chain.head().unwrap();
-        let last_block = client.chain.get_block(&head.last_block_hash).unwrap();
-        let shard_id =
-            client.epoch_manager.account_id_to_shard_id(&account_id, &head.epoch_id).unwrap();
-        let shard_uid = client.epoch_manager.shard_id_to_uid(shard_id, &head.epoch_id).unwrap();
-        let last_chunk_header = &last_block.chunks()[shard_id as usize];
-
-        for i in 0..self.len() {
-            let client: &Client = self[i].as_ref();
-            let tracks_shard = client
-                .epoch_manager
-                .cares_about_shard_from_prev_block(
-                    &head.prev_block_hash,
-                    &self[i].as_ref(),
-                    shard_id,
-                )
-                .unwrap();
-            if tracks_shard {
-                let response = client
-                    .runtime_adapter
-                    .query(
-                        shard_uid,
-                        &last_chunk_header.prev_state_root(),
-                        last_block.header().height(),
-                        last_block.header().raw_timestamp(),
-                        last_block.header().prev_hash(),
-                        last_block.header().hash(),
-                        last_block.header().epoch_id(),
-                        &QueryRequest::ViewAccount { account_id: account_id.clone() },
-                    )
-                    .unwrap();
-                match response.kind {
-                    QueryResponseKind::ViewAccount(account_view) => return account_view.amount,
-                    _ => panic!("Wrong return value"),
-                }
-            }
-        }
-        panic!("No client tracks shard {}", shard_id);
+    for idx in 0..NUM_CLIENTS {
+        test.data[idx].state_sync_dumper.stop();
     }
+
+    // Give the test a chance to finish off remaining events in the event loop, which can
+    // be important for properly shutting down the nodes.
+    test.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

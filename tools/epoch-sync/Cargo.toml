@@ -11,14 +11,34 @@ publish = false
 [lints]
 workspace = true
 
+# The dependencies are marked optional because we only need them when the
+# new_epoch_sync feature is enabled.
 [dependencies]
-anyhow.workspace = true
-clap.workspace = true
-tracing.workspace = true
+anyhow = { workspace = true, optional = true }
+clap = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
 
-nearcore = { workspace = true, features = ["new_epoch_sync"] }
-near-chain.workspace = true
-near-chain-configs.workspace = true
-near-epoch-manager.workspace = true
-near-primitives.workspace = true
-near-store.workspace = true
+nearcore = { workspace = true, optional = true }
+near-chain = { workspace = true, optional = true }
+near-chain-configs = { workspace = true, optional = true }
+near-epoch-manager = { workspace = true, optional = true }
+near-primitives = { workspace = true, optional = true }
+near-store = { workspace = true, optional = true }
+
+[features]
+
+default = []
+new_epoch_sync = [
+    "nearcore/new_epoch_sync",
+
+    "dep:anyhow",
+    "dep:clap",
+    "dep:tracing",
+
+    "dep:nearcore",
+    "dep:near-chain",
+    "dep:near-chain-configs",
+    "dep:near-epoch-manager",
+    "dep:near-primitives",
+    "dep:near-store",
+]
