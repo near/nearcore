@@ -150,15 +150,7 @@ impl PartialEncodedStateWitnessTracker {
         &mut self,
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
-        // The expected number of parts for the Reed Solomon encoding is the number of chunk validators.
-        let num_parts = self
-            .epoch_manager
-            .get_chunk_validator_assignments(
-                partial_witness.epoch_id(),
-                partial_witness.shard_id(),
-                partial_witness.height_created(),
-            )?
-            .len();
+        let num_parts = self.get_num_parts(&partial_witness)?;
         let rs = self.rs_map.entry(num_parts);
 
         self.maybe_insert_new_entry_in_parts_cache(&partial_witness);
@@ -170,6 +162,17 @@ impl PartialEncodedStateWitnessTracker {
             self.client_sender.send(ProcessChunkStateWitnessMessage(encoded_witness));
         }
         Ok(())
+    }
+
+    fn get_num_parts(&self, &partial_witness: PartialEncodedStateWitness) -> Result<usize, Error> {
+        // The expected number of parts for the Reed Solomon encoding is the number of chunk validators.
+        self.epoch_manager
+            .get_chunk_validator_assignments(
+                partial_witness.epoch_id(),
+                partial_witness.shard_id(),
+                partial_witness.height_created(),
+            )?
+            .len()
     }
 
     // Function to insert a new entry into the cache for the chunk hash if it does not already exist
