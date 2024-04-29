@@ -687,7 +687,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                 }
             });
             env.clients[1].chain.schedule_apply_state_parts(0, sync_hash, num_parts, &f).unwrap();
-            env.clients[1].chain.set_state_finalize(0, sync_hash, Ok(())).unwrap();
+            env.clients[1].chain.set_state_finalize(0, sync_hash).unwrap();
             let last_chunk_height = epoch_length - num_last_chunks_missing;
             for height in 1..epoch_length {
                 if height < last_chunk_height {

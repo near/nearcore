@@ -45,6 +45,8 @@ class JSONHandler(http.server.BaseHTTPRequestHandler):
         self.dispatcher.add_method(server.neard_runner.do_update_config,
                                    name="update_config")
         self.dispatcher.add_method(server.neard_runner.do_ready, name="ready")
+        self.dispatcher.add_method(server.neard_runner.do_version,
+                                   name="version")
         self.dispatcher.add_method(server.neard_runner.do_start, name="start")
         self.dispatcher.add_method(server.neard_runner.do_stop, name="stop")
         self.dispatcher.add_method(server.neard_runner.do_reset, name="reset")
@@ -102,6 +104,7 @@ class TestState(Enum):
     RESETTING = 7
     ERROR = 8
     MAKING_BACKUP = 9
+    SET_VALIDATORS = 10
 
 
 backup_id_pattern = re.compile(r'^[0-9a-zA-Z.][0-9a-zA-Z_\-.]+$')
@@ -140,11 +143,28 @@ class NeardRunner:
                 'backups': {},
                 'state_data': None,
             }
+        self.legacy_records = self.is_legacy()
         # protects self.data, and its representation on disk,
         # because both the rpc server and the main loop touch them concurrently
         # TODO: consider locking the TestState variable separately, since there
         # is no need to block reading that when inside the update_binaries rpc for example
         self.lock = threading.Lock()
+
+    def is_legacy(self):
+        if os.path.exists(os.path.join(self.neard_home, 'setup', 'data')):
+            if os.path.exists(
+                    os.path.join(self.neard_home, 'setup', 'records.json')):
+                logging.warning(
+                    f'found both records.json and data/ in {os.path.join(self.neard_home, "setup")}'
+                )
+            return False
+        if os.path.exists(os.path.join(
+                self.neard_home, 'setup', 'records.json')) and os.path.exists(
+                    os.path.join(self.neard_home, 'setup', 'genesis.json')):
+            return True
+        sys.exit(
+            f'did not find either records.json and genesis.json or data/ in {os.path.join(self.neard_home, "setup")}'
+        )
 
     def is_traffic_generator(self):
         return self.config.get('is_traffic_generator', False)
@@ -271,7 +291,8 @@ class NeardRunner:
         config['tracked_shards'] = [0, 1, 2, 3]
         config['log_summary_style'] = 'plain'
         config['network']['skip_sync_wait'] = False
-        config['genesis_records_file'] = 'records.json'
+        if self.legacy_records:
+            config['genesis_records_file'] = 'records.json'
         config['rpc']['enable_debug_rpc'] = True
         config['consensus']['min_block_production_delay']['secs'] = 1
         config['consensus']['min_block_production_delay']['nanos'] = 300000000
@@ -282,6 +303,24 @@ class NeardRunner:
         with open(self.tmp_near_home_path('config.json'), 'w') as f:
             json.dump(config, f, indent=2)
 
+    def reset_starting_data_dir(self):
+        try:
+            shutil.rmtree(self.target_near_home_path('data'))
+        except FileNotFoundError:
+            pass
+        if not self.legacy_records:
+            cmd = [
+                self.data['binaries'][0]['system_path'],
+                '--home',
+                os.path.join(self.neard_home, 'setup'),
+                'database',
+                'make-snapshot',
+                '--destination',
+                self.target_near_home_path(),
+            ]
+            logging.info(f'running {" ".join(cmd)}')
+            subprocess.check_call(cmd)
+
     def move_init_files(self):
         try:
             os.mkdir(self.target_near_home_path())
@@ -291,16 +330,18 @@ class NeardRunner:
             filename = self.target_near_home_path(p)
             if os.path.isfile(filename):
                 os.remove(filename)
-        try:
-            shutil.rmtree(self.target_near_home_path('data'))
-        except FileNotFoundError:
-            pass
+        self.reset_starting_data_dir()
+
         paths = ['config.json', 'node_key.json']
         if not self.is_traffic_generator():
             paths.append('validator_key.json')
         for path in paths:
             shutil.move(self.tmp_near_home_path(path),
                         self.target_near_home_path(path))
+        if not self.legacy_records:
+            shutil.copyfile(
+                os.path.join(self.neard_home, 'setup', 'genesis.json'),
+                self.target_near_home_path('genesis.json'))
 
     # This RPC method tells to stop neard and re-initialize its home dir. This returns the
     # validator and node key that resulted from the initialization. We can't yet call amend-genesis
@@ -375,7 +416,8 @@ class NeardRunner:
                         boot_nodes,
                         epoch_length=1000,
                         num_seats=100,
-                        protocol_version=None):
+                        protocol_version=None,
+                        genesis_time=None):
         if not isinstance(validators, list):
             raise jsonrpc.exceptions.JSONRPCDispatchException(
                 code=-32600, message='validators argument not a list')
@@ -390,6 +432,13 @@ class NeardRunner:
         if len(boot_nodes) == 0:
             raise jsonrpc.exceptions.JSONRPCDispatchException(
                 code=-32600, message='boot_nodes argument must not be empty')
+
+        if not self.legacy_records and genesis_time is None:
+            raise jsonrpc.exceptions.JSONRPCDispatchException(
+                code=-32600,
+                message=
+                'genesis_time argument required for nodes running via neard fork-network'
+            )
 
         with self.lock:
             state = self.get_state()
@@ -413,6 +462,7 @@ class NeardRunner:
                         'epoch_length': epoch_length,
                         'num_seats': num_seats,
                         'protocol_version': protocol_version,
+                        'genesis_time': genesis_time,
                     }, f)
 
     def do_update_config(self, key_value):
@@ -439,11 +489,22 @@ class NeardRunner:
 
         return True
 
-    def do_start(self):
+    def do_start(self, batch_interval_millis=None):
+        if batch_interval_millis is not None and not isinstance(
+                batch_interval_millis, int):
+            raise ValueError(
+                f'batch_interval_millis: {batch_interval_millis} not an int')
         with self.lock:
             state = self.get_state()
             if state == TestState.STOPPED:
-                self.start_neard()
+                if batch_interval_millis is not None and not self.is_traffic_generator(
+                ):
+                    logging.warn(
+                        f'got batch_interval_millis = {batch_interval_millis} on non traffic generator node. Ignoring it.'
+                    )
+                    batch_interval_millis = None
+                # TODO: restart it if we get a different batch_interval_millis than last time
+                self.start_neard(batch_interval_millis)
                 self.set_state(TestState.RUNNING)
                 self.save_data()
             elif state != TestState.RUNNING:
@@ -524,6 +585,13 @@ class NeardRunner:
                 self.set_state(TestState.ERROR)
                 self.save_data()
             logging.info('update binaries finished')
+
+    def do_version(self):
+        if self.legacy_records:
+            node_setup_version = '0'
+        else:
+            node_setup_version = '1'
+        return {'node_setup_version': node_setup_version}
 
     def do_ready(self):
         with self.lock:
@@ -647,7 +715,7 @@ class NeardRunner:
         self.save_data()
 
     # If this is a regular node, starts neard run. If it's a traffic generator, starts neard mirror run
-    def start_neard(self):
+    def start_neard(self, batch_interval_millis=None):
         for i in range(20, -1, -1):
             old_log = os.path.join(self.neard_logs_dir, f'log-{i}.txt')
             new_log = os.path.join(self.neard_logs_dir, f'log-{i+1}.txt')
@@ -668,6 +736,22 @@ class NeardRunner:
                     self.target_near_home_path(),
                     '--no-secret',
                 ]
+                if batch_interval_millis is not None:
+                    with open(self.target_near_home_path('mirror-config.json'),
+                              'w') as f:
+                        secs = batch_interval_millis // 1000
+                        nanos = (batch_interval_millis % 1000) * 1000000
+                        json.dump(
+                            {
+                                'tx_batch_interval': {
+                                    'secs': secs,
+                                    'nanos': nanos
+                                }
+                            },
+                            f,
+                            indent=2)
+                    cmd.append('--config-path')
+                    cmd.append(self.target_near_home_path('mirror-config.json'))
             else:
                 cmd = [
                     self.data['current_neard_path'], '--log-span-events',
@@ -755,35 +839,81 @@ class NeardRunner:
         with open(self.target_near_home_path('config.json'), 'w') as f:
             config = json.dump(config, f, indent=2)
 
-        cmd = [
-            self.data['binaries'][0]['system_path'],
-            'amend-genesis',
-            '--genesis-file-in',
-            os.path.join(self.neard_home, 'setup', 'genesis.json'),
-            '--records-file-in',
-            os.path.join(self.neard_home, 'setup', 'records.json'),
-            '--genesis-file-out',
-            self.target_near_home_path('genesis.json'),
-            '--records-file-out',
-            self.target_near_home_path('records.json'),
-            '--validators',
-            self.home_path('validators.json'),
-            '--chain-id',
-            'mocknet',
-            '--transaction-validity-period',
-            '10000',
-            '--epoch-length',
-            str(n['epoch_length']),
-            '--num-seats',
-            str(n['num_seats']),
-        ]
-        if n['protocol_version'] is not None:
-            cmd.append('--protocol-version')
-            cmd.append(str(n['protocol_version']))
+        if self.legacy_records:
+            cmd = [
+                self.data['binaries'][0]['system_path'],
+                'amend-genesis',
+                '--genesis-file-in',
+                os.path.join(self.neard_home, 'setup', 'genesis.json'),
+                '--records-file-in',
+                os.path.join(self.neard_home, 'setup', 'records.json'),
+                '--genesis-file-out',
+                self.target_near_home_path('genesis.json'),
+                '--records-file-out',
+                self.target_near_home_path('records.json'),
+                '--validators',
+                self.home_path('validators.json'),
+                '--chain-id',
+                'mocknet',
+                '--transaction-validity-period',
+                '10000',
+                '--epoch-length',
+                str(n['epoch_length']),
+                '--num-seats',
+                str(n['num_seats']),
+            ]
+            if n['protocol_version'] is not None:
+                cmd.append('--protocol-version')
+                cmd.append(str(n['protocol_version']))
 
-        self.run_neard(cmd)
-        self.set_state(TestState.AMEND_GENESIS)
+            self.run_neard(cmd)
+            self.set_state(TestState.AMEND_GENESIS)
+        else:
+            cmd = [
+                self.data['binaries'][0]['system_path'], '--home',
+                self.target_near_home_path(), 'fork-network', 'set-validators',
+                '--validators',
+                self.home_path('validators.json'), '--chain-id-suffix',
+                '_mocknet', '--epoch-length',
+                str(n['epoch_length']), '--genesis-time',
+                str(n['genesis_time'])
+            ]
+
+            self.run_neard(cmd)
+            self.set_state(TestState.SET_VALIDATORS)
         self.save_data()
+
+    def check_set_validators(self):
+        path, running, exit_code = self.poll_neard()
+        if path is None:
+            logging.error(
+                'state is SET_VALIDATORS, but no amend-genesis process is known'
+            )
+            self.set_state(TestState.AWAITING_NETWORK_INIT)
+            self.save_data()
+        elif not running:
+            if exit_code is not None and exit_code != 0:
+                logging.error(
+                    f'neard fork-network set-validators exited with code {exit_code}'
+                )
+                # for now just set the state to ERROR, and if this ever happens, the
+                # test operator will have to intervene manually. Probably shouldn't
+                # really happen in practice
+                self.set_state(TestState.ERROR)
+                self.save_data()
+            else:
+                cmd = [
+                    self.data['binaries'][0]['system_path'],
+                    '--home',
+                    self.target_near_home_path(),
+                    'fork-network',
+                    'finalize',
+                ]
+                logging.info(f'running {" ".join(cmd)}')
+                subprocess.check_call(cmd)
+                logging.info(
+                    f'neard fork-network finalize succeeded. Node is ready')
+                self.make_initial_backup()
 
     def check_amend_genesis(self):
         path, running, exit_code = self.poll_neard()
@@ -893,6 +1023,18 @@ class NeardRunner:
         self.set_state(TestState.STOPPED)
         self.save_data()
 
+    def make_initial_backup(self):
+        try:
+            shutil.rmtree(self.home_path('backups'))
+        except FileNotFoundError:
+            pass
+        os.mkdir(self.home_path('backups'))
+        self.making_backup(
+            'start',
+            description='initial test state after state root computation')
+        self.save_data()
+        self.make_backup()
+
     def check_genesis_state(self):
         path, running, exit_code = self.poll_neard()
         if not running:
@@ -905,23 +1047,12 @@ class NeardRunner:
         try:
             r = requests.get(f'http://{self.data["neard_addr"]}/status',
                              timeout=5)
-            if r.status_code == 200:
-                logging.info('neard finished computing state roots')
-                self.kill_neard()
-
-                try:
-                    shutil.rmtree(self.home_path('backups'))
-                except FileNotFoundError:
-                    pass
-                os.mkdir(self.home_path('backups'))
-                self.making_backup(
-                    'start',
-                    description='initial test state after state root computation'
-                )
-                self.save_data()
-                self.make_backup()
         except requests.exceptions.ConnectionError:
-            pass
+            return
+        if r.status_code == 200:
+            logging.info('neard finished computing state roots')
+            self.kill_neard()
+            self.make_initial_backup()
 
     def reset_near_home(self):
         backup_id = self.data['state_data']
@@ -952,6 +1083,8 @@ class NeardRunner:
                     self.network_init()
                 elif state == TestState.AMEND_GENESIS:
                     self.check_amend_genesis()
+                elif state == TestState.SET_VALIDATORS:
+                    self.check_set_validators()
                 elif state == TestState.STATE_ROOTS:
                     self.check_genesis_state()
                 elif state == TestState.RUNNING:

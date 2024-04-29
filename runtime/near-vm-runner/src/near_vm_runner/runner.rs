@@ -1,3 +1,4 @@
+use super::{NearVmMemory, VM_CONFIG};
 use crate::cache::CompiledContractInfo;
 use crate::errors::ContractPrecompilatonResult;
 use crate::imports::near_vm::NearVmImports;
@@ -6,7 +7,8 @@ use crate::logic::errors::{
 };
 use crate::logic::gas_counter::FastGasCounter;
 use crate::logic::types::PromiseResult;
-use crate::logic::{Config, External, MemSlice, MemoryLike, VMContext, VMLogic, VMOutcome};
+use crate::logic::{Config, External, VMContext, VMLogic, VMOutcome};
+use crate::near_vm_runner::{NearVmCompiler, NearVmEngine};
 use crate::runner::VMResult;
 use crate::{
     get_contract_cache_key, imports, CompiledContract, ContractCode, ContractRuntimeCache,
@@ -23,108 +25,12 @@ use near_vm_engine::universal::{
 };
 use near_vm_types::{FunctionIndex, InstanceConfig, MemoryType, Pages, WASM_PAGE_SIZE};
 use near_vm_vm::{
-    Artifact, Instantiatable, LinearMemory, LinearTable, Memory, MemoryStyle, TrapCode, VMMemory,
+    Artifact, Instantiatable, LinearMemory, LinearTable, MemoryStyle, TrapCode, VMMemory,
 };
-use std::borrow::Cow;
-use std::hash::Hash;
 use std::mem::size_of;
 use std::sync::{Arc, OnceLock};
 
 type VMArtifact = Arc<UniversalArtifact>;
-
-#[derive(Clone)]
-pub struct NearVmMemory(Arc<LinearMemory>);
-
-impl NearVmMemory {
-    fn new(
-        initial_memory_pages: u32,
-        max_memory_pages: u32,
-    ) -> Result<Self, near_vm_vm::MemoryError> {
-        let max_pages = Pages(max_memory_pages);
-        Ok(NearVmMemory(Arc::new(LinearMemory::new(
-            &MemoryType::new(Pages(initial_memory_pages), Some(max_pages), false),
-            &MemoryStyle::Static {
-                bound: max_pages,
-                offset_guard_size: near_vm_types::WASM_PAGE_SIZE as u64,
-            },
-        )?)))
-    }
-
-    /// Returns pointer to memory at the specified offset provided that there’s
-    /// enough space in the buffer starting at the returned pointer.
-    ///
-    /// Safety: Caller must guarantee that the returned pointer is not used
-    /// after guest memory mapping is changed (e.g. grown).
-    unsafe fn get_ptr(&self, offset: u64, len: usize) -> Result<*mut u8, ()> {
-        let offset = usize::try_from(offset).map_err(|_| ())?;
-        // SAFETY: Caller promisses memory mapping won’t change.
-        let vmmem = unsafe { self.0.vmmemory().as_ref() };
-        // `checked_sub` here verifies that offsetting the buffer by offset
-        // still lands us in-bounds of the allocated object.
-        let remaining = vmmem.current_length.checked_sub(offset).ok_or(())?;
-        if len <= remaining {
-            Ok(vmmem.base.add(offset))
-        } else {
-            Err(())
-        }
-    }
-
-    /// Returns shared reference to slice in guest memory at given offset.
-    ///
-    /// Safety: Caller must guarantee that guest memory mapping is not changed
-    /// (e.g. grown) while the slice is held.
-    unsafe fn get(&self, offset: u64, len: usize) -> Result<&[u8], ()> {
-        // SAFETY: Caller promisses memory mapping won’t change.
-        let ptr = unsafe { self.get_ptr(offset, len)? };
-        // SAFETY: get_ptr verifies that [ptr, ptr+len) is valid slice.
-        Ok(unsafe { core::slice::from_raw_parts(ptr, len) })
-    }
-
-    /// Returns shared reference to slice in guest memory at given offset.
-    ///
-    /// Safety: Caller must guarantee that guest memory mapping is not changed
-    /// (e.g. grown) while the slice is held.
-    unsafe fn get_mut(&mut self, offset: u64, len: usize) -> Result<&mut [u8], ()> {
-        // SAFETY: Caller promisses memory mapping won’t change.
-        let ptr = unsafe { self.get_ptr(offset, len)? };
-        // SAFETY: get_ptr verifies that [ptr, ptr+len) is valid slice and since
-        // we’re holding exclusive self reference another mut reference won’t be
-        // created
-        Ok(unsafe { core::slice::from_raw_parts_mut(ptr, len) })
-    }
-
-    pub(crate) fn vm(&self) -> VMMemory {
-        VMMemory { from: self.0.clone(), instance_ref: None }
-    }
-}
-
-impl MemoryLike for NearVmMemory {
-    fn fits_memory(&self, slice: MemSlice) -> Result<(), ()> {
-        // SAFETY: Contracts are executed on a single thread thus we know no one
-        // will change guest memory mapping under us.
-        unsafe { self.get_ptr(slice.ptr, slice.len()?) }.map(|_| ())
-    }
-
-    fn view_memory(&self, slice: MemSlice) -> Result<Cow<[u8]>, ()> {
-        // SAFETY: Firstly, contracts are executed on a single thread thus we
-        // know no one will change guest memory mapping under us.  Secondly, the
-        // way MemoryLike interface is used we know the memory mapping won’t be
-        // changed by the caller while it holds the slice reference.
-        unsafe { self.get(slice.ptr, slice.len()?) }.map(Cow::Borrowed)
-    }
-
-    fn read_memory(&self, offset: u64, buffer: &mut [u8]) -> Result<(), ()> {
-        // SAFETY: Contracts are executed on a single thread thus we know no one
-        // will change guest memory mapping under us.
-        Ok(buffer.copy_from_slice(unsafe { self.get(offset, buffer.len())? }))
-    }
-
-    fn write_memory(&mut self, offset: u64, buffer: &[u8]) -> Result<(), ()> {
-        // SAFETY: Contracts are executed on a single thread thus we know no one
-        // will change guest memory mapping under us.
-        Ok(unsafe { self.get_mut(offset, buffer.len())? }.copy_from_slice(buffer))
-    }
-}
 
 fn get_entrypoint_index(
     artifact: &UniversalArtifact,
@@ -185,49 +91,6 @@ fn translate_runtime_error(
         TrapCode::UnreachableCodeReached => FunctionCallError::WasmTrap(WasmTrap::Unreachable),
         TrapCode::UnalignedAtomic => FunctionCallError::WasmTrap(WasmTrap::MisalignedAtomicAccess),
     })
-}
-
-#[derive(Hash, PartialEq, Debug)]
-#[allow(unused)]
-enum NearVmEngine {
-    Universal = 1,
-    StaticLib = 2,
-    DynamicLib = 3,
-}
-
-#[derive(Hash, PartialEq, Debug)]
-#[allow(unused)]
-enum NearVmCompiler {
-    Singlepass = 1,
-    Cranelift = 2,
-    Llvm = 3,
-}
-
-#[derive(Hash)]
-struct NearVmConfig {
-    seed: u32,
-    engine: NearVmEngine,
-    compiler: NearVmCompiler,
-}
-
-impl NearVmConfig {
-    fn config_hash(self: Self) -> u64 {
-        crate::utils::stable_hash(&self)
-    }
-}
-
-// We use following scheme for the bits forming seed:
-//  kind << 29, kind 2 is for NearVm
-//  major version << 6
-//  minor version
-const VM_CONFIG: NearVmConfig = NearVmConfig {
-    seed: (2 << 29) | (2 << 6) | 1,
-    engine: NearVmEngine::Universal,
-    compiler: NearVmCompiler::Singlepass,
-};
-
-pub(crate) fn near_vm_vm_hash() -> u64 {
-    VM_CONFIG.config_hash()
 }
 
 pub(crate) struct NearVM {
@@ -600,7 +463,7 @@ impl near_vm_vm::Tunables for &NearVM {
         &self,
         ty: &MemoryType,
         _style: &MemoryStyle,
-    ) -> Result<std::sync::Arc<dyn Memory>, near_vm_vm::MemoryError> {
+    ) -> Result<std::sync::Arc<LinearMemory>, near_vm_vm::MemoryError> {
         // We do not support arbitrary Host memories. The only memory contracts may use is the
         // memory imported via `env.memory`.
         Err(near_vm_vm::MemoryError::CouldNotGrow {
@@ -614,7 +477,7 @@ impl near_vm_vm::Tunables for &NearVM {
         ty: &MemoryType,
         _style: &MemoryStyle,
         _vm_definition_location: std::ptr::NonNull<near_vm_vm::VMMemoryDefinition>,
-    ) -> Result<std::sync::Arc<dyn Memory>, near_vm_vm::MemoryError> {
+    ) -> Result<std::sync::Arc<LinearMemory>, near_vm_vm::MemoryError> {
         // We do not support VM memories. The only memory contracts may use is the memory imported
         // via `env.memory`.
         Err(near_vm_vm::MemoryError::CouldNotGrow {

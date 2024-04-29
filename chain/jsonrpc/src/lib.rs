@@ -262,6 +262,15 @@ pub struct ViewClientSenderForRpc(
     #[cfg(feature = "test_features")] Sender<near_client::NetworkAdversarialMessage>,
 );
 
+#[cfg(feature = "test_features")]
+#[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
+pub struct GCSenderForRpc(
+    AsyncSender<
+        near_client::gc_actor::NetworkAdversarialMessage,
+        ActixResult<near_client::gc_actor::NetworkAdversarialMessage>,
+    >,
+);
+
 #[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
 pub struct PeerManagerSenderForRpc(AsyncSender<GetDebugStatus, ActixResult<GetDebugStatus>>);
 
@@ -269,6 +278,8 @@ struct JsonRpcHandler {
     client_sender: ClientSenderForRpc,
     view_client_sender: ViewClientSenderForRpc,
     peer_manager_sender: PeerManagerSenderForRpc,
+    #[cfg(feature = "test_features")]
+    gc_sender: GCSenderForRpc,
     polling_config: RpcPollingConfig,
     genesis_config: GenesisConfig,
     enable_debug_rpc: bool,
@@ -1249,8 +1260,15 @@ impl JsonRpcHandler {
         }
     }
 
+    /// First, stop GC by sending a message to GC Actor. Then run store validator inside Client.
+    /// After store validator is done, resume GC by sending another message to GC Actor.
+    /// This ensures that store validator is not run concurrently with another thread that may modify storage.
     async fn adv_check_store(&self, _params: Value) -> Result<Value, RpcError> {
-        match self
+        self.gc_sender
+            .send_async(near_client::gc_actor::NetworkAdversarialMessage::StopGC)
+            .await
+            .map_err(|_| RpcError::server_error::<String>(None))?;
+        let ret_val = match self
             .client_sender
             .send_async(near_client::NetworkAdversarialMessage::AdvCheckStorageConsistency)
             .await
@@ -1260,7 +1278,12 @@ impl JsonRpcHandler {
                 None => Err(RpcError::server_error::<String>(None)),
             },
             _ => Err(RpcError::server_error::<String>(None)),
-        }
+        }?;
+        self.gc_sender
+            .send_async(near_client::gc_actor::NetworkAdversarialMessage::ResumeGC)
+            .await
+            .map_err(|_| RpcError::server_error::<String>(None))?;
+        Ok(ret_val)
     }
 }
 
@@ -1458,6 +1481,7 @@ pub fn start_http(
     client_sender: ClientSenderForRpc,
     view_client_sender: ViewClientSenderForRpc,
     peer_manager_sender: PeerManagerSenderForRpc,
+    #[cfg(feature = "test_features")] gc_sender: GCSenderForRpc,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
 ) -> Vec<(&'static str, actix_web::dev::ServerHandle)> {
     let RpcConfig {
@@ -1485,6 +1509,8 @@ pub fn start_http(
                 enable_debug_rpc,
                 debug_pages_src_path: debug_pages_src_path.clone().map(Into::into),
                 entity_debug_handler: entity_debug_handler.clone(),
+                #[cfg(feature = "test_features")]
+                gc_sender: gc_sender.clone(),
             }))
             .app_data(web::JsonConfig::default().limit(limits_config.json_payload_max_size))
             .wrap(middleware::Logger::default())

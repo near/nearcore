@@ -1,115 +1,20 @@
-// This file contains code from external sources.
-// Attributions: https://github.com/wasmerio/wasmer/blob/master/ATTRIBUTIONS.md
-
-//! Memory management for linear memories.
-//!
-//! `LinearMemory` is to WebAssembly linear memories what `Table` is to WebAssembly tables.
-
 use crate::mmap::Mmap;
 use crate::vmcontext::VMMemoryDefinition;
+use crate::{MemoryError, MemoryStyle};
 use more_asserts::assert_ge;
 use near_vm_types::{Bytes, MemoryType, Pages};
 use std::borrow::BorrowMut;
 use std::cell::UnsafeCell;
 use std::convert::TryInto;
-use std::fmt;
 use std::ptr::NonNull;
 use std::sync::Mutex;
-use thiserror::Error;
 
-/// Error type describing things that can go wrong when operating on Wasm Memories.
-#[derive(Error, Debug, Clone, PartialEq, Hash)]
-pub enum MemoryError {
-    /// Low level error with mmap.
-    #[error("Error when allocating memory: {0}")]
-    Region(String),
-    /// The operation would cause the size of the memory to exceed the maximum or would cause
-    /// an overflow leading to unindexable memory.
-    #[error("The memory could not grow: current size {} pages, requested increase: {} pages", current.0, attempted_delta.0)]
-    CouldNotGrow {
-        /// The current size in pages.
-        current: Pages,
-        /// The attempted amount to grow by in pages.
-        attempted_delta: Pages,
-    },
-    /// The operation would cause the size of the memory size exceed the maximum.
-    #[error("The memory is invalid because {}", reason)]
-    InvalidMemory {
-        /// The reason why the provided memory is invalid.
-        reason: String,
-    },
-    /// Caller asked for more minimum memory than we can give them.
-    #[error("The minimum requested ({} pages) memory is greater than the maximum allowed memory ({} pages)", min_requested.0, max_allowed.0)]
-    MinimumMemoryTooLarge {
-        /// The number of pages requested as the minimum amount of memory.
-        min_requested: Pages,
-        /// The maximum amount of memory we can allocate.
-        max_allowed: Pages,
-    },
-    /// Caller asked for a maximum memory greater than we can give them.
-    #[error("The maximum requested memory ({} pages) is greater than the maximum allowed memory ({} pages)", max_requested.0, max_allowed.0)]
-    MaximumMemoryTooLarge {
-        /// The number of pages requested as the maximum amount of memory.
-        max_requested: Pages,
-        /// The number of pages requested as the maximum amount of memory.
-        max_allowed: Pages,
-    },
-    /// A user defined error value, used for error cases not listed above.
-    #[error("A user-defined error occurred: {0}")]
-    Generic(String),
-}
-
-/// Implementation styles for WebAssembly linear memory.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, rkyv::Serialize, rkyv::Deserialize, rkyv::Archive)]
-pub enum MemoryStyle {
-    /// The actual memory can be resized and moved.
-    Dynamic {
-        /// Our chosen offset-guard size.
-        ///
-        /// It represents the size in bytes of extra guard pages after the end
-        /// to optimize loads and stores with constant offsets.
-        offset_guard_size: u64,
-    },
-    /// Address space is allocated up front.
-    Static {
-        /// The number of mapped and unmapped pages.
-        bound: Pages,
-        /// Our chosen offset-guard size.
-        ///
-        /// It represents the size in bytes of extra guard pages after the end
-        /// to optimize loads and stores with constant offsets.
-        offset_guard_size: u64,
-    },
-}
-
-impl MemoryStyle {
-    /// Returns the offset-guard size
-    pub fn offset_guard_size(&self) -> u64 {
-        match self {
-            Self::Dynamic { offset_guard_size } => *offset_guard_size,
-            Self::Static { offset_guard_size, .. } => *offset_guard_size,
-        }
-    }
-}
-
-/// Trait for implementing Wasm Memory used by Wasmer.
-pub trait Memory: fmt::Debug + Send + Sync {
-    /// Returns the memory type for this memory.
-    fn ty(&self) -> MemoryType;
-
-    /// Returns the memory style for this memory.
-    fn style(&self) -> &MemoryStyle;
-
-    /// Returns the number of allocated wasm pages.
-    fn size(&self) -> Pages;
-
-    /// Grow memory by the specified amount of wasm pages.
-    fn grow(&self, delta: Pages) -> Result<Pages, MemoryError>;
-
-    /// Return a [`VMMemoryDefinition`] for exposing the memory to compiled wasm code.
-    ///
-    /// The pointer returned in [`VMMemoryDefinition`] must be valid for the lifetime of this memory.
-    fn vmmemory(&self) -> NonNull<VMMemoryDefinition>;
+#[derive(Debug)]
+struct WasmMmap {
+    // Our OS allocation of mmap'd memory.
+    alloc: Mmap,
+    // The current logical size in wasm pages of this linear memory.
+    size: Pages,
 }
 
 /// A linear memory instance.
@@ -159,14 +64,6 @@ unsafe impl Send for LinearMemory {}
 
 /// This is correct because all internal mutability is protected by a mutex.
 unsafe impl Sync for LinearMemory {}
-
-#[derive(Debug)]
-struct WasmMmap {
-    // Our OS allocation of mmap'd memory.
-    alloc: Mmap,
-    // The current logical size in wasm pages of this linear memory.
-    size: Pages,
-}
 
 impl LinearMemory {
     /// Create a new linear memory instance with specified minimum and maximum number of wasm pages.
@@ -281,9 +178,9 @@ impl LinearMemory {
     }
 }
 
-impl Memory for LinearMemory {
+impl LinearMemory {
     /// Returns the type for this memory.
-    fn ty(&self) -> MemoryType {
+    pub fn ty(&self) -> MemoryType {
         let minimum = self.size();
         let mut out = self.memory;
         out.minimum = minimum;
@@ -292,12 +189,12 @@ impl Memory for LinearMemory {
     }
 
     /// Returns the memory style for this memory.
-    fn style(&self) -> &MemoryStyle {
+    pub fn style(&self) -> &MemoryStyle {
         &self.style
     }
 
     /// Returns the number of allocated wasm pages.
-    fn size(&self) -> Pages {
+    pub fn size(&self) -> Pages {
         // TODO: investigate this function for race conditions
         unsafe {
             let md_ptr = self.get_vm_memory_definition();
@@ -310,7 +207,7 @@ impl Memory for LinearMemory {
     ///
     /// Returns `None` if memory can't be grown by the specified amount
     /// of wasm pages.
-    fn grow(&self, delta: Pages) -> Result<Pages, MemoryError> {
+    pub fn grow(&self, delta: Pages) -> Result<Pages, MemoryError> {
         let mut mmap_guard = self.mmap.lock().unwrap();
         let mmap = mmap_guard.borrow_mut();
         // Optimization of memory.grow 0 calls.
@@ -381,7 +278,7 @@ impl Memory for LinearMemory {
     }
 
     /// Return a `VMMemoryDefinition` for exposing the memory to compiled wasm code.
-    fn vmmemory(&self) -> NonNull<VMMemoryDefinition> {
+    pub fn vmmemory(&self) -> NonNull<VMMemoryDefinition> {
         let _mmap_guard = self.mmap.lock().unwrap();
         unsafe { self.get_vm_memory_definition() }
     }

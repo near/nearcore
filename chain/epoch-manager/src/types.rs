@@ -6,7 +6,8 @@ use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochId, ShardId, ValidatorId, ValidatorStats,
+    AccountId, Balance, BlockHeight, ChunkValidatorStats, EpochId, ShardId, ValidatorId,
+    ValidatorStats,
 };
 use near_primitives::version::ProtocolVersion;
 use std::collections::{BTreeMap, HashMap};
@@ -59,7 +60,7 @@ pub struct EpochInfoAggregator {
     /// Map from validator index to (num_blocks_produced, num_blocks_expected) so far in the given epoch.
     pub block_tracker: HashMap<ValidatorId, ValidatorStats>,
     /// For each shard, a map of validator id to (num_chunks_produced, num_chunks_expected) so far in the given epoch.
-    pub shard_tracker: HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>>,
+    pub shard_tracker: HashMap<ShardId, HashMap<ValidatorId, ChunkValidatorStats>>,
     /// Latest protocol version that each validator supports.
     pub version_tracker: HashMap<ValidatorId, ProtocolVersion>,
     /// All proposals in this epoch up to this block.
@@ -133,8 +134,12 @@ impl EpochInfoAggregator {
         }
 
         // Step 2: update shard tracker
+
+        // Note: a possible optimization is to access the epoch_manager cache of this value.
+        let chunk_validator_assignment = epoch_info.sample_chunk_validators(prev_block_height + 1);
+
         for (i, mask) in block_info.chunk_mask().iter().enumerate() {
-            let chunk_validator_id = EpochManager::chunk_producer_from_info(
+            let chunk_producer_id = EpochManager::chunk_producer_from_info(
                 epoch_info,
                 prev_block_height + 1,
                 i as ShardId,
@@ -142,21 +147,41 @@ impl EpochInfoAggregator {
             .unwrap();
             let tracker = self.shard_tracker.entry(i as ShardId).or_insert_with(HashMap::new);
             tracker
-                .entry(chunk_validator_id)
+                .entry(chunk_producer_id)
                 .and_modify(|stats| {
                     if *mask {
-                        stats.produced += 1;
+                        *stats.produced_mut() += 1;
                     } else {
                         debug!(
                             target: "epoch_tracker",
-                            chunk_validator = ?epoch_info.validator_account_id(chunk_validator_id),
+                            chunk_validator = ?epoch_info.validator_account_id(chunk_producer_id),
                             shard_id = i,
                             block_height = prev_block_height + 1,
                             "Missed chunk");
                     }
-                    stats.expected += 1;
+                    *stats.expected_mut() += 1;
                 })
-                .or_insert(ValidatorStats { produced: u64::from(*mask), expected: 1 });
+                .or_insert_with(|| ChunkValidatorStats::new_with_production(u64::from(*mask), 1));
+
+            let chunk_validators = chunk_validator_assignment
+                .get(i)
+                .map_or::<&[(u64, u128)], _>(&[], Vec::as_slice)
+                .iter()
+                .map(|(id, _)| *id);
+            for chunk_validator_id in chunk_validators {
+                tracker
+                    .entry(chunk_validator_id)
+                    .and_modify(|stats| {
+                        let endorsement_stats = stats.endorsement_stats_mut();
+                        if *mask {
+                            endorsement_stats.produced += 1;
+                        }
+                        endorsement_stats.expected += 1;
+                    })
+                    .or_insert_with(|| {
+                        ChunkValidatorStats::new_with_endorsement(u64::from(*mask), 1)
+                    });
+            }
         }
 
         // Step 3: update version tracker
@@ -264,8 +289,8 @@ impl EpochInfoAggregator {
                     for (chunk_producer_id, stat) in stats.iter() {
                         e.entry(*chunk_producer_id)
                             .and_modify(|entry| {
-                                entry.expected += stat.expected;
-                                entry.produced += stat.produced;
+                                *entry.expected_mut() += stat.expected();
+                                *entry.produced_mut() += stat.produced();
                             })
                             .or_insert_with(|| stat.clone());
                     }

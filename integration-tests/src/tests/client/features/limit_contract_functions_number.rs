@@ -18,7 +18,6 @@ fn verify_contract_limits_upgrade(
     expected_prepare_err: PrepareError,
 ) {
     let old_protocol_version = feature.protocol_version() - 1;
-    let new_protocol_version = feature.protocol_version();
 
     let epoch_length = 5;
     // Prepare TestEnv with a contract at the old protocol version.
@@ -52,7 +51,7 @@ fn verify_contract_limits_upgrade(
     let account = "test0".parse().unwrap();
     let old_outcome = env.call_main(&account);
 
-    env.upgrade_protocol(new_protocol_version);
+    env.upgrade_protocol_to_latest_version();
 
     let new_outcome = env.call_main(&account);
 

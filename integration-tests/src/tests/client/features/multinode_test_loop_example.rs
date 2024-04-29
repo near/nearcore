@@ -1,6 +1,8 @@
 use derive_enum_from_into::{EnumFrom, EnumTryInto};
 use near_async::futures::FutureSpawner;
-use near_async::messaging::{noop, IntoMultiSender, IntoSender, MessageWithCallback, SendAsync};
+use near_async::messaging::{
+    noop, CanSend, IntoMultiSender, IntoSender, MessageWithCallback, SendAsync,
+};
 use near_async::test_loop::adhoc::{handle_adhoc_events, AdhocEvent, AdhocEventSender};
 use near_async::test_loop::event_handler::ignore_events;
 use near_async::test_loop::futures::{
@@ -39,29 +41,37 @@ use near_client::sync::sync_actor::SyncActor;
 use near_client::sync_jobs_actions::{
     ClientSenderForSyncJobsMessage, SyncJobsActions, SyncJobsSenderForSyncJobsMessage,
 };
-use near_client::test_utils::client_actions_test_utils::{
+use near_client::test_utils::test_loop::{
     forward_client_messages_from_client_to_client_actions,
     forward_client_messages_from_network_to_client_actions,
     forward_client_messages_from_shards_manager, forward_client_messages_from_sync_adapter,
     forward_client_messages_from_sync_jobs_to_client_actions,
+    forward_messages_from_client_to_state_witness_actor,
+    forward_messages_from_network_to_state_witness_actor,
     print_basic_client_info_before_each_event,
 };
 use near_client::test_utils::sync_actor_test_utils::{
     forward_sync_actor_messages_from_client, forward_sync_actor_messages_from_network,
     test_loop_sync_actor_maker, TestSyncActors,
 };
+use near_client::{
+    Client, StateWitnessActions, StateWitnessSenderForClientMessage, SyncAdapter, SyncMessage,
+};
 use near_client::test_utils::sync_jobs_test_utils::{
     forward_sync_jobs_messages_from_client_to_sync_jobs_actions,
     forward_sync_jobs_messages_from_sync_jobs_to_sync_jobs_actions,
 };
 use near_client::test_utils::test_loop::{route_network_messages_to_client, ClientQueries};
-use near_client::{Client, SyncAdapter, SyncMessage};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
 use near_network::client::{
+    BlockApproval, BlockResponse, ChunkEndorsementMessage, ChunkStateWitnessMessage,
     ClientSenderForNetwork, ClientSenderForNetworkMessage, ProcessTxRequest,
 };
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
+use near_network::state_witness::{
+    ChunkStateWitnessAckMessage, StateWitnessSenderForNetwork, StateWitnessSenderForNetworkMessage,
+};
 use near_network::state_sync::StateSyncResponse;
 use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo};
 use near_primitives::network::PeerId;
@@ -91,6 +101,7 @@ struct TestData {
     pub client: ClientActions,
     pub sync_jobs: SyncJobsActions,
     pub shards_manager: ShardsManager,
+    pub state_witness: StateWitnessActions,
     pub sync_actors: TestSyncActors,
     pub state_sync_dumper: StateSyncDumper,
     pub state_snapshot: StateSnapshotActions,
@@ -162,6 +173,10 @@ enum TestEvent {
     ),
     /// Calls to the network component to set chain info.
     SetChainInfo(SetChainInfo),
+    /// Message from Client to StateWitnessActor.
+    StateWitnessSenderForClient(StateWitnessSenderForClientMessage),
+    /// Message from Network to StateWitnessActor.
+    StateWitnessSenderForNetwork(StateWitnessSenderForNetworkMessage),
 }
 
 const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
@@ -322,6 +337,7 @@ fn test_client_with_multi_test_loop() {
         let snapshot_callbacks =
             SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
 
+        let validator_signer = Arc::new(create_test_signer(accounts[idx].as_str()));
         let client = Client::new(
             builder.clock(),
             client_config.clone(),
@@ -332,7 +348,7 @@ fn test_client_with_multi_test_loop() {
             runtime_adapter.clone(),
             builder.sender().for_index(idx).into_multi_sender(),
             builder.sender().for_index(idx).into_sender(),
-            Some(Arc::new(create_test_signer(accounts[idx].as_str()))),
+            Some(validator_signer.clone()),
             true,
             [0; 32],
             Some(snapshot_callbacks),
@@ -342,6 +358,10 @@ fn test_client_with_multi_test_loop() {
                     .for_index(idx)
                     .into_async_computation_spawner(|_| Duration::milliseconds(80)),
             ),
+            builder
+                .sender()
+                .for_index(idx)
+                .into_wrapped_multi_sender::<StateWitnessSenderForClientMessage, _>(),
         )
         .unwrap();
 
@@ -380,6 +400,13 @@ fn test_client_with_multi_test_loop() {
         )
         .unwrap();
 
+        let state_witness_actions = StateWitnessActions::new(
+            builder.clock(),
+            builder.sender().for_index(idx).into_multi_sender(),
+            validator_signer,
+            epoch_manager.clone(),
+        );
+
         let future_spawner = builder.sender().for_index(idx).into_future_spawner();
         let state_sync_dumper = StateSyncDumper {
             clock: builder.clock(),
@@ -402,6 +429,7 @@ fn test_client_with_multi_test_loop() {
             client: client_actions,
             sync_jobs: sync_jobs_actions,
             shards_manager,
+            state_witness: state_witness_actions,
             sync_actors,
             state_sync_dumper,
             state_snapshot,
@@ -468,6 +496,14 @@ fn test_client_with_multi_test_loop() {
 
         // Messages to the network layer; multi-node messages are handled below.
         test.register_handler(ignore_events::<SetChainInfo>().widen().for_index(idx));
+
+        // Messages to StateWitnessActor.
+        test.register_handler(
+            forward_messages_from_client_to_state_witness_actor().widen().for_index(idx),
+        );
+        test.register_handler(
+            forward_messages_from_network_to_state_witness_actor().widen().for_index(idx),
+        );
     }
     // Handles network routing. Outgoing messages are handled by emitting incoming messages to the
     // appropriate component of the appropriate node index.

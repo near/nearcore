@@ -17,7 +17,6 @@ fn test_nearvm_upgrade() {
 
     let old_protocol_version =
         near_primitives::version::ProtocolFeature::NearVmRuntime.protocol_version() - 1;
-    let new_protocol_version = old_protocol_version + 1;
 
     // Prepare TestEnv with a contract at the old protocol version.
     let mut env = {
@@ -74,7 +73,7 @@ fn test_nearvm_upgrade() {
         capture.drain()
     };
 
-    env.upgrade_protocol(new_protocol_version);
+    env.upgrade_protocol_to_latest_version();
 
     // Re-run the transaction.
     let logs_at_new_version = {

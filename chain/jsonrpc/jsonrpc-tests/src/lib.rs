@@ -58,6 +58,8 @@ pub fn start_all_with_validity_period_and_no_epoch_sync(
         actor_handles.client_actor.clone().with_auto_span_context().into_multi_sender(),
         actor_handles.view_client_actor.clone().with_auto_span_context().into_multi_sender(),
         noop().into_multi_sender(),
+        #[cfg(feature = "test_features")]
+        noop().into_multi_sender(),
         Arc::new(DummyEntityDebugHandler {}),
     );
     (actor_handles.view_client_actor, addr)

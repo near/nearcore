@@ -3,6 +3,7 @@
 
 """
 from argparse import ArgumentParser, BooleanOptionalAction
+import datetime
 import pathlib
 import json
 import random
@@ -166,6 +167,22 @@ def get_network_nodes(new_test_rpc_responses, num_validators):
     return validators, boot_nodes
 
 
+def new_genesis_timestamp(node):
+    version = node.neard_runner_version()
+    err = version.get('error')
+    if err is not None:
+        if err['code'] != -32601:
+            sys.exit(
+                f'bad response calling version RPC on {node.name()}: {err}')
+        return None
+    genesis_time = None
+    result = version.get('result')
+    if result is not None:
+        if result.get('node_setup_version') == '1':
+            genesis_time = str(datetime.datetime.now(tz=datetime.UTC))
+    return genesis_time
+
+
 def new_test(args, traffic_generator, nodes):
     prompt_setup_flags(args)
 
@@ -177,6 +194,8 @@ def new_test(args, traffic_generator, nodes):
         sys.exit(
             f'--num-validators is {args.num_validators} but only found {len(nodes)} under test'
         )
+
+    genesis_time = new_genesis_timestamp(nodes[0])
 
     all_nodes = nodes + [traffic_generator]
 
@@ -192,8 +211,12 @@ state roots. This will take a few hours. Run `status` to check if the nodes are 
 ready. After they're ready, you can run `start-traffic`""".format(validators))
     pmap(
         lambda node: node.neard_runner_network_init(
-            validators, boot_nodes, args.epoch_length, args.num_seats, args.
-            genesis_protocol_version), all_nodes)
+            validators,
+            boot_nodes,
+            args.epoch_length,
+            args.num_seats,
+            args.genesis_protocol_version,
+            genesis_time=genesis_time), all_nodes)
 
 
 def status_cmd(args, traffic_generator, nodes):
@@ -312,7 +335,8 @@ def start_traffic_cmd(args, traffic_generator, nodes):
     logger.info(
         "waiting a bit after validators started before starting traffic")
     time.sleep(10)
-    traffic_generator.neard_runner_start()
+    traffic_generator.neard_runner_start(
+        batch_interval_millis=args.batch_interval_millis)
     logger.info(
         f'test running. to check the traffic sent, try running "curl --silent http://{traffic_generator.ip_addr()}:{traffic_generator.neard_port()}/metrics | grep near_mirror"'
     )
@@ -400,6 +424,15 @@ if __name__ == '__main__':
         help=
         'Starts all nodes and starts neard mirror run on the traffic generator.'
     )
+    start_traffic_parser.add_argument(
+        '--batch-interval-millis',
+        type=int,
+        help=
+        '''Interval in millis between sending each mainnet block\'s worth of transactions.
+        Without this flag, the traffic generator will try to match the per-block load on mainnet.
+        So, transactions from consecutive mainnet blocks will be be sent with delays
+        between them such that they will probably appear in consecutive mocknet blocks.
+        ''')
     start_traffic_parser.set_defaults(func=start_traffic_cmd)
 
     start_nodes_parser = subparsers.add_parser(

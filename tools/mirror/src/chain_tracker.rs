@@ -129,7 +129,6 @@ pub(crate) enum SentBatch {
 
 // TODO: the separation between what's in here and what's in the main file with struct TxMirror is not
 // that clear and doesn't make that much sense. Should refactor
-#[derive(Default)]
 pub(crate) struct TxTracker {
     sent_txs: HashMap<CryptoHash, TxSendInfo>,
     txs_by_signer: HashMap<(AccountId, PublicKey), BTreeSet<TxId>>,
@@ -147,9 +146,11 @@ pub(crate) struct TxTracker {
     nonempty_height_queued: Option<BlockHeight>,
     height_popped: Option<BlockHeight>,
     height_seen: Option<BlockHeight>,
-    send_time: Option<Pin<Box<tokio::time::Sleep>>>,
+    send_time: Pin<Box<tokio::time::Sleep>>,
     // Config value in the target chain, used to judge how long to wait before sending a new batch of txs
     min_block_production_delay: Duration,
+    // optional specific tx send delay
+    tx_batch_interval: Option<Duration>,
     // timestamps in the target chain, used to judge how long to wait before sending a new batch of txs
     recent_block_timestamps: VecDeque<u64>,
     // last source block we'll be sending transactions for
@@ -162,6 +163,7 @@ impl TxTracker {
     // we unwrap() self.height_queued() in Self::next_heights()
     pub(crate) fn new<'a, I>(
         min_block_production_delay: Duration,
+        tx_batch_interval: Option<Duration>,
         next_heights: I,
         stop_height: Option<BlockHeight>,
     ) -> Self
@@ -169,7 +171,26 @@ impl TxTracker {
         I: IntoIterator<Item = &'a BlockHeight>,
     {
         let next_heights = next_heights.into_iter().map(Clone::clone).collect();
-        Self { min_block_production_delay, next_heights, stop_height, ..Default::default() }
+        Self {
+            min_block_production_delay,
+            next_heights,
+            stop_height,
+            tx_batch_interval,
+            // Wait at least 15 seconds before sending any transactions because for
+            // a few seconds after the node starts, transaction routing requests
+            // will be silently dropped by the peer manager.
+            send_time: Box::pin(tokio::time::sleep(std::time::Duration::from_secs(15))),
+            sent_txs: HashMap::new(),
+            txs_by_signer: HashMap::new(),
+            queued_blocks: VecDeque::new(),
+            updater_to_keys: HashMap::new(),
+            nonces: HashMap::new(),
+            height_queued: None,
+            nonempty_height_queued: None,
+            height_popped: None,
+            height_seen: None,
+            recent_block_timestamps: VecDeque::new(),
+        }
     }
 
     pub(crate) async fn next_heights<T: ChainAccess>(
@@ -441,10 +462,7 @@ impl TxTracker {
     }
 
     pub(crate) fn next_batch_time(&self) -> Instant {
-        match &self.send_time {
-            Some(t) => t.as_ref().deadline().into_std(),
-            None => Instant::now(),
-        }
+        self.send_time.as_ref().deadline().into_std()
     }
 
     pub(crate) async fn next_batch(
@@ -455,10 +473,10 @@ impl TxTracker {
         // sleep until 20 milliseconds before we want to send transactions before we check for nonces
         // in the target chain. In the second or so between now and then, we might process another block
         // that will set the nonces.
-        if let Some(s) = &self.send_time {
-            tokio::time::sleep_until(s.as_ref().deadline() - std::time::Duration::from_millis(20))
-                .await;
-        }
+        tokio::time::sleep_until(
+            self.send_time.as_ref().deadline() - std::time::Duration::from_millis(20),
+        )
+        .await;
         let mut needed_access_keys = HashSet::new();
         for c in self.queued_blocks[0].chunks.iter_mut() {
             for tx in c.txs.iter_mut() {
@@ -518,9 +536,7 @@ impl TxTracker {
                 };
             }
         }
-        if let Some(sleep) = &mut self.send_time {
-            sleep.await;
-        }
+        (&mut self.send_time).await;
         Ok(self.queued_blocks.pop_front().unwrap())
     }
 
@@ -1131,15 +1147,11 @@ impl TxTracker {
 
         let (txs_sent, provenance) = match sent_batch {
             SentBatch::MappedBlock(b) => {
-                let block_delay = self
-                    .second_longest_recent_block_delay()
-                    .unwrap_or(self.min_block_production_delay + Duration::from_millis(100));
-                match &mut self.send_time {
-                    Some(t) => t.as_mut().reset(tokio::time::Instant::now() + block_delay),
-                    None => {
-                        self.send_time = Some(Box::pin(tokio::time::sleep(block_delay)));
-                    }
-                }
+                let block_delay = self.tx_batch_interval.unwrap_or_else(|| {
+                    self.second_longest_recent_block_delay()
+                        .unwrap_or(self.min_block_production_delay + Duration::from_millis(100))
+                });
+                self.send_time.as_mut().reset(tokio::time::Instant::now() + block_delay);
                 crate::set_last_source_height(db, b.source_height)?;
                 let txs = b
                     .chunks

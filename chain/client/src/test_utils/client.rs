@@ -20,7 +20,8 @@ use near_network::types::HighestHeightPeerInfo;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, PartialMerkleTree};
-use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper, ShardChunk};
+use near_primitives::reed_solomon::ReedSolomonWrapper;
+use near_primitives::sharding::{EncodedShardChunk, ShardChunk};
 use near_primitives::stateless_validation::ChunkEndorsement;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockHeight, ShardId};
@@ -42,10 +43,9 @@ impl Client {
         provenance: Provenance,
         should_produce_chunk: bool,
     ) -> Result<Vec<CryptoHash>, near_chain::Error> {
-        self.start_process_block(block, provenance, Arc::new(|_| {}))?;
+        self.start_process_block(block, provenance, None)?;
         wait_for_all_blocks_in_processing(&mut self.chain);
-        let (accepted_blocks, errors) =
-            self.postprocess_ready_blocks(Arc::new(|_| {}), should_produce_chunk);
+        let (accepted_blocks, errors) = self.postprocess_ready_blocks(None, should_produce_chunk);
         assert!(errors.is_empty(), "unexpected errors when processing blocks: {errors:#?}");
         Ok(accepted_blocks)
     }
@@ -70,7 +70,7 @@ impl Client {
     pub fn finish_blocks_in_processing(&mut self) -> Vec<CryptoHash> {
         let mut accepted_blocks = vec![];
         while wait_for_all_blocks_in_processing(&mut self.chain) {
-            accepted_blocks.extend(self.postprocess_ready_blocks(Arc::new(|_| {}), true).0);
+            accepted_blocks.extend(self.postprocess_ready_blocks(None, true).0);
         }
         accepted_blocks
     }
@@ -79,7 +79,7 @@ impl Client {
     /// has started.
     pub fn finish_block_in_processing(&mut self, hash: &CryptoHash) -> Vec<CryptoHash> {
         if let Ok(()) = wait_for_block_in_processing(&mut self.chain, hash) {
-            let (accepted_blocks, _) = self.postprocess_ready_blocks(Arc::new(|_| {}), true);
+            let (accepted_blocks, _) = self.postprocess_ready_blocks(None, true);
             return accepted_blocks;
         }
         vec![]
@@ -287,9 +287,10 @@ pub fn run_catchup(
         client.run_catchup(
             highest_height_peers,
             &noop().into_sender(),
+            &noop().into_sender(),
             &block_catch_up,
             &resharding,
-            Arc::new(|_| {}),
+            None,
             &state_parts_future_spawner,
         )?;
         let mut catchup_done = true;

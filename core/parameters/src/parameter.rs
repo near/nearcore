@@ -22,6 +22,8 @@ pub enum Parameter {
 
     // Stateless validation config
     StorageProofSizeSoftLimit,
+    // Hard per-receipt limit of recorded trie storage proof
+    StorageProofSizeReceiptLimit,
 
     // Account creation config
     MinAllowedTopLevelAccountLength,
@@ -234,6 +236,7 @@ impl Parameter {
             Parameter::AccountIdValidityRulesVersion,
             Parameter::YieldTimeoutLengthInBlocks,
             Parameter::MaxYieldPayloadSize,
+            Parameter::StorageProofSizeReceiptLimit,
         ]
         .iter()
     }

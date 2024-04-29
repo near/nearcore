@@ -6,6 +6,7 @@ use crate::transaction::SignedTransaction;
 use crate::types::EpochId;
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 use borsh::{BorshDeserialize, BorshSerialize};
+use bytes::BufMut;
 use near_crypto::{PublicKey, Signature};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance, BlockHeight, ShardId};
@@ -18,22 +19,114 @@ use near_primitives_core::types::{AccountId, Balance, BlockHeight, ShardId};
 /// This is a messy workaround until we know what to do with NEP 483.
 type SignatureDifferentiator = String;
 
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct PartialEncodedStateWitness {
+    inner: PartialEncodedStateWitnessInner,
+    pub signature: Signature,
+}
+
+impl PartialEncodedStateWitness {
+    pub fn new(
+        epoch_id: EpochId,
+        chunk_header: ShardChunkHeader,
+        part_ord: usize,
+        part: Vec<u8>,
+        encoded_length: usize,
+        signer: &dyn ValidatorSigner,
+    ) -> Self {
+        let inner = PartialEncodedStateWitnessInner::new(
+            epoch_id,
+            chunk_header,
+            part_ord,
+            part,
+            encoded_length,
+        );
+        let signature = signer.sign_partial_encoded_state_witness(&inner);
+        Self { inner, signature }
+    }
+
+    pub fn verify(&self, public_key: &PublicKey) -> bool {
+        let data = borsh::to_vec(&self.inner).unwrap();
+        self.signature.verify(&data, public_key)
+    }
+
+    pub fn epoch_id(&self) -> &EpochId {
+        &self.inner.epoch_id
+    }
+
+    pub fn chunk_header(&self) -> &ShardChunkHeader {
+        &self.inner.chunk_header
+    }
+
+    pub fn part_ord(&self) -> usize {
+        self.inner.part_ord
+    }
+
+    pub fn part(&self) -> &[u8] {
+        &self.inner.part
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct PartialEncodedStateWitnessInner {
+    epoch_id: EpochId,
+    chunk_header: ShardChunkHeader,
+    part_ord: usize,
+    part: Box<[u8]>,
+    encoded_length: usize,
+    signature_differentiator: SignatureDifferentiator,
+}
+
+impl PartialEncodedStateWitnessInner {
+    fn new(
+        epoch_id: EpochId,
+        chunk_header: ShardChunkHeader,
+        part_ord: usize,
+        part: Vec<u8>,
+        encoded_length: usize,
+    ) -> Self {
+        Self {
+            epoch_id,
+            chunk_header,
+            part_ord,
+            part: part.into_boxed_slice(),
+            encoded_length,
+            signature_differentiator: "PartialEncodedStateWitness".to_owned(),
+        }
+    }
+}
+
 /// Represents bytes of encoded ChunkStateWitness.
-/// For now encoding is raw borsh serialization, later we plan
-/// adding compression on top of that.
+/// This is the compressed version of borsh-serialized state witness.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct EncodedChunkStateWitness(Box<[u8]>);
 
+pub type ChunkStateWitnessSize = usize;
+
 impl EncodedChunkStateWitness {
-    pub fn encode(witness: &ChunkStateWitness) -> Self {
-        Self(borsh::to_vec(witness).expect("borsh serialization should not fail").into())
+    /// Borsh-serialize and compress state witness.
+    /// Returns encoded witness along with the raw (uncompressed) witness size.
+    pub fn encode(witness: &ChunkStateWitness) -> std::io::Result<(Self, ChunkStateWitnessSize)> {
+        const STATE_WITNESS_COMPRESSION_LEVEL: i32 = 3;
+        let borsh_bytes = borsh::to_vec(witness)?;
+        Ok((
+            Self(zstd::encode_all(borsh_bytes.as_slice(), STATE_WITNESS_COMPRESSION_LEVEL)?.into()),
+            borsh_bytes.len(),
+        ))
     }
 
-    pub fn decode(&self) -> Result<ChunkStateWitness, std::io::Error> {
-        ChunkStateWitness::try_from_slice(&self.0)
+    /// Decompress and borsh-deserialize encoded witness bytes.
+    /// Returns decoded witness along with the raw (uncompressed) witness size.
+    pub fn decode(&self) -> std::io::Result<(ChunkStateWitness, ChunkStateWitnessSize)> {
+        // We want to limit the size of decompressed data to address "Zip bomb" attack.
+        // The value here is the same as NETWORK_MESSAGE_MAX_SIZE_BYTES.
+        const MAX_WITNESS_SIZE: usize = 512 * bytesize::MIB as usize;
+        let borsh_bytes = decompress_with_limit(self.0.as_ref(), MAX_WITNESS_SIZE)?;
+        let witness = ChunkStateWitness::try_from_slice(&borsh_bytes)?;
+        Ok((witness, borsh_bytes.len()))
     }
 
-    pub fn size_bytes(&self) -> usize {
+    pub fn size_bytes(&self) -> ChunkStateWitnessSize {
         self.0.len()
     }
 
@@ -42,6 +135,7 @@ impl EncodedChunkStateWitness {
     }
 }
 
+// TODO(stateless_validation): Deprecate once we send state witness in parts.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct SignedEncodedChunkStateWitness {
     /// The content of the witness. It is convenient have it as bytes in order
@@ -49,14 +143,6 @@ pub struct SignedEncodedChunkStateWitness {
     pub witness_bytes: EncodedChunkStateWitness,
     /// Signature corresponds to `witness_bytes.as_slice()` signed by the chunk producer
     pub signature: Signature,
-}
-
-impl SignedEncodedChunkStateWitness {
-    pub fn new(witness: &ChunkStateWitness, signer: &dyn ValidatorSigner) -> Self {
-        let witness_bytes = EncodedChunkStateWitness::encode(witness);
-        let signature = signer.sign_chunk_state_witness(&witness_bytes);
-        Self { witness_bytes, signature }
-    }
 }
 
 /// An acknowledgement sent from the chunk producer upon receiving the state witness to
@@ -89,10 +175,12 @@ pub struct ChunkStateWitness {
     /// with chunk_header.prev_block_hash().
     /// This is needed to validate signature when the previous block is not yet
     /// available on the validator side (aka orphan state witness).
+    /// TODO(stateless_validation): Deprecate once we send state witness in parts.
     pub epoch_id: EpochId,
     /// The chunk header that this witness is for. While this is not needed
     /// to apply the state transition, it is needed for a chunk validator to
     /// produce a chunk endorsement while knowing what they are endorsing.
+    /// TODO(stateless_validation): Deprecate once we send state witness in parts.
     pub chunk_header: ShardChunkHeader,
     /// The base state and post-state-root of the main transition where we
     /// apply transactions and receipts. Corresponds to the state transition
@@ -152,6 +240,7 @@ pub struct ChunkStateWitness {
     /// accounts have appropriate balances, access keys, nonces, etc.
     pub new_transactions: Vec<SignedTransaction>,
     pub new_transactions_validation_state: PartialState,
+    // TODO(stateless_validation): Deprecate once we send state witness in parts.
     signature_differentiator: SignatureDifferentiator,
 }
 
@@ -360,5 +449,59 @@ impl ChunkValidatorAssignments {
             endorsed_validators_count,
             total_validators_count: self.assignments.len(),
         }
+    }
+}
+
+fn decompress_with_limit(data: &[u8], limit: usize) -> std::io::Result<Vec<u8>> {
+    let mut buf = Vec::new().limit(limit).writer();
+    match zstd::stream::copy_decode(data, &mut buf) {
+        Err(err) => {
+            // If decompressed data exceeds the limit then the following error is returned:
+            // Error { kind: WriteZero, message: "failed to write whole buffer" }
+            // Here we convert it to a more descriptive error to make debugging easier.
+            let err = if err.kind() == std::io::ErrorKind::WriteZero {
+                std::io::Error::other(format!(
+                    "Decompressed data exceeded limit of {limit} bytes: {err}"
+                ))
+            } else {
+                err
+            };
+            Err(err)
+        }
+        Ok(()) => Ok(buf.into_inner().into_inner()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::stateless_validation::decompress_with_limit;
+
+    #[test]
+    fn decompress_within_limit() {
+        let data = vec![1, 2, 3];
+        let compressed = zstd::encode_all(data.as_slice(), 0).unwrap();
+        let decompressed = decompress_with_limit(&compressed, 100);
+        assert!(decompressed.is_ok());
+        assert_eq!(data, decompressed.unwrap());
+    }
+
+    #[test]
+    fn decompress_exceed_limit() {
+        let data = vec![0; 100];
+        let compressed = zstd::encode_all(data.as_slice(), 0).unwrap();
+        let decompress_res = decompress_with_limit(&compressed, 99);
+        assert!(decompress_res.is_err());
+        assert_eq!(
+            decompress_res.unwrap_err().to_string(),
+            "Decompressed data exceeded limit of 99 bytes: failed to write whole buffer"
+        );
+    }
+
+    #[test]
+    fn decompress_invalid_data() {
+        let data = vec![0; 10];
+        let decompress_res = decompress_with_limit(&data, 100);
+        assert!(decompress_res.is_err());
+        assert_eq!(decompress_res.unwrap_err().to_string(), "Unknown frame descriptor");
     }
 }

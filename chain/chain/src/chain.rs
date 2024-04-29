@@ -1,5 +1,5 @@
 use crate::block_processing_utils::{
-    BlockPreprocessInfo, BlockProcessingArtifact, BlocksInProcessing, DoneApplyChunkCallback,
+    BlockPreprocessInfo, BlockProcessingArtifact, BlocksInProcessing,
 };
 use crate::blocks_delay_tracker::BlocksDelayTracker;
 use crate::chain_update::ChainUpdate;
@@ -131,6 +131,13 @@ enum ApplyChunksMode {
     CatchingUp,
     NotCaughtUp,
 }
+
+/// `ApplyChunksDoneMessage` is a message that signals the finishing of applying chunks of a block.
+/// Upon receiving this message, ClientActors know that it's time to finish processing the blocks that
+/// just finished applying chunks.
+#[derive(actix::Message, Debug)]
+#[rtype(result = "()")]
+pub struct ApplyChunksDoneMessage;
 
 /// Contains information for missing chunks in a block
 pub struct BlockMissingChunks {
@@ -1334,9 +1341,9 @@ impl Chain {
     /// these blocks that are ready.
     /// `block_processing_artifacts`: Callers can pass an empty object or an existing BlockProcessingArtifact.
     ///              This function will add the effect from processing this block to there.
-    /// `apply_chunks_done_callback`: This callback will be called after apply_chunks are finished
+    /// `apply_chunks_done_sender`: An ApplyChunksDoneMessage message will be sent via this sender after apply_chunks is finished
     ///              (so it also happens asynchronously in the rayon thread pool). Callers can
-    ///              use this callback as a way to receive notifications when apply chunks are done
+    ///              use this sender as a way to receive notifications when apply chunks are done
     ///              so it can call postprocess_ready_blocks.
     pub fn start_process_block_async(
         &mut self,
@@ -1344,7 +1351,7 @@ impl Chain {
         block: MaybeValidated<Block>,
         provenance: Provenance,
         block_processing_artifacts: &mut BlockProcessingArtifact,
-        apply_chunks_done_callback: DoneApplyChunkCallback,
+        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) -> Result<(), Error> {
         let _span =
             debug_span!(target: "chain", "start_process_block_async", ?provenance).entered();
@@ -1358,7 +1365,7 @@ impl Chain {
             block,
             provenance,
             block_processing_artifacts,
-            apply_chunks_done_callback,
+            apply_chunks_done_sender,
             block_received_time,
         );
 
@@ -1386,7 +1393,7 @@ impl Chain {
         &mut self,
         me: &Option<AccountId>,
         block_processing_artifacts: &mut BlockProcessingArtifact,
-        apply_chunks_done_callback: DoneApplyChunkCallback,
+        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) -> (Vec<AcceptedBlock>, HashMap<CryptoHash, Error>) {
         let _span = debug_span!(target: "chain", "postprocess_ready_blocks_chain").entered();
         let mut accepted_blocks = vec![];
@@ -1397,7 +1404,7 @@ impl Chain {
                 block_hash,
                 apply_result,
                 block_processing_artifacts,
-                apply_chunks_done_callback.clone(),
+                apply_chunks_done_sender.clone(),
             ) {
                 Err(e) => {
                     errors.insert(block_hash, e);
@@ -1558,7 +1565,7 @@ impl Chain {
         me: &Option<AccountId>,
         sync_hash: CryptoHash,
         block_processing_artifacts: &mut BlockProcessingArtifact,
-        apply_chunks_done_callback: DoneApplyChunkCallback,
+        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "sync", "reset_heads_post_state_sync").entered();
         // Get header we were syncing into.
@@ -1583,7 +1590,7 @@ impl Chain {
         // Check if there are any orphans unlocked by this state sync.
         // We can't fail beyond this point because the caller will not process accepted blocks
         //    and the blocks with missing chunks if this method fails
-        self.check_orphans(me, hash, block_processing_artifacts, apply_chunks_done_callback);
+        self.check_orphans(me, hash, block_processing_artifacts, apply_chunks_done_sender);
         Ok(())
     }
 
@@ -1595,7 +1602,7 @@ impl Chain {
         block: MaybeValidated<Block>,
         provenance: Provenance,
         block_processing_artifact: &mut BlockProcessingArtifact,
-        apply_chunks_done_callback: DoneApplyChunkCallback,
+        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
         block_received_time: Instant,
     ) -> Result<(), Error> {
         let block_height = block.header().height();
@@ -1712,7 +1719,7 @@ impl Chain {
             block_height,
             apply_chunk_work,
             apply_chunks_done_marker,
-            apply_chunks_done_callback.clone(),
+            apply_chunks_done_sender,
         );
 
         Ok(())
@@ -1720,14 +1727,14 @@ impl Chain {
 
     /// Applying chunks async by starting the work at the rayon thread pool
     /// `apply_chunks_done_marker`: a marker that will be set to true once applying chunks is finished
-    /// `apply_chunks_done_callback`: a callback that will be called once applying chunks is finished
+    /// `apply_chunks_done_sender`: a sender to send a ApplyChunksDoneMessage message once applying chunks is finished
     fn schedule_apply_chunks(
         &self,
         block_hash: CryptoHash,
         block_height: BlockHeight,
         work: Vec<UpdateShardJob>,
         apply_chunks_done_marker: Arc<OnceCell<()>>,
-        apply_chunks_done_callback: DoneApplyChunkCallback,
+        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) {
         let sc = self.apply_chunks_sender.clone();
         self.apply_chunks_spawner.spawn("apply_chunks", move || {
@@ -1740,7 +1747,9 @@ impl Chain {
                 // This should never happen, if it does, it means there is a bug in our code.
                 log_assert!(false, "apply chunks are called twice for block {block_hash:?}");
             }
-            apply_chunks_done_callback(block_hash);
+            if let Some(sender) = apply_chunks_done_sender {
+                sender.send(ApplyChunksDoneMessage {});
+            }
         });
     }
 
@@ -1777,7 +1786,7 @@ impl Chain {
         block_hash: CryptoHash,
         apply_results: Vec<(ShardId, Result<ShardUpdateResult, Error>)>,
         block_processing_artifacts: &mut BlockProcessingArtifact,
-        apply_chunks_done_callback: DoneApplyChunkCallback,
+        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) -> Result<AcceptedBlock, Error> {
         let timer = metrics::BLOCK_POSTPROCESSING_TIME.start_timer();
         let (block, block_preprocess_info) =
@@ -1851,6 +1860,12 @@ impl Chain {
                     true,
                 )
             };
+            tracing::debug!(
+                target: "chain",
+                "Updating flat storage for shard {} need_flat_storage_update: {}",
+                shard_id,
+                need_flat_storage_update
+            );
 
             if need_flat_storage_update {
                 let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
@@ -1894,12 +1909,7 @@ impl Chain {
             block_start_processing_time,
         );
 
-        self.check_orphans(
-            me,
-            *block.hash(),
-            block_processing_artifacts,
-            apply_chunks_done_callback,
-        );
+        self.check_orphans(me, *block.hash(), block_processing_artifacts, apply_chunks_done_sender);
 
         // Determine the block status of this block (whether it is a side fork and updates the chain head)
         // Block status is needed in Client::on_block_accepted_with_optional_chunk_produce to
@@ -2199,7 +2209,7 @@ impl Chain {
         &mut self,
         me: &Option<AccountId>,
         block_processing_artifact: &mut BlockProcessingArtifact,
-        apply_chunks_done_callback: DoneApplyChunkCallback,
+        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) {
         let blocks = self.blocks_with_missing_chunks.ready_blocks();
         if !blocks.is_empty() {
@@ -2213,7 +2223,7 @@ impl Chain {
                 block.block,
                 block.provenance,
                 block_processing_artifact,
-                apply_chunks_done_callback.clone(),
+                apply_chunks_done_sender.clone(),
             );
             match res {
                 Ok(_) => {
@@ -2735,64 +2745,64 @@ impl Chain {
         Ok(())
     }
 
+    pub fn schedule_load_memtrie(
+        &self,
+        shard_uid: ShardUId,
+        sync_hash: CryptoHash,
+        chunk: &ShardChunk,
+        load_memtrie_scheduler: &near_async::messaging::Sender<LoadMemtrieRequest>,
+    ) {
+        load_memtrie_scheduler.send(LoadMemtrieRequest {
+            runtime_adapter: self.runtime_adapter.clone(),
+            shard_uid,
+            prev_state_root: chunk.prev_state_root(),
+            sync_hash,
+        });
+    }
+
+    pub fn create_flat_storage_for_shard(
+        &self,
+        shard_uid: ShardUId,
+        chunk: &ShardChunk,
+    ) -> Result<(), Error> {
+        let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
+        // Flat storage must not exist at this point because leftover keys corrupt its state.
+        assert!(flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none());
+
+        let flat_head_hash = *chunk.prev_block();
+        let flat_head_header = self.get_block_header(&flat_head_hash)?;
+        let flat_head_prev_hash = *flat_head_header.prev_hash();
+        let flat_head_height = flat_head_header.height();
+
+        tracing::debug!(target: "store", ?shard_uid, ?flat_head_hash, flat_head_height, "set_state_finalize - initialized flat storage");
+
+        let mut store_update = self.runtime_adapter.store().store_update();
+        store_helper::set_flat_storage_status(
+            &mut store_update,
+            shard_uid,
+            FlatStorageStatus::Ready(FlatStorageReadyStatus {
+                flat_head: near_store::flat::BlockInfo {
+                    hash: flat_head_hash,
+                    prev_hash: flat_head_prev_hash,
+                    height: flat_head_height,
+                },
+            }),
+        );
+        store_update.commit()?;
+        flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+        Ok(())
+    }
+
     pub fn set_state_finalize(
         &mut self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
-        apply_result: Result<(), near_chain_primitives::Error>,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "sync", "set_state_finalize").entered();
-        apply_result?;
-
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
-        let chunk = shard_state_header.cloned_chunk();
-
-        let block_hash = chunk.prev_block();
-
-        // We synced shard state on top of _previous_ block for chunk in shard state header and applied state parts to
-        // flat storage. Now we can set flat head to hash of this block and create flat storage.
-        // If block_hash is equal to default - this means that we're all the way back at genesis.
-        // So we don't have to add the storage state for shard in such case.
-        // TODO(8438) - add additional test scenarios for this case.
-        if *block_hash != CryptoHash::default() {
-            let block_header = self.get_block_header(block_hash)?;
-            let epoch_id = block_header.epoch_id();
-            let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
-
-            let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
-            // Flat storage must not exist at this point because leftover keys corrupt its state.
-            assert!(flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none());
-
-            let flat_head_hash = *chunk.prev_block();
-            let flat_head_header = self.get_block_header(&flat_head_hash)?;
-            let flat_head_prev_hash = *flat_head_header.prev_hash();
-            let flat_head_height = flat_head_header.height();
-
-            tracing::debug!(target: "store", ?shard_uid, ?flat_head_hash, flat_head_height, "set_state_finalize - initialized flat storage");
-
-            let mut store_update = self.runtime_adapter.store().store_update();
-            store_helper::set_flat_storage_status(
-                &mut store_update,
-                shard_uid,
-                FlatStorageStatus::Ready(FlatStorageReadyStatus {
-                    flat_head: near_store::flat::BlockInfo {
-                        hash: flat_head_hash,
-                        prev_hash: flat_head_prev_hash,
-                        height: flat_head_height,
-                    },
-                }),
-            );
-            store_update.commit()?;
-            flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
-            // Flat storage is ready, load memtrie if it is enabled.
-            self.runtime_adapter
-                .get_tries()
-                .load_mem_trie_on_catchup(&shard_uid, &chunk.prev_state_root())?;
-        }
-
         let mut height = shard_state_header.chunk_height_included();
         let mut chain_update = self.chain_update();
-        chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?;
+        let shard_uid = chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?;
         chain_update.commit()?;
 
         // We restored the state on height `shard_state_header.chunk.header.height_included`.
@@ -2807,6 +2817,12 @@ impl Chain {
             } else {
                 break;
             }
+        }
+
+        let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
+        if let Some(flat_storage) = flat_storage_manager.get_flat_storage_for_shard(shard_uid) {
+            let header = self.get_block_header(&sync_hash)?;
+            flat_storage.update_flat_head(header.prev_hash(), true).unwrap();
         }
 
         Ok(())
@@ -3025,7 +3041,7 @@ impl Chain {
         me: &Option<AccountId>,
         epoch_first_block: &CryptoHash,
         block_processing_artifacts: &mut BlockProcessingArtifact,
-        apply_chunks_done_callback: DoneApplyChunkCallback,
+        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
         affected_blocks: &[CryptoHash],
     ) -> Result<(), Error> {
         debug!(
@@ -3062,7 +3078,7 @@ impl Chain {
                 me,
                 *hash,
                 block_processing_artifacts,
-                apply_chunks_done_callback.clone(),
+                apply_chunks_done_sender.clone(),
             );
         }
 
@@ -4527,6 +4543,42 @@ impl Debug for ApplyStatePartsRequest {
 pub struct ApplyStatePartsResponse {
     pub apply_result: Result<(), near_chain_primitives::error::Error>,
     pub shard_id: ShardId,
+    pub sync_hash: CryptoHash,
+}
+
+// This message is handled by `sync_job_actions.rs::handle_load_memtrie_request()`.
+// It is a request for `runtime_adapter` to load in-memory trie for `shard_uid`.
+#[derive(actix::Message)]
+#[rtype(result = "()")]
+pub struct LoadMemtrieRequest {
+    pub runtime_adapter: Arc<dyn RuntimeAdapter>,
+    pub shard_uid: ShardUId,
+    // Required to load memtrie.
+    pub prev_state_root: StateRoot,
+    // Needs to be included in a response to the caller for identification purposes.
+    pub sync_hash: CryptoHash,
+}
+
+// Skip `runtime_adapter`, because it's a complex object that has complex logic
+// and many fields.
+impl Debug for LoadMemtrieRequest {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LoadMemtrieRequest")
+            .field("runtime_adapter", &"<not shown>")
+            .field("shard_uid", &self.shard_uid)
+            .field("prev_state_root", &self.prev_state_root)
+            .field("sync_hash", &self.sync_hash)
+            .finish()
+    }
+}
+
+// It is message indicating the result of loading in-memory trie for `shard_id`.
+// `sync_hash` is passed around to indicate to which block we were catching up.
+#[derive(actix::Message, Debug)]
+#[rtype(result = "()")]
+pub struct LoadMemtrieResponse {
+    pub load_result: Result<(), near_chain_primitives::error::Error>,
+    pub shard_uid: ShardUId,
     pub sync_hash: CryptoHash,
 }
 
