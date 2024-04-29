@@ -1,7 +1,7 @@
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, merklize, verify_path, MerklePath};
 use crate::receipt::Receipt;
-use crate::reed_solomon::rs_encode;
+use crate::reed_solomon::reed_solomon_encode;
 use crate::transaction::SignedTransaction;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
 use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot};
@@ -993,8 +993,10 @@ impl EncodedShardChunk {
         signer: &dyn ValidatorSigner,
         protocol_version: ProtocolVersion,
     ) -> Result<(Self, Vec<MerklePath>), std::io::Error> {
-        let (transaction_receipts_parts, encoded_length) =
-            rs_encode(rs, TransactionReceipt(transactions, prev_outgoing_receipts.to_vec()));
+        let (transaction_receipts_parts, encoded_length) = reed_solomon_encode(
+            rs,
+            TransactionReceipt(transactions, prev_outgoing_receipts.to_vec()),
+        );
         let content = EncodedShardChunkBody { parts: transaction_receipts_parts };
         let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
 
