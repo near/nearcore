@@ -1409,7 +1409,6 @@ mod tests {
     fn create_apply_state(block_height: BlockHeight) -> ApplyState {
         ApplyState {
             apply_reason: None,
-            shard_id: ShardUId::single_shard().shard_id(),
             block_height,
             prev_block_hash: CryptoHash::default(),
             block_hash: CryptoHash::default(),

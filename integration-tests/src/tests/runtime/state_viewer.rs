@@ -3,7 +3,6 @@ use std::{collections::HashMap, io, sync::Arc};
 use borsh::BorshDeserialize;
 
 use crate::runtime_utils::{get_runtime_and_trie, get_test_trie_viewer, TEST_SHARD_UID};
-use near_primitives::shard_layout::ShardUId;
 use near_primitives::{
     account::Account,
     hash::hash as sha256,

@@ -27,7 +27,7 @@ pub(crate) fn test_builder() -> TestBuilder {
         random_seed: vec![0, 1, 2],
         view_config: None,
         output_data_receivers: vec![],
-        shard_id: ShardUId::single_shard().shard_id(),
+        shard_id: 0,
         apply_reason: None,
     };
     let mut skip = HashSet::new();
