@@ -1,7 +1,7 @@
 pub mod client_actions;
 pub mod state_witness_actions;
-pub mod sync_jobs_actions;
 pub mod sync_actor;
+pub mod sync_jobs_actions;
 
 use near_async::messaging::{CanSend, SendAsync};
 use near_async::test_loop::delay_sender::DelaySender;
@@ -9,25 +9,29 @@ use near_async::test_loop::event_handler::{LoopEventHandler, TryIntoOrSelf};
 
 use near_async::time::Duration;
 
-use near_network::client::{BlockApproval, BlockResponse, ChunkEndorsementMessage, ChunkStateWitnessMessage, ClientSenderForNetwork, ClientSenderForNetworkMessage, ProcessTxRequest};
-use near_network::state_witness::{ChunkStateWitnessAckMessage, StateWitnessSenderForNetwork, StateWitnessSenderForNetworkMessage};
+use crate::client_actions::ClientActions;
+use crate::Client;
+use near_network::client::{
+    BlockApproval, BlockResponse, ChunkEndorsementMessage, ChunkStateWitnessMessage,
+    ClientSenderForNetwork, ClientSenderForNetworkMessage, ProcessTxRequest,
+};
+use near_network::state_witness::{
+    ChunkStateWitnessAckMessage, StateWitnessSenderForNetwork, StateWitnessSenderForNetworkMessage,
+};
 use near_network::test_loop::SupportsRoutingLookup;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, Balance, ShardId};
-use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryResponse, QueryResponseKind};
-use crate::{Client};
-use crate::client_actions::{ClientActions};
-
-
-
+use near_primitives::views::{
+    FinalExecutionOutcomeView, QueryRequest, QueryResponse, QueryResponseKind,
+};
 
 pub fn print_basic_client_info_before_each_event<Data, Event>(
     idx: Option<usize>,
 ) -> LoopEventHandler<Data, Event>
-    where
-        Data: AsRef<ClientActions>,
+where
+    Data: AsRef<ClientActions>,
 {
     let idx_prefix = idx.map(|idx| format!("[Client #{}] ", idx)).unwrap_or_default();
 
@@ -80,9 +84,9 @@ pub fn print_basic_client_info_before_each_event<Data, Event>(
 pub fn route_network_messages_to_client<
     Data: SupportsRoutingLookup,
     Event: TryIntoOrSelf<PeerManagerMessageRequest>
-    + From<PeerManagerMessageRequest>
-    + From<ClientSenderForNetworkMessage>
-    + From<StateWitnessSenderForNetworkMessage>,
+        + From<PeerManagerMessageRequest>
+        + From<ClientSenderForNetworkMessage>
+        + From<StateWitnessSenderForNetworkMessage>,
 >(
     sender: DelaySender<(usize, Event)>,
     network_delay: Duration,

@@ -1,8 +1,6 @@
 use derive_enum_from_into::{EnumFrom, EnumTryInto};
 use near_async::futures::FutureSpawner;
-use near_async::messaging::{
-    noop, IntoMultiSender, IntoSender, MessageWithCallback, SendAsync,
-};
+use near_async::messaging::{noop, IntoMultiSender, IntoSender, MessageWithCallback, SendAsync};
 use near_async::test_loop::adhoc::{handle_adhoc_events, AdhocEvent, AdhocEventSender};
 use near_async::test_loop::event_handler::ignore_events;
 use near_async::test_loop::futures::{
@@ -41,31 +39,37 @@ use near_client::sync::sync_actor::SyncActor;
 use near_client::sync_jobs_actions::{
     ClientSenderForSyncJobsMessage, SyncJobsActions, SyncJobsSenderForSyncJobsMessage,
 };
-use near_client::test_utils::test_loop::{
-    print_basic_client_info_before_each_event,
+use near_client::test_utils::test_loop::client_actions::{
+    forward_client_messages_from_client_to_client_actions,
+    forward_client_messages_from_network_to_client_actions,
+    forward_client_messages_from_shards_manager, forward_client_messages_from_sync_adapter,
+    forward_client_messages_from_sync_jobs_to_client_actions,
+};
+use near_client::test_utils::test_loop::print_basic_client_info_before_each_event;
+use near_client::test_utils::test_loop::state_witness_actions::{
+    forward_messages_from_client_to_state_witness_actor,
+    forward_messages_from_network_to_state_witness_actor,
 };
 use near_client::test_utils::test_loop::sync_actor::{
     forward_sync_actor_messages_from_client, forward_sync_actor_messages_from_network,
     test_loop_sync_actor_maker, TestSyncActors,
-};
-use near_client::{
-    Client, StateWitnessActions, StateWitnessSenderForClientMessage, SyncAdapter, SyncMessage,
 };
 use near_client::test_utils::test_loop::sync_jobs_actions::{
     forward_sync_jobs_messages_from_client_to_sync_jobs_actions,
     forward_sync_jobs_messages_from_sync_jobs_to_sync_jobs_actions,
 };
 use near_client::test_utils::test_loop::{route_network_messages_to_client, ClientQueries};
+use near_client::{
+    Client, StateWitnessActions, StateWitnessSenderForClientMessage, SyncAdapter, SyncMessage,
+};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
 use near_network::client::{
     ClientSenderForNetwork, ClientSenderForNetworkMessage, ProcessTxRequest,
 };
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
-use near_network::state_witness::{
-    StateWitnessSenderForNetworkMessage,
-};
 use near_network::state_sync::StateSyncResponse;
+use near_network::state_witness::StateWitnessSenderForNetworkMessage;
 use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo};
 use near_primitives::network::PeerId;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
@@ -86,8 +90,6 @@ use nearcore::state_sync::StateSyncDumper;
 use nearcore::NightshadeRuntime;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
-use near_client::test_utils::test_loop::client_actions::{forward_client_messages_from_client_to_client_actions, forward_client_messages_from_network_to_client_actions, forward_client_messages_from_shards_manager, forward_client_messages_from_sync_adapter, forward_client_messages_from_sync_jobs_to_client_actions};
-use near_client::test_utils::test_loop::state_witness_actions::{forward_messages_from_client_to_state_witness_actor, forward_messages_from_network_to_state_witness_actor};
 
 #[derive(derive_more::AsMut, derive_more::AsRef)]
 struct TestData {
