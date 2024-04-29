@@ -149,13 +149,20 @@ export class Layouts {
                 }
             }
             let parentItem = item.parentId === null ? null : items.get(item.parentId);
-            if (parentItem !== null && items.isAttachedToParent(parentItem.id) && parentItem.parentId !== null) {
+            if (
+                parentItem !== null &&
+                items.isAttachedToParent(parentItem.id) &&
+                parentItem.parentId !== null
+            ) {
                 parentItem = items.get(parentItem.parentId);
             }
             if (parentItem !== null) {
                 // Make sure that the child item is always placed below the parent; otherwise the arrows would
                 // point backwards.
-                nextRowForColumn[item.column] = Math.max(nextRowForColumn[item.column], parentItem.row + 1);
+                nextRowForColumn[item.column] = Math.max(
+                    nextRowForColumn[item.column],
+                    parentItem.row + 1
+                );
             }
             item.row = nextRowForColumn[item.column]++;
             if (item.row >= this.rows.length) {
