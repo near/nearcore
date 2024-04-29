@@ -14,7 +14,6 @@ use near_primitives::stateless_validation::{
 };
 use near_primitives::types::{AccountId, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
-use reed_solomon_erasure::galois_8::ReedSolomon;
 
 use crate::metrics;
 
