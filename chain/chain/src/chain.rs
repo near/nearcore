@@ -802,12 +802,25 @@ impl Chain {
                 // https://github.com/near/nearcore/issues/4908
                 let chunks = genesis_block.chunks();
                 let genesis_chunk = chunks.get(shard_id);
-                let genesis_chunk = genesis_chunk.ok_or(Error::InvalidChunk)?;
+                let genesis_chunk = genesis_chunk.ok_or_else(|| {
+                    Error::InvalidChunk(format!(
+                        "genesis chunk not found for shard {}, genesis block has {} chunks",
+                        shard_id,
+                        chunks.len(),
+                    ))
+                })?;
 
                 if genesis_chunk.chunk_hash() != chunk_header.chunk_hash()
                     || genesis_chunk.signature() != chunk_header.signature()
                 {
-                    return Err(Error::InvalidChunk);
+                    return Err(Error::InvalidChunk(format!(
+                        "genesis chunk mismatch for shard {}. genesis chunk hash: {:?}, chunk hash: {:?}, genesis signature: {}, chunk signature: {}",
+                        shard_id,
+                        genesis_chunk.chunk_hash(),
+                        chunk_header.chunk_hash(),
+                        genesis_chunk.signature(),
+                        chunk_header.signature()
+                    )));
                 }
             } else if chunk_header.height_created() == block.header().height() {
                 if chunk_header.shard_id() != shard_id as ShardId {
@@ -819,7 +832,11 @@ impl Chain {
                     block.header().prev_hash(),
                 )? {
                     byzantine_assert!(false);
-                    return Err(Error::InvalidChunk);
+                    return Err(Error::InvalidChunk(format!(
+                        "Invalid chunk header signature for shard {}, chunk hash: {:?}",
+                        shard_id,
+                        chunk_header.chunk_hash()
+                    )));
                 }
             }
         }
@@ -1176,12 +1193,23 @@ impl Chain {
             block.chunks().iter().zip(prev_chunk_headers.iter())
         {
             if chunk_header.height_included() == block.header().height() {
+                // new chunk
                 if chunk_header.prev_block_hash() != block.header().prev_hash() {
-                    return Err(Error::InvalidChunk);
+                    return Err(Error::InvalidChunk(format!(
+                        "Invalid prev_block_hash, chunk hash {:?}, chunk prev block hash {}, block prev block hash {}",
+                        chunk_header.chunk_hash(),
+                        chunk_header.prev_block_hash(),
+                        block.header().prev_hash()
+                    )));
                 }
             } else {
+                // old chunk
                 if prev_chunk_header != chunk_header {
-                    return Err(Error::InvalidChunk);
+                    return Err(Error::InvalidChunk(format!(
+                        "Invalid chunk header, prev chunk hash {:?}, chunk hash {:?}",
+                        prev_chunk_header.chunk_hash(),
+                        chunk_header.chunk_hash()
+                    )));
                 }
             }
         }
