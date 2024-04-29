@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use itertools::Itertools;
@@ -15,10 +14,10 @@ use near_primitives::stateless_validation::{
 };
 use near_primitives::types::{AccountId, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
-use reed_solomon_erasure::galois_8::ReedSolomon;
 
 use crate::metrics;
 
+use super::partial_witness_tracker::{PartialEncodedStateWitnessTracker, RsMap};
 use super::state_witness_actor::DistributeStateWitnessRequest;
 use super::state_witness_tracker::ChunkStateWitnessTracker;
 
@@ -29,11 +28,13 @@ pub struct StateWitnessActions {
     my_signer: Arc<dyn ValidatorSigner>,
     /// Epoch manager to get the set of chunk validators
     epoch_manager: Arc<dyn EpochManagerAdapter>,
+    /// Tracks the parts of the state witness sent from chunk producers to chunk validators.
+    partial_witness_tracker: PartialEncodedStateWitnessTracker,
     /// Tracks a collection of state witnesses sent from chunk producers to chunk validators.
     state_witness_tracker: ChunkStateWitnessTracker,
     /// Reed Solomon encoder for encoding state witness parts.
     /// We keep one wrapper for each length of chunk_validators to avoid re-creating the encoder.
-    rs_map: HashMap<usize, ReedSolomon>,
+    rs_map: RsMap,
 }
 
 impl StateWitnessActions {
@@ -47,8 +48,9 @@ impl StateWitnessActions {
             network_adapter,
             my_signer,
             epoch_manager,
+            partial_witness_tracker: PartialEncodedStateWitnessTracker::new(),
             state_witness_tracker: ChunkStateWitnessTracker::new(clock),
-            rs_map: HashMap::new(),
+            rs_map: RsMap::new(),
         }
     }
 
@@ -123,11 +125,7 @@ impl StateWitnessActions {
         chunk_validators: Vec<AccountId>,
     ) -> Result<(), Error> {
         // Break the state witness into parts using Reed Solomon encoding.
-        let rs = self.rs_map.entry(chunk_validators.len()).or_insert_with(|| {
-            let total_parts = chunk_validators.len();
-            let data_parts = std::cmp::max(total_parts * 2 / 3, 1);
-            ReedSolomon::new(data_parts, total_parts - data_parts).unwrap()
-        });
+        let rs = self.rs_map.entry(chunk_validators.len());
         let (parts, encoded_length) = reed_solomon_encode(&rs, witness_bytes);
 
         let validator_witness_tuple = chunk_validators
@@ -140,6 +138,7 @@ impl StateWitnessActions {
                 let partial_witness = PartialEncodedStateWitness::new(
                     epoch_id.clone(),
                     chunk_header.clone(),
+                    rs.total_shard_count(),
                     part_ord,
                     part.unwrap().to_vec(),
                     encoded_length,
@@ -181,14 +180,15 @@ impl StateWitnessActions {
 
     /// Function to handle receiving partial_encoded_state_witness message from chunk producer.
     pub fn handle_partial_encoded_state_witness(
-        &self,
+        &mut self,
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
         // Validate the partial encoded state witness.
         self.validate_partial_encoded_state_witness(&partial_witness)?;
 
         // Store the partial encoded state witness for self.
-        self.store_partial_encoded_state_witness(&partial_witness)?;
+        self.partial_witness_tracker
+            .store_partial_encoded_state_witness(partial_witness.clone())?;
 
         // Forward the part to all the chunk validators.
         let chunk_validators = self
@@ -209,26 +209,19 @@ impl StateWitnessActions {
 
     /// Function to handle receiving partial_encoded_state_witness_forward message from chunk producer.
     pub fn handle_partial_encoded_state_witness_forward(
-        &self,
+        &mut self,
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
         // Validate the partial encoded state witness.
         self.validate_partial_encoded_state_witness(&partial_witness)?;
 
         // Store the partial encoded state witness for self.
-        self.store_partial_encoded_state_witness(&partial_witness)?;
+        self.partial_witness_tracker.store_partial_encoded_state_witness(partial_witness)?;
 
         Ok(())
     }
 
     fn validate_partial_encoded_state_witness(
-        &self,
-        partial_witness: &PartialEncodedStateWitness,
-    ) -> Result<(), Error> {
-        unimplemented!("{:?}", partial_witness)
-    }
-
-    fn store_partial_encoded_state_witness(
         &self,
         partial_witness: &PartialEncodedStateWitness,
     ) -> Result<(), Error> {
