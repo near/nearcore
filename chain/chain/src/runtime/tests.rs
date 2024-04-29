@@ -78,6 +78,8 @@ impl NightshadeRuntime {
         gas_limit: Gas,
         challenges_result: &ChallengesResult,
     ) -> (StateRoot, Vec<ValidatorStake>, Vec<Receipt>) {
+        // TODO(congestion_control)
+        let congestion_info_map = HashMap::new();
         let mut result = self
             .apply_chunk(
                 RuntimeStorageConfig::new(*state_root, true),
@@ -96,6 +98,7 @@ impl NightshadeRuntime {
                     gas_price,
                     challenges_result: challenges_result.clone(),
                     random_seed: CryptoHash::default(),
+                    congestion_info: congestion_info_map,
                 },
                 receipts,
                 transactions,
@@ -1626,6 +1629,8 @@ fn prepare_transactions(
     transaction_groups: &mut dyn TransactionGroupIterator,
     storage_config: RuntimeStorageConfig,
 ) -> Result<PreparedTransactions, Error> {
+    // TODO(congestion_info)
+    let congestion_info_map = HashMap::new();
     env.runtime.prepare_transactions(
         storage_config,
         PrepareTransactionsChunkContext {
@@ -1636,6 +1641,7 @@ fn prepare_transactions(
             next_gas_price: env.runtime.genesis_config.min_gas_price,
             height: env.head.height,
             block_hash: env.head.last_block_hash,
+            congestion_info: congestion_info_map,
         },
         transaction_groups,
         &mut |tx: &SignedTransaction| -> bool {

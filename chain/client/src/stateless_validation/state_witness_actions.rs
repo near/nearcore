@@ -6,7 +6,7 @@ use near_async::time::Clock;
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
-use near_primitives::reed_solomon::rs_encode;
+use near_primitives::reed_solomon::reed_solomon_encode;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::{
     ChunkStateWitness, ChunkStateWitnessAck, EncodedChunkStateWitness, PartialEncodedStateWitness,
@@ -130,7 +130,7 @@ impl StateWitnessActions {
     ) -> Result<(), Error> {
         // Break the state witness into parts using Reed Solomon encoding.
         let rs = self.rs_map.entry(chunk_validators.len());
-        let (parts, encoded_length) = rs_encode(&rs, witness_bytes);
+        let (parts, encoded_length) = reed_solomon_encode(&rs, witness_bytes);
 
         let validator_witness_tuple = chunk_validators
             .iter()
@@ -142,6 +142,7 @@ impl StateWitnessActions {
                 let partial_witness = PartialEncodedStateWitness::new(
                     epoch_id.clone(),
                     chunk_header.clone(),
+                    rs.total_shard_count(),
                     part_ord,
                     part.unwrap().to_vec(),
                     encoded_length,

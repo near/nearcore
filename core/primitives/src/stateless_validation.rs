@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::challenge::PartialState;
+use crate::congestion_info::CongestionInfo;
 use crate::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader, ShardChunkHeaderV3};
 use crate::transaction::SignedTransaction;
 use crate::types::EpochId;
@@ -10,6 +11,7 @@ use bytes::BufMut;
 use near_crypto::{PublicKey, Signature};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance, BlockHeight, ShardId};
+use near_primitives_core::version::PROTOCOL_VERSION;
 
 /// An arbitrary static string to make sure that this struct cannot be
 /// serialized to look identical to another serialized struct. For chunk
@@ -33,6 +35,7 @@ impl PartialEncodedStateWitness {
     pub fn new(
         epoch_id: EpochId,
         chunk_header: ShardChunkHeader,
+        num_parts: usize,
         part_ord: usize,
         part: Vec<u8>,
         encoded_length: usize,
@@ -41,6 +44,7 @@ impl PartialEncodedStateWitness {
         let inner = PartialEncodedStateWitnessInner::new(
             epoch_id,
             chunk_header,
+            num_parts,
             part_ord,
             part,
             encoded_length,
@@ -91,6 +95,7 @@ impl PartialEncodedStateWitnessInner {
     fn new(
         epoch_id: EpochId,
         chunk_header: ShardChunkHeader,
+        num_parts: usize,
         part_ord: usize,
         part: Vec<u8>,
         encoded_length: usize,
@@ -286,6 +291,7 @@ impl ChunkStateWitness {
 
     pub fn new_dummy(height: BlockHeight, shard_id: ShardId, prev_block_hash: CryptoHash) -> Self {
         let header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+            PROTOCOL_VERSION,
             prev_block_hash,
             Default::default(),
             Default::default(),
@@ -299,6 +305,7 @@ impl ChunkStateWitness {
             Default::default(),
             Default::default(),
             Default::default(),
+            CongestionInfo::default(),
             &EmptyValidatorSigner::default(),
         ));
         Self::new(

@@ -8,8 +8,9 @@ use near_client_primitives::types::{
 };
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::light_client::{
-    RpcLightClientExecutionProofRequest, RpcLightClientNextBlockError,
-    RpcLightClientNextBlockRequest, RpcLightClientNextBlockResponse, RpcLightClientProofError,
+    RpcLightClientBlockProofRequest, RpcLightClientExecutionProofRequest,
+    RpcLightClientNextBlockError, RpcLightClientNextBlockRequest, RpcLightClientNextBlockResponse,
+    RpcLightClientProofError,
 };
 use near_primitives::views::LightClientBlockView;
 
@@ -26,6 +27,12 @@ impl RpcRequest for RpcLightClientNextBlockRequest {
         Params::new(value)
             .try_singleton(|last_block_hash| Ok(Self { last_block_hash }))
             .unwrap_or_parse()
+    }
+}
+
+impl RpcRequest for RpcLightClientBlockProofRequest {
+    fn parse(value: Value) -> Result<Self, RpcParseError> {
+        Params::parse(value)
     }
 }
 

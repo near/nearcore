@@ -4,7 +4,10 @@ use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::io::Error;
 
 // Encode function takes a serializable object and returns a tuple of parts and length of encoded data
-pub fn rs_encode<T: BorshSerialize>(rs: &ReedSolomon, data: T) -> (Vec<Option<Box<[u8]>>>, usize) {
+pub fn reed_solomon_encode<T: BorshSerialize>(
+    rs: &ReedSolomon,
+    data: T,
+) -> (Vec<Option<Box<[u8]>>>, usize) {
     let mut bytes = borsh::to_vec(&data).unwrap();
     let encoded_length = bytes.len();
 
@@ -31,7 +34,7 @@ pub fn rs_encode<T: BorshSerialize>(rs: &ReedSolomon, data: T) -> (Vec<Option<Bo
 // Decode function is the reverse of encode function. It takes parts and length of encoded data
 // and returns the deserialized object.
 // Return an error if the reed solomon decoding fails or borsh deserialization fails.
-pub fn rs_decode<T: BorshDeserialize>(
+pub fn reed_solomon_decode<T: BorshDeserialize>(
     rs: &ReedSolomon,
     parts: &mut [Option<Box<[u8]>>],
     encoded_length: usize,
