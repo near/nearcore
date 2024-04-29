@@ -1,6 +1,7 @@
 use crate::db::Database;
 use crate::profile::{Category, Profile, ProfileMeta, StringTableBuilder, Thread};
 use actix_cors::Cors;
+use actix_web::middleware::Compress;
 use actix_web::{post, web, App, Error, HttpResponse, HttpServer};
 use bson::doc;
 use mongodb::options::FindOptions;
@@ -20,6 +21,7 @@ pub async fn run_query_server(db: Database, port: u16) -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .wrap(Cors::permissive())
+            .wrap(Compress::default())
             .app_data(web::Data::new(QueryState { db: db.clone() }))
             .service(raw_trace)
             .service(profile)
