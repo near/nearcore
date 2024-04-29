@@ -17,6 +17,7 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::Tip;
 use near_primitives::block_header::{Approval, ApprovalInner};
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::EpochConfig;
@@ -1267,6 +1268,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             processed_delayed_receipts: vec![],
             processed_yield_timeouts: vec![],
             applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
+            congestion_info: Some(CongestionInfo::default()),
         })
     }
 

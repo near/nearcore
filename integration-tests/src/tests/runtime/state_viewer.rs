@@ -19,7 +19,7 @@ use near_primitives::{
     types::{EpochId, StateChangeCause},
     version::PROTOCOL_VERSION,
 };
-use near_store::{set_account, NibbleSlice, RawTrieNode, RawTrieNodeWithSize};
+use near_store::{set_account, NibbleSlice, RawTrieNode, RawTrieNodeWithSize, ShardUId};
 use node_runtime::state_viewer::errors;
 use node_runtime::state_viewer::*;
 use testlib::runtime_utils::alice_account;
@@ -111,6 +111,7 @@ fn test_view_call() {
         block_height: 1,
         prev_block_hash: CryptoHash::default(),
         block_hash: CryptoHash::default(),
+        shard_id: ShardUId::single_shard().shard_id(),
         epoch_id: EpochId::default(),
         epoch_height: 0,
         block_timestamp: 1,
@@ -140,6 +141,7 @@ fn test_view_call_try_changing_storage() {
         block_height: 1,
         prev_block_hash: CryptoHash::default(),
         block_hash: CryptoHash::default(),
+        shard_id: ShardUId::single_shard().shard_id(),
         epoch_id: EpochId::default(),
         epoch_height: 0,
         block_timestamp: 1,
@@ -173,6 +175,7 @@ fn test_view_call_with_args() {
         block_height: 1,
         prev_block_hash: CryptoHash::default(),
         block_hash: CryptoHash::default(),
+        shard_id: ShardUId::single_shard().shard_id(),
         epoch_id: EpochId::default(),
         epoch_height: 0,
         block_timestamp: 1,
@@ -394,6 +397,7 @@ fn test_log_when_panic() {
         block_height: 1,
         prev_block_hash: CryptoHash::default(),
         block_hash: CryptoHash::default(),
+        shard_id: ShardUId::single_shard().shard_id(),
         epoch_id: EpochId::default(),
         epoch_height: 0,
         block_timestamp: 1,

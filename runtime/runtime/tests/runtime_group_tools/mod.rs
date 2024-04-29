@@ -2,6 +2,7 @@ use near_chain_configs::{get_initial_supply, Genesis, GenesisConfig, GenesisReco
 use near_crypto::{InMemorySigner, KeyType};
 use near_parameters::ActionCosts;
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
@@ -78,15 +79,22 @@ impl StandaloneRuntime {
             account_ids.insert(state_record_to_account_id(record).clone());
         });
         let writers = std::sync::atomic::AtomicUsize::new(0);
+        let shard_uid = ShardUId::from_shard_id_and_layout(0, &genesis.config.shard_layout);
         let root = GenesisStateApplier::apply(
             &writers,
             tries.clone(),
-            ShardUId::from_shard_id_and_layout(0, &genesis.config.shard_layout),
+            shard_uid,
             &[],
             &runtime_config.fees.storage_usage_config,
             &genesis,
             account_ids,
         );
+        let congestion_info: HashMap<_, _> = genesis
+            .config
+            .shard_layout
+            .shard_ids()
+            .map(|shard_id| (shard_id, CongestionInfo::default()))
+            .collect();
 
         let apply_state = ApplyState {
             apply_reason: None,
@@ -94,6 +102,7 @@ impl StandaloneRuntime {
             block_height: 1,
             prev_block_hash: Default::default(),
             block_hash: Default::default(),
+            shard_id: shard_uid.shard_id(),
             epoch_id: Default::default(),
             epoch_height: 0,
             gas_price: 100,
@@ -106,6 +115,7 @@ impl StandaloneRuntime {
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
+            congestion_info,
         };
 
         Self {

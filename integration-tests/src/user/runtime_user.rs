@@ -151,6 +151,9 @@ impl RuntimeUser {
     }
 
     fn apply_state(&self) -> ApplyState {
+        // TODO(congestion_control) - Set shard id somehow.
+        let shard_id = 0;
+
         ApplyState {
             apply_reason: None,
             shard_id: ShardUId::single_shard().shard_id(),
@@ -158,6 +161,7 @@ impl RuntimeUser {
             prev_block_hash: Default::default(),
             block_hash: Default::default(),
             block_timestamp: 0,
+            shard_id,
             epoch_height: 0,
             gas_price: MIN_GAS_PRICE,
             gas_limit: None,
@@ -169,6 +173,8 @@ impl RuntimeUser {
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
+            // TODO(congestion_control): Probably should create a hashmap per shard and fill a default congestion info for each
+            congestion_info: HashMap::default(),
         }
     }
 
@@ -278,6 +284,9 @@ impl User for RuntimeUser {
         method_name: &str,
         args: &[u8],
     ) -> Result<CallResult, String> {
+        // TODO(congestion_control) - Set shard id somehow.
+        let shard_id = 0;
+
         let apply_state = self.apply_state();
         let client = self.client.read().expect(POISONED_LOCK_ERR);
         let state_update = client.get_state_update();
@@ -286,6 +295,7 @@ impl User for RuntimeUser {
             block_height: apply_state.block_height,
             prev_block_hash: apply_state.prev_block_hash,
             block_hash: apply_state.block_hash,
+            shard_id: shard_id,
             epoch_id: apply_state.epoch_id,
             epoch_height: apply_state.epoch_height,
             block_timestamp: apply_state.block_timestamp,

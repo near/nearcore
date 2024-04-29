@@ -22,6 +22,7 @@ use near_network::{
     test_loop::SupportsRoutingLookup,
     types::{NetworkRequests, PeerManagerMessageRequest},
 };
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::{
     hash::CryptoHash,
     merkle::{self, MerklePath},
@@ -275,6 +276,7 @@ impl MockChainForShardsManager {
             &receipts,
             receipts_root,
             MerkleHash::default(),
+            CongestionInfo::default(),
             &signer,
             &mut rs,
             PROTOCOL_VERSION,

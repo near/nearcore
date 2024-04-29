@@ -6,6 +6,7 @@ use crate::block_body::{BlockBody, BlockBodyV1, ChunkEndorsementSignatures};
 pub use crate::block_header::*;
 use crate::challenge::{Challenges, ChallengesResult};
 use crate::checked_feature;
+use crate::congestion_info::CongestionInfo;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{merklize, verify_path, MerklePath};
 use crate::num_rational::Rational32;
@@ -21,6 +22,7 @@ use near_async::time::Utc;
 use near_crypto::Signature;
 use near_primitives_core::types::ShardId;
 use primitive_types::U256;
+use std::collections::HashMap;
 use std::ops::Index;
 use std::sync::Arc;
 
@@ -122,6 +124,7 @@ pub fn genesis_chunks(
                 vec![],
                 &[],
                 CryptoHash::default(),
+                CongestionInfo::default(),
                 &EmptyValidatorSigner::default(),
                 genesis_protocol_version,
             )
@@ -586,6 +589,17 @@ impl Block {
             Block::BlockV1(_) | Block::BlockV2(_) | Block::BlockV3(_) => &[],
             Block::BlockV4(block) => block.body.chunk_endorsements(),
         }
+    }
+
+    pub fn shards_congestion_info(&self) -> HashMap<ShardId, CongestionInfo> {
+        self.chunks()
+            .iter()
+            .enumerate()
+            // TODO(congestion_control): default is not always appropriate!
+            .map(|(i, chunk_header)| {
+                (i as ShardId, chunk_header.congestion_info().unwrap_or_default())
+            })
+            .collect()
     }
 
     pub fn hash(&self) -> &CryptoHash {

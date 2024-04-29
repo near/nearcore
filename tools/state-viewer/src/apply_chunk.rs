@@ -153,6 +153,7 @@ pub(crate) fn apply_chunk(
                 ),
                 gas_price,
                 random_seed: hash("random seed".as_ref()),
+                congestion_info: prev_block.shards_congestion_info(),
             },
             &receipts,
             transactions,

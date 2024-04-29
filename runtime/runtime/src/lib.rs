@@ -15,6 +15,7 @@ use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
 use near_primitives::account::Account;
 use near_primitives::checked_feature;
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::errors::{
     ActionError, ActionErrorKind, IntegerOverflowError, RuntimeError, TxExecutionError,
 };
@@ -33,6 +34,7 @@ use near_primitives::transaction::{
     SignedTransaction, TransferAction,
 };
 use near_primitives::trie_key::TrieKey;
+use near_primitives::types::ShardId;
 use near_primitives::types::{
     validator_stake::ValidatorStake, AccountId, Balance, BlockHeight, Compute, EpochHeight,
     EpochId, EpochInfoProvider, Gas, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
@@ -43,7 +45,7 @@ use near_primitives::utils::{
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives_core::types::ShardId;
-use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
+use near_store::trie::receipts_column_helper::{DelayedReceiptQueue, TrieQueue};
 use near_store::{
     get, get_account, get_postponed_receipt, get_promise_yield_receipt, get_received_data,
     has_received_data, remove_postponed_receipt, remove_promise_yield_receipt, set, set_account,
@@ -89,6 +91,8 @@ pub struct ApplyState {
     pub prev_block_hash: CryptoHash,
     /// Current block hash
     pub block_hash: CryptoHash,
+    /// To which shard the applied chunk belongs.
+    pub shard_id: ShardId,
     /// Current epoch id
     pub epoch_id: EpochId,
     /// Current epoch height
@@ -115,6 +119,8 @@ pub struct ApplyState {
     pub migration_data: Arc<MigrationData>,
     /// Flags for migrations indicating whether they can be applied at this block
     pub migration_flags: MigrationFlags,
+    /// Congestion level on each shard based on the latest known chunk header of each shard.
+    pub congestion_info: HashMap<ShardId, CongestionInfo>,
 }
 
 /// Contains information to update validators accounts at the first block of a new epoch.
@@ -168,6 +174,7 @@ pub struct ApplyResult {
     pub proof: Option<PartialStorage>,
     pub delayed_receipts_count: u64,
     pub metrics: Option<metrics::ApplyMetrics>,
+    pub congestion_info: Option<CongestionInfo>,
 }
 
 #[derive(Debug)]
@@ -1363,6 +1370,8 @@ impl Runtime {
         {
             let (trie, trie_changes, state_changes) = state_update.finalize()?;
             let proof = trie.recorded_storage();
+            let congestion_info = Self::get_congestion_info(protocol_version);
+
             return Ok(ApplyResult {
                 state_root: trie_changes.new_root,
                 trie_changes,
@@ -1376,6 +1385,7 @@ impl Runtime {
                 proof,
                 delayed_receipts_count: delayed_receipts.len(),
                 metrics: None,
+                congestion_info,
             });
         }
 
@@ -1731,6 +1741,7 @@ impl Runtime {
         metrics::CHUNK_RECORDED_SIZE_UPPER_BOUND_RATIO
             .observe(chunk_recorded_size_upper_bound / f64::max(1.0, chunk_recorded_size));
         let proof = trie.recorded_storage();
+        let congestion_info = Self::get_congestion_info(protocol_version);
         Ok(ApplyResult {
             state_root,
             trie_changes,
@@ -1744,6 +1755,7 @@ impl Runtime {
             proof,
             delayed_receipts_count: delayed_receipts.len(),
             metrics: Some(metrics),
+            congestion_info,
         })
     }
 
@@ -1773,6 +1785,15 @@ impl Runtime {
             }
         }
         state_update.commit(StateChangeCause::Migration);
+    }
+
+    fn get_congestion_info(protocol_version: ProtocolVersion) -> Option<CongestionInfo> {
+        if protocol_version >= ProtocolFeature::CongestionControl.protocol_version() {
+            // TODO(congestion_control) - calculate the new congestion info
+            Some(CongestionInfo::default())
+        } else {
+            None
+        }
     }
 }
 
@@ -1827,6 +1848,20 @@ fn action_transfer_or_implicit_account_creation(
             epoch_info_provider,
         );
     })
+}
+
+/// Iterate all columns in the trie holding unprocessed receipts and
+/// computes the storage consumption as well as attached gas.
+///
+/// This is an IO intensive operation! Only do it to bootstrap the
+/// `CongestionInfo`. In normal operation, this information is kept up
+/// to date and passed from chunk to chunk through chunk extra fields.
+pub fn compute_congestion_info(
+    _trie: &dyn near_store::TrieAccess,
+    _config: &RuntimeConfig,
+) -> Result<CongestionInfo, StorageError> {
+    // TODO(congestion_info)
+    Ok(CongestionInfo::default())
 }
 
 struct TotalResourceGuard {
@@ -1971,6 +2006,7 @@ mod tests {
             block_height: 1,
             prev_block_hash: Default::default(),
             block_hash: Default::default(),
+            shard_id: ShardUId::single_shard().shard_id(),
             epoch_id: Default::default(),
             epoch_height: 0,
             gas_price: GAS_PRICE,
@@ -1983,6 +2019,7 @@ mod tests {
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
+            congestion_info: HashMap::new(),
         };
 
         (runtime, tries, root, apply_state, signer, MockEpochInfoProvider::default())

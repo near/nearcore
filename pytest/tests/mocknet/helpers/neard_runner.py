@@ -151,19 +151,24 @@ class NeardRunner:
         self.lock = threading.Lock()
 
     def is_legacy(self):
-        if os.path.exists(os.path.join(self.neard_home, 'setup', 'data')):
-            if os.path.exists(
-                    os.path.join(self.neard_home, 'setup', 'records.json')):
-                logging.warning(
-                    f'found both records.json and data/ in {os.path.join(self.neard_home, "setup")}'
-                )
-            return False
         if os.path.exists(os.path.join(
                 self.neard_home, 'setup', 'records.json')) and os.path.exists(
                     os.path.join(self.neard_home, 'setup', 'genesis.json')):
+            if os.path.exists(os.path.join(self.neard_home, 'setup', 'data')):
+                logging.warning(
+                    f'found both records.json and data/ in {os.path.join(self.neard_home, "setup")}'
+                )
             return True
+        if self.is_traffic_generator():
+            target_dir = os.path.join(self.neard_home, 'target', 'setup')
+        else:
+            target_dir = os.path.join(self.neard_home, 'setup')
+        if os.path.exists(target_dir) and os.path.exists(
+                os.path.join(target_dir, 'data')) and os.path.exists(
+                    os.path.join(target_dir, 'config.json')):
+            return False
         sys.exit(
-            f'did not find either records.json and genesis.json or data/ in {os.path.join(self.neard_home, "setup")}'
+            f'did not find either records.json and genesis.json in {os.path.join(self.neard_home, "setup")} or neard home in {target_dir}'
         )
 
     def is_traffic_generator(self):
@@ -252,6 +257,16 @@ class NeardRunner:
                 self.reset_current_neard_path()
             self.save_data()
 
+    def setup_path(self, *args):
+        if not self.is_traffic_generator() or self.legacy_records:
+            args = ('setup',) + args
+        else:
+            args = (
+                'target',
+                'setup',
+            ) + args
+        return os.path.join(self.neard_home, *args)
+
     def target_near_home_path(self, *args):
         if self.is_traffic_generator():
             args = ('target',) + args
@@ -312,7 +327,7 @@ class NeardRunner:
             cmd = [
                 self.data['binaries'][0]['system_path'],
                 '--home',
-                os.path.join(self.neard_home, 'setup'),
+                self.setup_path(),
                 'database',
                 'run-migrations',
             ]
@@ -348,9 +363,8 @@ class NeardRunner:
             shutil.move(self.tmp_near_home_path(path),
                         self.target_near_home_path(path))
         if not self.legacy_records:
-            shutil.copyfile(
-                os.path.join(self.neard_home, 'setup', 'genesis.json'),
-                self.target_near_home_path('genesis.json'))
+            shutil.copyfile(self.setup_path('genesis.json'),
+                            self.target_near_home_path('genesis.json'))
 
     # This RPC method tells to stop neard and re-initialize its home dir. This returns the
     # validator and node key that resulted from the initialization. We can't yet call amend-genesis
@@ -723,6 +737,16 @@ class NeardRunner:
         self.data['neard_process'] = None
         self.save_data()
 
+    def source_near_home_path(self):
+        if not self.is_traffic_generator():
+            logging.warn(
+                'source_near_home_path() called on non-traffic-generator node')
+            return self.neard_home
+        if self.legacy_records:
+            return self.neard_home
+        else:
+            return os.path.join(self.neard_home, 'source')
+
     # If this is a regular node, starts neard run. If it's a traffic generator, starts neard mirror run
     def start_neard(self, batch_interval_millis=None):
         for i in range(20, -1, -1):
@@ -740,7 +764,7 @@ class NeardRunner:
                     'mirror',
                     'run',
                     '--source-home',
-                    self.neard_home,
+                    self.source_near_home_path(),
                     '--target-home',
                     self.target_near_home_path(),
                     '--no-secret',
@@ -853,9 +877,9 @@ class NeardRunner:
                 self.data['binaries'][0]['system_path'],
                 'amend-genesis',
                 '--genesis-file-in',
-                os.path.join(self.neard_home, 'setup', 'genesis.json'),
+                self.setup_path('genesis.json'),
                 '--records-file-in',
-                os.path.join(self.neard_home, 'setup', 'records.json'),
+                self.setup_path('records.json'),
                 '--genesis-file-out',
                 self.target_near_home_path('genesis.json'),
                 '--records-file-out',
