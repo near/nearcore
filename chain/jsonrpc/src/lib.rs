@@ -423,6 +423,9 @@ impl JsonRpcHandler {
                 })
                 .await
             }
+            "EXPERIMENTAL_light_client_block_proof" => {
+                process_method_call(request, |params| self.light_client_block_proof(params)).await
+            }
             "EXPERIMENTAL_protocol_config" => {
                 process_method_call(request, |params| self.protocol_config(params)).await
             }
@@ -1018,6 +1021,28 @@ impl JsonRpcHandler {
         Ok(near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse {
             outcome_proof: execution_outcome_proof.outcome_proof,
             outcome_root_proof: execution_outcome_proof.outcome_root_proof,
+            block_header_lite: block_proof.block_header_lite,
+            block_proof: block_proof.proof,
+        })
+    }
+
+    async fn light_client_block_proof(
+        &self,
+        request: near_jsonrpc_primitives::types::light_client::RpcLightClientBlockProofRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::light_client::RpcLightClientBlockProofResponse,
+        near_jsonrpc_primitives::types::light_client::RpcLightClientProofError,
+    > {
+        let near_jsonrpc_primitives::types::light_client::RpcLightClientBlockProofRequest {
+            block_hash,
+            light_client_head,
+        } = request;
+
+        let block_proof: near_client_primitives::types::GetBlockProofResponse = self
+            .view_client_send(GetBlockProof { block_hash, head_block_hash: light_client_head })
+            .await?;
+
+        Ok(near_jsonrpc_primitives::types::light_client::RpcLightClientBlockProofResponse {
             block_header_lite: block_proof.block_header_lite,
             block_proof: block_proof.proof,
         })

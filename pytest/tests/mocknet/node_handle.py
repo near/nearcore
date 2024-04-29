@@ -31,6 +31,9 @@ class NodeHandle:
     def upload_neard_runner(self):
         self.node.upload_neard_runner()
 
+    def run_cmd(self, cmd, raise_on_fail=False, return_on_fail=False):
+        return self.node.run_cmd(cmd, raise_on_fail, return_on_fail)
+
     def init_neard_runner(self, config, remove_home_dir=False):
         self.node.stop_neard_runner()
         self.node.init()

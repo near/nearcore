@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use lru::LruCache;
 use near_chain::Error;
-use near_primitives::reed_solomon::rs_decode;
+use near_primitives::reed_solomon::reed_solomon_decode;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::stateless_validation::{EncodedChunkStateWitness, PartialEncodedStateWitness};
 use reed_solomon_erasure::galois_8::ReedSolomon;
@@ -88,7 +88,7 @@ impl CacheEntry {
             return None;
         }
         self.is_decoded = true;
-        match rs_decode(&rs, &mut self.parts, encoded_length) {
+        match reed_solomon_decode(&rs, &mut self.parts, encoded_length) {
             Ok(encoded_chunk_state_witness) => Some(encoded_chunk_state_witness),
             Err(err) => {
                 // We ideally never expect the decoding to fail. In case it does, we received a bad part
