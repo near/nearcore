@@ -48,7 +48,6 @@ use near_network::types::ReasonForBan;
 use near_network::types::{
     NetworkInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
 };
-use near_o11y::WithSpanContextExt;
 use near_performance_metrics;
 use near_performance_metrics_macros::perf;
 use near_primitives::block::Tip;
@@ -1562,13 +1561,9 @@ impl ClientActions {
                             let shard_uid =
                                 ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
                             match self.client.state_sync_adapter.clone().read() {
-                                Ok(sync_adapter) => sync_adapter.send(
+                                Ok(sync_adapter) => sync_adapter.send_sync_message(
                                     shard_uid,
-                                    (SyncMessage::StartSync(SyncShardInfo {
-                                        shard_uid,
-                                        sync_hash,
-                                    }))
-                                    .with_span_context(),
+                                    SyncMessage::StartSync(SyncShardInfo { shard_uid, sync_hash }),
                                 ),
                                 Err(_) => {
                                     error!(target:"client", "State sync adapter lock is poisoned.")

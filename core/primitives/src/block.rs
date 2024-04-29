@@ -10,7 +10,6 @@ use crate::congestion_info::CongestionInfo;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{merklize, verify_path, MerklePath};
 use crate::num_rational::Rational32;
-use crate::reed_solomon::ReedSolomonWrapper;
 use crate::sharding::{
     ChunkHashHeight, EncodedShardChunk, ShardChunk, ShardChunkHeader, ShardChunkHeaderV1,
 };
@@ -22,6 +21,7 @@ use near_async::time::Utc;
 use near_crypto::Signature;
 use near_primitives_core::types::ShardId;
 use primitive_types::U256;
+use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::collections::HashMap;
 use std::ops::Index;
 use std::sync::Arc;
@@ -97,7 +97,7 @@ pub fn genesis_chunks(
     genesis_height: BlockHeight,
     genesis_protocol_version: ProtocolVersion,
 ) -> Vec<ShardChunk> {
-    let mut rs = ReedSolomonWrapper::new(1, 2);
+    let rs = ReedSolomon::new(1, 2).unwrap();
     let state_roots = if state_roots.len() == shard_ids.len() {
         state_roots
     } else {
@@ -115,7 +115,7 @@ pub fn genesis_chunks(
                 CryptoHash::default(),
                 genesis_height,
                 shard_id,
-                &mut rs,
+                &rs,
                 0,
                 initial_gas_limit,
                 0,

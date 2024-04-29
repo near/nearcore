@@ -3124,6 +3124,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "instant"
+version = "0.1.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7a5bbe824c507c5da5956355e86a746d82e0e1464f65d862cc5e71da70e94b2c"
+dependencies = [
+ "cfg-if 1.0.0",
+]
+
+[[package]]
 name = "integration-tests"
 version = "0.0.0"
 dependencies = [
@@ -3176,6 +3185,7 @@ dependencies = [
  "parking_lot 0.12.1",
  "primitive-types 0.10.1",
  "rand",
+ "reed-solomon-erasure",
  "rlp",
  "serde",
  "serde_json",
@@ -3298,7 +3308,7 @@ version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 dependencies = [
- "spin",
+ "spin 0.5.2",
 ]
 
 [[package]]
@@ -3339,6 +3349,12 @@ dependencies = [
  "cfg-if 1.0.0",
  "winapi",
 ]
+
+[[package]]
+name = "libm"
+version = "0.2.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ec2a862134d2a7d32d7983ddcdd1c4923530833c9f2ea1a44fc5fa473989058"
 
 [[package]]
 name = "librocksdb-sys"
@@ -4465,6 +4481,7 @@ dependencies = [
  "rand",
  "rand_xorshift",
  "rayon",
+ "reed-solomon-erasure",
  "rlimit",
  "serde",
  "sha2 0.10.6",
@@ -4789,6 +4806,7 @@ dependencies = [
  "once_cell",
  "rand",
  "rayon",
+ "reed-solomon-erasure",
  "rlimit",
  "rocksdb",
  "serde",
@@ -5737,6 +5755,17 @@ dependencies = [
 
 [[package]]
 name = "parking_lot"
+version = "0.11.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d17b78036a60663b797adeaee46f5c9dfebb86948d1255007a1d6be0271ff99"
+dependencies = [
+ "instant",
+ "lock_api 0.4.7",
+ "parking_lot_core 0.8.6",
+]
+
+[[package]]
+name = "parking_lot"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3742b2c103b9f06bc9fff0a37ff4912935851bee6d36f3c02bcc755bcfec228f"
@@ -5755,6 +5784,20 @@ dependencies = [
  "cloudabi",
  "libc",
  "redox_syscall 0.1.57",
+ "smallvec",
+ "winapi",
+]
+
+[[package]]
+name = "parking_lot_core"
+version = "0.8.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60a2cfe6f0ad2bfc16aefa463b497d5c7a5ecd44a23efa72aa342d90177356dc"
+dependencies = [
+ "cfg-if 1.0.0",
+ "instant",
+ "libc",
+ "redox_syscall 0.2.13",
  "smallvec",
  "winapi",
 ]
@@ -6308,11 +6351,15 @@ dependencies = [
 
 [[package]]
 name = "reed-solomon-erasure"
-version = "4.0.2"
+version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a415a013dd7c5d4221382329a5a3482566da675737494935cbbbcdec04662f9d"
+checksum = "7263373d500d4d4f505d43a2a662d475a894aa94503a1ee28e9188b5f3960d4f"
 dependencies = [
+ "libm",
+ "lru 0.7.8",
+ "parking_lot 0.11.2",
  "smallvec",
+ "spin 0.9.8",
 ]
 
 [[package]]
@@ -6438,7 +6485,7 @@ dependencies = [
  "cc",
  "libc",
  "once_cell",
- "spin",
+ "spin 0.5.2",
  "untrusted",
  "web-sys",
  "winapi",
@@ -7257,6 +7304,12 @@ name = "spin"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6e63cff320ae2c57904679ba7cb63280a3dc4613885beafb148ee7bf9aa9042d"
+
+[[package]]
+name = "spin"
+version = "0.9.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6980e8d7511241f8acf4aebddbb1ff938df5eebe98691418c4468d0b72a96a67"
 
 [[package]]
 name = "sptr"

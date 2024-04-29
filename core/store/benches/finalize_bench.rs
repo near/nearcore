@@ -23,7 +23,6 @@ use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePathItem};
 use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum};
-use near_primitives::reed_solomon::ReedSolomonWrapper;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart,
@@ -36,6 +35,7 @@ use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::DBCol;
 use rand::prelude::SliceRandom;
+use reed_solomon_erasure::galois_8::ReedSolomon;
 
 /// `ShardChunk` -> `StoreUpdate::insert_ser`.
 ///
@@ -183,7 +183,7 @@ fn create_encoded_shard_chunk(
     transactions: Vec<SignedTransaction>,
     receipts: &[Receipt],
 ) -> (EncodedShardChunk, Vec<Vec<MerklePathItem>>) {
-    let mut rs = ReedSolomonWrapper::new(33, 67);
+    let rs = ReedSolomon::new(33, 67).unwrap();
     ShardsManager::create_encoded_shard_chunk(
         Default::default(),
         Default::default(),
@@ -200,7 +200,7 @@ fn create_encoded_shard_chunk(
         Default::default(),
         CongestionInfo::default(),
         &validator_signer(),
-        &mut rs,
+        &rs,
         100,
     )
     .unwrap()

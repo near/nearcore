@@ -2,7 +2,7 @@ use crate::congestion_info::CongestionInfo;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, merklize, verify_path, MerklePath};
 use crate::receipt::Receipt;
-use crate::reed_solomon::ReedSolomonWrapper;
+use crate::reed_solomon::reed_solomon_encode;
 use crate::transaction::SignedTransaction;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
 use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot};
@@ -11,6 +11,7 @@ use crate::version::{ProtocolFeature, ProtocolVersion, SHARD_CHUNK_HEADER_UPGRAD
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
 use near_fmt::AbbrBytes;
+use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::cmp::Ordering;
 use std::sync::Arc;
 use tracing::debug_span;
@@ -1020,7 +1021,7 @@ impl EncodedShardChunk {
         prev_outcome_root: CryptoHash,
         height: BlockHeight,
         shard_id: ShardId,
-        rs: &mut ReedSolomonWrapper,
+        rs: &ReedSolomon,
         prev_gas_used: Gas,
         gas_limit: Gas,
         prev_balance_burnt: Balance,
@@ -1033,8 +1034,10 @@ impl EncodedShardChunk {
         signer: &dyn ValidatorSigner,
         protocol_version: ProtocolVersion,
     ) -> Result<(Self, Vec<MerklePath>), std::io::Error> {
-        let (transaction_receipts_parts, encoded_length) =
-            rs.encode(TransactionReceipt(transactions, prev_outgoing_receipts.to_vec()));
+        let (transaction_receipts_parts, encoded_length) = reed_solomon_encode(
+            rs,
+            TransactionReceipt(transactions, prev_outgoing_receipts.to_vec()),
+        );
         let content = EncodedShardChunkBody { parts: transaction_receipts_parts };
         let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
 

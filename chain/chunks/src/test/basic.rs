@@ -28,7 +28,6 @@ use near_network::{
 use near_primitives::types::{AccountId, BlockHeight};
 use near_store::test_utils::create_test_store;
 use std::collections::HashSet;
-use tracing::log::info;
 
 #[derive(derive_more::AsMut)]
 struct TestData {
@@ -203,7 +202,7 @@ fn test_chunk_forward() {
                 data.chain.record_block(*hash, i as BlockHeight + 1);
                 let next_chunk_producer = data.chain.next_chunk_producer(0);
                 if !chunk_only_producers.contains(&next_chunk_producer) {
-                    info!(target: "test", "Trying again at height {} which has chunk producer {}, we want the next chunk producer to be a chunk only producer",
+                    tracing::info!(target: "test", "Trying again at height {} which has chunk producer {}, we want the next chunk producer to be a chunk only producer",
                           i + 1, next_chunk_producer);
                     continue;
                 }
