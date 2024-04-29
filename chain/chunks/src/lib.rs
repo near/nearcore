@@ -107,11 +107,12 @@ use near_network::types::{
 };
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_primitives::block::Tip;
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{verify_path, MerklePath};
 use near_primitives::receipt::Receipt;
-use near_primitives::reed_solomon::{rs_decode, rs_encode};
+use near_primitives::reed_solomon::{reed_solomon_decode, reed_solomon_encode};
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, EncodedShardChunkBody, PartialEncodedChunk,
     PartialEncodedChunkPart, PartialEncodedChunkV2, ReceiptProof, ShardChunk, ShardChunkHeader,
@@ -991,7 +992,7 @@ impl ShardsManager {
         // Construct EncodedShardChunk.  If we earlier determined that we will
         // need parity parts, instruct the constructor to calculate them as
         // well.  Otherwise we won’t bother.
-        let (parts, encoded_length) = rs_encode(
+        let (parts, encoded_length) = reed_solomon_encode(
             &self.rs,
             TransactionReceipt(chunk.transactions().to_vec(), outgoing_receipts.to_vec()),
         );
@@ -1053,7 +1054,7 @@ impl ShardsManager {
         }
 
         let encoded_length = chunk.encoded_length();
-        if let Err(err) = rs_decode::<TransactionReceipt>(
+        if let Err(err) = reed_solomon_decode::<TransactionReceipt>(
             &self.rs,
             chunk.content_mut().parts.as_mut_slice(),
             encoded_length as usize,
@@ -1920,6 +1921,7 @@ impl ShardsManager {
         prev_outgoing_receipts: &[Receipt],
         prev_outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
+        congestion_info: CongestionInfo,
         signer: &dyn ValidatorSigner,
         rs: &ReedSolomon,
         protocol_version: ProtocolVersion,
@@ -1939,6 +1941,7 @@ impl ShardsManager {
             transactions,
             prev_outgoing_receipts,
             prev_outgoing_receipts_root,
+            congestion_info,
             signer,
             protocol_version,
         )

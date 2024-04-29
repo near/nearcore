@@ -35,6 +35,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, ShardId, StateRoot};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::types::Gas;
 use near_store::flat::FlatStorageChunkView;
 use near_store::flat::FlatStorageManager;
@@ -104,6 +105,7 @@ pub(crate) fn apply_block(
                 ApplyChunkBlockContext::from_header(
                     block.header(),
                     prev_block.header().next_gas_price(),
+                    prev_block.shards_congestion_info(),
                 ),
                 &receipts,
                 chunk.transactions(),
@@ -112,6 +114,7 @@ pub(crate) fn apply_block(
     } else {
         let chunk_extra =
             chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap();
+        let prev_block = chain_store.get_block(block.header().prev_hash()).unwrap();
 
         runtime
             .apply_chunk(
@@ -126,6 +129,7 @@ pub(crate) fn apply_block(
                 ApplyChunkBlockContext::from_header(
                     block.header(),
                     block.header().next_gas_price(),
+                    prev_block.shards_congestion_info(),
                 ),
                 &[],
                 &[],
@@ -506,10 +510,18 @@ pub(crate) fn get_receipt(receipt_id: CryptoHash, near_config: NearConfig, store
 fn chunk_extras_equal(l: &ChunkExtra, r: &ChunkExtra) -> bool {
     // explicitly enumerate the versions in a match here first so that if a new version is
     // added, we'll get a compile error here and be reminded to update it correctly.
+    //
+    // edit with v3: To avoid too many explicit combinations, use wildcards for
+    // versions >= 3. The compiler will still notice the missing `(v1, new_v)`
+    // combinations.
     match (l, r) {
         (ChunkExtra::V1(l), ChunkExtra::V1(r)) => return l == r,
         (ChunkExtra::V2(l), ChunkExtra::V2(r)) => return l == r,
-        (ChunkExtra::V1(_), ChunkExtra::V2(_)) | (ChunkExtra::V2(_), ChunkExtra::V1(_)) => {}
+        (ChunkExtra::V3(l), ChunkExtra::V3(r)) => return l == r,
+        (ChunkExtra::V1(_), ChunkExtra::V2(_))
+        | (ChunkExtra::V2(_), ChunkExtra::V1(_))
+        | (_, ChunkExtra::V3(_))
+        | (ChunkExtra::V3(_), _) => {}
     };
     if l.state_root() != r.state_root() {
         return false;
@@ -524,6 +536,9 @@ fn chunk_extras_equal(l: &ChunkExtra, r: &ChunkExtra) -> bool {
         return false;
     }
     if l.balance_burnt() != r.balance_burnt() {
+        return false;
+    }
+    if l.congestion_info() != r.congestion_info() {
         return false;
     }
     l.validator_proposals().collect::<Vec<_>>() == r.validator_proposals().collect::<Vec<_>>()
@@ -721,14 +736,18 @@ pub(crate) fn replay_chain(
 }
 
 pub(crate) fn resulting_chunk_extra(result: &ApplyChunkResult, gas_limit: Gas) -> ChunkExtra {
+    // TODO(congestion_control): is it okay to use latest protocol version here for the chunk extra?
+    let protocol_version = PROTOCOL_VERSION;
     let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&result.outcomes);
     ChunkExtra::new(
+        protocol_version,
         &result.new_root,
         outcome_root,
         result.validator_proposals.clone(),
         result.total_gas_burnt,
         gas_limit,
         result.total_balance_burnt,
+        result.congestion_info,
     )
 }
 

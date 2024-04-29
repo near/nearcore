@@ -260,6 +260,7 @@ impl NightshadeRuntime {
             gas_price,
             challenges_result,
             random_seed,
+            congestion_info,
         } = block;
         let ApplyChunkShardContext {
             shard_id,
@@ -363,6 +364,7 @@ impl NightshadeRuntime {
             block_height,
             prev_block_hash: *prev_block_hash,
             block_hash,
+            shard_id,
             epoch_id,
             epoch_height,
             gas_price,
@@ -378,6 +380,7 @@ impl NightshadeRuntime {
                 is_first_block_of_version,
                 is_first_block_with_chunk_of_version,
             },
+            congestion_info,
         };
 
         let instant = Instant::now();
@@ -453,6 +456,7 @@ impl NightshadeRuntime {
             processed_delayed_receipts: apply_result.processed_delayed_receipts,
             processed_yield_timeouts: apply_result.processed_yield_timeouts,
             applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
+            congestion_info: apply_result.congestion_info,
         };
 
         Ok(result)
@@ -1305,6 +1309,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
     ) -> Result<Vec<u8>, node_runtime::state_viewer::errors::CallFunctionError> {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         let view_state = ViewApplyState {
+            shard_id: shard_uid.shard_id(),
             block_height: height,
             prev_block_hash: *prev_block_hash,
             block_hash: *block_hash,

@@ -90,11 +90,11 @@
                     let to = sync_status.HeaderSync.highest_height;
                     $('.js-header-sync').text("Header sync - " + from + " -> " + to + ":    " + (to - from) + " remaining");
                 }
-                if ('BodySync' in sync_status) {
+                if ('BlockSync' in sync_status) {
                     $('.js-header-sync').text("Header sync - ✅.");
                     $('.js-state-sync').text("State sync - ✅.");
-                    let from = sync_status.BodySync.current_height;
-                    let to = sync_status.BodySync.highest_height;
+                    let from = sync_status.BlockSync.current_height;
+                    let to = sync_status.BlockSync.highest_height;
                     $('.js-block-sync').text("Block sync - " + from + " -> " + to + ":    " + (to - from) + " remaining");
                 }
             }
