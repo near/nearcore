@@ -703,6 +703,10 @@ impl Client {
             )));
         }
 
+        #[cfg(feature = "test_features")]
+        if self.adv_disable_chunk_validation {
+            return Ok(());
+        }
         self.chunk_validator.start_validating_chunk(witness, &self.chain, processing_done_tracker)
     }
 

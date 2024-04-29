@@ -118,6 +118,8 @@ pub struct Client {
     #[cfg(feature = "test_features")]
     pub adv_produce_blocks: Option<AdvProduceBlocksMode>,
     #[cfg(feature = "test_features")]
+    pub adv_disable_chunk_validation: bool,
+    #[cfg(feature = "test_features")]
     pub produce_invalid_chunks: bool,
     #[cfg(feature = "test_features")]
     pub produce_invalid_tx_in_chunks: bool,
@@ -371,6 +373,8 @@ impl Client {
             produce_invalid_chunks: false,
             #[cfg(feature = "test_features")]
             produce_invalid_tx_in_chunks: false,
+            #[cfg(feature = "test_features")]
+            adv_disable_chunk_validation: false,
             #[cfg(feature = "sandbox")]
             accrued_fastforward_delta: 0,
             clock: clock.clone(),

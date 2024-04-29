@@ -479,6 +479,7 @@ impl JsonRpcHandler {
         Ok(match request.method.as_ref() {
             "adv_disable_header_sync" => self.adv_disable_header_sync(request.params).await,
             "adv_disable_doomslug" => self.adv_disable_doomslug(request.params).await,
+            "adv_disable_chunk_validation" => self.adv_disable_chunk_validation(request.params).await,
             "adv_produce_blocks" => self.adv_produce_blocks(request.params).await,
             "adv_switch_to_height" => self.adv_switch_to_height(request.params).await,
             "adv_get_saved_blocks" => self.adv_get_saved_blocks(request.params).await,
@@ -1253,6 +1254,12 @@ impl JsonRpcHandler {
     async fn adv_disable_doomslug(&self, _params: Value) -> Result<Value, RpcError> {
         self.client_sender.send(near_client::NetworkAdversarialMessage::AdvDisableDoomslug);
         self.view_client_sender.send(near_client::NetworkAdversarialMessage::AdvDisableDoomslug);
+        Ok(Value::String(String::new()))
+    }
+
+    async fn adv_disable_chunk_validation(&self, params: Value) -> Result<Value, RpcError> {
+        let value = crate::api::Params::parse(params)?;
+        self.client_sender.send(near_client::NetworkAdversarialMessage::AdvDisableChunkValidation(value));
         Ok(Value::String(String::new()))
     }
 
