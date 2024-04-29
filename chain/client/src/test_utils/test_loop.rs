@@ -330,12 +330,3 @@ pub fn forward_messages_from_state_witness_actor_to_client(
         }
     })
 }
-
-pub fn forward_messages_from_state_witness_actor_to_client(
-) -> LoopEventHandler<ClientActions, ClientSenderForStateWitnessMessage> {
-    LoopEventHandler::new_simple(|msg, client_actions: &mut ClientActions| match msg {
-        ClientSenderForStateWitnessMessage::_receive_chunk_state_witness(msg) => {
-            client_actions.handle(msg)
-        }
-    })
-}
