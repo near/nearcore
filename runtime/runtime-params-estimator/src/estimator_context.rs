@@ -148,7 +148,6 @@ impl<'c> EstimatorContext<'c> {
         let shard_id = ShardUId::single_shard().shard_id();
         ApplyState {
             apply_reason: None,
-            shard_id: ShardUId::single_shard().shard_id(),
             // Put each runtime into a separate shard.
             block_height: 1,
             // Epoch length is long enough to avoid corner cases.

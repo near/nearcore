@@ -363,8 +363,7 @@ impl NightshadeRuntime {
         );
 
         let apply_state = ApplyState {
-            apply_reason: Some(apply_reason.as_str()),
-            shard_id: chunk.shard_id,
+            apply_reason: Some(apply_reason),
             block_height,
             prev_block_hash: *prev_block_hash,
             block_hash,
@@ -1326,7 +1325,6 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             cache: Some(Box::new(self.compiled_contract_cache.handle())),
         };
         self.trie_viewer.call_function(
-            shard_uid.shard_id(),
             state_update,
             view_state,
             contract_id,

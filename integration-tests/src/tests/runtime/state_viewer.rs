@@ -119,7 +119,6 @@ fn test_view_call() {
         cache: None,
     };
     let result = viewer.call_function(
-        ShardUId::single_shard().shard_id(),
         root,
         view_state,
         &"test.contract".parse().unwrap(),
@@ -149,7 +148,6 @@ fn test_view_call_try_changing_storage() {
         cache: None,
     };
     let result = viewer.call_function(
-        ShardUId::single_shard().shard_id(),
         root,
         view_state,
         &"test.contract".parse().unwrap(),
@@ -183,7 +181,6 @@ fn test_view_call_with_args() {
         cache: None,
     };
     let view_call_result = viewer.call_function(
-        ShardUId::single_shard().shard_id(),
         root,
         view_state,
         &"test.contract".parse().unwrap(),
@@ -407,7 +404,6 @@ fn test_log_when_panic() {
     let mut logs = vec![];
     viewer
         .call_function(
-            ShardUId::single_shard().shard_id(),
             root,
             view_state,
             &"test.contract".parse().unwrap(),

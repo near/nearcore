@@ -52,10 +52,12 @@ pub struct VMContext {
     /// How many `DataReceipt`'s should receive this execution result. This should be empty if
     /// this function call is a part of a batch and it is not the last action.
     pub output_data_receivers: Vec<AccountId>,
-
     /// The shard that the VM is running on.
     pub shard_id: ShardId,
-    /// Reason for running the apply-chunk operation, where this VM runs as part of.
+    /// Reason for running the apply-chunk operation.
+    /// This refers to a particular step in block production lifecycle that apply-chunk operation runs and
+    /// invokes this VM as part of apply-chunk. We currently use this for metric collection to differentiate
+    /// VM behavior (eg. compilation, caching) during these different steps.
     pub apply_reason: Option<ApplyChunkReason>,
 }
 

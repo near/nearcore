@@ -34,17 +34,17 @@ use near_primitives::transaction::{
     SignedTransaction, TransferAction,
 };
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::ShardId;
 use near_primitives::types::{
     validator_stake::ValidatorStake, AccountId, Balance, BlockHeight, Compute, EpochHeight,
-    EpochId, EpochInfoProvider, Gas, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
+    EpochId, EpochInfoProvider, Gas, RawStateChangesWithTrieKey, ShardId, StateChangeCause,
+    StateRoot,
 };
 use near_primitives::utils::{
     create_action_hash_from_receipt_id, create_receipt_id_from_receipt_id,
     create_receipt_id_from_transaction,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
-use near_primitives_core::types::ShardId;
+use near_primitives_core::apply::ApplyChunkReason;
 use near_store::trie::receipts_column_helper::{DelayedReceiptQueue, TrieQueue};
 use near_store::{
     get, get_account, get_postponed_receipt, get_promise_yield_receipt, get_received_data,
@@ -80,11 +80,9 @@ const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
 
 #[derive(Debug)]
 pub struct ApplyState {
-    /// The shard whose state is the apply operations is running on.
-    pub shard_id: ShardId,
     /// Represents a phase of the chain lifecycle that we want to run apply for.
     /// This is currently represented as a static string and used as dimension in some metrics.
-    pub apply_reason: Option<&'static str>,
+    pub apply_reason: Option<ApplyChunkReason>,
     /// Currently building block height.
     pub block_height: BlockHeight,
     /// Prev block hash
@@ -2002,7 +2000,6 @@ mod tests {
         let contract_cache = FilesystemContractRuntimeCache::test().unwrap();
         let apply_state = ApplyState {
             apply_reason: None,
-            shard_id: ShardUId::single_shard().shard_id(),
             block_height: 1,
             prev_block_hash: Default::default(),
             block_hash: Default::default(),
