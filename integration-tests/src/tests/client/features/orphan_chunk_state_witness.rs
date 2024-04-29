@@ -143,7 +143,7 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
                 let processing_done_tracker = ProcessingDoneTracker::new();
                 witness_processing_done_waiters.push(processing_done_tracker.make_waiter());
                 env.client(account_id)
-                    .process_chunk_state_witness(
+                    .process_signed_chunk_state_witness(
                         state_witness.clone(),
                         Some(processing_done_tracker),
                     )
@@ -216,7 +216,9 @@ fn test_orphan_witness_valid() {
 
     // `excluded_validator` receives witness for chunk belonging to `block2`, but it doesn't have `block1`.
     // The witness should become an orphaned witness and it should be saved to the orphan pool.
-    env.client(&excluded_validator).process_chunk_state_witness(signed_witness, None).unwrap();
+    env.client(&excluded_validator)
+        .process_signed_chunk_state_witness(signed_witness, None)
+        .unwrap();
 
     let block_processed = env
         .client(&excluded_validator)
@@ -247,7 +249,7 @@ fn test_orphan_witness_bad_signature() {
 
     let error = env
         .client(&excluded_validator)
-        .process_chunk_state_witness(signed_witness, None)
+        .process_signed_chunk_state_witness(signed_witness, None)
         .unwrap_err();
     let error_message = format!("{error}").to_lowercase();
     tracing::info!(target:"test", "Error message: {}", error_message);
@@ -272,7 +274,7 @@ fn test_orphan_witness_signature_from_wrong_peer() {
 
     let error = env
         .client(&excluded_validator)
-        .process_chunk_state_witness(signed_witness, None)
+        .process_signed_chunk_state_witness(signed_witness, None)
         .unwrap_err();
     let error_message = format!("{error}").to_lowercase();
     tracing::info!(target:"test", "Error message: {}", error_message);
@@ -308,7 +310,7 @@ fn test_orphan_witness_invalid_shard_id() {
     // The witness should be rejected
     let error = env
         .client(&excluded_validator)
-        .process_chunk_state_witness(signed_witness, None)
+        .process_signed_chunk_state_witness(signed_witness, None)
         .unwrap_err();
     let error_message = format!("{error}").to_lowercase();
     tracing::info!(target:"test", "Error message: {}", error_message);
@@ -413,7 +415,9 @@ fn test_orphan_witness_not_fully_validated() {
     // The witness should be accepted and saved into the pool, even though it's invalid.
     // There is no way to fully validate an orphan witness, so this is the correct behavior.
     // The witness will later be fully validated when the required block arrives.
-    env.client(&excluded_validator).process_chunk_state_witness(signed_witness, None).unwrap();
+    env.client(&excluded_validator)
+        .process_signed_chunk_state_witness(signed_witness, None)
+        .unwrap();
 }
 
 fn modify_witness_header_inner(

@@ -6,7 +6,7 @@ use super::test_env::TestEnv;
 use super::{AccountIndices, TEST_SEED};
 use actix_rt::System;
 use itertools::{multizip, Itertools};
-use near_async::messaging::{IntoMultiSender, IntoSender};
+use near_async::messaging::{noop, IntoMultiSender, IntoSender};
 use near_async::time::Clock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
@@ -564,6 +564,7 @@ impl TestEnvBuilder {
                     let state_witness_adapter = SynchronousStateWitnessAdapter::new(StateWitnessActions::new(
                         clock.clone(),
                         network_adapters[i].clone().as_multi_sender(),
+                        noop().into_multi_sender(),
                         validator_signer.clone(),
                         epoch_manager.clone().into_adapter(),
                     ));

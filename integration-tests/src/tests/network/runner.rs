@@ -131,6 +131,7 @@ fn setup_network_node(
     let (state_witness_actor, _) = StateWitnessActor::spawn(
         Clock::real(),
         network_adapter.as_multi_sender(),
+        client_actor.clone().with_auto_span_context().into_multi_sender(),
         signer,
         epoch_manager,
     );
