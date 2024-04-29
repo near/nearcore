@@ -35,7 +35,6 @@ impl PartialEncodedStateWitness {
     pub fn new(
         epoch_id: EpochId,
         chunk_header: ShardChunkHeader,
-        num_parts: usize,
         part_ord: usize,
         part: Vec<u8>,
         encoded_length: usize,
@@ -44,7 +43,6 @@ impl PartialEncodedStateWitness {
         let inner = PartialEncodedStateWitnessInner::new(
             epoch_id,
             chunk_header,
-            num_parts,
             part_ord,
             part,
             encoded_length,
@@ -95,7 +93,6 @@ impl PartialEncodedStateWitnessInner {
     fn new(
         epoch_id: EpochId,
         chunk_header: ShardChunkHeader,
-        num_parts: usize,
         part_ord: usize,
         part: Vec<u8>,
         encoded_length: usize,

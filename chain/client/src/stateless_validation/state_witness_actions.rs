@@ -142,7 +142,6 @@ impl StateWitnessActions {
                 let partial_witness = PartialEncodedStateWitness::new(
                     epoch_id.clone(),
                     chunk_header.clone(),
-                    rs.total_shard_count(),
                     part_ord,
                     part.unwrap().to_vec(),
                     encoded_length,
