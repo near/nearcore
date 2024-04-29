@@ -840,7 +840,8 @@ def apply_config_changes(node_dir, client_config_change):
                                'save_trie_changes', 'split_storage',
                                'state_sync', 'state_sync_enabled',
                                'store.state_snapshot_enabled',
-                               'tracked_shard_schedule', 'cold_store')
+                               'tracked_shard_schedule', 'cold_store',
+                               'store.load_mem_tries_for_tracked_shards')
 
     for k, v in client_config_change.items():
         if not (k in allowed_missing_configs or k in config_json):

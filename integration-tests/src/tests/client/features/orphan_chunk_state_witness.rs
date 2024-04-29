@@ -9,9 +9,9 @@ use near_client::{Client, ProcessingDoneTracker, ProcessingDoneWaiter};
 use near_crypto::Signature;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::testonly::init_integration_logger;
+use near_primitives::sharding::ShardChunkHeaderV3;
 use near_primitives::sharding::{
-    ChunkHash, ReceiptProof, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderInnerV2,
-    ShardProof,
+    ChunkHash, ReceiptProof, ShardChunkHeader, ShardChunkHeaderInner, ShardProof,
 };
 use near_primitives::stateless_validation::EncodedChunkStateWitness;
 use near_primitives::stateless_validation::SignedEncodedChunkStateWitness;
@@ -297,7 +297,12 @@ fn test_orphan_witness_invalid_shard_id() {
     } = setup_orphan_witness_test();
 
     // Set invalid shard_id in the witness header
-    modify_witness_header_inner(&mut signed_witness, |header| header.shard_id = 10000000);
+    modify_witness_header_inner(&mut signed_witness, |header| match &mut header.inner {
+        ShardChunkHeaderInner::V1(inner) => inner.shard_id = 10000000,
+        ShardChunkHeaderInner::V2(inner) => inner.shard_id = 10000000,
+        ShardChunkHeaderInner::V3(inner) => inner.shard_id = 10000000,
+    });
+
     resign_witness(&mut signed_witness, env.client(&chunk_producer));
 
     // The witness should be rejected
@@ -354,7 +359,11 @@ fn test_orphan_witness_far_from_head() {
     } = setup_orphan_witness_test();
 
     let bad_height = 10000;
-    modify_witness_header_inner(&mut signed_witness, |header| header.height_created = bad_height);
+    modify_witness_header_inner(&mut signed_witness, |header| match &mut header.inner {
+        ShardChunkHeaderInner::V1(inner) => inner.height_created = bad_height,
+        ShardChunkHeaderInner::V2(inner) => inner.height_created = bad_height,
+        ShardChunkHeaderInner::V3(inner) => inner.height_created = bad_height,
+    });
     resign_witness(&mut signed_witness, env.client(&chunk_producer));
 
     let witness = signed_witness.witness_bytes.decode().unwrap().0;
@@ -409,14 +418,14 @@ fn test_orphan_witness_not_fully_validated() {
 
 fn modify_witness_header_inner(
     signed_witness: &mut SignedEncodedChunkStateWitness,
-    f: impl FnOnce(&mut ShardChunkHeaderInnerV2),
+    f: impl FnOnce(&mut ShardChunkHeaderV3),
 ) {
     let mut witness = signed_witness.witness_bytes.decode().unwrap().0;
+
     match &mut witness.chunk_header {
-        ShardChunkHeader::V3(header) => match &mut header.inner {
-            ShardChunkHeaderInner::V2(header_inner) => f(header_inner),
-            _ => panic!(),
-        },
+        ShardChunkHeader::V3(header) => {
+            f(header);
+        }
         _ => panic!(),
     };
     signed_witness.witness_bytes = EncodedChunkStateWitness::encode(&witness).unwrap().0;

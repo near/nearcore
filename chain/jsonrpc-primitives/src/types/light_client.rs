@@ -14,6 +14,12 @@ pub struct RpcLightClientNextBlockRequest {
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct RpcLightClientBlockProofRequest {
+    pub block_hash: near_primitives::hash::CryptoHash,
+    pub light_client_head: near_primitives::hash::CryptoHash,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct RpcLightClientExecutionProofResponse {
     pub outcome_proof: near_primitives::views::ExecutionOutcomeWithIdView,
     pub outcome_root_proof: near_primitives::merkle::MerklePath,
@@ -25,6 +31,12 @@ pub struct RpcLightClientExecutionProofResponse {
 pub struct RpcLightClientNextBlockResponse {
     #[serde(flatten)]
     pub light_client_block: Option<Arc<near_primitives::views::LightClientBlockView>>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct RpcLightClientBlockProofResponse {
+    pub block_header_lite: near_primitives::views::LightClientBlockLiteView,
+    pub block_proof: near_primitives::merkle::MerklePath,
 }
 
 #[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize)]
