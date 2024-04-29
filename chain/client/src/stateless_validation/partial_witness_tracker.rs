@@ -5,9 +5,10 @@ use lru::LruCache;
 use near_async::messaging::CanSend;
 use near_chain::chain::ProcessChunkStateWitnessMessage;
 use near_chain::Error;
+use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::reed_solomon::reed_solomon_decode;
-use near_primitives::sharding::ChunkHash;
 use near_primitives::stateless_validation::{EncodedChunkStateWitness, PartialEncodedStateWitness};
+use near_primitives::types::{BlockHeight, ShardId};
 use reed_solomon_erasure::galois_8::ReedSolomon;
 
 use crate::client_actions::ClientSenderForStateWitness;
@@ -69,15 +70,17 @@ impl CacheEntry {
         &mut self,
         partial_witness: PartialEncodedStateWitness,
     ) -> Option<EncodedChunkStateWitness> {
-        let chunk_hash = partial_witness.chunk_header().chunk_hash();
+        let shard_id = partial_witness.shard_id();
+        let height_created = partial_witness.height_created();
         let (part_ord, part, encoded_length) = partial_witness.decompose();
 
         // Check if the part is already present.
         if self.parts[part_ord].is_some() {
             tracing::warn!(
                 target: "stateless_validation",
-                ?chunk_hash,
-                part_ord = ?part_ord,
+                ?shard_id,
+                ?height_created,
+                ?part_ord,
                 "Received duplicate or redundant partial state witness part."
             );
             return None;
@@ -96,13 +99,21 @@ impl CacheEntry {
         if self.data_parts_present < self.data_parts_required {
             return None;
         }
-        self.is_decoded = true;
         match reed_solomon_decode(&self.rs, &mut self.parts, encoded_length) {
-            Ok(encoded_chunk_state_witness) => Some(encoded_chunk_state_witness),
+            Ok(encoded_chunk_state_witness) => {
+                self.is_decoded = true;
+                Some(encoded_chunk_state_witness)
+            }
             Err(err) => {
                 // We ideally never expect the decoding to fail. In case it does, we received a bad part
                 // from the chunk producer.
-                tracing::error!(target: "stateless_validation", ?err, ?chunk_hash, "Failed to decode witness part.");
+                tracing::error!(
+                    target: "stateless_validation",
+                    ?err,
+                    ?shard_id,
+                    ?height_created,
+                    "Failed to reed solomon decode witness parts. Maybe malicious or corrupt data."
+                );
                 None
             }
         }
@@ -115,16 +126,22 @@ impl CacheEntry {
 pub struct PartialEncodedStateWitnessTracker {
     /// Sender to send the encoded state witness to the client actor.
     client_sender: ClientSenderForStateWitness,
+    /// Epoch manager to get the set of chunk validators
+    epoch_manager: Arc<dyn EpochManagerAdapter>,
     /// Keeps track of state witness parts received from chunk producers.
-    parts_cache: LruCache<ChunkHash, CacheEntry>,
+    parts_cache: LruCache<(ShardId, BlockHeight), CacheEntry>,
     /// Reed Solomon encoder for decoding state witness parts.
     rs_map: RsMap,
 }
 
 impl PartialEncodedStateWitnessTracker {
-    pub fn new(client_sender: ClientSenderForStateWitness) -> Self {
+    pub fn new(
+        client_sender: ClientSenderForStateWitness,
+        epoch_manager: Arc<dyn EpochManagerAdapter>,
+    ) -> Self {
         Self {
             client_sender,
+            epoch_manager,
             parts_cache: LruCache::new(NUM_CHUNKS_IN_WITNESS_TRACKER_CACHE),
             rs_map: RsMap::new(),
         }
@@ -134,10 +151,10 @@ impl PartialEncodedStateWitnessTracker {
         &mut self,
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
-        self.maybe_insert_new_entry_in_parts_cache(&partial_witness);
+        self.maybe_insert_new_entry_in_parts_cache(&partial_witness)?;
 
-        let chunk_hash = partial_witness.chunk_header().chunk_hash();
-        let entry = self.parts_cache.get_mut(&chunk_hash).unwrap();
+        let key = (partial_witness.shard_id(), partial_witness.height_created());
+        let entry = self.parts_cache.get_mut(&key).unwrap();
 
         if let Some(encoded_witness) = entry.insert_in_cache_entry(partial_witness) {
             self.client_sender.send(ProcessChunkStateWitnessMessage(encoded_witness));
@@ -145,22 +162,33 @@ impl PartialEncodedStateWitnessTracker {
         Ok(())
     }
 
+    fn get_num_parts(&self, partial_witness: &PartialEncodedStateWitness) -> Result<usize, Error> {
+        // The expected number of parts for the Reed Solomon encoding is the number of chunk validators.
+        Ok(self
+            .epoch_manager
+            .get_chunk_validator_assignments(
+                partial_witness.epoch_id(),
+                partial_witness.shard_id(),
+                partial_witness.height_created(),
+            )?
+            .len())
+    }
+
     // Function to insert a new entry into the cache for the chunk hash if it does not already exist
     // We additionally check if an evicted entry has been fully decoded and processed.
     fn maybe_insert_new_entry_in_parts_cache(
         &mut self,
         partial_witness: &PartialEncodedStateWitness,
-    ) {
+    ) -> Result<(), Error> {
         // Insert a new entry into the cache for the chunk hash.
-        let chunk_hash = partial_witness.chunk_header().chunk_hash();
-        if self.parts_cache.contains(&chunk_hash) {
-            return;
+        let key = (partial_witness.shard_id(), partial_witness.height_created());
+        if self.parts_cache.contains(&key) {
+            return Ok(());
         }
-        let rs = self.rs_map.entry(partial_witness.num_parts());
+        let num_parts = self.get_num_parts(&partial_witness)?;
+        let rs = self.rs_map.entry(num_parts);
         let new_entry = CacheEntry::new(rs);
-        if let Some((evicted_chunk_hash, evicted_entry)) =
-            self.parts_cache.push(chunk_hash, new_entry)
-        {
+        if let Some((evicted_chunk_hash, evicted_entry)) = self.parts_cache.push(key, new_entry) {
             // Check if the evicted entry has been fully decoded and processed.
             if !evicted_entry.is_decoded {
                 tracing::warn!(
@@ -172,5 +200,6 @@ impl PartialEncodedStateWitnessTracker {
                 );
             }
         }
+        Ok(())
     }
 }

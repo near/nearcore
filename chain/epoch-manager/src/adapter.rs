@@ -15,7 +15,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout, ShardLayoutError};
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::stateless_validation::{
-    ChunkEndorsement, ChunkValidatorAssignments, SignedEncodedChunkStateWitness,
+    ChunkEndorsement, ChunkValidatorAssignments, PartialEncodedStateWitness,
+    SignedEncodedChunkStateWitness,
 };
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
@@ -411,11 +412,17 @@ pub trait EpochManagerAdapter: Send + Sync {
         endorsement: &ChunkEndorsement,
     ) -> Result<bool, Error>;
 
+    // TODO(stateless_validation): Deprecate this function after partial witness
     fn verify_chunk_state_witness_signature(
         &self,
         signed_witness: &SignedEncodedChunkStateWitness,
         chunk_producer: &AccountId,
         epoch_id: &EpochId,
+    ) -> Result<bool, Error>;
+
+    fn verify_partial_witness_signature(
+        &self,
+        partial_witness: &PartialEncodedStateWitness,
     ) -> Result<bool, Error>;
 
     fn cares_about_shard_from_prev_block(
@@ -1057,6 +1064,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
         Ok(endorsement.verify(validator.public_key()))
     }
 
+    // TODO(stateless_validation): Deprecate this function after partial witness
     fn verify_chunk_state_witness_signature(
         &self,
         signed_witness: &SignedEncodedChunkStateWitness,
@@ -1068,6 +1076,20 @@ impl EpochManagerAdapter for EpochManagerHandle {
         Ok(signed_witness
             .signature
             .verify(signed_witness.witness_bytes.as_slice(), validator.public_key()))
+    }
+
+    fn verify_partial_witness_signature(
+        &self,
+        partial_witness: &PartialEncodedStateWitness,
+    ) -> Result<bool, Error> {
+        // Get the chunk producer from the epoch_id, height_created and shard_id, verify if signature is correct
+        let epoch_manager = self.read();
+        let chunk_producer = epoch_manager.get_chunk_producer_info(
+            &partial_witness.epoch_id(),
+            partial_witness.height_created(),
+            partial_witness.shard_id(),
+        )?;
+        Ok(partial_witness.verify(chunk_producer.public_key()))
     }
 
     fn cares_about_shard_from_prev_block(
