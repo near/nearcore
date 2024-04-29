@@ -21,6 +21,7 @@ pub async fn run_query_server(db: Database, port: u16) -> std::io::Result<()> {
         App::new()
             .wrap(Cors::permissive())
             .app_data(web::Data::new(QueryState { db: db.clone() }))
+            .service(raw_trace)
             .service(profile)
     })
     .bind(("0.0.0.0", port))?
@@ -91,6 +92,38 @@ impl QueryFilter {
             node: node_name,
         }
     }
+}
+
+#[post("/raw_trace")]
+async fn raw_trace(
+    data: web::Data<QueryState>,
+    req: web::Json<Query>,
+) -> Result<HttpResponse, Error> {
+    // TODO: Enable compression as the data is very compressible
+    // TODO: Set a limit on the duration of the request interval.
+    let col = data.db.span_chunks();
+    let mut chunks = col
+        .find(
+            doc! {
+                "max_time": {"$gt": req.start_timestamp_unix_ms * 1000000},
+                "min_time": {"$lt": req.end_timestamp_unix_ms * 1000000},
+            },
+            Some(FindOptions::builder().batch_size(100).build()),
+        )
+        .await
+        .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))?;
+
+    let mut result: Vec<ExportTraceServiceRequest> = Vec::new();
+    while let Some(chunk) = chunks.next().await {
+        let chunk_bytes = chunk
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))?
+            .data
+            .bytes;
+        let request = ExportTraceServiceRequest::decode(&chunk_bytes.as_slice()[..])
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))?;
+        result.push(request);
+    }
+    Ok(HttpResponse::Ok().json(result))
 }
 
 #[post("/profile")]
