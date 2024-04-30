@@ -96,7 +96,7 @@ pub struct SyncJobsSenderForClient {
 
 #[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
 #[multi_send_message_derive(Debug)]
-pub struct ClientSenderForStateWitness {
+pub struct ClientSenderForPartialWitness {
     pub receive_chunk_state_witness: Sender<ProcessChunkStateWitnessMessage>,
 }
 

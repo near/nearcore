@@ -1,4 +1,4 @@
-use super::mock_state_witness_adapter::MockStateWitnessAdapter;
+use super::mock_partial_witness_adapter::MockPartialWitnessAdapter;
 use super::setup::{setup_client_with_runtime, setup_synchronous_shards_manager};
 use super::test_env::TestEnv;
 use super::{AccountIndices, TEST_SEED};
@@ -511,8 +511,8 @@ impl TestEnvBuilder {
         let client_adapters = (0..num_clients)
             .map(|_| Arc::new(MockClientAdapterForShardsManager::default()))
             .collect_vec();
-        let state_witness_adapters =
-            (0..num_clients).map(|_| MockStateWitnessAdapter::default()).collect_vec();
+        let partial_witness_adapters =
+            (0..num_clients).map(|_| MockPartialWitnessAdapter::default()).collect_vec();
         let shards_manager_adapters = (0..num_clients)
             .map(|i| {
                 let clock = clock.clone();
@@ -537,7 +537,7 @@ impl TestEnvBuilder {
                 .map(|i| {
                     let account_id = clients[i].clone();
                     let network_adapter = network_adapters[i].clone();
-                    let state_witness_adapter = state_witness_adapters[i].clone();
+                    let partial_witness_adapter = partial_witness_adapters[i].clone();
                     let shards_manager_adapter = shards_manager_adapters[i].clone();
                     let epoch_manager = epoch_managers[i].clone();
                     let shard_tracker = shard_trackers[i].clone();
@@ -576,7 +576,7 @@ impl TestEnvBuilder {
                         self.archive,
                         self.save_trie_changes,
                         Some(snapshot_callbacks),
-                        state_witness_adapter.into_multi_sender(),
+                        partial_witness_adapter.into_multi_sender(),
                         validator_signer,
                     )
                 })
@@ -588,7 +588,7 @@ impl TestEnvBuilder {
             validators,
             network_adapters,
             client_adapters,
-            state_witness_adapters,
+            partial_witness_adapters,
             shards_manager_adapters,
             clients,
             account_indices: AccountIndices(

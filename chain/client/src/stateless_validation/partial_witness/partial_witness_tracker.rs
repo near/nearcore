@@ -11,7 +11,7 @@ use near_primitives::stateless_validation::{EncodedChunkStateWitness, PartialEnc
 use near_primitives::types::{BlockHeight, ShardId};
 use reed_solomon_erasure::galois_8::ReedSolomon;
 
-use crate::client_actions::ClientSenderForStateWitness;
+use crate::client_actions::ClientSenderForPartialWitness;
 
 /// Max number of chunks to keep in the witness tracker cache. We reach here only after validation
 /// of the partial_witness so the LRU cache size need not be too large.
@@ -142,7 +142,7 @@ impl CacheEntry {
 /// recreate the full state witness.
 pub struct PartialEncodedStateWitnessTracker {
     /// Sender to send the encoded state witness to the client actor.
-    client_sender: ClientSenderForStateWitness,
+    client_sender: ClientSenderForPartialWitness,
     /// Epoch manager to get the set of chunk validators
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     /// Keeps track of state witness parts received from chunk producers.
@@ -153,7 +153,7 @@ pub struct PartialEncodedStateWitnessTracker {
 
 impl PartialEncodedStateWitnessTracker {
     pub fn new(
-        client_sender: ClientSenderForStateWitness,
+        client_sender: ClientSenderForPartialWitness,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
     ) -> Self {
         Self {

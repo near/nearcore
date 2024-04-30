@@ -35,7 +35,7 @@ use tokio::sync::broadcast;
 use crate::client_actions::{ClientActionHandler, ClientActions, ClientSenderForClient};
 use crate::gc_actor::GCActor;
 use crate::start_gc_actor;
-use crate::stateless_validation::state_witness_actor::StateWitnessSenderForClient;
+use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync_jobs_actions::SyncJobsActions;
 use crate::sync_jobs_actor::SyncJobsActor;
 use crate::{metrics, Client, ConfigUpdater, SyncAdapter};
@@ -206,7 +206,7 @@ pub fn start_client(
     sender: Option<broadcast::Sender<()>>,
     adv: crate::adversarial::Controls,
     config_updater: Option<ConfigUpdater>,
-    state_witness_adapter: StateWitnessSenderForClient,
+    partial_witness_adapter: PartialWitnessSenderForClient,
 ) -> StartClientResult {
     let client_arbiter = Arbiter::new();
     let client_arbiter_handle = client_arbiter.handle();
@@ -228,7 +228,7 @@ pub fn start_client(
         random_seed_from_thread(),
         snapshot_callbacks,
         Arc::new(RayonAsyncComputationSpawner),
-        state_witness_adapter,
+        partial_witness_adapter,
     )
     .unwrap();
     let resharding_handle = client.chain.resharding_handle.clone();
