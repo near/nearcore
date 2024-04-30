@@ -72,7 +72,7 @@ impl PartialEncodedStateWitness {
         self.inner.part_ord
     }
 
-    // Return (part_ord, part, encoded_length)
+    /// Decomposes the partial witness to return (part_ord, part, encoded_length)
     pub fn decompose(self) -> (usize, Box<[u8]>, usize) {
         (self.inner.part_ord, self.inner.part, self.inner.encoded_length)
     }
@@ -117,6 +117,11 @@ pub struct EncodedChunkStateWitness(Box<[u8]>);
 pub type ChunkStateWitnessSize = usize;
 
 impl EncodedChunkStateWitness {
+    /// Only use this if you are sure that the data is already encoded.
+    pub fn from_boxed_slice(data: Box<[u8]>) -> Self {
+        Self(data)
+    }
+
     /// Borsh-serialize and compress state witness.
     /// Returns encoded witness along with the raw (uncompressed) witness size.
     pub fn encode(witness: &ChunkStateWitness) -> std::io::Result<(Self, ChunkStateWitnessSize)> {
