@@ -1,5 +1,4 @@
 use near_o11y::metrics::{try_create_histogram_vec, HistogramVec};
-use near_parameters::vm::VMKind;
 use once_cell::sync::Lazy;
 use std::{cell::RefCell, time::Duration};
 
@@ -55,7 +54,8 @@ impl Metrics {
 }
 
 #[cfg(any(feature = "near_vm", feature = "wasmtime_vm"))]
-pub(crate) fn compilation_duration(kind: VMKind, duration: Duration) {
+pub(crate) fn compilation_duration(kind: near_parameters::vm::VMKind, duration: Duration) {
+    use near_parameters::vm::VMKind;
     METRICS.with_borrow_mut(|m| match kind {
         VMKind::Wasmer0 => {}
         VMKind::Wasmtime => m.wasmtime_compilation_time += duration,
