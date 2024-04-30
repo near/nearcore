@@ -333,6 +333,10 @@ impl std::fmt::Debug for TrieNode {
     }
 }
 
+/// Reads contract code from the trie by its hash.
+/// Currently, uses `TrieStorage`. Consider implementing separate logic for
+/// requesting and compiling contracts, as any contract code read and
+/// compilation is a major bottleneck during chunk execution.
 struct ContractStorage {
     storage: Rc<dyn TrieStorage>,
 }
