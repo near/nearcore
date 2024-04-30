@@ -24,8 +24,8 @@ use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::sync::adapter::SyncAdapter;
 use near_client::{
-    start_client, start_view_client, ClientActor, ConfigUpdater, StartClientResult,
-    StateWitnessActor, ViewClientActor,
+    start_client, start_view_client, ClientActor, ConfigUpdater, PartialWitnessActor,
+    StartClientResult, ViewClientActor,
 };
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
@@ -324,7 +324,7 @@ pub fn start_with_config_and_synchronization(
     let network_adapter = LateBoundSender::new();
     let shards_manager_adapter = LateBoundSender::new();
     let client_adapter_for_shards_manager = LateBoundSender::new();
-    let client_adapter_for_state_witness_actor = LateBoundSender::new();
+    let client_adapter_for_partial_witness_actor = LateBoundSender::new();
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
     let view_client = start_view_client(
@@ -353,16 +353,16 @@ pub fn start_with_config_and_synchronization(
     );
     let snapshot_callbacks = SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
 
-    let (state_witness_actor, state_witness_arbiter) = if config.validator_signer.is_some() {
+    let (partial_witness_actor, partial_witness_arbiter) = if config.validator_signer.is_some() {
         let my_signer = config.validator_signer.clone().unwrap();
-        let (state_witness_actor, state_witness_arbiter) = StateWitnessActor::spawn(
+        let (partial_witness_actor, partial_witness_arbiter) = PartialWitnessActor::spawn(
             Clock::real(),
             network_adapter.as_multi_sender(),
-            client_adapter_for_state_witness_actor.as_multi_sender(),
+            client_adapter_for_partial_witness_actor.as_multi_sender(),
             my_signer,
             epoch_manager.clone(),
         );
-        (Some(state_witness_actor), Some(state_witness_arbiter))
+        (Some(partial_witness_actor), Some(partial_witness_arbiter))
     } else {
         (None, None)
     };
@@ -393,7 +393,7 @@ pub fn start_with_config_and_synchronization(
         shutdown_signal,
         adv,
         config_updater,
-        state_witness_actor
+        partial_witness_actor
             .clone()
             .map(|actor| actor.with_auto_span_context().into_multi_sender())
             .unwrap_or_else(|| noop().into_multi_sender()),
@@ -402,7 +402,7 @@ pub fn start_with_config_and_synchronization(
         client_adapter_for_sync.bind(client_actor.clone().with_auto_span_context())
     };
     client_adapter_for_shards_manager.bind(client_actor.clone().with_auto_span_context());
-    client_adapter_for_state_witness_actor.bind(client_actor.clone().with_auto_span_context());
+    client_adapter_for_partial_witness_actor.bind(client_actor.clone().with_auto_span_context());
     let (shards_manager_actor, shards_manager_arbiter_handle) = start_shards_manager(
         epoch_manager.clone(),
         shard_tracker.clone(),
@@ -443,7 +443,7 @@ pub fn start_with_config_and_synchronization(
         config.network_config,
         client_sender_for_network(client_actor.clone(), view_client.clone()),
         shards_manager_adapter.as_sender(),
-        state_witness_actor
+        partial_witness_actor
             .map(|actor| actor.with_auto_span_context().into_multi_sender())
             .unwrap_or_else(|| noop().into_multi_sender()),
         genesis_id,
@@ -500,8 +500,8 @@ pub fn start_with_config_and_synchronization(
     if let Some(db_metrics_arbiter) = db_metrics_arbiter {
         arbiters.push(db_metrics_arbiter);
     }
-    if let Some(state_witness_arbiter) = state_witness_arbiter {
-        arbiters.push(state_witness_arbiter);
+    if let Some(partial_witness_arbiter) = partial_witness_arbiter {
+        arbiters.push(partial_witness_arbiter);
     }
 
     Ok(NearNode {

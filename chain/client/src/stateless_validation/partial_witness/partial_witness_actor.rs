@@ -17,25 +17,25 @@ use near_primitives::stateless_validation::ChunkStateWitness;
 use near_primitives::types::EpochId;
 use near_primitives::validator_signer::ValidatorSigner;
 
-use crate::client_actions::ClientSenderForStateWitness;
+use crate::client_actions::ClientSenderForPartialWitness;
 
-use super::state_witness_actions::StateWitnessActions;
+use super::partial_witness_actions::PartialWitnessActions;
 
-pub struct StateWitnessActor {
-    pub actions: StateWitnessActions,
+pub struct PartialWitnessActor {
+    pub actions: PartialWitnessActions,
 }
 
-impl StateWitnessActor {
+impl PartialWitnessActor {
     pub fn spawn(
         clock: Clock,
         network_adapter: PeerManagerAdapter,
-        client_sender: ClientSenderForStateWitness,
+        client_sender: ClientSenderForPartialWitness,
         my_signer: Arc<dyn ValidatorSigner>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
     ) -> (actix::Addr<Self>, actix::ArbiterHandle) {
         let arbiter = actix::Arbiter::new().handle();
         let addr = Self::start_in_arbiter(&arbiter, |_ctx| Self {
-            actions: StateWitnessActions::new(
+            actions: PartialWitnessActions::new(
                 clock,
                 network_adapter,
                 client_sender,
@@ -47,7 +47,7 @@ impl StateWitnessActor {
     }
 }
 
-impl actix::Actor for StateWitnessActor {
+impl actix::Actor for PartialWitnessActor {
     type Context = actix::Context<Self>;
 }
 
@@ -61,11 +61,11 @@ pub struct DistributeStateWitnessRequest {
 
 #[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
 #[multi_send_message_derive(Debug)]
-pub struct StateWitnessSenderForClient {
+pub struct PartialWitnessSenderForClient {
     pub distribute_chunk_state_witness: Sender<DistributeStateWitnessRequest>,
 }
 
-impl actix::Handler<WithSpanContext<DistributeStateWitnessRequest>> for StateWitnessActor {
+impl actix::Handler<WithSpanContext<DistributeStateWitnessRequest>> for PartialWitnessActor {
     type Result = ();
 
     #[perf]
@@ -81,7 +81,7 @@ impl actix::Handler<WithSpanContext<DistributeStateWitnessRequest>> for StateWit
     }
 }
 
-impl actix::Handler<WithSpanContext<ChunkStateWitnessAckMessage>> for StateWitnessActor {
+impl actix::Handler<WithSpanContext<ChunkStateWitnessAckMessage>> for PartialWitnessActor {
     type Result = ();
 
     fn handle(
@@ -94,7 +94,7 @@ impl actix::Handler<WithSpanContext<ChunkStateWitnessAckMessage>> for StateWitne
     }
 }
 
-impl actix::Handler<WithSpanContext<PartialEncodedStateWitnessMessage>> for StateWitnessActor {
+impl actix::Handler<WithSpanContext<PartialEncodedStateWitnessMessage>> for PartialWitnessActor {
     type Result = ();
 
     fn handle(
@@ -110,7 +110,7 @@ impl actix::Handler<WithSpanContext<PartialEncodedStateWitnessMessage>> for Stat
 }
 
 impl actix::Handler<WithSpanContext<PartialEncodedStateWitnessForwardMessage>>
-    for StateWitnessActor
+    for PartialWitnessActor
 {
     type Result = ();
 
