@@ -4970,6 +4970,7 @@ dependencies = [
  "parity-wasm 0.41.0",
  "parity-wasm 0.42.2",
  "prefix-sum-vec",
+ "prometheus",
  "pwasm-utils",
  "rand",
  "ripemd",

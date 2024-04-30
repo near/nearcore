@@ -17,6 +17,8 @@ use near_primitives::stateless_validation::ChunkStateWitness;
 use near_primitives::types::EpochId;
 use near_primitives::validator_signer::ValidatorSigner;
 
+use crate::client_actions::ClientSenderForStateWitness;
+
 use super::state_witness_actions::StateWitnessActions;
 
 pub struct StateWitnessActor {
@@ -27,12 +29,19 @@ impl StateWitnessActor {
     pub fn spawn(
         clock: Clock,
         network_adapter: PeerManagerAdapter,
+        client_sender: ClientSenderForStateWitness,
         my_signer: Arc<dyn ValidatorSigner>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
     ) -> (actix::Addr<Self>, actix::ArbiterHandle) {
         let arbiter = actix::Arbiter::new().handle();
         let addr = Self::start_in_arbiter(&arbiter, |_ctx| Self {
-            actions: StateWitnessActions::new(clock, network_adapter, my_signer, epoch_manager),
+            actions: StateWitnessActions::new(
+                clock,
+                network_adapter,
+                client_sender,
+                my_signer,
+                epoch_manager,
+            ),
         });
         (addr, arbiter)
     }

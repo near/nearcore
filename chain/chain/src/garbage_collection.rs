@@ -1014,6 +1014,9 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::StateTransitionData => {
                 store_update.delete(col, key);
             }
+            DBCol::LatestChunkStateWitnesses => {
+                store_update.delete(col, key);
+            }
             DBCol::DbVersion
             | DBCol::BlockMisc
             | DBCol::_GCCount

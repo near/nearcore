@@ -3,20 +3,23 @@ pub mod state_witness_actions;
 pub mod sync_actor;
 pub mod sync_jobs_actions;
 
+use crate::client_actions::ClientSenderForStateWitnessMessage;
+use crate::client_actions::{ClientActionHandler, ClientActions};
 use near_async::messaging::{CanSend, SendAsync};
 use near_async::test_loop::delay_sender::DelaySender;
 use near_async::test_loop::event_handler::{LoopEventHandler, TryIntoOrSelf};
 
 use near_async::time::Duration;
 
-use crate::client_actions::ClientActions;
 use crate::Client;
 use near_network::client::{
     BlockApproval, BlockResponse, ChunkEndorsementMessage, ChunkStateWitnessMessage,
     ClientSenderForNetwork, ClientSenderForNetworkMessage, ProcessTxRequest,
 };
 use near_network::state_witness::{
-    ChunkStateWitnessAckMessage, StateWitnessSenderForNetwork, StateWitnessSenderForNetworkMessage,
+    ChunkStateWitnessAckMessage, PartialEncodedStateWitnessForwardMessage,
+    PartialEncodedStateWitnessMessage, StateWitnessSenderForNetwork,
+    StateWitnessSenderForNetworkMessage,
 };
 use near_network::test_loop::SupportsRoutingLookup;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
@@ -189,6 +192,32 @@ pub fn route_network_messages_to_client<
                     tracing::warn!("Dropping state-witness-ack message to self");
                 }
             }
+            NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple) => {
+                for (target, partial_witness) in validator_witness_tuple.into_iter() {
+                    let other_idx = data.index_for_account(&target);
+                    if other_idx != idx {
+                        state_witness_senders[other_idx]
+                            .send(PartialEncodedStateWitnessMessage(partial_witness));
+                    } else {
+                        tracing::warn!("Dropping state-witness message to self");
+                    }
+                }
+            }
+            NetworkRequests::PartialEncodedStateWitnessForward(
+                chunk_validators,
+                partial_witness,
+            ) => {
+                for target in chunk_validators {
+                    let other_idx = data.index_for_account(&target);
+                    if other_idx != idx {
+                        state_witness_senders[other_idx].send(
+                            PartialEncodedStateWitnessForwardMessage(partial_witness.clone()),
+                        );
+                    } else {
+                        tracing::warn!("Dropping state-witness-forward message to self");
+                    }
+                }
+            }
             NetworkRequests::SnapshotHostInfo { .. } => {
                 // TODO: what to do about this?
             }
@@ -319,4 +348,13 @@ impl<Data: AsRef<Client> + AsRef<AccountId>> ClientQueries for Vec<Data> {
         }
         ret
     }
+}
+
+pub fn forward_messages_from_state_witness_actor_to_client(
+) -> LoopEventHandler<ClientActions, ClientSenderForStateWitnessMessage> {
+    LoopEventHandler::new_simple(|msg, client_actions: &mut ClientActions| match msg {
+        ClientSenderForStateWitnessMessage::_receive_chunk_state_witness(msg) => {
+            client_actions.handle(msg)
+        }
+    })
 }

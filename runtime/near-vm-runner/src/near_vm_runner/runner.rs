@@ -162,6 +162,7 @@ impl NearVM {
         code: &ContractCode,
     ) -> Result<UniversalExecutable, CompilationError> {
         let _span = tracing::debug_span!(target: "vm", "NearVM::compile_uncached").entered();
+        let start = std::time::Instant::now();
         let prepared_code = prepare::prepare_contract(code.code(), &self.config, VMKind::NearVm)
             .map_err(CompilationError::PrepareError)?;
 
@@ -176,6 +177,7 @@ impl NearVM {
                 tracing::error!(?err, "near_vm failed to compile the prepared code (this is defense-in-depth, the error was recovered from but should be reported to pagoda)");
                 CompilationError::WasmerCompileError { msg: err.to_string() }
             })?;
+        crate::metrics::compilation_duration(VMKind::NearVm, start.elapsed());
         Ok(executable)
     }
 

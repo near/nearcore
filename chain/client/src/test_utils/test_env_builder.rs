@@ -1,7 +1,5 @@
-use crate::StateWitnessActions;
-
+use super::mock_state_witness_adapter::MockStateWitnessAdapter;
 use super::setup::{setup_client_with_runtime, setup_synchronous_shards_manager};
-use super::synchronous_state_witness_adapter::SynchronousStateWitnessAdapter;
 use super::test_env::TestEnv;
 use super::{AccountIndices, TEST_SEED};
 use actix_rt::System;
@@ -513,6 +511,8 @@ impl TestEnvBuilder {
         let client_adapters = (0..num_clients)
             .map(|_| Arc::new(MockClientAdapterForShardsManager::default()))
             .collect_vec();
+        let state_witness_adapters =
+            (0..num_clients).map(|_| MockStateWitnessAdapter::default()).collect_vec();
         let shards_manager_adapters = (0..num_clients)
             .map(|i| {
                 let clock = clock.clone();
@@ -537,6 +537,7 @@ impl TestEnvBuilder {
                 .map(|i| {
                     let account_id = clients[i].clone();
                     let network_adapter = network_adapters[i].clone();
+                    let state_witness_adapter = state_witness_adapters[i].clone();
                     let shards_manager_adapter = shards_manager_adapters[i].clone();
                     let epoch_manager = epoch_managers[i].clone();
                     let shard_tracker = shard_trackers[i].clone();
@@ -561,12 +562,6 @@ impl TestEnvBuilder {
                         delete_snapshot_callback,
                     };
                     let validator_signer = Arc::new(create_test_signer(clients[i].as_str()));
-                    let state_witness_adapter = SynchronousStateWitnessAdapter::new(StateWitnessActions::new(
-                        clock.clone(),
-                        network_adapters[i].clone().as_multi_sender(),
-                        validator_signer.clone(),
-                        epoch_manager.clone().into_adapter(),
-                    ));
                     setup_client_with_runtime(
                         clock.clone(),
                         u64::try_from(num_validators).unwrap(),
@@ -593,6 +588,7 @@ impl TestEnvBuilder {
             validators,
             network_adapters,
             client_adapters,
+            state_witness_adapters,
             shards_manager_adapters,
             clients,
             account_indices: AccountIndices(

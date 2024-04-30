@@ -29,7 +29,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
 use near_primitives::stateless_validation::{
     ChunkEndorsement, ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessSize,
-    SignedEncodedChunkStateWitness,
+    EncodedChunkStateWitness, SignedEncodedChunkStateWitness,
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -633,21 +633,47 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
 }
 
 impl Client {
+    // TODO(stateless_validation): Remove this function after partial state witness impl
+    pub fn process_signed_chunk_state_witness(
+        &mut self,
+        signed_witness: SignedEncodedChunkStateWitness,
+        processing_done_tracker: Option<ProcessingDoneTracker>,
+    ) -> Result<(), Error> {
+        // TODO(stateless_validation): Inefficient, we are decoding the witness twice, but fine for temporary measure
+        let (witness, _) = signed_witness.witness_bytes.decode()?;
+        if !self.epoch_manager.verify_chunk_state_witness_signature(
+            &signed_witness,
+            &witness.chunk_producer,
+            &witness.epoch_id,
+        )? {
+            return Err(Error::InvalidChunkStateWitness("Invalid signature".to_string()));
+        }
+
+        self.process_chunk_state_witness(signed_witness.witness_bytes, processing_done_tracker)?;
+
+        Ok(())
+    }
+
     /// Responds to a network request to verify a `ChunkStateWitness`, which is
     /// sent by chunk producers after they produce a chunk.
     /// State witness is processed asynchronously, if you want to wait for the processing to finish
     /// you can use the `processing_done_tracker` argument (but it's optional, it's safe to pass None there).
     pub fn process_chunk_state_witness(
         &mut self,
-        signed_witness: SignedEncodedChunkStateWitness,
+        encoded_witness: EncodedChunkStateWitness,
         processing_done_tracker: Option<ProcessingDoneTracker>,
     ) -> Result<(), Error> {
-        let (witness, raw_witness_size) = self.partially_validate_state_witness(&signed_witness)?;
+        let (witness, raw_witness_size) =
+            self.partially_validate_state_witness(&encoded_witness)?;
 
         // Send the acknowledgement for the state witness back to the chunk producer.
         // This is currently used for network roundtrip time measurement, so we do not need to
         // wait for validation to finish.
         self.send_state_witness_ack(&witness);
+
+        if self.config.save_latest_witnesses {
+            self.chain.chain_store.save_latest_chunk_state_witness(&witness)?;
+        }
 
         // Avoid processing state witness for old chunks.
         // In particular it is impossible for a chunk created at a height
@@ -714,10 +740,10 @@ impl Client {
     /// epoch_id actually corresponds to the chunk's previous block.
     fn partially_validate_state_witness(
         &self,
-        signed_witness: &SignedEncodedChunkStateWitness,
+        encoded_witness: &EncodedChunkStateWitness,
     ) -> Result<(ChunkStateWitness, ChunkStateWitnessSize), Error> {
         let decode_start = std::time::Instant::now();
-        let (witness, raw_witness_size) = signed_witness.witness_bytes.decode()?;
+        let (witness, raw_witness_size) = encoded_witness.decode()?;
         let decode_elapsed_seconds = decode_start.elapsed().as_secs_f64();
         let chunk_header = &witness.chunk_header;
         let witness_height = chunk_header.height_created();
@@ -757,14 +783,6 @@ impl Client {
         )?;
         if !chunk_validator_assignments.contains(my_signer.validator_id()) {
             return Err(Error::NotAChunkValidator);
-        }
-
-        if !self.epoch_manager.verify_chunk_state_witness_signature(
-            &signed_witness,
-            &witness.chunk_producer,
-            &witness.epoch_id,
-        )? {
-            return Err(Error::InvalidChunkStateWitness("Invalid signature".to_string()));
         }
 
         // Record metrics after validating the witness
