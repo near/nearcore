@@ -85,7 +85,7 @@ impl<'a> RuntimeExt<'a> {
     }
 
     pub fn get_code(&self, code_hash: CryptoHash) -> Option<ContractCode> {
-        self.trie_update.trie.get_code(code_hash)
+        self.trie_update.get_code(self.account_id.clone(), code_hash)
     }
 
     pub fn create_storage_key(&self, key: &[u8]) -> TrieKey {
