@@ -84,6 +84,7 @@ wat.workspace = true
 
 [features]
 nightly_protocol = [
+  "near-o11y/nightly_protocol",
   "near-parameters/nightly_protocol",
   "near-primitives-core/nightly_protocol",
 ]
@@ -117,6 +118,7 @@ protocol_feature_fix_contract_loading_cost = [
 ]
 
 nightly = [
+  "near-o11y/nightly_protocol",
   "near-parameters/nightly",
   "near-primitives-core/nightly",
   "nightly_protocol",
