@@ -755,7 +755,7 @@ impl Trie {
         self.contract_storage.get(code_hash)
     }
 
-    /// Request that the code for the given account ID be recorded.
+    /// Request recording of the code for the given account.
     pub fn request_code_recording(&self, account_id: AccountId) {
         let Some(recorder) = &self.recorder else {
             return;
