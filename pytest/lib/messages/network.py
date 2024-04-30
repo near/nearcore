@@ -170,6 +170,12 @@ network_schema = [
                 ['EpochSyncFinalizationRequest', None],  # TODO
                 ['EpochSyncFinalizationResponse', None],  # TODO
                 ['RoutingTableSyncV2', RoutingTableSyncV2],
+                ['DistanceVector', None],
+                ['StateRequestHeader', None],
+                ['StateRequestPart', None],
+                ['VersionedStateResponse', None],
+                ['SyncSnapshotHosts', None],
+
             ]
         }
     ],
