@@ -110,8 +110,6 @@ pub(crate) fn execute_function_call(
         random_seed,
         view_config: view_config.clone(),
         output_data_receivers,
-        shard_id: ShardUId::single_shard().shard_id(),
-        apply_reason: None,
     };
 
     // Enable caching chunk mode for the function call. This allows to charge for nodes touched in a chunk only once for
@@ -172,7 +170,7 @@ pub(crate) fn execute_function_call(
                 promise_results,
                 apply_state.cache.as_deref(),
             );
-            metrics.report(&apply_state.shard_id.to_string());
+            metrics.report(&apply_state.shard_id.to_string(), apply_state.apply_reason.to_string()););
             r
         }
         res => res,

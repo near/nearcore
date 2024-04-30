@@ -1,4 +1,4 @@
-use super::{metrics, NearVmMemory, VM_CONFIG};
+use super::{NearVmMemory, VM_CONFIG};
 use crate::cache::CompiledContractInfo;
 use crate::errors::ContractPrecompilatonResult;
 use crate::imports::near_vm::NearVmImports;
@@ -239,23 +239,12 @@ impl NearVM {
                     let key = get_contract_cache_key(code_hash, &self.config);
                     let cache_record = cache.get(&key).map_err(CacheError::ReadError)?;
                     let Some(code) = cache_record else {
-                        metrics::COMPILED_CONTRACT_CACHE_MISS
-                            .with_label_values(&[
-                                &context.shard_id.to_string(),
-                                context.apply_reason.as_ref().map_or("unknown", |r| r.as_str()),
-                            ])
-                            .inc();
+                        crate::metrics::record_compiled_contract_cache_miss();
                         return Err(VMRunnerError::CacheError(CacheError::ReadError(
                             std::io::Error::from(std::io::ErrorKind::NotFound),
                         )));
                     };
-                    metrics::COMPILED_CONTRACT_CACHE_HIT
-                        .with_label_values(&[
-                            &context.shard_id.to_string(),
-                            context.apply_reason.as_ref().map_or("unknown", |r| r.as_str()),
-                        ])
-                        .inc();
-
+                    
                     match &code.compiled {
                         CompiledContract::CompileModuleError(err) => {
                             Ok::<_, VMRunnerError>(to_any((code.wasm_bytes, Err(err.clone()))))
@@ -307,6 +296,7 @@ impl NearVM {
             move |value| {
                 let _span =
                     tracing::debug_span!(target: "vm", "NearVM::load_from_mem_cache").entered();
+                crate::metrics::record_compiled_contract_cache_hit();
                 let &(wasm_bytes, ref downcast) = value
                     .downcast_ref::<MemoryCacheType>()
                     .expect("downcast should always succeed");
