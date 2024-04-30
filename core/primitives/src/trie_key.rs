@@ -49,7 +49,7 @@ pub mod col {
     /// (`primitives::receipt::Receipt`).
     pub const PROMISE_YIELD_RECEIPT: u8 = 12;
     /// Indices of outgoing receipts. A singleton per shard.
-    /// (`primitives::receipt::BufferedReceiptIndices)
+    /// (`primitives::receipt::BufferedReceiptIndices`)
     pub const BUFFERED_RECEIPT_INDICES: u8 = 13;
     /// Outgoing receipts that need to be buffered due to congestion +
     /// backpressure on the receiving shard.
@@ -57,6 +57,9 @@ pub mod col {
     pub const BUFFERED_RECEIPT: u8 = 14;
     /// All columns except those used for the delayed receipts queue, the yielded promises
     /// queue, and the outgoing receipts buffer, which are global state for the shard.
+
+    // NOTE: NEW_COLUMN = 15 will be the last unique nibble in the trie!
+    // Consider demultiplexing on 15 and using 2-nibble prefixes.
     pub const COLUMNS_WITH_ACCOUNT_ID_IN_KEY: [(u8, &str); 9] = [
         (ACCOUNT, "Account"),
         (CONTRACT_CODE, "ContractCode"),
@@ -120,7 +123,7 @@ pub enum TrieKey {
     /// Used to store a buffered receipt `primitives::receipt::Receipt` for a
     /// given index `u64` and receiving shard. There is one unique queue
     /// per ordered shard pair. The trie for shard X stores all queues for pairs
-    /// (X,*).
+    /// (X,*) without (X,X).
     BufferedReceipt { receiving_shard: ShardId, index: u64 },
 }
 

@@ -8,7 +8,7 @@ use near_fmt::AbbrBytes;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::borrow::Borrow;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::io;
 use std::io::{Error, ErrorKind};
@@ -291,7 +291,7 @@ impl From<TrieQueueIndices> for DelayedReceiptIndices {
 /// column.
 #[derive(Default, BorshSerialize, BorshDeserialize, Clone, PartialEq, Debug)]
 pub struct BufferedReceiptIndices {
-    pub shard_buffers: std::collections::BTreeMap<ShardId, TrieQueueIndices>,
+    pub shard_buffers: BTreeMap<ShardId, TrieQueueIndices>,
 }
 
 /// Map of shard to list of receipts to send to it.
