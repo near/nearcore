@@ -118,7 +118,7 @@ protocol_feature_fix_contract_loading_cost = [
 ]
 
 nightly = [
-  "near-o11y/nightly_protocol",
+  "near-o11y/nightly",
   "near-parameters/nightly",
   "near-primitives-core/nightly",
   "nightly_protocol",
