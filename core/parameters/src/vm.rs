@@ -136,6 +136,8 @@ pub struct LimitConfig {
     pub yield_timeout_length_in_blocks: u64,
     /// Maximum number of bytes for payload passed over a yield resume.
     pub max_yield_payload_size: u64,
+    /// Maximum size of the recorded trie storage proof.
+    pub storage_proof_size_receipt_limit: usize,
 }
 
 /// Dynamic configuration parameters required for the WASM runtime to

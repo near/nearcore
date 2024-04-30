@@ -92,6 +92,11 @@ class LocalTestNeardRunner:
         # handled by local_test_setup_cmd()
         return
 
+    def run_cmd(self, cmd, raise_on_fail=False, return_on_fail=False):
+        logger.error(
+            "Does not make sense to run command on local host. The behaviour may not be the desired one."
+        )
+
     def init_python(self):
         return
 
@@ -158,7 +163,16 @@ def prompt_flags(args):
         args.neard_binary_path = sys.stdin.readline().strip()
         assert len(args.neard_binary_path) > 0
 
-    if not args.legacy_records and args.fork_height is None:
+    if args.fork_height is not None:
+        if not args.legacy_records:
+            print(
+                '--legacy-records not given. Assuming it based on --fork-height'
+            )
+            args.legacy_records = True
+    elif args.target_home_dir is not None:
+        if args.legacy_records:
+            sys.exit('cannot give --target-home-dir and --legacy-records')
+    elif not args.legacy_records:
         print(
             'prepare nodes with fork-network tool instead of genesis records JSON? [yes/no]:'
         )
@@ -238,7 +252,7 @@ def make_legacy_records(neard_binary_path, traffic_generator_home, node_homes,
                         node_home / '.near/setup/records.json')
 
 
-def fork_db(neard_binary_path, target_home_dir, home_dir, setup_dir):
+def fork_db(neard_binary_path, target_home_dir, setup_dir):
     copy_source_home(target_home_dir, setup_dir)
 
     run_cmd([
@@ -258,13 +272,11 @@ def fork_db(neard_binary_path, target_home_dir, home_dir, setup_dir):
     shutil.rmtree(setup_dir / 'data/fork-snapshot')
 
 
-def make_forked_network(neard_binary_path, traffic_generator_home, node_homes,
+def make_forked_network(neard_binary_path, traffic_generator_setup, node_homes,
                         source_home_dir, target_home_dir):
-    for (home_dir, setup_dir) in [
-        (h / '.near', h / '.near/setup') for h in node_homes
-    ] + [(traffic_generator_home / '.near/target',
-          traffic_generator_home / '.near/setup')]:
-        fork_db(neard_binary_path, target_home_dir, home_dir, setup_dir)
+    for setup_dir in [h / '.near/setup' for h in node_homes
+                     ] + [traffic_generator_setup]:
+        fork_db(neard_binary_path, target_home_dir, setup_dir)
 
 
 def mkdirs(local_mocknet_path):
@@ -272,7 +284,6 @@ def mkdirs(local_mocknet_path):
     traffic_generator_home.mkdir()
     os.mkdir(traffic_generator_home / 'neard-runner')
     os.mkdir(traffic_generator_home / '.near')
-    os.mkdir(traffic_generator_home / '.near/setup')
     node_homes = []
     for i in range(args.num_nodes):
         node_home = local_mocknet_path / f'node{i}'
@@ -420,14 +431,22 @@ def local_test_setup_cmd(args):
 
     os.mkdir(local_mocknet_path)
     traffic_generator_home, node_homes = mkdirs(local_mocknet_path)
-    copy_source_home(source_home_dir, traffic_generator_home / '.near')
+
     if args.legacy_records:
+        setup_dir = traffic_generator_home / '.near/setup'
+        setup_dir.mkdir()
+        copy_source_home(source_home_dir, traffic_generator_home / '.near')
         make_legacy_records(neard_binary_path, traffic_generator_home,
                             node_homes, args.fork_height)
     else:
+        source_dir = traffic_generator_home / '.near/source'
+        source_dir.mkdir()
+        setup_dir = traffic_generator_home / '.near/target/setup'
+        setup_dir.mkdir(parents=True)
+        copy_source_home(source_home_dir, source_dir)
         target_home_dir = pathlib.Path(args.target_home_dir)
-        make_forked_network(neard_binary_path, traffic_generator_home,
-                            node_homes, source_home_dir, target_home_dir)
+        make_forked_network(neard_binary_path, setup_dir, node_homes,
+                            source_home_dir, target_home_dir)
     # now set up an HTTP server to serve the binary that each neard_runner.py will request
     binaries_path = make_binaries_dir(local_mocknet_path, neard_binary_path)
     binaries_server_addr = 'localhost'

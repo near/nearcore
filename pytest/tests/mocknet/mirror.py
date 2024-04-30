@@ -11,6 +11,7 @@ from rc import pmap
 import re
 import sys
 import time
+import cmd_utils
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -335,7 +336,8 @@ def start_traffic_cmd(args, traffic_generator, nodes):
     logger.info(
         "waiting a bit after validators started before starting traffic")
     time.sleep(10)
-    traffic_generator.neard_runner_start()
+    traffic_generator.neard_runner_start(
+        batch_interval_millis=args.batch_interval_millis)
     logger.info(
         f'test running. to check the traffic sent, try running "curl --silent http://{traffic_generator.ip_addr()}:{traffic_generator.neard_port()}/metrics | grep near_mirror"'
     )
@@ -344,6 +346,25 @@ def start_traffic_cmd(args, traffic_generator, nodes):
 def update_binaries_cmd(args, traffic_generator, nodes):
     pmap(lambda node: node.neard_runner_update_binaries(),
          nodes + [traffic_generator])
+
+
+def run_remote_cmd(args, traffic_generator, nodes):
+    targeted = []
+    if args.all or args.traffic:
+        targeted.append(traffic_generator)
+    if args.all or args.nodes:
+        targeted.extend(nodes)
+    if args.filter is not None:
+        targeted = [h for h in targeted if re.search(args.filter, h.name())]
+    if len(targeted) == 0:
+        logger.error(f'No hosts selected. Change filters and try again.')
+        return
+    logger.info(f'Running cmd on {"".join([h.name() for h in targeted ])}')
+    pmap(lambda node: logger.info(
+        '{0}:\nstdout:\n{1.stdout}\nstderr:\n{1.stderr}'.format(
+            node.name(), node.run_cmd(args.cmd, return_on_fail=True))),
+         targeted,
+         on_exception="")
 
 
 if __name__ == '__main__':
@@ -423,6 +444,15 @@ if __name__ == '__main__':
         help=
         'Starts all nodes and starts neard mirror run on the traffic generator.'
     )
+    start_traffic_parser.add_argument(
+        '--batch-interval-millis',
+        type=int,
+        help=
+        '''Interval in millis between sending each mainnet block\'s worth of transactions.
+        Without this flag, the traffic generator will try to match the per-block load on mainnet.
+        So, transactions from consecutive mainnet blocks will be be sent with delays
+        between them such that they will probably appear in consecutive mocknet blocks.
+        ''')
     start_traffic_parser.set_defaults(func=start_traffic_cmd)
 
     start_nodes_parser = subparsers.add_parser(
@@ -468,6 +498,24 @@ if __name__ == '__main__':
         'Update the neard binaries by re-downloading them. The same urls are used.'
     )
     update_binaries_parser.set_defaults(func=update_binaries_cmd)
+
+    run_cmd_parser = subparsers.add_parser('run-cmd',
+                                           help='''Run the cmd on the hosts.''')
+    run_cmd_parser.add_argument('--cmd', type=str)
+    run_cmd_parser.add_argument('--all',
+                                action='store_true',
+                                help='Run on all hosts')
+    run_cmd_parser.add_argument('--nodes',
+                                action='store_true',
+                                help='Run on nodes')
+    run_cmd_parser.add_argument('--traffic',
+                                action='store_true',
+                                help='Run on traffic host')
+    run_cmd_parser.add_argument(
+        '--filter',
+        type=str,
+        help='Filter through the selected nodes using regex.')
+    run_cmd_parser.set_defaults(func=run_remote_cmd)
 
     args = parser.parse_args()
 

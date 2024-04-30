@@ -4,12 +4,15 @@ LOG_DIR = '/home/ubuntu/logs'
 STATUS_DIR = '/home/ubuntu/logs/status'
 
 
-def run_cmd(node, cmd):
+def run_cmd(node, cmd, raise_on_fail=False, return_on_fail=False):
     r = node.machine.run(cmd)
     if r.exitcode != 0:
-        sys.exit(
-            f'failed running {cmd} on {node.instance_name}:\nstdout: {r.stdout}\nstderr: {r.stderr}'
-        )
+        msg = f'failed running {cmd} on {node.instance_name}:\nstdout: {r.stdout}\nstderr: {r.stderr}'
+        if return_on_fail:
+            return r
+        if raise_on_fail:
+            raise msg
+        sys.exit(msg)
     return r
 
 

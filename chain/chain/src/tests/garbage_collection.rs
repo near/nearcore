@@ -190,9 +190,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     }
 
     // GC execution
-    chain1
-        .clear_data(tries1.clone(), &GCConfig { gc_blocks_limit: 1000, ..GCConfig::default() })
-        .unwrap();
+    chain1.clear_data(&GCConfig { gc_blocks_limit: 1000, ..GCConfig::default() }).unwrap();
 
     let tries2 = get_chain_with_num_shards(Clock::real(), num_shards).runtime_adapter.get_tries();
 
@@ -636,14 +634,11 @@ fn test_fork_far_away_from_epoch_end() {
 
     // GC execution
     chain
-        .clear_data(
-            tries.clone(),
-            &GCConfig {
-                gc_blocks_limit: 100,
-                gc_fork_clean_step: fork_clean_step,
-                ..GCConfig::default()
-            },
-        )
+        .clear_data(&GCConfig {
+            gc_blocks_limit: 100,
+            gc_fork_clean_step: fork_clean_step,
+            ..GCConfig::default()
+        })
         .expect("Clear data failed");
 
     // The run above would clear just the first 5 blocks from the beginning, but shouldn't clear any forks
@@ -675,7 +670,7 @@ fn test_fork_far_away_from_epoch_end() {
         do_fork(
             source_block,
             state_root,
-            tries.clone(),
+            tries,
             &mut chain,
             1,
             &mut states,
@@ -685,7 +680,7 @@ fn test_fork_far_away_from_epoch_end() {
         );
     }
     chain
-        .clear_data(tries, &GCConfig { gc_blocks_limit: 100, ..GCConfig::default() })
+        .clear_data(&GCConfig { gc_blocks_limit: 100, ..GCConfig::default() })
         .expect("Clear data failed");
     // And now all these blocks should be safely removed.
     for i in 6..50 {
@@ -722,8 +717,7 @@ fn test_clear_old_data() {
         );
     }
 
-    let trie = chain.runtime_adapter.get_tries();
-    chain.clear_data(trie, &GCConfig { gc_blocks_limit: 100, ..GCConfig::default() }).unwrap();
+    chain.clear_data(&GCConfig { gc_blocks_limit: 100, ..GCConfig::default() }).unwrap();
 
     for i in 0..=max_height {
         println!("height = {} hash = {}", i, blocks[i].hash());
@@ -905,13 +899,9 @@ fn test_clear_old_data_too_many_heights_common(gc_blocks_limit: NumBlocks) {
         prev_block = block.clone();
     }
 
-    let trie = chain.runtime_adapter.get_tries();
-
     for iter in 0..10 {
         println!("ITERATION #{:?}", iter);
-        assert!(chain
-            .clear_data(trie.clone(), &GCConfig { gc_blocks_limit, ..GCConfig::default() })
-            .is_ok());
+        assert!(chain.clear_data(&GCConfig { gc_blocks_limit, ..GCConfig::default() }).is_ok());
 
         // epoch didn't change so no data is garbage collected.
         for i in 0..1000 {

@@ -1,5 +1,6 @@
 use crate::client_actions::{ClientActionHandler, ClientActions, ClientSenderForClientMessage};
 use crate::sync_jobs_actions::ClientSenderForSyncJobsMessage;
+use crate::SyncMessage;
 use near_async::test_loop::event_handler::LoopEventHandler;
 use near_chunks::client::ShardsManagerResponse;
 use near_network::client::ClientSenderForNetworkMessage;
@@ -30,9 +31,6 @@ pub fn forward_client_messages_from_network_to_client_actions(
                 (msg.callback)(Ok(client_actions.handle(msg.message)));
             }
             ClientSenderForNetworkMessage::_chunk_state_witness(msg) => {
-                (msg.callback)(Ok(client_actions.handle(msg.message)));
-            }
-            ClientSenderForNetworkMessage::_chunk_state_witness_ack(msg) => {
                 (msg.callback)(Ok(client_actions.handle(msg.message)));
             }
             ClientSenderForNetworkMessage::_chunk_endorsement(msg) => {
@@ -67,6 +65,12 @@ pub fn forward_client_messages_from_sync_jobs_to_client_actions(
 
 pub fn forward_client_messages_from_shards_manager(
 ) -> LoopEventHandler<ClientActions, ShardsManagerResponse> {
+    LoopEventHandler::new_simple(|msg, client_actions: &mut ClientActions| {
+        client_actions.handle(msg);
+    })
+}
+
+pub fn forward_client_messages_from_sync_adapter() -> LoopEventHandler<ClientActions, SyncMessage> {
     LoopEventHandler::new_simple(|msg, client_actions: &mut ClientActions| {
         client_actions.handle(msg);
     })

@@ -89,7 +89,7 @@ impl OrphanStateWitnessPool {
     pub fn remove_witnesses_below_final_height(&mut self, final_height: BlockHeight) {
         let mut to_remove: Vec<(ShardId, BlockHeight)> = Vec::new();
         for ((witness_shard, witness_height), cache_entry) in self.witness_cache.iter() {
-            if *witness_height < final_height {
+            if *witness_height <= final_height {
                 to_remove.push((*witness_shard, *witness_height));
                 let header = &cache_entry.witness.chunk_header;
                 tracing::debug!(
@@ -191,6 +191,7 @@ mod tests {
         match &mut witness.chunk_header {
             ShardChunkHeader::V3(header) => match &mut header.inner {
                 ShardChunkHeaderInner::V2(inner) => inner.encoded_length = encoded_length,
+                ShardChunkHeaderInner::V3(inner) => inner.encoded_length = encoded_length,
                 _ => unimplemented!(),
             },
             _ => unimplemented!(),
@@ -358,7 +359,7 @@ mod tests {
         let waiting_for_100 = pool.take_state_witnesses_waiting_for_block(&block(100));
         assert_contents(waiting_for_100, vec![witness2]);
 
-        pool.remove_witnesses_below_final_height(103);
+        pool.remove_witnesses_below_final_height(102);
 
         let waiting_for_99 = pool.take_state_witnesses_waiting_for_block(&block(99));
         assert_contents(waiting_for_99, vec![]);

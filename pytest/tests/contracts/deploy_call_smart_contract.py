@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Deploy a smart contract on one node and call it on another."""
 
-import base58
 import sys
 import time
 import pathlib

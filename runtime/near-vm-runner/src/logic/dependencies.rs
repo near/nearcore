@@ -260,6 +260,9 @@ pub trait External {
     /// Returns amount of touched trie nodes by storage operations
     fn get_trie_nodes_count(&self) -> TrieNodesCount;
 
+    /// Size of the recorded trie storage proof.
+    fn get_recorded_storage_size(&self) -> usize;
+
     /// Returns the validator stake for given account in the current epoch.
     /// If the account is not a validator, returns `None`.
     fn validator_stake(&self, account_id: &AccountId) -> Result<Option<Balance>>;

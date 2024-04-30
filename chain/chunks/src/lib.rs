@@ -107,11 +107,12 @@ use near_network::types::{
 };
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_primitives::block::Tip;
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{verify_path, MerklePath};
 use near_primitives::receipt::Receipt;
-use near_primitives::reed_solomon::ReedSolomonWrapper;
+use near_primitives::reed_solomon::{reed_solomon_decode, reed_solomon_encode};
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, EncodedShardChunkBody, PartialEncodedChunk,
     PartialEncodedChunkPart, PartialEncodedChunkV2, ReceiptProof, ShardChunk, ShardChunkHeader,
@@ -128,6 +129,7 @@ use near_primitives::version::ProtocolVersion;
 use near_primitives::{checked_feature, unwrap_or_return};
 use rand::seq::IteratorRandom;
 use rand::Rng;
+use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::{debug, debug_span, error, warn};
@@ -254,7 +256,7 @@ pub struct ShardsManager {
     shard_tracker: ShardTracker,
     peer_manager_adapter: Sender<PeerManagerMessageRequest>,
     client_adapter: Sender<ShardsManagerResponse>,
-    rs: ReedSolomonWrapper,
+    rs: ReedSolomon,
 
     encoded_chunks: EncodedChunksCache,
     requested_partial_encoded_chunks: RequestPool,
@@ -291,10 +293,11 @@ impl ShardsManager {
             shard_tracker,
             peer_manager_adapter: network_adapter,
             client_adapter,
-            rs: ReedSolomonWrapper::new(
+            rs: ReedSolomon::new(
                 epoch_manager.num_data_parts(),
                 epoch_manager.num_total_parts() - epoch_manager.num_data_parts(),
-            ),
+            )
+            .unwrap(),
             encoded_chunks: EncodedChunksCache::new(),
             requested_partial_encoded_chunks: RequestPool::new(
                 CHUNK_REQUEST_RETRY,
@@ -800,7 +803,7 @@ impl ShardsManager {
     }
 
     pub fn process_partial_encoded_chunk_request(
-        &mut self,
+        &self,
         request: PartialEncodedChunkRequestMsg,
         route_back: CryptoHash,
     ) {
@@ -836,7 +839,7 @@ impl ShardsManager {
     /// an explanation of that part of the return value.
     /// Ensures the receipts in the response are in a deterministic order.
     fn prepare_partial_encoded_chunk_response(
-        &mut self,
+        &self,
         request: PartialEncodedChunkRequestMsg,
     ) -> (PartialEncodedChunkResponseSource, PartialEncodedChunkResponseMsg) {
         let (src, mut response_msg) = self.prepare_partial_encoded_chunk_response_unsorted(request);
@@ -847,7 +850,7 @@ impl ShardsManager {
     }
 
     fn prepare_partial_encoded_chunk_response_unsorted(
-        &mut self,
+        &self,
         request: PartialEncodedChunkRequestMsg,
     ) -> (PartialEncodedChunkResponseSource, PartialEncodedChunkResponseMsg) {
         let PartialEncodedChunkRequestMsg { chunk_hash, part_ords, mut tracking_shards } = request;
@@ -962,8 +965,8 @@ impl ShardsManager {
     /// expensive operation.  If possible, the request should be served from
     /// EncodedChunksCacheEntry or PartialEncodedChunk instead.
     // pub for testing
-    pub fn lookup_partial_encoded_chunk_from_chunk_storage(
-        &mut self,
+    fn lookup_partial_encoded_chunk_from_chunk_storage(
+        &self,
         part_ords: HashSet<u64>,
         tracking_shards: HashSet<ShardId>,
         response: &mut PartialEncodedChunkResponseMsg,
@@ -989,9 +992,10 @@ impl ShardsManager {
         // Construct EncodedShardChunk.  If we earlier determined that we will
         // need parity parts, instruct the constructor to calculate them as
         // well.  Otherwise we won’t bother.
-        let (parts, encoded_length) = self
-            .rs
-            .encode(TransactionReceipt(chunk.transactions().to_vec(), outgoing_receipts.to_vec()));
+        let (parts, encoded_length) = reed_solomon_encode(
+            &self.rs,
+            TransactionReceipt(chunk.transactions().to_vec(), outgoing_receipts.to_vec()),
+        );
 
         if header.encoded_length() != encoded_length as u64 {
             warn!(target: "chunks",
@@ -1050,7 +1054,8 @@ impl ShardsManager {
         }
 
         let encoded_length = chunk.encoded_length();
-        if let Err(err) = self.rs.decode::<TransactionReceipt>(
+        if let Err(err) = reed_solomon_decode::<TransactionReceipt>(
+            &self.rs,
             chunk.content_mut().parts.as_mut_slice(),
             encoded_length as usize,
         ) {
@@ -1916,8 +1921,9 @@ impl ShardsManager {
         prev_outgoing_receipts: &[Receipt],
         prev_outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
+        congestion_info: CongestionInfo,
         signer: &dyn ValidatorSigner,
-        rs: &mut ReedSolomonWrapper,
+        rs: &ReedSolomon,
         protocol_version: ProtocolVersion,
     ) -> Result<(EncodedShardChunk, Vec<MerklePath>), Error> {
         EncodedShardChunk::new(
@@ -1935,6 +1941,7 @@ impl ShardsManager {
             transactions,
             prev_outgoing_receipts,
             prev_outgoing_receipts_root,
+            congestion_info,
             signer,
             protocol_version,
         )
@@ -2697,7 +2704,7 @@ mod test {
     #[test]
     fn test_chunk_response_for_uncached_partial_chunk() {
         let mut fixture = ChunkTestFixture::default();
-        let mut shards_manager = ShardsManager::new(
+        let shards_manager = ShardsManager::new(
             FakeClock::default().clock(),
             Some(fixture.mock_shard_tracker.clone()),
             Arc::new(fixture.epoch_manager.clone()),
@@ -2729,7 +2736,7 @@ mod test {
     #[test]
     fn test_chunk_response_for_uncached_shard_chunk() {
         let mut fixture = ChunkTestFixture::default();
-        let mut shards_manager = ShardsManager::new(
+        let shards_manager = ShardsManager::new(
             FakeClock::default().clock(),
             Some(fixture.mock_shard_tracker.clone()),
             Arc::new(fixture.epoch_manager.clone()),
@@ -2887,7 +2894,7 @@ mod test {
     #[test]
     fn test_chunk_response_empty_request() {
         let fixture = ChunkTestFixture::default();
-        let mut shards_manager = ShardsManager::new(
+        let shards_manager = ShardsManager::new(
             FakeClock::default().clock(),
             Some(fixture.mock_shard_tracker.clone()),
             Arc::new(fixture.epoch_manager.clone()),
@@ -2911,7 +2918,7 @@ mod test {
     #[test]
     fn test_chunk_response_for_nonexistent_chunk() {
         let fixture = ChunkTestFixture::default();
-        let mut shards_manager = ShardsManager::new(
+        let shards_manager = ShardsManager::new(
             FakeClock::default().clock(),
             Some(fixture.mock_shard_tracker.clone()),
             Arc::new(fixture.epoch_manager.clone()),
@@ -2935,7 +2942,7 @@ mod test {
     #[test]
     fn test_chunk_response_for_request_including_invalid_part_ord() {
         let mut fixture = ChunkTestFixture::default();
-        let mut shards_manager = ShardsManager::new(
+        let shards_manager = ShardsManager::new(
             FakeClock::default().clock(),
             Some(fixture.mock_shard_tracker.clone()),
             Arc::new(fixture.epoch_manager.clone()),
@@ -2969,7 +2976,7 @@ mod test {
     fn test_chunk_response_for_request_with_duplicate_part_ords() {
         // We should not return any duplicates.
         let mut fixture = ChunkTestFixture::default();
-        let mut shards_manager = ShardsManager::new(
+        let shards_manager = ShardsManager::new(
             FakeClock::default().clock(),
             Some(fixture.mock_shard_tracker.clone()),
             Arc::new(fixture.epoch_manager.clone()),

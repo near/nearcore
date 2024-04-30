@@ -35,11 +35,22 @@ jobs:
       - run: sudo mkswap /swap-file
       - run: sudo swapon /swap-file
 
-      - id: "auth"
-        uses: "google-github-actions/auth@v1"
+      - name: Checkout Release/RC branch
+        if: contains(fromJSON('["released", "prereleased"]'), github.event.action)
+        uses: actions/checkout@v4
+
+      - name: Checkout ${{ github.event.inputs.branch_ref }} branch
+        if: ${{ github.event_name == 'workflow_dispatch'}}
+        uses: actions/checkout@v4
         with:
-          workload_identity_provider: "projects/968400232856/locations/global/workloadIdentityPools/project-identity-pool/providers/github-provider"
-          service_account: "near-fuzzer-service-account@near-fuzzer.iam.gserviceaccount.com"
+          ref: ${{ github.event.inputs.branch_ref }}
+
+      - id: "auth"
+        name: Authenticate with Google Cloud
+        uses: "google-github-actions/auth@v2"
+        with:
+          workload_identity_provider: "projects/346595944828/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+          service_account: "github-service-account@nearone-clusterfuzz.iam.gserviceaccount.com"
 
       - name: Installing nightly rust
         run: |
@@ -57,19 +68,9 @@ jobs:
       - run: rustup target add --toolchain nightly wasm32-unknown-unknown
 
       - name: "Set up GCP SDK"
-        uses: "google-github-actions/setup-gcloud@v1"
+        uses: "google-github-actions/setup-gcloud@v2"
         with:
           version: ">= 416.0.0"
-
-      - name: Checkout Release/RC branch
-        if: contains(fromJSON('["released", "prereleased"]'), github.event.action)
-        uses: actions/checkout@master
-
-      - name: Checkout ${{ github.event.inputs.branch_ref }} branch
-        if: ${{ github.event_name == 'workflow_dispatch'}}
-        uses: actions/checkout@master
-        with:
-          ref: ${{ github.event.inputs.branch_ref }}
 
       - name: Build Release branch fuzz targets
         if: ${{ github.event.action == 'released'}}
@@ -87,4 +88,4 @@ jobs:
         run: |
           NAME="nearcore-$branch_type-$(env TZ=Etc/UTC  date +"%Y%m%d%H%M%S")"
           RUSTFLAGS="--cfg fuzz" cargo +nightly bolero build-clusterfuzz --all-features --profile fuzz
-          gsutil cp -Z target/fuzz/clusterfuzz.tar "gs://fuzzer_targets/$branch_type/$NAME.tar.gz"
+          gsutil cp -Z target/fuzz/clusterfuzz.tar "gs://nearone_fuzzer_targets/$branch_type/$NAME.tar.gz"

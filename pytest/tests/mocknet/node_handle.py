@@ -31,6 +31,9 @@ class NodeHandle:
     def upload_neard_runner(self):
         self.node.upload_neard_runner()
 
+    def run_cmd(self, cmd, raise_on_fail=False, return_on_fail=False):
+        return self.node.run_cmd(cmd, raise_on_fail, return_on_fail)
+
     def init_neard_runner(self, config, remove_home_dir=False):
         self.node.stop_neard_runner()
         self.node.init()
@@ -81,8 +84,12 @@ class NodeHandle:
             )
         return response['result']
 
-    def neard_runner_start(self):
-        return self.neard_runner_jsonrpc('start')
+    def neard_runner_start(self, batch_interval_millis=None):
+        if batch_interval_millis is None:
+            params = []
+        else:
+            params = {'batch_interval_millis': batch_interval_millis}
+        return self.neard_runner_jsonrpc('start', params=params)
 
     def neard_runner_stop(self):
         return self.neard_runner_jsonrpc('stop')
