@@ -44,6 +44,10 @@ impl Client {
             transactions_storage_proof,
         )?;
 
+        if self.config.save_latest_witnesses {
+            self.chain.chain_store.save_latest_chunk_state_witness(&state_witness)?;
+        }
+
         let chunk_header = chunk.cloned_header();
         let shard_id = chunk_header.shard_id();
         let height = chunk_header.height_created();

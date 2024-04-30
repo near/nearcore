@@ -190,10 +190,12 @@ impl crate::runner::VM for WasmtimeVM {
                 Ok(code) => code,
                 Err(err) => return Ok(VMOutcome::abort(logic, FunctionCallError::from(err))),
             };
+        let start = std::time::Instant::now();
         let module = match Module::new(&engine, prepared_code) {
             Ok(module) => module,
             Err(err) => return Ok(VMOutcome::abort(logic, err.into_vm_error()?)),
         };
+        crate::metrics::compilation_duration(VMKind::Wasmtime, start.elapsed());
         let mut linker = Linker::new(&engine);
 
         let result = logic.after_loading_executable(code.code().len() as u64);

@@ -547,20 +547,14 @@ fn test_gc_pine_small() {
 fn test_gc_pine() {
     for max_changes in 1..=20 {
         let mut chains = vec![SimpleChain { from: 0, length: 101, is_removed: false }];
-        for i in 1..50 {
-            chains.push(SimpleChain { from: i, length: 1, is_removed: true });
-        }
-        for i in 50..100 {
-            chains.push(SimpleChain { from: i, length: 1, is_removed: false });
+        for i in 1..100 {
+            chains.push(SimpleChain { from: i, length: 1, is_removed: i < 60 });
         }
         gc_fork_common(chains, max_changes);
 
         let mut chains = vec![SimpleChain { from: 0, length: 101, is_removed: false }];
-        for i in 1..40 {
-            chains.push(SimpleChain { from: i, length: 11, is_removed: true });
-        }
-        for i in 40..90 {
-            chains.push(SimpleChain { from: i, length: 11, is_removed: false });
+        for i in 1..90 {
+            chains.push(SimpleChain { from: i, length: 11, is_removed: i < 50 });
         }
         gc_fork_common(chains, max_changes);
     }

@@ -1,13 +1,13 @@
 use crate::{get, set, TrieAccess, TrieUpdate};
 use near_primitives::errors::{IntegerOverflowError, StorageError};
-use near_primitives::receipt::{Receipt, TrieQueueIndices};
+use near_primitives::receipt::{BufferedReceiptIndices, Receipt, TrieQueueIndices};
 use near_primitives::trie_key::TrieKey;
+use near_primitives::types::ShardId;
 
 /// Read-only iterator over receipt queues stored in the state trie.
 ///
-/// This iterator currently only supports delayed receipts but is already
-/// written general to work with the new queues that are going to be added for
-/// congestion control.
+/// This iterator currently supports delayed receipts and buffered outgoing
+/// receipts.
 pub struct ReceiptIterator<'a> {
     indices: std::ops::Range<u64>,
     trie_queue: &'a dyn TrieQueue,
@@ -25,6 +25,29 @@ pub struct ReceiptIterator<'a> {
 /// on one won't be synced to the other!
 pub struct DelayedReceiptQueue {
     indices: TrieQueueIndices,
+}
+
+/// Type safe access to outgoing receipt buffers from this shard to all other
+/// shards. Only use one at the time!
+///
+/// Call [`ShardsOutgoingReceiptBuffer::to_shard`] to access queue operations on
+/// a buffer to a specific shard.
+pub struct ShardsOutgoingReceiptBuffer {
+    shards_indices: BufferedReceiptIndices,
+}
+
+/// Type safe access to buffered receipts to a specific shard.
+///
+/// Construct this from a parent `ShardsOutgoingReceiptBuffer` by calling
+/// [`ShardsOutgoingReceiptBuffer::to_shard`]. Modification are written back to
+/// the TrieUpdate immediately on every update.
+///
+/// Due to the shared indices, modifying two `OutgoingReceiptBuffer` instances
+/// independently would lead to inconsistencies. The mutable borrow ensures at
+/// compile-time this does not happen.
+pub struct OutgoingReceiptBuffer<'parent> {
+    shard_id: ShardId,
+    parent: &'parent mut ShardsOutgoingReceiptBuffer,
 }
 
 /// Common code for persistent queues stored in the trie.
@@ -149,6 +172,46 @@ impl TrieQueue for DelayedReceiptQueue {
     }
 }
 
+impl ShardsOutgoingReceiptBuffer {
+    pub fn load(trie: &dyn TrieAccess) -> Result<Self, StorageError> {
+        let shards_indices = crate::get_buffered_receipt_indices(trie)?;
+        Ok(Self { shards_indices })
+    }
+
+    pub fn to_shard(&mut self, shard_id: ShardId) -> OutgoingReceiptBuffer {
+        OutgoingReceiptBuffer { shard_id, parent: self }
+    }
+
+    pub fn write_indices(&self, state_update: &mut TrieUpdate) {
+        set(state_update, TrieKey::BufferedReceiptIndices, &self.shards_indices);
+    }
+}
+
+impl TrieQueue for OutgoingReceiptBuffer<'_> {
+    fn load_indices(&self, trie: &dyn TrieAccess) -> Result<TrieQueueIndices, StorageError> {
+        let all_indices: BufferedReceiptIndices =
+            get(trie, &TrieKey::BufferedReceiptIndices)?.unwrap_or_default();
+        let indices = all_indices.shard_buffers.get(&self.shard_id).cloned().unwrap_or_default();
+        Ok(indices)
+    }
+
+    fn indices(&self) -> TrieQueueIndices {
+        self.parent.shards_indices.shard_buffers.get(&self.shard_id).cloned().unwrap_or_default()
+    }
+
+    fn indices_mut(&mut self) -> &mut TrieQueueIndices {
+        self.parent.shards_indices.shard_buffers.entry(self.shard_id).or_default()
+    }
+
+    fn write_indices(&self, state_update: &mut TrieUpdate) {
+        self.parent.write_indices(state_update);
+    }
+
+    fn trie_key(&self, index: u64) -> TrieKey {
+        TrieKey::DelayedReceipt { index }
+    }
+}
+
 impl<'a> Iterator for ReceiptIterator<'a> {
     type Item = Result<Receipt, StorageError>;
 
@@ -192,28 +255,125 @@ mod tests {
     #[track_caller]
     fn check_delayed_receipt_queue(input_receipts: &[Receipt]) {
         let mut trie = init_state();
-        let mut queue = DelayedReceiptQueue::load(&trie).expect("creating queue must not fail");
 
+        // load a queue to fill it with receipts
+        {
+            let mut queue = DelayedReceiptQueue::load(&trie).expect("creating queue must not fail");
+            check_push_to_receipt_queue(input_receipts, &mut trie, &mut queue);
+        }
+
+        // drop queue and load another one to see if values are persisted
+        {
+            let mut queue = DelayedReceiptQueue::load(&trie).expect("creating queue must not fail");
+            check_receipt_queue_contains_receipts(input_receipts, &mut trie, &mut queue);
+        }
+    }
+
+    #[test]
+    fn test_outgoing_receipt_buffer_separately() {
+        // empty queues
+        check_outgoing_receipt_buffer_separately(&[]);
+
+        // with random receipts
+        let mut rng = rand::thread_rng();
+        check_outgoing_receipt_buffer_separately(&gen_receipts(&mut rng, 1));
+        check_outgoing_receipt_buffer_separately(&gen_receipts(&mut rng, 10));
+        check_outgoing_receipt_buffer_separately(&gen_receipts(&mut rng, 1000));
+    }
+
+    /// Check if inserting, reading, and popping from the outgoing buffers
+    /// works, loading one buffer at the time.
+    #[track_caller]
+    fn check_outgoing_receipt_buffer_separately(input_receipts: &[Receipt]) {
+        let mut trie = init_state();
+        for id in 0..2u32 {
+            // load a buffer to fill it with receipts
+            {
+                let mut buffers = ShardsOutgoingReceiptBuffer::load(&trie)
+                    .expect("creating buffers must not fail");
+                let mut buffer = buffers.to_shard(ShardId::from(id));
+                check_push_to_receipt_queue(input_receipts, &mut trie, &mut buffer);
+            }
+
+            // drop queue and load another one to see if values are persisted
+            {
+                let mut buffers = ShardsOutgoingReceiptBuffer::load(&trie)
+                    .expect("creating buffers must not fail");
+                let mut buffer = buffers.to_shard(ShardId::from(id));
+                check_receipt_queue_contains_receipts(input_receipts, &mut trie, &mut buffer);
+            }
+        }
+    }
+
+    /// Check if inserting, reading, and popping from the outgoing buffers
+    /// works, loading buffers to all shards together.
+    #[test]
+    fn test_outgoing_receipt_buffer_combined() {
+        // empty queues
+        check_outgoing_receipt_buffer_combined(&[]);
+
+        // with random receipts
+        let mut rng = rand::thread_rng();
+        check_outgoing_receipt_buffer_combined(&gen_receipts(&mut rng, 1));
+        check_outgoing_receipt_buffer_combined(&gen_receipts(&mut rng, 10));
+        check_outgoing_receipt_buffer_combined(&gen_receipts(&mut rng, 1000));
+    }
+
+    #[track_caller]
+    fn check_outgoing_receipt_buffer_combined(input_receipts: &[Receipt]) {
+        let mut trie = init_state();
+        // load shard_buffers once and hold on to it for the entire duration
+        let mut shard_buffers =
+            ShardsOutgoingReceiptBuffer::load(&trie).expect("creating buffers must not fail");
+        for id in 0..2u32 {
+            // load a buffer to fill it with receipts
+            {
+                let mut buffer = shard_buffers.to_shard(ShardId::from(id));
+                check_push_to_receipt_queue(input_receipts, &mut trie, &mut buffer);
+            }
+
+            // drop queue and load another one to see if values are persisted
+            {
+                let mut buffer = shard_buffers.to_shard(ShardId::from(id));
+                check_receipt_queue_contains_receipts(input_receipts, &mut trie, &mut buffer);
+            }
+        }
+    }
+
+    /// Add given receipts to the  receipts queue, then use `ReceiptIterator` to
+    /// read them back and assert it has the same receipts in the same order.
+    #[track_caller]
+    fn check_push_to_receipt_queue(
+        input_receipts: &[Receipt],
+        trie: &mut TrieUpdate,
+        queue: &mut impl TrieQueue,
+    ) {
         for receipt in input_receipts {
-            queue.push(&mut trie, receipt).expect("pushing must not fail");
+            queue.push(trie, receipt).expect("pushing must not fail");
         }
         let iterated_receipts: Vec<Receipt> =
-            queue.iter(&trie).collect::<Result<_, _>>().expect("iterating should not fail");
+            queue.iter(trie).collect::<Result<_, _>>().expect("iterating should not fail");
 
         // check 1: receipts should be in queue and contained in the iterator
         assert_eq!(input_receipts, iterated_receipts, "receipts were not recorded in queue");
+    }
 
-        // check 2: drop queue and load another one to see if values are persisted
-        #[allow(clippy::drop_non_drop)]
-        drop(queue);
-        let mut queue = DelayedReceiptQueue::load(&trie).expect("creating queue must not fail");
+    /// Assert receipts are in the queue and accessible from an iterator and
+    /// from popping one by one.
+    #[track_caller]
+    fn check_receipt_queue_contains_receipts(
+        input_receipts: &[Receipt],
+        trie: &mut TrieUpdate,
+        queue: &mut impl TrieQueue,
+    ) {
+        // check 2: assert newly loaded queue still contains the receipts
         let iterated_receipts: Vec<Receipt> =
-            queue.iter(&trie).collect::<Result<_, _>>().expect("iterating should not fail");
+            queue.iter(trie).collect::<Result<_, _>>().expect("iterating should not fail");
         assert_eq!(input_receipts, iterated_receipts, "receipts were not persisted correctly");
 
         // check 3: pop receipts from queue and check if all are returned in the right order
         let mut popped = vec![];
-        while let Some(receipt) = queue.pop(&mut trie).expect("pop must not fail") {
+        while let Some(receipt) = queue.pop(trie).expect("pop must not fail") {
             popped.push(receipt);
         }
         assert_eq!(input_receipts, popped, "receipts were not popped correctly");
