@@ -379,6 +379,8 @@ impl StateChanges {
                 TrieKey::PromiseYieldIndices => {}
                 TrieKey::PromiseYieldTimeout { .. } => {}
                 TrieKey::PromiseYieldReceipt { .. } => {}
+                TrieKey::BufferedReceiptIndices => {}
+                TrieKey::BufferedReceipt { .. } => {}
             }
         }
 

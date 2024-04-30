@@ -103,6 +103,9 @@ impl ShardTries {
                         None => trie_update.remove(trie_key),
                     }
                 }
+                // TODO(congestion_control)
+                TrieKey::BufferedReceiptIndices => todo!(),
+                TrieKey::BufferedReceipt { .. } => todo!(),
             }
         }
         for (_, update) in trie_updates.iter_mut() {
