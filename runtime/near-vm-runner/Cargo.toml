@@ -37,13 +37,15 @@ strum.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+prometheus.workspace = true
 wasm-encoder = { workspace = true, optional = true }
 wasmparser = { workspace = true, optional = true }
 wasmtime = { workspace = true, optional = true }
 
 near-crypto.workspace = true
-near-primitives-core.workspace = true
+near-o11y.workspace = true
 near-parameters.workspace = true
+near-primitives-core.workspace = true
 bytesize.workspace = true
 
 # Old versions of pwasm-utils we need to preserve backwards compatibility under
