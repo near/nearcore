@@ -953,12 +953,14 @@ impl Runtime {
         }
 
         if deposit_refund > 0 {
+            println!("deposit refund: {}", deposit_refund);
             result
                 .new_receipts
                 .push(Receipt::new_balance_refund(&receipt.predecessor_id, deposit_refund));
         }
 
         if gas_balance_refund > 0 {
+            println!("gas refund: {}", gas_balance_refund);
             if checked_feature!("nightly_protocol", GasPriceRefundAdjustment, protocol_version) {
                 // Charging for gas refund receipt. Send fee is burnt now, exec will be burnt at the
                 // refund time.
