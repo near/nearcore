@@ -97,24 +97,14 @@ pub(crate) fn compilation_duration(kind: near_parameters::vm::VMKind, duration: 
     });
 }
 
-/// Updates metrics to record that the runtime has found an entry in compiled contract cache.
-pub(crate) fn record_compiled_contract_cache_hit() {
+/// Updates metrics to record a compiled-contract cache lookup that finds
+/// an entry in the cache (is_hit=true) or not (is_hit=false).
+pub(crate) fn record_compiled_contract_cache_lookup(is_hit: bool) {
     METRICS.with_borrow_mut(|m| {
         debug_assert!(
             m.compiled_contract_cache_hit.is_none(),
-            "Compiled context cache hit/miss should be reported once."
+            "Compiled contract cache lookup should be reported once."
         );
-        m.compiled_contract_cache_hit = Some(true);
-    });
-}
-
-/// Updates metrics to record that the runtime could not find an entry in compiled contract cache.
-pub(crate) fn record_compiled_contract_cache_miss() {
-    METRICS.with_borrow_mut(|m| {
-        debug_assert!(
-            m.compiled_contract_cache_hit.is_none(),
-            "Compiled context cache hit/miss should be reported once."
-        );
-        m.compiled_contract_cache_hit = Some(false);
+        m.compiled_contract_cache_hit = Some(is_hit);
     });
 }

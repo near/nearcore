@@ -239,12 +239,12 @@ impl NearVM {
                     let key = get_contract_cache_key(code_hash, &self.config);
                     let cache_record = cache.get(&key).map_err(CacheError::ReadError)?;
                     let Some(code) = cache_record else {
-                        crate::metrics::record_compiled_contract_cache_miss();
+                        crate::metrics::record_compiled_contract_cache_lookup(false);
                         return Err(VMRunnerError::CacheError(CacheError::ReadError(
                             std::io::Error::from(std::io::ErrorKind::NotFound),
                         )));
                     };
-                    crate::metrics::record_compiled_contract_cache_hit();
+                    crate::metrics::record_compiled_contract_cache_lookup(true);
 
                     match &code.compiled {
                         CompiledContract::CompileModuleError(err) => {
@@ -297,7 +297,7 @@ impl NearVM {
             move |value| {
                 let _span =
                     tracing::debug_span!(target: "vm", "NearVM::load_from_mem_cache").entered();
-                crate::metrics::record_compiled_contract_cache_hit();
+                crate::metrics::record_compiled_contract_cache_lookup(true);
                 let &(wasm_bytes, ref downcast) = value
                     .downcast_ref::<MemoryCacheType>()
                     .expect("downcast should always succeed");

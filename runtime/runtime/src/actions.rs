@@ -130,13 +130,6 @@ pub(crate) fn execute_function_call(
         promise_results,
         apply_state.cache.as_deref(),
     );
-    metrics.report(
-        &apply_state.shard_id.to_string(),
-        &apply_state
-            .apply_reason
-            .as_ref()
-            .map_or_else(|| String::from("unknown"), |r| r.to_string()),
-    );
     let result = match result_from_cache {
         Err(VMRunnerError::CacheError(CacheError::ReadError(err)))
             if err.kind() == std::io::ErrorKind::NotFound =>
@@ -184,7 +177,16 @@ pub(crate) fn execute_function_call(
             );
             r
         }
-        res => res,
+        res => {
+            metrics.report(
+                &apply_state.shard_id.to_string(),
+                &apply_state
+                    .apply_reason
+                    .as_ref()
+                    .map_or_else(|| String::from("unknown"), |r| r.to_string()),
+            );
+            res
+        }
     };
 
     if checked_feature!("stable", ChunkNodesCache, protocol_version) {
