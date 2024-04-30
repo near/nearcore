@@ -263,7 +263,6 @@ impl Network {
             announce_account: Sender::from_async_fn(|accounts: AnnounceAccountRequest| {
                 Ok(accounts.0.into_iter().map(|a| a.0).collect::<Vec<_>>())
             }),
-            chunk_state_witness: noop().into_sender(),
             chunk_endorsement: noop().into_sender(),
         }
     }
