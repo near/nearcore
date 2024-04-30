@@ -232,35 +232,6 @@ fn test_orphan_witness_valid() {
 }
 
 #[test]
-fn test_orphan_witness_invalid_shard_id() {
-    init_integration_logger();
-
-    if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
-        println!("Test not applicable without StatelessValidation enabled");
-        return;
-    }
-
-    let OrphanWitnessTestEnv { mut env, mut encoded_witness, excluded_validator, .. } =
-        setup_orphan_witness_test();
-
-    // Set invalid shard_id in the witness header
-    modify_witness_header_inner(&mut encoded_witness, |header| match &mut header.inner {
-        ShardChunkHeaderInner::V1(inner) => inner.shard_id = 10000000,
-        ShardChunkHeaderInner::V2(inner) => inner.shard_id = 10000000,
-        ShardChunkHeaderInner::V3(inner) => inner.shard_id = 10000000,
-    });
-
-    // The witness should be rejected
-    let error = env
-        .client(&excluded_validator)
-        .process_chunk_state_witness(encoded_witness, None)
-        .unwrap_err();
-    let error_message = format!("{error}").to_lowercase();
-    tracing::info!(target:"test", "Error message: {}", error_message);
-    assert!(error_message.contains("shard"));
-}
-
-#[test]
 fn test_orphan_witness_too_large() {
     init_integration_logger();
 

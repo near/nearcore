@@ -2928,7 +2928,7 @@ fn test_verify_partial_witness_signature() {
     // Check chunk state witness invalidity when signer is not a chunk validator.
     let bad_signer = Arc::new(create_test_signer("test2"));
     let bad_partial_witness = PartialEncodedStateWitness::new(
-        epoch_id.clone(),
+        epoch_id,
         chunk_header,
         0,
         "witness".bytes().collect(),
