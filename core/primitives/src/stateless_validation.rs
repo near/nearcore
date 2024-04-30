@@ -28,7 +28,7 @@ type SignatureDifferentiator = String;
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct PartialEncodedStateWitness {
     inner: PartialEncodedStateWitnessInner,
-    signature: Signature,
+    pub signature: Signature,
 }
 
 impl PartialEncodedStateWitness {
@@ -151,16 +151,6 @@ impl EncodedChunkStateWitness {
     pub fn as_slice(&self) -> &[u8] {
         &self.0
     }
-}
-
-// TODO(stateless_validation): Deprecate once we send state witness in parts.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct SignedEncodedChunkStateWitness {
-    /// The content of the witness. It is convenient have it as bytes in order
-    /// to perform signature verification along with decoding.
-    pub witness_bytes: EncodedChunkStateWitness,
-    /// Signature corresponds to `witness_bytes.as_slice()` signed by the chunk producer
-    pub signature: Signature,
 }
 
 /// An acknowledgement sent from the chunk producer upon receiving the state witness to

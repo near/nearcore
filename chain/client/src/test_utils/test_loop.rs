@@ -13,8 +13,8 @@ use near_async::time::Duration;
 
 use crate::Client;
 use near_network::client::{
-    BlockApproval, BlockResponse, ChunkEndorsementMessage, ChunkStateWitnessMessage,
-    ClientSenderForNetwork, ClientSenderForNetworkMessage, ProcessTxRequest,
+    BlockApproval, BlockResponse, ChunkEndorsementMessage, ClientSenderForNetwork,
+    ClientSenderForNetworkMessage, ProcessTxRequest,
 };
 use near_network::state_witness::{
     ChunkStateWitnessAckMessage, PartialEncodedStateWitnessForwardMessage,
@@ -164,24 +164,6 @@ pub fn route_network_messages_to_client<
                     );
                 } else {
                     tracing::warn!("Dropping message to self");
-                }
-            }
-            NetworkRequests::ChunkStateWitness(targets, witness) => {
-                let other_idxes = targets
-                    .iter()
-                    .map(|account| data.index_for_account(account))
-                    .collect::<Vec<_>>();
-                for other_idx in &other_idxes {
-                    if *other_idx != idx {
-                        drop(
-                            client_senders[*other_idx]
-                                .send_async(ChunkStateWitnessMessage(witness.clone())),
-                        );
-                    } else {
-                        tracing::warn!(
-                                "ChunkStateWitness asked to send to nodes {:?}, but {} is ourselves, so skipping that",
-                                other_idxes, idx);
-                    }
                 }
             }
             NetworkRequests::ChunkStateWitnessAck(target, witness_ack) => {
@@ -353,8 +335,6 @@ impl<Data: AsRef<Client> + AsRef<AccountId>> ClientQueries for Vec<Data> {
 pub fn forward_messages_from_state_witness_actor_to_client(
 ) -> LoopEventHandler<ClientActions, ClientSenderForStateWitnessMessage> {
     LoopEventHandler::new_simple(|msg, client_actions: &mut ClientActions| match msg {
-        ClientSenderForStateWitnessMessage::_receive_chunk_state_witness(msg) => {
-            client_actions.handle(msg)
-        }
+        ClientSenderForStateWitnessMessage::_chunk_state_witness(msg) => client_actions.handle(msg),
     })
 }

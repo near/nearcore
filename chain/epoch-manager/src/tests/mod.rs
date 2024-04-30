@@ -18,10 +18,7 @@ use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
-use near_primitives::stateless_validation::{
-    ChunkStateTransition, ChunkStateWitness, EncodedChunkStateWitness,
-    SignedEncodedChunkStateWitness,
-};
+use near_primitives::stateless_validation::PartialEncodedStateWitness;
 use near_primitives::types::ValidatorKickoutReason::{NotEnoughBlocks, NotEnoughChunks};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::ProtocolFeature::SimpleNightshade;
@@ -2883,7 +2880,7 @@ fn test_verify_chunk_endorsements() {
 }
 
 #[test]
-fn test_verify_chunk_state_witness() {
+fn test_verify_partial_witness_signature() {
     use near_crypto::Signature;
     use near_primitives::test_utils::create_test_signer;
     use std::str::FromStr;
@@ -2914,45 +2911,31 @@ fn test_verify_chunk_state_witness() {
 
     // Build a chunk state witness with arbitrary data.
     let chunk_header = test_chunk_header(&h, signer.as_ref());
-    let witness = ChunkStateWitness::new(
-        chunk_producer.clone(),
+    let mut partial_witness = PartialEncodedStateWitness::new(
         epoch_id.clone(),
-        chunk_header,
-        ChunkStateTransition {
-            block_hash: h[0],
-            base_state: Default::default(),
-            post_state_root: h[3],
-        },
-        Default::default(),
-        h[4],
-        vec![],
-        vec![],
-        vec![],
-        Default::default(),
+        chunk_header.clone(),
+        0,
+        "witness".bytes().collect(),
+        7,
+        signer.as_ref(),
     );
-    // Check chunk state witness validity.
-    let witness_bytes = EncodedChunkStateWitness::encode(&witness).unwrap().0;
-    let mut chunk_state_witness = SignedEncodedChunkStateWitness {
-        signature: signer.sign_chunk_state_witness(&witness_bytes),
-        witness_bytes,
-    };
-    assert!(epoch_manager
-        .verify_chunk_state_witness_signature(&chunk_state_witness, &chunk_producer, &epoch_id)
-        .unwrap());
+    assert!(epoch_manager.verify_partial_witness_signature(&partial_witness).unwrap());
 
     // Check invalid chunk state witness signature.
-    chunk_state_witness.signature = Signature::default();
-    assert!(!epoch_manager
-        .verify_chunk_state_witness_signature(&chunk_state_witness, &chunk_producer, &epoch_id)
-        .unwrap());
+    partial_witness.signature = Signature::default();
+    assert!(!epoch_manager.verify_partial_witness_signature(&partial_witness).unwrap());
 
     // Check chunk state witness invalidity when signer is not a chunk validator.
     let bad_signer = Arc::new(create_test_signer("test2"));
-    chunk_state_witness.signature =
-        bad_signer.sign_chunk_state_witness(&chunk_state_witness.witness_bytes);
-    assert!(!epoch_manager
-        .verify_chunk_state_witness_signature(&chunk_state_witness, &chunk_producer, &epoch_id)
-        .unwrap());
+    let bad_partial_witness = PartialEncodedStateWitness::new(
+        epoch_id.clone(),
+        chunk_header,
+        0,
+        "witness".bytes().collect(),
+        7,
+        bad_signer.as_ref(),
+    );
+    assert!(!epoch_manager.verify_partial_witness_signature(&bad_partial_witness).unwrap());
 }
 
 /// Simulate the blockchain over a few epochs and verify that possible_epochs_of_height_around_tip()

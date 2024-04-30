@@ -350,7 +350,7 @@ impl TestEnv {
         // clients. Ideally the route should have been the following:
         // [client] ----(DistributeStateWitnessRequest)----> [state_witness_actor]
         // [state_witness_actor] ----(PartialEncodedStateWitness + Forward)----> [state_witness_actor]
-        // [state_witness_actor] ----(ProcessChunkStateWitnessMessage)----> [client]
+        // [state_witness_actor] ----(ChunkStateWitnessMessage)----> [client]
         // But we go directly from processing DistributeStateWitnessRequest to sending it to all the chunk validators.
         // Validation of state witness is done in the state_witness_actor which should be tested by test_loop.
         let state_witness_adapters = self.state_witness_adapters.clone();

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use lru::LruCache;
 use near_async::messaging::CanSend;
-use near_chain::chain::ProcessChunkStateWitnessMessage;
+use near_chain::chain::ChunkStateWitnessMessage;
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::reed_solomon::reed_solomon_decode;
@@ -174,7 +174,7 @@ impl PartialEncodedStateWitnessTracker {
         let entry = self.parts_cache.get_mut(&key).unwrap();
 
         if let Some(encoded_witness) = entry.insert_in_cache_entry(partial_witness) {
-            self.client_sender.send(ProcessChunkStateWitnessMessage(encoded_witness));
+            self.client_sender.send(ChunkStateWitnessMessage(encoded_witness));
         }
         Ok(())
     }
