@@ -42,7 +42,6 @@ use near_vm_runner::precompile_contract;
 use near_vm_runner::ContractCode;
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
 
-use near_primitives::shard_layout::ShardUId;
 use std::sync::Arc;
 
 /// Returns `ContractCode` (if exists) for the given `account` or returns `StorageError`.
@@ -131,7 +130,13 @@ pub(crate) fn execute_function_call(
         promise_results,
         apply_state.cache.as_deref(),
     );
-    metrics.report(&apply_state.shard_id.to_string());
+    metrics.report(
+        &apply_state.shard_id.to_string(),
+        &apply_state
+            .apply_reason
+            .as_ref()
+            .map_or_else(|| String::from("unknown"), |r| r.to_string()),
+    );
     let result = match result_from_cache {
         Err(VMRunnerError::CacheError(CacheError::ReadError(err)))
             if err.kind() == std::io::ErrorKind::NotFound =>
@@ -170,7 +175,13 @@ pub(crate) fn execute_function_call(
                 promise_results,
                 apply_state.cache.as_deref(),
             );
-            metrics.report(&apply_state.shard_id.to_string(), apply_state.apply_reason.to_string()););
+            metrics.report(
+                &apply_state.shard_id.to_string(),
+                &apply_state
+                    .apply_reason
+                    .as_ref()
+                    .map_or_else(|| String::from("unknown"), |r| r.to_string()),
+            );
             r
         }
         res => res,

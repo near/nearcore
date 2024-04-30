@@ -244,7 +244,7 @@ impl NearVM {
                             std::io::Error::from(std::io::ErrorKind::NotFound),
                         )));
                     };
-                    
+
                     match &code.compiled {
                         CompiledContract::CompileModuleError(err) => {
                             Ok::<_, VMRunnerError>(to_any((code.wasm_bytes, Err(err.clone()))))
