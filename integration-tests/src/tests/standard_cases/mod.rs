@@ -44,11 +44,20 @@ pub(crate) fn fee_helper(node: &impl Node) -> FeeHelper {
     FeeHelper::new(RuntimeConfig::test(), node.genesis().config.min_gas_price)
 }
 
-fn assert_receipts_outcome_len(transaction_result: &FinalExecutionOutcomeView, expected_len_without_refund: usize) {
+fn assert_receipts_outcome_len(
+    transaction_result: &FinalExecutionOutcomeView,
+    expected_len_without_refund: usize,
+) {
     if checked_feature!("nightly_protocol", GasPriceRefundAdjustment, PROTOCOL_VERSION) {
-        assert_eq!(transaction_result.receipts_outcome.len(), expected_len_without_refund, "receipts_outcome: {:?}", transaction_result.receipts_outcome);
+        assert_eq!(
+            transaction_result.receipts_outcome.len(),
+            expected_len_without_refund,
+            "receipts_outcome: {:?}",
+            transaction_result.receipts_outcome
+        );
     } else {
-        assert!([expected_len_without_refund, expected_len_without_refund + 1].contains(&transaction_result.receipts_outcome.len()));
+        assert!([expected_len_without_refund, expected_len_without_refund + 1]
+            .contains(&transaction_result.receipts_outcome.len()));
     }
 }
 
@@ -437,15 +446,17 @@ pub fn trying_to_create_implicit_account(node: impl Node, public_key: PublicKey)
         .unwrap();
 
     let create_account_send_fee = fee_helper.cfg().fee(ActionCosts::create_account).send_fee(false);
-    let add_access_key_send_fee = fee_helper.cfg().fee(ActionCosts::add_full_access_key).send_fee(false);
+    let add_access_key_send_fee =
+        fee_helper.cfg().fee(ActionCosts::add_full_access_key).send_fee(false);
 
     let create_account_exec_fee = fee_helper.cfg().fee(ActionCosts::create_account).exec_fee();
     let add_access_key_exec_fee = fee_helper.cfg().fee(ActionCosts::add_full_access_key).exec_fee();
 
     let cost = match receiver_id.get_account_type() {
         AccountType::NearImplicitAccount => {
-            fee_helper.create_account_transfer_full_key_cost_fail_on_create_account(create_account_exec_fee + add_access_key_exec_fee)
-                + fee_helper.gas_to_balance(create_account_send_fee + add_access_key_send_fee)
+            fee_helper.create_account_transfer_full_key_cost_fail_on_create_account(
+                create_account_exec_fee + add_access_key_exec_fee,
+            ) + fee_helper.gas_to_balance(create_account_send_fee + add_access_key_send_fee)
         }
         AccountType::EthImplicitAccount => {
             // This test uses `node_user.create_account` method that is normally used for NamedAccounts and should fail here.
@@ -659,7 +670,8 @@ pub fn test_create_account_again(node: impl Node) {
 
     // Additional cost for trying to create an account with repeated name. Will fail after
     // the first action.
-    let additional_cost = fee_helper.create_account_transfer_full_key_cost_fail_on_create_account(0);
+    let additional_cost =
+        fee_helper.create_account_transfer_full_key_cost_fail_on_create_account(0);
 
     let result1 = node_user.view_account(account_id).unwrap();
     assert_eq!(
