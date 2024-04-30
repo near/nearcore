@@ -1093,6 +1093,13 @@ pub trait EpochInfoProvider {
 
     /// Get the chain_id of the chain this epoch belongs to
     fn chain_id(&self) -> String;
+
+    /// Which shard the account belongs to in the given epoch.
+    fn account_id_to_shard_id(
+        &self,
+        account_id: &AccountId,
+        epoch_id: &EpochId,
+    ) -> Result<ShardId, EpochError>;
 }
 
 /// Mode of the trie cache.
