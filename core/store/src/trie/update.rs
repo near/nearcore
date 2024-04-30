@@ -64,10 +64,6 @@ impl TrieUpdate {
         key: &TrieKey,
         mode: KeyLookupMode,
     ) -> Result<Option<TrieUpdateValuePtr<'_>>, StorageError> {
-        let x = self.trie.storage.retrieve_raw_bytes(&CryptoHash::default())?;
-        if x[0] == 0 {
-            panic!("get_ref");
-        }
         let key = key.to_vec();
         if let Some(key_value) = self.prospective.get(&key) {
             return Ok(key_value.value.as_deref().map(TrieUpdateValuePtr::MemoryRef));

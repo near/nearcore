@@ -12,8 +12,10 @@ pub struct TrieRecorder {
     /// Counts removals performed while recording.
     /// recorded_storage_size_upper_bound takes it into account when calculating the total size.
     removal_counter: usize,
+    /// Counts the total size of the contract codes read while recording.
     code_len_counter: usize,
-    pub read_codes_for: HashSet<AccountId>,
+    /// Account IDs for which the code should be recorded.
+    pub codes_to_record: HashSet<AccountId>,
 }
 
 impl TrieRecorder {
@@ -23,7 +25,7 @@ impl TrieRecorder {
             size: 0,
             removal_counter: 0,
             code_len_counter: 0,
-            read_codes_for: Default::default(),
+            codes_to_record: Default::default(),
         }
     }
 
@@ -53,7 +55,8 @@ impl TrieRecorder {
         self.size
     }
 
-    /// Size of the recorded state proof plus some additional size added to cover removals.
+    /// Size of the recorded state proof plus some additional size added to cover removals
+    /// and contract codes.
     /// An upper-bound estimation of the true recorded size after finalization.
     /// See https://github.com/near/nearcore/issues/10890 and https://github.com/near/nearcore/pull/11000 for details.
     pub fn recorded_storage_size_upper_bound(&self) -> usize {

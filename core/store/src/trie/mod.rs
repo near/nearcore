@@ -746,27 +746,26 @@ impl Trie {
         self.storage.as_caching_storage()
     }
 
-    pub fn internal_get_storage_as_partial_storage(&self) -> Option<&TrieMemoryPartialStorage> {
-        self.storage.as_partial_storage()
-    }
-
+    /// Gets code directly from contract storage, bypassing the trie.
     pub fn get_code(&self, code_hash: CryptoHash) -> Option<ContractCode> {
         self.contract_storage.get(code_hash)
     }
 
+    /// Request that the code for the given account ID be recorded.
     pub fn request_code_recording(&self, account_id: AccountId) {
         let Some(recorder) = &self.recorder else {
             return;
         };
         {
             let mut r = recorder.borrow_mut();
-            if r.read_codes_for.contains(&account_id) {
+            if r.codes_to_record.contains(&account_id) {
                 return;
             }
-            r.read_codes_for.insert(account_id.clone());
+            r.codes_to_record.insert(account_id.clone());
         }
 
-        // Get ValueRef to update upper bound.
+        // Get code length from ValueRef to update estimated upper bound for
+        // recorded state.
         let key = TrieKey::ContractCode { account_id };
         let value_ref = self.get_optimized_ref(&key.to_vec(), KeyLookupMode::FlatStorage);
         if let Ok(Some(value_ref)) = value_ref {
@@ -1551,13 +1550,13 @@ impl Trie {
     where
         I: IntoIterator<Item = (Vec<u8>, Option<Vec<u8>>)>,
     {
-        // codes
-        let read_codes_for = if let Some(recorder) = &self.recorder {
-            recorder.borrow().read_codes_for.clone()
+        // Call `get` for contract codes requested to be recorded.
+        let codes_to_record = if let Some(recorder) = &self.recorder {
+            recorder.borrow().codes_to_record.clone()
         } else {
             HashSet::default()
         };
-        for account_id in read_codes_for {
+        for account_id in codes_to_record {
             let trie_key = TrieKey::ContractCode { account_id: account_id.clone() };
             let _ = self.get(&trie_key.to_vec());
         }
