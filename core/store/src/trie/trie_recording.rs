@@ -12,7 +12,7 @@ pub struct TrieRecorder {
     /// Counts removals performed while recording.
     /// recorded_storage_size_upper_bound takes it into account when calculating the total size.
     removal_counter: usize,
-    code_counter: usize,
+    code_len_counter: usize,
     pub read_codes_for: HashSet<AccountId>,
 }
 
@@ -22,7 +22,7 @@ impl TrieRecorder {
             recorded: HashMap::new(),
             size: 0,
             removal_counter: 0,
-            code_counter: 0,
+            code_len_counter: 0,
             read_codes_for: Default::default(),
         }
     }
@@ -38,8 +38,8 @@ impl TrieRecorder {
         self.removal_counter = self.removal_counter.saturating_add(1)
     }
 
-    pub fn record_code(&mut self, code_len: usize) {
-        self.code_counter = self.code_counter.saturating_add(code_len)
+    pub fn record_code_len(&mut self, code_len: usize) {
+        self.code_len_counter = self.code_len_counter.saturating_add(code_len)
     }
 
     pub fn recorded_storage(&mut self) -> PartialStorage {
@@ -59,7 +59,9 @@ impl TrieRecorder {
     pub fn recorded_storage_size_upper_bound(&self) -> usize {
         // Charge 2000 bytes for every removal
         let removals_size = self.removal_counter.saturating_mul(2000);
-        self.recorded_storage_size().saturating_add(removals_size).saturating_add(self.code_counter)
+        self.recorded_storage_size()
+            .saturating_add(removals_size)
+            .saturating_add(self.code_len_counter)
     }
 }
 

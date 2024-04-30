@@ -333,8 +333,26 @@ impl std::fmt::Debug for TrieNode {
     }
 }
 
+struct ContractStorage {
+    storage: Rc<dyn TrieStorage>,
+}
+
+impl ContractStorage {
+    fn new(storage: Rc<dyn TrieStorage>) -> Self {
+        Self { storage }
+    }
+
+    pub fn get(&self, code_hash: CryptoHash) -> Option<ContractCode> {
+        match self.storage.retrieve_raw_bytes(&code_hash) {
+            Ok(raw_code) => Some(ContractCode::new(raw_code.to_vec(), Some(code_hash))),
+            Err(_) => None,
+        }
+    }
+}
+
 pub struct Trie {
     storage: Rc<dyn TrieStorage>,
+    contract_storage: ContractStorage,
     memtries: Option<Arc<RwLock<MemTries>>>,
     root: StateRoot,
     /// If present, flat storage is used to look up keys (if asked for).
@@ -648,7 +666,8 @@ impl Trie {
             None => RefCell::new(TrieAccountingCache::new(None)),
         };
         Trie {
-            storage,
+            storage: storage.clone(),
+            contract_storage: ContractStorage::new(storage),
             memtries,
             root,
             charge_gas_for_trie_node_access: flat_storage_chunk_view.is_none(),
@@ -731,11 +750,11 @@ impl Trie {
         self.storage.as_partial_storage()
     }
 
-    pub fn mark_code(&self, account_id: AccountId) {
-        // debatable
-        let Some(_) = self.storage.as_caching_storage() else {
-            return;
-        };
+    pub fn get_code(&self, code_hash: CryptoHash) -> Option<ContractCode> {
+        self.contract_storage.get(code_hash)
+    }
+
+    pub fn request_code_recording(&self, account_id: AccountId) {
         let Some(recorder) = &self.recorder else {
             return;
         };
@@ -752,7 +771,7 @@ impl Trie {
         let value_ref = self.get_optimized_ref(&key.to_vec(), KeyLookupMode::FlatStorage);
         if let Ok(Some(value_ref)) = value_ref {
             let mut r = recorder.borrow_mut();
-            r.record_code(value_ref.len());
+            r.record_code_len(value_ref.len());
         }
     }
 

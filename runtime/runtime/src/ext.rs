@@ -86,23 +86,8 @@ impl<'a> RuntimeExt<'a> {
         self.account_id
     }
 
-    pub fn mark_code(&self) {
-        self.trie_update.trie.mark_code(self.account_id.clone());
-    }
-
-    pub fn get_code(&self, code_hash: CryptoHash) -> Result<Option<ContractCode>, StorageError> {
-        // Directly read code from caching storage to avoid nondeterministic recording.
-        if let Some(storage) = self.trie_update.trie.internal_get_storage_as_caching_storage() {
-            let raw_code = storage.retrieve_raw_bytes(&code_hash)?;
-            return Ok(Some(ContractCode::new(raw_code.to_vec(), Some(code_hash))));
-        }
-
-        if let Some(storage) = self.trie_update.trie.internal_get_storage_as_partial_storage() {
-            let raw_code = storage.retrieve_raw_bytes(&code_hash)?;
-            return Ok(Some(ContractCode::new(raw_code.to_vec(), Some(code_hash))));
-        }
-
-        get_code(self.trie_update, self.account_id, Some(code_hash))
+    pub fn get_code(&self, code_hash: CryptoHash) -> Option<ContractCode> {
+        self.trie_update.trie.get_code(code_hash)
     }
 
     pub fn create_storage_key(&self, key: &[u8]) -> TrieKey {

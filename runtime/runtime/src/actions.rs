@@ -61,7 +61,7 @@ fn get_contract_code(
         assert!(&code_hash == wallet_contract_magic_bytes(&chain_id).hash());
         return Ok(Some(wallet_contract(&chain_id)));
     }
-    runtime_ext.get_code(code_hash).map(|option| option.map(Arc::new))
+    Ok(runtime_ext.get_code(code_hash).map(Arc::new))
 }
 
 /// Runs given function call with given context / apply state.
@@ -116,7 +116,6 @@ pub(crate) fn execute_function_call(
     // charge only for trie nodes touched during function calls.
     // TODO (#5920): Consider using RAII for switching the state back
 
-    runtime_ext.mark_code();
     let protocol_version = runtime_ext.protocol_version();
     if checked_feature!("stable", ChunkNodesCache, protocol_version) {
         runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingChunk);
@@ -240,6 +239,7 @@ pub(crate) fn action_function_call(
         )
         .into());
     }
+    state_update.trie.request_code_recording(account_id.clone());
     let mut receipt_manager = ReceiptManager::default();
     let mut runtime_ext = RuntimeExt::new(
         state_update,
