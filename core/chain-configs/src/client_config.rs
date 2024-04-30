@@ -476,6 +476,12 @@ pub struct ClientConfig {
     /// We keep only orphan witnesses which are smaller than this size.
     /// This limits the maximum memory usage of OrphanStateWitnessPool.
     pub orphan_state_witness_max_size: ByteSize,
+    /// Save observed instances of ChunkStateWitness to the database in DBCol::LatestChunkStateWitnesses.
+    /// Saving the latest witnesses is useful for analysis and debugging.
+    /// When this option is enabled, the node will save ALL witnesses it oberves, even invalid ones,
+    /// which can cause extra load on the database. This option is not recommended for production use,
+    /// as a large number of incoming witnesses could cause denial of service.
+    pub save_latest_witnesses: bool,
 }
 
 impl ClientConfig {
@@ -562,6 +568,7 @@ impl ClientConfig {
             chunk_distribution_network: None,
             orphan_state_witness_pool_size: default_orphan_state_witness_pool_size(),
             orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
+            save_latest_witnesses: false,
         }
     }
 }
