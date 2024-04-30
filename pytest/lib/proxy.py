@@ -90,11 +90,16 @@ class ProxyHandler:
             # (or preferably reimplement the test in rust).
             try:
                 message = BinarySerializer(schema).deserialize(
-                    raw_message, PeerMessage)
-            except IndexError:
-                # unparsable message, ignore.
+                    raw_message,
+                    PeerMessage,
+                )
+            except IndexError as err:
+                # This can happen when new fields are added to any of the
+                # messages. The new fields need to be added to the schema in the
+                # messages directory.
                 logging.warn(
-                    f"Warning: could not proxy message {raw_message.hex()}")
+                    f"Warning: could not deserialize and proxy message err: '{err}' message: '{raw_message.hex()}'"
+                )
                 return
             assert BinarySerializer(schema).serialize(message) == raw_message
 
@@ -118,7 +123,7 @@ class ProxyHandler:
                 decision = BinarySerializer(schema).serialize(decision)
 
             return decision
-        except:
+        except Exception as e:
             # TODO: Remove this
             if raw_message[0] == 13:
                 # raw_message[0] == 13 is RoutedMessage. Skip leading fields to get to the RoutedMessageBody
@@ -136,10 +141,11 @@ class ProxyHandler:
                     # Allow the handler determine if the message should be passed even when it couldn't be deserialized
                     return await self.handle(None, sender_ordinal,
                                              receiver_ordinal) is not False
-                logger.info(f"ERROR 13 {int(raw_message[ser.offset])}")
+                logger.info(
+                    f"ERROR 13 {int(raw_message[ser.offset])} exception={e}")
 
             else:
-                logger.info(f"ERROR {int(raw_message[0])}")
+                logger.info(f"ERROR {int(raw_message[0])} exception={e}")
 
             raise
 
@@ -316,9 +322,9 @@ async def handle_connection(outer_reader, outer_writer, inner_port, outer_port,
         logging.debug(
             f"ConnectionRefusedError (handle_connection). port={_MY_PORT} connection_id={connection_id} global_stopped={global_stopped.value} local_stopped={local_stopped.value} error={error.value}"
         )
-    except:
+    except Exception as e:
         logging.debug(
-            f"Other Error (handle_connection). port={_MY_PORT} connection_id={connection_id} global_stopped={global_stopped.value} local_stopped={local_stopped.value} error={error.value}"
+            f"Other Error (handle_connection). port={_MY_PORT} connection_id={connection_id} global_stopped={global_stopped.value} local_stopped={local_stopped.value} error={error.value} exception={e}"
         )
         error.value = 1
         raise
