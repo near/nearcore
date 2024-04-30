@@ -1,16 +1,39 @@
 pub use self::iterator::TrieUpdateIterator;
 use super::{OptimizedValueRef, Trie};
 use crate::trie::{KeyLookupMode, TrieChanges};
-use crate::StorageError;
+use crate::{StorageError, TrieStorage};
 use near_primitives::hash::CryptoHash;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     AccountId, RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause,
     StateRoot, TrieCacheMode,
 };
+use near_vm_runner::ContractCode;
 use std::collections::BTreeMap;
+use std::rc::Rc;
 
 mod iterator;
+
+/// Reads contract code from the trie by its hash.
+/// Currently, uses `TrieStorage`. Consider implementing separate logic for
+/// requesting and compiling contracts, as any contract code read and
+/// compilation is a major bottleneck during chunk execution.
+struct ContractStorage {
+    storage: Rc<dyn TrieStorage>,
+}
+
+impl ContractStorage {
+    fn new(storage: Rc<dyn TrieStorage>) -> Self {
+        Self { storage }
+    }
+
+    pub fn get(&self, code_hash: CryptoHash) -> Option<ContractCode> {
+        match self.storage.retrieve_raw_bytes(&code_hash) {
+            Ok(raw_code) => Some(ContractCode::new(raw_code.to_vec(), Some(code_hash))),
+            Err(_) => None,
+        }
+    }
+}
 
 /// Key-value update. Contains a TrieKey and a value.
 pub struct TrieKeyValueUpdate {
@@ -25,6 +48,7 @@ pub type TrieUpdates = BTreeMap<Vec<u8>, TrieKeyValueUpdate>;
 /// TODO (#7327): rename to StateUpdate
 pub struct TrieUpdate {
     pub trie: Trie,
+    contract_storage: ContractStorage,
     committed: RawStateChanges,
     prospective: TrieUpdates,
 }
@@ -52,7 +76,13 @@ impl<'a> TrieUpdateValuePtr<'a> {
 
 impl TrieUpdate {
     pub fn new(trie: Trie) -> Self {
-        TrieUpdate { trie, committed: Default::default(), prospective: Default::default() }
+        let trie_storage = trie.storage.clone();
+        Self {
+            trie,
+            contract_storage: ContractStorage::new(trie_storage),
+            committed: Default::default(),
+            prospective: Default::default(),
+        }
     }
 
     pub fn trie(&self) -> &Trie {
@@ -105,6 +135,8 @@ impl TrieUpdate {
         self.trie.get(&key)
     }
 
+    /// Gets code from trie updates or directly from contract storage,
+    /// bypassing the trie.
     pub fn get_code(
         &self,
         account_id: AccountId,
@@ -126,7 +158,7 @@ impl TrieUpdate {
             Some(raw_code) => {
                 raw_code.map(|code| near_vm_runner::ContractCode::new(code, Some(code_hash)))
             }
-            None => self.trie.get_code(code_hash),
+            None => self.contract_storage.get(code_hash),
         }
     }
 

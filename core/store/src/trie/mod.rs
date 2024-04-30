@@ -333,30 +333,8 @@ impl std::fmt::Debug for TrieNode {
     }
 }
 
-/// Reads contract code from the trie by its hash.
-/// Currently, uses `TrieStorage`. Consider implementing separate logic for
-/// requesting and compiling contracts, as any contract code read and
-/// compilation is a major bottleneck during chunk execution.
-struct ContractStorage {
-    storage: Rc<dyn TrieStorage>,
-}
-
-impl ContractStorage {
-    fn new(storage: Rc<dyn TrieStorage>) -> Self {
-        Self { storage }
-    }
-
-    pub fn get(&self, code_hash: CryptoHash) -> Option<ContractCode> {
-        match self.storage.retrieve_raw_bytes(&code_hash) {
-            Ok(raw_code) => Some(ContractCode::new(raw_code.to_vec(), Some(code_hash))),
-            Err(_) => None,
-        }
-    }
-}
-
 pub struct Trie {
     storage: Rc<dyn TrieStorage>,
-    contract_storage: ContractStorage,
     memtries: Option<Arc<RwLock<MemTries>>>,
     root: StateRoot,
     /// If present, flat storage is used to look up keys (if asked for).
@@ -670,8 +648,7 @@ impl Trie {
             None => RefCell::new(TrieAccountingCache::new(None)),
         };
         Trie {
-            storage: storage.clone(),
-            contract_storage: ContractStorage::new(storage),
+            storage,
             memtries,
             root,
             charge_gas_for_trie_node_access: flat_storage_chunk_view.is_none(),
@@ -748,11 +725,6 @@ impl Trie {
 
     pub fn internal_get_storage_as_caching_storage(&self) -> Option<&TrieCachingStorage> {
         self.storage.as_caching_storage()
-    }
-
-    /// Gets code directly from contract storage, bypassing the trie.
-    pub fn get_code(&self, code_hash: CryptoHash) -> Option<ContractCode> {
-        self.contract_storage.get(code_hash)
     }
 
     /// Request recording of the code for the given account.
