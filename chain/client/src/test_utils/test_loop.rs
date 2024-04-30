@@ -17,7 +17,9 @@ use near_network::client::{
     ClientSenderForNetwork, ClientSenderForNetworkMessage, ProcessTxRequest,
 };
 use near_network::state_witness::{
-    ChunkStateWitnessAckMessage, StateWitnessSenderForNetwork, StateWitnessSenderForNetworkMessage,
+    ChunkStateWitnessAckMessage, PartialEncodedStateWitnessForwardMessage,
+    PartialEncodedStateWitnessMessage, StateWitnessSenderForNetwork,
+    StateWitnessSenderForNetworkMessage,
 };
 use near_network::test_loop::SupportsRoutingLookup;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};

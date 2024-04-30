@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use borsh::{BorshDeserialize, BorshSerialize};
 use lru::LruCache;
 use near_async::messaging::CanSend;
 use near_chain::chain::ProcessChunkStateWitnessMessage;
@@ -24,73 +23,29 @@ const NUM_CHUNKS_IN_WITNESS_TRACKER_CACHE: usize = 200;
 const RATIO_DATA_PARTS: f32 = 0.8;
 
 /// Reed Solomon encoder for encoding state witness parts.
-/// We keep one wrapper for each length of chunk_validators to avoid re-creating the encoder.
+/// We keep one encoder for each length of chunk_validators to avoid re-creating the encoder.
 /// This is used by `PartialEncodedStateWitnessTracker`
+/// Note that ReedSolomon encoder does not support having exactly 1 total part count and no parity parts.
+/// In such cases, we use a dummy encoder with None value.
 pub struct RsMap {
-    rs_map: HashMap<usize, Arc<ReedSolomonWrapper>>,
+    rs_map: HashMap<usize, Arc<Option<ReedSolomon>>>,
 }
 
 impl RsMap {
     pub fn new() -> Self {
-        Self { rs_map: HashMap::new() }
+        let mut rs_map = HashMap::new();
+        rs_map.insert(1, Arc::new(None));
+        Self { rs_map }
     }
 
-    pub fn entry(&mut self, total_parts: usize) -> &ReedSolomonWrapper {
-        self.rs_map.entry(total_parts).or_insert_with(|| ReedSolomonWrapper::new(total_parts))
-    }
-}
-
-pub enum ReedSolomonWrapper {
-    SinglePart,
-    Rs(ReedSolomon),
-}
-
-impl ReedSolomonWrapper {
-    pub fn new(total_parts: usize) -> Self {
-        if total_parts == 1 {
-            Self::SinglePart
-        } else {
-            let data_parts = std::cmp::max((total_parts as f32 * RATIO_DATA_PARTS) as usize, 1);
-            Self::Rs(ReedSolomon::new(data_parts, total_parts - data_parts).unwrap())
-        }
-    }
-
-    pub fn total_shard_count(&self) -> usize {
-        match self {
-            Self::SinglePart => 1,
-            Self::Rs(rs) => rs.total_shard_count(),
-        }
-    }
-
-    pub fn data_shard_count(&self) -> usize {
-        match self {
-            Self::SinglePart => 1,
-            Self::Rs(rs) => rs.data_shard_count(),
-        }
-    }
-
-    pub fn encode<T: BorshSerialize>(&self, data: T) -> (Vec<Option<Box<[u8]>>>, usize) {
-        match self {
-            Self::SinglePart => {
-                let bytes = borsh::to_vec(&data).unwrap();
-                let encoded_length = bytes.len();
-                (vec![Some(bytes.into_boxed_slice())], encoded_length)
-            }
-            Self::Rs(rs) => rs_encode(&rs, data),
-        }
-    }
-
-    pub fn decode<T: BorshDeserialize>(
-        &self,
-        parts: &mut [Option<Box<[u8]>>],
-        encoded_length: usize,
-    ) -> Result<T, std::io::Error> {
-        match self {
-            Self::SinglePart => T::try_from_slice(
-                parts.first().unwrap_or(&None).as_ref().map(|t| t.as_ref()).unwrap_or_default(),
-            ),
-            Self::Rs(rs) => rs_decode(&rs, parts, encoded_length),
-        }
+    pub fn entry(&mut self, total_parts: usize) -> Arc<Option<ReedSolomon>> {
+        self.rs_map
+            .entry(total_parts)
+            .or_insert_with(|| {
+                let data_parts = std::cmp::max((total_parts as f32 * RATIO_DATA_PARTS) as usize, 1);
+                Arc::new(Some(ReedSolomon::new(data_parts, total_parts - data_parts).unwrap()))
+            })
+            .clone()
     }
 }
 
@@ -99,16 +54,20 @@ struct CacheEntry {
     pub data_parts_present: usize,
     pub data_parts_required: usize,
     pub parts: Vec<Option<Box<[u8]>>>,
-    pub rs: Arc<ReedSolomon>,
+    pub rs: Arc<Option<ReedSolomon>>,
 }
 
 impl CacheEntry {
-    pub fn new(rs: Arc<ReedSolomon>) -> Self {
+    pub fn new(rs: Arc<Option<ReedSolomon>>) -> Self {
+        let (data_parts, total_parts) = match rs.as_ref() {
+            Some(rs) => (rs.data_shard_count(), rs.total_shard_count()),
+            None => (1, 1),
+        };
         Self {
             is_decoded: false,
             data_parts_present: 0,
-            data_parts_required: rs.data_shard_count(),
-            parts: vec![None; rs.total_shard_count()],
+            data_parts_required: data_parts,
+            parts: vec![None; total_parts],
             rs,
         }
     }
@@ -148,7 +107,16 @@ impl CacheEntry {
         if self.data_parts_present < self.data_parts_required {
             return None;
         }
-        match reed_solomon_decode(&self.rs, &mut self.parts, encoded_length) {
+
+        // For the case when we are the only validator for the chunk, we don't need to do Reed Solomon encoding.
+        let decode_result = match self.rs.as_ref() {
+            Some(rs) => reed_solomon_decode(rs, &mut self.parts, encoded_length),
+            None => Ok(EncodedChunkStateWitness::from_boxed_slice(
+                self.parts[0].as_ref().unwrap().clone(),
+            )),
+        };
+
+        match decode_result {
             Ok(encoded_chunk_state_witness) => {
                 self.is_decoded = true;
                 Some(encoded_chunk_state_witness)

@@ -6,6 +6,7 @@ use near_async::time::Clock;
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
+use near_primitives::checked_feature;
 use near_primitives::reed_solomon::reed_solomon_encode;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::{
@@ -92,7 +93,6 @@ impl StateWitnessActions {
 
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         if !checked_feature!("stable", PartialEncodedStateWitness, protocol_version) {
-            // TODO(stateless_validation): Replace with call to send_state_witness_parts after full implementation
             self.send_state_witness(witness_bytes, chunk_validators);
         } else {
             self.send_state_witness_parts(epoch_id, chunk_header, witness_bytes, chunk_validators)?;
@@ -134,7 +134,15 @@ impl StateWitnessActions {
     ) -> Result<(), Error> {
         // Break the state witness into parts using Reed Solomon encoding.
         let rs = self.rs_map.entry(chunk_validators.len());
-        let (parts, encoded_length) = reed_solomon_encode(&rs, witness_bytes);
+
+        // For the case when we are the only validator for the chunk, we don't need to do Reed Solomon encoding.
+        let (parts, encoded_length) = match rs.as_ref() {
+            Some(rs) => reed_solomon_encode(&rs, witness_bytes),
+            None => (
+                vec![Some(witness_bytes.as_slice().to_vec().into_boxed_slice())],
+                witness_bytes.size_bytes(),
+            ),
+        };
 
         let validator_witness_tuple = chunk_validators
             .iter()

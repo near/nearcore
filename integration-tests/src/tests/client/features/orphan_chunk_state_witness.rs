@@ -349,7 +349,7 @@ fn test_orphan_witness_not_fully_validated() {
 }
 
 fn modify_witness_header_inner(
-    signed_witness: &mut SignedEncodedChunkStateWitness,
+    encoded_witness: &mut EncodedChunkStateWitness,
     f: impl FnOnce(&mut ShardChunkHeaderV3),
 ) {
     let mut witness = encoded_witness.decode().unwrap().0;
