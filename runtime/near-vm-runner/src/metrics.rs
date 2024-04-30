@@ -54,6 +54,7 @@ impl Metrics {
     }
 }
 
+#[cfg(any(feature = "near_vm", feature = "wasmtime_vm"))]
 pub(crate) fn compilation_duration(kind: VMKind, duration: Duration) {
     METRICS.with_borrow_mut(|m| match kind {
         VMKind::Wasmer0 => {}
