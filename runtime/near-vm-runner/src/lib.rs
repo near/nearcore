@@ -10,6 +10,7 @@ mod instrument;
 pub mod logic;
 #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
 mod memory;
+mod metrics;
 #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
 mod near_vm_runner;
 #[cfg(feature = "prepare")]
@@ -33,6 +34,7 @@ pub use cache::{
     NoContractRuntimeCache,
 };
 pub use code::ContractCode;
+pub use metrics::Metrics;
 pub use profile::ProfileDataV3;
 pub use runner::{run, VM};
 
