@@ -169,7 +169,6 @@ pytest --timeout=120 sanity/resharding_error_handling.py
 
 # TODO(resharding) Tests for resharding in nightly are disabled because
 # resharding is not compatible with stateless validation.
-
 # pytest --timeout=120 sanity/resharding.py --features nightly
 # pytest --timeout=120 sanity/resharding_rpc_tx.py --features nightly
 # pytest --timeout=120 sanity/resharding_restart.py --features nightly
