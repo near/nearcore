@@ -175,7 +175,6 @@ network_schema = [
                 ['StateRequestPart', None],
                 ['VersionedStateResponse', None],
                 ['SyncSnapshotHosts', None],
-
             ]
         }
     ],
