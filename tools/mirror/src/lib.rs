@@ -407,11 +407,7 @@ trait ChainAccess {
 
     async fn head_height(&self) -> Result<BlockHeight, ChainError>;
 
-    async fn get_txs(
-        &self,
-        height: BlockHeight,
-        shards: &[ShardId],
-    ) -> Result<SourceBlock, ChainError>;
+    async fn get_txs(&self, height: BlockHeight) -> Result<SourceBlock, ChainError>;
 
     async fn get_next_block_height(&self, height: BlockHeight) -> Result<BlockHeight, ChainError>;
 
@@ -462,6 +458,16 @@ fn execution_status_good(status: &ExecutionStatusView) -> bool {
     )
 }
 
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+struct MirrorConfig {
+    /// Delay between sending batches of mainnet transactions. If this is
+    /// given, then instead of trying to get the transactions in consecutive
+    /// mainnet blocks to appear in consecutive target chain blocks, we will
+    /// wait this long before sending each mainnet block's worth of transactions.
+    /// TODO: add an option to target a specific number of transactions per second
+    tx_batch_interval: Option<Duration>,
+}
+
 const CREATE_ACCOUNT_DELTA: usize = 5;
 
 struct TxMirror<T: ChainAccess> {
@@ -477,9 +483,9 @@ struct TxMirror<T: ChainAccess> {
     db: DB,
     target_genesis_height: BlockHeight,
     target_min_block_production_delay: Duration,
-    tracked_shards: Vec<ShardId>,
     secret: Option<[u8; crate::secret::SECRET_LEN]>,
     default_extra_key: SecretKey,
+    config: MirrorConfig,
 }
 
 fn open_db<P: AsRef<Path>>(home: P, config: &NearConfig) -> anyhow::Result<DB> {
@@ -859,6 +865,7 @@ impl<T: ChainAccess> TxMirror<T> {
         source_chain_access: T,
         target_home: P,
         secret: Option<[u8; crate::secret::SECRET_LEN]>,
+        config: MirrorConfig,
     ) -> anyhow::Result<Self> {
         let target_config =
             nearcore::config::load_config(target_home.as_ref(), GenesisValidationMode::UnsafeFast)
@@ -896,9 +903,9 @@ impl<T: ChainAccess> TxMirror<T> {
                 .client_config
                 .min_block_production_delay
                 .unsigned_abs(),
-            tracked_shards: target_config.config.tracked_shards,
             secret,
             default_extra_key,
+            config,
         })
     }
 
@@ -1444,33 +1451,13 @@ impl<T: ChainAccess> TxMirror<T> {
         create_account_height: BlockHeight,
         ref_hash: CryptoHash,
         tracker: &mut crate::chain_tracker::TxTracker,
-        chunks: &mut Vec<MappedChunk>,
+        txs: &mut Vec<TargetChainTx>,
     ) -> anyhow::Result<()> {
-        let source_block = self
-            .source_chain_access
-            .get_txs(create_account_height, &self.tracked_shards)
-            .await
-            .with_context(|| {
+        let source_block =
+            self.source_chain_access.get_txs(create_account_height).await.with_context(|| {
                 format!("Failed fetching chunks for source chain #{}", create_account_height)
             })?;
-        let mut added_chunk = false;
         for ch in source_block.chunks {
-            let txs = match chunks.iter_mut().find(|c| c.shard_id == ch.shard_id) {
-                Some(c) => &mut c.txs,
-                None => {
-                    // It doesnt really matter which one we put it in, since we're just going to send them all anyway
-                    tracing::warn!(
-                        "got unexpected source chunk shard id {} for #{}",
-                        ch.shard_id,
-                        create_account_height
-                    );
-                    if chunks.is_empty() {
-                        chunks.push(MappedChunk { shard_id: 0, txs: Vec::new() });
-                        added_chunk = true;
-                    }
-                    &mut chunks[0].txs
-                }
-            };
             for (idx, source_tx) in ch.transactions.into_iter().enumerate() {
                 self.add_tx_function_call_keys(
                     &source_tx,
@@ -1500,9 +1487,6 @@ impl<T: ChainAccess> TxMirror<T> {
                 .await?;
             }
         }
-        if added_chunk && chunks[0].txs.is_empty() {
-            chunks.clear();
-        }
         Ok(())
     }
 
@@ -1516,11 +1500,8 @@ impl<T: ChainAccess> TxMirror<T> {
         ref_hash: CryptoHash,
         tracker: &mut crate::chain_tracker::TxTracker,
     ) -> anyhow::Result<MappedBlock> {
-        let source_block = self
-            .source_chain_access
-            .get_txs(source_height, &self.tracked_shards)
-            .await
-            .with_context(|| {
+        let source_block =
+            self.source_chain_access.get_txs(source_height).await.with_context(|| {
                 format!("Failed fetching chunks for source chain #{}", source_height)
             })?;
 
@@ -1586,8 +1567,20 @@ impl<T: ChainAccess> TxMirror<T> {
             chunks.push(MappedChunk { txs, shard_id: ch.shard_id });
         }
         if let Some(create_account_height) = create_account_height {
-            self.add_create_account_txs(create_account_height, ref_hash, tracker, &mut chunks)
+            if !chunks.is_empty() {
+                // just add them to shard 0's transactions instead of caring about which one to put it in. Doesn't really
+                // matter since in the end we're just sending all of them
+                self.add_create_account_txs(
+                    create_account_height,
+                    ref_hash,
+                    tracker,
+                    &mut chunks[0].txs,
+                )
                 .await?;
+            } else {
+                // shouldn't happen
+                tracing::warn!("something is wrong as there are no chunks to send transactions for at height {}", source_height);
+            }
         }
         Ok(MappedBlock { source_height, source_hash: source_block.hash, chunks })
     }
@@ -1797,26 +1790,22 @@ impl<T: ChainAccess> TxMirror<T> {
 
         let mut tracker = crate::chain_tracker::TxTracker::new(
             self.target_min_block_production_delay,
+            self.config.tx_batch_interval,
             next_heights.iter(),
             stop_height,
         );
         let (target_height, target_head) = self.index_target_chain(&mut tracker).await?;
         if last_stored_height.is_none() {
             // send any extra function call-initiated create accounts for the first few blocks right now
-            let chunks = self
-                .tracked_shards
-                .iter()
-                .map(|s| MappedChunk { shard_id: *s, txs: Vec::new() })
-                .collect();
             // we set source_hash to 0 because we don't actually care about it here, and it doesn't even exist since these are
             // not transactions corresponding to some actual block, but just extra txs create account actions in the first few blocks.
             let mut block = MappedBlock {
                 source_hash: CryptoHash::default(),
                 source_height: last_height,
-                chunks,
+                chunks: vec![MappedChunk { shard_id: 0, txs: Vec::new() }],
             };
             for h in next_heights {
-                self.add_create_account_txs(h, target_head, &mut tracker, &mut block.chunks)
+                self.add_create_account_txs(h, target_head, &mut tracker, &mut block.chunks[0].txs)
                     .await?;
             }
             if block.chunks.iter().any(|c| !c.txs.is_empty()) {
@@ -1846,16 +1835,28 @@ async fn run<P: AsRef<Path>>(
     secret: Option<[u8; crate::secret::SECRET_LEN]>,
     stop_height: Option<BlockHeight>,
     online_source: bool,
+    config_path: Option<P>,
 ) -> anyhow::Result<()> {
+    let config: MirrorConfig = match config_path {
+        Some(p) => {
+            let c = std::fs::read_to_string(p.as_ref())
+                .with_context(|| format!("Could not read config from {}", p.as_ref().display()))?;
+            serde_json::from_str(&c)
+                .with_context(|| format!("Could not parse config from {}", p.as_ref().display()))?
+        }
+        None => Default::default(),
+    };
     if !online_source {
         let source_chain_access = crate::offline::ChainAccess::new(source_home)?;
         let stop_height = stop_height.unwrap_or(
             source_chain_access.head_height().await.context("could not fetch source chain head")?,
         );
-        TxMirror::new(source_chain_access, target_home, secret)?.run(Some(stop_height)).await
+        TxMirror::new(source_chain_access, target_home, secret, config)?
+            .run(Some(stop_height))
+            .await
     } else {
         tracing::warn!(target: "mirror", "FIXME: currently --online-source will skip DeployContract actions");
-        TxMirror::new(crate::online::ChainAccess::new(source_home)?, target_home, secret)?
+        TxMirror::new(crate::online::ChainAccess::new(source_home)?, target_home, secret, config)?
             .run(stop_height)
             .await
     }

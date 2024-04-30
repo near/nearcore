@@ -1,5 +1,5 @@
 use crate::MemoryError;
-use crate::{Memory, Table};
+use crate::{LinearMemory, Table};
 use crate::{MemoryStyle, TableStyle};
 use crate::{VMMemoryDefinition, VMTableDefinition};
 use near_vm_types::{MemoryType, TableType};
@@ -20,7 +20,7 @@ pub trait Tunables: Sync {
         &self,
         ty: &MemoryType,
         style: &MemoryStyle,
-    ) -> Result<Arc<dyn Memory>, MemoryError>;
+    ) -> Result<Arc<LinearMemory>, MemoryError>;
 
     /// Create a memory owned by the VM given a [`MemoryType`] and a [`MemoryStyle`].
     ///
@@ -31,7 +31,7 @@ pub trait Tunables: Sync {
         ty: &MemoryType,
         style: &MemoryStyle,
         vm_definition_location: NonNull<VMMemoryDefinition>,
-    ) -> Result<Arc<dyn Memory>, MemoryError>;
+    ) -> Result<Arc<LinearMemory>, MemoryError>;
 
     /// Create a table owned by the host given a [`TableType`] and a [`TableStyle`].
     fn create_host_table(
@@ -77,7 +77,7 @@ impl Tunables for TestTunables {
         &self,
         _ty: &MemoryType,
         _style: &MemoryStyle,
-    ) -> Result<Arc<dyn Memory>, MemoryError> {
+    ) -> Result<Arc<LinearMemory>, MemoryError> {
         unimplemented!()
     }
 
@@ -86,7 +86,7 @@ impl Tunables for TestTunables {
         _ty: &MemoryType,
         _style: &MemoryStyle,
         _vm_definition_location: NonNull<VMMemoryDefinition>,
-    ) -> Result<Arc<dyn Memory>, MemoryError> {
+    ) -> Result<Arc<LinearMemory>, MemoryError> {
         unimplemented!()
     }
 

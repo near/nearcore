@@ -377,6 +377,7 @@ impl FlatStorage {
 
         let new_head = guard.get_new_flat_head(*block_hash, strict)?;
         if new_head == guard.flat_head.hash {
+            tracing::debug!(target: "store", "update_flat_head, shard id {}, flat head already at block {}", guard.shard_uid.shard_id(), guard.flat_head.height);
             return Ok(());
         }
 

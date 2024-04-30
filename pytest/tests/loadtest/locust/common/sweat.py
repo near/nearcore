@@ -1,6 +1,6 @@
 import typing
 from common.ft import FTContract, InitFTAccount
-from common.base import Account, NearNodeProxy, NearUser, FunctionCall, MultiFunctionCall, INIT_DONE
+from common.base import Account, Deploy, NearNodeProxy, NearUser, FunctionCall, MultiFunctionCall, INIT_DONE
 import locust
 import sys
 import pathlib
@@ -16,9 +16,10 @@ RecipientSteps = namedtuple('RecipientSteps', ['account', 'steps'])
 
 class SweatContract(FTContract):
 
-    def __init__(self, main_account: Account, oracle_account: Account,
-                 code: str):
+    def __init__(self, main_account: Account, claim_account: Account,
+                 oracle_account: Account, code: str):
         super().__init__(main_account, oracle_account, code)
+        self.claim = claim_account
         self.oracle = oracle_account
 
     def init_contract(self, node: NearNodeProxy):
@@ -79,10 +80,20 @@ class InitSweat(FunctionCall):
         return {"postfix": None}
 
 
+class InitClaim(FunctionCall):
+
+    def __init__(self, claim_account: Account, token_account_id: str):
+        super().__init__(claim_account, claim_account.key.account_id, "init")
+        self.token_account_id = token_account_id
+
+    def args(self) -> dict:
+        return {"token_account_id": self.token_account_id}
+
+
 class SweatAddOracle(FunctionCall):
     """
     Oracle accounts are allowed to mint new tokens and can only be added by the
-    account id  of the contract itself.
+    account id of the contract itself.
     """
 
     def __init__(self, sweat_account: Account, oracle_id: str):
@@ -96,7 +107,7 @@ class SweatAddOracle(FunctionCall):
 
 class SweatMint(FunctionCall):
     """
-    A call to `tge_mint`.
+    A call to `sweat::tge_mint`.
     Token Generation Event (TGE) was day 0 when SWEAT launched.
     This is the transaction to get initial balance into accounts.
     """
@@ -115,7 +126,7 @@ class SweatMint(FunctionCall):
 
 class SweatMintBatch(MultiFunctionCall):
     """
-    A call to `record_batch`.
+    A call to `sweat::record_batch`.
     Mints new tokens for walked steps for a batch of users.
     Might get split into multiple function calls to avoid log output limits.
     """
@@ -137,6 +148,43 @@ class SweatMintBatch(MultiFunctionCall):
         return [{"steps_batch": chunk} for chunk in chunks]
 
 
+class SweatDeferBatch(FunctionCall):
+    """
+    A call to `sweat::defer_batch`.
+    """
+
+    def __init__(self, sweat_id: str, oracle: Account, holding_account_id: str,
+                 steps_batch: typing.List[RecipientSteps]):
+        super().__init__(oracle, sweat_id, "defer_batch")
+        self.holding_account_id = holding_account_id
+        self.steps_batch = steps_batch
+
+    def args(self) -> dict:
+        return {
+            "holding_account_id": self.holding_account_id,
+            "steps_batch": self.steps_batch,
+        }
+
+
+class SweatGetClaimableBalanceForAccount(FunctionCall):
+    """
+    A call to `sweat.claim::get_claimable_balance_for_account`.
+
+    We use it instead of `sweat.claim::claim` as it does not require to wait for funds to become
+    claimable and performs similar amount of computation.
+    """
+
+    def __init__(self, sweat_claim_id: str, user: Account, account_id: str):
+        super().__init__(user, sweat_claim_id,
+                         "get_claimable_balance_for_account")
+        self.account_id = account_id
+
+    def args(self) -> dict:
+        return {
+            "account_id": self.account_id,
+        }
+
+
 @events.init.add_listener
 def on_locust_init(environment, **kwargs):
     INIT_DONE.wait()
@@ -146,22 +194,39 @@ def on_locust_init(environment, **kwargs):
 
     funding_account = NearUser.funding_account
     funding_account.refresh_nonce(node.node)
-    sweat_contract_code = environment.parsed_options.sweat_wasm
     sweat_account_id = f"sweat{run_id}.{environment.master_funding_account.key.account_id}"
+    sweat_claim_account_id = f"sweat-claim{run_id}.{environment.master_funding_account.key.account_id}"
     oracle_account_id = worker_oracle_id(worker_id, run_id,
                                          environment.master_funding_account)
 
     sweat_account = Account(key.Key.from_seed_testonly(sweat_account_id))
+    sweat_claim_account = Account(
+        key.Key.from_seed_testonly(sweat_claim_account_id))
     oracle_account = Account(key.Key.from_seed_testonly(oracle_account_id))
 
-    environment.sweat = SweatContract(sweat_account, oracle_account,
-                                      sweat_contract_code)
+    environment.sweat = SweatContract(sweat_account, sweat_claim_account,
+                                      oracle_account,
+                                      environment.parsed_options.sweat_wasm)
 
     # Create Sweat contract, unless we are a worker, in which case the master already did it
     if not isinstance(environment.runner, locust.runners.WorkerRunner):
         node.prepare_account(oracle_account, environment.master_funding_account,
-                             FTContract.INIT_BALANCE, "create contract account")
+                             FTContract.INIT_BALANCE, "create oracle account")
         environment.sweat.install(node, environment.master_funding_account)
+
+        existed = node.prepare_account(sweat_claim_account, funding_account,
+                                       100000, "create contract account")
+        if not existed:
+            node.send_tx_retry(
+                Deploy(sweat_claim_account,
+                       environment.parsed_options.sweat_claim_wasm,
+                       "Sweat-Claim"), "deploy Sweat-Claim contract")
+            node.send_tx_retry(InitClaim(sweat_claim_account, sweat_account_id),
+                               "init Sweat-Claim contract")
+            # `sweat` account also must be registered as oracle to call methods on `sweat.claim`.
+            node.send_tx_retry(
+                SweatAddOracle(sweat_claim_account, sweat_account_id),
+                "add sweat.claim oracle")
 
     # on master, register oracles for workers
     if isinstance(environment.runner, locust.runners.MasterRunner):
@@ -178,8 +243,10 @@ def on_locust_init(environment, **kwargs):
                               "create contract account")
         for oracle in oracle_accounts:
             id = oracle.key.account_id
-            environment.sweat.register_oracle(node, id)
             environment.sweat.top_up(node, id)
+            environment.sweat.register_oracle(node, id)
+            node.send_tx_retry(SweatAddOracle(sweat_claim_account, id),
+                               "add sweat.claim oracle")
 
 
 def worker_oracle_id(worker_id, run_id, funding_account):
@@ -191,3 +258,6 @@ def _(parser):
     parser.add_argument("--sweat-wasm",
                         default="res/sweat.wasm",
                         help="Path to the compiled Sweat contract")
+    parser.add_argument("--sweat-claim-wasm",
+                        default="res/sweat_claim.wasm",
+                        help="Path to the compiled Sweat-Claim contract")

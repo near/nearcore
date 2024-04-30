@@ -489,8 +489,11 @@ impl<'de> serde::de::Visitor<'de> for ShardUIdVisitor {
 
 #[cfg(test)]
 mod tests {
+    use crate::epoch_manager::{AllEpochConfig, EpochConfig, ValidatorSelectionConfig};
     use crate::shard_layout::{account_id_to_shard_id, ShardLayout, ShardLayoutV1, ShardUId};
     use near_primitives_core::types::{AccountId, ShardId};
+    use near_primitives_core::version::ProtocolFeature;
+    use near_vm_runner::logic::ProtocolVersion;
     use rand::distributions::Alphanumeric;
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
@@ -515,6 +518,34 @@ mod tests {
         to_parent_shard_map: Option<Vec<ShardId>>,
         /// Version of the shard layout, this is useful for uniquely identify the shard layout
         version: ShardVersion,
+    }
+
+    impl ShardLayout {
+        /// Constructor for tests that need a shard layout for a specific protocol version.
+        pub fn for_protocol_version(protocol_version: ProtocolVersion) -> Self {
+            // none of the epoch config fields matter, we only need the shard layout
+            // constructed through [`AllEpochConfig::for_protocol_version()`].
+            let genesis_epoch_config = EpochConfig {
+                epoch_length: 0,
+                num_block_producer_seats: 0,
+                num_block_producer_seats_per_shard: vec![],
+                avg_hidden_validator_seats_per_shard: vec![],
+                block_producer_kickout_threshold: 0,
+                chunk_producer_kickout_threshold: 0,
+                validator_max_kickout_stake_perc: 0,
+                online_min_threshold: 0.into(),
+                online_max_threshold: 0.into(),
+                fishermen_threshold: 0,
+                minimum_stake_divisor: 0,
+                protocol_upgrade_stake_threshold: 0.into(),
+                shard_layout: ShardLayout::get_simple_nightshade_layout(),
+                validator_selection_config: ValidatorSelectionConfig::default(),
+            };
+
+            let all_epoch_config = AllEpochConfig::new(true, genesis_epoch_config, "test-chain");
+            let latest_epoch_config = all_epoch_config.for_protocol_version(protocol_version);
+            latest_epoch_config.shard_layout
+        }
     }
 
     #[test]
@@ -718,5 +749,25 @@ mod tests {
           }
         }
         "###);
+    }
+
+    #[test]
+    fn test_shard_layout_for_protocol_version() {
+        assert_eq!(
+            ShardLayout::get_simple_nightshade_layout(),
+            ShardLayout::for_protocol_version(ProtocolFeature::SimpleNightshade.protocol_version())
+        );
+        assert_eq!(
+            ShardLayout::get_simple_nightshade_layout_v2(),
+            ShardLayout::for_protocol_version(
+                ProtocolFeature::SimpleNightshadeV2.protocol_version()
+            )
+        );
+        assert_eq!(
+            ShardLayout::get_simple_nightshade_layout_v3(),
+            ShardLayout::for_protocol_version(
+                ProtocolFeature::SimpleNightshadeV3.protocol_version()
+            )
+        );
     }
 }

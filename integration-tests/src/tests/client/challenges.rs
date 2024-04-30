@@ -12,11 +12,12 @@ use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, MaybeEncodedShardChunk, PartialState,
     TrieValue,
 };
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::num_rational::Ratio;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
+use near_primitives::sharding::EncodedShardChunk;
 use near_primitives::stateless_validation::ChunkEndorsement;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
@@ -26,6 +27,7 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Trie;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
+use reed_solomon_erasure::galois_8::ReedSolomon;
 
 /// Check that block containing a challenge is rejected.
 /// TODO (#2445): Enable challenges when they are working correctly.
@@ -359,7 +361,7 @@ fn test_verify_chunk_invalid_state_challenge() {
     let total_parts = env.clients[0].epoch_manager.num_total_parts();
     let data_parts = env.clients[0].epoch_manager.num_data_parts();
     let parity_parts = total_parts - data_parts;
-    let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
+    let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
     let (mut invalid_chunk, merkle_paths) = ShardsManager::create_encoded_shard_chunk(
         *last_block.hash(),
         Trie::EMPTY_ROOT,
@@ -374,8 +376,9 @@ fn test_verify_chunk_invalid_state_challenge() {
         &[],
         last_block.chunks()[0].prev_outgoing_receipts_root(),
         CryptoHash::default(),
+        CongestionInfo::default(),
         &validator_signer,
-        &mut rs,
+        &rs,
         PROTOCOL_VERSION,
     )
     .unwrap();

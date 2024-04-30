@@ -187,17 +187,19 @@ mod tests {
     use crate::trie::mem::loading::load_trie_from_flat_state;
     use crate::trie::mem::lookup::memtrie_lookup;
     use crate::{DBCol, KeyLookupMode, NibbleSlice, ShardTries, Store, Trie, TrieUpdate};
+    use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
     use near_primitives::state::FlatStateValue;
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::chunk_extra::ChunkExtra;
     use near_primitives::types::StateChangeCause;
+    use near_primitives::version::PROTOCOL_VERSION;
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
 
     fn check(keys: Vec<Vec<u8>>) {
-        let shard_tries = TestTriesBuilder::new().with_flat_storage().build();
+        let shard_tries = TestTriesBuilder::new().with_flat_storage(true).build();
         let shard_uid = ShardUId::single_shard();
         let changes = keys.iter().map(|key| (key.to_vec(), Some(key.to_vec()))).collect::<Vec<_>>();
         let changes = simplify_changes(&changes);
@@ -534,7 +536,16 @@ mod tests {
         shard_uid: ShardUId,
         state_root: CryptoHash,
     ) {
-        let chunk_extra = ChunkExtra::new(&state_root, CryptoHash::default(), Vec::new(), 0, 0, 0);
+        let chunk_extra = ChunkExtra::new(
+            PROTOCOL_VERSION,
+            &state_root,
+            CryptoHash::default(),
+            Vec::new(),
+            0,
+            0,
+            0,
+            Some(CongestionInfo::default()),
+        );
         let mut store_update = store.store_update();
         store_update
             .set_ser(DBCol::ChunkExtra, &get_block_shard_uid(&block_hash, &shard_uid), &chunk_extra)

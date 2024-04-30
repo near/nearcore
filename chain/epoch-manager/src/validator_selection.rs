@@ -187,11 +187,13 @@ pub fn proposals_to_epoch_info(
     };
 
     let validator_mandates = if checked_feature!("stable", StatelessValidationV0, next_version) {
-        // TODO(#10014) determine required stake per mandate instead of reusing seat price.
-        // TODO(#10014) determine `min_mandates_per_shard`
-        let min_mandates_per_shard = 0;
+        // Value chosen based on calculations for the security of the protocol.
+        // With this number of mandates per shard and 6 shards, the theory calculations predict the
+        // protocol is secure for 40 years (at 90% confidence).
+        let target_mandates_per_shard = 68;
+        let num_shards = shard_ids.len();
         let validator_mandates_config =
-            ValidatorMandatesConfig::new(threshold, min_mandates_per_shard, shard_ids.len());
+            ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
         // We can use `all_validators` to construct mandates Since a validator's position in
         // `all_validators` corresponds to its `ValidatorId`
         ValidatorMandates::new(validator_mandates_config, &all_validators)
@@ -836,10 +838,10 @@ mod tests {
         // Given `epoch_info` and `proposals` above, the sample at a given height is deterministic.
         let height = 42;
         let expected_assignments = vec![
-            vec![(1, 300), (0, 300), (2, 300), (3, 60)],
-            vec![(0, 600), (2, 200), (1, 200)],
-            vec![(3, 200), (2, 300), (1, 100), (0, 400)],
-            vec![(2, 200), (4, 140), (1, 400), (0, 200)],
+            vec![(4, 56), (1, 168), (2, 300), (3, 84), (0, 364)],
+            vec![(3, 70), (1, 300), (4, 42), (2, 266), (0, 308)],
+            vec![(4, 42), (1, 238), (3, 42), (0, 450), (2, 196)],
+            vec![(2, 238), (1, 294), (3, 64), (0, 378)],
         ];
         assert_eq!(epoch_info.sample_chunk_validators(height), expected_assignments);
     }

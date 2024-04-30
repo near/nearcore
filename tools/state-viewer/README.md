@@ -15,7 +15,7 @@ Basic example:
 ```bash
 make neard
 ./target/release/neard --home ~/.near/ view_state apply_range \
-        --shard-id=0 --start-index=42376889 --end_index=423770101 \
+        --shard-id=0 --start-index=42376889 --end-index=423770101 \
          --verbose-output --csv-file=./apply_range.csv
 ```
 

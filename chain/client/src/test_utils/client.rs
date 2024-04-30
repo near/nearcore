@@ -20,13 +20,14 @@ use near_network::types::HighestHeightPeerInfo;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, PartialMerkleTree};
-use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper, ShardChunk};
+use near_primitives::sharding::{EncodedShardChunk, ShardChunk};
 use near_primitives::stateless_validation::ChunkEndorsement;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::PROTOCOL_VERSION;
 use num_rational::Ratio;
+use reed_solomon_erasure::galois_8::ReedSolomon;
 
 impl Client {
     /// Unlike Client::start_process_block, which returns before the block finishes processing
@@ -42,10 +43,9 @@ impl Client {
         provenance: Provenance,
         should_produce_chunk: bool,
     ) -> Result<Vec<CryptoHash>, near_chain::Error> {
-        self.start_process_block(block, provenance, Arc::new(|_| {}))?;
+        self.start_process_block(block, provenance, None)?;
         wait_for_all_blocks_in_processing(&mut self.chain);
-        let (accepted_blocks, errors) =
-            self.postprocess_ready_blocks(Arc::new(|_| {}), should_produce_chunk);
+        let (accepted_blocks, errors) = self.postprocess_ready_blocks(None, should_produce_chunk);
         assert!(errors.is_empty(), "unexpected errors when processing blocks: {errors:#?}");
         Ok(accepted_blocks)
     }
@@ -70,7 +70,7 @@ impl Client {
     pub fn finish_blocks_in_processing(&mut self) -> Vec<CryptoHash> {
         let mut accepted_blocks = vec![];
         while wait_for_all_blocks_in_processing(&mut self.chain) {
-            accepted_blocks.extend(self.postprocess_ready_blocks(Arc::new(|_| {}), true).0);
+            accepted_blocks.extend(self.postprocess_ready_blocks(None, true).0);
         }
         accepted_blocks
     }
@@ -79,7 +79,7 @@ impl Client {
     /// has started.
     pub fn finish_block_in_processing(&mut self, hash: &CryptoHash) -> Vec<CryptoHash> {
         if let Ok(()) = wait_for_block_in_processing(&mut self.chain, hash) {
-            let (accepted_blocks, _) = self.postprocess_ready_blocks(Arc::new(|_| {}), true);
+            let (accepted_blocks, _) = self.postprocess_ready_blocks(None, true);
             return accepted_blocks;
         }
         vec![]
@@ -129,7 +129,7 @@ fn create_chunk_on_height_for_shard(
     let last_block = client.chain.get_block(&last_block_hash).unwrap();
     client
         .produce_chunk(
-            last_block_hash,
+            &last_block,
             &client.epoch_manager.get_epoch_id_from_prev_block(&last_block_hash).unwrap(),
             Chain::get_prev_chunk_header(client.epoch_manager.as_ref(), &last_block, shard_id)
                 .unwrap(),
@@ -167,7 +167,7 @@ pub fn create_chunk(
         transactions_storage_proof,
     } = client
         .produce_chunk(
-            *last_block.hash(),
+            &last_block,
             last_block.header().epoch_id(),
             last_block.chunks()[0].clone(),
             next_height,
@@ -188,7 +188,7 @@ pub fn create_chunk(
         let data_parts = client.chain.epoch_manager.num_data_parts();
         let decoded_chunk = chunk.decode_chunk(data_parts).unwrap();
         let parity_parts = total_parts - data_parts;
-        let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
+        let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
 
         let signer = client.validator_signer.as_ref().unwrap().clone();
         let header = chunk.cloned_header();
@@ -198,7 +198,7 @@ pub fn create_chunk(
             header.prev_outcome_root(),
             header.height_created(),
             header.shard_id(),
-            &mut rs,
+            &rs,
             header.prev_gas_used(),
             header.gas_limit(),
             header.prev_balance_burnt(),
@@ -207,6 +207,8 @@ pub fn create_chunk(
             transactions,
             decoded_chunk.prev_outgoing_receipts(),
             header.prev_outgoing_receipts_root(),
+            // TODO(congestion_control): compute if not available
+            header.congestion_info().unwrap_or_default(),
             &*signer,
             PROTOCOL_VERSION,
         )
@@ -290,7 +292,7 @@ pub fn run_catchup(
             &noop().into_sender(),
             &block_catch_up,
             &resharding,
-            Arc::new(|_| {}),
+            None,
             &state_parts_future_spawner,
         )?;
         let mut catchup_done = true;

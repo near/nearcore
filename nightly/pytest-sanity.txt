@@ -41,6 +41,8 @@ pytest --timeout=600 sanity/state_sync_routed.py manytx 115 --features nightly
 # working on a fix / deciding whether to remove them.
 #pytest --timeout=300 sanity/state_sync_late.py notx
 #pytest --timeout=300 sanity/state_sync_late.py notx --features nightly
+pytest sanity/single_shard_tracking.py
+pytest sanity/single_shard_tracking.py --features nightly
 
 pytest --timeout=3600 sanity/state_sync_massive.py
 pytest --timeout=3600 sanity/state_sync_massive_validator.py
@@ -85,6 +87,10 @@ pytest --timeout=120 sanity/garbage_collection.py
 pytest --timeout=120 sanity/garbage_collection.py --features nightly
 pytest --timeout=120 sanity/garbage_collection1.py
 pytest --timeout=120 sanity/garbage_collection1.py --features nightly
+pytest --timeout=120 sanity/garbage_collection_intense.py
+pytest --timeout=120 sanity/garbage_collection_intense.py --features nightly
+pytest --timeout=120 sanity/garbage_collection_archival.py
+pytest --timeout=120 sanity/garbage_collection_archival.py --features nightly
 pytest --timeout=300 sanity/gc_after_sync.py
 pytest --timeout=300 sanity/gc_after_sync.py --features nightly
 pytest --timeout=300 sanity/gc_after_sync1.py

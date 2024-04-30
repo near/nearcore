@@ -14,5 +14,6 @@ SOURCE_CONTRACTS_DIR="${SCRIPT_DIR}/../../../../runtime/near-test-contracts/res"
 
 wget https://raw.githubusercontent.com/NearSocial/social-db/master/res/social_db_release.wasm -O ${TARGET_CONTRACTS_DIR}/social_db.wasm
 wget https://raw.githubusercontent.com/sweatco/sweat-near/main/res/sweat.wasm -O ${TARGET_CONTRACTS_DIR}/sweat.wasm
+wget https://raw.githubusercontent.com/sweatco/sweat-near/main/res/sweat_claim.wasm -O ${TARGET_CONTRACTS_DIR}/sweat_claim.wasm
 ln -s ${SOURCE_CONTRACTS_DIR}/fungible_token.wasm ${TARGET_CONTRACTS_DIR}/fungible_token.wasm
 ln -s ${SOURCE_CONTRACTS_DIR}/backwards_compatible_rs_contract.wasm ${TARGET_CONTRACTS_DIR}/congestion.wasm

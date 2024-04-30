@@ -1,0 +1,8 @@
+{
+    // The contents of this file are set by the build file in `near-wallet-contract`.
+    // The purpose is to factor out the hard-coded EVM chain ID so that it can be set for
+    // each network (mainnet, testnet, etc). The value included in this file is the
+    // [one for mainnet](https://chainlist.org/chain/397). The one for testnet is
+    // [398](https://chainlist.org/chain/398).
+    397
+}

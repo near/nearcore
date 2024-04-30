@@ -124,7 +124,7 @@ pub enum Error {
     IncorrectNumberOfChunkHeaders,
     /// Invalid chunk.
     #[error("Invalid Chunk")]
-    InvalidChunk,
+    InvalidChunk(String),
     /// One of the chunks has invalid proofs
     #[error("Invalid Chunk Proofs")]
     InvalidChunkProofs(Box<ChunkProofs>),
@@ -133,6 +133,8 @@ pub enum Error {
     InvalidChunkState(Box<ChunkState>),
     #[error("Invalid Chunk State Witness: {0}")]
     InvalidChunkStateWitness(String),
+    #[error("Invalid Partial Chunk State Witness: {0}")]
+    InvalidPartialChunkStateWitness(String),
     #[error("Invalid Chunk Endorsement")]
     InvalidChunkEndorsement,
     /// Invalid chunk mask
@@ -266,10 +268,11 @@ impl Error {
             | Error::InvalidBlockFutureTime(_)
             | Error::InvalidBlockHeight(_)
             | Error::InvalidBlockProposer
-            | Error::InvalidChunk
+            | Error::InvalidChunk(_)
             | Error::InvalidChunkProofs(_)
             | Error::InvalidChunkState(_)
             | Error::InvalidChunkStateWitness(_)
+            | Error::InvalidPartialChunkStateWitness(_)
             | Error::InvalidChunkEndorsement
             | Error::InvalidChunkMask
             | Error::InvalidStateRoot
@@ -340,10 +343,11 @@ impl Error {
             Error::InvalidBlockFutureTime(_) => "invalid_block_future_time",
             Error::InvalidBlockHeight(_) => "invalid_block_height",
             Error::InvalidBlockProposer => "invalid_block_proposer",
-            Error::InvalidChunk => "invalid_chunk",
+            Error::InvalidChunk(_) => "invalid_chunk",
             Error::InvalidChunkProofs(_) => "invalid_chunk_proofs",
             Error::InvalidChunkState(_) => "invalid_chunk_state",
             Error::InvalidChunkStateWitness(_) => "invalid_chunk_state_witness",
+            Error::InvalidPartialChunkStateWitness(_) => "invalid_partial_chunk_state_witness",
             Error::InvalidChunkEndorsement => "invalid_chunk_endorsement",
             Error::InvalidChunkMask => "invalid_chunk_mask",
             Error::InvalidStateRoot => "invalid_state_root",

@@ -228,7 +228,7 @@ pub struct Config {
     /// If save_trie_changes is not set it will get inferred from the `archive` field as follows:
     /// save_trie_changes = !archive
     /// save_trie_changes should be set to true iff
-    /// - archive if false - non-archival nodes need trie changes to perform garbage collection
+    /// - archive is false - non-archival nodes need trie changes to perform garbage collection
     /// - archive is true and cold_store is configured - node working in split storage mode
     /// needs trie changes in order to do garbage collection on hot and populate cold State column.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -309,6 +309,12 @@ pub struct Config {
     ///
     /// Each loaded contract will increase the baseline memory use of the node appreciably.
     pub max_loaded_contracts: usize,
+    /// Save observed instances of ChunkStateWitness to the database in DBCol::LatestChunkStateWitnesses.
+    /// Saving the latest witnesses is useful for analysis and debugging.
+    /// When this option is enabled, the node will save ALL witnesses it oberves, even invalid ones,
+    /// which can cause extra load on the database. This option is not recommended for production use,
+    /// as a large number of incoming witnesses could cause denial of service.
+    pub save_latest_witnesses: bool,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -357,6 +363,7 @@ impl Default for Config {
             orphan_state_witness_pool_size: default_orphan_state_witness_pool_size(),
             orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
             max_loaded_contracts: 256,
+            save_latest_witnesses: false,
         }
     }
 }
@@ -575,6 +582,7 @@ impl NearConfig {
                 chunk_distribution_network: config.chunk_distribution_network,
                 orphan_state_witness_pool_size: config.orphan_state_witness_pool_size,
                 orphan_state_witness_max_size: config.orphan_state_witness_max_size,
+                save_latest_witnesses: config.save_latest_witnesses,
             },
             network_config: NetworkConfig::new(
                 config.network,
@@ -1480,9 +1488,19 @@ mod tests {
             // values is probably not worth it but there may be some other defaults
             // we want to ensure that they happen.
             let want_gc = if has_gc {
-                GCConfig { gc_blocks_limit: 42, gc_fork_clean_step: 420, gc_num_epochs_to_keep: 24 }
+                GCConfig {
+                    gc_blocks_limit: 42,
+                    gc_fork_clean_step: 420,
+                    gc_num_epochs_to_keep: 24,
+                    gc_step_period: std::time::Duration::from_secs(1),
+                }
             } else {
-                GCConfig { gc_blocks_limit: 2, gc_fork_clean_step: 100, gc_num_epochs_to_keep: 5 }
+                GCConfig {
+                    gc_blocks_limit: 2,
+                    gc_fork_clean_step: 100,
+                    gc_num_epochs_to_keep: 5,
+                    gc_step_period: std::time::Duration::from_secs(1),
+                }
             };
             assert_eq!(want_gc, config.gc);
 
