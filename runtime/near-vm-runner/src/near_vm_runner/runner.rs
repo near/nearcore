@@ -244,6 +244,7 @@ impl NearVM {
                             std::io::Error::from(std::io::ErrorKind::NotFound),
                         )));
                     };
+                    crate::metrics::record_compiled_contract_cache_hit();
 
                     match &code.compiled {
                         CompiledContract::CompileModuleError(err) => {
