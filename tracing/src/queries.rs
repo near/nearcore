@@ -101,7 +101,6 @@ async fn raw_trace(
     data: web::Data<QueryState>,
     req: web::Json<Query>,
 ) -> Result<HttpResponse, Error> {
-    // TODO: Enable compression as the data is very compressible
     // TODO: Set a limit on the duration of the request interval.
     let col = data.db.span_chunks();
     let mut chunks = col
@@ -133,7 +132,6 @@ async fn profile(
     data: web::Data<QueryState>,
     req: web::Json<Query>,
 ) -> Result<HttpResponse, Error> {
-    // TODO: Enable compression as the data is very compressible
     // TODO: Set a limit on the duration of the request interval.
     let col = data.db.span_chunks();
     let mut chunks = col
