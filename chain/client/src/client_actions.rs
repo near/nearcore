@@ -1511,27 +1511,7 @@ impl ClientActions {
         if !should_state_sync {
             return;
         }
-        match self.client.sync_status {
-            SyncStatus::StateSync(_) => (),
-            _ => {
-                let sync_hash = unwrap_and_report_state_sync_result!(self.find_sync_hash());
-                if !self.client.config.archive {
-                    let reset_data_result =
-                        self.client.chain.mut_chain_store().reset_data_pre_state_sync(
-                            sync_hash,
-                            self.client.runtime_adapter.clone(),
-                            self.client.epoch_manager.clone(),
-                        );
-                    unwrap_and_report_state_sync_result!(reset_data_result);
-                }
-                let new_state_sync_status =
-                    StateSyncStatus { sync_hash, sync_status: HashMap::default() };
-                let new_sync_status = SyncStatus::StateSync(new_state_sync_status);
-                self.client.sync_status.update(new_sync_status);
-                // This is the first time we run state sync.
-                notify_start_sync = true;
-            }
-        };
+        self.update_sync_status(&mut notify_start_sync);
         let sync_hash = match &self.client.sync_status {
             SyncStatus::StateSync(s) => s.sync_hash,
             _ => unreachable!("Sync status should have been StateSync!"),
@@ -1645,6 +1625,30 @@ impl ClientActions {
                 });
             }
         }
+    }
+
+    fn update_sync_status(&mut self, notify_start_sync: &mut bool) {
+        match self.client.sync_status {
+            SyncStatus::StateSync(_) => (),
+            _ => {
+                let sync_hash = unwrap_and_report_state_sync_result!(self.find_sync_hash());
+                if !self.client.config.archive {
+                    let reset_data_result =
+                        self.client.chain.mut_chain_store().reset_data_pre_state_sync(
+                            sync_hash,
+                            self.client.runtime_adapter.clone(),
+                            self.client.epoch_manager.clone(),
+                        );
+                    unwrap_and_report_state_sync_result!(reset_data_result);
+                }
+                let new_state_sync_status =
+                    StateSyncStatus { sync_hash, sync_status: HashMap::default() };
+                let new_sync_status = SyncStatus::StateSync(new_state_sync_status);
+                self.client.sync_status.update(new_sync_status);
+                // This is the first time we run state sync.
+                *notify_start_sync = true;
+            }
+        };
     }
 
     /// This method returns whether we should move on to state sync. It may run
