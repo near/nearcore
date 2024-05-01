@@ -37,16 +37,16 @@ const MAX_CONGESTION_MEMORY_CONSUMPTION: u64 = bytesize::ByteSize::mb(1000u64).0
 /// another shard per chunk.
 ///
 /// The actual gas forwarding allowance is a linear interpolation between
-/// [`MIN_GAS_FORWARDING`] and [`MAX_GAS_FORWARDING`], or 0 if the receiver is
+/// [`MIN_OUTGOING_GAS`] and [`MAX_OUTGOING_GAS`], or 0 if the receiver is
 /// fully congested.
-const MAX_GAS_FORWARDING: Gas = 300 * PGAS;
+const MAX_OUTGOING_GAS: Gas = 300 * PGAS;
 
 /// The minimum gas each shard can send to a shard that is not fully congested.
 ///
 /// The actual gas forwarding allowance is a linear interpolation between
-/// [`MIN_GAS_FORWARDING`] and [`MAX_GAS_FORWARDING`], or 0 if the receiver is
+/// [`MIN_OUTGOING_GAS`] and [`MAX_OUTGOING_GAS`], or 0 if the receiver is
 /// fully congested.
-const MIN_GAS_FORWARDING: Gas = 1 * PGAS;
+const MIN_OUTGOING_GAS: Gas = 1 * PGAS;
 
 /// How much gas the chosen allowed shard can send to a 100% congested shard.
 ///
@@ -77,9 +77,8 @@ const MAX_TX_GAS: Gas = 500 * TGAS;
 /// on their general congestion level.
 const MIN_TX_GAS: Gas = 20 * TGAS;
 
-/// How much gas in delayed receipts a shard can tolerate before it stops all
-/// shards from accepting new transactions with the receiver set to the
-/// congested shard.
+/// How much congestion a shard can tolerate before it stops all shards from
+/// accepting new transactions with the receiver set to the congested shard.
 const REJECT_TX_CONGESTION_THRESHOLD: f64 = 0.25;
 
 /// Stores the congestion level of a shard.
@@ -157,6 +156,7 @@ impl CongestionInfo {
         }
     }
 
+    /// Congestion level in the range [0.0,1.0].
     pub fn congestion_level(&self) -> f64 {
         match self {
             CongestionInfo::V1(inner) => inner.congestion_level(),
@@ -251,7 +251,7 @@ impl CongestionInfoV1 {
                 0
             }
         } else {
-            mix(MAX_GAS_FORWARDING, MIN_GAS_FORWARDING, congestion)
+            mix(MAX_OUTGOING_GAS, MIN_OUTGOING_GAS, congestion)
         }
     }
 
@@ -385,7 +385,7 @@ mod tests {
         assert_eq!(0.0, inner_congestion_info.congestion_level());
 
         let congestion_info = CongestionInfo::V1(inner_congestion_info);
-        assert_eq!(MAX_GAS_FORWARDING, congestion_info.outgoing_limit(0));
+        assert_eq!(MAX_OUTGOING_GAS, congestion_info.outgoing_limit(0));
         assert_eq!(MAX_TX_GAS, congestion_info.process_tx_limit());
         assert!(congestion_info.shard_accepts_transactions());
     }
@@ -405,11 +405,11 @@ mod tests {
         // processing to other shards is not restricted by memory congestion
         assert_eq!(MAX_TX_GAS, congestion_info.process_tx_limit());
 
-        // remove halve the congestion
+        // remove half the congestion
         congestion_info.remove_receipt_bytes(MAX_CONGESTION_MEMORY_CONSUMPTION / 2).unwrap();
         assert_eq!(0.5, congestion_info.congestion_level());
         assert_eq!(
-            (0.5 * MIN_GAS_FORWARDING as f64 + 0.5 * MAX_GAS_FORWARDING as f64) as u64,
+            (0.5 * MIN_OUTGOING_GAS as f64 + 0.5 * MAX_OUTGOING_GAS as f64) as u64,
             congestion_info.outgoing_limit(1)
         );
         // at 50%, still no new transactions are allowed
@@ -419,7 +419,7 @@ mod tests {
         congestion_info.remove_receipt_bytes(3 * MAX_CONGESTION_MEMORY_CONSUMPTION / 8).unwrap();
         assert_eq!(0.125, congestion_info.congestion_level());
         assert_eq!(
-            (0.125 * MIN_GAS_FORWARDING as f64 + 0.875 * MAX_GAS_FORWARDING as f64) as u64,
+            (0.125 * MIN_OUTGOING_GAS as f64 + 0.875 * MAX_OUTGOING_GAS as f64) as u64,
             congestion_info.outgoing_limit(1)
         );
         // at 12.5%, new transactions are allowed (threshold is 0.25)
@@ -445,7 +445,7 @@ mod tests {
         congestion_info.remove_delayed_receipt_gas(MAX_CONGESTION_INCOMING_GAS / 2).unwrap();
         assert_eq!(0.5, congestion_info.congestion_level());
         assert_eq!(
-            (0.5 * MIN_GAS_FORWARDING as f64 + 0.5 * MAX_GAS_FORWARDING as f64) as u64,
+            (0.5 * MIN_OUTGOING_GAS as f64 + 0.5 * MAX_OUTGOING_GAS as f64) as u64,
             congestion_info.outgoing_limit(1)
         );
         // at 50%, still no new transactions to us are allowed
@@ -460,7 +460,7 @@ mod tests {
         congestion_info.remove_delayed_receipt_gas(3 * MAX_CONGESTION_INCOMING_GAS / 8).unwrap();
         assert_eq!(0.125, congestion_info.congestion_level());
         assert_eq!(
-            (0.125 * MIN_GAS_FORWARDING as f64 + 0.875 * MAX_GAS_FORWARDING as f64) as u64,
+            (0.125 * MIN_OUTGOING_GAS as f64 + 0.875 * MAX_OUTGOING_GAS as f64) as u64,
             congestion_info.outgoing_limit(1)
         );
         // at 12.5%, new transactions are allowed (threshold is 0.25)
@@ -490,7 +490,7 @@ mod tests {
         congestion_info.remove_buffered_receipt_gas(MAX_CONGESTION_OUTGOING_GAS / 2).unwrap();
         assert_eq!(0.5, congestion_info.congestion_level());
         assert_eq!(
-            (0.5 * MIN_GAS_FORWARDING as f64 + 0.5 * MAX_GAS_FORWARDING as f64) as u64,
+            (0.5 * MIN_OUTGOING_GAS as f64 + 0.5 * MAX_OUTGOING_GAS as f64) as u64,
             congestion_info.outgoing_limit(1)
         );
         // at 50%, still no new transactions to us are allowed
@@ -500,7 +500,7 @@ mod tests {
         congestion_info.remove_buffered_receipt_gas(3 * MAX_CONGESTION_OUTGOING_GAS / 8).unwrap();
         assert_eq!(0.125, congestion_info.congestion_level());
         assert_eq!(
-            (0.125 * MIN_GAS_FORWARDING as f64 + 0.875 * MAX_GAS_FORWARDING as f64) as u64,
+            (0.125 * MIN_OUTGOING_GAS as f64 + 0.875 * MAX_OUTGOING_GAS as f64) as u64,
             congestion_info.outgoing_limit(1)
         );
         // at 12.5%, new transactions are allowed (threshold is 0.25)
