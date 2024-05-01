@@ -1538,29 +1538,8 @@ impl ClientActions {
             self.notify_start_sync(epoch_id, sync_hash, &shards_to_sync);
         }
 
-        let now = self.clock.now_utc();
-
-        // FIXME: it checks if the block exists.. but I have no idea why..
-        // seems that we don't really use this block in case of catchup - we use it only for state sync.
-        // Seems it is related to some bug with block getting orphaned after state sync? but not sure.
-        let (request_block, have_block) =
-            unwrap_and_report_state_sync_result!(self.sync_block_status(&prev_hash, now));
-
-        if request_block {
-            self.client.last_time_sync_block_requested = Some(now);
-            if let Some(peer_info) =
-                self.network_info.highest_height_peers.choose(&mut thread_rng())
-            {
-                let id = peer_info.peer_info.id.clone();
-
-                for hash in vec![*block_header.prev_hash(), *block_header.hash()].into_iter() {
-                    self.client.request_block(hash, id.clone());
-                }
-            }
-        }
-        if have_block {
-            self.client.last_time_sync_block_requested = None;
-        }
+        let have_block = self.request_sync_blocks(prev_hash, block_header);
+        let have_block = unwrap_and_report_state_sync_result!(have_block);
 
         let state_sync_status = match &mut self.client.sync_status {
             SyncStatus::StateSync(s) => s,
@@ -1610,6 +1589,38 @@ impl ClientActions {
                 });
             }
         }
+    }
+
+    /// Checks if the sync blocks are available and requests them if needed.
+    /// Returns true if all the blocks are available.
+    fn request_sync_blocks(
+        &mut self,
+        prev_hash: CryptoHash,
+        block_header: BlockHeader,
+    ) -> Result<bool, near_chain::Error> {
+        let now = self.clock.now_utc();
+
+        // FIXME: it checks if the block exists.. but I have no idea why..
+        // seems that we don't really use this block in case of catchup - we use it only for state sync.
+        // Seems it is related to some bug with block getting orphaned after state sync? but not sure.
+        let (request_block, have_block) = self.sync_block_status(&prev_hash, now)?;
+
+        if request_block {
+            self.client.last_time_sync_block_requested = Some(now);
+            if let Some(peer_info) =
+                self.network_info.highest_height_peers.choose(&mut thread_rng())
+            {
+                let id = peer_info.peer_info.id.clone();
+
+                for hash in vec![*block_header.prev_hash(), *block_header.hash()].into_iter() {
+                    self.client.request_block(hash, id.clone());
+                }
+            }
+        }
+        if have_block {
+            self.client.last_time_sync_block_requested = None;
+        }
+        Ok(have_block)
     }
 
     fn notify_start_sync(
@@ -1684,10 +1695,13 @@ impl ClientActions {
         Ok(block_sync_result)
     }
 
-    /// Verifies if the node possesses sync block.
-    /// It is the last block of the previous epoch.
-    /// If the block is absent, the node requests it from peers.
+    /// Verifies if the node possesses sync block. It is the last block of the
+    /// previous epoch. If the block is absent, the node requests it from peers.
+    ///
     /// the return value is a tuple (request_block, have_block)
+    ///
+    /// the return value (false, false) means that the node already requested
+    /// the block but hasn't received it yet
     fn sync_block_status(
         &self,
         prev_hash: &CryptoHash,
