@@ -1504,23 +1504,11 @@ impl ClientActions {
         // Only body / state sync if header height is close to the latest.
         let header_head = unwrap_and_report_state_sync_result!(self.client.chain.header_head());
 
-        // Sync state if already running sync state or if block sync is too far.
-        let sync_state = match self.client.sync_status {
-            SyncStatus::StateSync(_) => true,
-            _ if header_head.height
-                >= highest_height.saturating_sub(self.client.config.block_header_fetch_horizon) =>
-            {
-                let block_sync_result = self.client.block_sync.run(
-                    &mut self.client.sync_status,
-                    &self.client.chain,
-                    highest_height,
-                    &self.network_info.highest_height_peers,
-                );
-                unwrap_and_report_state_sync_result!(block_sync_result)
-            }
-            _ => false,
-        };
-        if !sync_state {
+        // We should state sync if it's already started or if we have enough
+        // headers and blocks. The should_state_sync method may run block sync.
+        let should_state_sync = self.should_state_sync(header_head, highest_height);
+        let should_state_sync = unwrap_and_report_state_sync_result!(should_state_sync);
+        if !should_state_sync {
             return;
         }
         match self.client.sync_status {
@@ -1657,6 +1645,33 @@ impl ClientActions {
                 });
             }
         }
+    }
+
+    /// This method returns whether we should move on to state sync. It may run
+    /// block sync if state sync is not yet started and we have enough headers.
+    fn should_state_sync(
+        &mut self,
+        header_head: Tip,
+        highest_height: u64,
+    ) -> Result<bool, near_chain::Error> {
+        if let SyncStatus::StateSync(_) = self.client.sync_status {
+            return Ok(true);
+        }
+
+        // Check that we have enough headers to start block sync.
+        let min_header_height =
+            highest_height.saturating_sub(self.client.config.block_header_fetch_horizon);
+        if header_head.height < min_header_height {
+            return Ok(false);
+        }
+
+        let block_sync_result = self.client.block_sync.run(
+            &mut self.client.sync_status,
+            &self.client.chain,
+            highest_height,
+            &self.network_info.highest_height_peers,
+        )?;
+        Ok(block_sync_result)
     }
 
     /// Verifies if the node possesses sync block.
