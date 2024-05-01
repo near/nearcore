@@ -18,7 +18,7 @@ use crate::routing::route_back_cache::RouteBackCache;
 use crate::routing::NetworkTopologyChange;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::snapshot_hosts::{SnapshotHostInfoError, SnapshotHostsCache};
-use crate::state_witness::StateWitnessSenderForNetwork;
+use crate::state_witness::PartialWitnessSenderForNetwork;
 use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
@@ -96,7 +96,7 @@ pub(crate) struct NetworkState {
     pub genesis_id: GenesisId,
     pub client: ClientSenderForNetwork,
     pub shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
-    pub state_witness_adapter: StateWitnessSenderForNetwork,
+    pub partial_witness_adapter: PartialWitnessSenderForNetwork,
 
     /// Network-related info about the chain.
     pub chain_info: ArcSwap<Option<ChainInfo>>,
@@ -165,7 +165,7 @@ impl NetworkState {
         genesis_id: GenesisId,
         client: ClientSenderForNetwork,
         shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
-        state_witness_adapter: StateWitnessSenderForNetwork,
+        partial_witness_adapter: PartialWitnessSenderForNetwork,
         whitelist_nodes: Vec<WhitelistNode>,
     ) -> Self {
         Self {
@@ -182,7 +182,7 @@ impl NetworkState {
             genesis_id,
             client,
             shards_manager_adapter,
-            state_witness_adapter,
+            partial_witness_adapter,
             chain_info: Default::default(),
             tier2: connection::Pool::new(config.node_id()),
             tier1: connection::Pool::new(config.node_id()),

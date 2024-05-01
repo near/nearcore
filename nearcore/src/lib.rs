@@ -4,7 +4,7 @@ use crate::entity_debug::EntityDebugHandlerImpl;
 use crate::metrics::spawn_trie_metrics_loop;
 
 use crate::cold_storage::spawn_cold_store_loop;
-use crate::state_sync::{spawn_state_sync_dump, StateSyncDumpHandle};
+use crate::state_sync::StateSyncDumper;
 use actix::{Actor, Addr};
 use actix_rt::ArbiterHandle;
 use anyhow::Context;
@@ -24,8 +24,8 @@ use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::sync::adapter::SyncAdapter;
 use near_client::{
-    start_client, start_view_client, ClientActor, ConfigUpdater, StartClientResult,
-    StateWitnessActor, ViewClientActor,
+    start_client, start_view_client, ClientActor, ConfigUpdater, PartialWitnessActor,
+    StartClientResult, ViewClientActor,
 };
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
@@ -218,7 +218,7 @@ pub struct NearNode {
     /// It's a handle to a background thread that copies data from the hot store to the cold store.
     pub cold_store_loop_handle: Option<ColdStoreLoopHandle>,
     /// Contains handles to background threads that may be dumping state to S3.
-    pub state_sync_dump_handle: Option<StateSyncDumpHandle>,
+    pub state_sync_dumper: StateSyncDumper,
     /// A handle to control background flat state values inlining migration.
     /// Needed temporarily, will be removed after the migration is completed.
     pub flat_state_migration_handle: FlatStateValuesInliningMigrationHandle,
@@ -317,12 +317,14 @@ pub fn start_with_config_and_synchronization(
     let sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
         client_adapter_for_sync.as_sender(),
         network_adapter_for_sync.as_sender(),
+        SyncAdapter::actix_actor_maker(),
     )));
 
     let node_id = config.network_config.node_id();
     let network_adapter = LateBoundSender::new();
     let shards_manager_adapter = LateBoundSender::new();
     let client_adapter_for_shards_manager = LateBoundSender::new();
+    let client_adapter_for_partial_witness_actor = LateBoundSender::new();
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
     let view_client = start_view_client(
@@ -342,20 +344,25 @@ pub fn start_with_config_and_synchronization(
         network_adapter.as_multi_sender(),
         runtime.get_tries(),
     );
-    let delete_snapshot_callback = get_delete_snapshot_callback(state_snapshot_actor.clone());
-    let make_snapshot_callback =
-        get_make_snapshot_callback(state_snapshot_actor, runtime.get_flat_storage_manager());
+    let delete_snapshot_callback = get_delete_snapshot_callback(
+        state_snapshot_actor.clone().with_auto_span_context().into_multi_sender(),
+    );
+    let make_snapshot_callback = get_make_snapshot_callback(
+        state_snapshot_actor.with_auto_span_context().into_multi_sender(),
+        runtime.get_flat_storage_manager(),
+    );
     let snapshot_callbacks = SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
 
-    let (state_witness_actor, state_witness_arbiter) = if config.validator_signer.is_some() {
+    let (partial_witness_actor, partial_witness_arbiter) = if config.validator_signer.is_some() {
         let my_signer = config.validator_signer.clone().unwrap();
-        let (state_witness_actor, state_witness_arbiter) = StateWitnessActor::spawn(
+        let (partial_witness_actor, partial_witness_arbiter) = PartialWitnessActor::spawn(
             Clock::real(),
             network_adapter.as_multi_sender(),
+            client_adapter_for_partial_witness_actor.as_multi_sender(),
             my_signer,
             epoch_manager.clone(),
         );
-        (Some(state_witness_actor), Some(state_witness_arbiter))
+        (Some(partial_witness_actor), Some(partial_witness_arbiter))
     } else {
         (None, None)
     };
@@ -386,7 +393,7 @@ pub fn start_with_config_and_synchronization(
         shutdown_signal,
         adv,
         config_updater,
-        state_witness_actor
+        partial_witness_actor
             .clone()
             .map(|actor| actor.with_auto_span_context().into_multi_sender())
             .unwrap_or_else(|| noop().into_multi_sender()),
@@ -395,6 +402,7 @@ pub fn start_with_config_and_synchronization(
         client_adapter_for_sync.bind(client_actor.clone().with_auto_span_context())
     };
     client_adapter_for_shards_manager.bind(client_actor.clone().with_auto_span_context());
+    client_adapter_for_partial_witness_actor.bind(client_actor.clone().with_auto_span_context());
     let (shards_manager_actor, shards_manager_arbiter_handle) = start_shards_manager(
         epoch_manager.clone(),
         shard_tracker.clone(),
@@ -413,14 +421,18 @@ pub fn start_with_config_and_synchronization(
             config.client_config.client_background_migration_threads,
         );
 
-    let state_sync_dump_handle = spawn_state_sync_dump(
-        &config.client_config,
+    let mut state_sync_dumper = StateSyncDumper {
+        clock: Clock::real(),
+        client_config: config.client_config.clone(),
         chain_genesis,
         epoch_manager,
         shard_tracker,
         runtime,
-        config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
-    )?;
+        account_id: config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
+        dump_future_runner: StateSyncDumper::arbiter_dump_future_runner(),
+        handle: None,
+    };
+    state_sync_dumper.start()?;
 
     let hot_store = storage.get_hot_store();
 
@@ -431,7 +443,7 @@ pub fn start_with_config_and_synchronization(
         config.network_config,
         client_sender_for_network(client_actor.clone(), view_client.clone()),
         shards_manager_adapter.as_sender(),
-        state_witness_actor
+        partial_witness_actor
             .map(|actor| actor.with_auto_span_context().into_multi_sender())
             .unwrap_or_else(|| noop().into_multi_sender()),
         genesis_id,
@@ -488,8 +500,8 @@ pub fn start_with_config_and_synchronization(
     if let Some(db_metrics_arbiter) = db_metrics_arbiter {
         arbiters.push(db_metrics_arbiter);
     }
-    if let Some(state_witness_arbiter) = state_witness_arbiter {
-        arbiters.push(state_witness_arbiter);
+    if let Some(partial_witness_arbiter) = partial_witness_arbiter {
+        arbiters.push(partial_witness_arbiter);
     }
 
     Ok(NearNode {
@@ -498,7 +510,7 @@ pub fn start_with_config_and_synchronization(
         rpc_servers,
         arbiters,
         cold_store_loop_handle,
-        state_sync_dump_handle,
+        state_sync_dumper,
         flat_state_migration_handle,
         resharding_handle,
     })

@@ -13,7 +13,7 @@ use crate::debug::new_network_info_view;
 use crate::info::{display_sync_status, InfoHelper};
 use crate::sync::adapter::{SyncMessage, SyncShardInfo};
 use crate::sync::state::{StateSync, StateSyncResult};
-use crate::{metrics, DistributeStateWitnessRequest, StatusResponse};
+use crate::{metrics, StatusResponse};
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawner};
 use near_async::messaging::{CanSend, Sender};
 use near_async::time::{Clock, Utc};
@@ -21,7 +21,7 @@ use near_async::time::{Duration, Instant};
 use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
 use near_chain::chain::{
     ApplyChunksDoneMessage, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
-    BlockCatchUpResponse, LoadMemtrieRequest, LoadMemtrieResponse,
+    BlockCatchUpResponse, LoadMemtrieRequest, LoadMemtrieResponse, ProcessChunkStateWitnessMessage,
 };
 use near_chain::resharding::{ReshardingRequest, ReshardingResponse};
 use near_chain::test_utils::format_hash;
@@ -48,7 +48,6 @@ use near_network::types::ReasonForBan;
 use near_network::types::{
     NetworkInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
 };
-use near_o11y::WithSpanContextExt;
 use near_performance_metrics;
 use near_performance_metrics_macros::perf;
 use near_primitives::block::Tip;
@@ -95,8 +94,10 @@ pub struct SyncJobsSenderForClient {
     pub resharding: Sender<ReshardingRequest>,
 }
 
-pub struct StateWitnessSenderForClient {
-    pub distribute_chunk_state_witness: Sender<DistributeStateWitnessRequest>,
+#[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
+#[multi_send_message_derive(Debug)]
+pub struct ClientSenderForPartialWitness {
+    pub receive_chunk_state_witness: Sender<ProcessChunkStateWitnessMessage>,
 }
 
 pub struct ClientActions {
@@ -1562,13 +1563,9 @@ impl ClientActions {
                             let shard_uid =
                                 ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
                             match self.client.state_sync_adapter.clone().read() {
-                                Ok(sync_adapter) => sync_adapter.send(
+                                Ok(sync_adapter) => sync_adapter.send_sync_message(
                                     shard_uid,
-                                    (SyncMessage::StartSync(SyncShardInfo {
-                                        shard_uid,
-                                        sync_hash,
-                                    }))
-                                    .with_span_context(),
+                                    SyncMessage::StartSync(SyncShardInfo { shard_uid, sync_hash }),
                                 ),
                                 Err(_) => {
                                     error!(target:"client", "State sync adapter lock is poisoned.")
@@ -1852,6 +1849,17 @@ impl ClientActionHandler<ChunkStateWitnessMessage> for ClientActions {
 
     #[perf]
     fn handle(&mut self, msg: ChunkStateWitnessMessage) -> Self::Result {
+        if let Err(err) = self.client.process_signed_chunk_state_witness(msg.0, None) {
+            tracing::error!(target: "client", ?err, "Error processing signed chunk state witness");
+        }
+    }
+}
+
+impl ClientActionHandler<ProcessChunkStateWitnessMessage> for ClientActions {
+    type Result = ();
+
+    #[perf]
+    fn handle(&mut self, msg: ProcessChunkStateWitnessMessage) -> Self::Result {
         if let Err(err) = self.client.process_chunk_state_witness(msg.0, None) {
             tracing::error!(target: "client", ?err, "Error processing chunk state witness");
         }

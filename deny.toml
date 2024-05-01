@@ -157,4 +157,9 @@ skip = [
 
     # Everything depends on this...
     { name = "lru", version = "=0.7.8" },
+
+    # reed-solomon-erasure latest version
+    { name = "parking_lot", version = "=0.11.2" },
+    { name = "parking_lot_core", version = "=0.8.6" },
+    { name = "spin", version = "=0.9.8" },
 ]

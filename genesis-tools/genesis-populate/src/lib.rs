@@ -13,6 +13,7 @@ use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{genesis_chunks, Tip};
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardUId};
 use near_primitives::state_record::StateRecord;
@@ -253,12 +254,14 @@ impl GenesisBuilder {
                     &self.genesis.config.shard_layout,
                 ),
                 ChunkExtra::new(
+                    self.genesis.config.protocol_version,
                     state_root,
                     CryptoHash::default(),
                     vec![],
                     0,
                     self.genesis.config.gas_limit,
                     0,
+                    Some(CongestionInfo::default()),
                 ),
             );
         }

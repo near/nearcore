@@ -8,7 +8,7 @@ use near_chain::{Chain, ChainGenesis};
 use near_chain_configs::{ClientConfig, Genesis, GenesisConfig};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
-use near_client::{start_client, start_view_client, StateWitnessActor, SyncAdapter};
+use near_client::{start_client, start_view_client, PartialWitnessActor, SyncAdapter};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManager;
 use near_network::actix::ActixSystem;
@@ -83,8 +83,11 @@ fn setup_network_node(
     let network_adapter = LateBoundSender::new();
     let shards_manager_adapter = LateBoundSender::new();
     let adv = near_client::adversarial::Controls::default();
-    let state_sync_adapter =
-        Arc::new(RwLock::new(SyncAdapter::new(noop().into_sender(), noop().into_sender())));
+    let state_sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
+        noop().into_sender(),
+        noop().into_sender(),
+        SyncAdapter::actix_actor_maker(),
+    )));
     let client_actor = start_client(
         Clock::real(),
         client_config.clone(),
@@ -125,9 +128,10 @@ fn setup_network_node(
         runtime.store().clone(),
         client_config.chunk_request_retry_period,
     );
-    let (state_witness_actor, _) = StateWitnessActor::spawn(
+    let (partial_witness_actor, _) = PartialWitnessActor::spawn(
         Clock::real(),
         network_adapter.as_multi_sender(),
+        client_actor.clone().with_auto_span_context().into_multi_sender(),
         signer,
         epoch_manager,
     );
@@ -138,7 +142,7 @@ fn setup_network_node(
         config,
         client_sender_for_network(client_actor, view_client_actor),
         shards_manager_adapter.as_sender(),
-        state_witness_actor.with_auto_span_context().into_multi_sender(),
+        partial_witness_actor.with_auto_span_context().into_multi_sender(),
         genesis_id,
     )
     .unwrap();

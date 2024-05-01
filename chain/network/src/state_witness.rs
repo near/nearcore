@@ -17,7 +17,7 @@ pub struct PartialEncodedStateWitnessForwardMessage(pub PartialEncodedStateWitne
 #[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
 #[multi_send_message_derive(Debug)]
 #[multi_send_input_derive(Debug, Clone, PartialEq, Eq)]
-pub struct StateWitnessSenderForNetwork {
+pub struct PartialWitnessSenderForNetwork {
     pub chunk_state_witness_ack: Sender<ChunkStateWitnessAckMessage>,
     pub partial_encoded_state_witness: Sender<PartialEncodedStateWitnessMessage>,
     pub partial_encoded_state_witness_forward: Sender<PartialEncodedStateWitnessForwardMessage>,

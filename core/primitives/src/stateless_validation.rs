@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::challenge::PartialState;
+use crate::congestion_info::CongestionInfo;
 use crate::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader, ShardChunkHeaderV3};
 use crate::transaction::SignedTransaction;
 use crate::types::EpochId;
@@ -10,6 +11,7 @@ use bytes::BufMut;
 use near_crypto::{PublicKey, Signature};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance, BlockHeight, ShardId};
+use near_primitives_core::version::PROTOCOL_VERSION;
 
 /// An arbitrary static string to make sure that this struct cannot be
 /// serialized to look identical to another serialized struct. For chunk
@@ -19,10 +21,14 @@ use near_primitives_core::types::{AccountId, Balance, BlockHeight, ShardId};
 /// This is a messy workaround until we know what to do with NEP 483.
 type SignatureDifferentiator = String;
 
+/// Represents the Reed Solomon erasure encoded parts of the `EncodedChunkStateWitness`.
+/// These are created and signed by the chunk producer and sent to the chunk validators.
+/// Note that the chunk validators do not require all the parts of the state witness to
+/// reconstruct the full state witness due to the Reed Solomon erasure encoding.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct PartialEncodedStateWitness {
     inner: PartialEncodedStateWitnessInner,
-    pub signature: Signature,
+    signature: Signature,
 }
 
 impl PartialEncodedStateWitness {
@@ -54,23 +60,29 @@ impl PartialEncodedStateWitness {
         &self.inner.epoch_id
     }
 
-    pub fn chunk_header(&self) -> &ShardChunkHeader {
-        &self.inner.chunk_header
+    pub fn shard_id(&self) -> ShardId {
+        self.inner.shard_id
+    }
+
+    pub fn height_created(&self) -> BlockHeight {
+        self.inner.height_created
     }
 
     pub fn part_ord(&self) -> usize {
         self.inner.part_ord
     }
 
-    pub fn part(&self) -> &[u8] {
-        &self.inner.part
+    /// Decomposes the partial witness to return (part_ord, part, encoded_length)
+    pub fn decompose(self) -> (usize, Box<[u8]>, usize) {
+        (self.inner.part_ord, self.inner.part, self.inner.encoded_length)
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct PartialEncodedStateWitnessInner {
     epoch_id: EpochId,
-    chunk_header: ShardChunkHeader,
+    shard_id: ShardId,
+    height_created: BlockHeight,
     part_ord: usize,
     part: Box<[u8]>,
     encoded_length: usize,
@@ -87,7 +99,8 @@ impl PartialEncodedStateWitnessInner {
     ) -> Self {
         Self {
             epoch_id,
-            chunk_header,
+            shard_id: chunk_header.shard_id(),
+            height_created: chunk_header.height_created(),
             part_ord,
             part: part.into_boxed_slice(),
             encoded_length,
@@ -104,6 +117,11 @@ pub struct EncodedChunkStateWitness(Box<[u8]>);
 pub type ChunkStateWitnessSize = usize;
 
 impl EncodedChunkStateWitness {
+    /// Only use this if you are sure that the data is already encoded.
+    pub fn from_boxed_slice(data: Box<[u8]>) -> Self {
+        Self(data)
+    }
+
     /// Borsh-serialize and compress state witness.
     /// Returns encoded witness along with the raw (uncompressed) witness size.
     pub fn encode(witness: &ChunkStateWitness) -> std::io::Result<(Self, ChunkStateWitnessSize)> {
@@ -169,6 +187,7 @@ impl ChunkStateWitnessAck {
 /// chunk attests to.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ChunkStateWitness {
+    /// TODO(stateless_validation): Deprecate once we send state witness in parts.
     pub chunk_producer: AccountId,
     /// EpochId corresponds to the next block after chunk's previous block.
     /// This is effectively the output of EpochManager::get_epoch_id_from_prev_block
@@ -274,6 +293,7 @@ impl ChunkStateWitness {
 
     pub fn new_dummy(height: BlockHeight, shard_id: ShardId, prev_block_hash: CryptoHash) -> Self {
         let header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+            PROTOCOL_VERSION,
             prev_block_hash,
             Default::default(),
             Default::default(),
@@ -287,6 +307,7 @@ impl ChunkStateWitness {
             Default::default(),
             Default::default(),
             Default::default(),
+            CongestionInfo::default(),
             &EmptyValidatorSigner::default(),
         ));
         Self::new(
@@ -415,6 +436,10 @@ impl ChunkValidatorAssignments {
     pub fn new(assignments: Vec<(AccountId, Balance)>) -> Self {
         let chunk_validators = assignments.iter().map(|(id, _)| id.clone()).collect();
         Self { assignments, chunk_validators }
+    }
+
+    pub fn len(&self) -> usize {
+        self.assignments.len()
     }
 
     pub fn contains(&self, account_id: &AccountId) -> bool {

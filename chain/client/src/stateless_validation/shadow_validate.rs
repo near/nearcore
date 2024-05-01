@@ -89,12 +89,11 @@ impl Client {
                 .start_timer();
             let (encoded_witness, raw_witness_size) = EncodedChunkStateWitness::encode(&witness)?;
             encode_timer.observe_duration();
-            metrics::CHUNK_STATE_WITNESS_TOTAL_SIZE
-                .with_label_values(&[shard_id_label.as_str()])
-                .observe(encoded_witness.size_bytes() as f64);
-            metrics::CHUNK_STATE_WITNESS_RAW_SIZE
-                .with_label_values(&[shard_id_label.as_str()])
-                .observe(raw_witness_size as f64);
+            metrics::record_witness_size_metrics(
+                raw_witness_size,
+                encoded_witness.size_bytes(),
+                &witness,
+            );
             let decode_timer = metrics::CHUNK_STATE_WITNESS_DECODE_TIME
                 .with_label_values(&[shard_id_label.as_str()])
                 .start_timer();

@@ -127,8 +127,15 @@ pytest sanity/proxy_example.py
 pytest sanity/proxy_example.py --features nightly
 pytest sanity/rpc_tx_submission.py
 pytest sanity/rpc_tx_submission.py --features nightly
-pytest sanity/state_sync_fail.py
-pytest sanity/state_sync_fail.py --features nightly
+
+# The state sync fail test checks that state sync fails during or after
+# resharding. Currently it's disabled because resharding and congestion control
+# are not fully integrated. There are two steps to be taken:
+# TODO(congestion_control) - fix integration with resharding and enable fail test
+# TODO(resharding) - fix integration with state sync and adjust fail test
+# TODO(#9519)
+# pytest sanity/state_sync_fail.py
+# pytest sanity/state_sync_fail.py --features nightly
 
 pytest sanity/restart.py
 pytest sanity/restart.py --features nightly
@@ -161,8 +168,8 @@ pytest --timeout=120 sanity/resharding_rpc_tx.py
 pytest --timeout=120 sanity/resharding_restart.py
 pytest --timeout=120 sanity/resharding_error_handling.py
 
-# Tests for resharding in nightly are disabled because resharding is not
-# compatible with stateless validation. 
+# TODO(resharding) Tests for resharding in nightly are disabled because
+# resharding is not compatible with stateless validation.
 # pytest --timeout=120 sanity/resharding.py --features nightly
 # pytest --timeout=120 sanity/resharding_rpc_tx.py --features nightly
 # pytest --timeout=120 sanity/resharding_restart.py --features nightly

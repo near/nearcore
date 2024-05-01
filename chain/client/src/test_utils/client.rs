@@ -20,7 +20,6 @@ use near_network::types::HighestHeightPeerInfo;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, PartialMerkleTree};
-use near_primitives::reed_solomon::ReedSolomonWrapper;
 use near_primitives::sharding::{EncodedShardChunk, ShardChunk};
 use near_primitives::stateless_validation::ChunkEndorsement;
 use near_primitives::transaction::SignedTransaction;
@@ -28,6 +27,7 @@ use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::PROTOCOL_VERSION;
 use num_rational::Ratio;
+use reed_solomon_erasure::galois_8::ReedSolomon;
 
 impl Client {
     /// Unlike Client::start_process_block, which returns before the block finishes processing
@@ -129,7 +129,7 @@ fn create_chunk_on_height_for_shard(
     let last_block = client.chain.get_block(&last_block_hash).unwrap();
     client
         .produce_chunk(
-            last_block_hash,
+            &last_block,
             &client.epoch_manager.get_epoch_id_from_prev_block(&last_block_hash).unwrap(),
             Chain::get_prev_chunk_header(client.epoch_manager.as_ref(), &last_block, shard_id)
                 .unwrap(),
@@ -167,7 +167,7 @@ pub fn create_chunk(
         transactions_storage_proof,
     } = client
         .produce_chunk(
-            *last_block.hash(),
+            &last_block,
             last_block.header().epoch_id(),
             last_block.chunks()[0].clone(),
             next_height,
@@ -188,7 +188,7 @@ pub fn create_chunk(
         let data_parts = client.chain.epoch_manager.num_data_parts();
         let decoded_chunk = chunk.decode_chunk(data_parts).unwrap();
         let parity_parts = total_parts - data_parts;
-        let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
+        let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
 
         let signer = client.validator_signer.as_ref().unwrap().clone();
         let header = chunk.cloned_header();
@@ -198,7 +198,7 @@ pub fn create_chunk(
             header.prev_outcome_root(),
             header.height_created(),
             header.shard_id(),
-            &mut rs,
+            &rs,
             header.prev_gas_used(),
             header.gas_limit(),
             header.prev_balance_burnt(),
@@ -207,6 +207,8 @@ pub fn create_chunk(
             transactions,
             decoded_chunk.prev_outgoing_receipts(),
             header.prev_outgoing_receipts_root(),
+            // TODO(congestion_control): compute if not available
+            header.congestion_info().unwrap_or_default(),
             &*signer,
             PROTOCOL_VERSION,
         )
