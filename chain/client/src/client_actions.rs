@@ -1520,141 +1520,141 @@ impl ClientActions {
             }
             _ => false,
         };
-        if sync_state {
-            match self.client.sync_status {
-                SyncStatus::StateSync(_) => (),
-                _ => {
-                    let sync_hash = unwrap_and_report_state_sync_result!(self.find_sync_hash());
-                    if !self.client.config.archive {
-                        let reset_data_result =
-                            self.client.chain.mut_chain_store().reset_data_pre_state_sync(
-                                sync_hash,
-                                self.client.runtime_adapter.clone(),
-                                self.client.epoch_manager.clone(),
-                            );
-                        unwrap_and_report_state_sync_result!(reset_data_result);
-                    }
-                    let new_state_sync_status =
-                        StateSyncStatus { sync_hash, sync_status: HashMap::default() };
-                    let new_sync_status = SyncStatus::StateSync(new_state_sync_status);
-                    self.client.sync_status.update(new_sync_status);
-                    // This is the first time we run state sync.
-                    notify_start_sync = true;
+        if !sync_state {
+            return;
+        }
+        match self.client.sync_status {
+            SyncStatus::StateSync(_) => (),
+            _ => {
+                let sync_hash = unwrap_and_report_state_sync_result!(self.find_sync_hash());
+                if !self.client.config.archive {
+                    let reset_data_result =
+                        self.client.chain.mut_chain_store().reset_data_pre_state_sync(
+                            sync_hash,
+                            self.client.runtime_adapter.clone(),
+                            self.client.epoch_manager.clone(),
+                        );
+                    unwrap_and_report_state_sync_result!(reset_data_result);
                 }
-            };
-            let sync_hash = match &self.client.sync_status {
-                SyncStatus::StateSync(s) => s.sync_hash,
-                _ => unreachable!("Sync status should have been StateSync!"),
-            };
+                let new_state_sync_status =
+                    StateSyncStatus { sync_hash, sync_status: HashMap::default() };
+                let new_sync_status = SyncStatus::StateSync(new_state_sync_status);
+                self.client.sync_status.update(new_sync_status);
+                // This is the first time we run state sync.
+                notify_start_sync = true;
+            }
+        };
+        let sync_hash = match &self.client.sync_status {
+            SyncStatus::StateSync(s) => s.sync_hash,
+            _ => unreachable!("Sync status should have been StateSync!"),
+        };
 
-            let me = self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
-            let block_header = self.client.chain.get_block_header(&sync_hash);
-            let block_header = unwrap_and_report_state_sync_result!(block_header);
-            let prev_hash = *block_header.prev_hash();
-            let epoch_id = block_header.epoch_id().clone();
-            let shards_to_sync = get_shards_cares_about_this_or_next_epoch(
-                me.as_ref(),
-                true,
-                &block_header,
-                &self.client.shard_tracker,
-                self.client.epoch_manager.as_ref(),
-            );
+        let me = self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
+        let block_header = self.client.chain.get_block_header(&sync_hash);
+        let block_header = unwrap_and_report_state_sync_result!(block_header);
+        let prev_hash = *block_header.prev_hash();
+        let epoch_id = block_header.epoch_id().clone();
+        let shards_to_sync = get_shards_cares_about_this_or_next_epoch(
+            me.as_ref(),
+            true,
+            &block_header,
+            &self.client.shard_tracker,
+            self.client.epoch_manager.as_ref(),
+        );
 
-            let use_colour =
-                matches!(self.client.config.log_summary_style, LogSummaryStyle::Colored);
+        let use_colour = matches!(self.client.config.log_summary_style, LogSummaryStyle::Colored);
 
-            // Notify each shard to sync.
-            if notify_start_sync {
-                let shard_layout = self
-                    .client
-                    .epoch_manager
-                    .get_shard_layout(&epoch_id)
-                    .expect("Cannot get shard layout");
-                for &shard_id in &shards_to_sync {
-                    let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-                    match self.client.state_sync_adapter.clone().read() {
-                        Ok(sync_adapter) => sync_adapter.send_sync_message(
-                            shard_uid,
-                            SyncMessage::StartSync(SyncShardInfo { shard_uid, sync_hash }),
-                        ),
-                        Err(_) => {
-                            error!(target:"client", "State sync adapter lock is poisoned.")
-                        }
+        // Notify each shard to sync.
+        if notify_start_sync {
+            let shard_layout = self
+                .client
+                .epoch_manager
+                .get_shard_layout(&epoch_id)
+                .expect("Cannot get shard layout");
+            for &shard_id in &shards_to_sync {
+                let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+                match self.client.state_sync_adapter.clone().read() {
+                    Ok(sync_adapter) => sync_adapter.send_sync_message(
+                        shard_uid,
+                        SyncMessage::StartSync(SyncShardInfo { shard_uid, sync_hash }),
+                    ),
+                    Err(_) => {
+                        error!(target:"client", "State sync adapter lock is poisoned.")
                     }
                 }
             }
+        }
 
-            let now = self.clock.now_utc();
+        let now = self.clock.now_utc();
 
-            // FIXME: it checks if the block exists.. but I have no idea why..
-            // seems that we don't really use this block in case of catchup - we use it only for state sync.
-            // Seems it is related to some bug with block getting orphaned after state sync? but not sure.
-            let (request_block, have_block) =
-                unwrap_and_report_state_sync_result!(self.sync_block_status(&prev_hash, now));
+        // FIXME: it checks if the block exists.. but I have no idea why..
+        // seems that we don't really use this block in case of catchup - we use it only for state sync.
+        // Seems it is related to some bug with block getting orphaned after state sync? but not sure.
+        let (request_block, have_block) =
+            unwrap_and_report_state_sync_result!(self.sync_block_status(&prev_hash, now));
 
-            if request_block {
-                self.client.last_time_sync_block_requested = Some(now);
-                if let Some(peer_info) =
-                    self.network_info.highest_height_peers.choose(&mut thread_rng())
-                {
-                    let id = peer_info.peer_info.id.clone();
+        if request_block {
+            self.client.last_time_sync_block_requested = Some(now);
+            if let Some(peer_info) =
+                self.network_info.highest_height_peers.choose(&mut thread_rng())
+            {
+                let id = peer_info.peer_info.id.clone();
 
-                    for hash in vec![*block_header.prev_hash(), *block_header.hash()].into_iter() {
-                        self.client.request_block(hash, id.clone());
-                    }
+                for hash in vec![*block_header.prev_hash(), *block_header.hash()].into_iter() {
+                    self.client.request_block(hash, id.clone());
                 }
             }
-            if have_block {
-                self.client.last_time_sync_block_requested = None;
-            }
+        }
+        if have_block {
+            self.client.last_time_sync_block_requested = None;
+        }
 
-            let state_sync_status = match &mut self.client.sync_status {
-                SyncStatus::StateSync(s) => s,
-                _ => unreachable!("Sync status should have been StateSync!"),
-            };
+        let state_sync_status = match &mut self.client.sync_status {
+            SyncStatus::StateSync(s) => s,
+            _ => unreachable!("Sync status should have been StateSync!"),
+        };
 
-            let state_sync_result = self.client.state_sync.run(
-                &me,
-                sync_hash,
-                &mut state_sync_status.sync_status,
-                &mut self.client.chain,
-                self.client.epoch_manager.as_ref(),
-                &self.network_info.highest_height_peers,
-                shards_to_sync,
-                &self.sync_jobs_sender.apply_state_parts,
-                &self.sync_jobs_sender.load_memtrie,
-                &self.sync_jobs_sender.resharding,
-                self.state_parts_future_spawner.as_ref(),
-                use_colour,
-                self.client.runtime_adapter.clone(),
-            );
-            let state_sync_result = unwrap_and_report_state_sync_result!(state_sync_result);
-            match state_sync_result {
-                StateSyncResult::InProgress => (),
-                StateSyncResult::Completed => {
-                    if !have_block {
-                        trace!(target: "sync", "Sync done. Waiting for sync block.");
-                        return;
-                    }
-                    info!(target: "sync", "State sync: all shards are done");
-
-                    let mut block_processing_artifacts = BlockProcessingArtifact::default();
-
-                    let reset_heads_result = self.client.chain.reset_heads_post_state_sync(
-                        &me,
-                        sync_hash,
-                        &mut block_processing_artifacts,
-                        Some(self.myself_sender.apply_chunks_done.clone()),
-                    );
-                    unwrap_and_report_state_sync_result!(reset_heads_result);
-
-                    self.client.process_block_processing_artifact(block_processing_artifacts);
-                    self.client.sync_status.update(SyncStatus::BlockSync {
-                        start_height: 0,
-                        current_height: 0,
-                        highest_height: 0,
-                    });
+        let state_sync_result = self.client.state_sync.run(
+            &me,
+            sync_hash,
+            &mut state_sync_status.sync_status,
+            &mut self.client.chain,
+            self.client.epoch_manager.as_ref(),
+            &self.network_info.highest_height_peers,
+            shards_to_sync,
+            &self.sync_jobs_sender.apply_state_parts,
+            &self.sync_jobs_sender.load_memtrie,
+            &self.sync_jobs_sender.resharding,
+            self.state_parts_future_spawner.as_ref(),
+            use_colour,
+            self.client.runtime_adapter.clone(),
+        );
+        let state_sync_result = unwrap_and_report_state_sync_result!(state_sync_result);
+        match state_sync_result {
+            StateSyncResult::InProgress => (),
+            StateSyncResult::Completed => {
+                if !have_block {
+                    trace!(target: "sync", "Sync done. Waiting for sync block.");
+                    return;
                 }
+                info!(target: "sync", "State sync: all shards are done");
+
+                let mut block_processing_artifacts = BlockProcessingArtifact::default();
+
+                let reset_heads_result = self.client.chain.reset_heads_post_state_sync(
+                    &me,
+                    sync_hash,
+                    &mut block_processing_artifacts,
+                    Some(self.myself_sender.apply_chunks_done.clone()),
+                );
+                unwrap_and_report_state_sync_result!(reset_heads_result);
+
+                self.client.process_block_processing_artifact(block_processing_artifacts);
+                self.client.sync_status.update(SyncStatus::BlockSync {
+                    start_height: 0,
+                    current_height: 0,
+                    highest_height: 0,
+                });
             }
         }
     }
