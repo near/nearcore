@@ -42,7 +42,7 @@ use once_cell::sync::OnceCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
-use super::mock_state_witness_adapter::MockStateWitnessAdapter;
+use super::mock_partial_witness_adapter::MockPartialWitnessAdapter;
 use super::setup::setup_client_with_runtime;
 use super::test_env_builder::TestEnvBuilder;
 use super::TEST_SEED;
@@ -58,7 +58,7 @@ pub struct TestEnv {
     pub validators: Vec<AccountId>,
     pub network_adapters: Vec<Arc<MockPeerManagerAdapter>>,
     pub client_adapters: Vec<Arc<MockClientAdapterForShardsManager>>,
-    pub state_witness_adapters: Vec<MockStateWitnessAdapter>,
+    pub partial_witness_adapters: Vec<MockPartialWitnessAdapter>,
     pub shards_manager_adapters: Vec<SynchronousShardsManagerAdapter>,
     pub clients: Vec<Client>,
     pub(crate) account_indices: AccountIndices,
@@ -346,16 +346,16 @@ impl TestEnv {
         };
         let mut witness_processing_done_waiters: Vec<ProcessingDoneWaiter> = Vec::new();
 
-        // Here we are completely bypassing the state_witness_actor and directly distributing the state witness to the
+        // Here we are completely bypassing the partial_witness_actor and directly distributing the state witness to the
         // clients. Ideally the route should have been the following:
-        // [client] ----(DistributeStateWitnessRequest)----> [state_witness_actor]
-        // [state_witness_actor] ----(PartialEncodedStateWitness + Forward)----> [state_witness_actor]
-        // [state_witness_actor] ----(ProcessChunkStateWitnessMessage)----> [client]
+        // [client] ----(DistributeStateWitnessRequest)----> [partial_witness_actor]
+        // [partial_witness_actor] ----(PartialEncodedStateWitness + Forward)----> [partial_witness_actor]
+        // [partial_witness_actor] ----(ProcessChunkStateWitnessMessage)----> [client]
         // But we go directly from processing DistributeStateWitnessRequest to sending it to all the chunk validators.
-        // Validation of state witness is done in the state_witness_actor which should be tested by test_loop.
-        let state_witness_adapters = self.state_witness_adapters.clone();
-        for (client_idx, state_witness_adapter) in state_witness_adapters.iter().enumerate() {
-            while let Some(request) = state_witness_adapter.pop_distribution_request() {
+        // Validation of state witness is done in the partial_witness_actor which should be tested by test_loop.
+        let partial_witness_adapters = self.partial_witness_adapters.clone();
+        for (client_idx, partial_witness_adapter) in partial_witness_adapters.iter().enumerate() {
+            while let Some(request) = partial_witness_adapter.pop_distribution_request() {
                 let DistributeStateWitnessRequest { epoch_id, chunk_header, state_witness } =
                     request;
                 let (encoded_witness, _) =
@@ -625,7 +625,7 @@ impl TestEnv {
             self.archive,
             self.save_trie_changes,
             None,
-            self.clients[idx].state_witness_adapter.clone(),
+            self.clients[idx].partial_witness_adapter.clone(),
             self.clients[idx].validator_signer.clone().unwrap(),
         )
     }

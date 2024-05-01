@@ -4,8 +4,8 @@
 
 use super::block_stats::BlockStats;
 use super::peer_manager_mock::PeerManagerMock;
-use crate::stateless_validation::state_witness_actor::{
-    StateWitnessActor, StateWitnessSenderForClient,
+use crate::stateless_validation::partial_witness::partial_witness_actor::{
+    PartialWitnessActor, PartialWitnessSenderForClient,
 };
 use crate::{start_view_client, Client, ClientActor, SyncAdapter, SyncStatus, ViewClientActor};
 use actix::{Actor, Addr, AsyncContext, Context};
@@ -177,14 +177,14 @@ pub fn setup(
         SyncAdapter::actix_actor_maker(),
     )));
 
-    let (state_witness_addr, _) = StateWitnessActor::spawn(
+    let (partial_witness_addr, _) = PartialWitnessActor::spawn(
         clock.clone(),
         network_adapter.clone(),
         noop().into_multi_sender(),
         signer.clone(),
         epoch_manager.clone(),
     );
-    let state_witness_adapter = state_witness_addr.with_auto_span_context();
+    let partial_witness_adapter = partial_witness_addr.with_auto_span_context();
     let client = Client::new(
         clock.clone(),
         config.clone(),
@@ -200,7 +200,7 @@ pub fn setup(
         TEST_SEED,
         None,
         Arc::new(RayonAsyncComputationSpawner),
-        state_witness_adapter.into_multi_sender(),
+        partial_witness_adapter.into_multi_sender(),
     )
     .unwrap();
     let client_actor = ClientActor::new(
@@ -974,7 +974,7 @@ pub fn setup_client_with_runtime(
     archive: bool,
     save_trie_changes: bool,
     snapshot_callbacks: Option<SnapshotCallbacks>,
-    state_witness_adapter: StateWitnessSenderForClient,
+    partial_witness_adapter: PartialWitnessSenderForClient,
     validator_signer: Arc<dyn ValidatorSigner>,
 ) -> Client {
     let mut config = ClientConfig::test(
@@ -1008,7 +1008,7 @@ pub fn setup_client_with_runtime(
         rng_seed,
         snapshot_callbacks,
         Arc::new(RayonAsyncComputationSpawner),
-        state_witness_adapter,
+        partial_witness_adapter,
     )
     .unwrap();
     client.sync_status = SyncStatus::NoSync;

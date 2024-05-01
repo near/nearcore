@@ -523,7 +523,9 @@ pub mod trie_key_parsers {
 
 #[cfg(test)]
 mod tests {
+    use crate::shard_layout::ShardLayout;
     use near_crypto::KeyType;
+    use near_primitives_core::version::PROTOCOL_VERSION;
 
     use super::*;
 
@@ -825,5 +827,15 @@ mod tests {
                 Some(account_id)
             );
         }
+    }
+
+    #[test]
+    fn test_shard_id_u16_optimization() {
+        let shard_layout = ShardLayout::for_protocol_version(PROTOCOL_VERSION);
+        let max_id = shard_layout.shard_ids().max().unwrap();
+        assert!(
+            max_id <= u16::MAX as u64,
+            "buffered receipt trie key optimization broken, must fit in a u16"
+        );
     }
 }
