@@ -1687,34 +1687,34 @@ impl ClientActions {
     /// Verifies if the node possesses sync block.
     /// It is the last block of the previous epoch.
     /// If the block is absent, the node requests it from peers.
+    /// the return value is a tuple (request_block, have_block)
     fn sync_block_status(
         &self,
         prev_hash: &CryptoHash,
         now: Utc,
     ) -> Result<(bool, bool), near_chain::Error> {
-        let (request_block, have_block) = if !self.client.chain.block_exists(prev_hash)? {
-            let timeout =
-                near_async::time::Duration::try_from(self.client.config.state_sync_timeout)
-                    .unwrap();
-            match self.client.last_time_sync_block_requested {
-                None => (true, false),
-                Some(last_time) => {
-                    if (now - last_time) >= timeout {
-                        tracing::error!(
-                            target: "sync",
-                            %prev_hash,
-                            ?timeout,
-                            "State sync: block request timed out");
-                        (true, false)
-                    } else {
-                        (false, false)
-                    }
-                }
-            }
-        } else {
-            (false, true)
+        if self.client.chain.block_exists(prev_hash)? {
+            return Ok((false, true));
+        }
+        let timeout = self.client.config.state_sync_timeout;
+        let timeout = near_async::time::Duration::try_from(timeout);
+        let timeout = timeout.unwrap();
+
+        let Some(last_time) = self.client.last_time_sync_block_requested else {
+            return Ok((true, false));
         };
-        Ok((request_block, have_block))
+
+        if (now - last_time) >= timeout {
+            tracing::error!(
+                target: "sync",
+                %prev_hash,
+                ?timeout,
+                "State sync: block request timed out"
+            );
+            Ok((true, false))
+        } else {
+            Ok((false, false))
+        }
     }
 
     /// Print current summary.
