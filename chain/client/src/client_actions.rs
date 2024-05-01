@@ -1488,15 +1488,19 @@ impl ClientActions {
         }
     }
 
+    /// Handle the SyncRequirement::SyncNeeded.
+    ///
+    /// This method runs the header sync, the block sync
     fn handle_sync_needed(&mut self, highest_height: u64) {
         let mut notify_start_sync = false;
         // Run each step of syncing separately.
-        unwrap_and_report_state_sync_result!(self.client.header_sync.run(
+        let header_sync_result = self.client.header_sync.run(
             &mut self.client.sync_status,
             &mut self.client.chain,
             highest_height,
-            &self.network_info.highest_height_peers
-        ));
+            &self.network_info.highest_height_peers,
+        );
+        unwrap_and_report_state_sync_result!(header_sync_result);
         // Only body / state sync if header height is close to the latest.
         let header_head = unwrap_and_report_state_sync_result!(self.client.chain.header_head());
 
@@ -1506,12 +1510,13 @@ impl ClientActions {
             _ if header_head.height
                 >= highest_height.saturating_sub(self.client.config.block_header_fetch_horizon) =>
             {
-                unwrap_and_report_state_sync_result!(self.client.block_sync.run(
+                let block_sync_result = self.client.block_sync.run(
                     &mut self.client.sync_status,
                     &self.client.chain,
                     highest_height,
-                    &self.network_info.highest_height_peers
-                ))
+                    &self.network_info.highest_height_peers,
+                );
+                unwrap_and_report_state_sync_result!(block_sync_result)
             }
             _ => false,
         };
@@ -1521,20 +1526,18 @@ impl ClientActions {
                 _ => {
                     let sync_hash = unwrap_and_report_state_sync_result!(self.find_sync_hash());
                     if !self.client.config.archive {
-                        unwrap_and_report_state_sync_result!(self
-                            .client
-                            .chain
-                            .mut_chain_store()
-                            .reset_data_pre_state_sync(
+                        let reset_data_result =
+                            self.client.chain.mut_chain_store().reset_data_pre_state_sync(
                                 sync_hash,
                                 self.client.runtime_adapter.clone(),
-                                self.client.epoch_manager.clone()
-                            ));
+                                self.client.epoch_manager.clone(),
+                            );
+                        unwrap_and_report_state_sync_result!(reset_data_result);
                     }
-                    self.client.sync_status.update(SyncStatus::StateSync(StateSyncStatus {
-                        sync_hash,
-                        sync_status: HashMap::default(),
-                    }));
+                    let new_state_sync_status =
+                        StateSyncStatus { sync_hash, sync_status: HashMap::default() };
+                    let new_sync_status = SyncStatus::StateSync(new_state_sync_status);
+                    self.client.sync_status.update(new_sync_status);
                     // This is the first time we run state sync.
                     notify_start_sync = true;
                 }
@@ -1545,10 +1548,8 @@ impl ClientActions {
             };
 
             let me = self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
-            let block_header = unwrap_and_report_state_sync_result!(self
-                .client
-                .chain
-                .get_block_header(&sync_hash));
+            let block_header = self.client.chain.get_block_header(&sync_hash);
+            let block_header = unwrap_and_report_state_sync_result!(block_header);
             let prev_hash = *block_header.prev_hash();
             let epoch_id = block_header.epoch_id().clone();
             let shards_to_sync = get_shards_cares_about_this_or_next_epoch(
@@ -1611,7 +1612,8 @@ impl ClientActions {
                 SyncStatus::StateSync(s) => s,
                 _ => unreachable!("Sync status should have been StateSync!"),
             };
-            match unwrap_and_report_state_sync_result!(self.client.state_sync.run(
+
+            let state_sync_result = self.client.state_sync.run(
                 &me,
                 sync_hash,
                 &mut state_sync_status.sync_status,
@@ -1625,7 +1627,9 @@ impl ClientActions {
                 self.state_parts_future_spawner.as_ref(),
                 use_colour,
                 self.client.runtime_adapter.clone(),
-            )) {
+            );
+            let state_sync_result = unwrap_and_report_state_sync_result!(state_sync_result);
+            match state_sync_result {
                 StateSyncResult::InProgress => (),
                 StateSyncResult::Completed => {
                     if !have_block {
@@ -1636,15 +1640,13 @@ impl ClientActions {
 
                     let mut block_processing_artifacts = BlockProcessingArtifact::default();
 
-                    unwrap_and_report_state_sync_result!(self
-                        .client
-                        .chain
-                        .reset_heads_post_state_sync(
-                            &me,
-                            sync_hash,
-                            &mut block_processing_artifacts,
-                            Some(self.myself_sender.apply_chunks_done.clone()),
-                        ));
+                    let reset_heads_result = self.client.chain.reset_heads_post_state_sync(
+                        &me,
+                        sync_hash,
+                        &mut block_processing_artifacts,
+                        Some(self.myself_sender.apply_chunks_done.clone()),
+                    );
+                    unwrap_and_report_state_sync_result!(reset_heads_result);
 
                     self.client.process_block_processing_artifact(block_processing_artifacts);
                     self.client.sync_status.update(SyncStatus::BlockSync {
