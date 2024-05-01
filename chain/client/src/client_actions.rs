@@ -1492,7 +1492,6 @@ impl ClientActions {
     ///
     /// This method runs the header sync, the block sync
     fn handle_sync_needed(&mut self, highest_height: u64) {
-        let mut notify_start_sync = false;
         // Run each step of syncing separately.
         let header_sync_result = self.client.header_sync.run(
             &mut self.client.sync_status,
@@ -1511,7 +1510,9 @@ impl ClientActions {
         if !should_state_sync {
             return;
         }
-        self.update_sync_status(&mut notify_start_sync);
+        let update_sync_status_result = self.update_sync_status();
+        let notify_start_sync = unwrap_and_report_state_sync_result!(update_sync_status_result);
+
         let sync_hash = match &self.client.sync_status {
             SyncStatus::StateSync(s) => s.sync_hash,
             _ => unreachable!("Sync status should have been StateSync!"),
@@ -1627,28 +1628,27 @@ impl ClientActions {
         }
     }
 
-    fn update_sync_status(&mut self, notify_start_sync: &mut bool) {
-        match self.client.sync_status {
-            SyncStatus::StateSync(_) => (),
-            _ => {
-                let sync_hash = unwrap_and_report_state_sync_result!(self.find_sync_hash());
-                if !self.client.config.archive {
-                    let reset_data_result =
-                        self.client.chain.mut_chain_store().reset_data_pre_state_sync(
-                            sync_hash,
-                            self.client.runtime_adapter.clone(),
-                            self.client.epoch_manager.clone(),
-                        );
-                    unwrap_and_report_state_sync_result!(reset_data_result);
-                }
-                let new_state_sync_status =
-                    StateSyncStatus { sync_hash, sync_status: HashMap::default() };
-                let new_sync_status = SyncStatus::StateSync(new_state_sync_status);
-                self.client.sync_status.update(new_sync_status);
-                // This is the first time we run state sync.
-                *notify_start_sync = true;
-            }
-        };
+    /// Update sync status to StateSync and reset data if needed.
+    /// Returns true if this is the first time we run state sync and we should
+    /// notify shards to start syncing.
+    fn update_sync_status(&mut self) -> Result<bool, near_chain::Error> {
+        if let SyncStatus::StateSync(_) = self.client.sync_status {
+            return Ok(false);
+        }
+
+        let sync_hash = self.find_sync_hash()?;
+        if !self.client.config.archive {
+            self.client.chain.mut_chain_store().reset_data_pre_state_sync(
+                sync_hash,
+                self.client.runtime_adapter.clone(),
+                self.client.epoch_manager.clone(),
+            )?;
+        }
+        let new_state_sync_status = StateSyncStatus { sync_hash, sync_status: HashMap::default() };
+        let new_sync_status = SyncStatus::StateSync(new_state_sync_status);
+        self.client.sync_status.update(new_sync_status);
+        // This is the first time we run state sync.
+        return Ok(true);
     }
 
     /// This method returns whether we should move on to state sync. It may run
