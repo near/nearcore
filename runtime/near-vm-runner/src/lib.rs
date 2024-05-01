@@ -34,7 +34,7 @@ pub use cache::{
     NoContractRuntimeCache,
 };
 pub use code::ContractCode;
-pub use metrics::{reset_metrics, report_metrics};
+pub use metrics::{report_metrics, reset_metrics};
 pub use profile::ProfileDataV3;
 pub use runner::{run, VM};
 

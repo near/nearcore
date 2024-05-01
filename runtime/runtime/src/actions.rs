@@ -121,7 +121,7 @@ pub(crate) fn execute_function_call(
     }
 
     near_vm_runner::reset_metrics();
-    
+
     let result_from_cache = near_vm_runner::run(
         account,
         None,
