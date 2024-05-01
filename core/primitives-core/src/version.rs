@@ -222,7 +222,6 @@ impl ProtocolFeature {
             ProtocolFeature::LowerValidatorKickoutPercentForDebugging => 81,
             ProtocolFeature::SingleShardTracking => 82,
             ProtocolFeature::StateWitnessSizeLimit => 83,
-            ProtocolFeature::StatelessnetShuffleShardAssignmentsForChunkProducers => 84,
             ProtocolFeature::PerReceiptHardStorageProofLimit => 85,
             ProtocolFeature::PartialEncodedStateWitness => 86,
 
@@ -237,6 +236,9 @@ impl ProtocolFeature {
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
             ProtocolFeature::NonrefundableStorage => 140,
             ProtocolFeature::CongestionControl => 142,
+            // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
+            // that always enables this for mocknet (see config_mocknet function).
+            ProtocolFeature::StatelessnetShuffleShardAssignmentsForChunkProducers => 143,
         }
     }
 }
@@ -252,7 +254,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "statelessnet_pr
     86
 } else if cfg!(feature = "nightly_protocol") {
     // On nightly, pick big enough version to support all features.
-    142
+    143
 } else {
     // Enable all stable features.
     STABLE_PROTOCOL_VERSION
