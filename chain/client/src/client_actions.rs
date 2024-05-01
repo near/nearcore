@@ -100,8 +100,9 @@ pub struct ClientSenderForPartialWitness {
     pub receive_chunk_state_witness: Sender<ProcessChunkStateWitnessMessage>,
 }
 
-// TODO add sync to name
-macro_rules! unwrap_and_report (($obj: expr) => (match $obj {
+// A small helper macro to unwrap a result of some state sync operation. If the
+// result is an error this macro will log it and return from the function.
+macro_rules! unwrap_and_report_state_sync_result (($obj: expr) => (match $obj {
     Ok(v) => v,
     Err(err) => {
         error!(target: "sync", "Sync: Unexpected error: {}", err);
@@ -1460,7 +1461,7 @@ impl ClientActions {
         let _span = tracing::debug_span!(target: "client", "run_sync_step").entered();
 
         let currently_syncing = self.client.sync_status.is_syncing();
-        let sync = unwrap_and_report!(self.syncing_info());
+        let sync = unwrap_and_report_state_sync_result!(self.syncing_info());
         self.info_helper.update_sync_requirements_metrics(sync.to_metrics_string());
 
         match sync {
@@ -1472,7 +1473,7 @@ impl ClientActions {
                     debug!(target: "sync", prev_sync_status = ?self.client.sync_status, "disabling sync");
                     self.client.sync_status.update(SyncStatus::NoSync);
                     // Announce this client's account id if their epoch is coming up.
-                    let head = unwrap_and_report!(self.client.chain.head());
+                    let head = unwrap_and_report_state_sync_result!(self.client.chain.head());
                     self.check_send_announce_account(head.prev_block_hash);
                 }
             }
@@ -1490,14 +1491,14 @@ impl ClientActions {
     fn handle_sync_needed(&mut self, highest_height: u64) {
         let mut notify_start_sync = false;
         // Run each step of syncing separately.
-        unwrap_and_report!(self.client.header_sync.run(
+        unwrap_and_report_state_sync_result!(self.client.header_sync.run(
             &mut self.client.sync_status,
             &mut self.client.chain,
             highest_height,
             &self.network_info.highest_height_peers
         ));
         // Only body / state sync if header height is close to the latest.
-        let header_head = unwrap_and_report!(self.client.chain.header_head());
+        let header_head = unwrap_and_report_state_sync_result!(self.client.chain.header_head());
 
         // Sync state if already running sync state or if block sync is too far.
         let sync_state = match self.client.sync_status {
@@ -1505,7 +1506,7 @@ impl ClientActions {
             _ if header_head.height
                 >= highest_height.saturating_sub(self.client.config.block_header_fetch_horizon) =>
             {
-                unwrap_and_report!(self.client.block_sync.run(
+                unwrap_and_report_state_sync_result!(self.client.block_sync.run(
                     &mut self.client.sync_status,
                     &self.client.chain,
                     highest_height,
@@ -1518,9 +1519,9 @@ impl ClientActions {
             match self.client.sync_status {
                 SyncStatus::StateSync(_) => (),
                 _ => {
-                    let sync_hash = unwrap_and_report!(self.find_sync_hash());
+                    let sync_hash = unwrap_and_report_state_sync_result!(self.find_sync_hash());
                     if !self.client.config.archive {
-                        unwrap_and_report!(self
+                        unwrap_and_report_state_sync_result!(self
                             .client
                             .chain
                             .mut_chain_store()
@@ -1544,7 +1545,10 @@ impl ClientActions {
             };
 
             let me = self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
-            let block_header = unwrap_and_report!(self.client.chain.get_block_header(&sync_hash));
+            let block_header = unwrap_and_report_state_sync_result!(self
+                .client
+                .chain
+                .get_block_header(&sync_hash));
             let prev_hash = *block_header.prev_hash();
             let epoch_id = block_header.epoch_id().clone();
             let shards_to_sync = get_shards_cares_about_this_or_next_epoch(
@@ -1585,7 +1589,7 @@ impl ClientActions {
             // seems that we don't really use this block in case of catchup - we use it only for state sync.
             // Seems it is related to some bug with block getting orphaned after state sync? but not sure.
             let (request_block, have_block) =
-                unwrap_and_report!(self.sync_block_status(&prev_hash, now));
+                unwrap_and_report_state_sync_result!(self.sync_block_status(&prev_hash, now));
 
             if request_block {
                 self.client.last_time_sync_block_requested = Some(now);
@@ -1607,7 +1611,7 @@ impl ClientActions {
                 SyncStatus::StateSync(s) => s,
                 _ => unreachable!("Sync status should have been StateSync!"),
             };
-            match unwrap_and_report!(self.client.state_sync.run(
+            match unwrap_and_report_state_sync_result!(self.client.state_sync.run(
                 &me,
                 sync_hash,
                 &mut state_sync_status.sync_status,
@@ -1632,12 +1636,15 @@ impl ClientActions {
 
                     let mut block_processing_artifacts = BlockProcessingArtifact::default();
 
-                    unwrap_and_report!(self.client.chain.reset_heads_post_state_sync(
-                        &me,
-                        sync_hash,
-                        &mut block_processing_artifacts,
-                        Some(self.myself_sender.apply_chunks_done.clone()),
-                    ));
+                    unwrap_and_report_state_sync_result!(self
+                        .client
+                        .chain
+                        .reset_heads_post_state_sync(
+                            &me,
+                            sync_hash,
+                            &mut block_processing_artifacts,
+                            Some(self.myself_sender.apply_chunks_done.clone()),
+                        ));
 
                     self.client.process_block_processing_artifact(block_processing_artifacts);
                     self.client.sync_status.update(SyncStatus::BlockSync {
