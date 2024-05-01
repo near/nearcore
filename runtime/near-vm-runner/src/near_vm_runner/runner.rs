@@ -299,7 +299,6 @@ impl NearVM {
             move |value| {
                 let _span =
                     tracing::debug_span!(target: "vm", "NearVM::load_from_mem_cache").entered();
-                crate::metrics::record_compiled_contract_cache_lookup(true);
                 let &(wasm_bytes, ref downcast) = value
                     .downcast_ref::<MemoryCacheType>()
                     .expect("downcast should always succeed");
