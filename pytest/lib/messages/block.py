@@ -183,6 +183,10 @@ class ShardChunkHeaderInnerV2:
     pass
 
 
+class ShardChunkHeaderInnerV3:
+    pass
+
+
 class PartialEncodedChunkPart:
     pass
 
@@ -254,6 +258,14 @@ class Approval:
 
 
 class ApprovalInner:
+    pass
+
+
+class CongestionInfo:
+    pass
+
+
+class CongestionInfoV1:
     pass
 
 
@@ -605,7 +617,8 @@ block_schema = [
             'field':
                 'enum',
             'values': [['V1', ShardChunkHeaderInnerV1],
-                       ['V2', ShardChunkHeaderInnerV2]]
+                       ['V2', ShardChunkHeaderInnerV2],
+                       ['V3', ShardChunkHeaderInnerV3]]
         }
     ],
     [
@@ -647,6 +660,28 @@ block_schema = [
                 ['outgoing_receipt_root', [32]],
                 ['tx_root', [32]],
                 ['validator_proposals', [ValidatorStake]],
+            ]
+        }
+    ],
+    [
+        ShardChunkHeaderInnerV3, {
+            'kind':
+                'struct',
+            'fields': [
+                ['prev_block_hash', [32]],
+                ['prev_state_root', [32]],
+                ['outcome_root', [32]],
+                ['encoded_merkle_root', [32]],
+                ['encoded_length', 'u64'],
+                ['height_created', 'u64'],
+                ['shard_id', 'u64'],
+                ['gas_used', 'u64'],
+                ['gas_limit', 'u64'],
+                ['balance_burnt', 'u128'],
+                ['outgoing_receipt_root', [32]],
+                ['tx_root', [32]],
+                ['validator_proposals', [ValidatorStake]],
+                ['congestion_info', CongestionInfo],
             ]
         }
     ],
@@ -797,4 +832,23 @@ block_schema = [
             ]
         }
     ],
+    [
+        CongestionInfo, {
+            'kind': 'enum',
+            'field': 'enum',
+            'values': [['V1', CongestionInfoV1]]
+        }
+    ],
+    [
+        CongestionInfoV1, {
+            'kind':
+                'struct',
+            'fields': [
+                ['delayed_receipts_gas', 'u128'],
+                ['buffered_receipts_gas', 'u128'],
+                ['receipt_bytes', 'u64'],
+                ['allowed_shard', 'u16'],
+            ]
+        }
+    ]
 ]

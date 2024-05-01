@@ -44,6 +44,8 @@ def new_logger(
     log.addHandler(handler)
     log.propagate = False
 
+    log.info(f"created configured logger, name {name}, level {level}")
+
     return log
 
 

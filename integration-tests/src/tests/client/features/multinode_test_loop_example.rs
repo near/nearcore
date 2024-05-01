@@ -33,7 +33,7 @@ use near_chunks::test_loop::{
 };
 use near_chunks::ShardsManager;
 use near_client::client_actions::{
-    ClientActions, ClientSenderForClientMessage, ClientSenderForStateWitnessMessage,
+    ClientActions, ClientSenderForClientMessage, ClientSenderForPartialWitnessMessage,
     SyncJobsSenderForClientMessage,
 };
 use near_client::sync::sync_actor::SyncActor;
@@ -46,9 +46,9 @@ use near_client::test_utils::test_loop::client_actions::{
     forward_client_messages_from_shards_manager, forward_client_messages_from_sync_adapter,
     forward_client_messages_from_sync_jobs_to_client_actions,
 };
-use near_client::test_utils::test_loop::state_witness_actions::{
-    forward_messages_from_client_to_state_witness_actor,
-    forward_messages_from_network_to_state_witness_actor,
+use near_client::test_utils::test_loop::partial_witness_actions::{
+    forward_messages_from_client_to_partial_witness_actor,
+    forward_messages_from_network_to_partial_witness_actor,
 };
 use near_client::test_utils::test_loop::sync_actor::{
     forward_sync_actor_messages_from_client, forward_sync_actor_messages_from_network,
@@ -59,11 +59,12 @@ use near_client::test_utils::test_loop::sync_jobs_actions::{
     forward_sync_jobs_messages_from_sync_jobs_to_sync_jobs_actions,
 };
 use near_client::test_utils::test_loop::{
-    forward_messages_from_state_witness_actor_to_client, print_basic_client_info_before_each_event,
+    forward_messages_from_partial_witness_actor_to_client,
+    print_basic_client_info_before_each_event,
 };
 use near_client::test_utils::test_loop::{route_network_messages_to_client, ClientQueries};
 use near_client::{
-    Client, StateWitnessActions, StateWitnessSenderForClientMessage, SyncAdapter, SyncMessage,
+    Client, PartialWitnessActions, PartialWitnessSenderForClientMessage, SyncAdapter, SyncMessage,
 };
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
@@ -72,7 +73,7 @@ use near_network::client::{
 };
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_sync::StateSyncResponse;
-use near_network::state_witness::StateWitnessSenderForNetworkMessage;
+use near_network::state_witness::PartialWitnessSenderForNetworkMessage;
 use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo};
 use near_primitives::network::PeerId;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
@@ -101,7 +102,7 @@ struct TestData {
     pub client: ClientActions,
     pub sync_jobs: SyncJobsActions,
     pub shards_manager: ShardsManager,
-    pub state_witness: StateWitnessActions,
+    pub partial_witness: PartialWitnessActions,
     pub sync_actors: TestSyncActors,
     pub state_sync_dumper: StateSyncDumper,
     pub state_snapshot: StateSnapshotActions,
@@ -173,12 +174,12 @@ enum TestEvent {
     ),
     /// Calls to the network component to set chain info.
     SetChainInfo(SetChainInfo),
-    /// Message from Client to StateWitnessActor.
-    StateWitnessSenderForClient(StateWitnessSenderForClientMessage),
-    /// Message from Network to StateWitnessActor.
-    StateWitnessSenderForNetwork(StateWitnessSenderForNetworkMessage),
-    /// Message from StateWitnessActor to Client.
-    ClientSenderForStateWitness(ClientSenderForStateWitnessMessage),
+    /// Message from Client to PartialWitnessActor.
+    PartialWitnessSenderForClient(PartialWitnessSenderForClientMessage),
+    /// Message from Network to PartialWitnessActor.
+    PArtialWitnessSenderForNetwork(PartialWitnessSenderForNetworkMessage),
+    /// Message from PartialWitnessActor to Client.
+    PartialSenderForStateWitness(ClientSenderForPartialWitnessMessage),
 }
 
 const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
@@ -363,7 +364,7 @@ fn test_client_with_multi_test_loop() {
             builder
                 .sender()
                 .for_index(idx)
-                .into_wrapped_multi_sender::<StateWitnessSenderForClientMessage, _>(),
+                .into_wrapped_multi_sender::<PartialWitnessSenderForClientMessage, _>(),
         )
         .unwrap();
 
@@ -402,13 +403,13 @@ fn test_client_with_multi_test_loop() {
         )
         .unwrap();
 
-        let state_witness_actions = StateWitnessActions::new(
+        let partial_witness_actions = PartialWitnessActions::new(
             builder.clock(),
             builder.sender().for_index(idx).into_multi_sender(),
             builder
                 .sender()
                 .for_index(idx)
-                .into_wrapped_multi_sender::<ClientSenderForStateWitnessMessage, _>(),
+                .into_wrapped_multi_sender::<ClientSenderForPartialWitnessMessage, _>(),
             validator_signer,
             epoch_manager.clone(),
         );
@@ -435,7 +436,7 @@ fn test_client_with_multi_test_loop() {
             client: client_actions,
             sync_jobs: sync_jobs_actions,
             shards_manager,
-            state_witness: state_witness_actions,
+            partial_witness: partial_witness_actions,
             sync_actors,
             state_sync_dumper,
             state_snapshot,
@@ -469,7 +470,7 @@ fn test_client_with_multi_test_loop() {
         );
         test.register_handler(forward_client_messages_from_shards_manager().widen().for_index(idx));
         test.register_handler(
-            forward_messages_from_state_witness_actor_to_client().widen().for_index(idx),
+            forward_messages_from_partial_witness_actor_to_client().widen().for_index(idx),
         );
         test.register_handler(forward_client_messages_from_sync_adapter().widen().for_index(idx));
 
@@ -506,12 +507,12 @@ fn test_client_with_multi_test_loop() {
         // Messages to the network layer; multi-node messages are handled below.
         test.register_handler(ignore_events::<SetChainInfo>().widen().for_index(idx));
 
-        // Messages to StateWitnessActor.
+        // Messages to PartialWitnessActor.
         test.register_handler(
-            forward_messages_from_client_to_state_witness_actor().widen().for_index(idx),
+            forward_messages_from_client_to_partial_witness_actor().widen().for_index(idx),
         );
         test.register_handler(
-            forward_messages_from_network_to_state_witness_actor().widen().for_index(idx),
+            forward_messages_from_network_to_partial_witness_actor().widen().for_index(idx),
         );
     }
     // Handles network routing. Outgoing messages are handled by emitting incoming messages to the
