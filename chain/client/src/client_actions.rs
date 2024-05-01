@@ -55,7 +55,7 @@ use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::types::BlockHeight;
+use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
@@ -1535,23 +1535,7 @@ impl ClientActions {
 
         // Notify each shard to sync.
         if notify_start_sync {
-            let shard_layout = self
-                .client
-                .epoch_manager
-                .get_shard_layout(&epoch_id)
-                .expect("Cannot get shard layout");
-            for &shard_id in &shards_to_sync {
-                let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-                match self.client.state_sync_adapter.clone().read() {
-                    Ok(sync_adapter) => sync_adapter.send_sync_message(
-                        shard_uid,
-                        SyncMessage::StartSync(SyncShardInfo { shard_uid, sync_hash }),
-                    ),
-                    Err(_) => {
-                        error!(target:"client", "State sync adapter lock is poisoned.")
-                    }
-                }
-            }
+            self.notify_start_sync(epoch_id, sync_hash, &shards_to_sync);
         }
 
         let now = self.clock.now_utc();
@@ -1624,6 +1608,28 @@ impl ClientActions {
                     current_height: 0,
                     highest_height: 0,
                 });
+            }
+        }
+    }
+
+    fn notify_start_sync(
+        &mut self,
+        epoch_id: EpochId,
+        sync_hash: CryptoHash,
+        shards_to_sync: &Vec<u64>,
+    ) {
+        let shard_layout =
+            self.client.epoch_manager.get_shard_layout(&epoch_id).expect("Cannot get shard layout");
+        for &shard_id in shards_to_sync {
+            let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+            match self.client.state_sync_adapter.clone().read() {
+                Ok(sync_adapter) => sync_adapter.send_sync_message(
+                    shard_uid,
+                    SyncMessage::StartSync(SyncShardInfo { shard_uid, sync_hash }),
+                ),
+                Err(_) => {
+                    error!(target:"client", "State sync adapter lock is poisoned.")
+                }
             }
         }
     }
