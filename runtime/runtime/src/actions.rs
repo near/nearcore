@@ -119,7 +119,10 @@ pub(crate) fn execute_function_call(
     if checked_feature!("stable", ChunkNodesCache, protocol_version) {
         runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingChunk);
     }
-    let (result_from_cache, mut metrics) = near_vm_runner::run(
+
+    near_vm_runner::reset_metrics();
+    
+    let result_from_cache = near_vm_runner::run(
         account,
         None,
         &function_call.method_name,
@@ -157,7 +160,7 @@ pub(crate) fn execute_function_call(
             if checked_feature!("stable", ChunkNodesCache, protocol_version) {
                 runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingChunk);
             }
-            let (r, mut metrics) = near_vm_runner::run(
+            let r = near_vm_runner::run(
                 account,
                 Some(&code),
                 &function_call.method_name,
@@ -168,26 +171,18 @@ pub(crate) fn execute_function_call(
                 promise_results,
                 apply_state.cache.as_deref(),
             );
-            metrics.report(
-                &apply_state.shard_id.to_string(),
-                &apply_state
-                    .apply_reason
-                    .as_ref()
-                    .map_or_else(|| String::from("unknown"), |r| r.to_string()),
-            );
             r
         }
-        res => {
-            metrics.report(
-                &apply_state.shard_id.to_string(),
-                &apply_state
-                    .apply_reason
-                    .as_ref()
-                    .map_or_else(|| String::from("unknown"), |r| r.to_string()),
-            );
-            res
-        }
+        res => res,
     };
+
+    near_vm_runner::report_metrics(
+        &apply_state.shard_id.to_string(),
+        &apply_state
+            .apply_reason
+            .as_ref()
+            .map_or_else(|| String::from("unknown"), |r| r.to_string()),
+    );
 
     if checked_feature!("stable", ChunkNodesCache, protocol_version) {
         runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingShard);
