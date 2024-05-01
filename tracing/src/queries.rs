@@ -102,7 +102,7 @@ async fn raw_trace(
     req: web::Json<Query>,
 ) -> Result<HttpResponse, Error> {
     // TODO: Set a limit on the duration of the request interval.
-    let col = data.db.span_chunks();
+    let col = data.db.raw_traces();
     let mut chunks = col
         .find(
             doc! {
@@ -133,7 +133,7 @@ async fn profile(
     req: web::Json<Query>,
 ) -> Result<HttpResponse, Error> {
     // TODO: Set a limit on the duration of the request interval.
-    let col = data.db.span_chunks();
+    let col = data.db.raw_traces();
     let mut chunks = col
         .find(
             doc! {

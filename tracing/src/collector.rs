@@ -1,5 +1,5 @@
 use crate::db::Database;
-use crate::primitives::SpanChunk;
+use crate::primitives::RawTrace;
 use bson::spec::BinarySubtype;
 use bson::Binary;
 use opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::TraceService;
@@ -57,14 +57,14 @@ impl TraceService for Collector {
         println!("Persisting trace of size {} bytes", serialized.len());
 
         // Insert into MongoDB.
-        let span_chunk = SpanChunk {
+        let span_chunk = RawTrace {
             _id: None,
             min_time,
             max_time,
             data: Binary { subtype: BinarySubtype::Generic, bytes: serialized },
         };
         self.db
-            .span_chunks()
+            .raw_traces()
             .insert_one(span_chunk, None)
             .await
             .map_err(|err| Status::internal(err.to_string()))?;
