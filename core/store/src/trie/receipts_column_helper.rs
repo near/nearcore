@@ -182,7 +182,12 @@ impl ShardsOutgoingReceiptBuffer {
         OutgoingReceiptBuffer { shard_id, parent: self }
     }
 
-    pub fn write_indices(&self, state_update: &mut TrieUpdate) {
+    /// Returns shard IDs of all shards that have a buffer stored.
+    pub fn shards(&self) -> Vec<ShardId> {
+        self.shards_indices.shard_buffers.keys().copied().collect()
+    }
+
+    fn write_indices(&self, state_update: &mut TrieUpdate) {
         set(state_update, TrieKey::BufferedReceiptIndices, &self.shards_indices);
     }
 }

@@ -163,6 +163,24 @@ impl CongestionInfo {
         }
     }
 
+    /// Computes and sets the `allowed_shard` field.
+    ///
+    /// If in a fully congested state, decide which shard is allowed to forward
+    /// to us this round. Otherwise, set it to the own shard, since the field is
+    /// ignored but we still want a unique representation.
+    pub fn finalize_allowed_shard(
+        &mut self,
+        own_shard: ShardId,
+        other_shards: &[ShardId],
+        congestion_seed: u64,
+    ) {
+        match self {
+            CongestionInfo::V1(inner) => {
+                inner.finalize_allowed_shard(own_shard, other_shards, congestion_seed)
+            }
+        }
+    }
+
     pub fn add_receipt_bytes(&mut self, bytes: u64) -> Result<(), RuntimeError> {
         match self {
             CongestionInfo::V1(inner) => {
@@ -282,6 +300,28 @@ impl CongestionInfoV1 {
     /// Whether we can accept new transaction with the receiver set to this shard.
     pub fn shard_accepts_transactions(&self) -> bool {
         self.congestion_level() < REJECT_TX_CONGESTION_THRESHOLD
+    }
+
+    /// Computes and sets the `allowed_shard` field.
+    ///
+    /// If in a fully congested state, decide which shard is allowed to forward
+    /// to us this round. Otherwise, set it to the own shard, since the field is
+    /// ignored but we still want a unique representation.
+    pub fn finalize_allowed_shard(
+        &mut self,
+        own_shard: ShardId,
+        other_shards: &[ShardId],
+        congestion_seed: u64,
+    ) {
+        if self.congestion_level() < 1.0 || other_shards.is_empty() {
+            self.allowed_shard = own_shard as u16;
+        } else {
+            // round robin for other shards based on the seed
+            // math: other_shards.len() != 0 checked above
+            let index = congestion_seed % other_shards.len() as u64;
+            // index: % ensures array access is in bound
+            self.allowed_shard = other_shards[index as usize] as u16;
+        }
     }
 }
 

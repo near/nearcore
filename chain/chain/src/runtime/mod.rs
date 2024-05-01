@@ -16,6 +16,7 @@ use near_parameters::{ActionCosts, ExtCosts, RuntimeConfigStore};
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::checked_feature;
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
@@ -31,7 +32,7 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
     ShardId, StateChangeCause, StateChangesForResharding, StateRoot, StateRootNode,
 };
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, ContractCodeView, QueryRequest, QueryResponse,
     QueryResponseKind, ViewApplyState, ViewStateResult,
@@ -410,6 +411,8 @@ impl NightshadeRuntime {
                 // TODO(#2152): process gracefully
                 RuntimeError::ReceiptValidationError(e) => panic!("{}", e),
                 RuntimeError::ValidatorError(e) => e.into(),
+                // TODO(#2152): process gracefully
+                RuntimeError::ContextError(e) => panic!("{}", e),
             })?;
         let elapsed = instant.elapsed();
 
@@ -736,8 +739,20 @@ impl RuntimeAdapter for NightshadeRuntime {
         // Total amount of gas burnt for converting transactions towards receipts.
         let mut total_gas_burnt = 0;
         let mut total_size = 0u64;
-        // TODO: Update gas limit for transactions
-        let transactions_gas_limit = gas_limit / 2;
+
+        let transactions_gas_limit =
+            if ProtocolFeature::CongestionControl.protocol_version() <= protocol_version {
+                if let Some(own_congestion) = prev_block.congestion_info.get(&shard_id) {
+                    own_congestion.process_tx_limit()
+                } else {
+                    // When a new shard is created, or when the feature is just being enabled.
+                    // Using the default (no congestion) is a reasonable choice in this case.
+                    CongestionInfo::default().process_tx_limit()
+                }
+            } else {
+                gas_limit / 2
+            };
+
         let mut result = PreparedTransactions {
             transactions: Vec::new(),
             limited_by: None,
@@ -792,10 +807,16 @@ impl RuntimeAdapter for NightshadeRuntime {
                 result.limited_by = Some(PrepareTransactionsLimit::Size);
                 break;
             }
-            if result.transactions.len() >= new_receipt_count_limit {
-                result.limited_by = Some(PrepareTransactionsLimit::ReceiptCount);
-                break;
+            if ProtocolFeature::CongestionControl.protocol_version() > protocol_version {
+                // Keep this for the upgrade phase, afterwards it can be
+                // removed. It does not need to be kept because it does not
+                // affect replayability.
+                if result.transactions.len() >= new_receipt_count_limit {
+                    result.limited_by = Some(PrepareTransactionsLimit::ReceiptCount);
+                    break;
+                }
             }
+
             if let Some(time_limit) = &time_limit {
                 if start_time.elapsed() >= *time_limit {
                     result.limited_by = Some(PrepareTransactionsLimit::Time);
@@ -806,6 +827,23 @@ impl RuntimeAdapter for NightshadeRuntime {
             if let Some(iter) = transaction_groups.next() {
                 while let Some(tx) = iter.next() {
                     num_checked_transactions += 1;
+
+                    if ProtocolFeature::CongestionControl.protocol_version() <= protocol_version {
+                        let receiving_shard = EpochManagerAdapter::account_id_to_shard_id(
+                            self.epoch_manager.as_ref(),
+                            &tx.transaction.receiver_id,
+                            &epoch_id,
+                        )?;
+                        if let Some(shard_congestion) =
+                            prev_block.congestion_info.get(&receiving_shard)
+                        {
+                            if !shard_congestion.shard_accepts_transactions() {
+                                tracing::trace!(target: "runtime", tx=?tx.get_hash(), "discarding transaction due to congestion");
+                                continue;
+                            }
+                        }
+                    }
+
                     // Verifying the transaction is on the same chain and hasn't expired yet.
                     if !chain_validate(&tx) {
                         tracing::trace!(target: "runtime", tx=?tx.get_hash(), "discarding transaction that failed chain validation");
