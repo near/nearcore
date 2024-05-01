@@ -8,7 +8,8 @@ thread_local! {
     static METRICS: RefCell<Metrics> = const { RefCell::new(Metrics {
         near_vm_compilation_time: Duration::new(0, 0),
         wasmtime_compilation_time: Duration::new(0, 0),
-        compiled_contract_cache_hit: None,
+        compiled_contract_cache_lookups: 0,
+        compiled_contract_cache_hits: 0,
     }) };
 }
 
@@ -22,19 +23,19 @@ pub static COMPILATION_TIME: Lazy<HistogramVec> = Lazy::new(|| {
     .unwrap()
 });
 
-pub static COMPILED_CONTRACT_CACHE_HIT: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static COMPILED_CONTRACT_CACHE_LOOKUPS_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
-        "near_vm_compiled_contract_cache_hits_total",
-        "The number of times the runtime finds compiled code in cache for the given caller context and shard_id",
+        "near_vm_compiled_contract_cache_lookups_total",
+        "The number of times the runtime looks up for an entry in the compiled-contract cache for the given caller context and shard_id",
         &["context", "shard_id"],
     )
     .unwrap()
 });
 
-pub static COMPILED_CONTRACT_CACHE_MISS: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static COMPILED_CONTRACT_CACHE_HITS_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
-        "near_vm_compiled_contract_cache_misses_total",
-        "The number of times the runtime cannot find compiled code in cache for the given caller context and shard_id",
+        "near_vm_compiled_contract_cache_hits_total",
+        "The number of times the runtime finds an entry in the compiled-contract cache for the given caller context and shard_id",
         &["context", "shard_id"],
     )
     .unwrap()
@@ -44,8 +45,10 @@ pub static COMPILED_CONTRACT_CACHE_MISS: Lazy<IntCounterVec> = Lazy::new(|| {
 pub struct Metrics {
     near_vm_compilation_time: Duration,
     wasmtime_compilation_time: Duration,
-    /// True iff the runtime checked the compiled contract cache and found already-compiled code.
-    compiled_contract_cache_hit: Option<bool>,
+    /// Number of lookups from the compiled contract cache.
+    compiled_contract_cache_lookups: u64,
+    /// Number of times the lookup from the compiled contract cache finds a match.
+    compiled_contract_cache_hits: u64,
 }
 
 impl Metrics {
@@ -74,15 +77,18 @@ impl Metrics {
                 .observe(self.wasmtime_compilation_time.as_secs_f64());
             self.wasmtime_compilation_time = Duration::default();
         }
-        match self.compiled_contract_cache_hit.take() {
-            Some(true) => {
-                COMPILED_CONTRACT_CACHE_HIT.with_label_values(&[caller_context, shard_id]).inc();
-            }
-            Some(false) => {
-                COMPILED_CONTRACT_CACHE_MISS.with_label_values(&[caller_context, shard_id]).inc();
-            }
-            None => {}
-        };
+        if self.compiled_contract_cache_lookups > 0 {
+            COMPILED_CONTRACT_CACHE_LOOKUPS_TOTAL
+                .with_label_values(&[caller_context, shard_id])
+                .inc_by(self.compiled_contract_cache_lookups);
+            self.compiled_contract_cache_lookups = 0;
+        }
+        if self.compiled_contract_cache_hits > 0 {
+            COMPILED_CONTRACT_CACHE_HITS_TOTAL
+                .with_label_values(&[caller_context, shard_id])
+                .inc_by(self.compiled_contract_cache_lookups);
+            self.compiled_contract_cache_hits = 0;
+        }
     }
 }
 
@@ -97,14 +103,13 @@ pub(crate) fn compilation_duration(kind: near_parameters::vm::VMKind, duration: 
     });
 }
 
-/// Updates metrics to record a compiled-contract cache lookup that finds
-/// an entry in the cache (is_hit=true) or not (is_hit=false).
+/// Updates metrics to record a compiled-contract cache lookup,
+/// where is_hit=true indicates that we found an entry in the cache.
 pub(crate) fn record_compiled_contract_cache_lookup(is_hit: bool) {
     METRICS.with_borrow_mut(|m| {
-        debug_assert!(
-            m.compiled_contract_cache_hit.is_none(),
-            "Compiled contract cache lookup should be reported once."
-        );
-        m.compiled_contract_cache_hit = Some(is_hit);
+        m.compiled_contract_cache_lookups += 1;
+        if is_hit {
+            m.compiled_contract_cache_hits += 1;
+        }
     });
 }
