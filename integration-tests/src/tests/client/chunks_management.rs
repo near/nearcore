@@ -183,7 +183,7 @@ impl Test {
                         let height = block.header().height();
                         if height > 1 {
                             for shard_id in 0..4 {
-                                // If messages from 1 to 4 are dropped, 4 at their heights will
+                                // If messages to 4 are dropped, 4 at their heights will
                                 //    receive the block significantly later than the chunks, and
                                 //    thus would discard the chunks
                                 if self.drop_to_4_from.is_empty()
