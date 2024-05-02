@@ -2028,6 +2028,8 @@ mod tests {
         let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
         store_update.commit().unwrap();
         let contract_cache = FilesystemContractRuntimeCache::test().unwrap();
+        let congestion_info: HashMap<ShardId, CongestionInfo> =
+            [(0, CongestionInfo::default())].into();
         let apply_state = ApplyState {
             block_height: 1,
             prev_block_hash: Default::default(),
@@ -2045,7 +2047,7 @@ mod tests {
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
-            congestion_info: HashMap::new(),
+            congestion_info,
         };
 
         (runtime, tries, root, apply_state, signer, MockEpochInfoProvider::default())
