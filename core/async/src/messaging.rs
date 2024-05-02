@@ -7,7 +7,16 @@ use std::fmt::{Debug, Display};
 use std::sync::Arc;
 use tokio::sync::oneshot;
 
-/// Trait for sending a typed message.
+/// Trait for handling a message.
+/// This works in unison with the [`CanSend`] trait. An actor implements the Handler trait for all
+/// messages it would like to handle, while the CanSend trait implements the logic to send the
+/// message to the actor. Handle and CanSend do not need to be implemented by the same struct.
+pub trait Handler<M: actix::Message> {
+    fn handle(&mut self, msg: M) -> M::Result;
+}
+
+/// Trait for sending a typed message. The sent message is then handled by the Handler trait.
+/// See [`Handler`] trait for more details
 pub trait CanSend<M>: Send + Sync + 'static {
     fn send(&self, message: M);
 }
