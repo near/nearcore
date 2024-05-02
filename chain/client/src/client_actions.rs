@@ -1521,7 +1521,6 @@ impl ClientActions {
         let me = self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
         let block_header = self.client.chain.get_block_header(&sync_hash);
         let block_header = unwrap_and_report_state_sync_result!(block_header);
-        let prev_hash = *block_header.prev_hash();
         let epoch_id = block_header.epoch_id().clone();
         let shards_to_sync = get_shards_cares_about_this_or_next_epoch(
             me.as_ref(),
@@ -1597,15 +1596,19 @@ impl ClientActions {
         &mut self,
         block_header: BlockHeader,
     ) -> Result<bool, near_chain::Error> {
+        let now = self.clock.now_utc();
+
         let mut have_all = true;
         let mut req_any = false;
-
-        let now = self.clock.now_utc();
 
         let block_hash = *block_header.hash();
         let prev_block_hash = *block_header.prev_hash();
 
-        for hash in vec![prev_block_hash, block_hash].into_iter() {
+        let mut needed_block_hashes = vec![prev_block_hash, block_hash];
+        let mut extra_block_hashes = self.get_extra_sync_block_hashes(prev_block_hash);
+        needed_block_hashes.append(&mut extra_block_hashes);
+
+        for hash in needed_block_hashes.into_iter() {
             let (request_block, have_block) = self.sync_block_status(&prev_block_hash, now)?;
             have_all = have_all && have_block;
             req_any = req_any || request_block;
@@ -1633,6 +1636,49 @@ impl ClientActions {
         }
 
         Ok(have_all)
+    }
+
+    /// Returns the list of extra block hashes for blocks that should be
+    /// downloaded before the state sync. The extra blocks are needed when there
+    /// are missing chunks in blocks leading to the sync hash block. We need to
+    /// ensure that for every shard we have at least one new chunk.
+    ///
+    /// This is implemented by finding the minimum height included of the sync
+    /// hash block and finding all blocks till that height.
+    fn get_extra_sync_block_hashes(&mut self, block_hash: CryptoHash) -> Vec<CryptoHash> {
+        // Get the block. It's possible that the block is not yet available.
+        // It's ok because we will retry this method later.
+        let block = self.client.chain.get_block(&block_hash);
+        let Ok(block) = block else {
+            return vec![];
+        };
+
+        let min_height_included = block.chunks().iter().map(|chunk| chunk.height_included()).min();
+        let Some(min_height_included) = min_height_included else {
+            tracing::warn!(target: "sync", ?block_hash, "get_extra_sync_block_hashes: Cannot find the min block height");
+            return vec![];
+        };
+
+        let mut extra_block_hashes = vec![];
+        let mut next_hash = *block.header().prev_hash();
+        loop {
+            let next_header = self.client.chain.get_block_header(&next_hash);
+            let Ok(next_header) = next_header else {
+                tracing::error!(target: "sync", hash=?next_hash, "get_extra_sync_block_hashes: Cannot get block header");
+                break;
+            };
+
+            if next_header.height() < min_height_included - 1 {
+                break;
+            }
+
+            extra_block_hashes.push(next_hash);
+            next_hash = *next_header.prev_hash();
+        }
+
+        tracing::debug!(target: "sync", ?min_height_included, ?extra_block_hashes, "get_extra_sync_block_hashes: Extra block hashes for state sync");
+
+        extra_block_hashes
     }
 
     fn notify_start_sync(
@@ -1687,6 +1733,7 @@ impl ClientActions {
         header_head: Tip,
         highest_height: u64,
     ) -> Result<bool, near_chain::Error> {
+        // State sync is already started, continue.
         if let SyncStatus::StateSync(_) = self.client.sync_status {
             return Ok(true);
         }
