@@ -25,10 +25,15 @@ use std::sync::{Arc, RwLock};
 use std::time::Instant;
 use tracing::info;
 
+struct Test4Config {
+    drop_messages_from: &'static [&'static str],
+    assert_missed_chunk: bool,
+}
+
 struct Test {
     validator_groups: u64,
     chunk_only_producers: bool,
-    drop_to_4_from: &'static [&'static str],
+    test4_config: Test4Config,
     drop_all_chunk_forward_msgs: bool,
     block_timeout: time::Duration,
 }
@@ -183,10 +188,10 @@ impl Test {
                         let height = block.header().height();
                         if height > 1 {
                             for shard_id in 0..4 {
-                                // If messages to 4 are dropped, 4 at their heights will
-                                //    receive the block significantly later than the chunks, and
-                                //    thus would discard the chunks
-                                if self.drop_to_4_from.is_empty()
+                                // If messages to test4 are dropped, on block production it
+                                // generally will receive block approvals significantly later
+                                // than chunks, so some chunks may end up missing.
+                                if self.test4_config.drop_messages_from.is_empty()
                                     || block.header().height() % 4 != 3
                                 {
                                     assert_eq!(
@@ -213,7 +218,9 @@ impl Test {
                         partial_encoded_chunk: _,
                     } => {
                         partial_chunk_msgs += 1;
-                        if self.drop_to_4_from.contains(&from_whom.as_str()) && to_whom == "test4" {
+                        if self.test4_config.drop_messages_from.contains(&from_whom.as_str())
+                            && to_whom == "test4"
+                        {
                             println!(
                                 "Dropping Partial Encoded Chunk Message from {from_whom} to test4"
                             );
@@ -225,7 +232,9 @@ impl Test {
                             println!("Dropping Partial Encoded Chunk Forward Message");
                             return (NetworkResponses::NoResponse.into(), false);
                         }
-                        if self.drop_to_4_from.contains(&from_whom.as_str()) && to_whom == "test4" {
+                        if self.test4_config.drop_messages_from.contains(&from_whom.as_str())
+                            && to_whom == "test4"
+                        {
                             println!(
                             "Dropping Partial Encoded Chunk Forward Message from {from_whom} to test4"
                         );
@@ -239,11 +248,13 @@ impl Test {
                         target: AccountIdOrPeerTrackingShard { account_id: Some(to_whom), .. },
                         ..
                     } => {
-                        if self.drop_to_4_from.contains(&to_whom.as_str()) && from_whom == "test4" {
+                        if self.test4_config.drop_messages_from.contains(&to_whom.as_str())
+                            && from_whom == "test4"
+                        {
                             info!("Dropping Partial Encoded Chunk Request from test4 to {to_whom}");
                             return (NetworkResponses::NoResponse.into(), false);
                         }
-                        if !self.drop_to_4_from.is_empty()
+                        if !self.test4_config.drop_messages_from.is_empty()
                             && from_whom == "test4"
                             && to_whom == "test2"
                         {
@@ -299,7 +310,7 @@ fn chunks_produced_and_distributed_all_in_all_shards() {
     Test {
         validator_groups: 1,
         chunk_only_producers: false,
-        drop_to_4_from: &[],
+        test4_config: Test4Config { drop_messages_from: &[], assert_missed_chunk: false },
         drop_all_chunk_forward_msgs: false,
         block_timeout: 15 * CHUNK_REQUEST_RETRY,
     }
@@ -311,7 +322,7 @@ fn chunks_produced_and_distributed_2_vals_per_shard() {
     Test {
         validator_groups: 2,
         chunk_only_producers: false,
-        drop_to_4_from: &[],
+        test4_config: Test4Config { drop_messages_from: &[], assert_missed_chunk: false },
         drop_all_chunk_forward_msgs: false,
         block_timeout: CHUNK_REQUEST_RETRY * 15,
     }
@@ -323,7 +334,7 @@ fn chunks_produced_and_distributed_one_val_per_shard() {
     Test {
         validator_groups: 4,
         chunk_only_producers: false,
-        drop_to_4_from: &[],
+        test4_config: Test4Config { drop_messages_from: &[], assert_missed_chunk: false },
         drop_all_chunk_forward_msgs: false,
         block_timeout: CHUNK_REQUEST_RETRY * 15,
     }
@@ -342,7 +353,7 @@ fn chunks_produced_and_distributed_chunk_distribution_network_disabled() {
     Test {
         validator_groups: 4,
         chunk_only_producers: false,
-        drop_to_4_from: &[],
+        test4_config: Test4Config { drop_messages_from: &[], assert_missed_chunk: false },
         drop_all_chunk_forward_msgs: false,
         block_timeout: CHUNK_REQUEST_RETRY * 15,
     }
@@ -364,7 +375,7 @@ fn chunks_produced_and_distributed_chunk_distribution_network_wrong_urls() {
     Test {
         validator_groups: 4,
         chunk_only_producers: false,
-        drop_to_4_from: &[],
+        test4_config: Test4Config { drop_messages_from: &[], assert_missed_chunk: false },
         drop_all_chunk_forward_msgs: false,
         block_timeout: CHUNK_REQUEST_RETRY * 15,
     }
@@ -384,7 +395,7 @@ fn chunks_produced_and_distributed_chunk_distribution_network_incorrect_get_retu
     Test {
         validator_groups: 4,
         chunk_only_producers: false,
-        drop_to_4_from: &[],
+        test4_config: Test4Config { drop_messages_from: &[], assert_missed_chunk: false },
         drop_all_chunk_forward_msgs: false,
         block_timeout: CHUNK_REQUEST_RETRY * 15,
     }
@@ -397,7 +408,7 @@ fn chunks_produced_and_distributed_all_in_all_shards_should_succeed_even_without
     Test {
         validator_groups: 1,
         chunk_only_producers: false,
-        drop_to_4_from: &[],
+        test4_config: Test4Config { drop_messages_from: &[], assert_missed_chunk: false },
         drop_all_chunk_forward_msgs: true,
         block_timeout: CHUNK_REQUEST_RETRY * 15,
     }
@@ -409,7 +420,7 @@ fn chunks_produced_and_distributed_2_vals_per_shard_should_succeed_even_without_
     Test {
         validator_groups: 2,
         chunk_only_producers: false,
-        drop_to_4_from: &[],
+        test4_config: Test4Config { drop_messages_from: &[], assert_missed_chunk: false },
         drop_all_chunk_forward_msgs: true,
         block_timeout: CHUNK_REQUEST_RETRY * 15,
     }
@@ -421,7 +432,7 @@ fn chunks_produced_and_distributed_one_val_per_shard_should_succeed_even_without
     Test {
         validator_groups: 4,
         chunk_only_producers: false,
-        drop_to_4_from: &[],
+        test4_config: Test4Config { drop_messages_from: &[], assert_missed_chunk: false },
         drop_all_chunk_forward_msgs: true,
         block_timeout: CHUNK_REQUEST_RETRY * 15,
     }
@@ -445,7 +456,7 @@ fn chunks_recovered_from_others() {
     Test {
         validator_groups: 2,
         chunk_only_producers: false,
-        drop_to_4_from: &["test1"],
+        test4_config: Test4Config { drop_messages_from: &["test1"], assert_missed_chunk: false },
         drop_all_chunk_forward_msgs: true,
         block_timeout: CHUNK_REQUEST_SWITCH_TO_OTHERS * 4,
     }
@@ -463,7 +474,7 @@ fn chunks_recovered_from_full_timeout_too_short() {
     Test {
         validator_groups: 4,
         chunk_only_producers: false,
-        drop_to_4_from: &["test1"],
+        test4_config: Test4Config { drop_messages_from: &["test1"], assert_missed_chunk: false },
         drop_all_chunk_forward_msgs: true,
         block_timeout: CHUNK_REQUEST_SWITCH_TO_OTHERS * 2,
     }
@@ -478,7 +489,7 @@ fn chunks_recovered_from_full() {
     Test {
         validator_groups: 4,
         chunk_only_producers: false,
-        drop_to_4_from: &["test1"],
+        test4_config: Test4Config { drop_messages_from: &["test1"], assert_missed_chunk: false },
         drop_all_chunk_forward_msgs: true,
         block_timeout: CHUNK_REQUEST_SWITCH_TO_FULL_FETCH * 2,
     }
@@ -493,7 +504,7 @@ fn chunks_produced_and_distributed_one_val_shard_cop() {
     Test {
         validator_groups: 4,
         chunk_only_producers: true,
-        drop_to_4_from: &[],
+        test4_config: Test4Config { drop_messages_from: &[], assert_missed_chunk: false },
         drop_all_chunk_forward_msgs: false,
         block_timeout: CHUNK_REQUEST_RETRY * 15,
     }
@@ -507,7 +518,7 @@ fn chunks_recovered_from_others_cop() {
     Test {
         validator_groups: 1,
         chunk_only_producers: true,
-        drop_to_4_from: &["test1"],
+        test4_config: Test4Config { drop_messages_from: &["test1"], assert_missed_chunk: false },
         drop_all_chunk_forward_msgs: true,
         block_timeout: CHUNK_REQUEST_SWITCH_TO_OTHERS * 4,
     }
@@ -523,7 +534,10 @@ fn chunks_recovered_from_full_timeout_too_short_cop() {
     Test {
         validator_groups: 4,
         chunk_only_producers: true,
-        drop_to_4_from: &["test1", "cop1"],
+        test4_config: Test4Config {
+            drop_messages_from: &["test1", "cop1"],
+            assert_missed_chunk: false,
+        },
         drop_all_chunk_forward_msgs: true,
         block_timeout: CHUNK_REQUEST_SWITCH_TO_OTHERS * 2,
     }
@@ -537,7 +551,10 @@ fn chunks_recovered_from_full_cop() {
     Test {
         validator_groups: 4,
         chunk_only_producers: true,
-        drop_to_4_from: &["test1", "cop1"],
+        test4_config: Test4Config {
+            drop_messages_from: &["test1", "cop1"],
+            assert_missed_chunk: false,
+        },
         drop_all_chunk_forward_msgs: true,
         block_timeout: CHUNK_REQUEST_SWITCH_TO_FULL_FETCH * 2,
     }
