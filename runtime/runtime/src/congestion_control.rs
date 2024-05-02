@@ -173,6 +173,16 @@ impl ReceiptSinkV2<'_> {
                 }
             }
         }
+        self.pop_n_forwarded_receipts(shard_id, num_forwarded, state_update)?;
+        Ok(())
+    }
+
+    fn pop_n_forwarded_receipts(
+        &mut self,
+        shard_id: u64,
+        num_forwarded: i32,
+        state_update: &mut TrieUpdate,
+    ) -> Result<(), RuntimeError> {
         let mut queue = self.outgoing_buffers.to_shard(shard_id);
         Ok(for _ in 0..num_forwarded {
             queue.pop(state_update)?;
