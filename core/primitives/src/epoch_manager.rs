@@ -159,37 +159,32 @@ impl AllEpochConfig {
 
     /// Configures mocknet-specific features only.
     fn config_mocknet(config: &mut EpochConfig, chain_id: &str, protocol_version: ProtocolVersion) {
-        if chain_id == near_primitives_core::chains::MOCKNET {
-            if checked_feature!("stable", StatelessValidationV0, protocol_version) {
-                // In production (mainnet/testnet) and nightly environments this setting is guarded by
-                // ProtocolFeature::StatelessnetShuffleShardAssignmentsForChunkProducers.
-                // (see config_validator_selection function). For pre-release environment such as mocknet,
-                // we enable it by default with stateless validation to exercise the codepaths for state sync more often.
-                // TODO(#11201): When stabilizing "StatelessnetShuffleShardAssignmentsForChunkProducers" in mainnet,
-                // also remove this temporary code and always rely on StatelessnetShuffleShardAssignmentsForChunkProducers.
-                config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers =
-                    true;
-            }
+        if chain_id != near_primitives_core::chains::MOCKNET {
+            return;
         }
+        // In production (mainnet/testnet) and nightly environments this setting is guarded by
+        // ProtocolFeature::ShuffleShardAssignments.
+        // (see config_validator_selection function). For pre-release environment such as mocknet,
+        // we enable it by default with stateless validation to exercise the codepaths for state sync more often.
+        // TODO(#11201): When stabilizing "ShuffleShardAssignments" in mainnet,
+        // also remove this temporary code and always rely on ShuffleShardAssignments.
+        config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers = true;
     }
 
+    /// Configures statelessnet-specific features only.
     fn config_stateless_net(
         config: &mut EpochConfig,
         chain_id: &str,
         protocol_version: ProtocolVersion,
     ) {
-        // StatelessNet only.
-        if chain_id == near_primitives_core::chains::STATELESSNET {
-            // Lower the kickout threshold so the network is more stable while
-            // we figure out issues with block and chunk production.
-            if checked_feature!(
-                "stable",
-                LowerValidatorKickoutPercentForDebugging,
-                protocol_version
-            ) {
-                config.block_producer_kickout_threshold = 50;
-                config.chunk_producer_kickout_threshold = 50;
-            }
+        if chain_id != near_primitives_core::chains::STATELESSNET {
+            return;
+        }
+        // Lower the kickout threshold so the network is more stable while
+        // we figure out issues with block and chunk production.
+        if checked_feature!("stable", LowerValidatorKickoutPercentForDebugging, protocol_version) {
+            config.block_producer_kickout_threshold = 50;
+            config.chunk_producer_kickout_threshold = 50;
         }
     }
 
@@ -197,11 +192,7 @@ impl AllEpochConfig {
     fn config_validator_selection(config: &mut EpochConfig, protocol_version: ProtocolVersion) {
         // Shuffle shard assignments every epoch, to trigger state sync more
         // frequently to exercise that code path.
-        if checked_feature!(
-            "stable",
-            StatelessnetShuffleShardAssignmentsForChunkProducers,
-            protocol_version
-        ) {
+        if checked_feature!("stable", ShuffleShardAssignments, protocol_version) {
             config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers = true;
         }
     }
