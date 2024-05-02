@@ -12,7 +12,7 @@ use near_async::time::Duration;
 use near_chain::chunks_store::ReadOnlyChunksStore;
 use near_chain::state_snapshot_actor::{
     get_delete_snapshot_callback, get_make_snapshot_callback, SnapshotCallbacks,
-    StateSnapshotActions, StateSnapshotSenderForClient, StateSnapshotSenderForClientMessage,
+    StateSnapshotActor, StateSnapshotSenderForClient, StateSnapshotSenderForClientMessage,
     StateSnapshotSenderForStateSnapshot, StateSnapshotSenderForStateSnapshotMessage,
 };
 use near_chain::test_utils::test_loop::{
@@ -105,7 +105,7 @@ struct TestData {
     pub partial_witness: PartialWitnessActions,
     pub sync_actors: TestSyncActors,
     pub state_sync_dumper: StateSyncDumper,
-    pub state_snapshot: StateSnapshotActions,
+    pub state_snapshot: StateSnapshotActor,
 }
 
 impl AsMut<TestData> for TestData {
@@ -323,7 +323,7 @@ fn test_client_with_multi_test_loop() {
             StateSnapshotType::EveryEpoch,
         );
 
-        let state_snapshot = StateSnapshotActions::new(
+        let state_snapshot = StateSnapshotActor::new(
             runtime_adapter.get_flat_storage_manager(),
             builder.sender().for_index(idx).into_multi_sender(),
             runtime_adapter.get_tries(),
