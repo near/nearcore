@@ -154,7 +154,6 @@ pub(crate) fn validate_prepared_transactions(
     storage_config: RuntimeStorageConfig,
     transactions: &[SignedTransaction],
 ) -> Result<PreparedTransactions, Error> {
-    // TODO(congestion_control): Is it okay to read full block here?
     let parent_block = chain.chain_store().get_block(chunk_header.prev_block_hash())?;
 
     runtime_adapter.prepare_transactions(
