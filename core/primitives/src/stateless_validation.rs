@@ -1,4 +1,6 @@
 use std::collections::{HashMap, HashSet};
+use std::io::Write;
+use std::io::{self, Read};
 
 use crate::challenge::PartialState;
 use crate::congestion_info::CongestionInfo;
@@ -7,7 +9,7 @@ use crate::transaction::SignedTransaction;
 use crate::types::EpochId;
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 use borsh::{BorshDeserialize, BorshSerialize};
-use bytes::BufMut;
+use bytes::{Buf, BufMut};
 use near_crypto::{PublicKey, Signature};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance, BlockHeight, ShardId};
@@ -126,11 +128,18 @@ impl EncodedChunkStateWitness {
     /// Returns encoded witness along with the raw (uncompressed) witness size.
     pub fn encode(witness: &ChunkStateWitness) -> std::io::Result<(Self, ChunkStateWitnessSize)> {
         const STATE_WITNESS_COMPRESSION_LEVEL: i32 = 3;
-        let borsh_bytes = borsh::to_vec(witness)?;
-        Ok((
-            Self(zstd::encode_all(borsh_bytes.as_slice(), STATE_WITNESS_COMPRESSION_LEVEL)?.into()),
-            borsh_bytes.len(),
-        ))
+
+        let mut encoded_write = Vec::new().writer();
+        let mut encoding_write =
+            zstd::stream::Encoder::new(&mut encoded_write, STATE_WITNESS_COMPRESSION_LEVEL)?
+                .auto_finish();
+        let mut counting_write = CountingWrite::new(&mut encoding_write);
+        borsh::to_writer(&mut counting_write, witness)?;
+
+        let encoded_bytes = encoded_write.into_inner();
+        let borsh_bytes_len = counting_write.bytes_written();
+
+        Ok((Self(encoded_bytes.into()), borsh_bytes_len.as_u64() as usize))
     }
 
     /// Decompress and borsh-deserialize encoded witness bytes.
@@ -138,8 +147,16 @@ impl EncodedChunkStateWitness {
     pub fn decode(&self) -> std::io::Result<(ChunkStateWitness, ChunkStateWitnessSize)> {
         // We want to limit the size of decompressed data to address "Zip bomb" attack.
         // The value here is the same as NETWORK_MESSAGE_MAX_SIZE_BYTES.
-        const MAX_WITNESS_SIZE: usize = 512 * bytesize::MIB as usize;
-        let borsh_bytes = decompress_with_limit(self.0.as_ref(), MAX_WITNESS_SIZE)?;
+        const MAX_WITNESS_SIZE: bytesize::ByteSize = bytesize::ByteSize::mib(512);
+
+        let mut counting_read = CountingRead::new_with_limit(
+            zstd::stream::Decoder::new(self.0.as_ref().reader())?,
+            MAX_WITNESS_SIZE,
+        );
+
+        let mut borsh_bytes = Vec::new();
+        counting_read.read_to_end(&mut borsh_bytes)?;
+
         let witness = ChunkStateWitness::try_from_slice(&borsh_bytes)?;
         Ok((witness, borsh_bytes.len()))
     }
@@ -150,6 +167,95 @@ impl EncodedChunkStateWitness {
 
     pub fn as_slice(&self) -> &[u8] {
         &self.0
+    }
+}
+
+/// Wrapper for Write that counts number of bytes written.
+/// It also allow setting an optional limit to stop writing.
+struct CountingWrite<W: Write> {
+    inner: W,
+    /// Total number of bytes written.
+    written: u64,
+    /// If set, the number of bytes allowed to be written.
+    /// If this limit is reached, any additional write will return an error.
+    limit: Option<u64>,
+}
+
+impl<W: Write> CountingWrite<W> {
+    fn new_with_limit(inner: W, limit: bytesize::ByteSize) -> Self {
+        Self { inner, written: 0, limit: Some(limit.as_u64()) }
+    }
+
+    fn new(inner: W) -> Self {
+        Self { inner, written: 0, limit: None }
+    }
+
+    fn bytes_written(&self) -> bytesize::ByteSize {
+        bytesize::ByteSize::b(self.written)
+    }
+
+    fn into_inner(self) -> W {
+        self.inner
+    }
+}
+
+impl<W: Write> Write for CountingWrite<W> {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        if let Some(limit) = self.limit {
+            if self.written.saturating_add(buffer.len() as u64) >= limit {
+                return Err(std::io::Error::other(format!("Reached the limit of {} bytes", limit)));
+            }
+        }
+        let last_written = self.inner.write(buffer)?;
+        self.written = self.written.saturating_add(last_written as u64);
+        Ok(last_written)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+/// Wrapper for Write that counts number of bytes written.
+/// It also allow setting an optional limit to stop writing.
+struct CountingRead<R: Read> {
+    inner: R,
+    /// Total number of bytes read.
+    read: u64,
+    /// If set, the number of bytes allowed to be written.
+    /// If this limit is reached, any additional write will return an error.
+    limit: Option<u64>,
+}
+
+impl<R: Read> CountingRead<R> {
+    fn new_with_limit(inner: R, limit: bytesize::ByteSize) -> Self {
+        Self { inner, read: 0, limit: Some(limit.as_u64()) }
+    }
+
+    fn new(inner: R) -> Self {
+        Self { inner, read: 0, limit: None }
+    }
+
+    fn bytes_read(&self) -> bytesize::ByteSize {
+        bytesize::ByteSize::b(self.read)
+    }
+
+    fn into_inner(self) -> R {
+        self.inner
+    }
+}
+
+impl<R: Read> Read for CountingRead<R> {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        let buffer_size = buffer.len();
+        if let Some(limit) = self.limit {
+            if self.read.saturating_add(buffer_size as u64) >= limit {
+                return Err(std::io::Error::other(format!("Reached the limit of {} bytes", limit)));
+            }
+        }
+        let last_read = self.inner.read(buffer)?;
+        self.read = self.read.saturating_add(last_read as u64);
+        Ok(last_read)
     }
 }
 
