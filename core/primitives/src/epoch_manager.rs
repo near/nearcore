@@ -163,9 +163,10 @@ impl AllEpochConfig {
             return;
         }
         // In production (mainnet/testnet) and nightly environments this setting is guarded by
-        // ProtocolFeature::ShuffleShardAssignments.
-        // (see config_validator_selection function). For pre-release environment such as mocknet,
-        // we enable it by default with stateless validation to exercise the codepaths for state sync more often.
+        // ProtocolFeature::ShuffleShardAssignments. (see config_validator_selection function).
+        // For pre-release environment such as mocknet, which uses features between production and nightly
+        // (eg. stateless validation) we enable it by default with stateless validation in order to exercise
+        // the codepaths for state sync more often.
         // TODO(#11201): When stabilizing "ShuffleShardAssignments" in mainnet,
         // also remove this temporary code and always rely on ShuffleShardAssignments.
         config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers = true;
