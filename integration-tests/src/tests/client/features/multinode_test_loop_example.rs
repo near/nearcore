@@ -21,6 +21,7 @@ use near_chain::test_utils::test_loop::{
 };
 use near_chain::types::RuntimeAdapter;
 use near_chain::ChainGenesis;
+use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_chain_configs::{
     ClientConfig, DumpConfig, ExternalStorageConfig, ExternalStorageLocation, Genesis,
     GenesisConfig, GenesisRecords, StateSyncConfig, SyncConfig,
@@ -190,67 +191,29 @@ fn test_client_with_multi_test_loop() {
     const NETWORK_DELAY: Duration = Duration::milliseconds(10);
     let builder = TestLoopBuilder::<(usize, TestEvent)>::new();
 
-    let validator_stake = 1000000 * ONE_NEAR;
     let initial_balance = 10000 * ONE_NEAR;
     let accounts =
         (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
 
-    // TODO: Make some builder for genesis.
-    let mut genesis_config = GenesisConfig {
-        genesis_time: from_timestamp(builder.clock().now_utc().unix_timestamp_nanos() as u64),
-        protocol_version: PROTOCOL_VERSION,
-        genesis_height: 10000,
-        shard_layout: ShardLayout::v1(
-            vec!["account3", "account5", "account7"]
-                .into_iter()
-                .map(|a| a.parse().unwrap())
-                .collect(),
-            None,
-            1,
-        ),
-        min_gas_price: 0,
-        max_gas_price: 0,
-        gas_limit: 100000000000000,
-        transaction_validity_period: 1000,
-        validators: (0..NUM_CLIENTS)
-            .map(|idx| AccountInfo {
-                account_id: accounts[idx].clone(),
-                amount: validator_stake,
-                public_key: create_test_signer(accounts[idx].as_str()).public_key(),
-            })
-            .collect(),
-        epoch_length: 10,
-        protocol_treasury_account: accounts[NUM_CLIENTS].clone(),
-        num_block_producer_seats: 4,
-        minimum_validators_per_shard: 1,
-        num_block_producer_seats_per_shard: vec![0, 0, 0, 0], // ignored
-        shuffle_shard_assignment_for_chunk_producers: true,
-        ..Default::default()
-    };
-    let mut records = Vec::new();
-    for (i, account) in accounts.iter().enumerate() {
-        // The staked amount must be consistent with validators from genesis.
-        let staked = if i < NUM_CLIENTS { validator_stake } else { 0 };
-        records.push(StateRecord::Account {
-            account_id: account.clone(),
-            account: Account::new(
-                initial_balance,
-                staked,
-                0,
-                CryptoHash::default(),
-                0,
-                PROTOCOL_VERSION,
-            ),
-        });
-        records.push(StateRecord::AccessKey {
-            account_id: account.clone(),
-            public_key: create_user_test_signer(&account).public_key,
-            access_key: AccessKey::full_access(),
-        });
-        // The total supply must be correct to pass validation.
-        genesis_config.total_supply += initial_balance + staked;
+    let mut genesis_builder = TestGenesisBuilder::new();
+    genesis_builder
+        .genesis_time_from_clock(&builder.clock())
+        .protocol_version_latest()
+        .genesis_height(10000)
+        .gas_prices_free()
+        .gas_limit_one_petagas()
+        .shard_layout_simple_v1(&["account3", "account5", "account7"])
+        .transaction_validity_period(1000)
+        .epoch_length(10)
+        .validators_desired_roles(
+            &(0..NUM_CLIENTS).map(|idx| accounts[idx].as_str()).collect::<Vec<_>>(),
+            &[],
+        )
+        .shuffle_shard_assignment_for_chunk_producers(true);
+    for account in &accounts {
+        genesis_builder.add_user_account_simple(account.clone(), initial_balance);
     }
-    let genesis = Genesis::new(genesis_config, GenesisRecords(records)).unwrap();
+    let genesis = genesis_builder.build();
 
     let tempdir = tempfile::tempdir().unwrap();
     let mut datas = Vec::new();
