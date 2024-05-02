@@ -129,15 +129,15 @@ impl EncodedChunkStateWitness {
     pub fn encode(witness: &ChunkStateWitness) -> std::io::Result<(Self, ChunkStateWitnessSize)> {
         const STATE_WITNESS_COMPRESSION_LEVEL: i32 = 3;
 
-        let mut encoded_write = Vec::new().writer();
-        let mut encoding_write =
-            zstd::stream::Encoder::new(&mut encoded_write, STATE_WITNESS_COMPRESSION_LEVEL)?
-                .auto_finish();
-        let mut counting_write = CountingWrite::new(&mut encoding_write);
+        // Flow of data: State witness --> Borsh serialization --> Counting writer --> zstd compression --> Bytes.
+        let mut counting_write = CountingWrite::new(zstd::stream::Encoder::new(
+            Vec::new().writer(),
+            STATE_WITNESS_COMPRESSION_LEVEL,
+        )?);
         borsh::to_writer(&mut counting_write, witness)?;
 
-        let encoded_bytes = encoded_write.into_inner();
         let borsh_bytes_len = counting_write.bytes_written();
+        let encoded_bytes = counting_write.into_inner().finish()?.into_inner();
 
         Ok((Self(encoded_bytes.into()), borsh_bytes_len.as_u64() as usize))
     }
@@ -149,6 +149,7 @@ impl EncodedChunkStateWitness {
         // The value here is the same as NETWORK_MESSAGE_MAX_SIZE_BYTES.
         const MAX_WITNESS_SIZE: bytesize::ByteSize = bytesize::ByteSize::mib(512);
 
+        // Flow of data: Bytes --> zstd decompression --> Counting reader --> Borsh deserialization --> State witness.
         let mut counting_read = CountingRead::new_with_limit(
             zstd::stream::Decoder::new(self.0.as_ref().reader())?,
             MAX_WITNESS_SIZE,
