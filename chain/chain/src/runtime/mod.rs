@@ -741,17 +741,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut total_size = 0u64;
 
         let transactions_gas_limit =
-            if ProtocolFeature::CongestionControl.protocol_version() <= protocol_version {
-                if let Some(own_congestion) = prev_block.congestion_info.get(&shard_id) {
-                    own_congestion.process_tx_limit()
-                } else {
-                    // When a new shard is created, or when the feature is just being enabled.
-                    // Using the default (no congestion) is a reasonable choice in this case.
-                    CongestionInfo::default().process_tx_limit()
-                }
-            } else {
-                gas_limit / 2
-            };
+            chunk_tx_gas_limit(protocol_version, &prev_block, shard_id, gas_limit);
 
         let mut result = PreparedTransactions {
             transactions: Vec::new(),
@@ -807,10 +797,11 @@ impl RuntimeAdapter for NightshadeRuntime {
                 result.limited_by = Some(PrepareTransactionsLimit::Size);
                 break;
             }
-            if ProtocolFeature::CongestionControl.protocol_version() > protocol_version {
+            if protocol_version < ProtocolFeature::CongestionControl.protocol_version() {
                 // Keep this for the upgrade phase, afterwards it can be
                 // removed. It does not need to be kept because it does not
                 // affect replayability.
+                // TODO: remove at release CongestionControl + 1 or later
                 if result.transactions.len() >= new_receipt_count_limit {
                     result.limited_by = Some(PrepareTransactionsLimit::ReceiptCount);
                     break;
@@ -1304,6 +1295,27 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn will_shard_layout_change_next_epoch(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
         let epoch_manager = self.epoch_manager.read();
         Ok(epoch_manager.will_shard_layout_change(parent_hash)?)
+    }
+}
+
+/// How much gas of the next chunk we want to spend on converting new
+/// transactions to receipts.
+fn chunk_tx_gas_limit(
+    protocol_version: u32,
+    prev_block: &PrepareTransactionsBlockContext,
+    shard_id: u64,
+    gas_limit: u64,
+) -> u64 {
+    if ProtocolFeature::CongestionControl.protocol_version() <= protocol_version {
+        if let Some(own_congestion) = prev_block.congestion_info.get(&shard_id) {
+            own_congestion.process_tx_limit()
+        } else {
+            // When a new shard is created, or when the feature is just being enabled.
+            // Using the default (no congestion) is a reasonable choice in this case.
+            CongestionInfo::default().process_tx_limit()
+        }
+    } else {
+        gas_limit / 2
     }
 }
 

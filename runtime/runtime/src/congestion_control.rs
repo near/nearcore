@@ -137,40 +137,46 @@ impl ReceiptSinkV2<'_> {
         // store shards in vec to avoid borrowing self.outgoing_limit
         let shards: Vec<_> = self.outgoing_limit.keys().copied().collect();
         for shard_id in shards {
-            let mut num_forwarded = 0;
-            for receipt_result in self.outgoing_buffers.to_shard(shard_id).iter(&state_update.trie)
-            {
-                // for receipt_result in queue.iter(&state_update.trie) {
-                let receipt = receipt_result?;
-                let bytes = receipt_size(&receipt)?;
-                let gas = receipt_congestion_gas(&receipt, &apply_state.config)?;
-                match Self::try_forward(
-                    receipt,
-                    shard_id,
-                    &mut self.outgoing_limit,
-                    self.outgoing_receipts,
-                    apply_state,
-                )? {
-                    ReceiptForwarding::Forwarded => {
-                        self.congestion_info.remove_receipt_bytes(bytes as u64)?;
-                        self.congestion_info.remove_buffered_receipt_gas(gas)?;
-                        // count how many to release later to avoid modifying
-                        // `state_update` while iterating based on
-                        // `state_update.trie`.
-                        num_forwarded += 1;
-                    }
-                    ReceiptForwarding::NotForwarded(_) => {
-                        break;
-                    }
-                }
-            }
-            // removing receipts from state here to avoid double borrow of `state_update`
-            let mut queue = self.outgoing_buffers.to_shard(shard_id);
-            for _ in 0..num_forwarded {
-                queue.pop(state_update)?;
-            }
+            self.forward_from_buffer_to_shard(shard_id, state_update, apply_state)?;
         }
         Ok(())
+    }
+
+    fn forward_from_buffer_to_shard(
+        &mut self,
+        shard_id: u64,
+        state_update: &mut TrieUpdate,
+        apply_state: &ApplyState,
+    ) -> Result<(), RuntimeError> {
+        let mut num_forwarded = 0;
+        for receipt_result in self.outgoing_buffers.to_shard(shard_id).iter(&state_update.trie) {
+            let receipt = receipt_result?;
+            let bytes = receipt_size(&receipt)?;
+            let gas = receipt_congestion_gas(&receipt, &apply_state.config)?;
+            match Self::try_forward(
+                receipt,
+                shard_id,
+                &mut self.outgoing_limit,
+                self.outgoing_receipts,
+                apply_state,
+            )? {
+                ReceiptForwarding::Forwarded => {
+                    self.congestion_info.remove_receipt_bytes(bytes as u64)?;
+                    self.congestion_info.remove_buffered_receipt_gas(gas)?;
+                    // count how many to release later to avoid modifying
+                    // `state_update` while iterating based on
+                    // `state_update.trie`.
+                    num_forwarded += 1;
+                }
+                ReceiptForwarding::NotForwarded(_) => {
+                    break;
+                }
+            }
+        }
+        let mut queue = self.outgoing_buffers.to_shard(shard_id);
+        Ok(for _ in 0..num_forwarded {
+            queue.pop(state_update)?;
+        })
     }
 
     /// Put a receipt in the outgoing receipts vector (=forward) if the
@@ -303,7 +309,7 @@ fn receipt_congestion_gas(
 ///
 /// This is an IO intensive operation! Only do it to bootstrap the
 /// `CongestionInfo`. In normal operation, this information is kept up
-/// to date and passed from chunk to chunk through chunk extra fields.
+/// to date and passed from chunk to chunk through chunk header fields.
 pub fn compute_congestion_info(
     trie: &dyn near_store::TrieAccess,
     config: &RuntimeConfig,
