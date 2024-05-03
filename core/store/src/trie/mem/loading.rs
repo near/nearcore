@@ -194,7 +194,7 @@ mod tests {
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::chunk_extra::ChunkExtra;
     use near_primitives::types::StateChangeCause;
-    use near_primitives::version::PROTOCOL_VERSION;
+    use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
 
@@ -536,6 +536,13 @@ mod tests {
         shard_uid: ShardUId,
         state_root: CryptoHash,
     ) {
+        let congestion_info =
+            if PROTOCOL_VERSION >= ProtocolFeature::CongestionControl.protocol_version() {
+                Some(CongestionInfo::default())
+            } else {
+                None
+            };
+
         let chunk_extra = ChunkExtra::new(
             PROTOCOL_VERSION,
             &state_root,
@@ -544,7 +551,7 @@ mod tests {
             0,
             0,
             0,
-            Some(CongestionInfo::default()),
+            congestion_info,
         );
         let mut store_update = store.store_update();
         store_update

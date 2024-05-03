@@ -11,6 +11,7 @@ use crate::{start_view_client, Client, ClientActor, SyncAdapter, SyncStatus, Vie
 use actix::{Actor, Addr, AsyncContext, Context};
 use futures::{future, FutureExt};
 use near_async::actix::AddrWithAutoSpanContextExt;
+use near_async::actix_wrapper::spawn_actix_actor;
 use near_async::messaging::{noop, CanSend, IntoMultiSender, IntoSender, LateBoundSender, Sender};
 use near_async::time::{Clock, Duration, Instant, Utc};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
@@ -177,13 +178,13 @@ pub fn setup(
         SyncAdapter::actix_actor_maker(),
     )));
 
-    let (partial_witness_addr, _) = PartialWitnessActor::spawn(
+    let (partial_witness_addr, _) = spawn_actix_actor(PartialWitnessActor::new(
         clock.clone(),
         network_adapter.clone(),
         noop().into_multi_sender(),
         signer.clone(),
         epoch_manager.clone(),
-    );
+    ));
     let partial_witness_adapter = partial_witness_addr.with_auto_span_context();
     let client = Client::new(
         clock.clone(),

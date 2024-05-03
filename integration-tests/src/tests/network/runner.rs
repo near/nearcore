@@ -1,6 +1,7 @@
 use actix::{Actor, Addr};
 use anyhow::{anyhow, bail, Context};
 use near_async::actix::AddrWithAutoSpanContextExt;
+use near_async::actix_wrapper::spawn_actix_actor;
 use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::time::{self, Clock};
 use near_chain::types::RuntimeAdapter;
@@ -128,13 +129,13 @@ fn setup_network_node(
         runtime.store().clone(),
         client_config.chunk_request_retry_period,
     );
-    let (partial_witness_actor, _) = PartialWitnessActor::spawn(
+    let (partial_witness_actor, _) = spawn_actix_actor(PartialWitnessActor::new(
         Clock::real(),
         network_adapter.as_multi_sender(),
         client_actor.clone().with_auto_span_context().into_multi_sender(),
         signer,
         epoch_manager,
-    );
+    ));
     shards_manager_adapter.bind(shards_manager_actor.with_auto_span_context());
     let peer_manager = PeerManagerActor::spawn(
         time::Clock::real(),
