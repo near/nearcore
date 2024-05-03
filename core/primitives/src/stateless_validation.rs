@@ -5,15 +5,14 @@ use crate::congestion_info::CongestionInfo;
 use crate::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader, ShardChunkHeaderV3};
 use crate::transaction::SignedTransaction;
 use crate::types::EpochId;
-use crate::utils::io::{CountingRead, CountingWrite};
+use crate::utils::io::CountingWrite;
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 use borsh::{BorshDeserialize, BorshSerialize};
-use bytes::{Buf, BufMut};
+use bytes::BufMut;
 use near_crypto::{PublicKey, Signature};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance, BlockHeight, ShardId};
 use near_primitives_core::version::PROTOCOL_VERSION;
-use std::io::Read;
 
 /// An arbitrary static string to make sure that this struct cannot be
 /// serialized to look identical to another serialized struct. For chunk
@@ -129,7 +128,8 @@ impl EncodedChunkStateWitness {
     pub fn encode(witness: &ChunkStateWitness) -> std::io::Result<(Self, ChunkStateWitnessSize)> {
         const STATE_WITNESS_COMPRESSION_LEVEL: i32 = 3;
 
-        // Flow of data: State witness --> Borsh serialization --> Counting writer --> zstd compression --> Bytes.
+        // Flow of data: State witness --> Borsh serialization --> Counting write --> zstd compression --> Bytes.
+        // CountingWrite will count the number of bytes for the Borsh-serialized witness, before compression. 
         let mut counting_write = CountingWrite::new(zstd::stream::Encoder::new(
             Vec::new().writer(),
             STATE_WITNESS_COMPRESSION_LEVEL,
@@ -147,17 +147,8 @@ impl EncodedChunkStateWitness {
     pub fn decode(&self) -> std::io::Result<(ChunkStateWitness, ChunkStateWitnessSize)> {
         // We want to limit the size of decompressed data to address "Zip bomb" attack.
         // The value here is the same as NETWORK_MESSAGE_MAX_SIZE_BYTES.
-        const MAX_WITNESS_SIZE: bytesize::ByteSize = bytesize::ByteSize::mib(512);
-
-        // Flow of data: Bytes --> zstd decompression --> Counting reader --> Borsh deserialization --> State witness.
-        let mut counting_read = CountingRead::new_with_limit(
-            zstd::stream::Decoder::new(self.0.as_ref().reader())?,
-            MAX_WITNESS_SIZE,
-        );
-
-        let mut borsh_bytes = Vec::new();
-        counting_read.read_to_end(&mut borsh_bytes)?;
-
+        const MAX_WITNESS_SIZE: usize = 512 * bytesize::MIB as usize;
+        let borsh_bytes = decompress_with_limit(self.0.as_ref(), MAX_WITNESS_SIZE)?;
         let witness = ChunkStateWitness::try_from_slice(&borsh_bytes)?;
         Ok((witness, borsh_bytes.len()))
     }
@@ -517,6 +508,8 @@ fn decompress_with_limit(data: &[u8], limit: usize) -> std::io::Result<Vec<u8>> 
 
 #[cfg(test)]
 mod tests {
+    use near_primitives_core::hash::CryptoHash;
+    use crate::stateless_validation::{ChunkStateWitness, EncodedChunkStateWitness};
     use crate::stateless_validation::decompress_with_limit;
 
     #[test]
@@ -547,4 +540,15 @@ mod tests {
         assert!(decompress_res.is_err());
         assert_eq!(decompress_res.unwrap_err().to_string(), "Unknown frame descriptor");
     }
+
+    #[test]
+    fn encode_decode_state_dummy_witness() {
+        let original_witness = ChunkStateWitness::new_dummy(42, 0, CryptoHash::default());
+        let (encoded_witness, borsh_bytes) = EncodedChunkStateWitness::encode(&original_witness).unwrap();
+        let (decoded_witness, witness_size) = EncodedChunkStateWitness::from_boxed_slice(encoded_witness.0).decode().unwrap();
+        assert_eq!(decoded_witness, original_witness);
+        assert_eq!(witness_size, borsh_bytes);
+        assert_eq!(borsh::to_vec(&original_witness).unwrap().len(), borsh_bytes);
+    }
+
 }
