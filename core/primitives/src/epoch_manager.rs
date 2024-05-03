@@ -136,11 +136,11 @@ impl AllEpochConfig {
 
         Self::config_stateless_net(&mut config, &self.chain_id, protocol_version);
 
+        Self::config_validator_selection(&mut config, protocol_version);
+
         if !self.use_production_config {
             return config;
         }
-
-        Self::config_validator_selection(&mut config, protocol_version);
 
         Self::config_nightshade(&mut config, protocol_version);
 
