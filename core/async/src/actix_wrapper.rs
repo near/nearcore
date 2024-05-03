@@ -10,6 +10,12 @@ pub struct ActixWrapper<T> {
     actor: T,
 }
 
+impl<T> ActixWrapper<T> {
+    pub fn new(actor: T) -> Self {
+        Self { actor }
+    }
+}
+
 impl<T> actix::Actor for ActixWrapper<T>
 where
     T: Unpin + 'static,
