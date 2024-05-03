@@ -159,6 +159,8 @@ impl EncodedChunkStateWitness {
         &self,
         limit: ByteSize,
     ) -> std::io::Result<(ChunkStateWitness, ChunkStateWitnessSize)> {
+        // Flow of data: Bytes --> zstd decompression --> Counting read --> Borsh deserialization --> State witness.
+        // CountingRead will count the number of bytes for the Borsh-deserialized witness, after decompression.
         let mut counting_read = CountingRead::new_with_limit(
             zstd::stream::Decoder::new(self.0.as_ref().reader())?,
             limit,
@@ -516,41 +518,13 @@ impl ChunkValidatorAssignments {
 
 #[cfg(test)]
 mod tests {
-    // use crate::stateless_validation::decompress_with_limit;
     use crate::stateless_validation::{ChunkStateWitness, EncodedChunkStateWitness};
+    use bytesize::ByteSize;
     use near_primitives_core::hash::CryptoHash;
-
-    // #[test]
-    // fn decompress_within_limit() {
-    //     let data = vec![1, 2, 3];
-    //     let compressed = zstd::encode_all(data.as_slice(), 0).unwrap();
-    //     let decompressed = decompress_with_limit(&compressed, 100);
-    //     assert!(decompressed.is_ok());
-    //     assert_eq!(data, decompressed.unwrap());
-    // }
-
-    // #[test]
-    // fn decompress_exceed_limit() {
-    //     let data = vec![0; 100];
-    //     let compressed = zstd::encode_all(data.as_slice(), 0).unwrap();
-    //     let decompress_res = decompress_with_limit(&compressed, 99);
-    //     assert!(decompress_res.is_err());
-    //     assert_eq!(
-    //         decompress_res.unwrap_err().to_string(),
-    //         "Decompressed data exceeded limit of 99 bytes: failed to write whole buffer"
-    //     );
-    // }
-
-    // #[test]
-    // fn decompress_invalid_data() {
-    //     let data = vec![0; 10];
-    //     let decompress_res = decompress_with_limit(&data, 100);
-    //     assert!(decompress_res.is_err());
-    //     assert_eq!(decompress_res.unwrap_err().to_string(), "Unknown frame descriptor");
-    // }
+    use std::io::ErrorKind;
 
     #[test]
-    fn encode_decode_state_dummy_witness() {
+    fn encode_decode_state_dummy_witness_default_limit() {
         let original_witness = ChunkStateWitness::new_dummy(42, 0, CryptoHash::default());
         let (encoded_witness, borsh_bytes_from_encode) =
             EncodedChunkStateWitness::encode(&original_witness).unwrap();
@@ -559,5 +533,46 @@ mod tests {
         assert_eq!(decoded_witness, original_witness);
         assert_eq!(borsh_bytes_from_encode, borsh_bytes_from_decode);
         assert_eq!(borsh::to_vec(&original_witness).unwrap().len(), borsh_bytes_from_encode);
+    }
+
+    #[test]
+    fn encode_decode_state_dummy_witness_within_limit() {
+        const LIMIT: ByteSize = ByteSize::mib(32);
+        let original_witness = ChunkStateWitness::new_dummy(42, 0, CryptoHash::default());
+        let (encoded_witness, borsh_bytes_from_encode) =
+            EncodedChunkStateWitness::encode(&original_witness).unwrap();
+        let (decoded_witness, borsh_bytes_from_decode) =
+            EncodedChunkStateWitness::from_boxed_slice(encoded_witness.0)
+                .decode_with_limit(LIMIT)
+                .unwrap();
+        assert_eq!(decoded_witness, original_witness);
+        assert_eq!(borsh_bytes_from_encode, borsh_bytes_from_decode);
+        assert_eq!(borsh::to_vec(&original_witness).unwrap().len(), borsh_bytes_from_encode);
+    }
+
+    #[test]
+    fn encode_decode_state_dummy_witness_exceeds_limit() {
+        const LIMIT: ByteSize = ByteSize::b(32);
+        let original_witness = ChunkStateWitness::new_dummy(42, 0, CryptoHash::default());
+        let (encoded_witness, borsh_bytes_from_encode) =
+            EncodedChunkStateWitness::encode(&original_witness).unwrap();
+        assert!(borsh_bytes_from_encode > LIMIT.as_u64() as usize);
+        let error = EncodedChunkStateWitness::from_boxed_slice(encoded_witness.0)
+            .decode_with_limit(LIMIT)
+            .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::Other);
+        assert_eq!(
+            error.to_string(),
+            "Decompressed data exceeded limit of 32 B bytes: Exceeded the limit of 32 bytes"
+        );
+    }
+
+    #[test]
+    fn decode_state_dummy_witness_invalid_data() {
+        let invalid_data = [0; 10];
+        let error = EncodedChunkStateWitness::from_boxed_slice(Box::new(invalid_data))
+            .decode()
+            .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::Other);
     }
 }
