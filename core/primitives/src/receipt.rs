@@ -98,11 +98,8 @@ impl BorshSerialize for Receipt {
 }
 
 impl BorshDeserialize for Receipt {
-    /// Deserialize based on the first byte of the buffer. If the first byte is 0, it is a V0
-    /// Otherwise, it is a V1. For V0, we do backward compatible deserialization by deserializing
-    /// the entire stream into V0. For V1, we consume the first byte and then deserialize the rest
-    /// No conflict is possible because the first field of Receipt is an `AccountId` which starts
-    /// with a `usize` but can only be at most 64 bytes long, so the highest byte is always 0.
+    /// Deserialize based on the first and second bytes of the stream. For V0, we do backward compatible deserialization by deserializing
+    /// the entire stream into V0. For V1, we consume the first byte and then deserialize the rest.
     fn deserialize_reader<R: Read>(reader: &mut R) -> std::io::Result<Self> {
         let u1 = u8::deserialize_reader(reader)?;
         let u2 = u8::deserialize_reader(reader)?;
