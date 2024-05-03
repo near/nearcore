@@ -132,7 +132,7 @@ impl AllEpochConfig {
     pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> EpochConfig {
         let mut config = self.genesis_epoch_config.clone();
 
-        Self::config_mocknet(&mut config, &self.chain_id, protocol_version);
+        Self::config_mocknet(&mut config, &self.chain_id);
 
         Self::config_stateless_net(&mut config, &self.chain_id, protocol_version);
 
@@ -158,7 +158,7 @@ impl AllEpochConfig {
     }
 
     /// Configures mocknet-specific features only.
-    fn config_mocknet(config: &mut EpochConfig, chain_id: &str, protocol_version: ProtocolVersion) {
+    fn config_mocknet(config: &mut EpochConfig, chain_id: &str) {
         if chain_id != near_primitives_core::chains::MOCKNET {
             return;
         }
