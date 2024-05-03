@@ -248,7 +248,7 @@ impl Test {
                 height_to_hash.insert(h, block.header.hash);
 
                 let mut height_to_epoch = height_to_epoch.write().unwrap();
-                height_to_epoch.insert(h, EpochId(block.header.epoch_id.clone()));
+                height_to_epoch.insert(h, EpochId(block.header.epoch_id));
 
                 let block_producer = block.author;
                 println!(
