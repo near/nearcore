@@ -544,11 +544,11 @@ mod tests {
     #[test]
     fn encode_decode_state_dummy_witness() {
         let original_witness = ChunkStateWitness::new_dummy(42, 0, CryptoHash::default());
-        let (encoded_witness, borsh_bytes) = EncodedChunkStateWitness::encode(&original_witness).unwrap();
-        let (decoded_witness, witness_size) = EncodedChunkStateWitness::from_boxed_slice(encoded_witness.0).decode().unwrap();
+        let (encoded_witness, borsh_bytes_from_encode) = EncodedChunkStateWitness::encode(&original_witness).unwrap();
+        let (decoded_witness, borsh_bytes_from_decode) = EncodedChunkStateWitness::from_boxed_slice(encoded_witness.0).decode().unwrap();
         assert_eq!(decoded_witness, original_witness);
-        assert_eq!(witness_size, borsh_bytes);
-        assert_eq!(borsh::to_vec(&original_witness).unwrap().len(), borsh_bytes);
+        assert_eq!(borsh_bytes_from_encode, borsh_bytes_from_decode);
+        assert_eq!(borsh::to_vec(&original_witness).unwrap().len(), borsh_bytes_from_encode);
     }
 
 }
