@@ -9,6 +9,7 @@ use crate::utils::io::{CountingRead, CountingWrite};
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytes::{Buf, BufMut};
+use bytesize::ByteSize;
 use near_crypto::{PublicKey, Signature};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance, BlockHeight, ShardId};
@@ -147,11 +148,20 @@ impl EncodedChunkStateWitness {
     pub fn decode(&self) -> std::io::Result<(ChunkStateWitness, ChunkStateWitnessSize)> {
         // We want to limit the size of decompressed data to address "Zip bomb" attack.
         // The value here is the same as NETWORK_MESSAGE_MAX_SIZE_BYTES.
-        const MAX_WITNESS_SIZE: bytesize::ByteSize = bytesize::ByteSize::mib(512);
+        const MAX_WITNESS_SIZE: ByteSize = ByteSize::mib(512);
 
+        self.decode_with_limit(MAX_WITNESS_SIZE)
+    }
+
+    /// Decompress and borsh-deserialize encoded witness bytes.
+    /// Returns decoded witness along with the raw (uncompressed) witness size.
+    pub fn decode_with_limit(
+        &self,
+        limit: ByteSize,
+    ) -> std::io::Result<(ChunkStateWitness, ChunkStateWitnessSize)> {
         let mut counting_read = CountingRead::new_with_limit(
             zstd::stream::Decoder::new(self.0.as_ref().reader())?,
-            MAX_WITNESS_SIZE,
+            limit,
         );
 
         match borsh::from_reader(&mut counting_read) {
@@ -160,7 +170,7 @@ impl EncodedChunkStateWitness {
                 // Here we convert it to a more descriptive error to make debugging easier.
                 let err = if err.kind() == std::io::ErrorKind::WriteZero {
                     std::io::Error::other(format!(
-                        "Decompressed data exceeded limit of {MAX_WITNESS_SIZE} bytes: {err}"
+                        "Decompressed data exceeded limit of {limit} bytes: {err}"
                     ))
                 } else {
                     err
