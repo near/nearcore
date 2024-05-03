@@ -46,7 +46,7 @@ use near_client::test_utils::test_loop::client_actions::{
     forward_client_messages_from_shards_manager, forward_client_messages_from_sync_adapter,
     forward_client_messages_from_sync_jobs_to_client_actions,
 };
-use near_client::test_utils::test_loop::partial_witness_actions::{
+use near_client::test_utils::test_loop::partial_witness_actor::{
     forward_messages_from_client_to_partial_witness_actor,
     forward_messages_from_network_to_partial_witness_actor,
 };
@@ -64,7 +64,7 @@ use near_client::test_utils::test_loop::{
 };
 use near_client::test_utils::test_loop::{route_network_messages_to_client, ClientQueries};
 use near_client::{
-    Client, PartialWitnessActions, PartialWitnessSenderForClientMessage, SyncAdapter, SyncMessage,
+    Client, PartialWitnessActor, PartialWitnessSenderForClientMessage, SyncAdapter, SyncMessage,
 };
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
@@ -102,7 +102,7 @@ struct TestData {
     pub client: ClientActions,
     pub sync_jobs: SyncJobsActions,
     pub shards_manager: ShardsManager,
-    pub partial_witness: PartialWitnessActions,
+    pub partial_witness: PartialWitnessActor,
     pub sync_actors: TestSyncActors,
     pub state_sync_dumper: StateSyncDumper,
     pub state_snapshot: StateSnapshotActions,
@@ -177,9 +177,9 @@ enum TestEvent {
     /// Message from Client to PartialWitnessActor.
     PartialWitnessSenderForClient(PartialWitnessSenderForClientMessage),
     /// Message from Network to PartialWitnessActor.
-    PArtialWitnessSenderForNetwork(PartialWitnessSenderForNetworkMessage),
+    PartialWitnessSenderForNetwork(PartialWitnessSenderForNetworkMessage),
     /// Message from PartialWitnessActor to Client.
-    PartialSenderForStateWitness(ClientSenderForPartialWitnessMessage),
+    ClientSenderForPartialWitness(ClientSenderForPartialWitnessMessage),
 }
 
 const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
@@ -403,7 +403,7 @@ fn test_client_with_multi_test_loop() {
         )
         .unwrap();
 
-        let partial_witness_actions = PartialWitnessActions::new(
+        let partial_witness_actions = PartialWitnessActor::new(
             builder.clock(),
             builder.sender().for_index(idx).into_multi_sender(),
             builder

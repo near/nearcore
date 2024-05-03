@@ -55,7 +55,7 @@ use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::types::BlockHeight;
+use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
@@ -99,6 +99,16 @@ pub struct SyncJobsSenderForClient {
 pub struct ClientSenderForPartialWitness {
     pub receive_chunk_state_witness: Sender<ProcessChunkStateWitnessMessage>,
 }
+
+// A small helper macro to unwrap a result of some state sync operation. If the
+// result is an error this macro will log it and return from the function.
+macro_rules! unwrap_and_report_state_sync_result (($obj: expr) => (match $obj {
+    Ok(v) => v,
+    Err(err) => {
+        error!(target: "sync", "Sync: Unexpected error: {}", err);
+        return;
+    }
+}));
 
 pub struct ClientActions {
     clock: Clock,
@@ -1450,16 +1460,8 @@ impl ClientActions {
     fn run_sync_step(&mut self) {
         let _span = tracing::debug_span!(target: "client", "run_sync_step").entered();
 
-        macro_rules! unwrap_and_report (($obj: expr) => (match $obj {
-            Ok(v) => v,
-            Err(err) => {
-                error!(target: "sync", "Sync: Unexpected error: {}", err);
-                return;
-            }
-        }));
-
         let currently_syncing = self.client.sync_status.is_syncing();
-        let sync = unwrap_and_report!(self.syncing_info());
+        let sync = unwrap_and_report_state_sync_result!(self.syncing_info());
         self.info_helper.update_sync_requirements_metrics(sync.to_metrics_string());
 
         match sync {
@@ -1471,216 +1473,248 @@ impl ClientActions {
                     debug!(target: "sync", prev_sync_status = ?self.client.sync_status, "disabling sync");
                     self.client.sync_status.update(SyncStatus::NoSync);
                     // Announce this client's account id if their epoch is coming up.
-                    let head = unwrap_and_report!(self.client.chain.head());
+                    let head = unwrap_and_report_state_sync_result!(self.client.chain.head());
                     self.check_send_announce_account(head.prev_block_hash);
                 }
             }
 
             SyncRequirement::SyncNeeded { highest_height, .. } => {
-                let mut notify_start_sync = false;
                 if !currently_syncing {
                     info!(target: "client", ?sync, "enabling sync");
                 }
-                // Run each step of syncing separately.
-                unwrap_and_report!(self.client.header_sync.run(
-                    &mut self.client.sync_status,
-                    &mut self.client.chain,
-                    highest_height,
-                    &self.network_info.highest_height_peers
-                ));
-                // Only body / state sync if header height is close to the latest.
-                let header_head = unwrap_and_report!(self.client.chain.header_head());
 
-                // Sync state if already running sync state or if block sync is too far.
-                let sync_state = match self.client.sync_status {
-                    SyncStatus::StateSync(_) => true,
-                    _ if header_head.height
-                        >= highest_height
-                            .saturating_sub(self.client.config.block_header_fetch_horizon) =>
-                    {
-                        unwrap_and_report!(self.client.block_sync.run(
-                            &mut self.client.sync_status,
-                            &self.client.chain,
-                            highest_height,
-                            &self.network_info.highest_height_peers
-                        ))
-                    }
-                    _ => false,
-                };
-                if sync_state {
-                    match self.client.sync_status {
-                        SyncStatus::StateSync(_) => (),
-                        _ => {
-                            let sync_hash = unwrap_and_report!(self.find_sync_hash());
-                            if !self.client.config.archive {
-                                unwrap_and_report!(self
-                                    .client
-                                    .chain
-                                    .mut_chain_store()
-                                    .reset_data_pre_state_sync(
-                                        sync_hash,
-                                        self.client.runtime_adapter.clone(),
-                                        self.client.epoch_manager.clone()
-                                    ));
-                            }
-                            self.client.sync_status.update(SyncStatus::StateSync(
-                                StateSyncStatus { sync_hash, sync_status: HashMap::default() },
-                            ));
-                            // This is the first time we run state sync.
-                            notify_start_sync = true;
-                        }
-                    };
-                    let sync_hash = match &self.client.sync_status {
-                        SyncStatus::StateSync(s) => s.sync_hash,
-                        _ => unreachable!("Sync status should have been StateSync!"),
-                    };
+                self.handle_sync_needed(highest_height);
+            }
+        }
+    }
 
-                    let me =
-                        self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
-                    let block_header =
-                        unwrap_and_report!(self.client.chain.get_block_header(&sync_hash));
-                    let prev_hash = *block_header.prev_hash();
-                    let epoch_id = block_header.epoch_id().clone();
-                    let shards_to_sync = get_shards_cares_about_this_or_next_epoch(
-                        me.as_ref(),
-                        true,
-                        &block_header,
-                        &self.client.shard_tracker,
-                        self.client.epoch_manager.as_ref(),
-                    );
+    /// Handle the SyncRequirement::SyncNeeded.
+    ///
+    /// This method runs the header sync, the block sync
+    fn handle_sync_needed(&mut self, highest_height: u64) {
+        // Run each step of syncing separately.
+        let header_sync_result = self.client.header_sync.run(
+            &mut self.client.sync_status,
+            &mut self.client.chain,
+            highest_height,
+            &self.network_info.highest_height_peers,
+        );
+        unwrap_and_report_state_sync_result!(header_sync_result);
+        // Only body / state sync if header height is close to the latest.
+        let header_head = unwrap_and_report_state_sync_result!(self.client.chain.header_head());
 
-                    let use_colour =
-                        matches!(self.client.config.log_summary_style, LogSummaryStyle::Colored);
+        // We should state sync if it's already started or if we have enough
+        // headers and blocks. The should_state_sync method may run block sync.
+        let should_state_sync = self.should_state_sync(header_head, highest_height);
+        let should_state_sync = unwrap_and_report_state_sync_result!(should_state_sync);
+        if !should_state_sync {
+            return;
+        }
+        let update_sync_status_result = self.update_sync_status();
+        let notify_start_sync = unwrap_and_report_state_sync_result!(update_sync_status_result);
 
-                    // Notify each shard to sync.
-                    if notify_start_sync {
-                        let shard_layout = self
-                            .client
-                            .epoch_manager
-                            .get_shard_layout(&epoch_id)
-                            .expect("Cannot get shard layout");
-                        for &shard_id in &shards_to_sync {
-                            let shard_uid =
-                                ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-                            match self.client.state_sync_adapter.clone().read() {
-                                Ok(sync_adapter) => sync_adapter.send_sync_message(
-                                    shard_uid,
-                                    SyncMessage::StartSync(SyncShardInfo { shard_uid, sync_hash }),
-                                ),
-                                Err(_) => {
-                                    error!(target:"client", "State sync adapter lock is poisoned.")
-                                }
-                            }
-                        }
-                    }
+        let sync_hash = match &self.client.sync_status {
+            SyncStatus::StateSync(s) => s.sync_hash,
+            _ => unreachable!("Sync status should have been StateSync!"),
+        };
 
-                    let now = self.clock.now_utc();
+        let me = self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
+        let block_header = self.client.chain.get_block_header(&sync_hash);
+        let block_header = unwrap_and_report_state_sync_result!(block_header);
+        let prev_hash = *block_header.prev_hash();
+        let epoch_id = block_header.epoch_id().clone();
+        let shards_to_sync = get_shards_cares_about_this_or_next_epoch(
+            me.as_ref(),
+            true,
+            &block_header,
+            &self.client.shard_tracker,
+            self.client.epoch_manager.as_ref(),
+        );
 
-                    // FIXME: it checks if the block exists.. but I have no idea why..
-                    // seems that we don't really use this block in case of catchup - we use it only for state sync.
-                    // Seems it is related to some bug with block getting orphaned after state sync? but not sure.
-                    let (request_block, have_block) =
-                        unwrap_and_report!(self.sync_block_status(&prev_hash, now));
+        let use_colour = matches!(self.client.config.log_summary_style, LogSummaryStyle::Colored);
 
-                    if request_block {
-                        self.client.last_time_sync_block_requested = Some(now);
-                        if let Some(peer_info) =
-                            self.network_info.highest_height_peers.choose(&mut thread_rng())
-                        {
-                            let id = peer_info.peer_info.id.clone();
+        // Notify each shard to sync.
+        if notify_start_sync {
+            self.notify_start_sync(epoch_id, sync_hash, &shards_to_sync);
+        }
 
-                            for hash in
-                                vec![*block_header.prev_hash(), *block_header.hash()].into_iter()
-                            {
-                                self.client.request_block(hash, id.clone());
-                            }
-                        }
-                    }
-                    if have_block {
-                        self.client.last_time_sync_block_requested = None;
-                    }
+        let now = self.clock.now_utc();
 
-                    let state_sync_status = match &mut self.client.sync_status {
-                        SyncStatus::StateSync(s) => s,
-                        _ => unreachable!("Sync status should have been StateSync!"),
-                    };
-                    match unwrap_and_report!(self.client.state_sync.run(
-                        &me,
-                        sync_hash,
-                        &mut state_sync_status.sync_status,
-                        &mut self.client.chain,
-                        self.client.epoch_manager.as_ref(),
-                        &self.network_info.highest_height_peers,
-                        shards_to_sync,
-                        &self.sync_jobs_sender.apply_state_parts,
-                        &self.sync_jobs_sender.load_memtrie,
-                        &self.sync_jobs_sender.resharding,
-                        self.state_parts_future_spawner.as_ref(),
-                        use_colour,
-                        self.client.runtime_adapter.clone(),
-                    )) {
-                        StateSyncResult::InProgress => (),
-                        StateSyncResult::Completed => {
-                            if !have_block {
-                                trace!(target: "sync", "Sync done. Waiting for sync block.");
-                                return;
-                            }
-                            info!(target: "sync", "State sync: all shards are done");
+        // FIXME: it checks if the block exists.. but I have no idea why..
+        // seems that we don't really use this block in case of catchup - we use it only for state sync.
+        // Seems it is related to some bug with block getting orphaned after state sync? but not sure.
+        let (request_block, have_block) =
+            unwrap_and_report_state_sync_result!(self.sync_block_status(&prev_hash, now));
 
-                            let mut block_processing_artifacts = BlockProcessingArtifact::default();
+        if request_block {
+            self.client.last_time_sync_block_requested = Some(now);
+            if let Some(peer_info) =
+                self.network_info.highest_height_peers.choose(&mut thread_rng())
+            {
+                let id = peer_info.peer_info.id.clone();
 
-                            unwrap_and_report!(self.client.chain.reset_heads_post_state_sync(
-                                &me,
-                                sync_hash,
-                                &mut block_processing_artifacts,
-                                Some(self.myself_sender.apply_chunks_done.clone()),
-                            ));
+                for hash in vec![*block_header.prev_hash(), *block_header.hash()].into_iter() {
+                    self.client.request_block(hash, id.clone());
+                }
+            }
+        }
+        if have_block {
+            self.client.last_time_sync_block_requested = None;
+        }
 
-                            self.client
-                                .process_block_processing_artifact(block_processing_artifacts);
-                            self.client.sync_status.update(SyncStatus::BlockSync {
-                                start_height: 0,
-                                current_height: 0,
-                                highest_height: 0,
-                            });
-                        }
-                    }
+        let state_sync_status = match &mut self.client.sync_status {
+            SyncStatus::StateSync(s) => s,
+            _ => unreachable!("Sync status should have been StateSync!"),
+        };
+
+        let state_sync_result = self.client.state_sync.run(
+            &me,
+            sync_hash,
+            &mut state_sync_status.sync_status,
+            &mut self.client.chain,
+            self.client.epoch_manager.as_ref(),
+            &self.network_info.highest_height_peers,
+            shards_to_sync,
+            &self.sync_jobs_sender.apply_state_parts,
+            &self.sync_jobs_sender.load_memtrie,
+            &self.sync_jobs_sender.resharding,
+            self.state_parts_future_spawner.as_ref(),
+            use_colour,
+            self.client.runtime_adapter.clone(),
+        );
+        let state_sync_result = unwrap_and_report_state_sync_result!(state_sync_result);
+        match state_sync_result {
+            StateSyncResult::InProgress => (),
+            StateSyncResult::Completed => {
+                if !have_block {
+                    trace!(target: "sync", "Sync done. Waiting for sync block.");
+                    return;
+                }
+                info!(target: "sync", "State sync: all shards are done");
+
+                let mut block_processing_artifacts = BlockProcessingArtifact::default();
+
+                let reset_heads_result = self.client.chain.reset_heads_post_state_sync(
+                    &me,
+                    sync_hash,
+                    &mut block_processing_artifacts,
+                    Some(self.myself_sender.apply_chunks_done.clone()),
+                );
+                unwrap_and_report_state_sync_result!(reset_heads_result);
+
+                self.client.process_block_processing_artifact(block_processing_artifacts);
+                self.client.sync_status.update(SyncStatus::BlockSync {
+                    start_height: 0,
+                    current_height: 0,
+                    highest_height: 0,
+                });
+            }
+        }
+    }
+
+    fn notify_start_sync(
+        &mut self,
+        epoch_id: EpochId,
+        sync_hash: CryptoHash,
+        shards_to_sync: &Vec<u64>,
+    ) {
+        let shard_layout =
+            self.client.epoch_manager.get_shard_layout(&epoch_id).expect("Cannot get shard layout");
+        for &shard_id in shards_to_sync {
+            let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+            match self.client.state_sync_adapter.clone().read() {
+                Ok(sync_adapter) => sync_adapter.send_sync_message(
+                    shard_uid,
+                    SyncMessage::StartSync(SyncShardInfo { shard_uid, sync_hash }),
+                ),
+                Err(_) => {
+                    error!(target:"client", "State sync adapter lock is poisoned.")
                 }
             }
         }
     }
 
+    /// Update sync status to StateSync and reset data if needed.
+    /// Returns true if this is the first time we run state sync and we should
+    /// notify shards to start syncing.
+    fn update_sync_status(&mut self) -> Result<bool, near_chain::Error> {
+        if let SyncStatus::StateSync(_) = self.client.sync_status {
+            return Ok(false);
+        }
+
+        let sync_hash = self.find_sync_hash()?;
+        if !self.client.config.archive {
+            self.client.chain.mut_chain_store().reset_data_pre_state_sync(
+                sync_hash,
+                self.client.runtime_adapter.clone(),
+                self.client.epoch_manager.clone(),
+            )?;
+        }
+        let new_state_sync_status = StateSyncStatus { sync_hash, sync_status: HashMap::default() };
+        let new_sync_status = SyncStatus::StateSync(new_state_sync_status);
+        self.client.sync_status.update(new_sync_status);
+        // This is the first time we run state sync.
+        return Ok(true);
+    }
+
+    /// This method returns whether we should move on to state sync. It may run
+    /// block sync if state sync is not yet started and we have enough headers.
+    fn should_state_sync(
+        &mut self,
+        header_head: Tip,
+        highest_height: u64,
+    ) -> Result<bool, near_chain::Error> {
+        if let SyncStatus::StateSync(_) = self.client.sync_status {
+            return Ok(true);
+        }
+
+        // Check that we have enough headers to start block sync.
+        let min_header_height =
+            highest_height.saturating_sub(self.client.config.block_header_fetch_horizon);
+        if header_head.height < min_header_height {
+            return Ok(false);
+        }
+
+        let block_sync_result = self.client.block_sync.run(
+            &mut self.client.sync_status,
+            &self.client.chain,
+            highest_height,
+            &self.network_info.highest_height_peers,
+        )?;
+        Ok(block_sync_result)
+    }
+
     /// Verifies if the node possesses sync block.
     /// It is the last block of the previous epoch.
     /// If the block is absent, the node requests it from peers.
+    /// the return value is a tuple (request_block, have_block)
     fn sync_block_status(
         &self,
         prev_hash: &CryptoHash,
         now: Utc,
     ) -> Result<(bool, bool), near_chain::Error> {
-        let (request_block, have_block) = if !self.client.chain.block_exists(prev_hash)? {
-            let timeout =
-                near_async::time::Duration::try_from(self.client.config.state_sync_timeout)
-                    .unwrap();
-            match self.client.last_time_sync_block_requested {
-                None => (true, false),
-                Some(last_time) => {
-                    if (now - last_time) >= timeout {
-                        tracing::error!(
-                            target: "sync",
-                            %prev_hash,
-                            ?timeout,
-                            "State sync: block request timed out");
-                        (true, false)
-                    } else {
-                        (false, false)
-                    }
-                }
-            }
-        } else {
-            (false, true)
+        if self.client.chain.block_exists(prev_hash)? {
+            return Ok((false, true));
+        }
+        let timeout = self.client.config.state_sync_timeout;
+        let timeout = near_async::time::Duration::try_from(timeout);
+        let timeout = timeout.unwrap();
+
+        let Some(last_time) = self.client.last_time_sync_block_requested else {
+            return Ok((true, false));
         };
-        Ok((request_block, have_block))
+
+        if (now - last_time) >= timeout {
+            tracing::error!(
+                target: "sync",
+                %prev_hash,
+                ?timeout,
+                "State sync: block request timed out"
+            );
+            Ok((true, false))
+        } else {
+            Ok((false, false))
+        }
     }
 
     /// Print current summary.

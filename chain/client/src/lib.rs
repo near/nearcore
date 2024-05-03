@@ -21,7 +21,6 @@ pub use near_client_primitives::debug::DebugStatus;
 pub use near_network::client::{
     BlockApproval, BlockResponse, ProcessTxRequest, ProcessTxResponse, SetNetworkInfo,
 };
-pub use stateless_validation::partial_witness::partial_witness_actions::PartialWitnessActions;
 pub use stateless_validation::partial_witness::partial_witness_actor::{
     DistributeStateWitnessRequest, PartialWitnessActor, PartialWitnessSenderForClientMessage,
 };
