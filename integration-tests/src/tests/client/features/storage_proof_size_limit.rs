@@ -74,7 +74,7 @@ fn test_storage_proof_size_limit() {
             &signer,
             vec![action],
             env.clients[0].chain.head().unwrap().last_block_hash,
-            0
+            0,
         );
         nonce += 1;
         let res = env.execute_tx(tx).unwrap();
@@ -97,7 +97,7 @@ fn test_storage_proof_size_limit() {
             &signer,
             vec![action],
             after_writes_block_hash,
-            0
+            0,
         );
         nonce += 1;
         tx

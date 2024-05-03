@@ -13,7 +13,7 @@ use serde::ser::Error as EncodeError;
 use std::borrow::Borrow;
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::io::{BufRead, BufReader, Error, ErrorKind, Read, Write};
+use std::io::{Error, ErrorKind, Read, Write};
 
 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
 pub use crate::action::NonrefundableStorageTransferAction;
@@ -151,27 +151,63 @@ impl BorshDeserialize for Transaction {
     /// Deserialize based on the first byte of the buffer. If the first byte is 0, it is a V0
     /// Otherwise, it is a V1. For V0, we do backward compatible deserialization by deserializing
     /// the entire stream into V0. For V1, we consume the first byte and then deserialize the rest
-    /// No conflict is possible because the first field of Transaction is an `AccountId` which starts
-    /// with a `usize` but can only be at most 64 bytes long, so the highest byte is always 0.
     fn deserialize_reader<R: Read>(reader: &mut R) -> std::io::Result<Self> {
-        // Note: the following implementation is inefficient because it copies data twice.
-        // and should be replaced once the protocol switches to the new transaction format entirely.
-        let mut buf_reader = BufReader::new(reader);
-        let buffer = buf_reader.fill_buf()?; // Fill the buffer
-        if buffer.is_empty() {
-            return Err(Error::new(ErrorKind::UnexpectedEof, "No data to read"));
-        } else {
-            let first_byte = buffer[0];
-            if first_byte == 0 {
-                let tx = TransactionV0::deserialize_reader(&mut buf_reader)?;
-                Ok(Transaction::V0(tx))
-            } else if first_byte == 1 {
-                let _ = buf_reader.consume(1); // Consume the first byte
-                let tx = TransactionV1::deserialize_reader(&mut buf_reader)?;
-                Ok(Transaction::V1(tx))
-            } else {
-                Err(Error::new(ErrorKind::InvalidData, "Invalid version"))
+        let u1 = u8::deserialize_reader(reader)?;
+        let u2 = u8::deserialize_reader(reader)?;
+        let u3 = u8::deserialize_reader(reader)?;
+        let u4 = u8::deserialize_reader(reader)?;
+        // This is a ridiculous hackery: because the first field in `TransactionV0` is an `AccountId`
+        // and an account id is at most 64 bytes, for all valid `TransactionV0` the second byte must be 0
+        // because of the littel endian encoding of the length of the account id.
+        // On the other hand, for `TransactionV1`, since the first byte is 1 and an account id must have nonzero
+        // length, so the second byte must not be zero. Therefore, we can distinguish between the two versions
+        // by looking at the second byte.
+
+        let read_signer_id = |buf: [u8; 4], reader: &mut R| -> std::io::Result<AccountId> {
+            let str_len = u32::from_le_bytes(buf);
+            let mut str_vec = Vec::with_capacity(str_len as usize);
+            for _ in 0..str_len {
+                str_vec.push(u8::deserialize_reader(reader)?);
             }
+            AccountId::try_from(String::from_utf8(str_vec).map_err(|_| {
+                Error::new(ErrorKind::InvalidData, "Failed to parse AccountId from bytes")
+            })?)
+            .map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))
+        };
+
+        if u2 == 0 {
+            let signer_id = read_signer_id([u1, u2, u3, u4], reader)?;
+            let public_key = PublicKey::deserialize_reader(reader)?;
+            let nonce = Nonce::deserialize_reader(reader)?;
+            let receiver_id = AccountId::deserialize_reader(reader)?;
+            let block_hash = CryptoHash::deserialize_reader(reader)?;
+            let actions = Vec::<Action>::deserialize_reader(reader)?;
+            Ok(Transaction::V0(TransactionV0 {
+                signer_id,
+                public_key,
+                nonce,
+                receiver_id,
+                block_hash,
+                actions,
+            }))
+        } else {
+            let u5 = u8::deserialize_reader(reader)?;
+            let signer_id = read_signer_id([u2, u3, u4, u5], reader)?;
+            let public_key = PublicKey::deserialize_reader(reader)?;
+            let nonce = Nonce::deserialize_reader(reader)?;
+            let receiver_id = AccountId::deserialize_reader(reader)?;
+            let block_hash = CryptoHash::deserialize_reader(reader)?;
+            let actions = Vec::<Action>::deserialize_reader(reader)?;
+            let priority_fee = u64::deserialize_reader(reader)?;
+            Ok(Transaction::V1(TransactionV1 {
+                signer_id,
+                public_key,
+                nonce,
+                receiver_id,
+                block_hash,
+                actions,
+                priority_fee,
+            }))
         }
     }
 }
@@ -467,12 +503,9 @@ mod tests {
         assert!(verify_transaction_signature(&decoded_tx, &valid_keys));
     }
 
-    /// This test is change checker for a reason - we don't expect transaction format to change.
-    /// If it does - you MUST update all of the dependencies: like nearlib and other clients.
-    #[test]
-    fn test_serialize_transaction() {
+    fn create_transaction_v0() -> TransactionV0 {
         let public_key: PublicKey = "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV".parse().unwrap();
-        let transaction = Transaction::V0(TransactionV0 {
+        TransactionV0 {
             signer_id: "test.near".parse().unwrap(),
             public_key: public_key.clone(),
             nonce: 1,
@@ -508,7 +541,56 @@ mod tests {
                     beneficiary_id: "123".parse().unwrap(),
                 }),
             ],
-        });
+        }
+    }
+
+    fn create_transaction_v1() -> TransactionV1 {
+        let public_key: PublicKey = "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV".parse().unwrap();
+        TransactionV1 {
+            signer_id: "test.near".parse().unwrap(),
+            public_key: public_key.clone(),
+            nonce: 1,
+            receiver_id: "123".parse().unwrap(),
+            block_hash: Default::default(),
+            actions: vec![
+                Action::CreateAccount(CreateAccountAction {}),
+                Action::DeployContract(DeployContractAction { code: vec![1, 2, 3] }),
+                Action::FunctionCall(Box::new(FunctionCallAction {
+                    method_name: "qqq".to_string(),
+                    args: vec![1, 2, 3],
+                    gas: 1_000,
+                    deposit: 1_000_000,
+                })),
+                Action::Transfer(TransferAction { deposit: 123 }),
+                Action::Stake(Box::new(StakeAction {
+                    public_key: public_key.clone(),
+                    stake: 1_000_000,
+                })),
+                Action::AddKey(Box::new(AddKeyAction {
+                    public_key: public_key.clone(),
+                    access_key: AccessKey {
+                        nonce: 0,
+                        permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                            allowance: None,
+                            receiver_id: "zzz".parse().unwrap(),
+                            method_names: vec!["www".to_string()],
+                        }),
+                    },
+                })),
+                Action::DeleteKey(Box::new(DeleteKeyAction { public_key })),
+                Action::DeleteAccount(DeleteAccountAction {
+                    beneficiary_id: "123".parse().unwrap(),
+                }),
+            ],
+            priority_fee: 1,
+        }
+    }
+
+    /// This test is change checker for a reason - we don't expect transaction format to change.
+    /// If it does - you MUST update all of the dependencies: like nearlib and other clients.
+    #[test]
+    fn test_serialize_transaction() {
+        let transaction = Transaction::V0(create_transaction_v0());
         let signed_tx = SignedTransaction::new(Signature::empty(KeyType::ED25519), transaction);
         let new_signed_tx =
             SignedTransaction::try_from_slice(&borsh::to_vec(&signed_tx).unwrap()).unwrap();
@@ -520,7 +602,17 @@ mod tests {
     }
 
     #[test]
-    fn test_serialize_transaction_versions() {}
+    fn test_serialize_transaction_versions() {
+        let transaction_v0 = Transaction::V0(create_transaction_v0());
+        let serialized_tx_v0 = borsh::to_vec(&transaction_v0).unwrap();
+        let deserialized_tx_v0 = Transaction::try_from_slice(&serialized_tx_v0).unwrap();
+        assert_eq!(transaction_v0, deserialized_tx_v0);
+
+        let transaction_v1 = Transaction::V1(create_transaction_v1());
+        let serialized_tx_v1 = borsh::to_vec(&transaction_v1).unwrap();
+        let deserialized_tx_v1 = Transaction::try_from_slice(&serialized_tx_v1).unwrap();
+        assert_eq!(transaction_v1, deserialized_tx_v1);
+    }
 
     #[test]
     fn test_outcome_to_hashes() {

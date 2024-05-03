@@ -45,7 +45,11 @@ fn receipt_cost(
             if !receipt.predecessor_id().is_system() {
                 let mut total_gas = safe_add_gas(
                     config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
-                    total_prepaid_exec_fees(config, &action_receipt.actions, receipt.receiver_id())?,
+                    total_prepaid_exec_fees(
+                        config,
+                        &action_receipt.actions,
+                        receipt.receiver_id(),
+                    )?,
                 )?;
                 total_gas = safe_add_gas(total_gas, total_prepaid_gas(&action_receipt.actions)?)?;
                 total_gas = safe_add_gas(
@@ -204,9 +208,11 @@ pub(crate) fn check_balance(
         .filter_map(|receipt| {
             let account_id = receipt.receiver_id();
             match receipt.receipt() {
-                ReceiptEnum::Action(_) => {
-                    Some(Ok((PostponedReceiptType::Action, account_id.clone(), *receipt.receipt_id())))
-                }
+                ReceiptEnum::Action(_) => Some(Ok((
+                    PostponedReceiptType::Action,
+                    account_id.clone(),
+                    *receipt.receipt_id(),
+                ))),
                 ReceiptEnum::Data(data_receipt) => {
                     let result = get(
                         initial_state,
@@ -392,7 +398,11 @@ mod tests {
             &RuntimeConfig::test(),
             &final_state,
             &None,
-            &[Receipt::new_balance_refund(&account_id, refund_balance, ReceiptPriority::NoPriority)],
+            &[Receipt::new_balance_refund(
+                &account_id,
+                refund_balance,
+                ReceiptPriority::NoPriority,
+            )],
             &[],
             &[],
             &[],

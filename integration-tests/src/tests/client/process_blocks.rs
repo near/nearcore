@@ -163,7 +163,7 @@ pub(crate) fn deploy_test_contract_with_protocol_version(
         &signer,
         vec![Action::DeployContract(DeployContractAction { code: wasm_code.to_vec() })],
         *block.hash(),
-        0
+        0,
     );
     assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     produce_blocks_from_height_with_protocol_version(env, epoch_length, height, protocol_version)
@@ -215,7 +215,7 @@ pub(crate) fn prepare_env_with_congestion(
             code: near_test_contracts::backwards_compatible_rs_contract().to_vec(),
         })],
         *genesis_block.hash(),
-        0
+        0,
     );
     assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     for i in 1..3 {
@@ -250,7 +250,7 @@ pub(crate) fn prepare_env_with_congestion(
                 deposit: 0,
             }))],
             *genesis_block.hash(),
-            0
+            0,
         );
         tx_hashes.push(signed_transaction.get_hash());
         assert_eq!(
@@ -2195,7 +2195,7 @@ fn test_validate_chunk_extra() {
             code: near_test_contracts::rs_contract().to_vec(),
         })],
         *genesis_block.hash(),
-        0
+        0,
     );
     assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     let mut last_block = genesis_block;
@@ -2218,7 +2218,7 @@ fn test_validate_chunk_extra() {
             deposit: 0,
         }))],
         *last_block.hash(),
-        0
+        0,
     );
     assert_eq!(
         env.clients[0].process_tx(function_call_tx, false, false),
@@ -2620,7 +2620,7 @@ fn test_delayed_receipt_count_limit() {
             &signer,
             vec![Action::DeployContract(DeployContractAction { code: vec![92; 10000] })],
             *genesis_block.hash(),
-            0
+            0,
         );
         assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     }
@@ -3298,7 +3298,7 @@ fn test_validator_stake_host_function() {
             deposit: 0,
         }))],
         *genesis_block.hash(),
-        0
+        0,
     );
     assert_eq!(
         env.clients[0].process_tx(signed_transaction, false, false),

@@ -135,7 +135,10 @@ impl<'a> ChainUpdate<'a> {
         let outgoing_receipts = outgoing_receipts
             .iter()
             .map(|receipt| {
-                (*receipt.receipt_id(), account_id_to_shard_id(receipt.receiver_id(), &shard_layout))
+                (
+                    *receipt.receipt_id(),
+                    account_id_to_shard_id(receipt.receiver_id(), &shard_layout),
+                )
             })
             .collect();
         Ok(outgoing_receipts)

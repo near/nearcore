@@ -816,7 +816,8 @@ fn check_outgoing_receipts_reassigned_impl(
             // In V0->V1 resharding the outgoing receipts should be reassigned
             // to the receipt receiver's shard id.
             for receipt in outgoing_receipts {
-                let receiver_shard_id = account_id_to_shard_id(receipt.receiver_id(), &shard_layout);
+                let receiver_shard_id =
+                    account_id_to_shard_id(receipt.receiver_id(), &shard_layout);
                 assert_eq!(receiver_shard_id, shard_id);
             }
         }
@@ -1275,7 +1276,7 @@ fn setup_test_env_with_cross_contract_txs(
             &signer,
             actions,
             genesis_hash,
-            0
+            0,
         );
         init_txs.push(tx);
     }
@@ -1449,7 +1450,7 @@ fn gen_cross_contract_tx_impl(
             deposit: 0,
         }))],
         *block_hash,
-        0
+        0,
     )
 }
 

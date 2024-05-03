@@ -98,6 +98,10 @@ pub fn validate_transaction(
     verify_signature: bool,
     current_protocol_version: ProtocolVersion,
 ) -> Result<TransactionCost, RuntimeError> {
+    // Don't allow V1 currently. This will be changed when the new protocol version is introduced.
+    if matches!(signed_transaction.transaction, near_primitives::transaction::Transaction::V1(_)) {
+        return Err(InvalidTxError::InvalidTransactionVersion.into());
+    }
     let transaction = &signed_transaction.transaction;
     let signer_id = transaction.signer_id();
 
@@ -143,7 +147,7 @@ pub fn verify_and_charge_transaction(
     block_height: Option<BlockHeight>,
     current_protocol_version: ProtocolVersion,
 ) -> Result<VerificationResult, RuntimeError> {
-    let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount, } =
+    let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
         validate_transaction(
             config,
             gas_price,
@@ -962,7 +966,7 @@ mod tests {
                     deposit: 0,
                 }))],
                 CryptoHash::default(),
-                0
+                0,
             ),
             RuntimeError::InvalidTxError(InvalidTxError::ActionsValidation(
                 ActionsValidationError::TotalPrepaidGasExceeded {
@@ -1057,6 +1061,29 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_transaction_invalid_transaction_version() {
+        let config = RuntimeConfig::test();
+        let (signer, mut state_update, gas_price) =
+            setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
+
+        assert_err_both_validations(
+            &config,
+            &mut state_update,
+            gas_price,
+            &SignedTransaction::from_actions_v1(
+                1,
+                alice_account(),
+                bob_account(),
+                &*signer,
+                vec![Action::Transfer(TransferAction { deposit: 100 })],
+                CryptoHash::default(),
+                1,
+            ),
+            RuntimeError::InvalidTxError(InvalidTxError::InvalidTransactionVersion),
+        );
+    }
+
+    #[test]
     fn test_validate_transaction_invalid_not_enough_balance() {
         let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) =
@@ -1125,7 +1152,7 @@ mod tests {
                     deposit: 0,
                 }))],
                 CryptoHash::default(),
-                0
+                0,
             ),
             true,
             None,
@@ -1475,7 +1502,7 @@ mod tests {
             &*signer,
             vec![Action::DeployContract(DeployContractAction { code: vec![1; 5] })],
             CryptoHash::default(),
-            0
+            0,
         );
         let transaction_size = transaction.get_size();
 

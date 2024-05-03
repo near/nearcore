@@ -30,7 +30,7 @@ fn test_deploy_max_size_contract() {
         &*node_user.signer(),
         vec![Action::DeployContract(DeployContractAction { code: vec![0u8] })],
         block_hash,
-        0
+        0,
     );
     let tx_overhead = signed_transaction.get_size();
 

@@ -59,7 +59,7 @@ fn stake(
         vec![Action::Stake(Box::new(StakeAction { stake, public_key: sender.public_key() }))],
         // runtime does not validate block history
         CryptoHash::default(),
-        0
+        0,
     )
 }
 
@@ -1386,7 +1386,7 @@ fn test_delete_account_after_unstake() {
         })],
         // runtime does not validate block history
         CryptoHash::default(),
-        0
+        0,
     );
     env.step_default(vec![delete_account_transaction]);
     for _ in 15..=17 {

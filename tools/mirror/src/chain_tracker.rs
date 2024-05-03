@@ -477,8 +477,10 @@ impl TxTracker {
         for c in self.queued_blocks[0].chunks.iter_mut() {
             for tx in c.txs.iter_mut() {
                 if let TargetChainTx::AwaitingNonce(t) = tx {
-                    needed_access_keys
-                        .insert((t.target_tx.signer_id().clone(), t.target_tx.public_key().clone()));
+                    needed_access_keys.insert((
+                        t.target_tx.signer_id().clone(),
+                        t.target_tx.public_key().clone(),
+                    ));
                 }
             }
         }

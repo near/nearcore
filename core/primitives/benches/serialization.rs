@@ -11,7 +11,9 @@ use near_primitives::block::{genesis_chunks, Block};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::combine_hash;
 use near_primitives::test_utils::account_new;
-use near_primitives::transaction::{Action, SignedTransaction, Transaction, TransactionV0, TransferAction};
+use near_primitives::transaction::{
+    Action, SignedTransaction, Transaction, TransactionV0, TransferAction,
+};
 use near_primitives::types::{EpochId, StateRoot};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;

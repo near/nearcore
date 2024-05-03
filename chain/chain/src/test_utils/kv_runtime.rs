@@ -1118,7 +1118,10 @@ impl RuntimeAdapter for KeyValueRuntime {
             if let ReceiptEnum::Action(action) | ReceiptEnum::PromiseYield(action) =
                 receipt.receipt()
             {
-                assert_eq!(account_id_to_shard_id(receipt.receiver_id(), self.num_shards), shard_id);
+                assert_eq!(
+                    account_id_to_shard_id(receipt.receiver_id(), self.num_shards),
+                    shard_id
+                );
                 if !state.receipt_nonces.contains(receipt.receipt_id()) {
                     state.receipt_nonces.insert(*receipt.receipt_id());
                     if let Action::Transfer(TransferAction { deposit }) = action.actions[0] {
@@ -1146,7 +1149,8 @@ impl RuntimeAdapter for KeyValueRuntime {
             if transaction.transaction.actions().is_empty() {
                 continue;
             }
-            if let Action::Transfer(TransferAction { deposit }) = transaction.transaction.actions()[0]
+            if let Action::Transfer(TransferAction { deposit }) =
+                transaction.transaction.actions()[0]
             {
                 if !state.tx_nonces.contains(&AccountNonce(
                     transaction.transaction.receiver_id().clone(),

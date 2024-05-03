@@ -973,7 +973,7 @@ impl Client {
                     "other".parse().unwrap(),
                     3,
                     prev_block_hash,
-                    0
+                    0,
                 ),
             ));
             if txs.storage_proof.is_none() {

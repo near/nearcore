@@ -9,7 +9,9 @@ use crate::merkle::PartialMerkleTree;
 use crate::num_rational::Ratio;
 use crate::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use crate::transaction::{
-    Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction, TransactionV1, TransferAction
+    Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
+    DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
+    TransactionV0, TransactionV1, TransferAction,
 };
 use crate::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce};
 use crate::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
@@ -34,9 +36,17 @@ impl Transaction {
         receiver_id: AccountId,
         nonce: Nonce,
         block_hash: CryptoHash,
-        priority_fee: u64
+        priority_fee: u64,
     ) -> Self {
-        Transaction::V1(TransactionV1 { signer_id, public_key, nonce, receiver_id, block_hash, actions: vec![], priority_fee })
+        Transaction::V1(TransactionV1 {
+            signer_id,
+            public_key,
+            nonce,
+            receiver_id,
+            block_hash,
+            actions: vec![],
+            priority_fee,
+        })
     }
 
     pub fn actions_mut(&mut self) -> &mut Vec<Action> {
@@ -110,9 +120,31 @@ impl Transaction {
 }
 
 /// This block implements a set of helper functions to create transactions for testing purposes.
-/// Therefore, `TransactionV1` is used to create transactions.
 impl SignedTransaction {
+    /// Creates v0 for now because v1 is prohibited in the protocol.
+    /// Once v1 is allowed, this function should be updated to create v1 transactions.
     pub fn from_actions(
+        nonce: Nonce,
+        signer_id: AccountId,
+        receiver_id: AccountId,
+        signer: &dyn Signer,
+        actions: Vec<Action>,
+        block_hash: CryptoHash,
+        _priority_fee: u64,
+    ) -> Self {
+        Transaction::V0(TransactionV0 {
+            nonce,
+            signer_id,
+            public_key: signer.public_key(),
+            receiver_id,
+            block_hash,
+            actions,
+        })
+        .sign(signer)
+    }
+
+    /// Explicitly create v1 transaction to test in cases where errors are expected.
+    pub fn from_actions_v1(
         nonce: Nonce,
         signer_id: AccountId,
         receiver_id: AccountId,
@@ -128,7 +160,7 @@ impl SignedTransaction {
             receiver_id,
             block_hash,
             actions,
-            priority_fee
+            priority_fee,
         })
         .sign(signer)
     }
@@ -148,7 +180,7 @@ impl SignedTransaction {
             signer,
             vec![Action::Transfer(TransferAction { deposit })],
             block_hash,
-            0
+            0,
         )
     }
 
@@ -167,7 +199,7 @@ impl SignedTransaction {
             signer,
             vec![Action::Stake(Box::new(StakeAction { stake, public_key }))],
             block_hash,
-            0
+            0,
         )
     }
 
@@ -194,7 +226,7 @@ impl SignedTransaction {
                 Action::Transfer(TransferAction { deposit: amount }),
             ],
             block_hash,
-            0
+            0,
         )
     }
 
@@ -223,7 +255,7 @@ impl SignedTransaction {
                 Action::DeployContract(DeployContractAction { code }),
             ],
             block_hash,
-            0
+            0,
         )
     }
 
@@ -250,7 +282,7 @@ impl SignedTransaction {
                 deposit,
             }))],
             block_hash,
-            0
+            0,
         )
     }
 
@@ -269,7 +301,7 @@ impl SignedTransaction {
             signer,
             vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id })],
             block_hash,
-            0
+            0,
         )
     }
 
@@ -281,7 +313,7 @@ impl SignedTransaction {
             &EmptySigner {},
             vec![],
             block_hash,
-            0
+            0,
         )
     }
 }

@@ -305,13 +305,7 @@ pub fn tx_cost(
     let remaining_gas_amount = safe_gas_to_balance(receipt_gas_price, gas_remaining)?;
     let mut total_cost = safe_add_balance(burnt_amount, remaining_gas_amount)?;
     total_cost = safe_add_balance(total_cost, total_deposit(&transaction.actions())?)?;
-    Ok(TransactionCost {
-        gas_burnt,
-        gas_remaining,
-        receipt_gas_price,
-        total_cost,
-        burnt_amount,
-    })
+    Ok(TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount })
 }
 
 /// Total sum of gas that would need to be burnt before we start executing the given actions.

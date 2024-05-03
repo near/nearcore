@@ -266,13 +266,18 @@ pub fn gen_receipts(rng: &mut impl Rng, max_size: usize) -> Vec<Receipt> {
     let accounts = gen_accounts_from_alphabet(rng, 1, max_size, &alphabet);
     accounts
         .iter()
-        .map(|account_id| Receipt::V1(ReceiptV1 {
-            predecessor_id: account_id.clone(),
-            receiver_id: account_id.clone(),
-            receipt_id: CryptoHash::default(),
-            receipt: ReceiptEnum::Data(DataReceipt { data_id: CryptoHash::default(), data: None }),
-            priority: 0,
-        }))
+        .map(|account_id| {
+            Receipt::V1(ReceiptV1 {
+                predecessor_id: account_id.clone(),
+                receiver_id: account_id.clone(),
+                receipt_id: CryptoHash::default(),
+                receipt: ReceiptEnum::Data(DataReceipt {
+                    data_id: CryptoHash::default(),
+                    data: None,
+                }),
+                priority: 0,
+            })
+        })
         .collect()
 }
 

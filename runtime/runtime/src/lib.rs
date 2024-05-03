@@ -20,7 +20,8 @@ use near_primitives::errors::{
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    ActionReceipt, DataReceipt, DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout, Receipt, ReceiptEnum, ReceiptV0, ReceivedData
+    ActionReceipt, DataReceipt, DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout,
+    Receipt, ReceiptEnum, ReceiptV0, ReceivedData,
 };
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
@@ -503,7 +504,7 @@ impl Runtime {
                     account_id,
                     signed_delegate_action,
                     &mut result,
-                    receipt.priority()
+                    receipt.priority(),
                 )?;
             }
         };
@@ -705,7 +706,8 @@ impl Runtime {
         }
 
         // If the receipt is a refund, then we consider it free without burnt gas.
-        let gas_burnt: Gas = if receipt.predecessor_id().is_system() { 0 } else { result.gas_burnt };
+        let gas_burnt: Gas =
+            if receipt.predecessor_id().is_system() { 0 } else { result.gas_burnt };
         // `gas_deficit_amount` is strictly less than `gas_price * gas_burnt`.
         let mut tx_burnt_amount =
             safe_gas_to_balance(apply_state.gas_price, gas_burnt)? - gas_deficit_amount;
@@ -766,15 +768,17 @@ impl Runtime {
                     Err(_) => None,
                 };
                 result.new_receipts.extend(action_receipt.output_data_receivers.iter().map(
-                    |data_receiver| Receipt::V0(ReceiptV0 {
-                        predecessor_id: account_id.clone(),
-                        receiver_id: data_receiver.receiver_id.clone(),
-                        receipt_id: CryptoHash::default(),
-                        receipt: ReceiptEnum::Data(DataReceipt {
-                            data_id: data_receiver.data_id,
-                            data: data.clone(),
-                        }),
-                    }),
+                    |data_receiver| {
+                        Receipt::V0(ReceiptV0 {
+                            predecessor_id: account_id.clone(),
+                            receiver_id: data_receiver.receiver_id.clone(),
+                            receipt_id: CryptoHash::default(),
+                            receipt: ReceiptEnum::Data(DataReceipt {
+                                data_id: data_receiver.data_id,
+                                data: data.clone(),
+                            }),
+                        })
+                    },
                 ));
             };
         }
@@ -2035,7 +2039,11 @@ mod tests {
                 tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &Some(validator_accounts_update),
                 &apply_state,
-                &[Receipt::new_balance_refund(&alice_account(), small_refund, ReceiptPriority::NoPriority)],
+                &[Receipt::new_balance_refund(
+                    &alice_account(),
+                    small_refund,
+                    ReceiptPriority::NoPriority,
+                )],
                 &[],
                 &epoch_info_provider,
                 Default::default(),
@@ -2282,7 +2290,11 @@ mod tests {
         (0..n)
             .map(|i| {
                 receipt_id = hash(receipt_id.as_ref());
-                Receipt::new_balance_refund(&alice_account(), small_transfer + Balance::from(i), ReceiptPriority::NoPriority)
+                Receipt::new_balance_refund(
+                    &alice_account(),
+                    small_transfer + Balance::from(i),
+                    ReceiptPriority::NoPriority,
+                )
             })
             .collect()
     }
@@ -2411,7 +2423,7 @@ mod tests {
                     &apply_state.prev_block_hash,
                     &apply_state.block_hash,
                 ), // receipt for tx 3
-                *receipts[0].receipt_id(),           // receipt #0
+                *receipts[0].receipt_id(),        // receipt #0
             ],
             "STEP #2 failed",
         );

@@ -49,7 +49,7 @@ fn test_check_tx_error_log() {
             })),
         ],
         block_hash,
-        0
+        0,
     );
 
     let tx_result = node.user().commit_transaction(tx).unwrap_err();
@@ -90,7 +90,7 @@ fn test_deliver_tx_error_log() {
             })),
         ],
         block_hash,
-        0
+        0,
     );
 
     let tx_result = node.user().commit_transaction(tx).unwrap_err();

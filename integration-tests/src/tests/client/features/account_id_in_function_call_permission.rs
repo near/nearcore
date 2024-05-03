@@ -58,8 +58,12 @@ fn test_account_id_in_function_call_permission_upgrade() {
     // Run the transaction, it should pass as we don't do validation at this protocol version.
     {
         let tip = env.clients[0].chain.head().unwrap();
-        let signed_transaction =
-            Transaction::V0(TransactionV0 { nonce: 10, block_hash: tip.last_block_hash, ..tx.clone() }).sign(&signer);
+        let signed_transaction = Transaction::V0(TransactionV0 {
+            nonce: 10,
+            block_hash: tip.last_block_hash,
+            ..tx.clone()
+        })
+        .sign(&signer);
         assert_eq!(
             env.clients[0].process_tx(signed_transaction, false, false),
             ProcessTxResponse::ValidTx
@@ -75,7 +79,8 @@ fn test_account_id_in_function_call_permission_upgrade() {
     {
         let tip = env.clients[0].chain.head().unwrap();
         let signed_transaction =
-            Transaction::V0(TransactionV0 { nonce: 11, block_hash: tip.last_block_hash, ..tx }).sign(&signer);
+            Transaction::V0(TransactionV0 { nonce: 11, block_hash: tip.last_block_hash, ..tx })
+                .sign(&signer);
         assert_eq!(
             env.clients[0].process_tx(signed_transaction, false, false),
             ProcessTxResponse::InvalidTx(InvalidTxError::ActionsValidation(

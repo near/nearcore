@@ -10,7 +10,7 @@ use serde_with::serde_as;
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::fmt;
-use std::io::{self, BufRead, BufReader, Read};
+use std::io::{self, Read};
 use std::io::{Error, ErrorKind};
 
 /// The outgoing (egress) data which will be transformed
@@ -104,24 +104,54 @@ impl BorshDeserialize for Receipt {
     /// No conflict is possible because the first field of Receipt is an `AccountId` which starts
     /// with a `usize` but can only be at most 64 bytes long, so the highest byte is always 0.
     fn deserialize_reader<R: Read>(reader: &mut R) -> std::io::Result<Self> {
-        // Note: the following implementation is inefficient because it copies data twice.
-        // and should be replaced once the protocol switches to the new receipt format entirely.
-        let mut buf_reader = BufReader::new(reader);
-        let buffer = buf_reader.fill_buf()?; // Fill the buffer
-        if buffer.is_empty() {
-            return Err(Error::new(ErrorKind::UnexpectedEof, "No data to read"));
-        } else {
-            let first_byte = buffer[0];
-            if first_byte == 0 {
-                let receipt = ReceiptV0::deserialize_reader(&mut buf_reader)?;
-                Ok(Receipt::V0(receipt))
-            } else if first_byte == 1 {
-                let _ = buf_reader.consume(1); // Consume the first byte
-                let receipt = ReceiptV1::deserialize_reader(&mut buf_reader)?;
-                Ok(Receipt::V1(receipt))
-            } else {
-                Err(Error::new(ErrorKind::InvalidData, "Invalid version"))
+        let u1 = u8::deserialize_reader(reader)?;
+        let u2 = u8::deserialize_reader(reader)?;
+        let u3 = u8::deserialize_reader(reader)?;
+        let u4 = u8::deserialize_reader(reader)?;
+        // This is a ridiculous hackery: because the first field in `ReceiptV0` is an `AccountId`
+        // and an account id is at most 64 bytes, for all valid `ReceiptV0` the second byte must be 0
+        // because of the littel endian encoding of the length of the account id.
+        // On the other hand, for `ReceiptV0`, since the first byte is 1 and an account id must have nonzero
+        // length, so the second byte must not be zero. Therefore, we can distinguish between the two versions
+        // by looking at the second byte.
+
+        let read_predecessor_id = |buf: [u8; 4], reader: &mut R| -> std::io::Result<AccountId> {
+            let str_len = u32::from_le_bytes(buf);
+            let mut str_vec = Vec::with_capacity(str_len as usize);
+            for _ in 0..str_len {
+                str_vec.push(u8::deserialize_reader(reader)?);
             }
+            AccountId::try_from(String::from_utf8(str_vec).map_err(|_| {
+                Error::new(ErrorKind::InvalidData, "Failed to parse AccountId from bytes")
+            })?)
+            .map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))
+        };
+
+        if u2 == 0 {
+            let signer_id = read_predecessor_id([u1, u2, u3, u4], reader)?;
+            let receiver_id = AccountId::deserialize_reader(reader)?;
+            let receipt_id = CryptoHash::deserialize_reader(reader)?;
+            let receipt = ReceiptEnum::deserialize_reader(reader)?;
+            Ok(Receipt::V0(ReceiptV0 {
+                predecessor_id: signer_id,
+                receiver_id,
+                receipt_id,
+                receipt,
+            }))
+        } else {
+            let u5 = u8::deserialize_reader(reader)?;
+            let signer_id = read_predecessor_id([u2, u3, u4, u5], reader)?;
+            let receiver_id = AccountId::deserialize_reader(reader)?;
+            let receipt_id = CryptoHash::deserialize_reader(reader)?;
+            let receipt = ReceiptEnum::deserialize_reader(reader)?;
+            let priority = u64::deserialize_reader(reader)?;
+            Ok(Receipt::V1(ReceiptV1 {
+                predecessor_id: signer_id,
+                receiver_id,
+                receipt_id,
+                receipt,
+                priority,
+            }))
         }
     }
 }
@@ -224,7 +254,7 @@ impl Receipt {
 
     /// It's not a content hash, but receipt_id is unique.
     pub fn get_hash(&self) -> CryptoHash {
-       *self.receipt_id()
+        *self.receipt_id()
     }
 
     /// Generates a receipt with a transfer from system for a given balance without a receipt_id.
@@ -459,3 +489,45 @@ pub struct PromiseYieldTimeout {
 
 /// Map of shard to list of receipts to send to it.
 pub type ReceiptResult = HashMap<ShardId, Vec<Receipt>>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_receipt_serialization() {
+        let receipt_v0 = Receipt::V0(ReceiptV0 {
+            predecessor_id: "predecessor_id".parse().unwrap(),
+            receiver_id: "receiver_id".parse().unwrap(),
+            receipt_id: CryptoHash::default(),
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: "signer_id".parse().unwrap(),
+                signer_public_key: PublicKey::empty(KeyType::ED25519),
+                gas_price: 0,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![Action::Transfer(TransferAction { deposit: 0 })],
+            }),
+        });
+        let serialized_receipt = borsh::to_vec(&receipt_v0).unwrap();
+        let receipt2 = Receipt::try_from_slice(&serialized_receipt).unwrap();
+        assert_eq!(receipt_v0, receipt2);
+
+        let receipt_v1 = Receipt::V1(ReceiptV1 {
+            predecessor_id: "predecessor_id".parse().unwrap(),
+            receiver_id: "receiver_id".parse().unwrap(),
+            receipt_id: CryptoHash::default(),
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: "signer_id".parse().unwrap(),
+                signer_public_key: PublicKey::empty(KeyType::ED25519),
+                gas_price: 0,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![Action::Transfer(TransferAction { deposit: 0 })],
+            }),
+            priority: 1,
+        });
+        let serialized_receipt = borsh::to_vec(&receipt_v1).unwrap();
+        let receipt2 = Receipt::try_from_slice(&serialized_receipt).unwrap();
+        assert_eq!(receipt_v1, receipt2);
+    }
+}

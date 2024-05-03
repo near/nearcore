@@ -14,7 +14,9 @@ use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0};
+use near_primitives::receipt::{
+    ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0,
+};
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction,
@@ -1298,7 +1300,11 @@ mod tests {
             Some(Account::new(100, 0, 0, *code_hash, storage_usage, PROTOCOL_VERSION));
         let mut actor_id = account_id.clone();
         let mut action_result = ActionResult::default();
-        let receipt = Receipt::new_balance_refund(&"alice.near".parse().unwrap(), 0, ReceiptPriority::NoPriority);
+        let receipt = Receipt::new_balance_refund(
+            &"alice.near".parse().unwrap(),
+            0,
+            ReceiptPriority::NoPriority,
+        );
         let res = action_delete_account(
             state_update,
             &mut account,
@@ -1469,7 +1475,7 @@ mod tests {
             &sender_id,
             &signed_delegate_action,
             &mut result,
-            ReceiptPriority::NoPriority
+            ReceiptPriority::NoPriority,
         )
         .expect("Expect ok");
 
@@ -1514,7 +1520,7 @@ mod tests {
             &sender_id,
             &signed_delegate_action,
             &mut result,
-            ReceiptPriority::NoPriority
+            ReceiptPriority::NoPriority,
         )
         .expect("Expect ok");
 
@@ -1541,7 +1547,7 @@ mod tests {
             &sender_id,
             &signed_delegate_action,
             &mut result,
-            ReceiptPriority::NoPriority
+            ReceiptPriority::NoPriority,
         )
         .expect("Expect ok");
 
@@ -1568,7 +1574,7 @@ mod tests {
             &"www.test.near".parse().unwrap(),
             &signed_delegate_action,
             &mut result,
-            ReceiptPriority::NoPriority
+            ReceiptPriority::NoPriority,
         )
         .expect("Expect ok");
 

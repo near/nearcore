@@ -61,8 +61,12 @@ fn test_nearvm_upgrade() {
     // Run the transaction & collect the logs.
     let logs_at_old_version = {
         let tip = env.clients[0].chain.head().unwrap();
-        let signed_transaction =
-            Transaction::V0(TransactionV0 { nonce: 10, block_hash: tip.last_block_hash, ..tx.clone() }).sign(&signer);
+        let signed_transaction = Transaction::V0(TransactionV0 {
+            nonce: 10,
+            block_hash: tip.last_block_hash,
+            ..tx.clone()
+        })
+        .sign(&signer);
         assert_eq!(
             env.clients[0].process_tx(signed_transaction, false, false),
             ProcessTxResponse::ValidTx
@@ -79,7 +83,8 @@ fn test_nearvm_upgrade() {
     let logs_at_new_version = {
         let tip = env.clients[0].chain.head().unwrap();
         let signed_transaction =
-            Transaction::V0(TransactionV0 { nonce: 11, block_hash: tip.last_block_hash, ..tx }).sign(&signer);
+            Transaction::V0(TransactionV0 { nonce: 11, block_hash: tip.last_block_hash, ..tx })
+                .sign(&signer);
         assert_eq!(
             env.clients[0].process_tx(signed_transaction, false, false),
             ProcessTxResponse::ValidTx

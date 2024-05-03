@@ -323,7 +323,8 @@ impl RuntimeGroup {
                 mailbox.incoming_transactions.clear();
                 group.transaction_logs.lock().unwrap().extend(transaction_results);
                 for new_receipt in new_receipts {
-                    let locked_other_mailbox = mailboxes.get_mut(new_receipt.receiver_id()).unwrap();
+                    let locked_other_mailbox =
+                        mailboxes.get_mut(new_receipt.receiver_id()).unwrap();
                     locked_other_mailbox.incoming_receipts.push(new_receipt);
                 }
                 group.mailboxes.1.notify_all();

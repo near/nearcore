@@ -586,8 +586,14 @@ impl TxAwaitingNonce {
         provenance: MappedTxProvenance,
         nonce_updates: HashSet<(AccountId, PublicKey)>,
     ) -> Self {
-        let mut target_tx =
-            Transaction::new(target_signer_id, target_public_key, target_receiver_id, 0, *ref_hash, 0);
+        let mut target_tx = Transaction::new(
+            target_signer_id,
+            target_public_key,
+            target_receiver_id,
+            0,
+            *ref_hash,
+            0,
+        );
         *target_tx.actions_mut() = actions;
         Self {
             source_signer_id,
@@ -634,7 +640,7 @@ impl MappedTx {
             target_receiver_id,
             nonce,
             *ref_hash,
-            0
+            0,
         );
         *target_tx.actions_mut() = actions;
         let target_tx = SignedTransaction::new(
@@ -1301,7 +1307,8 @@ impl<T: ChainAccess> TxMirror<T> {
             };
 
             if let ReceiptEnum::Action(r) | ReceiptEnum::PromiseYield(r) = receipt.receipt() {
-                if (provenance.is_create_account() && receipt.predecessor_id() == receipt.receiver_id())
+                if (provenance.is_create_account()
+                    && receipt.predecessor_id() == receipt.receiver_id())
                     || (!provenance.is_create_account()
                         && receipt.predecessor_id() != receipt.receiver_id())
                 {
