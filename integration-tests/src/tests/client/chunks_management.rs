@@ -17,7 +17,7 @@ use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, BlockId, BlockReference, EpochId};
 use near_primitives_core::checked_feature;
 use near_primitives_core::version::PROTOCOL_VERSION;
 use std::collections::HashMap;
@@ -116,9 +116,6 @@ impl Test {
         let key_pairs =
             (0..vs.all_validators().count()).map(|_| PeerInfo::random()).collect::<Vec<_>>();
 
-        let mut partial_chunk_msgs = 0;
-        let mut partial_chunk_request_msgs = 0;
-
         let (_, conn, _) = setup_mock_all_validators(
             Clock::real(),
             vs,
@@ -136,88 +133,10 @@ impl Test {
             Box::new(move |_, from_whom: AccountId, msg: &PeerManagerMessageRequest| {
                 let msg = msg.as_network_requests_ref();
                 match msg {
-                    NetworkRequests::Block { block } => {
-                        let h = block.header().height();
-                        check_heights(block.header().prev_hash(), block.hash(), h);
-
-                        let mut height_to_hash = height_to_hash.write().unwrap();
-                        height_to_hash.insert(h, *block.hash());
-
-                        let mut height_to_epoch = height_to_epoch.write().unwrap();
-                        height_to_epoch.insert(h, block.header().epoch_id().clone());
-
-                        println!(
-                            "[{:?}]: BLOCK {} HEIGHT {}; HEADER HEIGHTS: {} / {} / {} / {};\nAPPROVALS: {:?}",
-                            Instant::now(),
-                            block.hash(),
-                            block.header().height(),
-                            block.chunks()[0].height_created(),
-                            block.chunks()[1].height_created(),
-                            block.chunks()[2].height_created(),
-                            block.chunks()[3].height_created(),
-                            block.header().approvals(),
-                        );
-
-                        if h > 1 {
-                            // Make sure doomslug finality is computed correctly.
-                            assert_eq!(
-                                block.header().last_ds_final_block(),
-                                height_to_hash.get(&(h - 1)).unwrap()
-                            );
-
-                            // Make sure epoch length actually corresponds to the desired epoch length
-                            // The switches are expected at 0->1, 5->6 and 10->11
-                            let prev_epoch_id = height_to_epoch.get(&(h - 1)).unwrap().clone();
-                            assert_eq!(block.header().epoch_id() == &prev_epoch_id, h % 5 != 1);
-
-                            // Make sure that the blocks leading to the epoch switch have twice as
-                            // many approval slots
-                            assert_eq!(
-                                block.header().approvals().len() == 8,
-                                h % 5 == 0 || h % 5 == 4
-                            );
-                        }
-                        if h > 2 {
-                            // Make sure BFT finality is computed correctly
-                            assert_eq!(
-                                block.header().last_final_block(),
-                                height_to_hash.get(&(h - 2)).unwrap()
-                            );
-                        }
-
-                        let height = block.header().height();
-                        if height > 1 {
-                            for shard_id in 0..4 {
-                                // If messages to test4 are dropped, on block production it
-                                // generally will receive block approvals significantly later
-                                // than chunks, so some chunks may end up missing.
-                                if self.test4_config.drop_messages_from.is_empty()
-                                    || block.header().height() % 4 != 3
-                                {
-                                    assert_eq!(
-                                        height,
-                                        block.chunks()[shard_id].height_created(),
-                                        "New chunk at height {height} for shard {shard_id} wasn't included"
-                                    );
-                                }
-                            }
-                        }
-
-                        if block.header().height() >= 12 {
-                            println!("PREV BLOCK HASH: {}", block.header().prev_hash());
-                            println!(
-                                "STATS: responses: {} requests: {}",
-                                partial_chunk_msgs, partial_chunk_request_msgs
-                            );
-
-                            System::current().stop();
-                        }
-                    }
                     NetworkRequests::PartialEncodedChunkMessage {
                         account_id: to_whom,
                         partial_encoded_chunk: _,
                     } => {
-                        partial_chunk_msgs += 1;
                         if self.test4_config.drop_messages_from.contains(&from_whom.as_str())
                             && to_whom == "test4"
                         {
@@ -241,9 +160,6 @@ impl Test {
                             return (NetworkResponses::NoResponse.into(), false);
                         }
                     }
-                    NetworkRequests::PartialEncodedChunkResponse { route_back: _, response: _ } => {
-                        partial_chunk_msgs += 1;
-                    }
                     NetworkRequests::PartialEncodedChunkRequest {
                         target: AccountIdOrPeerTrackingShard { account_id: Some(to_whom), .. },
                         ..
@@ -260,7 +176,6 @@ impl Test {
                         {
                             info!("Observed Partial Encoded Chunk Request from test4 to test2");
                         }
-                        partial_chunk_request_msgs += 1;
                     }
                     _ => {}
                 };
@@ -270,6 +185,8 @@ impl Test {
         *connectors.write().unwrap() = conn;
 
         let view_client = connectors.write().unwrap()[0].view_client_actor.clone();
+        let view_client_loop = view_client.clone();
+
         let actor = view_client.send(GetBlock::latest().with_span_context());
         let actor = actor.then(move |res| {
             let block_hash = res.unwrap().unwrap().header.hash;
@@ -301,6 +218,112 @@ impl Test {
             future::ready(())
         });
         actix::spawn(actor);
+
+        // Main test loop. Observe blocks up to height 12 and check that chunks
+        // are (not) included.
+        let stop_height = 13;
+        let mut current_height = 0;
+        let mut found_test4_missed_chunk = false;
+        let future = async move {
+            while current_height < stop_height {
+                let Ok(block) = view_client_loop
+                    .send(
+                        GetBlock(BlockReference::BlockId(BlockId::Height(current_height)))
+                            .with_span_context(),
+                    )
+                    .await
+                    .unwrap()
+                else {
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    continue;
+                };
+
+                assert_eq!(block.header.height, current_height);
+                current_height += 1;
+
+                let h = block.header.height;
+                check_heights(&block.header.prev_hash, &block.header.hash, h);
+
+                let mut height_to_hash = height_to_hash.write().unwrap();
+                height_to_hash.insert(h, block.header.hash);
+
+                let mut height_to_epoch = height_to_epoch.write().unwrap();
+                height_to_epoch.insert(h, EpochId(block.header.epoch_id.clone()));
+
+                let block_producer = block.author;
+                println!(
+                    "[{:?}]: BLOCK {} PRODUCER {} HEIGHT {}; CHUNK HEADER HEIGHTS: {} / {} / {} / {};\nAPPROVALS: {:?}",
+                    Instant::now(),
+                    block.header.hash,
+                    block_producer,
+                    block.header.height,
+                    block.chunks[0].height_created,
+                    block.chunks[1].height_created,
+                    block.chunks[2].height_created,
+                    block.chunks[3].height_created,
+                    block.header.approvals,
+                );
+
+                if h > 1 {
+                    // Make sure doomslug finality is computed correctly.
+                    assert_eq!(
+                        block.header.last_ds_final_block,
+                        *height_to_hash.get(&(h - 1)).unwrap()
+                    );
+
+                    // Make sure epoch length actually corresponds to the desired epoch length
+                    // The switches are expected at 0->1, 5->6 and 10->11
+                    let prev_epoch_id = height_to_epoch.get(&(h - 1)).unwrap().clone();
+                    assert_eq!(EpochId(block.header.epoch_id) == prev_epoch_id, h % 5 != 1);
+
+                    // Make sure that the blocks leading to the epoch switch have twice as
+                    // many approval slots
+                    assert_eq!(block.header.approvals.len() == 8, h % 5 == 0 || h % 5 == 4);
+                }
+                if h > 2 {
+                    // Make sure BFT finality is computed correctly
+                    assert_eq!(
+                        block.header.last_final_block,
+                        *height_to_hash.get(&(h - 2)).unwrap()
+                    );
+                }
+
+                if h <= 1 {
+                    // For the first two blocks we may not have any chunks yet.
+                    continue;
+                }
+
+                if block_producer == "test4" {
+                    if !self.test4_config.drop_messages_from.is_empty() {
+                        // If messages to test4 are dropped, on block production it
+                        // generally will receive block approvals significantly later
+                        // than chunks, so some chunks may end up missing.
+                        if self.test4_config.assert_missed_chunk {
+                            assert!(
+                                block.chunks.iter().any(|c| c.height_created != h),
+                                "All chunks are present"
+                            );
+                            found_test4_missed_chunk = true;
+                        }
+                        continue;
+                    }
+                }
+
+                for shard_id in 0..4 {
+                    assert_eq!(
+                        h, block.chunks[shard_id].height_created,
+                        "New chunk at height {h} for shard {shard_id} wasn't included by {block_producer}"
+                    );
+                }
+            }
+
+            if self.test4_config.assert_missed_chunk && !found_test4_missed_chunk {
+                panic!("test4 didn't produce any block");
+            };
+            System::current().stop();
+        };
+
+        actix::spawn(future);
     }
 }
 
@@ -469,12 +492,11 @@ fn chunks_recovered_from_others() {
 /// only wait for 3000/2 milliseconds until they produce a block with some chunks missing
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
-#[should_panic]
 fn chunks_recovered_from_full_timeout_too_short() {
     Test {
         validator_groups: 4,
         chunk_only_producers: false,
-        test4_config: Test4Config { drop_messages_from: &["test1"], assert_missed_chunk: false },
+        test4_config: Test4Config { drop_messages_from: &["test1"], assert_missed_chunk: true },
         drop_all_chunk_forward_msgs: true,
         block_timeout: CHUNK_REQUEST_SWITCH_TO_OTHERS * 2,
     }
@@ -529,14 +551,13 @@ fn chunks_recovered_from_others_cop() {
 /// from chunk producers and has to reconstruct it.
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
-#[should_panic]
 fn chunks_recovered_from_full_timeout_too_short_cop() {
     Test {
         validator_groups: 4,
         chunk_only_producers: true,
         test4_config: Test4Config {
             drop_messages_from: &["test1", "cop1"],
-            assert_missed_chunk: false,
+            assert_missed_chunk: true,
         },
         drop_all_chunk_forward_msgs: true,
         block_timeout: CHUNK_REQUEST_SWITCH_TO_OTHERS * 2,
