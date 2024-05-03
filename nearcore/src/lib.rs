@@ -340,16 +340,21 @@ pub fn start_with_config_and_synchronization(
         adv.clone(),
     );
 
-    let (state_snapshot_actor, state_snapshot_arbiter) = StateSnapshotActor::spawn(
+    let state_snapshot_sender = LateBoundSender::new();
+    let state_snapshot_actor = StateSnapshotActor::new(
         runtime.get_flat_storage_manager(),
         network_adapter.as_multi_sender(),
         runtime.get_tries(),
+        state_snapshot_sender.as_multi_sender(),
     );
-    let delete_snapshot_callback = get_delete_snapshot_callback(
-        state_snapshot_actor.clone().with_auto_span_context().into_multi_sender(),
+    let (state_snapshot_addr, state_snapshot_arbiter) = spawn_actix_actor(state_snapshot_actor);
+    state_snapshot_sender.bind(state_snapshot_addr.clone().with_auto_span_context());
+
+    let delete_snapshot_callback: Arc<dyn Fn() + Sync + Send> = get_delete_snapshot_callback(
+        state_snapshot_addr.clone().with_auto_span_context().into_multi_sender(),
     );
     let make_snapshot_callback = get_make_snapshot_callback(
-        state_snapshot_actor.with_auto_span_context().into_multi_sender(),
+        state_snapshot_addr.with_auto_span_context().into_multi_sender(),
         runtime.get_flat_storage_manager(),
     );
     let snapshot_callbacks = SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
