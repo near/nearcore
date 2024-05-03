@@ -215,7 +215,7 @@ mod trie_storage_tests {
     use near_primitives::hash::hash;
     use near_primitives::shard_layout::get_block_shard_uid;
     use near_primitives::types::chunk_extra::ChunkExtra;
-    use near_primitives::version::PROTOCOL_VERSION;
+    use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 
     fn create_store_with_values(values: &[Vec<u8>], shard_uid: ShardUId) -> Store {
         let tries = TestTriesBuilder::new().build();
@@ -440,6 +440,12 @@ mod trie_storage_tests {
         let recorded_normal = trie.recorded_storage();
 
         let store = create_test_store();
+        let congestion_info =
+            if PROTOCOL_VERSION >= ProtocolFeature::CongestionControl.protocol_version() {
+                Some(CongestionInfo::default())
+            } else {
+                None
+            };
         // ChunkExtra is needed for in-memory trie loading code to query state roots.
         let chunk_extra = ChunkExtra::new(
             PROTOCOL_VERSION,
@@ -449,7 +455,7 @@ mod trie_storage_tests {
             0,
             0,
             0,
-            Some(CongestionInfo::default()),
+            congestion_info,
         );
         let mut update_for_chunk_extra = store.store_update();
         update_for_chunk_extra
