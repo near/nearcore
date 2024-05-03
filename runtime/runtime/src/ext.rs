@@ -6,9 +6,7 @@ use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, TrieCacheMode};
 use near_primitives::utils::create_receipt_id_from_action_hash;
 use near_primitives::version::ProtocolVersion;
-use near_store::{
-    get_code, has_promise_yield_receipt, KeyLookupMode, TrieUpdate, TrieUpdateValuePtr,
-};
+use near_store::{has_promise_yield_receipt, KeyLookupMode, TrieUpdate, TrieUpdateValuePtr};
 use near_vm_runner::logic::errors::{AnyError, VMLogicError};
 use near_vm_runner::logic::types::ReceiptIndex;
 use near_vm_runner::logic::{External, StorageGetMode, ValuePtr};
@@ -86,8 +84,8 @@ impl<'a> RuntimeExt<'a> {
         self.account_id
     }
 
-    pub fn get_code(&self, code_hash: CryptoHash) -> Result<Option<ContractCode>, StorageError> {
-        get_code(self.trie_update, self.account_id, Some(code_hash))
+    pub fn get_code(&self, code_hash: CryptoHash) -> Option<ContractCode> {
+        self.trie_update.get_code(self.account_id.clone(), code_hash)
     }
 
     pub fn create_storage_key(&self, key: &[u8]) -> TrieKey {

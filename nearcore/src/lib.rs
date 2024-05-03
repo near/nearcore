@@ -10,6 +10,7 @@ use actix_rt::ArbiterHandle;
 use anyhow::Context;
 use cold_storage::ColdStoreLoopHandle;
 use near_async::actix::AddrWithAutoSpanContextExt;
+use near_async::actix_wrapper::spawn_actix_actor;
 use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::time::{self, Clock};
 pub use near_chain::runtime::NightshadeRuntime;
@@ -355,13 +356,14 @@ pub fn start_with_config_and_synchronization(
 
     let (partial_witness_actor, partial_witness_arbiter) = if config.validator_signer.is_some() {
         let my_signer = config.validator_signer.clone().unwrap();
-        let (partial_witness_actor, partial_witness_arbiter) = PartialWitnessActor::spawn(
-            Clock::real(),
-            network_adapter.as_multi_sender(),
-            client_adapter_for_partial_witness_actor.as_multi_sender(),
-            my_signer,
-            epoch_manager.clone(),
-        );
+        let (partial_witness_actor, partial_witness_arbiter) =
+            spawn_actix_actor(PartialWitnessActor::new(
+                Clock::real(),
+                network_adapter.as_multi_sender(),
+                client_adapter_for_partial_witness_actor.as_multi_sender(),
+                my_signer,
+                epoch_manager.clone(),
+            ));
         (Some(partial_witness_actor), Some(partial_witness_arbiter))
     } else {
         (None, None)
