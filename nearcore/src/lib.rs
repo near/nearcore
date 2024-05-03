@@ -10,6 +10,7 @@ use actix_rt::ArbiterHandle;
 use anyhow::Context;
 use cold_storage::ColdStoreLoopHandle;
 use near_async::actix::AddrWithAutoSpanContextExt;
+use near_async::actix_wrapper::spawn_actix_actor;
 use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::time::{self, Clock};
 pub use near_chain::runtime::NightshadeRuntime;
@@ -339,29 +340,35 @@ pub fn start_with_config_and_synchronization(
         adv.clone(),
     );
 
-    let (state_snapshot_actor, state_snapshot_arbiter) = StateSnapshotActor::spawn(
+    let state_snapshot_sender = LateBoundSender::new();
+    let state_snapshot_actor = StateSnapshotActor::new(
         runtime.get_flat_storage_manager(),
         network_adapter.as_multi_sender(),
         runtime.get_tries(),
+        state_snapshot_sender.as_multi_sender(),
     );
-    let delete_snapshot_callback = get_delete_snapshot_callback(
-        state_snapshot_actor.clone().with_auto_span_context().into_multi_sender(),
+    let (state_snapshot_addr, state_snapshot_arbiter) = spawn_actix_actor(state_snapshot_actor);
+    state_snapshot_sender.bind(state_snapshot_addr.clone().with_auto_span_context());
+
+    let delete_snapshot_callback: Arc<dyn Fn() + Sync + Send> = get_delete_snapshot_callback(
+        state_snapshot_addr.clone().with_auto_span_context().into_multi_sender(),
     );
     let make_snapshot_callback = get_make_snapshot_callback(
-        state_snapshot_actor.with_auto_span_context().into_multi_sender(),
+        state_snapshot_addr.with_auto_span_context().into_multi_sender(),
         runtime.get_flat_storage_manager(),
     );
     let snapshot_callbacks = SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
 
     let (partial_witness_actor, partial_witness_arbiter) = if config.validator_signer.is_some() {
         let my_signer = config.validator_signer.clone().unwrap();
-        let (partial_witness_actor, partial_witness_arbiter) = PartialWitnessActor::spawn(
-            Clock::real(),
-            network_adapter.as_multi_sender(),
-            client_adapter_for_partial_witness_actor.as_multi_sender(),
-            my_signer,
-            epoch_manager.clone(),
-        );
+        let (partial_witness_actor, partial_witness_arbiter) =
+            spawn_actix_actor(PartialWitnessActor::new(
+                Clock::real(),
+                network_adapter.as_multi_sender(),
+                client_adapter_for_partial_witness_actor.as_multi_sender(),
+                my_signer,
+                epoch_manager.clone(),
+            ));
         (Some(partial_witness_actor), Some(partial_witness_arbiter))
     } else {
         (None, None)

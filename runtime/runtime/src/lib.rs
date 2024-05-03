@@ -2983,7 +2983,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // TODO: figure out why this test stopped passing with #10852, cc @shreyan-gupta
     fn test_storage_proof_size_soft_limit() {
         if !checked_feature!("stable", StateWitnessSizeLimit, PROTOCOL_VERSION) {
             return;
@@ -3055,6 +3054,15 @@ mod tests {
 
         // We expect function_call_fn(bob_account()) to be in delayed receipts
         assert_eq!(apply_result.delayed_receipts_count, 1);
+
+        // Check that alice contract is present in storage proof and bob
+        // contract is not.
+        let partial_storage = apply_result.proof.unwrap();
+        let storage = Trie::from_recorded_storage(partial_storage, root, false);
+        let code_key = TrieKey::ContractCode { account_id: alice_account() };
+        assert_matches!(storage.get(&code_key.to_vec()), Ok(Some(_)));
+        let code_key = TrieKey::ContractCode { account_id: bob_account() };
+        assert_matches!(storage.get(&code_key.to_vec()), Err(_) | Ok(None));
     }
 }
 

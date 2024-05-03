@@ -269,8 +269,7 @@ impl<'a> ChainUpdate<'a> {
                         gas_burnt,
                         gas_limit,
                         balance_burnt,
-                        // TODO(congestion_control) set congestion info for resharding
-                        // TODO(resharding) set congestion info for resharding
+                        // TODO(congestion_control) - integration with resharding
                         None,
                     );
                     sum_gas_used += gas_burnt;
@@ -714,6 +713,9 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
+    /// This method is called when the state sync is finished for a shard. It
+    /// applies the chunk at the height included of the chunk in the sync hash
+    /// and stores the results in the db.
     pub fn set_state_finalize(
         &mut self,
         shard_id: ShardId,
@@ -844,6 +846,9 @@ impl<'a> ChainUpdate<'a> {
         Ok(shard_uid)
     }
 
+    /// This method is called when the state sync is finished for a shard. It is
+    /// used for applying chunks from after the height included, up until the
+    /// sync hash, and storing the results. Those chunks are old (missing).
     pub fn set_state_finalize_on_height(
         &mut self,
         height: BlockHeight,

@@ -155,7 +155,6 @@ pub(crate) fn validate_prepared_transactions(
     storage_config: RuntimeStorageConfig,
     transactions: &[SignedTransaction],
 ) -> Result<PreparedTransactions, Error> {
-    // TODO(congestion_control): Is it okay to read full block here?
     let parent_block = chain.chain_store().get_block(chunk_header.prev_block_hash())?;
 
     runtime_adapter.prepare_transactions(
@@ -280,14 +279,10 @@ pub(crate) fn pre_validate_chunk_state_witness(
     }
 
     let main_transition_params = if last_chunk_block.header().is_genesis() {
-        // TODO(congestion_control): check if this epoch_id / protocol version is right for genesis
-        let epoch_id = epoch_manager
-            .get_next_epoch_id_from_prev_block(last_chunk_block.header().prev_hash())?;
+        let epoch_id = last_chunk_block.header().epoch_id();
+        let genesis_protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         MainTransition::Genesis {
-            chunk_extra: chain.genesis_chunk_extra(
-                shard_id,
-                epoch_manager.get_epoch_protocol_version(&epoch_id)?,
-            )?,
+            chunk_extra: chain.genesis_chunk_extra(shard_id, genesis_protocol_version)?,
             block_hash: *last_chunk_block.hash(),
             shard_id,
         }

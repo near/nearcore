@@ -1,5 +1,5 @@
 use crate::client_actions::{ClientActionHandler, ClientActions, ClientSenderForClientMessage};
-use crate::sync_jobs_actions::ClientSenderForSyncJobsMessage;
+use crate::sync_jobs_actor::ClientSenderForSyncJobsMessage;
 use crate::SyncMessage;
 use near_async::test_loop::event_handler::LoopEventHandler;
 use near_chunks::client::ShardsManagerResponse;
