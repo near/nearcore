@@ -5,10 +5,10 @@ use crate::congestion_info::CongestionInfo;
 use crate::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader, ShardChunkHeaderV3};
 use crate::transaction::SignedTransaction;
 use crate::types::EpochId;
-use crate::utils::io::CountingWrite;
+use crate::utils::io::{CountingRead, CountingWrite};
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 use borsh::{BorshDeserialize, BorshSerialize};
-use bytes::BufMut;
+use bytes::{Buf, BufMut};
 use near_crypto::{PublicKey, Signature};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance, BlockHeight, ShardId};
@@ -129,7 +129,7 @@ impl EncodedChunkStateWitness {
         const STATE_WITNESS_COMPRESSION_LEVEL: i32 = 3;
 
         // Flow of data: State witness --> Borsh serialization --> Counting write --> zstd compression --> Bytes.
-        // CountingWrite will count the number of bytes for the Borsh-serialized witness, before compression. 
+        // CountingWrite will count the number of bytes for the Borsh-serialized witness, before compression.
         let mut counting_write = CountingWrite::new(zstd::stream::Encoder::new(
             Vec::new().writer(),
             STATE_WITNESS_COMPRESSION_LEVEL,
@@ -147,10 +147,28 @@ impl EncodedChunkStateWitness {
     pub fn decode(&self) -> std::io::Result<(ChunkStateWitness, ChunkStateWitnessSize)> {
         // We want to limit the size of decompressed data to address "Zip bomb" attack.
         // The value here is the same as NETWORK_MESSAGE_MAX_SIZE_BYTES.
-        const MAX_WITNESS_SIZE: usize = 512 * bytesize::MIB as usize;
-        let borsh_bytes = decompress_with_limit(self.0.as_ref(), MAX_WITNESS_SIZE)?;
-        let witness = ChunkStateWitness::try_from_slice(&borsh_bytes)?;
-        Ok((witness, borsh_bytes.len()))
+        const MAX_WITNESS_SIZE: bytesize::ByteSize = bytesize::ByteSize::mib(512);
+
+        let mut counting_read = CountingRead::new_with_limit(
+            zstd::stream::Decoder::new(self.0.as_ref().reader())?,
+            MAX_WITNESS_SIZE,
+        );
+
+        match borsh::from_reader(&mut counting_read) {
+            Err(err) => {
+                // If decompressed data exceeds the limit then CountingRead will return a WriteZero error.
+                // Here we convert it to a more descriptive error to make debugging easier.
+                let err = if err.kind() == std::io::ErrorKind::WriteZero {
+                    std::io::Error::other(format!(
+                        "Decompressed data exceeded limit of {MAX_WITNESS_SIZE} bytes: {err}"
+                    ))
+                } else {
+                    err
+                };
+                Err(err)
+            }
+            Ok(witness) => Ok((witness, counting_read.bytes_read().as_u64().try_into().unwrap())),
+        }
     }
 
     pub fn size_bytes(&self) -> ChunkStateWitnessSize {
@@ -486,69 +504,50 @@ impl ChunkValidatorAssignments {
     }
 }
 
-fn decompress_with_limit(data: &[u8], limit: usize) -> std::io::Result<Vec<u8>> {
-    let mut buf = Vec::new().limit(limit).writer();
-    match zstd::stream::copy_decode(data, &mut buf) {
-        Err(err) => {
-            // If decompressed data exceeds the limit then the following error is returned:
-            // Error { kind: WriteZero, message: "failed to write whole buffer" }
-            // Here we convert it to a more descriptive error to make debugging easier.
-            let err = if err.kind() == std::io::ErrorKind::WriteZero {
-                std::io::Error::other(format!(
-                    "Decompressed data exceeded limit of {limit} bytes: {err}"
-                ))
-            } else {
-                err
-            };
-            Err(err)
-        }
-        Ok(()) => Ok(buf.into_inner().into_inner()),
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use near_primitives_core::hash::CryptoHash;
+    // use crate::stateless_validation::decompress_with_limit;
     use crate::stateless_validation::{ChunkStateWitness, EncodedChunkStateWitness};
-    use crate::stateless_validation::decompress_with_limit;
+    use near_primitives_core::hash::CryptoHash;
 
-    #[test]
-    fn decompress_within_limit() {
-        let data = vec![1, 2, 3];
-        let compressed = zstd::encode_all(data.as_slice(), 0).unwrap();
-        let decompressed = decompress_with_limit(&compressed, 100);
-        assert!(decompressed.is_ok());
-        assert_eq!(data, decompressed.unwrap());
-    }
+    // #[test]
+    // fn decompress_within_limit() {
+    //     let data = vec![1, 2, 3];
+    //     let compressed = zstd::encode_all(data.as_slice(), 0).unwrap();
+    //     let decompressed = decompress_with_limit(&compressed, 100);
+    //     assert!(decompressed.is_ok());
+    //     assert_eq!(data, decompressed.unwrap());
+    // }
 
-    #[test]
-    fn decompress_exceed_limit() {
-        let data = vec![0; 100];
-        let compressed = zstd::encode_all(data.as_slice(), 0).unwrap();
-        let decompress_res = decompress_with_limit(&compressed, 99);
-        assert!(decompress_res.is_err());
-        assert_eq!(
-            decompress_res.unwrap_err().to_string(),
-            "Decompressed data exceeded limit of 99 bytes: failed to write whole buffer"
-        );
-    }
+    // #[test]
+    // fn decompress_exceed_limit() {
+    //     let data = vec![0; 100];
+    //     let compressed = zstd::encode_all(data.as_slice(), 0).unwrap();
+    //     let decompress_res = decompress_with_limit(&compressed, 99);
+    //     assert!(decompress_res.is_err());
+    //     assert_eq!(
+    //         decompress_res.unwrap_err().to_string(),
+    //         "Decompressed data exceeded limit of 99 bytes: failed to write whole buffer"
+    //     );
+    // }
 
-    #[test]
-    fn decompress_invalid_data() {
-        let data = vec![0; 10];
-        let decompress_res = decompress_with_limit(&data, 100);
-        assert!(decompress_res.is_err());
-        assert_eq!(decompress_res.unwrap_err().to_string(), "Unknown frame descriptor");
-    }
+    // #[test]
+    // fn decompress_invalid_data() {
+    //     let data = vec![0; 10];
+    //     let decompress_res = decompress_with_limit(&data, 100);
+    //     assert!(decompress_res.is_err());
+    //     assert_eq!(decompress_res.unwrap_err().to_string(), "Unknown frame descriptor");
+    // }
 
     #[test]
     fn encode_decode_state_dummy_witness() {
         let original_witness = ChunkStateWitness::new_dummy(42, 0, CryptoHash::default());
-        let (encoded_witness, borsh_bytes_from_encode) = EncodedChunkStateWitness::encode(&original_witness).unwrap();
-        let (decoded_witness, borsh_bytes_from_decode) = EncodedChunkStateWitness::from_boxed_slice(encoded_witness.0).decode().unwrap();
+        let (encoded_witness, borsh_bytes_from_encode) =
+            EncodedChunkStateWitness::encode(&original_witness).unwrap();
+        let (decoded_witness, borsh_bytes_from_decode) =
+            EncodedChunkStateWitness::from_boxed_slice(encoded_witness.0).decode().unwrap();
         assert_eq!(decoded_witness, original_witness);
         assert_eq!(borsh_bytes_from_encode, borsh_bytes_from_decode);
         assert_eq!(borsh::to_vec(&original_witness).unwrap().len(), borsh_bytes_from_encode);
     }
-
 }

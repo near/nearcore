@@ -34,7 +34,10 @@ impl<W: Write> Write for CountingWrite<W> {
     fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
         if let Some(limit) = self.limit {
             if self.written.saturating_add(buffer.len() as u64) > limit {
-                return Err(io::Error::other(format!("Exceeded the limit of {} bytes", limit)));
+                return Err(io::Error::new(
+                    io::ErrorKind::WriteZero,
+                    format!("Exceeded the limit of {} bytes", limit),
+                ));
             }
         }
         let last_written = self.inner.write(buffer)?;
@@ -79,14 +82,16 @@ impl<R: Read> CountingRead<R> {
 
 impl<R: Read> Read for CountingRead<R> {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
-        let buffer_size = buffer.len();
-        if let Some(limit) = self.limit {
-            if self.read.saturating_add(buffer_size as u64) > limit {
-                return Err(io::Error::other(format!("Exceeded the limit of {} bytes", limit)));
-            }
-        }
         let last_read = self.inner.read(buffer)?;
         self.read = self.read.saturating_add(last_read as u64);
+        if let Some(limit) = self.limit {
+            if self.read > limit {
+                return Err(io::Error::new(
+                    io::ErrorKind::WriteZero,
+                    format!("Exceeded the limit of {} bytes", limit),
+                ));
+            }
+        }
         Ok(last_read)
     }
 }
@@ -133,6 +138,7 @@ mod tests {
         let source: Vec<u8> = (1..=42).collect();
         let error = io::copy(&mut source.reader(), &mut counting_write).unwrap_err();
         assert_eq!("Exceeded the limit of 41 bytes", error.to_string());
+        assert_eq!(io::ErrorKind::WriteZero, error.kind());
     }
 
     #[test]
@@ -171,5 +177,6 @@ mod tests {
         let mut target = Vec::new().writer();
         let error = io::copy(&mut counting_read, &mut target).unwrap_err();
         assert_eq!("Exceeded the limit of 41 bytes", error.to_string());
+        assert_eq!(io::ErrorKind::WriteZero, error.kind());
     }
 }
