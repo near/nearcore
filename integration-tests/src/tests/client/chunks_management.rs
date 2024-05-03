@@ -25,8 +25,11 @@ use std::sync::{Arc, RwLock};
 use std::time::Instant;
 use tracing::info;
 
+/// Configuration for `test4` validator in tests.
 struct Test4Config {
+    /// All partial chunk messages from these accounts to `test4` will be dropped.
     drop_messages_from: &'static [&'static str],
+    /// If true, the test will assert that `test4` missed at least one chunk.
     assert_missed_chunk: bool,
 }
 
@@ -62,22 +65,6 @@ impl Test {
         init_test_logger();
 
         let connectors: Arc<RwLock<Vec<ActorHandlesForTesting>>> = Arc::new(RwLock::new(vec![]));
-        let heights = Arc::new(RwLock::new(HashMap::new()));
-        let heights1 = heights;
-
-        let height_to_hash = Arc::new(RwLock::new(HashMap::new()));
-        let height_to_epoch = Arc::new(RwLock::new(HashMap::new()));
-
-        let check_heights = move |prev_hash: &CryptoHash, hash: &CryptoHash, height| {
-            let mut map = heights1.write().unwrap();
-            // Note that height of the previous block is not guaranteed to be height
-            // - 1.  All we know is that it’s less than height of the current block.
-            if let Some(prev_height) = map.get(prev_hash) {
-                assert!(*prev_height < height);
-            }
-            assert_eq!(*map.entry(*hash).or_insert(height), height);
-        };
-
         let mut vs = ValidatorSchedule::new()
             .num_shards(4)
             .block_producers_per_epoch(vec![
@@ -225,6 +212,22 @@ impl Test {
         let mut current_height = 0;
         let mut found_test4_missed_chunk = false;
         let future = async move {
+            let heights = Arc::new(RwLock::new(HashMap::new()));
+            let heights1 = heights;
+
+            let height_to_hash = Arc::new(RwLock::new(HashMap::new()));
+            let height_to_epoch = Arc::new(RwLock::new(HashMap::new()));
+
+            let check_heights = move |prev_hash: &CryptoHash, hash: &CryptoHash, height| {
+                let mut map = heights1.write().unwrap();
+                // Note that height of the previous block is not guaranteed to be height
+                // - 1.  All we know is that it’s less than height of the current block.
+                if let Some(prev_height) = map.get(prev_hash) {
+                    assert!(*prev_height < height);
+                }
+                assert_eq!(*map.entry(*hash).or_insert(height), height);
+            };
+
             while current_height < stop_height {
                 let Ok(block) = view_client_loop
                     .send(
