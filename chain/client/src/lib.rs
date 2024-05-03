@@ -40,8 +40,7 @@ mod info;
 mod metrics;
 mod stateless_validation;
 pub mod sync;
-pub mod sync_jobs_actions;
-mod sync_jobs_actor;
+pub mod sync_jobs_actor;
 pub mod test_utils;
 #[cfg(test)]
 mod tests;
