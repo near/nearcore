@@ -82,9 +82,15 @@ impl NightshadeRuntime {
         // For now, just use default.
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(block_hash).unwrap_or_default();
-        let shard_ids = self.epoch_manager.shard_ids(&epoch_id).unwrap();
-        let congestion_info_map: HashMap<ShardId, CongestionInfo> =
-            shard_ids.into_iter().map(|shard_id| (shard_id, CongestionInfo::default())).collect();
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
+        let congestion_info_map: HashMap<ShardId, CongestionInfo> = if protocol_version
+            < ProtocolFeature::CongestionControl.protocol_version()
+        {
+            HashMap::new()
+        } else {
+            let shard_ids = self.epoch_manager.shard_ids(&epoch_id).unwrap();
+            shard_ids.into_iter().map(|shard_id| (shard_id, CongestionInfo::default())).collect()
+        };
         let mut result = self
             .apply_chunk(
                 RuntimeStorageConfig::new(*state_root, true),
@@ -375,7 +381,7 @@ impl TestEnv {
 
     pub fn view_account(&self, account_id: &AccountId) -> AccountView {
         let shard_id = EpochInfoProvider::account_id_to_shard_id(
-            self.epoch_manager.as_ref(),
+            &*self.epoch_manager,
             account_id,
             &self.head.epoch_id,
         )

@@ -1369,7 +1369,7 @@ impl Runtime {
         };
 
         let mut delayed_receipts = DelayedReceiptQueue::load(&state_update)?;
-        let mut congestion_info = Self::own_congestion_info(protocol_version, apply_state)?;
+        let mut congestion_info = apply_state.own_congestion_info(protocol_version)?;
 
         if !apply_state.is_new_chunk
             && protocol_version >= ProtocolFeature::FixApplyChunks.protocol_version()
@@ -1822,16 +1822,18 @@ impl Runtime {
         }
         state_update.commit(StateChangeCause::Migration);
     }
+}
 
+impl ApplyState {
     fn own_congestion_info(
+        &self,
         protocol_version: ProtocolVersion,
-        apply_state: &ApplyState,
     ) -> Result<Option<CongestionInfo>, RuntimeError> {
         if protocol_version >= ProtocolFeature::CongestionControl.protocol_version() {
-            let congestion_info = apply_state
+            let congestion_info = self
                 .congestion_info
-                .get(&apply_state.shard_id)
-                .ok_or(ContextError::MissingCongestionInfo { shard_id: apply_state.shard_id })?;
+                .get(&self.shard_id)
+                .ok_or(ContextError::MissingCongestionInfo { shard_id: self.shard_id })?;
             Ok(Some(*congestion_info))
         } else {
             Ok(None)

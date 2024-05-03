@@ -111,6 +111,33 @@ pub trait TrieQueue {
         Ok(Some(receipt))
     }
 
+    /// Remove up to `n` values from the end of the queue and return how many
+    /// were actually remove.
+    ///
+    /// Unlike `pop`, this method does not return the actual receipts or even
+    /// check if they existed in state.
+    fn pop_n(&mut self, state_update: &mut TrieUpdate, n: u64) -> Result<u64, StorageError> {
+        self.debug_check_unchanged(state_update);
+
+        let indices = self.indices();
+        let to_remove = std::cmp::min(
+            n,
+            indices.next_available_index.checked_sub(indices.first_index).unwrap_or(0),
+        );
+
+        for index in indices.first_index..(indices.first_index + to_remove) {
+            let key = self.trie_key(index);
+            state_update.remove(key);
+        }
+
+        self.indices_mut().first_index = indices
+            .first_index
+            .checked_add(to_remove)
+            .expect("first_index + to_remove should be < next_available_index");
+        self.write_indices(state_update);
+        Ok(to_remove)
+    }
+
     fn len(&self) -> u64 {
         self.indices().len()
     }
