@@ -101,7 +101,7 @@ contract size. Today, we limit ourselves to linear-time algorithms in the
 compiler.
 
 Likewise, an action that has no scaling parameters must only use constant time
-to execute. Taking the `CreateAcccount` action as an example, with a cost of 0.1
+to execute. Taking the `CreateAccount` action as an example, with a cost of 0.1
 Tgas, it has to execute within 0.1ms. Technically, the execution time depends
 ever so slightly on the account name length. But there is a fairly low upper
 limit on that length and it makes sense to absorb all the cost in the constant
