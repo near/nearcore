@@ -1966,7 +1966,8 @@ impl ShardsManager {
             target: "client",
             "distribute_encoded_chunk",
             ?prev_block_hash,
-            ?shard_id)
+            ?shard_id,
+            chunk_hash=?chunk_header.chunk_hash())
         .entered();
 
         let mut block_producer_mapping = HashMap::new();
