@@ -531,7 +531,7 @@ pub(crate) fn trie_changes_chunk_extra_exists(
     // 1. Block with `block_hash` should be available
     let block = unwrap_or_err_db!(
         sv.store.get_ser::<Block>(DBCol::Block, block_hash.as_ref()),
-        "Can't get Block from DB"
+        "Can't get Block from DB - trie_changes_chunk_extra_exists"
     );
     // 2) Chunk Extra with `block_hash` and `shard_uid` should be available and match with the new root
     let chunk_extra = unwrap_or_err_db!(
@@ -671,7 +671,7 @@ pub(crate) fn outcome_id_block_exists(
 ) -> Result<(), StoreValidatorError> {
     unwrap_or_err_db!(
         sv.store.get_ser::<Block>(DBCol::Block, block_hash.as_ref()),
-        "Can't get Block from DB"
+        "Can't get Block from DB - outcome_id_block_exists"
     );
     Ok(())
 }
@@ -735,7 +735,7 @@ pub(crate) fn state_sync_info_block_exists(
 ) -> Result<(), StoreValidatorError> {
     unwrap_or_err_db!(
         sv.store.get_ser::<Block>(DBCol::Block, block_hash.as_ref()),
-        "Can't get Block from DB"
+        "Can't get Block from DB - state_sync_info_block_exists"
     );
     Ok(())
 }
@@ -747,7 +747,7 @@ pub(crate) fn chunk_extra_block_exists(
 ) -> Result<(), StoreValidatorError> {
     unwrap_or_err_db!(
         sv.store.get_ser::<Block>(DBCol::Block, block_hash.as_ref()),
-        "Can't get Block from DB"
+        "Can't get Block from DB - chunk_extra_block_exists"
     );
     Ok(())
 }
@@ -840,7 +840,7 @@ pub(crate) fn state_header_block_exists(
 ) -> Result<(), StoreValidatorError> {
     unwrap_or_err_db!(
         sv.store.get_ser::<Block>(DBCol::Block, key.1.as_ref()),
-        "Can't get Block from DB"
+        "Can't get Block from DB - state_header_block_exists"
     );
     Ok(())
 }

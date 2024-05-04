@@ -481,6 +481,7 @@ impl Handler<NetworkAdversarialMessage> for ClientActorInner {
                 }
             }
             NetworkAdversarialMessage::AdvProduceChunks(adv_produce_chunks) => {
+                info!(target: "adversary", mode=?adv_produce_chunks, "setting adversary produce chunks");
                 self.client.adv_produce_chunks = Some(adv_produce_chunks);
                 None
             }
@@ -1683,6 +1684,13 @@ impl ClientActorInner {
             _ => unreachable!("Sync status should have been StateSync!"),
         };
 
+        // Waiting for all the sync blocks to be available because they are
+        // needed to finalize state sync.
+        if !have_block {
+            tracing::debug!(target: "sync", "waiting for sync blocks");
+            return;
+        }
+
         let state_sync_result = self.client.state_sync.run(
             &me,
             sync_hash,
@@ -1702,10 +1710,6 @@ impl ClientActorInner {
         match state_sync_result {
             StateSyncResult::InProgress => (),
             StateSyncResult::Completed => {
-                if !have_block {
-                    trace!(target: "sync", "Sync done. Waiting for sync block.");
-                    return;
-                }
                 info!(target: "sync", "State sync: all shards are done");
 
                 let mut block_processing_artifacts = BlockProcessingArtifact::default();
@@ -1737,41 +1741,40 @@ impl ClientActorInner {
         let now = self.clock.now_utc();
 
         let mut have_all = true;
-        let mut req_any = false;
 
-        let block_hash = *block_header.hash();
-        let prev_block_hash = *block_header.prev_hash();
+        let sync_hash = *block_header.hash();
+        let prev_hash = *block_header.prev_hash();
 
-        let mut needed_block_hashes = vec![prev_block_hash, block_hash];
-        let mut extra_block_hashes = self.get_extra_sync_block_hashes(prev_block_hash);
+        let mut needed_block_hashes = vec![prev_hash, sync_hash];
+        let mut extra_block_hashes = self.get_extra_sync_block_hashes(prev_hash);
+        tracing::debug!(target: "sync", ?needed_block_hashes, ?extra_block_hashes, "request_sync_blocks: block hashes for state sync");
         needed_block_hashes.append(&mut extra_block_hashes);
 
-        for hash in needed_block_hashes.into_iter() {
-            let (request_block, have_block) = self.sync_block_status(&prev_block_hash, now)?;
+        for hash in needed_block_hashes.clone().into_iter() {
+            let (request_block, have_block) = self.sync_block_status(&sync_hash, &hash, now)?;
+            tracing::trace!(target: "sync", ?hash, ?request_block, ?have_block, "request_sync_blocks");
             have_all = have_all && have_block;
-            req_any = req_any || request_block;
+
+            if have_block {
+                self.client.last_time_sync_block_requested.remove(&hash);
+            }
 
             if !request_block {
+                tracing::trace!(target: "sync", ?hash, ?have_block, "request_sync_blocks: skipping - no request");
                 continue;
             }
 
             let peer_info = self.network_info.highest_height_peers.choose(&mut thread_rng());
             let Some(peer_info) = peer_info else {
+                tracing::trace!(target: "sync", ?hash, "request_sync_blocks: skipping - no peer");
                 continue;
             };
-            let id = peer_info.peer_info.id.clone();
-            self.client.request_block(hash, id.clone());
+            let peer_id = peer_info.peer_info.id.clone();
+            self.client.last_time_sync_block_requested.insert(hash, now);
+            self.client.request_block(hash, peer_id);
         }
 
-        // If any block was requested update the last time we requested a block.
-        // Do it outside of the loop to keep it consistent for all blocks.
-        if req_any {
-            self.client.last_time_sync_block_requested = Some(now);
-        }
-
-        if have_all {
-            self.client.last_time_sync_block_requested = None;
-        }
+        tracing::debug!(target: "sync", ?have_all, "request_sync_blocks: done");
 
         Ok(have_all)
     }
@@ -1813,8 +1816,6 @@ impl ClientActorInner {
             extra_block_hashes.push(next_hash);
             next_hash = *next_header.prev_hash();
         }
-
-        tracing::debug!(target: "sync", ?min_height_included, ?extra_block_hashes, "get_extra_sync_block_hashes: Extra block hashes for state sync");
 
         extra_block_hashes
     }
@@ -1860,6 +1861,7 @@ impl ClientActorInner {
         let new_state_sync_status = StateSyncStatus { sync_hash, sync_status: HashMap::default() };
         let new_sync_status = SyncStatus::StateSync(new_state_sync_status);
         self.client.sync_status.update(new_sync_status);
+        self.client.last_time_sync_block_requested.clear();
         // This is the first time we run state sync.
         return Ok(true);
     }
@@ -1892,8 +1894,8 @@ impl ClientActorInner {
         Ok(block_sync_result)
     }
 
-    /// Verifies if the node possesses sync block. It is the last block of the
-    /// previous epoch. If the block is absent, the node requests it from peers.
+    /// Verifies if the node possesses the given block. If the block is absent,
+    /// the node should request it from peers.
     ///
     /// the return value is a tuple (request_block, have_block)
     ///
@@ -1901,21 +1903,30 @@ impl ClientActorInner {
     /// the block but hasn't received it yet
     fn sync_block_status(
         &self,
+        sync_hash: &CryptoHash,
         block_hash: &CryptoHash,
         now: Utc,
     ) -> Result<(bool, bool), near_chain::Error> {
-        if self.client.chain.block_exists(block_hash)? {
+        // The sync hash block is saved as an orphan. The other blocks are saved
+        // as regular blocks. Check if block exists depending on that.
+        let block_exists = if sync_hash == block_hash {
+            self.client.chain.is_orphan(block_hash)
+        } else {
+            self.client.chain.block_exists(block_hash)?
+        };
+
+        if block_exists {
             return Ok((false, true));
         }
         let timeout = self.client.config.state_sync_timeout;
         let timeout = near_async::time::Duration::try_from(timeout);
         let timeout = timeout.unwrap();
 
-        let Some(last_time) = self.client.last_time_sync_block_requested else {
+        let Some(last_time) = self.client.last_time_sync_block_requested.get(block_hash) else {
             return Ok((true, false));
         };
 
-        if (now - last_time) >= timeout {
+        if (now - *last_time) >= timeout {
             tracing::error!(
                 target: "sync",
                 %block_hash,
@@ -1939,35 +1950,65 @@ impl ClientActorInner {
         )
     }
 
-    /// Checks if the node is syncing its State and applies special logic in that case.
-    /// A node usually ignores blocks that are too far ahead, but in case of a node syncing its state it is looking for 2 specific blocks:
+    /// Checks if the node is syncing its State and applies special logic in
+    /// that case. A node usually ignores blocks that are too far ahead, but in
+    /// case of a node syncing its state it is looking for 2 specific blocks:
     /// * The first block of the new epoch
     /// * The last block of the prev epoch
+    ///
+    /// Additionally if there were missing chunks in the blocks leading to the
+    /// sync hash block we need to store extra blocks.
+    ///
     /// Returns whether the node is syncing its state.
     fn maybe_receive_state_sync_blocks(&mut self, block: &Block) -> bool {
         let SyncStatus::StateSync(StateSyncStatus { sync_hash, .. }) = self.client.sync_status
         else {
             return false;
         };
-        if let Ok(header) = self.client.chain.get_block_header(&sync_hash) {
-            let block: MaybeValidated<Block> = (*block).clone().into();
-            let block_hash = *block.hash();
-            if let Err(err) = self.client.chain.validate_block(&block) {
-                byzantine_assert!(false);
-                error!(target: "client", ?err, ?block_hash, "Received an invalid block during state sync");
+
+        let Ok(header) = self.client.chain.get_block_header(&sync_hash) else {
+            return true;
+        };
+
+        let block: MaybeValidated<Block> = (*block).clone().into();
+        let block_hash = *block.hash();
+        if let Err(err) = self.client.chain.validate_block(&block) {
+            byzantine_assert!(false);
+            error!(target: "client", ?err, ?block_hash, "Received an invalid block during state sync");
+        }
+
+        let extra_block_hashes = self.get_extra_sync_block_hashes(*header.prev_hash());
+        tracing::trace!(target: "sync", ?extra_block_hashes, "maybe_receive_state_sync_blocks: Extra block hashes for state sync");
+
+        // Notice that two blocks are saved differently:
+        // * save_orphan() for the sync hash block
+        // * save_block() for the prev block and all the extra blocks
+        // TODO why is that the case? Shouldn't the block without a parent block
+        // be the orphan?
+
+        if block_hash == sync_hash {
+            // The first block of the new epoch.
+            tracing::debug!(target: "sync", block_hash=?block.hash(), "maybe_receive_state_sync_blocks - save sync hash block");
+            self.client.chain.save_orphan(block, Provenance::NONE, false);
+            return true;
+        }
+
+        if &block_hash == header.prev_hash() {
+            // The last block of the previous epoch.
+            tracing::debug!(target: "sync", block_hash=?block.hash(), "maybe_receive_state_sync_blocks - save prev hash block");
+            if let Err(err) = self.client.chain.save_block(block) {
+                error!(target: "client", ?err, ?block_hash, "Failed to save a block during state sync");
             }
-            // Notice that two blocks are saved differently:
-            // * save_block() for one block.
-            // * save_orphan() for another block.
-            if &block_hash == header.prev_hash() {
-                // The last block of the previous epoch.
-                if let Err(err) = self.client.chain.save_block(block) {
-                    error!(target: "client", ?err, ?block_hash, "Failed to save a block during state sync");
-                }
-            } else if block_hash == sync_hash {
-                // The first block of the new epoch.
-                self.client.chain.save_orphan(block, Provenance::NONE, false);
+            return true;
+        }
+
+        if extra_block_hashes.contains(&block_hash) {
+            // Extra blocks needed when there are missing chunks.
+            tracing::debug!(target: "sync", block_hash=?block.hash(), "maybe_receive_state_sync_blocks - save extra block");
+            if let Err(err) = self.client.chain.save_block(block) {
+                error!(target: "client", ?err, ?block_hash, "Failed to save a block during state sync");
             }
+            return true;
         }
         true
     }
