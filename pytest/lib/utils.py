@@ -443,6 +443,10 @@ def poll_blocks(node: cluster.LocalNode,
             if start_height == -1:
                 start_height = latest.height
             count += 1
+
+        if latest.height >= __target:
+            return
+
         time.sleep(poll_interval)
 
     msg = 'Timed out polling blocks from a node\n'
