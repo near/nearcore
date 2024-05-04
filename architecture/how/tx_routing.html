@@ -203,7 +203,7 @@ identifier. If the validator sees that the transaction is present in the chain,
 it removes it from its local mempool.</p>
 <h3 id="can-transaction-get-lost"><a class="header" href="#can-transaction-get-lost">Can transaction get lost?</a></h3>
 <p>Yes - they can and they do. Sometimes a node doesn’t have a path to a given
-validator or it didn’t receive an <code>AnnouceAccount</code> for it, so it doesn’t know
+validator or it didn’t receive an <code>AnnounceAccount</code> for it, so it doesn’t know
 where to forward the message. And if this happens to all 4 validators that we
 try to send to, then the message can be silently dropped.</p>
 <p>We’re working on adding some monitoring to see how often this happens.</p>

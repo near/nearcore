@@ -1015,7 +1015,7 @@ identifier. If the validator sees that the transaction is present in the chain,
 it removes it from its local mempool.</p>
 <h3 id="can-transaction-get-lost"><a class="header" href="#can-transaction-get-lost">Can transaction get lost?</a></h3>
 <p>Yes - they can and they do. Sometimes a node doesn’t have a path to a given
-validator or it didn’t receive an <code>AnnouceAccount</code> for it, so it doesn’t know
+validator or it didn’t receive an <code>AnnounceAccount</code> for it, so it doesn’t know
 where to forward the message. And if this happens to all 4 validators that we
 try to send to, then the message can be silently dropped.</p>
 <p>We’re working on adding some monitoring to see how often this happens.</p>
@@ -1665,7 +1665,7 @@ creates an outgoing receipts with 200 Tgas to another shard. We can represent th
 sink of shard 2. This should be interpreted as if we continue sending the exact
 same workload on all shards every block. Then we reach this steady state where
 we continue to have these gas assignments per edge.</p>
-<p>Now we can do som flow analysis. It is immediately obvious that the total
+<p>Now we can do some flow analysis. It is immediately obvious that the total
 outflow per is limited to N * 1000 Tgas but the incoming flow is unlimited.</p>
 <p>For a finite amount of time, we can accept more inflow than outflow, we just have to add buffers to store what we cannot execute, yet. But to stay within finite memory requirements, we need to fall back to a flow diagram where outflows are greater or equal to inflows within a finite time frame.</p>
 <p>Next, we look at a ideas one at the time before combining some of them into the
@@ -3412,7 +3412,7 @@ parameters must be set to match the 1ms = 1Tgas rule at the largest possible
 contract size. Today, we limit ourselves to linear-time algorithms in the
 compiler.</p>
 <p>Likewise, an action that has no scaling parameters must only use constant time
-to execute. Taking the <code>CreateAcccount</code> action as an example, with a cost of 0.1
+to execute. Taking the <code>CreateAccount</code> action as an example, with a cost of 0.1
 Tgas, it has to execute within 0.1ms. Technically, the execution time depends
 ever so slightly on the account name length. But there is a fairly low upper
 limit on that length and it makes sense to absorb all the cost in the constant
