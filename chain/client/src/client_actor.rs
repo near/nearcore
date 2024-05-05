@@ -9,7 +9,7 @@ use actix::{Actor, Addr, AsyncContext, Context, Handler};
 use actix_rt::{Arbiter, ArbiterHandle};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::futures::ActixArbiterHandleFutureSpawner;
-use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, Sender};
+use near_async::messaging::{IntoMultiSender, LateBoundSender, Sender};
 use near_async::time::Utc;
 use near_async::time::{Clock, Duration};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
