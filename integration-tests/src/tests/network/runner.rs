@@ -1,7 +1,7 @@
 use actix::{Actor, Addr};
 use anyhow::{anyhow, bail, Context};
 use near_async::actix::AddrWithAutoSpanContextExt;
-use near_async::actix_wrapper::spawn_actix_actor;
+use near_async::actix_wrapper::{spawn_actix_actor, ActixWrapper};
 use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::time::{self, Clock};
 use near_chain::types::RuntimeAdapter;
@@ -67,7 +67,8 @@ fn setup_network_node(
         epoch_manager.clone(),
     );
     let signer = Arc::new(create_test_signer(account_id.as_str()));
-    let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
+    let telemetry_actor =
+        ActixWrapper::new(TelemetryActor::new(TelemetryConfig::default())).start();
 
     let db = node_storage.into_inner(near_store::Temperature::Hot);
     let mut client_config =
@@ -101,7 +102,7 @@ fn setup_network_node(
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         Some(signer.clone()),
-        telemetry_actor,
+        telemetry_actor.with_auto_span_context().into_sender(),
         None,
         None,
         adv.clone(),
