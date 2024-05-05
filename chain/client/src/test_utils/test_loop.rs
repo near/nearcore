@@ -1,7 +1,7 @@
 pub mod client_actions;
 pub mod partial_witness_actor;
 pub mod sync_actor;
-pub mod sync_jobs_actions;
+pub mod sync_jobs_actor;
 
 use crate::client_actions::{
     ClientActionHandler, ClientActions, ClientSenderForPartialWitnessMessage,

@@ -268,8 +268,7 @@ impl<'a> ChainUpdate<'a> {
                         gas_burnt,
                         gas_limit,
                         balance_burnt,
-                        // TODO(congestion_control) set congestion info for resharding
-                        // TODO(resharding) set congestion info for resharding
+                        // TODO(congestion_control) - integration with resharding
                         None,
                     );
                     sum_gas_used += gas_burnt;

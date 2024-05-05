@@ -9,7 +9,7 @@ use actix::{Actor, Addr, AsyncContext, Context, Handler};
 use actix_rt::{Arbiter, ArbiterHandle};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::futures::ActixArbiterHandleFutureSpawner;
-use near_async::messaging::{IntoMultiSender, Sender};
+use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, Sender};
 use near_async::time::Utc;
 use near_async::time::{Clock, Duration};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
@@ -36,8 +36,7 @@ use crate::client_actions::{ClientActionHandler, ClientActions, ClientSenderForC
 use crate::gc_actor::GCActor;
 use crate::start_gc_actor;
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
-use crate::sync_jobs_actions::SyncJobsActions;
-use crate::sync_jobs_actor::SyncJobsActor;
+use crate::sync_jobs_actor::{SyncJobsActor, SyncJobsSenderForSyncJobs};
 use crate::{metrics, Client, ConfigUpdater, SyncAdapter};
 
 pub struct ClientActor {
@@ -72,21 +71,17 @@ impl ClientActor {
         adv: crate::adversarial::Controls,
         config_updater: Option<ConfigUpdater>,
     ) -> Result<Self, Error> {
-        let state_parts_arbiter = Arbiter::new();
         let self_addr = ctx.address();
         let self_addr_clone = self_addr;
-        let sync_jobs_actor_addr = SyncJobsActor::start_in_arbiter(
-            &state_parts_arbiter.handle(),
-            move |ctx: &mut Context<SyncJobsActor>| -> SyncJobsActor {
-                ctx.set_mailbox_capacity(SyncJobsActor::MAILBOX_CAPACITY);
-                SyncJobsActor {
-                    actions: SyncJobsActions::new(
-                        self_addr_clone.with_auto_span_context().into_multi_sender(),
-                        ctx.address().with_auto_span_context().into_multi_sender(),
-                    ),
-                }
-            },
+
+        let sync_jobs_sender = LateBoundSender::<SyncJobsSenderForSyncJobs>::new();
+        let sync_jobs_actor = SyncJobsActor::new(
+            self_addr_clone.with_auto_span_context().into_multi_sender(),
+            sync_jobs_sender.as_multi_sender(),
         );
+        let (sync_jobs_actor_addr, state_parts_arbiter) = sync_jobs_actor.spawn_actix_actor();
+        sync_jobs_sender
+            .bind(sync_jobs_actor_addr.clone().with_auto_span_context().into_multi_sender());
         let actions = ClientActions::new(
             clock,
             client,
@@ -100,7 +95,7 @@ impl ClientActor {
             adv,
             config_updater,
             sync_jobs_actor_addr.with_auto_span_context().into_multi_sender(),
-            Box::new(ActixArbiterHandleFutureSpawner(state_parts_arbiter.handle())),
+            Box::new(ActixArbiterHandleFutureSpawner(state_parts_arbiter)),
         )?;
         Ok(Self { actions })
     }
