@@ -215,7 +215,18 @@ impl ShardsOutgoingReceiptBuffer {
     }
 
     fn write_indices(&self, state_update: &mut TrieUpdate) {
-        set(state_update, TrieKey::BufferedReceiptIndices, &self.shards_indices);
+        // An empty buffer is displayed as not being there at all. This makes an
+        // empty trie and one with the default `ShardsOutgoingReceiptBuffer`,
+        // which are loaded as equivalent, share a trie root.
+        // TODO(congestion_control) - Figure out if we need this. It's tricky,
+        // if we write back an empty map as a value, many tests fail because the
+        // trie root changes unexpectedly. But if we store it as empty, we have
+        // to be careful to no re-compute it unnecessarily.
+        if self.shards_indices.shard_buffers.values().all(TrieQueueIndices::is_empty) {
+            state_update.remove(TrieKey::BufferedReceiptIndices);
+        } else {
+            set(state_update, TrieKey::BufferedReceiptIndices, &self.shards_indices);
+        }
     }
 }
 

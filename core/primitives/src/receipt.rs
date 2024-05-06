@@ -270,6 +270,10 @@ impl TrieQueueIndices {
     pub fn len(&self) -> u64 {
         self.next_available_index - self.first_index
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.next_available_index <= self.first_index
+    }
 }
 
 impl From<DelayedReceiptIndices> for TrieQueueIndices {
