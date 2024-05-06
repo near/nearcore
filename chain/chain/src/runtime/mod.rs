@@ -782,6 +782,9 @@ impl RuntimeAdapter for NightshadeRuntime {
             / (runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::storage_write_value_byte)
                 + runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::storage_read_value_byte));
 
+        // FORKNET: reduce size limit of new transactions to 4MB.
+        let size_limit = (size_limit as f64 / 13.0 * 4.0) as u64;
+
         // Add new transactions to the result until some limit is hit or the transactions run out.
         loop {
             if total_gas_burnt >= transactions_gas_limit {
