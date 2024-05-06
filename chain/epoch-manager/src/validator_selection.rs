@@ -23,8 +23,8 @@ pub fn proposals_to_epoch_info(
     mut validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
     validator_reward: HashMap<AccountId, Balance>,
     minted_amount: Balance,
+    current_version: ProtocolVersion,
     next_version: ProtocolVersion,
-    last_version: ProtocolVersion,
 ) -> Result<EpochInfo, EpochError> {
     debug_assert!(
         proposals.iter().map(|stake| stake.account_id()).collect::<HashSet<_>>().len()
@@ -51,7 +51,7 @@ pub fn proposals_to_epoch_info(
         &mut block_producer_proposals,
         max_bp_selected,
         min_stake_ratio,
-        last_version,
+        current_version,
     );
     let (chunk_producer_proposals, chunk_producers, cp_stake_threshold) =
         if checked_feature!("stable", ChunkOnlyProducers, next_version) {
@@ -63,7 +63,7 @@ pub fn proposals_to_epoch_info(
                 max_cp_selected,
                 min_stake_ratio,
                 shard_ids.len() as NumShards,
-                last_version,
+                current_version,
             );
             (chunk_producer_proposals, chunk_producers, cp_stake_treshold)
         } else {
