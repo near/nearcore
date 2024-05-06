@@ -241,7 +241,7 @@ impl ProtocolFeature {
     }
 
     pub fn enabled(&self, protocol_version: ProtocolVersion) -> bool {
-        protocol_version <= self.protocol_version()
+        protocol_version >= self.protocol_version()
     }
 }
 
