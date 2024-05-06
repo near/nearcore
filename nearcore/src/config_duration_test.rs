@@ -176,9 +176,9 @@ impl Serializer for DurationCheckSerializer {
         panic!("The test setup should not leave any None's, otherwise it can miss some fields to check; None seen at field path {:?}", self.current_path);
     }
 
-    fn serialize_some<T: ?Sized>(self, value: &T) -> Result<Self::Ok, Self::Error>
+    fn serialize_some<T>(self, value: &T) -> Result<Self::Ok, Self::Error>
     where
-        T: Serialize,
+        T: Serialize + ?Sized,
     {
         value.serialize(self)
     }
@@ -200,18 +200,18 @@ impl Serializer for DurationCheckSerializer {
         Ok(())
     }
 
-    fn serialize_newtype_struct<T: ?Sized>(
+    fn serialize_newtype_struct<T>(
         self,
         name: &'static str,
         value: &T,
     ) -> Result<Self::Ok, Self::Error>
     where
-        T: Serialize,
+        T: Serialize + ?Sized,
     {
         value.serialize(self.of(name))
     }
 
-    fn serialize_newtype_variant<T: ?Sized>(
+    fn serialize_newtype_variant<T>(
         self,
         name: &'static str,
         _variant_index: u32,
@@ -219,7 +219,7 @@ impl Serializer for DurationCheckSerializer {
         value: &T,
     ) -> Result<Self::Ok, Self::Error>
     where
-        T: Serialize,
+        T: Serialize + ?Sized,
     {
         value.serialize(self.of(name))
     }
@@ -277,9 +277,9 @@ impl SerializeSeq for DurationCheckSerializer {
     type Ok = ();
     type Error = std::fmt::Error;
 
-    fn serialize_element<T: ?Sized>(&mut self, value: &T) -> Result<(), Self::Error>
+    fn serialize_element<T>(&mut self, value: &T) -> Result<(), Self::Error>
     where
-        T: Serialize,
+        T: Serialize + ?Sized,
     {
         value.serialize(self.clone())
     }
@@ -293,28 +293,24 @@ impl SerializeMap for DurationCheckSerializer {
     type Ok = ();
     type Error = std::fmt::Error;
 
-    fn serialize_entry<K: ?Sized, V: ?Sized>(
-        &mut self,
-        _key: &K,
-        value: &V,
-    ) -> Result<(), Self::Error>
+    fn serialize_entry<K, V>(&mut self, _key: &K, value: &V) -> Result<(), Self::Error>
     where
-        K: Serialize,
-        V: Serialize,
+        K: Serialize + ?Sized,
+        V: Serialize + ?Sized,
     {
         value.serialize(self.clone())
     }
 
-    fn serialize_key<T: ?Sized>(&mut self, _key: &T) -> Result<(), Self::Error>
+    fn serialize_key<T>(&mut self, _key: &T) -> Result<(), Self::Error>
     where
-        T: Serialize,
+        T: Serialize + ?Sized,
     {
         unreachable!()
     }
 
-    fn serialize_value<T: ?Sized>(&mut self, _value: &T) -> Result<(), Self::Error>
+    fn serialize_value<T>(&mut self, _value: &T) -> Result<(), Self::Error>
     where
-        T: Serialize,
+        T: Serialize + ?Sized,
     {
         unreachable!()
     }
@@ -328,13 +324,9 @@ impl SerializeStruct for DurationCheckSerializer {
     type Ok = ();
     type Error = std::fmt::Error;
 
-    fn serialize_field<T: ?Sized>(
-        &mut self,
-        key: &'static str,
-        value: &T,
-    ) -> Result<(), Self::Error>
+    fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<(), Self::Error>
     where
-        T: Serialize,
+        T: Serialize + ?Sized,
     {
         value.serialize(self.of(key))
     }
@@ -348,9 +340,9 @@ impl SerializeTuple for DurationCheckTupleSerializer {
     type Ok = ();
     type Error = std::fmt::Error;
 
-    fn serialize_element<T: ?Sized>(&mut self, value: &T) -> Result<(), Self::Error>
+    fn serialize_element<T>(&mut self, value: &T) -> Result<(), Self::Error>
     where
-        T: Serialize,
+        T: Serialize + ?Sized,
     {
         self.field_types.push(std::any::type_name::<T>().to_string());
         value.serialize(self.parent.clone())
@@ -373,9 +365,9 @@ impl SerializeTupleStruct for DurationCheckSerializer {
     type Ok = ();
     type Error = std::fmt::Error;
 
-    fn serialize_field<T: ?Sized>(&mut self, value: &T) -> Result<(), Self::Error>
+    fn serialize_field<T>(&mut self, value: &T) -> Result<(), Self::Error>
     where
-        T: Serialize,
+        T: Serialize + ?Sized,
     {
         value.serialize(self.clone())
     }
@@ -389,9 +381,9 @@ impl SerializeTupleVariant for DurationCheckSerializer {
     type Ok = ();
     type Error = std::fmt::Error;
 
-    fn serialize_field<T: ?Sized>(&mut self, value: &T) -> Result<(), Self::Error>
+    fn serialize_field<T>(&mut self, value: &T) -> Result<(), Self::Error>
     where
-        T: Serialize,
+        T: Serialize + ?Sized,
     {
         value.serialize(self.clone())
     }
@@ -405,13 +397,9 @@ impl SerializeStructVariant for DurationCheckSerializer {
     type Ok = ();
     type Error = std::fmt::Error;
 
-    fn serialize_field<T: ?Sized>(
-        &mut self,
-        key: &'static str,
-        value: &T,
-    ) -> Result<(), Self::Error>
+    fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<(), Self::Error>
     where
-        T: Serialize,
+        T: Serialize + ?Sized,
     {
         value.serialize(self.of(key))
     }

@@ -336,7 +336,7 @@ impl Runner {
     /// Specify boot nodes. By default there are no boot nodes.
     pub fn use_boot_nodes(mut self, boot_nodes: Vec<usize>) -> Self {
         self.apply_all(move |test_config| {
-            test_config.boot_nodes = boot_nodes.clone();
+            test_config.boot_nodes.clone_from(&boot_nodes);
         });
         self
     }
