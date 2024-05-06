@@ -289,13 +289,19 @@ fn receipt_congestion_gas(
             Ok(0)
         }
         ReceiptEnum::PromiseYield(_) => {
-            // The congestion control MVP does not account for yielding a promise.
-            // It does not burn any gas, so it's unclear what we could account for.
+            // The congestion control MVP does not account for yielding a
+            // promise. Yielded promises are confined to a single account, hence
+            // they never cross the shard boundaries. This makes it irrelevant
+            // for the congestion MVP, which only counts gas in the outgoing
+            // buffers and delayed receipts queue.
+            tracing::error!(target: "congestion_control", "Attempting to calculate congestion gas for a `PromiseYield`.");
             Ok(0)
         }
         ReceiptEnum::PromiseResume(_) => {
             // The congestion control MVP does not account for resuming a promise.
-            // Similar to a data receipt, it would be difficult to find the cost
+            // Unlike `PromiseYield`, it is possible that a promise-resume ends
+            // up in the delayed receipts queue.
+            // But similar to a data receipt, it would be difficult to find the cost
             // of it without expensive state lookups.
             Ok(0)
         }
