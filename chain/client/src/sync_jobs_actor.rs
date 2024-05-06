@@ -90,7 +90,7 @@ impl SyncJobsActor {
         msg: &ApplyStatePartsRequest,
     ) -> Result<(), near_chain_primitives::error::Error> {
         let _span: tracing::span::EnteredSpan =
-            tracing::debug_span!(target: "client", "apply_parts").entered();
+            tracing::debug_span!(target: "sync", "apply_parts").entered();
         let store = msg.runtime_adapter.store();
 
         let shard_id = msg.shard_uid.shard_id as ShardId;
@@ -116,7 +116,7 @@ impl SyncJobsActor {
         &mut self,
         msg: &ApplyStatePartsRequest,
     ) -> Result<bool, near_chain_primitives::error::Error> {
-        let _span = tracing::debug_span!(target: "client", "clear_flat_state").entered();
+        let _span = tracing::debug_span!(target: "sync", "clear_flat_state").entered();
         let mut store_update = msg.runtime_adapter.store().store_update();
         let success = msg
             .runtime_adapter
@@ -156,10 +156,10 @@ impl SyncJobsActor {
             }
             Ok(false) => {
                 // Can't panic here, because that breaks many KvRuntime tests.
-                tracing::error!(target: "client", shard_uid = ?msg.shard_uid, "Failed to delete Flat State, but proceeding with applying state parts.");
+                tracing::error!(target: "sync", shard_uid = ?msg.shard_uid, "Failed to delete Flat State, but proceeding with applying state parts.");
             }
             Ok(true) => {
-                tracing::debug!(target: "client", shard_uid = ?msg.shard_uid, "Deleted all Flat State");
+                tracing::debug!(target: "sync", shard_uid = ?msg.shard_uid, "Deleted all Flat State");
             }
         }
 
@@ -172,7 +172,7 @@ impl SyncJobsActor {
     }
 
     pub fn handle_block_catch_up_request(&mut self, msg: BlockCatchUpRequest) {
-        tracing::debug!(target: "client", ?msg);
+        tracing::debug!(target: "sync", ?msg);
         let results = do_apply_chunks(msg.block_hash, msg.block_height, msg.work);
 
         self.client_sender.send(BlockCatchUpResponse {

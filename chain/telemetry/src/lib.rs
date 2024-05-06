@@ -76,7 +76,7 @@ impl TelemetryActor {
 impl Handler<TelemetryEvent> for TelemetryActor {
     #[perf]
     fn handle(&mut self, msg: TelemetryEvent) {
-        tracing::debug!(target: "client", ?msg);
+        tracing::debug!(target: "telemetry", ?msg);
         let now = Instant::now();
         if now - self.last_telemetry_update < self.config.reporting_interval {
             // Throttle requests to the telemetry endpoints, to at most one

@@ -483,7 +483,7 @@ impl ShardsManager {
                     },
                 ));
             } else {
-                warn!(target: "client", "{:?} requests parts {:?} for chunk {:?} from self",
+                warn!(target: "chunks", "{:?} requests parts {:?} for chunk {:?} from self",
                     me, part_ords, chunk_hash
                 );
             }
@@ -739,7 +739,7 @@ impl ShardsManager {
     /// Resends chunk requests if haven't received it within expected time.
     pub fn resend_chunk_requests(&mut self) {
         let _span = tracing::debug_span!(
-            target: "client",
+            target: "chunks",
             "resend_chunk_requests",
             header_head_height = self.chain_header_head.height,
             pool_size = self.requested_partial_encoded_chunks.len())
@@ -1434,7 +1434,7 @@ impl ShardsManager {
                 .get_chunk_hash_by_height_and_shard(header.height_created(), header.shard_id())
             {
                 if hash != &chunk_hash {
-                    warn!(target: "client", "Rejecting unrequested chunk {:?}, height {}, shard_id {}, because of having {:?}", chunk_hash, header.height_created(), header.shard_id(), hash);
+                    warn!(target: "chunks", "Rejecting unrequested chunk {:?}, height {}, shard_id {}, because of having {:?}", chunk_hash, header.height_created(), header.shard_id(), hash);
                     return Err(Error::DuplicateChunkHeight);
                 }
             }
@@ -1448,7 +1448,7 @@ impl ShardsManager {
                 // validate_chunk_header returns DBNotFoundError if the previous block is not ready
                 // in this case, we return NeedBlock instead of error
                 near_chain::Error::DBNotFoundErr(_) => {
-                    debug!(target:"client", "Dropping partial encoded chunk {:?} height {}, shard_id {} because we don't have enough information to validate it",
+                    debug!(target:"chunks", "Dropping partial encoded chunk {:?} height {}, shard_id {} because we don't have enough information to validate it",
                            header.chunk_hash(), header.height_created(), header.shard_id());
                     return Ok(ProcessPartialEncodedChunkResult::NeedBlock);
                 }
@@ -1963,7 +1963,7 @@ impl ShardsManager {
         let chunk_header = encoded_chunk.cloned_header();
         let prev_block_hash = chunk_header.prev_block_hash();
         let _span = tracing::debug_span!(
-            target: "client",
+            target: "chunks",
             "distribute_encoded_chunk",
             ?prev_block_hash,
             ?shard_id)
