@@ -1,13 +1,13 @@
 use std::io::{self, Read, Write};
 
 /// Wrapper for Write that counts number of bytes written.
-/// It also allows setting a hard-limit (by default max u64 value) for the total number of bytes written;
+/// It also allows setting a hard-limit (by default `max::MAX`) for the total number of bytes written;
 /// if this limit is exceeded, write operation raises an io::Error of kind WriteZero.
 pub struct CountingWrite<W: Write> {
     inner: W,
     /// Total number of bytes written.
     total_written: u64,
-    /// The total number of bytes allowed to be written, by default it is the max u64 value.
+    /// The total number of bytes allowed to be written, by default it is initialized to `max::MAX`.
     /// If this limit is reached, the wirte operation will return an error.
     hard_limit: u64,
 }
@@ -49,13 +49,13 @@ impl<W: Write> Write for CountingWrite<W> {
 }
 
 /// Wrapper for Read that counts number of bytes read.
-/// It also allows setting a hard-limit (by default max u64 value) for the total number of bytes read;
+/// It also allows setting a hard-limit (by default `max::MAX`) for the total number of bytes read;
 /// if this limit is exceeded, read operation raises an io::Error of kind WriteZero.
 pub struct CountingRead<R: Read> {
     inner: R,
     /// Total number of bytes read.
     total_read: u64,
-    /// The total number of bytes allowed to be read, by default it is the max u64 value.
+    /// The total number of bytes allowed to be read, by default it is initialized to `max::MAX`.
     /// If this limit is reached, the read operation will return an error.
     hard_limit: u64,
 }
