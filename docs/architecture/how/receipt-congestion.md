@@ -41,7 +41,7 @@ sink of shard 2. This should be interpreted as if we continue sending the exact
 same workload on all shards every block. Then we reach this steady state where
 we continue to have these gas assignments per edge.
 
-Now we can do som flow analysis. It is immediately obvious that the total
+Now we can do some flow analysis. It is immediately obvious that the total
 outflow per is limited to N * 1000 Tgas but the incoming flow is unlimited.
 
 For a finite amount of time, we can accept more inflow than outflow, we just have to add buffers to store what we cannot execute, yet. But to stay within finite memory requirements, we need to fall back to a flow diagram where outflows are greater or equal to inflows within a finite time frame.

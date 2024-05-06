@@ -488,7 +488,7 @@ for the current `PeerActor`. (if yes, it would pass it for the client) and if
 not - it would pass it along the network.
 
 All these messages are handled by `receive_client_message` in Peer.
-(`NetworkClientMessags`) - and transferred to `ClientActor` in
+(`NetworkClientMessages`) - and transferred to `ClientActor` in
 (`chain/client/src/client_actor.rs`)
 
 `NetworkRequests` to `PeerManager` actor trigger the `RawRoutedMessage` for

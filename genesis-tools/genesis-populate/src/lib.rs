@@ -279,7 +279,7 @@ impl GenesisBuilder {
     }
 
     fn get_congestion_control(protocol_version: ProtocolVersion) -> Option<CongestionInfo> {
-        if protocol_version >= ProtocolFeature::CongestionControl.protocol_version() {
+        if ProtocolFeature::CongestionControl.enabled(protocol_version) {
             // TODO(congestion_control) - properly initialize
             Some(CongestionInfo::default())
         } else {

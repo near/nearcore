@@ -126,7 +126,7 @@ For more information about the dynamic settings refer to `core/dyn-configs` code
 <blockquote style="background: rgba(255, 200, 0, 0.1); border: 5px solid rgba(255, 200, 0, 0.4);">
 
 **TODO**: the setup is going to depend on whether one would like to use grafana stack or just
-jaeger or something else. We shoud document setting either of these up, including the otel
+jaeger or something else. We should document setting either of these up, including the otel
 collector and such for a full end-to-end setup. Success criteria: running integration tests should
 allow you to see the traces in your grafana/jaeger. This may require code changes as well.
 
