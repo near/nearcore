@@ -64,6 +64,7 @@ pub(crate) fn compilation_duration(kind: near_parameters::vm::VMKind, duration: 
 
 /// Updates metrics to record a compiled-contract cache lookup,
 /// where is_hit=true indicates that we found an entry in the cache.
+#[cfg(feature = "near_vm")]
 pub(crate) fn record_compiled_contract_cache_lookup(is_hit: bool) {
     METRICS.with_borrow_mut(|m| {
         m.compiled_contract_cache_lookups += 1;
