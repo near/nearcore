@@ -22,7 +22,9 @@ use near_primitives::stateless_validation::{
     ChunkStateTransition, ChunkStateWitness, EncodedChunkStateWitness,
     SignedEncodedChunkStateWitness,
 };
-use near_primitives::types::ValidatorKickoutReason::{NotEnoughBlocks, NotEnoughChunks};
+use near_primitives::types::ValidatorKickoutReason::{
+    NotEnoughBlocks, NotEnoughChunks, NotEnoughStake,
+};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::ProtocolFeature::SimpleNightshade;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -1705,7 +1707,7 @@ fn test_fishermen() {
         vec![
             ("test1".parse().unwrap(), stake_amount),
             ("test2".parse().unwrap(), stake_amount),
-            ("test3".parse().unwrap(), fishermen_threshold),
+            ("test3".parse().unwrap(), 0),
             ("test4".parse().unwrap(), 0),
         ],
     );
@@ -1750,10 +1752,7 @@ fn test_fishermen_unstake() {
         ],
     );
     let kickout = epoch_info.validator_kickout();
-    assert_eq!(
-        kickout.get(AccountIdRef::new_or_panic("test2")).unwrap(),
-        &ValidatorKickoutReason::Unstaked
-    );
+    assert!(!kickout.contains_key(AccountIdRef::new_or_panic("test2")));
     matches!(
         kickout.get(AccountIdRef::new_or_panic("test3")),
         Some(ValidatorKickoutReason::NotEnoughStake { .. })
@@ -1844,11 +1843,7 @@ fn test_kickout_set() {
     );
     assert_eq!(
         epoch_info1.stake_change().clone(),
-        change_stake(vec![
-            ("test1".parse().unwrap(), stake_amount),
-            ("test2".parse().unwrap(), 0),
-            ("test3".parse().unwrap(), 10)
-        ])
+        change_stake(vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), 0)])
     );
     assert!(epoch_info1.validator_kickout().is_empty());
     record_block(
@@ -1865,11 +1860,7 @@ fn test_kickout_set() {
     check_kickout(&epoch_info, &[]);
     check_stake_change(
         &epoch_info,
-        vec![
-            ("test1".parse().unwrap(), stake_amount),
-            ("test2".parse().unwrap(), stake_amount),
-            ("test3".parse().unwrap(), 10),
-        ],
+        vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), stake_amount)],
     );
 }
 
@@ -2201,23 +2192,19 @@ fn test_fisherman_kickout() {
     check_stake_change(
         &epoch_info2,
         vec![
-            ("test1".parse().unwrap(), 148),
+            ("test1".parse().unwrap(), 0),
             ("test2".parse().unwrap(), stake_amount),
             ("test3".parse().unwrap(), stake_amount),
         ],
     );
-    check_kickout(&epoch_info2, &[]);
+    check_kickout(&epoch_info2, &[("test1", NotEnoughStake { stake: 148, threshold: 320 })]);
 
     let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap();
     check_validators(&epoch_info3, &[("test2", stake_amount), ("test3", stake_amount)]);
     check_fishermen(&epoch_info3, &[]);
     check_stake_change(
         &epoch_info3,
-        vec![
-            ("test1".parse().unwrap(), 0),
-            ("test2".parse().unwrap(), stake_amount),
-            ("test3".parse().unwrap(), stake_amount),
-        ],
+        vec![("test2".parse().unwrap(), stake_amount), ("test3".parse().unwrap(), stake_amount)],
     );
     check_kickout(&epoch_info3, &[("test1", NotEnoughBlocks { produced: 0, expected: 1 })]);
 }
