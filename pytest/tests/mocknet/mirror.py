@@ -301,15 +301,19 @@ def stop_traffic_cmd(args, traffic_generator, nodes):
     traffic_generator.neard_runner_stop()
 
 
+def do_update_config(node, config_change):
+    result = node.neard_update_config(config_change)
+    if not result:
+        logger.warning(
+            f'failed updating config on {node.name()}. result: {result}')
+
+
 def update_config_cmd(args, traffic_generator, nodes):
     nodes = nodes + [traffic_generator]
-    results = pmap(
-        lambda node: node.neard_update_config(args.set),
+    pmap(
+        lambda node: do_update_config(node, args.set),
         nodes,
     )
-    if not all(results):
-        logger.warning('failed to update configs for some nodes')
-        return
 
 
 def start_nodes_cmd(args, traffic_generator, nodes):
