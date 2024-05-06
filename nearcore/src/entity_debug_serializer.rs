@@ -207,9 +207,9 @@ impl<'a> Serializer for EntitySerializer<'a> {
         Ok(())
     }
 
-    fn serialize_some<T: ?Sized>(self, value: &T) -> Result<Self::Ok, Self::Error>
+    fn serialize_some<T>(self, value: &T) -> Result<Self::Ok, Self::Error>
     where
-        T: Serialize,
+        T: Serialize + ?Sized,
     {
         value.serialize(self).unwrap();
         Ok(())
@@ -234,19 +234,19 @@ impl<'a> Serializer for EntitySerializer<'a> {
         Ok(())
     }
 
-    fn serialize_newtype_struct<T: ?Sized>(
+    fn serialize_newtype_struct<T>(
         self,
         _name: &'static str,
         value: &T,
     ) -> Result<Self::Ok, Self::Error>
     where
-        T: Serialize,
+        T: Serialize + ?Sized,
     {
         value.serialize(self).unwrap();
         Ok(())
     }
 
-    fn serialize_newtype_variant<T: ?Sized>(
+    fn serialize_newtype_variant<T>(
         self,
         _name: &'static str,
         _variant_index: u32,
@@ -254,7 +254,7 @@ impl<'a> Serializer for EntitySerializer<'a> {
         value: &T,
     ) -> Result<Self::Ok, Self::Error>
     where
-        T: Serialize,
+        T: Serialize + ?Sized,
     {
         let mut child = self.child_struct(None);
         value.serialize(child.child(variant.to_owned())).unwrap();
@@ -315,9 +315,9 @@ impl<'a> SerializeSeq for EntitySerializerStruct<'a> {
     type Ok = ();
     type Error = std::fmt::Error;
 
-    fn serialize_element<T: ?Sized>(&mut self, value: &T) -> Result<(), Self::Error>
+    fn serialize_element<T>(&mut self, value: &T) -> Result<(), Self::Error>
     where
-        T: Serialize,
+        T: Serialize + ?Sized,
     {
         value.serialize(self.push()).unwrap();
         Ok(())
@@ -334,14 +334,10 @@ impl<'a> SerializeMap for EntitySerializerStruct<'a> {
 
     type Error = std::fmt::Error;
 
-    fn serialize_entry<K: ?Sized, V: ?Sized>(
-        &mut self,
-        key: &K,
-        value: &V,
-    ) -> Result<(), Self::Error>
+    fn serialize_entry<K, V>(&mut self, key: &K, value: &V) -> Result<(), Self::Error>
     where
-        K: Serialize,
-        V: Serialize,
+        K: Serialize + ?Sized,
+        V: Serialize + ?Sized,
     {
         let mut key_data = EntitySerializerData::new();
         key.serialize(key_data.serializer("".to_owned())).unwrap();
@@ -358,16 +354,16 @@ impl<'a> SerializeMap for EntitySerializerStruct<'a> {
         Ok(())
     }
 
-    fn serialize_key<T: ?Sized>(&mut self, _key: &T) -> Result<(), Self::Error>
+    fn serialize_key<T>(&mut self, _key: &T) -> Result<(), Self::Error>
     where
-        T: Serialize,
+        T: Serialize + ?Sized,
     {
         unreachable!()
     }
 
-    fn serialize_value<T: ?Sized>(&mut self, _value: &T) -> Result<(), Self::Error>
+    fn serialize_value<T>(&mut self, _value: &T) -> Result<(), Self::Error>
     where
-        T: Serialize,
+        T: Serialize + ?Sized,
     {
         unreachable!()
     }
@@ -378,13 +374,9 @@ impl<'a> SerializeStruct for EntitySerializerStruct<'a> {
 
     type Error = std::fmt::Error;
 
-    fn serialize_field<T: ?Sized>(
-        &mut self,
-        key: &'static str,
-        value: &T,
-    ) -> Result<(), Self::Error>
+    fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<(), Self::Error>
     where
-        T: Serialize,
+        T: Serialize + ?Sized,
     {
         value.serialize(self.child(key.to_owned())).unwrap();
         Ok(())
@@ -401,9 +393,9 @@ impl<'a> SerializeTuple for EntitySerializerStruct<'a> {
 
     type Error = std::fmt::Error;
 
-    fn serialize_element<T: ?Sized>(&mut self, value: &T) -> Result<(), Self::Error>
+    fn serialize_element<T>(&mut self, value: &T) -> Result<(), Self::Error>
     where
-        T: Serialize,
+        T: Serialize + ?Sized,
     {
         value.serialize(self.push()).unwrap();
         Ok(())
@@ -420,9 +412,9 @@ impl<'a> SerializeTupleStruct for EntitySerializerStruct<'a> {
 
     type Error = std::fmt::Error;
 
-    fn serialize_field<T: ?Sized>(&mut self, value: &T) -> Result<(), Self::Error>
+    fn serialize_field<T>(&mut self, value: &T) -> Result<(), Self::Error>
     where
-        T: Serialize,
+        T: Serialize + ?Sized,
     {
         value.serialize(self.push()).unwrap();
         Ok(())
@@ -439,9 +431,9 @@ impl<'a> SerializeTupleVariant for EntitySerializerStruct<'a> {
 
     type Error = std::fmt::Error;
 
-    fn serialize_field<T: ?Sized>(&mut self, value: &T) -> Result<(), Self::Error>
+    fn serialize_field<T>(&mut self, value: &T) -> Result<(), Self::Error>
     where
-        T: Serialize,
+        T: Serialize + ?Sized,
     {
         value.serialize(self.push()).unwrap();
         Ok(())
@@ -458,13 +450,9 @@ impl<'a> SerializeStructVariant for EntitySerializerStruct<'a> {
 
     type Error = std::fmt::Error;
 
-    fn serialize_field<T: ?Sized>(
-        &mut self,
-        key: &'static str,
-        value: &T,
-    ) -> Result<(), Self::Error>
+    fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<(), Self::Error>
     where
-        T: Serialize,
+        T: Serialize + ?Sized,
     {
         value.serialize(self.child(key.to_owned())).unwrap();
         Ok(())
