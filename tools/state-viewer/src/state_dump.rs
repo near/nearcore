@@ -632,7 +632,7 @@ mod test {
         validate_genesis(&new_genesis).unwrap();
     }
 
-    // TODO(congestion_control) - fix and re-enable this test
+    // TODO(congestion_control) - integration with resharding
     #[ignore]
     #[test]
     fn test_dump_state_shard_upgrade() {

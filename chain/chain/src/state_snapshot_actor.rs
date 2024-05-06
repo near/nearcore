@@ -1,9 +1,6 @@
-use actix::{Actor, Addr, Arbiter, ArbiterHandle, AsyncContext, Context};
-use near_async::actix::AddrWithAutoSpanContextExt;
-use near_async::messaging::{CanSend, IntoMultiSender, Sender};
+use near_async::messaging::{CanSend, Handler, Sender};
 use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
-use near_o11y::{handler_debug_span, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
@@ -17,14 +14,14 @@ use std::sync::Arc;
 /// There are three main handlers in StateSnapshotActor and they are called in sequence
 /// 1. [`DeleteAndMaybeCreateSnapshotRequest`]: deletes a snapshot and optionally calls CreateSnapshotRequest.
 /// 2. [`CreateSnapshotRequest`]: creates a new snapshot.
-pub struct StateSnapshotActions {
+pub struct StateSnapshotActor {
     flat_storage_manager: FlatStorageManager,
     network_adapter: PeerManagerAdapter,
     tries: ShardTries,
     self_sender: StateSnapshotSenderForStateSnapshot,
 }
 
-impl StateSnapshotActions {
+impl StateSnapshotActor {
     pub fn new(
         flat_storage_manager: FlatStorageManager,
         network_adapter: PeerManagerAdapter,
@@ -33,34 +30,6 @@ impl StateSnapshotActions {
     ) -> Self {
         Self { flat_storage_manager, network_adapter, tries, self_sender }
     }
-}
-
-/// Actor that runs `StateSnapshotActions` in an Actix thread.
-pub struct StateSnapshotActor {
-    actions: StateSnapshotActions,
-}
-
-impl StateSnapshotActor {
-    pub fn spawn(
-        flat_storage_manager: FlatStorageManager,
-        network_adapter: PeerManagerAdapter,
-        tries: ShardTries,
-    ) -> (Addr<Self>, ArbiterHandle) {
-        let arbiter = Arbiter::new().handle();
-        let addr = Self::start_in_arbiter(&arbiter, |ctx| Self {
-            actions: StateSnapshotActions::new(
-                flat_storage_manager,
-                network_adapter,
-                tries,
-                ctx.address().with_auto_span_context().into_multi_sender(),
-            ),
-        });
-        (addr, arbiter)
-    }
-}
-
-impl Actor for StateSnapshotActor {
-    type Context = Context<Self>;
 }
 
 #[derive(actix::Message, Debug)]
@@ -83,7 +52,7 @@ pub struct CreateSnapshotRequest {
     block: Block,
 }
 
-impl StateSnapshotActions {
+impl StateSnapshotActor {
     pub fn handle_delete_and_maybe_create_snapshot_request(
         &mut self,
         msg: DeleteAndMaybeCreateSnapshotRequest,
@@ -135,31 +104,17 @@ impl StateSnapshotActions {
     }
 }
 
-impl actix::Handler<WithSpanContext<DeleteAndMaybeCreateSnapshotRequest>> for StateSnapshotActor {
-    type Result = ();
-
+impl Handler<DeleteAndMaybeCreateSnapshotRequest> for StateSnapshotActor {
     #[perf]
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<DeleteAndMaybeCreateSnapshotRequest>,
-        _: &mut Self::Context,
-    ) -> Self::Result {
-        let (_span, msg) = handler_debug_span!(target: "state_snapshot", msg);
-        self.actions.handle_delete_and_maybe_create_snapshot_request(msg)
+    fn handle(&mut self, msg: DeleteAndMaybeCreateSnapshotRequest) {
+        self.handle_delete_and_maybe_create_snapshot_request(msg)
     }
 }
 
-impl actix::Handler<WithSpanContext<CreateSnapshotRequest>> for StateSnapshotActor {
-    type Result = ();
-
+impl Handler<CreateSnapshotRequest> for StateSnapshotActor {
     #[perf]
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<CreateSnapshotRequest>,
-        _: &mut Self::Context,
-    ) -> Self::Result {
-        let (_span, msg) = handler_debug_span!(target: "state_snapshot", msg);
-        self.actions.handle_create_snapshot_request(msg)
+    fn handle(&mut self, msg: CreateSnapshotRequest) {
+        self.handle_create_snapshot_request(msg)
     }
 }
 

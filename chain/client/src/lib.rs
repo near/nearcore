@@ -21,7 +21,6 @@ pub use near_client_primitives::debug::DebugStatus;
 pub use near_network::client::{
     BlockApproval, BlockResponse, ProcessTxRequest, ProcessTxResponse, SetNetworkInfo,
 };
-pub use stateless_validation::partial_witness::partial_witness_actions::PartialWitnessActions;
 pub use stateless_validation::partial_witness::partial_witness_actor::{
     DistributeStateWitnessRequest, PartialWitnessActor, PartialWitnessSenderForClientMessage,
 };
@@ -41,8 +40,7 @@ mod info;
 mod metrics;
 mod stateless_validation;
 pub mod sync;
-pub mod sync_jobs_actions;
-mod sync_jobs_actor;
+pub mod sync_jobs_actor;
 pub mod test_utils;
 #[cfg(test)]
 mod tests;
