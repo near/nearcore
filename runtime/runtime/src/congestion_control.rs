@@ -56,9 +56,7 @@ impl<'a> ReceiptSink<'a> {
         outgoing_receipts: &'a mut Vec<Receipt>,
     ) -> Result<Self, StorageError> {
         if let Some(ref mut congestion_info) = congestion_info {
-            debug_assert!(
-                protocol_version >= ProtocolFeature::CongestionControl.protocol_version()
-            );
+            debug_assert!(ProtocolFeature::CongestionControl.enabled(protocol_version));
             let outgoing_buffers = ShardsOutgoingReceiptBuffer::load(trie)?;
 
             let outgoing_limit: HashMap<ShardId, Gas> = apply_state
@@ -76,7 +74,7 @@ impl<'a> ReceiptSink<'a> {
                 outgoing_buffers,
             }))
         } else {
-            debug_assert!(protocol_version < ProtocolFeature::CongestionControl.protocol_version());
+            debug_assert!(!ProtocolFeature::CongestionControl.enabled(protocol_version));
             Ok(ReceiptSink::V1(ReceiptSinkV1 { outgoing_receipts: outgoing_receipts }))
         }
     }

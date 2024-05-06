@@ -2591,7 +2591,7 @@ fn test_refund_receipts_processing() {
 fn test_delayed_receipt_count_limit() {
     init_test_logger();
 
-    if ProtocolFeature::CongestionControl.protocol_version() >= PROTOCOL_VERSION {
+    if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
         // congestion control replaces the delayed receipt count limit, making this test irrelevant
         return;
     }

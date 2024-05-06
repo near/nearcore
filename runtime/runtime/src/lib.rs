@@ -1829,7 +1829,7 @@ impl ApplyState {
         &self,
         protocol_version: ProtocolVersion,
     ) -> Result<Option<CongestionInfo>, RuntimeError> {
-        if protocol_version >= ProtocolFeature::CongestionControl.protocol_version() {
+        if ProtocolFeature::CongestionControl.enabled(protocol_version) {
             let congestion_info = self
                 .congestion_info
                 .get(&self.shard_id)

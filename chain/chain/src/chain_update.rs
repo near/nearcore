@@ -254,7 +254,7 @@ impl<'a> ChainUpdate<'a> {
                         balance_split
                     };
 
-                    if protocol_version >= ProtocolFeature::CongestionControl.protocol_version() {
+                    if ProtocolFeature::CongestionControl.enabled(protocol_version) {
                         // This will likely break resharding integration tests
                         // when congestion control is enabled. Let's mark them
                         // ignore when that happens.
