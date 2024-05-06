@@ -536,12 +536,9 @@ mod tests {
         shard_uid: ShardUId,
         state_root: CryptoHash,
     ) {
-        let congestion_info =
-            if PROTOCOL_VERSION >= ProtocolFeature::CongestionControl.protocol_version() {
-                Some(CongestionInfo::default())
-            } else {
-                None
-            };
+        let congestion_info = ProtocolFeature::CongestionControl
+            .enabled(PROTOCOL_VERSION)
+            .then(CongestionInfo::default);
 
         let chunk_extra = ChunkExtra::new(
             PROTOCOL_VERSION,

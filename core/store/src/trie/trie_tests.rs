@@ -440,12 +440,9 @@ mod trie_storage_tests {
         let recorded_normal = trie.recorded_storage();
 
         let store = create_test_store();
-        let congestion_info =
-            if PROTOCOL_VERSION >= ProtocolFeature::CongestionControl.protocol_version() {
-                Some(CongestionInfo::default())
-            } else {
-                None
-            };
+        let congestion_info = ProtocolFeature::CongestionControl
+            .enabled(PROTOCOL_VERSION)
+            .then(CongestionInfo::default);
         // ChunkExtra is needed for in-memory trie loading code to query state roots.
         let chunk_extra = ChunkExtra::new(
             PROTOCOL_VERSION,

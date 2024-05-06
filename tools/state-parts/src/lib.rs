@@ -4,7 +4,7 @@ use near_network::raw::{ConnectError, Connection, DirectMessage, Message};
 use near_network::types::HandshakeFailureReason;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::types::{AccountId, BlockHeight, ShardId};
+use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::ProtocolVersion;
 use sha2::Digest;
 use sha2::Sha256;
@@ -68,21 +68,6 @@ fn handle_message(
         _ => {}
     };
     Ok(())
-}
-
-#[derive(Debug)]
-struct PeerIdentifier {
-    account_id: Option<AccountId>,
-    peer_id: PeerId,
-}
-
-impl std::fmt::Display for PeerIdentifier {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        match &self.account_id {
-            Some(a) => a.fmt(f),
-            None => self.peer_id.fmt(f),
-        }
-    }
 }
 
 async fn state_parts_from_node(

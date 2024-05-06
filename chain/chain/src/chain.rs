@@ -624,7 +624,7 @@ impl Chain {
     }
 
     fn get_genesis_congestion_info(protocol_version: ProtocolVersion) -> Option<CongestionInfo> {
-        if protocol_version >= ProtocolFeature::CongestionControl.protocol_version() {
+        if ProtocolFeature::CongestionControl.enabled(protocol_version) {
             // TODO(congestion_control) - properly initialize
             Some(CongestionInfo::default())
         } else {

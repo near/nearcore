@@ -209,7 +209,7 @@ fn one_iter(
                             .insert(block_hash, (target_height, last_final_height, block_hash));
                         hash_to_prev_hash.insert(block_hash, parent_hash);
 
-                        assert!(chain_lengths.get(&block_hash).is_none());
+                        assert!(!chain_lengths.contains_key(&block_hash));
                         let prev_length = *chain_lengths.get(&ds.get_tip().0).unwrap();
                         chain_lengths.insert(block_hash, prev_length + 1);
 

@@ -1087,7 +1087,7 @@ impl VMContext {
     }
 }
 
-///
+/// Signature/ABI of the trampoline.
 pub type VMTrampoline = unsafe extern "C" fn(
     *mut VMContext,        // callee vmctx
     *const VMFunctionBody, // function we're actually calling

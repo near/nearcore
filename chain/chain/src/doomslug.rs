@@ -1174,7 +1174,7 @@ mod tests {
         // As we update the last of the three approvals, the tracker for the first block should be completely removed
         tracker.process_approval(&a2_3, &stakes, DoomslugThresholdMode::TwoThirds);
 
-        assert!(tracker.approval_trackers.get(&ApprovalInner::Skip(1)).is_none());
+        assert!(!tracker.approval_trackers.contains_key(&ApprovalInner::Skip(1)));
 
         // Check the approved and endorsed stake for the new block, and also ensure that processing one of the same approvals
         // again works fine
