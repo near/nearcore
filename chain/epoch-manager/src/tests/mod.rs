@@ -22,9 +22,7 @@ use near_primitives::stateless_validation::{
     ChunkStateTransition, ChunkStateWitness, EncodedChunkStateWitness,
     SignedEncodedChunkStateWitness,
 };
-use near_primitives::types::ValidatorKickoutReason::{
-    NotEnoughBlocks, NotEnoughChunks, NotEnoughStake,
-};
+use near_primitives::types::ValidatorKickoutReason::{NotEnoughBlocks, NotEnoughChunks};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::ProtocolFeature::SimpleNightshade;
 use near_primitives::version::PROTOCOL_VERSION;
