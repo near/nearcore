@@ -648,7 +648,7 @@ fn make_configs(
         .collect();
     for config in cfgs.iter_mut() {
         config.outbound_disabled = !enable_outbound;
-        config.peer_store.boot_nodes = boot_nodes.clone();
+        config.peer_store.boot_nodes.clone_from(&boot_nodes);
     }
     cfgs
 }

@@ -818,7 +818,7 @@ pub mod chunk_extra {
             balance_burnt: Balance,
             congestion_info: Option<CongestionInfo>,
         ) -> Self {
-            if protocol_version >= ProtocolFeature::CongestionControl.protocol_version() {
+            if ProtocolFeature::CongestionControl.enabled(protocol_version) {
                 assert!(congestion_info.is_some());
                 Self::V3(ChunkExtraV3 {
                     state_root: *state_root,
@@ -1092,6 +1092,13 @@ pub trait EpochInfoProvider {
 
     /// Get the chain_id of the chain this epoch belongs to
     fn chain_id(&self) -> String;
+
+    /// Which shard the account belongs to in the given epoch.
+    fn account_id_to_shard_id(
+        &self,
+        account_id: &AccountId,
+        epoch_id: &EpochId,
+    ) -> Result<ShardId, EpochError>;
 }
 
 /// Mode of the trie cache.

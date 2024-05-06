@@ -10,7 +10,7 @@ use actix_rt::ArbiterHandle;
 use anyhow::Context;
 use cold_storage::ColdStoreLoopHandle;
 use near_async::actix::AddrWithAutoSpanContextExt;
-use near_async::actix_wrapper::spawn_actix_actor;
+use near_async::actix_wrapper::{spawn_actix_actor, ActixWrapper};
 use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::time::{self, Clock};
 pub use near_chain::runtime::NightshadeRuntime;
@@ -303,7 +303,7 @@ pub fn start_with_config_and_synchronization(
 
     let cold_store_loop_handle = spawn_cold_store_loop(&config, &storage, epoch_manager.clone())?;
 
-    let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
+    let telemetry = ActixWrapper::new(TelemetryActor::new(config.telemetry_config.clone())).start();
     let chain_genesis = ChainGenesis::new(&config.genesis.config);
     let genesis_block =
         Chain::make_genesis_block(epoch_manager.as_ref(), runtime.as_ref(), &chain_genesis)?;
@@ -395,7 +395,7 @@ pub fn start_with_config_and_synchronization(
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         config.validator_signer.clone(),
-        telemetry,
+        telemetry.with_auto_span_context().into_sender(),
         Some(snapshot_callbacks),
         shutdown_signal,
         adv,
