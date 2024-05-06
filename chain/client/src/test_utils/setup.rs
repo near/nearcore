@@ -7,7 +7,7 @@ use super::peer_manager_mock::PeerManagerMock;
 use crate::stateless_validation::partial_witness::partial_witness_actor::{
     PartialWitnessActor, PartialWitnessSenderForClient,
 };
-use crate::{start_view_client, Client, ClientActor, SyncAdapter, SyncStatus, ViewClientActor};
+use crate::{Client, ClientActor, SyncAdapter, SyncStatus, ViewClientActor, ViewClientActorInner};
 use actix::{Actor, Addr, AsyncContext, Context};
 use futures::{future, FutureExt};
 use near_async::actix::AddrWithAutoSpanContextExt;
@@ -149,7 +149,7 @@ pub fn setup(
 
     let adv = crate::adversarial::Controls::default();
 
-    let view_client_addr = start_view_client(
+    let view_client_addr = ViewClientActorInner::spawn_actix_actor(
         clock.clone(),
         Some(signer.validator_id().clone()),
         chain_genesis.clone(),
@@ -296,7 +296,7 @@ pub fn setup_only_view(
 
     let adv = crate::adversarial::Controls::default();
 
-    start_view_client(
+    ViewClientActorInner::spawn_actix_actor(
         clock,
         Some(signer.validator_id().clone()),
         chain_genesis,
