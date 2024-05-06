@@ -797,7 +797,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 result.limited_by = Some(PrepareTransactionsLimit::Size);
                 break;
             }
-            if protocol_version < ProtocolFeature::CongestionControl.protocol_version() {
+            if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
                 // Keep this for the upgrade phase, afterwards it can be
                 // removed. It does not need to be kept because it does not
                 // affect replayability.
@@ -819,7 +819,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 while let Some(tx) = iter.next() {
                     num_checked_transactions += 1;
 
-                    if ProtocolFeature::CongestionControl.protocol_version() <= protocol_version {
+                    if ProtocolFeature::CongestionControl.enabled(protocol_version) {
                         let receiving_shard = EpochManagerAdapter::account_id_to_shard_id(
                             self.epoch_manager.as_ref(),
                             &tx.transaction.receiver_id,
@@ -1306,7 +1306,7 @@ fn chunk_tx_gas_limit(
     shard_id: u64,
     gas_limit: u64,
 ) -> u64 {
-    if ProtocolFeature::CongestionControl.protocol_version() <= protocol_version {
+    if ProtocolFeature::CongestionControl.enabled(protocol_version) {
         if let Some(own_congestion) = prev_block.congestion_info.get(&shard_id) {
             own_congestion.process_tx_limit()
         } else {

@@ -239,6 +239,10 @@ impl ProtocolFeature {
             ProtocolFeature::CongestionControl => 142,
         }
     }
+
+    pub fn enabled(&self, protocol_version: ProtocolVersion) -> bool {
+        protocol_version >= self.protocol_version()
+    }
 }
 
 /// Current protocol version used on the mainnet.
