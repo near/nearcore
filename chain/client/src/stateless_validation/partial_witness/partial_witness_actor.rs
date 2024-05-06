@@ -125,7 +125,7 @@ impl PartialWitnessActor {
             .ordered_chunk_validators();
 
         tracing::debug!(
-            target: "stateless_validation",
+            target: "client",
             chunk_hash=?chunk_header.chunk_hash(),
             ?chunk_validators,
             "distribute_chunk_state_witness",
