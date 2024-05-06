@@ -271,8 +271,8 @@ impl TrieQueueIndices {
         self.next_available_index - self.first_index
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.next_available_index <= self.first_index
+    pub fn is_default(&self) -> bool {
+        self.next_available_index == 0
     }
 }
 
