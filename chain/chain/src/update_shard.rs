@@ -173,7 +173,7 @@ pub fn apply_new_chunk(
     let _span = tracing::debug_span!(
         target: "chain",
         parent: parent_span,
-        "new_chunk",
+        "apply_new_chunk",
         shard_id)
     .entered();
     let gas_limit = chunk_header.gas_limit();
@@ -236,7 +236,7 @@ pub fn apply_old_chunk(
     let _span = tracing::debug_span!(
         target: "chain",
         parent: parent_span,
-        "existing_chunk",
+        "apply_old_chunk",
         shard_id)
     .entered();
 
@@ -295,7 +295,7 @@ fn apply_resharding(
     let _span = tracing::debug_span!(
         target: "chain",
         parent: parent_span,
-        "resharding",
+        "apply_resharding",
         shard_id,
         ?shard_uid)
     .entered();

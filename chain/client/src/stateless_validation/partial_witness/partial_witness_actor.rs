@@ -125,10 +125,10 @@ impl PartialWitnessActor {
             .ordered_chunk_validators();
 
         tracing::debug!(
-            target: "client",
-            "Sending chunk state witness for chunk {:?} to chunk validators {:?}",
-            chunk_header.chunk_hash(),
-            chunk_validators,
+            target: "stateless_validation",
+            chunk_hash=?chunk_header.chunk_hash(),
+            ?chunk_validators,
+            "distribute_chunk_state_witness",
         );
 
         let witness_bytes = compress_witness(&state_witness)?;

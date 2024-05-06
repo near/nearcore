@@ -606,7 +606,7 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
         target: "client",
         chunk_hash=?chunk_hash,
         ?block_producers,
-        "Chunk validated successfully, sending endorsement",
+        "send_chunk_endorsement",
     );
 
     let endorsement = ChunkEndorsement::new(chunk_header.chunk_hash(), signer);
