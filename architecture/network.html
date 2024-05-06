@@ -546,7 +546,7 @@ PeerManager (as <code>RoutedMessageFrom</code>), which would then check if the m
 for the current <code>PeerActor</code>. (if yes, it would pass it for the client) and if
 not - it would pass it along the network.</p>
 <p>All these messages are handled by <code>receive_client_message</code> in Peer.
-(<code>NetworkClientMessags</code>) - and transferred to <code>ClientActor</code> in
+(<code>NetworkClientMessages</code>) - and transferred to <code>ClientActor</code> in
 (<code>chain/client/src/client_actor.rs</code>)</p>
 <p><code>NetworkRequests</code> to <code>PeerManager</code> actor trigger the <code>RawRoutedMessage</code> for
 messages that are meant to be sent to another <code>peer</code>.</p>
