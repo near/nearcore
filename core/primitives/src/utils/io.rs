@@ -1,24 +1,24 @@
 use std::io::{self, Read, Write};
 
 /// Wrapper for Write that counts number of bytes written.
-/// It also accepts an optional limit for the total number of bytes written;
+/// It also allows setting a hard-limit (by default max u64 value) for the total number of bytes written;
 /// if this limit is exceeded, write operation raises an io::Error of kind WriteZero.
 pub struct CountingWrite<W: Write> {
     inner: W,
     /// Total number of bytes written.
     total_written: u64,
-    /// If present, the total number of bytes allowed to be written.
+    /// The total number of bytes allowed to be written, by default it is the max u64 value.
     /// If this limit is reached, the wirte operation will return an error.
-    limit: Option<u64>,
+    hard_limit: u64,
 }
 
 impl<W: Write> CountingWrite<W> {
-    pub fn new_with_limit(inner: W, limit: bytesize::ByteSize) -> Self {
-        Self { inner, total_written: 0, limit: Some(limit.as_u64()) }
+    pub fn new_with_limit(inner: W, hard_limit: bytesize::ByteSize) -> Self {
+        Self { inner, total_written: 0, hard_limit: hard_limit.as_u64() }
     }
 
     pub fn new(inner: W) -> Self {
-        Self { inner, total_written: 0, limit: None }
+        Self { inner, total_written: 0, hard_limit: u64::MAX }
     }
 
     pub fn bytes_written(&self) -> bytesize::ByteSize {
@@ -32,13 +32,11 @@ impl<W: Write> CountingWrite<W> {
 
 impl<W: Write> Write for CountingWrite<W> {
     fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
-        if let Some(limit) = self.limit {
-            if self.total_written.saturating_add(buffer.len() as u64) > limit {
-                return Err(io::Error::new(
-                    io::ErrorKind::WriteZero,
-                    format!("Exceeded the limit of {} bytes", limit),
-                ));
-            }
+        if self.total_written.saturating_add(buffer.len() as u64) > self.hard_limit {
+            return Err(io::Error::new(
+                io::ErrorKind::WriteZero,
+                format!("Exceeded the limit of {} bytes", self.hard_limit),
+            ));
         }
         let last_written = self.inner.write(buffer)?;
         self.total_written = self.total_written.saturating_add(last_written as u64);
@@ -51,24 +49,24 @@ impl<W: Write> Write for CountingWrite<W> {
 }
 
 /// Wrapper for Read that counts number of bytes read.
-/// It also accepts an optional limit for the total number of bytes read;
+/// It also allows setting a hard-limit (by default max u64 value) for the total number of bytes read;
 /// if this limit is exceeded, read operation raises an io::Error of kind WriteZero.
 pub struct CountingRead<R: Read> {
     inner: R,
     /// Total number of bytes read.
     total_read: u64,
-    /// If present, the total number of bytes allowed to be read.
+    /// The total number of bytes allowed to be read, by default it is the max u64 value.
     /// If this limit is reached, the read operation will return an error.
-    limit: Option<u64>,
+    hard_limit: u64,
 }
 
 impl<R: Read> CountingRead<R> {
-    pub fn new_with_limit(inner: R, limit: bytesize::ByteSize) -> Self {
-        Self { inner, total_read: 0, limit: Some(limit.as_u64()) }
+    pub fn new_with_limit(inner: R, hard_limit: bytesize::ByteSize) -> Self {
+        Self { inner, total_read: 0, hard_limit: hard_limit.as_u64() }
     }
 
     pub fn new(inner: R) -> Self {
-        Self { inner, total_read: 0, limit: None }
+        Self { inner, total_read: 0, hard_limit: u64::MAX }
     }
 
     pub fn bytes_read(&self) -> bytesize::ByteSize {
@@ -84,13 +82,11 @@ impl<R: Read> Read for CountingRead<R> {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         let last_read = self.inner.read(buffer)?;
         self.total_read = self.total_read.saturating_add(last_read as u64);
-        if let Some(limit) = self.limit {
-            if self.total_read > limit {
-                return Err(io::Error::new(
-                    io::ErrorKind::WriteZero,
-                    format!("Exceeded the limit of {} bytes", limit),
-                ));
-            }
+        if self.total_read > self.hard_limit {
+            return Err(io::Error::new(
+                io::ErrorKind::WriteZero,
+                format!("Exceeded the limit of {} bytes", self.hard_limit),
+            ));
         }
         Ok(last_read)
     }

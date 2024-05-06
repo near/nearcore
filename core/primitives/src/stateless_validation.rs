@@ -172,7 +172,7 @@ impl EncodedChunkStateWitness {
                 // Here we convert it to a more descriptive error to make debugging easier.
                 let err = if err.kind() == std::io::ErrorKind::WriteZero {
                     std::io::Error::other(format!(
-                        "Decompressed data exceeded limit of {limit} bytes: {err}"
+                        "Decompressed data exceeded limit of {limit}: {err}"
                     ))
                 } else {
                     err
@@ -563,7 +563,7 @@ mod tests {
         assert_eq!(error.kind(), ErrorKind::Other);
         assert_eq!(
             error.to_string(),
-            "Decompressed data exceeded limit of 32 B bytes: Exceeded the limit of 32 bytes"
+            "Decompressed data exceeded limit of 32 B: Exceeded the limit of 32 bytes"
         );
     }
 
