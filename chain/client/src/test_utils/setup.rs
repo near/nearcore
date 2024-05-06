@@ -11,6 +11,7 @@ use crate::{start_view_client, Client, ClientActor, SyncAdapter, SyncStatus, Vie
 use actix::{Actor, Addr, AsyncContext, Context};
 use futures::{future, FutureExt};
 use near_async::actix::AddrWithAutoSpanContextExt;
+use near_async::actix_wrapper::{spawn_actix_actor, ActixWrapper};
 use near_async::messaging::{noop, CanSend, IntoMultiSender, IntoSender, LateBoundSender, Sender};
 use near_async::time::{Clock, Duration, Instant, Utc};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
@@ -130,7 +131,7 @@ pub fn setup(
     let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
 
     let signer = Arc::new(create_test_signer(account_id.as_str()));
-    let telemetry = TelemetryActor::default().start();
+    let telemetry = ActixWrapper::new(TelemetryActor::default()).start();
     let config = {
         let mut base = ClientConfig::test(
             skip_sync_wait,
@@ -177,13 +178,13 @@ pub fn setup(
         SyncAdapter::actix_actor_maker(),
     )));
 
-    let (partial_witness_addr, _) = PartialWitnessActor::spawn(
+    let (partial_witness_addr, _) = spawn_actix_actor(PartialWitnessActor::new(
         clock.clone(),
         network_adapter.clone(),
         noop().into_multi_sender(),
         signer.clone(),
         epoch_manager.clone(),
-    );
+    ));
     let partial_witness_adapter = partial_witness_addr.with_auto_span_context();
     let client = Client::new(
         clock.clone(),
@@ -211,7 +212,7 @@ pub fn setup(
         PeerId::new(PublicKey::empty(KeyType::ED25519)),
         network_adapter,
         Some(signer),
-        telemetry,
+        telemetry.with_auto_span_context().into_sender(),
         ctx,
         None,
         adv,
@@ -281,7 +282,7 @@ pub fn setup_only_view(
     .unwrap();
 
     let signer = Arc::new(create_test_signer(account_id.as_str()));
-    TelemetryActor::default().start();
+    ActixWrapper::new(TelemetryActor::default()).start();
     let config = ClientConfig::test(
         skip_sync_wait,
         min_block_prod_time,

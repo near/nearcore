@@ -13,6 +13,7 @@ import requests
 from rc import run, pmap, gcloud
 
 import data
+import os
 from cluster import GCloudNode
 from configured_logger import logger
 from key import Key
@@ -25,7 +26,7 @@ KEY_TARGET_ENV_VAR = 'NEAR_PYTEST_KEY_TARGET'
 NODE_SSH_KEY_PATH = None
 NODE_USERNAME = 'ubuntu'
 NUM_ACCOUNTS = 26 * 2
-PROJECT = 'near-mocknet'
+PROJECT = os.getenv('MOCKNET_PROJECT', 'nearone-mocknet')
 PUBLIC_KEY = 'ed25519:76NVkDErhbP1LGrSAf5Db6BsFJ6LBw6YVA4BsfTBohmN'
 SECRET_KEY = 'ed25519:3cCk8KUWBySGCxBcn1syMoY5u73wx5eaPLRbQcMi23LwBA3aLsqEbA33Ww1bsJaFrchmDciGe9otdn45SrDSkow2'
 TX_OUT_FILE = '/home/ubuntu/tx_events'
