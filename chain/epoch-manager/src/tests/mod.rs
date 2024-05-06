@@ -748,14 +748,8 @@ fn test_validator_reward_one_validator() {
 
     let epoch_info = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap();
     check_validators(&epoch_info, &[("test2", stake_amount + test2_reward)]);
-    check_fishermen(&epoch_info, &[("test1", test1_stake_amount)]);
-    check_stake_change(
-        &epoch_info,
-        vec![
-            ("test1".parse().unwrap(), test1_stake_amount),
-            ("test2".parse().unwrap(), stake_amount + test2_reward),
-        ],
-    );
+    check_fishermen(&epoch_info, &[]);
+    check_stake_change(&epoch_info, vec![("test2".parse().unwrap(), stake_amount + test2_reward)]);
     check_kickout(&epoch_info, &[]);
     check_reward(
         &epoch_info,
@@ -1705,7 +1699,7 @@ fn test_fishermen() {
     );
     let epoch_info = em.get_epoch_info(&EpochId::default()).unwrap();
     check_validators(&epoch_info, &[("test1", stake_amount), ("test2", stake_amount)]);
-    check_fishermen(&epoch_info, &[("test3", fishermen_threshold)]);
+    check_fishermen(&epoch_info, &[]);
     check_stake_change(
         &epoch_info,
         vec![
@@ -1867,7 +1861,7 @@ fn test_kickout_set() {
     record_block(&mut epoch_manager, h[3], h[4], 4, vec![]);
     let epoch_info = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap();
     check_validators(&epoch_info, &[("test1", stake_amount), ("test2", stake_amount)]);
-    check_fishermen(&epoch_info, &[("test3", 10)]);
+    check_fishermen(&epoch_info, &[]);
     check_kickout(&epoch_info, &[]);
     check_stake_change(
         &epoch_info,
@@ -2159,6 +2153,7 @@ fn check_validators(epoch_info: &EpochInfo, expected_validators: &[(&str, u128)]
 }
 
 fn check_fishermen(epoch_info: &EpochInfo, expected_fishermen: &[(&str, u128)]) {
+    assert_eq!(epoch_info.fishermen_iter().len(), expected_fishermen.len());
     for (v, (account_id, stake)) in epoch_info.fishermen_iter().zip(expected_fishermen.into_iter())
     {
         assert_eq!(v.account_id(), *account_id);
@@ -2202,7 +2197,7 @@ fn test_fisherman_kickout() {
 
     let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[1])).unwrap();
     check_validators(&epoch_info2, &[("test2", stake_amount), ("test3", stake_amount)]);
-    check_fishermen(&epoch_info2, &[("test1", 148)]);
+    check_fishermen(&epoch_info2, &[]);
     check_stake_change(
         &epoch_info2,
         vec![

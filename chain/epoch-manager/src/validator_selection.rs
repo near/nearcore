@@ -868,9 +868,9 @@ mod tests {
         )
         .unwrap();
 
-        // stake below validator threshold, but above fishermen threshold become fishermen
-        let fishermen: Vec<_> = epoch_info.fishermen_iter().map(|v| v.take_account_id()).collect();
-        assert_eq!(fishermen, vec!["test4"]);
+        let fishermen: Vec<AccountId> =
+            epoch_info.fishermen_iter().map(|v| v.take_account_id()).collect();
+        assert!(fishermen.is_empty());
 
         // too low stakes are kicked out
         let kickout = epoch_info.validator_kickout();
