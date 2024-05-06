@@ -10,6 +10,12 @@ pub struct ActixWrapper<T> {
     actor: T,
 }
 
+impl<T> ActixWrapper<T> {
+    pub fn new(actor: T) -> Self {
+        Self { actor }
+    }
+}
+
 impl<T> actix::Actor for ActixWrapper<T>
 where
     T: Unpin + 'static,
@@ -38,7 +44,7 @@ pub fn spawn_actix_actor<T>(actor: T) -> (actix::Addr<ActixWrapper<T>>, actix::A
 where
     T: Unpin + Send + 'static,
 {
-    let actix_wrapper = ActixWrapper { actor };
+    let actix_wrapper = ActixWrapper::new(actor);
     let arbiter = actix::Arbiter::new().handle();
     let addr = ActixWrapper::<T>::start_in_arbiter(&arbiter, |_| actix_wrapper);
     (addr, arbiter)

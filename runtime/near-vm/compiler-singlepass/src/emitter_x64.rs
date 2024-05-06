@@ -84,12 +84,9 @@ pub(crate) trait Emitter {
 
     fn finalize_function(&mut self) {}
 
-    fn emit_u64(&mut self, x: u64);
     fn emit_bytes(&mut self, bytes: &[u8]);
 
     fn emit_label(&mut self, label: Self::Label);
-
-    fn emit_nop(&mut self);
 
     /// A high-level assembler method. Emits an instruction sequence of length `n` that is functionally
     /// equivalent to a `nop` instruction, without guarantee about the underlying implementation.
@@ -134,7 +131,6 @@ pub(crate) trait Emitter {
     fn emit_btc_gpr_imm8_32(&mut self, src: u8, dst: GPR);
     fn emit_btc_gpr_imm8_64(&mut self, src: u8, dst: GPR);
 
-    fn emit_cmovae_gpr_32(&mut self, src: GPR, dst: GPR);
     fn emit_cmovae_gpr_64(&mut self, src: GPR, dst: GPR);
 
     fn emit_vmovaps(&mut self, src: XMMOrMemory, dst: XMMOrMemory);
@@ -176,9 +172,6 @@ pub(crate) trait Emitter {
     fn emit_vcmpunordss(&mut self, src1: XMM, src2: XMMOrMemory, dst: XMM);
     fn emit_vcmpunordsd(&mut self, src1: XMM, src2: XMMOrMemory, dst: XMM);
 
-    fn emit_vcmpordss(&mut self, src1: XMM, src2: XMMOrMemory, dst: XMM);
-    fn emit_vcmpordsd(&mut self, src1: XMM, src2: XMMOrMemory, dst: XMM);
-
     fn emit_vsqrtss(&mut self, src1: XMM, src2: XMMOrMemory, dst: XMM);
     fn emit_vsqrtsd(&mut self, src1: XMM, src2: XMMOrMemory, dst: XMM);
 
@@ -212,14 +205,10 @@ pub(crate) trait Emitter {
 
     fn emit_test_gpr_64(&mut self, reg: GPR);
 
-    fn emit_ud2(&mut self);
     fn emit_ret(&mut self);
-    fn emit_call_label(&mut self, label: Self::Label);
     fn emit_call_location(&mut self, loc: Location);
 
     fn emit_call_register(&mut self, reg: GPR);
-
-    fn emit_bkpt(&mut self);
 
     fn emit_host_redirection(&mut self, target: GPR);
 
@@ -310,9 +299,6 @@ pub(crate) trait Emitter {
     fn arch_emit_indirect_call_with_trampoline(&mut self, _loc: Location) {
         unimplemented!()
     }
-
-    // Emits entry trampoline just before the real function.
-    fn arch_emit_entry_trampoline(&mut self) {}
 
     // Byte offset from the beginning of a `mov Imm64, GPR` instruction to the imm64 value.
     // Required to support emulation on Aarch64.
@@ -665,10 +651,6 @@ impl Emitter for Assembler {
         );
     }
 
-    fn emit_u64(&mut self, x: u64) {
-        self.push_u64(x);
-    }
-
     fn emit_bytes(&mut self, bytes: &[u8]) {
         for &b in bytes {
             self.push(b);
@@ -677,10 +659,6 @@ impl Emitter for Assembler {
 
     fn emit_label(&mut self, label: Self::Label) {
         dynasm!(self ; => label);
-    }
-
-    fn emit_nop(&mut self) {
-        dynasm!(self ; nop);
     }
 
     fn emit_nop_n(&mut self, mut n: usize) {
@@ -1196,10 +1174,6 @@ impl Emitter for Assembler {
         dynasm!(self ; btc Rq(dst as u8), BYTE src as i8);
     }
 
-    fn emit_cmovae_gpr_32(&mut self, src: GPR, dst: GPR) {
-        dynasm!(self ; cmovae Rd(dst as u8), Rd(src as u8));
-    }
-
     fn emit_cmovae_gpr_64(&mut self, src: GPR, dst: GPR) {
         dynasm!(self ; cmovae Rq(dst as u8), Rq(src as u8));
     }
@@ -1275,9 +1249,6 @@ impl Emitter for Assembler {
 
     avx_fn!(vcmpunordss, emit_vcmpunordss);
     avx_fn!(vcmpunordsd, emit_vcmpunordsd);
-
-    avx_fn!(vcmpordss, emit_vcmpordss);
-    avx_fn!(vcmpordsd, emit_vcmpordsd);
 
     avx_fn!(vsqrtss, emit_vsqrtss);
     avx_fn!(vsqrtsd, emit_vsqrtsd);
@@ -1379,16 +1350,10 @@ impl Emitter for Assembler {
         dynasm!(self ; test Rq(reg as u8), Rq(reg as u8));
     }
 
-    fn emit_ud2(&mut self) {
-        dynasm!(self ; ud2);
-    }
     fn emit_ret(&mut self) {
         dynasm!(self ; ret);
     }
 
-    fn emit_call_label(&mut self, label: Self::Label) {
-        dynasm!(self ; call =>label);
-    }
     fn emit_call_location(&mut self, loc: Location) {
         match loc {
             Location::GPR(x) => dynasm!(self ; call Rq(x as u8)),
@@ -1399,10 +1364,6 @@ impl Emitter for Assembler {
 
     fn emit_call_register(&mut self, reg: GPR) {
         dynasm!(self ; call Rq(reg as u8));
-    }
-
-    fn emit_bkpt(&mut self) {
-        dynasm!(self ; int3);
     }
 
     fn emit_host_redirection(&mut self, target: GPR) {
