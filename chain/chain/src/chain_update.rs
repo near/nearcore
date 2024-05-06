@@ -16,6 +16,7 @@ use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
+use near_primitives::congestion_info::CongestionInfo;
 #[cfg(feature = "new_epoch_sync")]
 use near_primitives::epoch_manager::{block_info::BlockInfo, epoch_sync::EpochSyncInfo};
 use near_primitives::hash::CryptoHash;
@@ -253,7 +254,7 @@ impl<'a> ChainUpdate<'a> {
                         balance_split
                     };
 
-                    if protocol_version >= ProtocolFeature::CongestionControl.protocol_version() {
+                    if ProtocolFeature::CongestionControl.enabled(protocol_version) {
                         // This will likely break resharding integration tests
                         // when congestion control is enabled. Let's mark them
                         // ignore when that happens.
@@ -782,7 +783,9 @@ impl<'a> ChainUpdate<'a> {
                 // obtained from the previous block. However the previous block
                 // may not be available during state sync. This needs fixing!
                 // congestion_info: prev_block.shards_congestion_info(),
-                congestion_info: HashMap::new(),
+                congestion_info: CongestionInfo::temp_test_shards_congestion_info(
+                    &self.epoch_manager.shard_ids(block_header.epoch_id())?,
+                ),
             },
             &receipts,
             chunk.transactions(),
@@ -888,7 +891,9 @@ impl<'a> ChainUpdate<'a> {
                 // obtained from the previous block. However the previous block
                 // may not be available during state sync. This needs fixing!
                 // congestion_info: prev_block.shards_congestion_info(),
-                HashMap::new(),
+                CongestionInfo::temp_test_shards_congestion_info(
+                    &self.epoch_manager.shard_ids(block_header.epoch_id())?,
+                ),
             ),
             &[],
             &[],

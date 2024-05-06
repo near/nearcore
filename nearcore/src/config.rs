@@ -929,7 +929,7 @@ pub fn init_configs(
                 None => Genesis::from_file(genesis_path_str, GenesisValidationMode::Full),
             }?;
 
-            genesis.config.chain_id = chain_id.clone();
+            genesis.config.chain_id.clone_from(&chain_id);
 
             genesis.to_file(dir.join(config.genesis_file));
             info!(target: "near", "Generated for {chain_id} network node key and genesis file in {}", dir.display());
@@ -1055,7 +1055,7 @@ pub fn create_testnet_configs_from_seeds(
             config.network.skip_sync_wait = num_validator_seats == 1;
         }
         config.archive = archive;
-        config.tracked_shards = tracked_shards.clone();
+        config.tracked_shards.clone_from(&tracked_shards);
         config.consensus.min_num_peers =
             std::cmp::min(num_validator_seats as usize - 1, config.consensus.min_num_peers);
         configs.push(config);

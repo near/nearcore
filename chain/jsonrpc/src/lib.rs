@@ -487,11 +487,12 @@ impl JsonRpcHandler {
         })
     }
 
-    async fn client_send<M, R: Send + 'static, F: Send + 'static, E>(&self, msg: M) -> Result<R, E>
+    async fn client_send<M, R, F, E>(&self, msg: M) -> Result<R, E>
     where
         ClientSenderForRpc: CanSend<MessageWithCallback<M, Result<R, F>>>,
-        E: RpcFrom<F>,
-        E: RpcFrom<AsyncSendError>,
+        R: Send + 'static,
+        F: Send + 'static,
+        E: RpcFrom<F> + RpcFrom<AsyncSendError>,
     {
         self.client_sender
             .send_async(msg)
@@ -500,14 +501,12 @@ impl JsonRpcHandler {
             .map_err(RpcFrom::rpc_from)
     }
 
-    async fn view_client_send<M, T: Send + 'static, E, F: Send + 'static>(
-        &self,
-        msg: M,
-    ) -> Result<T, E>
+    async fn view_client_send<M, T, E, F>(&self, msg: M) -> Result<T, E>
     where
         ViewClientSenderForRpc: CanSend<MessageWithCallback<M, Result<T, F>>>,
-        E: RpcFrom<F>,
-        E: RpcFrom<AsyncSendError>,
+        T: Send + 'static,
+        E: RpcFrom<AsyncSendError> + RpcFrom<F>,
+        F: Send + 'static,
     {
         self.view_client_sender
             .send_async(msg)
@@ -516,13 +515,11 @@ impl JsonRpcHandler {
             .map_err(RpcFrom::rpc_from)
     }
 
-    async fn peer_manager_send<M, T: Send + 'static, E: Send + 'static>(
-        &self,
-        msg: M,
-    ) -> Result<T, E>
+    async fn peer_manager_send<M, T, E>(&self, msg: M) -> Result<T, E>
     where
         PeerManagerSenderForRpc: CanSend<MessageWithCallback<M, T>>,
-        E: RpcFrom<AsyncSendError>,
+        T: Send + 'static,
+        E: RpcFrom<AsyncSendError> + Send + 'static,
     {
         self.peer_manager_sender.send_async(msg).await.map_err(RpcFrom::rpc_from)
     }

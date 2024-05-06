@@ -9,7 +9,7 @@ use actix::{Actor, Addr, AsyncContext, Context, Handler};
 use actix_rt::{Arbiter, ArbiterHandle};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::futures::ActixArbiterHandleFutureSpawner;
-use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, Sender};
+use near_async::messaging::{IntoMultiSender, LateBoundSender, Sender};
 use near_async::time::Utc;
 use near_async::time::{Clock, Duration};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
@@ -25,7 +25,7 @@ use near_network::types::PeerManagerAdapter;
 use near_o11y::{handler_debug_span, WithSpanContext};
 use near_primitives::network::PeerId;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_telemetry::TelemetryActor;
+use near_telemetry::TelemetryEvent;
 use rand::Rng;
 use std::fmt::Debug;
 use std::ops::{Deref, DerefMut};
@@ -65,7 +65,7 @@ impl ClientActor {
         node_id: PeerId,
         network_adapter: PeerManagerAdapter,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
-        telemetry_actor: Addr<TelemetryActor>,
+        telemetry_sender: Sender<TelemetryEvent>,
         ctx: &Context<ClientActor>,
         shutdown_signal: Option<broadcast::Sender<()>>,
         adv: crate::adversarial::Controls,
@@ -90,7 +90,7 @@ impl ClientActor {
             node_id,
             network_adapter,
             validator_signer,
-            telemetry_actor.with_auto_span_context().into_sender(),
+            telemetry_sender,
             shutdown_signal,
             adv,
             config_updater,
@@ -196,7 +196,7 @@ pub fn start_client(
     network_adapter: PeerManagerAdapter,
     shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
-    telemetry_actor: Addr<TelemetryActor>,
+    telemetry_sender: Sender<TelemetryEvent>,
     snapshot_callbacks: Option<SnapshotCallbacks>,
     sender: Option<broadcast::Sender<()>>,
     adv: crate::adversarial::Controls,
@@ -245,7 +245,7 @@ pub fn start_client(
             node_id,
             network_adapter,
             validator_signer,
-            telemetry_actor,
+            telemetry_sender,
             ctx,
             sender,
             adv,

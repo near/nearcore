@@ -375,7 +375,7 @@ pub fn amend_genesis(
     // here we have already checked that there are no duplicate validators in wanted_records()
     genesis.config.validators = validators;
     if let Some(chain_id) = &genesis_changes.chain_id {
-        genesis.config.chain_id = chain_id.clone();
+        genesis.config.chain_id.clone_from(&chain_id);
     }
     if let Some(shard_layout) = shard_layout {
         genesis.config.shard_layout = shard_layout;

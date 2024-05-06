@@ -85,7 +85,7 @@ it removes it from its local mempool.
 ### Can transaction get lost?
 
 Yes - they can and they do. Sometimes a node doesn’t have a path to a given
-validator or it didn’t receive an `AnnouceAccount` for it, so it doesn’t know
+validator or it didn’t receive an `AnnounceAccount` for it, so it doesn’t know
 where to forward the message. And if this happens to all 4 validators that we
 try to send to, then the message can be silently dropped.
 

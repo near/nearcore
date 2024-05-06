@@ -44,7 +44,7 @@ jobs:
           fetch-depth: 0
 
       - name: Neard binary build and upload to S3
-        run: ./scripts/binary_release.sh
+        run: ./scripts/binary_release.sh ${{ github.event.inputs.release }}
 
       - name: Update latest version metadata in S3
         run: |
