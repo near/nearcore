@@ -148,32 +148,11 @@ pub fn proposals_to_epoch_info(
 
         chunk_producers_settlement
     } else {
-        if chunk_producers.is_empty() {
-            // All validators tried to unstake?
-            return Err(EpochError::NotEnoughValidators {
-                num_validators: 0u64,
-                num_shards: shard_ids.len() as NumShards,
-            });
-        }
-        let mut id = 0usize;
-        // Here we assign validators to chunks (we try to keep number of shards assigned for
-        // each validator as even as possible). Note that in prod configuration number of seats
-        // per shard is the same as maximal number of block producers, so normally all
-        // validators would be assigned to all chunks
-        shard_ids
-            .iter()
-            .map(|&shard_id| shard_id as usize)
-            .map(|shard_id| {
-                (0..epoch_config.num_block_producer_seats_per_shard[shard_id]
-                    .min(block_producers_settlement.len() as u64))
-                    .map(|_| {
-                        let res = block_producers_settlement[id];
-                        id = (id + 1) % block_producers_settlement.len();
-                        res
-                    })
-                    .collect()
-            })
-            .collect()
+        old_validator_selection::assign_chunk_producers_to_shards(
+            epoch_config,
+            chunk_producers,
+            &block_producers_settlement,
+        )?
     };
 
     let validator_mandates = if checked_feature!("stable", StatelessValidationV0, next_version) {
@@ -356,6 +335,44 @@ impl PartialOrd for OrderedValidatorStake {
 impl Ord for OrderedValidatorStake {
     fn cmp(&self, other: &Self) -> Ordering {
         self.key().cmp(&other.key())
+    }
+}
+
+mod old_validator_selection {
+    use super::*;
+
+    pub fn assign_chunk_producers_to_shards(
+        epoch_config: &EpochConfig,
+        chunk_producers: Vec<ValidatorStake>,
+        block_producers_settlement: &[ValidatorId],
+    ) -> Result<Vec<Vec<ValidatorId>>, EpochError> {
+        let shard_ids: Vec<_> = epoch_config.shard_layout.shard_ids().collect();
+        if chunk_producers.is_empty() {
+            // All validators tried to unstake?
+            return Err(EpochError::NotEnoughValidators {
+                num_validators: 0u64,
+                num_shards: shard_ids.len() as NumShards,
+            });
+        }
+        let mut id = 0usize;
+        // Here we assign validators to chunks (we try to keep number of shards assigned for
+        // each validator as even as possible). Note that in prod configuration number of seats
+        // per shard is the same as maximal number of block producers, so normally all
+        // validators would be assigned to all chunks
+        Ok(shard_ids
+            .iter()
+            .map(|&shard_id| shard_id as usize)
+            .map(|shard_id| {
+                (0..epoch_config.num_block_producer_seats_per_shard[shard_id]
+                    .min(block_producers_settlement.len() as u64))
+                    .map(|_| {
+                        let res = block_producers_settlement[id];
+                        id = (id + 1) % block_producers_settlement.len();
+                        res
+                    })
+                    .collect()
+            })
+            .collect())
     }
 }
 

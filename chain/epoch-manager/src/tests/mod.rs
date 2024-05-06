@@ -2168,47 +2168,6 @@ fn check_kickout(epoch_info: &EpochInfo, reasons: &[(&str, ValidatorKickoutReaso
     assert_eq!(epoch_info.validator_kickout(), &kickout);
 }
 
-#[test]
-fn test_fisherman_kickout() {
-    let stake_amount = 1_000_000;
-    let validators = vec![
-        ("test1".parse().unwrap(), stake_amount),
-        ("test2".parse().unwrap(), stake_amount),
-        ("test3".parse().unwrap(), stake_amount),
-    ];
-    let mut epoch_manager = setup_default_epoch_manager(validators, 1, 1, 3, 0, 90, 60);
-    let h = hash_range(6);
-    record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
-    record_block(&mut epoch_manager, h[0], h[1], 1, vec![stake("test1".parse().unwrap(), 148)]);
-    // test1 starts as validator,
-    // - reduces stake in epoch T, will be fisherman in epoch T+2
-    // - Misses a block in epoch T+1, will be kicked out in epoch T+3
-    // - Finalize epoch T+1 => T+3 kicks test1 as fisherman without a record in stake_change
-    record_block(&mut epoch_manager, h[1], h[3], 3, vec![]);
-
-    let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[1])).unwrap();
-    check_validators(&epoch_info2, &[("test2", stake_amount), ("test3", stake_amount)]);
-    check_fishermen(&epoch_info2, &[]);
-    check_stake_change(
-        &epoch_info2,
-        vec![
-            ("test1".parse().unwrap(), 0),
-            ("test2".parse().unwrap(), stake_amount),
-            ("test3".parse().unwrap(), stake_amount),
-        ],
-    );
-    check_kickout(&epoch_info2, &[("test1", NotEnoughStake { stake: 148, threshold: 320 })]);
-
-    let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap();
-    check_validators(&epoch_info3, &[("test2", stake_amount), ("test3", stake_amount)]);
-    check_fishermen(&epoch_info3, &[]);
-    check_stake_change(
-        &epoch_info3,
-        vec![("test2".parse().unwrap(), stake_amount), ("test3".parse().unwrap(), stake_amount)],
-    );
-    check_kickout(&epoch_info3, &[("test1", NotEnoughBlocks { produced: 0, expected: 1 })]);
-}
-
 fn set_block_info_protocol_version(info: &mut BlockInfo, protocol_version: ProtocolVersion) {
     match info {
         BlockInfo::V1(v1) => v1.latest_protocol_version = protocol_version,

@@ -83,7 +83,7 @@ mod old_validator_selection {
     use near_primitives::errors::EpochError;
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::types::{
-        AccountId, Balance, NumSeats, ValidatorId, ValidatorKickoutReason,
+        AccountId, Balance, NumSeats, NumShards, ValidatorId, ValidatorKickoutReason,
     };
     use near_primitives::validator_mandates::ValidatorMandates;
     use near_primitives::version::ProtocolVersion;
