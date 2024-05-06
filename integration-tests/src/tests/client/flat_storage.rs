@@ -12,7 +12,6 @@ use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::AccountId;
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives_core::types::BlockHeight;
 use near_store::flat::{
     store_helper, FetchingStateStatus, FlatStorageCreationStatus, FlatStorageManager,
@@ -473,40 +472,24 @@ fn test_flat_storage_iter() {
 
         match shard_id {
             0 => {
-                // Three entries - one for 'near' system account, the other for the contract, the last for outgoing buffers.
-                if PROTOCOL_VERSION < ProtocolFeature::CongestionControl.protocol_version() {
-                    assert_eq!(2, items.len());
-                } else {
-                    assert_eq!(3, items.len());
-                }
+                assert_eq!(2, items.len());
+                // Two entries - one for 'near' system account, the other for the contract.
                 assert_eq!(
                     TrieKey::Account { account_id: "near".parse().unwrap() }.to_vec(),
                     items[0].as_ref().unwrap().0.to_vec()
                 );
             }
             1 => {
-                // Three entries - one for account, the other for the contract, the last for outgoing buffers.
-                if PROTOCOL_VERSION < ProtocolFeature::CongestionControl.protocol_version() {
-                    assert_eq!(2, items.len());
-                } else {
-                    assert_eq!(3, items.len());
-                }
+                // Two entries - one for account, the other for contract.
+                assert_eq!(2, items.len());
                 assert_eq!(
                     TrieKey::Account { account_id: "test0".parse().unwrap() }.to_vec(),
                     items[0].as_ref().unwrap().0.to_vec()
                 );
             }
             2 => {
-                // Test1 account was not created yet - so no entries other than outgoing buffers.
-                if PROTOCOL_VERSION < ProtocolFeature::CongestionControl.protocol_version() {
-                    assert_eq!(0, items.len());
-                } else {
-                    assert_eq!(1, items.len());
-                    assert_eq!(
-                        TrieKey::BufferedReceiptIndices.to_vec(),
-                        items[0].as_ref().unwrap().0.to_vec()
-                    );
-                }
+                // Test1 account was not created yet - so no entries.
+                assert_eq!(0, items.len());
             }
             _ => {
                 panic!("Unexpected shard_id");
