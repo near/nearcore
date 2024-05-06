@@ -39,14 +39,12 @@ pub fn proposals_to_epoch_info(
     };
     let max_bp_selected = epoch_config.num_block_producer_seats as usize;
     let mut stake_change = BTreeMap::new();
-    let mut fishermen = vec![];
     let proposals = proposals_with_rollover(
         proposals,
         prev_epoch_info,
         &validator_reward,
         &validator_kickout,
         &mut stake_change,
-        &mut fishermen,
     );
     let mut block_producer_proposals = order_proposals(proposals.values().cloned());
     let (block_producers, bp_stake_threshold) = select_block_producers(
@@ -80,20 +78,12 @@ pub fn proposals_to_epoch_info(
     for OrderedValidatorStake(p) in chunk_producer_proposals {
         let stake = p.stake();
         let account_id = p.account_id();
-        if stake >= epoch_config.fishermen_threshold {
-            fishermen.push(p);
-        } else {
-            *stake_change.get_mut(account_id).unwrap() = 0;
-            if prev_epoch_info.account_is_validator(account_id)
-                || prev_epoch_info.account_is_fisherman(account_id)
-            {
-                debug_assert!(stake < threshold);
-                let account_id = p.take_account_id();
-                validator_kickout.insert(
-                    account_id,
-                    ValidatorKickoutReason::NotEnoughStake { stake, threshold },
-                );
-            }
+        *stake_change.get_mut(account_id).unwrap() = 0;
+        if prev_epoch_info.account_is_validator(account_id) {
+            debug_assert!(stake < threshold);
+            let account_id = p.take_account_id();
+            validator_kickout
+                .insert(account_id, ValidatorKickoutReason::NotEnoughStake { stake, threshold });
         }
     }
 
@@ -201,12 +191,6 @@ pub fn proposals_to_epoch_info(
         ValidatorMandates::default()
     };
 
-    let fishermen_to_index = fishermen
-        .iter()
-        .enumerate()
-        .map(|(index, s)| (s.account_id().clone(), index as ValidatorId))
-        .collect::<HashMap<_, _>>();
-
     Ok(EpochInfo::new(
         prev_epoch_info.epoch_height() + 1,
         all_validators,
@@ -214,8 +198,8 @@ pub fn proposals_to_epoch_info(
         block_producers_settlement,
         chunk_producers_settlement,
         vec![],
-        fishermen,
-        fishermen_to_index,
+        vec![],
+        Default::default(),
         stake_change,
         validator_reward,
         validator_kickout,
@@ -244,7 +228,6 @@ fn proposals_with_rollover(
     validator_reward: &HashMap<AccountId, Balance>,
     validator_kickout: &HashMap<AccountId, ValidatorKickoutReason>,
     stake_change: &mut BTreeMap<AccountId, Balance>,
-    fishermen: &mut Vec<ValidatorStake>,
 ) -> HashMap<AccountId, ValidatorStake> {
     let mut proposals_by_account = HashMap::new();
     for p in proposals {
@@ -269,20 +252,6 @@ fn proposals_with_rollover(
             *p.stake_mut() += *reward;
         }
         stake_change.insert(p.account_id().clone(), p.stake());
-    }
-
-    for r in prev_epoch_info.fishermen_iter() {
-        let account_id = r.account_id();
-        if validator_kickout.contains_key(account_id) {
-            stake_change.insert(account_id.clone(), 0);
-            continue;
-        }
-        if !proposals_by_account.contains_key(account_id) {
-            // safe to do this here because fishermen from previous epoch is guaranteed to have no
-            // duplicates.
-            stake_change.insert(account_id.clone(), r.stake());
-            fishermen.push(r);
-        }
     }
 
     proposals_by_account
