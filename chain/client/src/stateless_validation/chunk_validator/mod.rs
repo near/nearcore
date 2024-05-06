@@ -466,7 +466,7 @@ pub(crate) fn validate_chunk_state_witness(
     let _timer = metrics::CHUNK_STATE_WITNESS_VALIDATION_TIME
         .with_label_values(&[&state_witness.chunk_header.shard_id().to_string()])
         .start_timer();
-    let span = tracing::debug_span!(target: "chain", "validate_chunk_state_witness").entered();
+    let span = tracing::debug_span!(target: "client", "validate_chunk_state_witness").entered();
     let block_hash = pre_validation_output.main_transition_params.block_hash();
     let epoch_id = epoch_manager.get_epoch_id(&block_hash)?;
     let shard_uid = epoch_manager
@@ -603,7 +603,7 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
 
     let chunk_hash = chunk_header.chunk_hash();
     tracing::debug!(
-        target: "stateless_validation",
+        target: "client",
         chunk_hash=?chunk_hash,
         ?block_producers,
         "Chunk validated successfully, sending endorsement",
@@ -675,7 +675,7 @@ impl Client {
         if let Ok(final_head) = self.chain.final_head() {
             if witness.chunk_header.height_created() <= final_head.height {
                 tracing::debug!(
-                    target: "stateless_validation",
+                    target: "client",
                     chunk_hash=?witness.chunk_header.chunk_hash(),
                     shard_id=witness.chunk_header.shard_id(),
                     witness_height=witness.chunk_header.height_created(),

@@ -85,7 +85,7 @@ impl CacheEntry {
         // Check if the part is already present.
         if self.parts[part_ord].is_some() {
             tracing::warn!(
-                target: "stateless_validation",
+                target: "client",
                 ?shard_id,
                 ?height_created,
                 ?part_ord,
@@ -125,7 +125,7 @@ impl CacheEntry {
                 // We ideally never expect the decoding to fail. In case it does, we received a bad part
                 // from the chunk producer.
                 tracing::error!(
-                    target: "stateless_validation",
+                    target: "client",
                     ?err,
                     ?shard_id,
                     ?height_created,
@@ -209,7 +209,7 @@ impl PartialEncodedStateWitnessTracker {
             // Check if the evicted entry has been fully decoded and processed.
             if !evicted_entry.is_decoded {
                 tracing::warn!(
-                    target: "stateless_validation",
+                    target: "client",
                     ?evicted_chunk_hash,
                     data_parts_present = ?evicted_entry.data_parts_present,
                     data_parts_required = ?evicted_entry.data_parts_required,
