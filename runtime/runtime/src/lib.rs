@@ -37,16 +37,17 @@ use near_primitives::transaction::{
     SignedTransaction, TransferAction,
 };
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::ShardId;
 use near_primitives::types::{
     validator_stake::ValidatorStake, AccountId, Balance, BlockHeight, Compute, EpochHeight,
-    EpochId, EpochInfoProvider, Gas, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
+    EpochId, EpochInfoProvider, Gas, RawStateChangesWithTrieKey, ShardId, StateChangeCause,
+    StateRoot,
 };
 use near_primitives::utils::{
     create_action_hash_from_receipt_id, create_receipt_id_from_receipt_id,
     create_receipt_id_from_transaction,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives_core::apply::ApplyChunkReason;
 use near_store::trie::receipts_column_helper::{DelayedReceiptQueue, TrieQueue};
 use near_store::{
     get, get_account, get_postponed_receipt, get_promise_yield_receipt, get_received_data,
@@ -82,6 +83,9 @@ const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
 
 #[derive(Debug)]
 pub struct ApplyState {
+    /// Represents a phase of the chain lifecycle that we want to run apply for.
+    /// This is currently represented as a static string and used as dimension in some metrics.
+    pub apply_reason: Option<ApplyChunkReason>,
     /// Currently building block height.
     pub block_height: BlockHeight,
     /// Prev block hash
@@ -2033,6 +2037,7 @@ mod tests {
         let congestion_info: HashMap<ShardId, CongestionInfo> =
             [(0, CongestionInfo::default())].into();
         let apply_state = ApplyState {
+            apply_reason: None,
             block_height: 1,
             prev_block_hash: Default::default(),
             block_hash: Default::default(),

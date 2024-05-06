@@ -58,14 +58,12 @@ pub fn run(
     fees_config: &RuntimeFeesConfig,
     promise_results: &[PromiseResult],
     cache: Option<&dyn ContractRuntimeCache>,
-) -> (VMResult, crate::Metrics) {
+) -> VMResult {
     let span = tracing::Span::current();
     let vm_kind = wasm_config.vm_kind;
     let runtime = vm_kind
         .runtime(wasm_config.clone())
         .unwrap_or_else(|| panic!("the {vm_kind:?} runtime has not been enabled at compile time"));
-    crate::Metrics::reset();
-
     let outcome = runtime.run(
         account.code_hash(),
         code,
@@ -78,12 +76,12 @@ pub fn run(
     );
     let outcome = match outcome {
         Ok(o) => o,
-        e @ Err(_) => return (e, crate::Metrics::get()),
+        e @ Err(_) => return e,
     };
 
     span.record("burnt_gas", outcome.burnt_gas);
     span.record("compute_usage", outcome.compute_usage);
-    (Ok(outcome), crate::Metrics::get())
+    Ok(outcome)
 }
 
 pub trait VM {

@@ -159,6 +159,7 @@ impl RuntimeUser {
         let all_shard_ids = [0, 1, 2, 3, 4, 5];
 
         ApplyState {
+            apply_reason: None,
             block_height: 1,
             prev_block_hash: Default::default(),
             block_hash: Default::default(),

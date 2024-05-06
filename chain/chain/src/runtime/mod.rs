@@ -15,6 +15,7 @@ use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_parameters::{ActionCosts, ExtCosts, RuntimeConfigStore};
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::checked_feature;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
@@ -247,6 +248,7 @@ impl NightshadeRuntime {
     fn process_state_update(
         &self,
         trie: Trie,
+        apply_reason: ApplyChunkReason,
         chunk: ApplyChunkShardContext,
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],
@@ -362,6 +364,7 @@ impl NightshadeRuntime {
         );
 
         let apply_state = ApplyState {
+            apply_reason: Some(apply_reason),
             block_height,
             prev_block_hash: *prev_block_hash,
             block_hash,
@@ -897,6 +900,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn apply_chunk(
         &self,
         storage_config: RuntimeStorageConfig,
+        apply_reason: ApplyChunkReason,
         chunk: ApplyChunkShardContext,
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],
@@ -936,6 +940,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         match self.process_state_update(
             trie,
+            apply_reason,
             chunk,
             block,
             receipts,

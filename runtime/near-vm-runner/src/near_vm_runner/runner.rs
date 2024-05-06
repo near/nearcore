@@ -225,6 +225,9 @@ impl NearVM {
         // (wasm code size, compilation result)
         type MemoryCacheType = (u64, Result<VMArtifact, CompilationError>);
         let to_any = |v: MemoryCacheType| -> Box<dyn std::any::Any + Send> { Box::new(v) };
+        // To identify a cache hit from either in-memory and on-disk cache correctly, we first assume that we have a cache hit here,
+        // and then we set it to false when we fail to find any entry and decide to compile (by calling compile_and_cache below).
+        let mut is_cache_hit = true;
         let (wasm_bytes, artifact_result) = cache.memory_cache().try_lookup(
             code_hash,
             || match code {
@@ -279,6 +282,7 @@ impl NearVM {
                 Some(code) => {
                     let _span =
                         tracing::debug_span!(target: "vm", "NearVM::build_from_source").entered();
+                    is_cache_hit = false;
                     Ok(to_any((
                         code.code().len() as u64,
                         match self.compile_and_cache(code, cache)? {
@@ -302,6 +306,8 @@ impl NearVM {
                 (wasm_bytes, downcast.clone())
             },
         )?;
+
+        crate::metrics::record_compiled_contract_cache_lookup(is_cache_hit);
 
         let mut memory = NearVmMemory::new(
             self.config.limit_config.initial_memory_pages,

@@ -22,6 +22,7 @@ use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_pool::TransactionGroupIteratorWrapper;
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
 use near_primitives::receipt::Receipt;
@@ -477,6 +478,7 @@ pub(crate) fn validate_chunk_state_witness(
         MainTransition::NewChunk(new_chunk_data) => {
             let chunk_header = new_chunk_data.chunk_header.clone();
             let NewChunkResult { apply_result: mut main_apply_result, .. } = apply_new_chunk(
+                ApplyChunkReason::ValidateChunkStateWitness,
                 &span,
                 new_chunk_data,
                 ShardContext {
@@ -524,6 +526,7 @@ pub(crate) fn validate_chunk_state_witness(
             },
         };
         let OldChunkResult { apply_result, .. } = apply_old_chunk(
+            ApplyChunkReason::ValidateChunkStateWitness,
             &span,
             old_chunk_data,
             ShardContext {
