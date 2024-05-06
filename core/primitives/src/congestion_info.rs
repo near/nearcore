@@ -257,6 +257,16 @@ impl CongestionInfo {
         }
         Ok(())
     }
+
+    /// TODO(congestion_info) - Fix all caller-sites and remove this function
+    ///
+    /// As we are still fixing things around congestion info, we need to fill valid
+    /// congestion infos for all shards in a few places in tests.
+    pub fn temp_test_shards_congestion_info(
+        shard_ids: &[ShardId],
+    ) -> std::collections::HashMap<ShardId, CongestionInfo> {
+        shard_ids.iter().map(|&id| (id, CongestionInfo::default())).collect()
+    }
 }
 
 impl CongestionInfoV1 {
