@@ -59,7 +59,7 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion};
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
@@ -2590,6 +2590,11 @@ fn test_refund_receipts_processing() {
 #[test]
 fn test_delayed_receipt_count_limit() {
     init_test_logger();
+
+    if ProtocolFeature::CongestionControl.protocol_version() >= PROTOCOL_VERSION {
+        // congestion control replaces the delayed receipt count limit, making this test irrelevant
+        return;
+    }
 
     let epoch_length = 5;
     let min_gas_price = 10000;
