@@ -329,7 +329,7 @@ class BaseNode(object):
             height = self.get_latest_block().height
             if height > start_height:
                 break
-            time.sleep(1.0)
+            time.sleep(0.2)
 
     def get_nonce_for_pk(self, acc, pk, finality='optimistic'):
         for access_key in self.get_access_key_list(acc,
