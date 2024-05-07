@@ -1,7 +1,7 @@
 use actix::Actor;
 use near_async::actix_wrapper::ActixWrapper;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
-use near_async::messaging::{CanSend, Handler, HandlerWithContext, Sender};
+use near_async::messaging::{self, CanSend, Handler, HandlerWithContext, Sender};
 use near_async::time::Duration;
 use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
 use near_chain::chain::{
@@ -31,6 +31,8 @@ pub struct ClientSenderForSyncJobs {
 pub struct SyncJobsActor {
     client_sender: ClientSenderForSyncJobs,
 }
+
+impl messaging::Actor for SyncJobsActor {}
 
 impl Handler<LoadMemtrieRequest> for SyncJobsActor {
     #[perf]
