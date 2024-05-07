@@ -3,7 +3,7 @@
 # re-enables it. This is more of an example how to disable chunk production than
 # an actual test.
 # Usage:
-# python3 pytest/tests/adversarial/adv_chunk_missing.py
+# python3 pytest/tests/adversarial/chunk_missing.py
 
 import unittest
 import sys
