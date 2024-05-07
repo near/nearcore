@@ -17,6 +17,12 @@ pub trait Handler<M: actix::Message> {
     fn handle(&mut self, msg: M) -> M::Result;
 }
 
+/// Trait for handling a message with context.
+/// This is similar to the [`Handler`] trait, but it allows the handler to access the delayed action
+/// runner that is used to schedule actions to be run in the future. For actix::Actor, the context
+/// defined as actix::Context<Self> implements DelayedActionRunner<T>.
+/// Note that the implementer for hander of a message only needs to implement either of Handler or
+/// HandlerWithContext, not both.
 pub trait HandlerWithContext<T, M: actix::Message> {
     fn handle(&mut self, msg: M, ctx: &mut dyn DelayedActionRunner<T>) -> M::Result;
 }
