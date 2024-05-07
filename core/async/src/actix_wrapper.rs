@@ -45,7 +45,7 @@ impl<M, T> actix::Handler<WithSpanContext<M>> for ActixWrapper<T>
 where
     Self: actix::Actor,
     Self::Context: DelayedActionRunner<T>,
-    T: HandlerWithContext<T, M>,
+    T: HandlerWithContext<M>,
     M: actix::Message,
     <M as actix::Message>::Result: actix::dev::MessageResponse<ActixWrapper<T>, WithSpanContext<M>>,
 {
