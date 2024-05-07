@@ -1,7 +1,7 @@
 use actix::Actor;
 use near_async::actix_wrapper::ActixWrapper;
 use near_async::futures::{ActixFutureSpawner, FutureSpawner, FutureSpawnerExt};
-use near_async::messaging::{self, CanSend, Handler, HandlerWithContext, Sender};
+use near_async::messaging::{self, CanSend, Handler, Sender};
 use near_async::time::Duration;
 use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
 use near_chain::chain::{

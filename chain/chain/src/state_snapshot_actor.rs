@@ -1,4 +1,4 @@
-use near_async::messaging::{CanSend, Handler, Sender};
+use near_async::messaging::{Actor, CanSend, Handler, Sender};
 use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_performance_metrics_macros::perf;
@@ -20,6 +20,8 @@ pub struct StateSnapshotActor {
     tries: ShardTries,
     self_sender: StateSnapshotSenderForStateSnapshot,
 }
+
+impl Actor for StateSnapshotActor {}
 
 impl StateSnapshotActor {
     pub fn new(
