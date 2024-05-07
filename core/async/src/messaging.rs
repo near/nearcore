@@ -1,5 +1,6 @@
 use crate::break_apart::BreakApart;
 use crate::functional::{SendAsyncFunction, SendFunction};
+use crate::futures::DelayedActionRunner;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use once_cell::sync::OnceCell;
@@ -14,6 +15,20 @@ use tokio::sync::oneshot;
 /// Note that the actor is any struct that implements the Handler trait, not just actix actors.
 pub trait Handler<M: actix::Message> {
     fn handle(&mut self, msg: M) -> M::Result;
+}
+
+pub trait HandlerWithContext<T, M: actix::Message> {
+    fn handle(&mut self, msg: M, ctx: &mut dyn DelayedActionRunner<T>) -> M::Result;
+}
+
+impl<A, T, M> HandlerWithContext<T, M> for A
+where
+    M: actix::Message,
+    A: Handler<M>,
+{
+    fn handle(&mut self, msg: M, _ctx: &mut dyn DelayedActionRunner<T>) -> M::Result {
+        Handler::handle(self, msg)
+    }
 }
 
 /// Trait for sending a typed message. The sent message is then handled by the Handler trait.
