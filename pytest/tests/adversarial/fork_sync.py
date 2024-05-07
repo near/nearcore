@@ -34,13 +34,11 @@ for i in range(0, 4):
 # step 1, let nodes run for some time
 utils.wait_for_blocks(nodes[0], target=FIRST_STEP_WAIT)
 
-logger.info("killing node 0 and 1")
 for i in range(2):
     nodes[i].kill()
 
 utils.wait_for_blocks(nodes[2], target=FIRST_STEP_WAIT + SECOND_STEP_WAIT)
 
-logger.info("killing node 2 and 3")
 for i in range(2, 4):
     nodes[i].kill()
 
