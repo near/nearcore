@@ -231,13 +231,6 @@ class BaseNode(object):
                              [base64.b64encode(signed_tx).decode('utf8')],
                              timeout=timeout)
 
-    def send_tx_rpc(self, signed_tx, timeout, wait_until='FINAL'):
-        return self.json_rpc('send_tx', {
-            'signed_tx_base64': base64.b64encode(signed_tx).decode('utf8'),
-            'wait_until': wait_until
-        },
-                             timeout=timeout)
-
     def get_status(self,
                    check_storage: bool = True,
                    timeout: float = 4,
@@ -327,6 +320,16 @@ class BaseNode(object):
                 "account_id": acc,
                 "finality": finality
             })
+
+    def wait_at_least_one_block(self):
+        start_height = self.get_latest_block().height
+        timeout_sec = 5
+        started = time.monotonic()
+        while time.monotonic() - started < timeout_sec:
+            height = self.get_latest_block().height
+            if height > start_height:
+                break
+            time.sleep(0.2)
 
     def get_nonce_for_pk(self, acc, pk, finality='optimistic'):
         for access_key in self.get_access_key_list(acc,
@@ -837,22 +840,18 @@ def apply_config_changes(node_dir, client_config_change):
     # ClientConfig keys which are valid but may be missing from the config.json
     # file.  Those are often Option<T> types which are not stored in JSON file
     # when None.
-    allowed_missing_configs = (
-        'archive',
-        'consensus.block_fetch_horizon',
-        'consensus.min_block_production_delay',
-        'consensus.state_sync_timeout',
-        'expected_shutdown',
-        'log_summary_period',
-        'max_gas_burnt_view',
-        'rosetta_rpc',
-        'save_trie_changes',
-        'split_storage',
-        'state_sync',
-        'state_sync_enabled',
-        'store.state_snapshot_enabled',
-        'tracked_shard_schedule',
-    )
+    allowed_missing_configs = ('archive', 'consensus.block_fetch_horizon',
+                               'consensus.min_block_production_delay',
+                               'consensus.max_block_production_delay',
+                               'consensus.max_block_wait_delay',
+                               'consensus.state_sync_timeout',
+                               'expected_shutdown', 'log_summary_period',
+                               'max_gas_burnt_view', 'rosetta_rpc',
+                               'save_trie_changes', 'split_storage',
+                               'state_sync', 'state_sync_enabled',
+                               'store.state_snapshot_enabled',
+                               'tracked_shard_schedule', 'cold_store',
+                               'store.load_mem_tries_for_tracked_shards')
 
     for k, v in client_config_change.items():
         if not (k in allowed_missing_configs or k in config_json):

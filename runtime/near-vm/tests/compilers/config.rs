@@ -46,9 +46,7 @@ impl Config {
 
     pub fn engine(&self, compiler_config: Box<dyn CompilerConfig>) -> UniversalEngine {
         let mut engine = near_vm_engine::universal::Universal::new(compiler_config)
-            .code_memory_pool(
-                near_vm_engine::universal::LimitedMemoryPool::new(128, 16 * 4096).unwrap(),
-            );
+            .code_memory_pool(near_vm_engine::universal::MemoryPool::new(4, 16 * 4096).unwrap());
         if let Some(ref features) = self.features {
             engine = engine.features(features.clone())
         }

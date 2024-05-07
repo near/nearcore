@@ -3,18 +3,15 @@
 #![deny(missing_docs, trivial_numeric_casts, unused_extern_crates)]
 #![deny(trivial_numeric_casts, unused_extern_crates)]
 #![warn(unused_import_braces)]
-#![cfg_attr(clippy, allow(clippy::new_without_default))]
-#![cfg_attr(
-    clippy,
-    warn(
-        clippy::float_arithmetic,
-        clippy::mut_mut,
-        clippy::nonminimal_bool,
-        clippy::map_unwrap_or,
-        clippy::print_stdout,
-        clippy::unicode_not_nfc,
-        clippy::use_self
-    )
+#![allow(clippy::new_without_default)]
+#![warn(
+    clippy::float_arithmetic,
+    clippy::mut_mut,
+    clippy::nonminimal_bool,
+    clippy::map_unwrap_or,
+    clippy::print_stdout,
+    clippy::unicode_not_nfc,
+    clippy::use_self
 )]
 
 mod artifact;
@@ -45,7 +42,7 @@ pub use crate::instance::{
     initialize_host_envs, ImportFunctionEnv, ImportInitializerFuncPtr, InstanceAllocator,
     InstanceHandle, WeakOrStrongInstanceRef,
 };
-pub use crate::memory::{LinearMemory, Memory, MemoryError, MemoryStyle};
+pub use crate::memory::{LinearMemory, MemoryError, MemoryStyle};
 pub use crate::mmap::Mmap;
 pub use crate::probestack::PROBESTACK;
 pub use crate::resolver::{

@@ -112,7 +112,8 @@ impl StatePartsSubCommand {
             store.clone(),
             &near_config,
             epoch_manager.clone(),
-        );
+        )
+        .expect("could not create the transaction runtime");
         let chain_genesis = ChainGenesis::new(&near_config.genesis.config);
         let mut chain = Chain::new_for_view_client(
             Clock::real(),
@@ -548,7 +549,7 @@ fn read_state_header(
 }
 
 fn finalize_state_sync(sync_hash: CryptoHash, shard_id: ShardId, chain: &mut Chain) {
-    chain.set_state_finalize(shard_id, sync_hash, Ok(())).unwrap()
+    chain.set_state_finalize(shard_id, sync_hash).unwrap()
 }
 
 fn get_part_ids(part_from: Option<u64>, part_to: Option<u64>, num_parts: u64) -> Range<u64> {

@@ -37,7 +37,9 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (62, include_config!("62.yaml")),
     (63, include_config!("63.yaml")),
     (64, include_config!("64.yaml")),
+    (66, include_config!("66.yaml")),
     (83, include_config!("83.yaml")),
+    (85, include_config!("85.yaml")),
     (129, include_config!("129.yaml")),
     // Introduce ETH-implicit accounts.
     (138, include_config!("138.yaml")),
@@ -158,7 +160,8 @@ mod tests {
     use super::*;
     use crate::cost::{ActionCosts, ExtCosts};
     use near_primitives_core::version::ProtocolFeature::{
-        LowerDataReceiptAndEcrecoverBaseCost, LowerStorageCost, LowerStorageKeyLimit,
+        DecreaseFunctionCallBaseCost, LowerDataReceiptAndEcrecoverBaseCost, LowerStorageCost,
+        LowerStorageKeyLimit,
     };
     use std::collections::HashSet;
 
@@ -197,6 +200,11 @@ mod tests {
     fn test_max_prepaid_gas() {
         let store = RuntimeConfigStore::new(None);
         for (protocol_version, config) in store.store.iter() {
+            if *protocol_version >= DecreaseFunctionCallBaseCost.protocol_version() {
+                continue;
+            }
+
+            // TODO(#10955): Enforce the depth limit directly, regardless of the gas costs.
             assert!(
                 config.wasm_config.limit_config.max_total_prepaid_gas
                     / config.fees.min_receipt_with_function_call_gas()
@@ -352,7 +360,7 @@ mod tests {
                 omit_expression => true,
             }, {
                 any_failure |= std::panic::catch_unwind(|| {
-                    insta::assert_display_snapshot!("parameters", params);
+                    insta::assert_snapshot!("parameters", params);
                 }).is_err();
             });
         }

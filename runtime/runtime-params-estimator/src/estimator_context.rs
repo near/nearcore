@@ -4,6 +4,7 @@ use crate::gas_cost::GasCost;
 use genesis_populate::get_account_id;
 use genesis_populate::state_dump::StateDump;
 use near_parameters::{ExtCosts, RuntimeConfigStore};
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
@@ -16,11 +17,10 @@ use near_store::flat::{
     store_helper, BlockInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorage,
     FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus,
 };
-use near_store::{
-    ShardTries, ShardUId, StateSnapshotConfig, Store, StoreCompiledContractCache, TrieUpdate,
-};
+use near_store::{ShardTries, ShardUId, StateSnapshotConfig, TrieUpdate};
 use near_store::{TrieCache, TrieCachingStorage, TrieConfig};
 use near_vm_runner::logic::LimitConfig;
+use near_vm_runner::FilesystemContractRuntimeCache;
 use node_runtime::{ApplyState, Runtime};
 use std::collections::HashMap;
 use std::iter;
@@ -47,6 +47,9 @@ pub(crate) struct CachedCosts {
     pub(crate) apply_block: Option<GasCost>,
     pub(crate) touching_trie_node_write: Option<GasCost>,
     pub(crate) ed25519_verify_base: Option<GasCost>,
+    pub(crate) function_call_base: Option<GasCost>,
+    #[cfg(feature = "nightly")]
+    pub(crate) yield_create_base: Option<GasCost>,
 }
 
 impl<'c> EstimatorContext<'c> {
@@ -91,12 +94,14 @@ impl<'c> EstimatorContext<'c> {
         let mut trie_config = near_store::TrieConfig::default();
         trie_config.enable_receipt_prefetching = true;
         let tries = ShardTries::new(
-            store.clone(),
+            store,
             trie_config,
             &[shard_uid],
             flat_storage_manager,
             StateSnapshotConfig::default(),
         );
+        let cache = FilesystemContractRuntimeCache::new(workdir.path(), None::<&str>)
+            .expect("create contract cache");
 
         Testbed {
             config: self.config,
@@ -105,7 +110,7 @@ impl<'c> EstimatorContext<'c> {
             root,
             runtime: Runtime::new(),
             prev_receipts: Vec::new(),
-            apply_state: Self::make_apply_state(store),
+            apply_state: Self::make_apply_state(cache),
             epoch_info_provider: MockEpochInfoProvider::default(),
             transaction_builder: TransactionBuilder::new(
                 (0..self.config.active_accounts)
@@ -115,7 +120,7 @@ impl<'c> EstimatorContext<'c> {
         }
     }
 
-    fn make_apply_state(store: Store) -> ApplyState {
+    fn make_apply_state(cache: FilesystemContractRuntimeCache) -> ApplyState {
         let mut runtime_config =
             RuntimeConfigStore::new(None).get_config(PROTOCOL_VERSION).as_ref().clone();
         runtime_config.wasm_config.enable_all_features();
@@ -140,12 +145,15 @@ impl<'c> EstimatorContext<'c> {
         };
         runtime_config.account_creation_config.min_allowed_top_level_account_length = 0;
 
+        let shard_id = ShardUId::single_shard().shard_id();
         ApplyState {
+            apply_reason: None,
             // Put each runtime into a separate shard.
             block_height: 1,
             // Epoch length is long enough to avoid corner cases.
             prev_block_hash: Default::default(),
             block_hash: Default::default(),
+            shard_id,
             epoch_id: Default::default(),
             epoch_height: 0,
             gas_price: 0,
@@ -154,10 +162,11 @@ impl<'c> EstimatorContext<'c> {
             random_seed: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(runtime_config),
-            cache: Some(Box::new(StoreCompiledContractCache::new(&store))),
+            cache: Some(Box::new(cache)),
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
+            congestion_info: HashMap::from([(shard_id, CongestionInfo::default())]),
         }
     }
 

@@ -250,7 +250,7 @@ async fn rate_limiting() {
     // We expect 3 rounds communication to cover the distance from 1st layer to 4th layer
     // and +1 full sync at handshake.
     // The communication is bidirectional, which gives 8 messages per connection.
-    // Then add +50% to accomodate for test execution flakiness (12 messages per connection).
+    // Then add +50% to accommodate for test execution flakiness (12 messages per connection).
     // TODO(gprusak): if the test is still flaky, upgrade FakeClock for stricter flow control.
     let want_max = connections * 12;
     println!("got {msgs}, want <= {want_max}");
@@ -277,7 +277,7 @@ async fn validator_node_restart() {
         (0, ZERO),
         (0, SEC),
         // If 1 version was emitted, the version will be immediately correctly
-        // overriden as long as timestamp has changed.
+        // overridden as long as timestamp has changed.
         (1, -SEC),
         (1, SEC),
         // If multiple versions were emitted, timestamp is not important

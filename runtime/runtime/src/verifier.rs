@@ -45,22 +45,29 @@ pub fn check_storage_stake(
     runtime_config: &RuntimeConfig,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageStakingError> {
-    let required_amount = Balance::from(account.storage_usage())
+    #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
+    let billable_storage_bytes = account.storage_usage();
+    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+    let billable_storage_bytes =
+        account.storage_usage().saturating_sub(account.permanent_storage_bytes());
+
+    let required_amount = Balance::from(billable_storage_bytes)
         .checked_mul(runtime_config.storage_amount_per_byte())
         .ok_or_else(|| {
-            format!("Account's storage_usage {} overflows multiplication", account.storage_usage())
+            format!(
+                "Account's billable storage usage {} overflows multiplication",
+                billable_storage_bytes
+            )
         })
         .map_err(StorageStakingError::StorageError)?;
     let available_amount = account
         .amount()
         .checked_add(account.locked())
-        .and_then(|amount| amount.checked_add(account.nonrefundable()))
         .ok_or_else(|| {
             format!(
-                "Account's amount {}, locked {}, and non-refundable {} overflow addition",
+                "Account's amount {} and locked {} overflow addition",
                 account.amount(),
                 account.locked(),
-                account.nonrefundable(),
             )
         })
         .map_err(StorageStakingError::StorageError)?;
@@ -121,7 +128,7 @@ pub fn validate_transaction(
 
     let sender_is_receiver = &transaction.receiver_id == signer_id;
 
-    tx_cost(&config, transaction, gas_price, sender_is_receiver)
+    tx_cost(&config, transaction, gas_price, sender_is_receiver, current_protocol_version)
         .map_err(|_| InvalidTxError::CostOverflow.into())
 }
 
@@ -403,7 +410,7 @@ pub fn validate_action(
         Action::Transfer(_) => Ok(()),
         #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
         Action::NonrefundableStorageTransfer(_) => {
-            check_feature_enabled(ProtocolFeature::NonRefundableBalance, current_protocol_version)
+            check_feature_enabled(ProtocolFeature::NonrefundableStorage, current_protocol_version)
         }
         Action::Stake(a) => validate_stake_action(a),
         Action::AddKey(a) => validate_add_key_action(limit_config, a),

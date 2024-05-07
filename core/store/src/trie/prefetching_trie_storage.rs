@@ -1,3 +1,4 @@
+use crate::config::PrefetchConfig;
 use crate::sync_utils::Monitor;
 use crate::{
     metrics, DBCol, MissingTrieValueContext, StorageError, Store, Trie, TrieCache,
@@ -77,11 +78,16 @@ pub struct PrefetchApi {
     /// multiple times.
     pub(crate) prefetching: PrefetchStagingArea,
 
+    store: Store,
+    shard_cache: TrieCache,
+
     pub enable_receipt_prefetching: bool,
     /// Configured accounts will be prefetched as SWEAT token account, if predecessor is listed as receiver.
     pub sweat_prefetch_receivers: Vec<AccountId>,
     /// List of allowed predecessor accounts for SWEAT prefetching.
     pub sweat_prefetch_senders: Vec<AccountId>,
+    pub claim_sweat_prefetch_config: Vec<PrefetchConfig>,
+    pub kaiching_prefetch_config: Vec<PrefetchConfig>,
 
     pub shard_uid: ShardUId,
 }
@@ -406,7 +412,8 @@ impl PrefetchApi {
         let sweat_prefetch_receivers = trie_config.sweat_prefetch_receivers.clone();
         let sweat_prefetch_senders = trie_config.sweat_prefetch_senders.clone();
         let enable_receipt_prefetching = trie_config.enable_receipt_prefetching;
-
+        let claim_sweat_prefetch_config = trie_config.claim_sweat_prefetch_config.clone();
+        let kaiching_prefetch_config = trie_config.kaiching_prefetch_config.clone();
         let this = Self {
             work_queue_tx,
             work_queue_rx,
@@ -414,18 +421,15 @@ impl PrefetchApi {
             enable_receipt_prefetching,
             sweat_prefetch_receivers,
             sweat_prefetch_senders,
+            claim_sweat_prefetch_config,
+            kaiching_prefetch_config,
             shard_uid,
+            store,
+            shard_cache,
         };
         let (shutdown_tx, shutdown_rx) = crossbeam::channel::bounded(1);
         let handles = (0..NUM_IO_THREADS)
-            .map(|_| {
-                this.start_io_thread(
-                    store.clone(),
-                    shard_cache.clone(),
-                    shard_uid,
-                    shutdown_rx.clone(),
-                )
-            })
+            .map(|_| this.start_io_thread(shard_uid, shutdown_rx.clone()))
             .collect();
         let handle = PrefetchingThreadsHandle { shutdown_channel: Some(shutdown_tx), handles };
         (this, handle)
@@ -442,15 +446,26 @@ impl PrefetchApi {
         })
     }
 
+    pub fn make_storage(&self) -> Rc<dyn TrieStorage> {
+        Rc::new(TriePrefetchingStorage::new(
+            self.store.clone(),
+            self.shard_uid,
+            self.shard_cache.clone(),
+            self.prefetching.clone(),
+        ))
+    }
+
     pub fn start_io_thread(
         &self,
-        store: Store,
-        shard_cache: TrieCache,
         shard_uid: ShardUId,
         shutdown_rx: crossbeam::channel::Receiver<()>,
     ) -> thread::JoinHandle<()> {
-        let prefetcher_storage =
-            TriePrefetchingStorage::new(store, shard_uid, shard_cache, self.prefetching.clone());
+        let prefetcher_storage = TriePrefetchingStorage::new(
+            self.store.clone(),
+            self.shard_uid,
+            self.shard_cache.clone(),
+            self.prefetching.clone(),
+        );
         let work_queue = self.work_queue_rx.clone();
         let metric_prefetch_sent =
             metrics::PREFETCH_SENT.with_label_values(&[&shard_uid.shard_id.to_string()]);
@@ -476,13 +491,22 @@ impl PrefetchApi {
                             Trie::new(Rc::new(prefetcher_storage.clone()), trie_root, None);
                         let storage_key = trie_key.to_vec();
                         metric_prefetch_sent.inc();
-                        if let Ok(_maybe_value) = prefetcher_trie.get(&storage_key) {
-                            near_o11y::io_trace!(count: "prefetch");
-                        } else {
-                            // This may happen in rare occasions and can be ignored safely.
-                            // See comments in `TriePrefetchingStorage::retrieve_raw_bytes`.
-                            near_o11y::io_trace!(count: "prefetch_failure");
-                            metric_prefetch_fail.inc();
+                        match prefetcher_trie.get(&storage_key) {
+                            Ok(_maybe_value) => {
+                                near_o11y::io_trace!(count: "prefetch");
+                            }
+                            Err(e) => {
+                                tracing::debug!(
+                                    target: "store::trie::prefetch",
+                                    message = "prefetching failure",
+                                    error = %e,
+                                    key = ?trie_key
+                                );
+                                // This may happen in rare occasions and can be ignored safely.
+                                // See comments in `TriePrefetchingStorage::retrieve_raw_bytes`.
+                                near_o11y::io_trace!(count: "prefetch_failure");
+                                metric_prefetch_fail.inc();
+                            }
                         }
                     }
                 }
@@ -494,8 +518,12 @@ impl PrefetchApi {
     ///
     /// Queued up work will not be finished. But trie keys that are already
     /// being fetched will finish.
-    pub fn clear_queue(&self) {
-        while let Ok(_dropped) = self.work_queue_rx.try_recv() {}
+    pub fn clear_queue(&self) -> usize {
+        let mut count = 0;
+        while let Ok(_dropped) = self.work_queue_rx.try_recv() {
+            count += 1;
+        }
+        count
     }
 
     /// Clear prefetched staging area from data that has not been picked up by the main thread.

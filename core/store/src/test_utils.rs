@@ -4,13 +4,13 @@ use crate::flat::{
 };
 use crate::metadata::{DbKind, DbVersion, DB_VERSION};
 use crate::{
-    get, get_delayed_receipt_indices, DBCol, NodeStorage, ShardTries, StateSnapshotConfig, Store,
-    TrieConfig,
+    get, get_delayed_receipt_indices, get_promise_yield_indices, DBCol, NodeStorage, ShardTries,
+    StateSnapshotConfig, Store, TrieConfig,
 };
 use itertools::Itertools;
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{DataReceipt, Receipt, ReceiptEnum};
+use near_primitives::receipt::{DataReceipt, PromiseYieldTimeout, Receipt, ReceiptEnum};
 use near_primitives::shard_layout::{ShardUId, ShardVersion};
 use near_primitives::state::FlatStateValue;
 use near_primitives::trie_key::TrieKey;
@@ -18,7 +18,7 @@ use near_primitives::types::{NumShards, StateRoot};
 use rand::seq::SliceRandom;
 use rand::Rng;
 use std::collections::HashMap;
-use std::str::from_utf8;
+use std::str::{from_utf8, FromStr};
 use std::sync::Arc;
 
 /// Creates an in-memory node storage.
@@ -94,8 +94,8 @@ impl TestTriesBuilder {
         self
     }
 
-    pub fn with_flat_storage(mut self) -> Self {
-        self.enable_flat_storage = true;
+    pub fn with_flat_storage(mut self, enable: bool) -> Self {
+        self.enable_flat_storage = enable;
         self
     }
 
@@ -113,7 +113,7 @@ impl TestTriesBuilder {
         let tries = ShardTries::new(
             store,
             TrieConfig {
-                load_mem_tries_for_all_shards: self.enable_in_memory_tries,
+                load_mem_tries_for_tracked_shards: self.enable_in_memory_tries,
                 ..Default::default()
             },
             &shard_uids,
@@ -162,6 +162,7 @@ pub fn test_populate_trie(
     let trie = tries.get_trie_for_shard(shard_uid, *root);
     let trie_changes = trie.update(changes.iter().cloned()).unwrap();
     let mut store_update = tries.store_update();
+    tries.apply_memtrie_changes(&trie_changes, shard_uid, 1); // TODO: don't hardcode block height
     let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
     store_update.commit().unwrap();
     let deduped = simplify_changes(&changes);
@@ -251,6 +252,15 @@ pub fn gen_unique_accounts(rng: &mut impl Rng, min_size: usize, max_size: usize)
     accounts
 }
 
+// returns one account for each shard
+pub fn gen_shard_accounts() -> Vec<AccountId> {
+    vec!["aaa", "aurora", "aurora-0", "kkuuue2akv_1630967379.near", "tge-lockup.sweat"]
+        .into_iter()
+        .map(AccountId::from_str)
+        .map(Result::unwrap)
+        .collect()
+}
+
 pub fn gen_receipts(rng: &mut impl Rng, max_size: usize) -> Vec<Receipt> {
     let alphabet = gen_alphabet();
     let accounts = gen_accounts_from_alphabet(rng, 1, max_size, &alphabet);
@@ -261,6 +271,19 @@ pub fn gen_receipts(rng: &mut impl Rng, max_size: usize) -> Vec<Receipt> {
             receiver_id: account_id.clone(),
             receipt_id: CryptoHash::default(),
             receipt: ReceiptEnum::Data(DataReceipt { data_id: CryptoHash::default(), data: None }),
+        })
+        .collect()
+}
+
+pub fn gen_timeouts(rng: &mut impl Rng, max_size: usize) -> Vec<PromiseYieldTimeout> {
+    let alphabet = gen_alphabet();
+    let accounts = gen_accounts_from_alphabet(rng, 1, max_size, &alphabet);
+    accounts
+        .iter()
+        .map(|account_id| PromiseYieldTimeout {
+            account_id: account_id.clone(),
+            data_id: CryptoHash::default(),
+            expires_at: 0,
         })
         .collect()
 }
@@ -342,4 +365,22 @@ pub fn get_all_delayed_receipts(
         receipts.push(receipt);
     }
     receipts
+}
+
+pub fn get_all_promise_yield_timeouts(
+    tries: &ShardTries,
+    shard_uid: &ShardUId,
+    state_root: &StateRoot,
+) -> Vec<PromiseYieldTimeout> {
+    let state_update = &tries.new_trie_update(*shard_uid, *state_root);
+    let mut promise_yield_indices = get_promise_yield_indices(state_update).unwrap();
+
+    let mut timeouts = vec![];
+    while promise_yield_indices.first_index < promise_yield_indices.next_available_index {
+        let key = TrieKey::PromiseYieldTimeout { index: promise_yield_indices.first_index };
+        let timeout = get(state_update, &key).unwrap().unwrap();
+        promise_yield_indices.first_index += 1;
+        timeouts.push(timeout);
+    }
+    timeouts
 }

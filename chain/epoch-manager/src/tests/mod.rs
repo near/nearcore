@@ -13,12 +13,14 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::block::Tip;
 use near_primitives::challenge::SlashedValidator;
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use near_primitives::stateless_validation::{
-    ChunkStateTransition, ChunkStateWitness, ChunkStateWitnessInner,
+    ChunkStateTransition, ChunkStateWitness, EncodedChunkStateWitness,
+    SignedEncodedChunkStateWitness,
 };
 use near_primitives::types::ValidatorKickoutReason::{NotEnoughBlocks, NotEnoughChunks};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -728,7 +730,7 @@ fn test_validator_reward_one_validator() {
         "test2".parse().unwrap(),
         BlockChunkValidatorStats {
             block_stats: ValidatorStats { produced: 1, expected: 1 },
-            chunk_stats: ValidatorStats { produced: 1, expected: 1 },
+            chunk_stats: ChunkValidatorStats::new_with_production(1, 1),
         },
     );
     let mut validator_stakes = HashMap::new();
@@ -746,14 +748,8 @@ fn test_validator_reward_one_validator() {
 
     let epoch_info = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap();
     check_validators(&epoch_info, &[("test2", stake_amount + test2_reward)]);
-    check_fishermen(&epoch_info, &[("test1", test1_stake_amount)]);
-    check_stake_change(
-        &epoch_info,
-        vec![
-            ("test1".parse().unwrap(), test1_stake_amount),
-            ("test2".parse().unwrap(), stake_amount + test2_reward),
-        ],
-    );
+    check_fishermen(&epoch_info, &[]);
+    check_stake_change(&epoch_info, vec![("test2".parse().unwrap(), stake_amount + test2_reward)]);
     check_kickout(&epoch_info, &[]);
     check_reward(
         &epoch_info,
@@ -818,14 +814,14 @@ fn test_validator_reward_weight_by_stake() {
         "test1".parse().unwrap(),
         BlockChunkValidatorStats {
             block_stats: ValidatorStats { produced: 1, expected: 1 },
-            chunk_stats: ValidatorStats { produced: 1, expected: 1 },
+            chunk_stats: ChunkValidatorStats::new_with_production(1, 1),
         },
     );
     validator_online_ratio.insert(
         "test2".parse().unwrap(),
         BlockChunkValidatorStats {
             block_stats: ValidatorStats { produced: 1, expected: 1 },
-            chunk_stats: ValidatorStats { produced: 1, expected: 1 },
+            chunk_stats: ChunkValidatorStats::new_with_production(1, 1),
         },
     );
     let mut validators_stakes = HashMap::new();
@@ -941,7 +937,7 @@ fn test_reward_multiple_shards() {
         "test2".parse().unwrap(),
         BlockChunkValidatorStats {
             block_stats: ValidatorStats { produced: 1, expected: 1 },
-            chunk_stats: ValidatorStats { produced: 1, expected: 1 },
+            chunk_stats: ChunkValidatorStats::new_with_production(1, 1),
         },
     );
     let mut validators_stakes = HashMap::new();
@@ -1703,13 +1699,13 @@ fn test_fishermen() {
     );
     let epoch_info = em.get_epoch_info(&EpochId::default()).unwrap();
     check_validators(&epoch_info, &[("test1", stake_amount), ("test2", stake_amount)]);
-    check_fishermen(&epoch_info, &[("test3", fishermen_threshold)]);
+    check_fishermen(&epoch_info, &[]);
     check_stake_change(
         &epoch_info,
         vec![
             ("test1".parse().unwrap(), stake_amount),
             ("test2".parse().unwrap(), stake_amount),
-            ("test3".parse().unwrap(), fishermen_threshold),
+            ("test3".parse().unwrap(), 0),
             ("test4".parse().unwrap(), 0),
         ],
     );
@@ -1754,10 +1750,7 @@ fn test_fishermen_unstake() {
         ],
     );
     let kickout = epoch_info.validator_kickout();
-    assert_eq!(
-        kickout.get(AccountIdRef::new_or_panic("test2")).unwrap(),
-        &ValidatorKickoutReason::Unstaked
-    );
+    assert!(!kickout.contains_key(AccountIdRef::new_or_panic("test2")));
     matches!(
         kickout.get(AccountIdRef::new_or_panic("test3")),
         Some(ValidatorKickoutReason::NotEnoughStake { .. })
@@ -1848,11 +1841,7 @@ fn test_kickout_set() {
     );
     assert_eq!(
         epoch_info1.stake_change().clone(),
-        change_stake(vec![
-            ("test1".parse().unwrap(), stake_amount),
-            ("test2".parse().unwrap(), 0),
-            ("test3".parse().unwrap(), 10)
-        ])
+        change_stake(vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), 0)])
     );
     assert!(epoch_info1.validator_kickout().is_empty());
     record_block(
@@ -1865,15 +1854,11 @@ fn test_kickout_set() {
     record_block(&mut epoch_manager, h[3], h[4], 4, vec![]);
     let epoch_info = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap();
     check_validators(&epoch_info, &[("test1", stake_amount), ("test2", stake_amount)]);
-    check_fishermen(&epoch_info, &[("test3", 10)]);
+    check_fishermen(&epoch_info, &[]);
     check_kickout(&epoch_info, &[]);
     check_stake_change(
         &epoch_info,
-        vec![
-            ("test1".parse().unwrap(), stake_amount),
-            ("test2".parse().unwrap(), stake_amount),
-            ("test3".parse().unwrap(), 10),
-        ],
+        vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), stake_amount)],
     );
 }
 
@@ -2157,6 +2142,7 @@ fn check_validators(epoch_info: &EpochInfo, expected_validators: &[(&str, u128)]
 }
 
 fn check_fishermen(epoch_info: &EpochInfo, expected_fishermen: &[(&str, u128)]) {
+    assert_eq!(epoch_info.fishermen_iter().len(), expected_fishermen.len());
     for (v, (account_id, stake)) in epoch_info.fishermen_iter().zip(expected_fishermen.into_iter())
     {
         assert_eq!(v.account_id(), *account_id);
@@ -2178,51 +2164,6 @@ fn check_kickout(epoch_info: &EpochInfo, reasons: &[(&str, ValidatorKickoutReaso
         .map(|(account, reason)| (account.parse().unwrap(), reason.clone()))
         .collect::<HashMap<_, _>>();
     assert_eq!(epoch_info.validator_kickout(), &kickout);
-}
-
-#[test]
-fn test_fisherman_kickout() {
-    let stake_amount = 1_000_000;
-    let validators = vec![
-        ("test1".parse().unwrap(), stake_amount),
-        ("test2".parse().unwrap(), stake_amount),
-        ("test3".parse().unwrap(), stake_amount),
-    ];
-    let mut epoch_manager = setup_default_epoch_manager(validators, 1, 1, 3, 0, 90, 60);
-    let h = hash_range(6);
-    record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
-    record_block(&mut epoch_manager, h[0], h[1], 1, vec![stake("test1".parse().unwrap(), 148)]);
-    // test1 starts as validator,
-    // - reduces stake in epoch T, will be fisherman in epoch T+2
-    // - Misses a block in epoch T+1, will be kicked out in epoch T+3
-    // - Finalize epoch T+1 => T+3 kicks test1 as fisherman without a record in stake_change
-    record_block(&mut epoch_manager, h[1], h[3], 3, vec![]);
-
-    let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[1])).unwrap();
-    check_validators(&epoch_info2, &[("test2", stake_amount), ("test3", stake_amount)]);
-    check_fishermen(&epoch_info2, &[("test1", 148)]);
-    check_stake_change(
-        &epoch_info2,
-        vec![
-            ("test1".parse().unwrap(), 148),
-            ("test2".parse().unwrap(), stake_amount),
-            ("test3".parse().unwrap(), stake_amount),
-        ],
-    );
-    check_kickout(&epoch_info2, &[]);
-
-    let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap();
-    check_validators(&epoch_info3, &[("test2", stake_amount), ("test3", stake_amount)]);
-    check_fishermen(&epoch_info3, &[]);
-    check_stake_change(
-        &epoch_info3,
-        vec![
-            ("test1".parse().unwrap(), 0),
-            ("test2".parse().unwrap(), stake_amount),
-            ("test3".parse().unwrap(), stake_amount),
-        ],
-    );
-    check_kickout(&epoch_info3, &[("test1", NotEnoughBlocks { produced: 0, expected: 1 })]);
 }
 
 fn set_block_info_protocol_version(info: &mut BlockInfo, protocol_version: ProtocolVersion) {
@@ -2296,7 +2237,7 @@ fn test_protocol_version_switch_with_shard_layout_change() {
         }
         epoch_manager.record_block_info(block_info, [0; 32]).unwrap();
     }
-    let epochs = vec![EpochId::default(), EpochId(h[2]), EpochId(h[4])];
+    let epochs = [EpochId::default(), EpochId(h[2]), EpochId(h[4])];
     assert_eq!(
         epoch_manager.get_epoch_info(&epochs[1]).unwrap().protocol_version(),
         new_protocol_version - 1
@@ -2590,18 +2531,18 @@ fn test_validator_kickout_sanity() {
             (
                 0,
                 HashMap::from([
-                    (0, ValidatorStats { produced: 100, expected: 100 }),
-                    (1, ValidatorStats { produced: 80, expected: 100 }),
-                    (2, ValidatorStats { produced: 70, expected: 100 }),
+                    (0, ChunkValidatorStats::new_with_production(100, 100)),
+                    (1, ChunkValidatorStats::new_with_production(80, 100)),
+                    (2, ChunkValidatorStats::new_with_production(70, 100)),
                 ]),
             ),
             (
                 1,
                 HashMap::from([
-                    (0, ValidatorStats { produced: 70, expected: 100 }),
-                    (1, ValidatorStats { produced: 79, expected: 100 }),
-                    (3, ValidatorStats { produced: 100, expected: 100 }),
-                    (4, ValidatorStats { produced: 100, expected: 100 }),
+                    (0, ChunkValidatorStats::new_with_production(70, 100)),
+                    (1, ChunkValidatorStats::new_with_production(79, 100)),
+                    (3, ChunkValidatorStats::new_with_production(100, 100)),
+                    (4, ChunkValidatorStats::new_with_production(100, 100)),
                 ]),
             ),
         ]),
@@ -2623,35 +2564,35 @@ fn test_validator_kickout_sanity() {
                 "test0".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 100, expected: 100 },
-                    chunk_stats: ValidatorStats { produced: 170, expected: 200 }
+                    chunk_stats: ChunkValidatorStats::new_with_production(170, 200),
                 }
             ),
             (
                 "test1".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 90, expected: 100 },
-                    chunk_stats: ValidatorStats { produced: 159, expected: 200 }
+                    chunk_stats: ChunkValidatorStats::new_with_production(159, 200),
                 }
             ),
             (
                 "test2".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 100, expected: 100 },
-                    chunk_stats: ValidatorStats { produced: 70, expected: 100 }
+                    chunk_stats: ChunkValidatorStats::new_with_production(70, 100),
                 }
             ),
             (
                 "test3".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 89, expected: 100 },
-                    chunk_stats: ValidatorStats { produced: 100, expected: 100 }
+                    chunk_stats: ChunkValidatorStats::new_with_production(100, 100),
                 }
             ),
             (
                 "test4".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 0, expected: 0 },
-                    chunk_stats: ValidatorStats { produced: 100, expected: 100 }
+                    chunk_stats: ChunkValidatorStats::new_with_production(100, 100),
                 }
             ),
         ])
@@ -2695,15 +2636,15 @@ fn test_max_kickout_stake_ratio() {
         (
             0,
             HashMap::from([
-                (0, ValidatorStats { produced: 0, expected: 100 }),
-                (1, ValidatorStats { produced: 0, expected: 100 }),
+                (0, ChunkValidatorStats::new_with_production(0, 100)),
+                (1, ChunkValidatorStats::new_with_production(0, 100)),
             ]),
         ),
         (
             1,
             HashMap::from([
-                (2, ValidatorStats { produced: 100, expected: 100 }),
-                (4, ValidatorStats { produced: 50, expected: 100 }),
+                (2, ChunkValidatorStats::new_with_production(100, 100)),
+                (4, ChunkValidatorStats::new_with_production(50, 100)),
             ]),
         ),
     ]);
@@ -2734,35 +2675,35 @@ fn test_max_kickout_stake_ratio() {
             "test0".parse().unwrap(),
             BlockChunkValidatorStats {
                 block_stats: ValidatorStats { produced: 50, expected: 100 },
-                chunk_stats: ValidatorStats { produced: 0, expected: 100 },
+                chunk_stats: ChunkValidatorStats::new_with_production(0, 100),
             },
         ),
         (
             "test1".parse().unwrap(),
             BlockChunkValidatorStats {
                 block_stats: ValidatorStats { produced: 70, expected: 100 },
-                chunk_stats: ValidatorStats { produced: 0, expected: 100 },
+                chunk_stats: ChunkValidatorStats::new_with_production(0, 100),
             },
         ),
         (
             "test2".parse().unwrap(),
             BlockChunkValidatorStats {
                 block_stats: ValidatorStats { produced: 70, expected: 100 },
-                chunk_stats: ValidatorStats { produced: 100, expected: 100 },
+                chunk_stats: ChunkValidatorStats::new_with_production(100, 100),
             },
         ),
         (
             "test3".parse().unwrap(),
             BlockChunkValidatorStats {
                 block_stats: ValidatorStats { produced: 0, expected: 0 },
-                chunk_stats: ValidatorStats { produced: 0, expected: 0 },
+                chunk_stats: ChunkValidatorStats::default(),
             },
         ),
         (
             "test4".parse().unwrap(),
             BlockChunkValidatorStats {
                 block_stats: ValidatorStats { produced: 0, expected: 0 },
-                chunk_stats: ValidatorStats { produced: 50, expected: 100 },
+                chunk_stats: ChunkValidatorStats::new_with_production(50, 100),
             },
         ),
     ]);
@@ -2792,6 +2733,7 @@ fn test_max_kickout_stake_ratio() {
 
 fn test_chunk_header(h: &[CryptoHash], signer: &dyn ValidatorSigner) -> ShardChunkHeader {
     ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+        PROTOCOL_VERSION,
         h[0],
         h[2],
         h[2],
@@ -2805,6 +2747,7 @@ fn test_chunk_header(h: &[CryptoHash], signer: &dyn ValidatorSigner) -> ShardChu
         h[2],
         h[2],
         vec![],
+        CongestionInfo::default(),
         signer,
     ))
 }
@@ -2904,12 +2847,15 @@ fn test_verify_chunk_state_witness() {
     // Verify if the test signer has same public key as the chunk validator.
     let (validator, _) =
         epoch_manager.get_validator_by_account_id(&epoch_id, &h[0], &account_id).unwrap();
-    let signer = Arc::new(create_test_signer("test1"));
+    let chunk_producer: AccountId = "test1".parse().unwrap();
+    let signer = Arc::new(create_test_signer(chunk_producer.as_str()));
     assert_eq!(signer.public_key(), validator.public_key().clone());
 
     // Build a chunk state witness with arbitrary data.
     let chunk_header = test_chunk_header(&h, signer.as_ref());
-    let witness_inner = ChunkStateWitnessInner::new(
+    let witness = ChunkStateWitness::new(
+        chunk_producer.clone(),
+        epoch_id.clone(),
         chunk_header,
         ChunkStateTransition {
             block_hash: h[0],
@@ -2923,21 +2869,29 @@ fn test_verify_chunk_state_witness() {
         vec![],
         Default::default(),
     );
-    let signature = signer.sign_chunk_state_witness(&witness_inner).0;
-
     // Check chunk state witness validity.
-    let mut chunk_state_witness = ChunkStateWitness { inner: witness_inner, signature };
-    assert!(epoch_manager.verify_chunk_state_witness_signature(&chunk_state_witness).unwrap());
+    let witness_bytes = EncodedChunkStateWitness::encode(&witness).unwrap().0;
+    let mut chunk_state_witness = SignedEncodedChunkStateWitness {
+        signature: signer.sign_chunk_state_witness(&witness_bytes),
+        witness_bytes,
+    };
+    assert!(epoch_manager
+        .verify_chunk_state_witness_signature(&chunk_state_witness, &chunk_producer, &epoch_id)
+        .unwrap());
 
     // Check invalid chunk state witness signature.
     chunk_state_witness.signature = Signature::default();
-    assert!(!epoch_manager.verify_chunk_state_witness_signature(&chunk_state_witness).unwrap());
+    assert!(!epoch_manager
+        .verify_chunk_state_witness_signature(&chunk_state_witness, &chunk_producer, &epoch_id)
+        .unwrap());
 
     // Check chunk state witness invalidity when signer is not a chunk validator.
     let bad_signer = Arc::new(create_test_signer("test2"));
     chunk_state_witness.signature =
-        bad_signer.sign_chunk_state_witness(&chunk_state_witness.inner).0;
-    assert!(!epoch_manager.verify_chunk_state_witness_signature(&chunk_state_witness).unwrap());
+        bad_signer.sign_chunk_state_witness(&chunk_state_witness.witness_bytes);
+    assert!(!epoch_manager
+        .verify_chunk_state_witness_signature(&chunk_state_witness, &chunk_producer, &epoch_id)
+        .unwrap());
 }
 
 /// Simulate the blockchain over a few epochs and verify that possible_epochs_of_height_around_tip()

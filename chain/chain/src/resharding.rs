@@ -22,7 +22,7 @@ use near_store::flat::{
     store_helper, BlockInfo, FlatStorageError, FlatStorageManager, FlatStorageReadyStatus,
     FlatStorageStatus,
 };
-use near_store::resharding::get_delayed_receipts;
+use near_store::resharding::{get_delayed_receipts, get_promise_yield_timeouts};
 use near_store::trie::SnapshotError;
 use near_store::{ShardTries, ShardUId, StorageError, Store, Trie, TrieDBStorage, TrieStorage};
 use std::collections::{HashMap, HashSet};
@@ -145,6 +145,7 @@ fn apply_delayed_receipts<'a>(
     state_roots: HashMap<ShardUId, StateRoot>,
     account_id_to_shard_uid: &(dyn Fn(&AccountId) -> ShardUId + 'a),
 ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
+    let mut total_count = 0;
     let orig_trie_update = tries.new_trie_update_view(orig_shard_uid, orig_state_root);
 
     let mut start_index = None;
@@ -152,6 +153,7 @@ fn apply_delayed_receipts<'a>(
     while let Some((next_index, receipts)) =
         get_delayed_receipts(&orig_trie_update, start_index, config.batch_size)?
     {
+        total_count += receipts.len() as u64;
         let (store_update, updated_state_roots) = tries.apply_delayed_receipts_to_children_states(
             &new_state_roots,
             &receipts,
@@ -162,6 +164,39 @@ fn apply_delayed_receipts<'a>(
         store_update.commit()?;
     }
 
+    tracing::debug!(target: "resharding", ?orig_shard_uid, ?total_count, "Applied delayed receipts");
+    Ok(new_state_roots)
+}
+
+fn apply_promise_yield_timeouts<'a>(
+    config: &ReshardingConfig,
+    tries: &ShardTries,
+    orig_shard_uid: ShardUId,
+    orig_state_root: StateRoot,
+    state_roots: HashMap<ShardUId, StateRoot>,
+    account_id_to_shard_uid: &(dyn Fn(&AccountId) -> ShardUId + 'a),
+) -> Result<HashMap<ShardUId, StateRoot>, Error> {
+    let mut total_count = 0;
+    let orig_trie_update = tries.new_trie_update_view(orig_shard_uid, orig_state_root);
+
+    let mut start_index = None;
+    let mut new_state_roots = state_roots;
+    while let Some((next_index, timeouts)) =
+        get_promise_yield_timeouts(&orig_trie_update, start_index, config.batch_size)?
+    {
+        total_count += timeouts.len() as u64;
+        let (store_update, updated_state_roots) = tries
+            .apply_promise_yield_timeouts_to_children_states(
+                &new_state_roots,
+                &timeouts,
+                account_id_to_shard_uid,
+            )?;
+        new_state_roots = updated_state_roots;
+        start_index = Some(next_index);
+        store_update.commit()?;
+    }
+
+    tracing::debug!(target: "resharding", ?orig_shard_uid, ?total_count, "Applied PromiseYield timeouts");
     Ok(new_state_roots)
 }
 
@@ -416,6 +451,15 @@ impl Chain {
             &checked_account_id_to_shard_uid,
         )?;
 
+        state_roots = apply_promise_yield_timeouts(
+            &config.get(),
+            &tries,
+            shard_uid,
+            state_root,
+            state_roots,
+            &checked_account_id_to_shard_uid,
+        )?;
+
         tracing::debug!(target: "resharding", ?shard_uid, "build_state_for_split_shards_impl finished");
         Ok(state_roots)
     }
@@ -431,6 +475,7 @@ impl Chain {
 
         let child_shard_uids = state_roots.keys().cloned().collect_vec();
         self.initialize_flat_storage(&prev_hash, &child_shard_uids)?;
+        // TODO(resharding) #10844 Load in-memory trie if needed.
 
         let mut chain_store_update = self.mut_chain_store().store_update();
         for (shard_uid, state_root) in state_roots {

@@ -1,6 +1,7 @@
 use crate::time;
 use derive_enum_from_into::{EnumFrom, EnumTryInto};
 
+use crate::test_loop::delay_sender::DelaySender;
 use crate::{
     examples::sum_numbers_test::forward_sum_request,
     messaging::{CanSend, IntoSender},
@@ -27,13 +28,14 @@ enum TestEvent {
 
 /// Let's pretend that when we send a remote request, the number gets sent to
 /// every other instance in the setup as a local request.
-fn forward_remote_request_to_other_instances() -> LoopEventHandler<Vec<TestData>, (usize, TestEvent)>
-{
-    LoopEventHandler::new(|event: (usize, TestEvent), data: &mut Vec<TestData>, context| {
+fn forward_remote_request_to_other_instances(
+    sender: DelaySender<(usize, TestEvent)>,
+) -> LoopEventHandler<Vec<TestData>, (usize, TestEvent)> {
+    LoopEventHandler::new(move |event: (usize, TestEvent), data: &mut Vec<TestData>| {
         if let TestEvent::RemoteRequest(number) = event.1 {
             for i in 0..data.len() {
                 if i != event.0 {
-                    context.sender.send((i, TestEvent::LocalRequest(SumRequest::Number(number))))
+                    sender.send((i, TestEvent::LocalRequest(SumRequest::Number(number))))
                 }
             }
             Ok(())
@@ -58,7 +60,7 @@ fn test_multi_instance() {
     }
     let sender = builder.sender();
     let mut test = builder.build(data);
-    test.register_handler(forward_remote_request_to_other_instances());
+    test.register_handler(forward_remote_request_to_other_instances(test.sender()));
     for i in 0..5 {
         // Single-instance handlers can be reused for multi-instance tests.
         test.register_handler(forward_sum_request().widen().for_index(i));

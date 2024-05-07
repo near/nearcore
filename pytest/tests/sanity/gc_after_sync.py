@@ -13,7 +13,7 @@ from configured_logger import logger
 import state_sync_lib
 import utils
 
-EPOCH_LENGTH = 20
+EPOCH_LENGTH = 50
 TARGET_HEIGHT = int(EPOCH_LENGTH * 2.5)
 AFTER_SYNC_HEIGHT = EPOCH_LENGTH * 10
 TIMEOUT = 300
@@ -25,7 +25,13 @@ node_config["consensus.min_block_production_delay"] = {
     "secs": 0,
     "nanos": 100000000
 }
+node_config["consensus.max_block_production_delay"] = {
+    "secs": 0,
+    "nanos": 300000000
+}
+node_config["consensus.max_block_wait_delay"] = {"secs": 0, "nanos": 600000000}
 node_config["consensus.block_fetch_horizon"] = 1
+node_config["gc_step_period"] = {"secs": 0, "nanos": 100000000}
 
 nodes = start_cluster(
     4, 0, 1,

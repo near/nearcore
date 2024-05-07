@@ -40,6 +40,16 @@ pub struct UniversalArtifact {
     pub(crate) local_globals: Vec<(GlobalType, GlobalInit)>,
 }
 
+// FIXME SAFETY: this is probably unsound in principle -- I don't believe UniversalArtifact is
+// `Sync` necessarily. However our saving grace is that this isn't actually a bound that we need in
+// near protocol at least at the time this is implemented. The only reason this property is
+// required right now is because `Instance` stores `Arc<dyn Artifact>`. However our use of
+// `Instances` is entirely single-threaded and if we could replace that `Arc<...>` with a plain
+// `&dyn Artifact`, then all would be fine (at an expense of Instance being less convenient to use.)
+//
+// FIXME: when removing this, also remove the `trait Artifact: Sync` super trait specification.
+unsafe impl Sync for UniversalArtifact {}
+
 impl UniversalArtifact {
     /// Return the extents of the specified local function.
     pub fn function_extent(&self, index: LocalFunctionIndex) -> Option<FunctionExtent> {

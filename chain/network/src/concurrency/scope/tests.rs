@@ -252,7 +252,7 @@ async fn test_scope_error_nonoverridable() {
     assert_eq!(Err(2), res);
 }
 
-// After all main tasks complete succesfully, the scope gets canceled.
+// After all main tasks complete successfully, the scope gets canceled.
 // Background tasks of the scope should still be able to spawn more tasks
 // both via `Scope::spawn()` and `Scope::spawn_bg` (although after scope
 // cancelation they behave exactly the same).

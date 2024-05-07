@@ -11,6 +11,7 @@ use crate::peer_manager::connection;
 use crate::peer_manager::network_state::{NetworkState, WhitelistNode};
 use crate::peer_manager::peer_store;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
+use crate::state_witness::PartialWitnessSenderForNetwork;
 use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
@@ -47,7 +48,7 @@ use tracing::Instrument as _;
 const EXPONENTIAL_BACKOFF_RATIO: f64 = 1.1;
 /// The initial waiting time between consecutive attempts to establish connection
 const MONITOR_PEERS_INITIAL_DURATION: time::Duration = time::Duration::milliseconds(10);
-/// How often should we check wheter local edges match the connection pool.
+/// How often should we check whether local edges match the connection pool.
 const FIX_LOCAL_EDGES_INTERVAL: time::Duration = time::Duration::seconds(60);
 /// How much time we give fix_local_edges() to resolve the discrepancies, before forcing disconnect.
 const FIX_LOCAL_EDGES_TIMEOUT: time::Duration = time::Duration::seconds(6);
@@ -207,6 +208,7 @@ impl PeerManagerActor {
         config: config::NetworkConfig,
         client: ClientSenderForNetwork,
         shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
+        partial_witness_adapter: PartialWitnessSenderForNetwork,
         genesis_id: GenesisId,
     ) -> anyhow::Result<actix::Addr<Self>> {
         let config = config.verify().context("config")?;
@@ -237,6 +239,7 @@ impl PeerManagerActor {
             genesis_id,
             client,
             shards_manager_adapter,
+            partial_witness_adapter,
             whitelist_nodes,
         ));
         arbiter.spawn({
@@ -465,7 +468,7 @@ impl PeerManagerActor {
     /// If so, constructs a safe set of peers and selects one random peer outside of that set
     /// and sends signal to stop connection to it gracefully.
     ///
-    /// Safe set contruction process:
+    /// Safe set construction process:
     /// 1. Add all whitelisted peers to the safe set.
     /// 2. If the number of outbound connections is less or equal than minimum_outbound_connections,
     ///    add all outbound connections to the safe set.
@@ -976,12 +979,45 @@ impl PeerManagerActor {
                 }
                 NetworkResponses::NoResponse
             }
+            NetworkRequests::ChunkStateWitnessAck(target, ack) => {
+                self.state.send_message_to_account(
+                    &self.clock,
+                    &target,
+                    RoutedMessageBody::ChunkStateWitnessAck(ack),
+                );
+                NetworkResponses::NoResponse
+            }
             NetworkRequests::ChunkEndorsement(target, endorsement) => {
                 self.state.send_message_to_account(
                     &self.clock,
                     &target,
                     RoutedMessageBody::ChunkEndorsement(endorsement),
                 );
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple) => {
+                for (chunk_validator, partial_witness) in validator_witness_tuple {
+                    self.state.send_message_to_account(
+                        &self.clock,
+                        &chunk_validator,
+                        RoutedMessageBody::PartialEncodedStateWitness(partial_witness),
+                    );
+                }
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::PartialEncodedStateWitnessForward(
+                chunk_validators,
+                partial_witness,
+            ) => {
+                for chunk_validator in chunk_validators {
+                    self.state.send_message_to_account(
+                        &self.clock,
+                        &chunk_validator,
+                        RoutedMessageBody::PartialEncodedStateWitnessForward(
+                            partial_witness.clone(),
+                        ),
+                    );
+                }
                 NetworkResponses::NoResponse
             }
         }

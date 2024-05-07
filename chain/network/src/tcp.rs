@@ -10,8 +10,9 @@ const LISTENER_BACKLOG: u32 = 128;
 
 /// TEST-ONLY: guards ensuring that OS considers the given TCP listener port to be in use until
 /// this OS process is terminated.
-static RESERVED_LISTENER_ADDRS: Lazy<Mutex<HashMap<std::net::SocketAddr, tokio::net::TcpSocket>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+pub(crate) static RESERVED_LISTENER_ADDRS: Lazy<
+    Mutex<HashMap<std::net::SocketAddr, tokio::net::TcpSocket>>,
+> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 /// TCP connections established by a node belong to different logical networks (aka tiers),
 /// which serve different purpose.

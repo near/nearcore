@@ -1,0 +1,29 @@
+[package]
+name = "eth-wallet-contract"
+version.workspace = true
+edition.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+aurora-engine-transactions.workspace = true
+base64.workspace = true
+ethabi.workspace = true
+hex.workspace = true
+near-sdk.workspace = true
+once_cell.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+anyhow.workspace = true
+aurora-engine-types.workspace = true
+near-crypto.workspace = true
+near-workspaces.workspace = true
+rlp.workspace = true
+sha3.workspace = true
+tokio.workspace = true

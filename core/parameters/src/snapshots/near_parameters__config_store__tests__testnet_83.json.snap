@@ -39,9 +39,9 @@ expression: config_view
         "execution": 64572944
       },
       "function_call_cost": {
-        "send_sir": 2319861500000,
-        "send_not_sir": 2319861500000,
-        "execution": 2319861500000
+        "send_sir": 200000000000,
+        "send_not_sir": 200000000000,
+        "execution": 780000000000
       },
       "function_call_cost_per_byte": {
         "send_sir": 2235934,
@@ -109,7 +109,7 @@ expression: config_view
     "ext_costs": {
       "base": 264768111,
       "contract_loading_base": 35445963,
-      "contract_loading_bytes": 216750,
+      "contract_loading_bytes": 1089295,
       "read_memory_base": 2609863200,
       "read_memory_byte": 3801333,
       "write_memory_base": 2803794861,
@@ -216,7 +216,8 @@ expression: config_view
       "max_locals_per_contract": 1000000,
       "account_id_validity_rules_version": 1,
       "yield_timeout_length_in_blocks": 200,
-      "max_yield_payload_size": 1024
+      "max_yield_payload_size": 1024,
+      "storage_proof_size_receipt_limit": 999999999999999
     }
   },
   "account_creation_config": {

@@ -1,8 +1,10 @@
 use near_o11y::metrics::{
-    try_create_histogram_vec, try_create_int_counter, try_create_int_counter_vec, HistogramVec,
-    IntCounter, IntCounterVec,
+    exponential_buckets, linear_buckets, try_create_counter_vec, try_create_histogram_vec,
+    try_create_histogram_with_buckets, try_create_int_counter, try_create_int_counter_vec,
+    CounterVec, Histogram, HistogramVec, IntCounter, IntCounterVec,
 };
 use once_cell::sync::Lazy;
+use std::time::Duration;
 
 pub static ACTION_CALLED_COUNT: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
@@ -20,6 +22,79 @@ pub static TRANSACTION_PROCESSED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
     )
     .unwrap()
 });
+
+pub static INCOMING_RECEIPT_PROCESSED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_incoming_receipt_processed_total",
+        "The number of incoming receipts processed since starting this node",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub static INCOMING_RECEIPT_PROCESSING_SECONDS_TOTAL: Lazy<CounterVec> = Lazy::new(|| {
+    try_create_counter_vec(
+        "near_incoming_receipt_processing_seconds_total",
+        "The time spent on processing incoming receipts since starting this node",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub static DELAYED_RECEIPT_PROCESSED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_delayed_receipt_processed_total",
+        "The number of delayed receipts processed since starting this node",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub static DELAYED_RECEIPT_PROCESSING_SECONDS_TOTAL: Lazy<CounterVec> = Lazy::new(|| {
+    try_create_counter_vec(
+        "near_delayed_receipt_processing_seconds_total",
+        "The time spent on processing delayed receipts since starting this node",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub static LOCAL_RECEIPT_PROCESSED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_local_receipt_processed_total",
+        "The number of local receipts processed since starting this node",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub static LOCAL_RECEIPT_PROCESSING_SECONDS_TOTAL: Lazy<CounterVec> = Lazy::new(|| {
+    try_create_counter_vec(
+        "near_local_receipt_processing_seconds_total",
+        "The time spent on processing local receipts since starting this node",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub static YIELD_TIMEOUTS_PROCESSED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_yield_timeouts_processed_total",
+        "The number of yield timeouts processed since starting this node",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub static YIELD_TIMEOUTS_PROCESSING_SECONDS_TOTAL: Lazy<CounterVec> = Lazy::new(|| {
+    try_create_counter_vec(
+        "near_yield_timeouts_processing_seconds_total",
+        "The time spent on processing yield timeouts since starting this node",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
 pub static TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
     try_create_int_counter(
         "near_transaction_processed_successfully_total",
@@ -27,6 +102,7 @@ pub static TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL: Lazy<IntCounter> = Lazy::ne
     )
     .unwrap()
 });
+
 pub static TRANSACTION_PROCESSED_FAILED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
     try_create_int_counter(
         "near_transaction_processed_failed_total",
@@ -214,6 +290,54 @@ static CHUNK_TX_TGAS: Lazy<HistogramVec> = Lazy::new(|| {
     )
     .unwrap()
 });
+pub static RECEIPT_RECORDED_SIZE: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram_with_buckets(
+        "near_receipt_recorded_size",
+        "Size of storage proof recorded when executing a receipt",
+        buckets_for_receipt_storage_proof_size(),
+    )
+    .unwrap()
+});
+pub static RECEIPT_RECORDED_SIZE_UPPER_BOUND: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram_with_buckets(
+        "near_receipt_recorded_size_upper_bound",
+        "Upper bound estimation (e.g with extra size added for deletes) of storage proof size recorded when executing a receipt",
+        buckets_for_receipt_storage_proof_size(),
+    )
+    .unwrap()
+});
+pub static RECEIPT_RECORDED_SIZE_UPPER_BOUND_RATIO: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram_with_buckets(
+        "near_receipt_recorded_size_upper_bound_ratio",
+        "Ratio of upper bound to true recorded size, calculated only for sizes larger than 100KB, equal to (near_receipt_recorded_size_upper_bound / near_receipt_recorded_size)",
+        buckets_for_storage_proof_size_ratio(),
+    )
+    .unwrap()
+});
+pub static CHUNK_RECORDED_SIZE: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram_with_buckets(
+        "near_chunk_recorded_size",
+        "Total size of storage proof (recorded trie nodes for state witness, post-finalization) for a single chunk",
+        buckets_for_chunk_storage_proof_size(),
+    )
+    .unwrap()
+});
+pub static CHUNK_RECORDED_SIZE_UPPER_BOUND: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram_with_buckets(
+        "near_chunk_recorded_size_upper_bound",
+        "Upper bound of storage proof size (recorded trie nodes size + estimated charges, pre-finalization) for a single chunk",
+        buckets_for_chunk_storage_proof_size(),
+    )
+    .unwrap()
+});
+pub static CHUNK_RECORDED_SIZE_UPPER_BOUND_RATIO: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram_with_buckets(
+        "near_chunk_recorded_size_upper_bound_ratio",
+        "Ratio of upper bound to true storage proof size, equal to (near_chunk_recorded_size_upper_bound / near_chunk_recorded_size)",
+        buckets_for_storage_proof_size_ratio(),
+    )
+    .unwrap()
+});
 
 /// Buckets used for burned gas in receipts.
 ///
@@ -238,6 +362,27 @@ fn buckets_for_compute() -> Option<Vec<f64>> {
     ])
 }
 
+/// Buckets from 0 to 10MB
+fn buckets_for_receipt_storage_proof_size() -> Vec<f64> {
+    // Precise buckets for the smaller, common values
+    let mut buckets = vec![50_000., 100_000., 200_000., 300_000.];
+
+    // Coarse buckets for the larger values
+    buckets.extend(linear_buckets(500_000., 500_000., 20).unwrap());
+    buckets
+}
+
+/// Buckets from 0 to 15.2MB
+fn buckets_for_chunk_storage_proof_size() -> Vec<f64> {
+    linear_buckets(0., 800_000., 20).unwrap()
+}
+
+/// Buckets from 1 to 12.84
+fn buckets_for_storage_proof_size_ratio() -> Vec<f64> {
+    // 1.2 ** 14 = 12.84
+    exponential_buckets(1., 1.2, 15).unwrap()
+}
+
 /// Helper struct to collect partial costs of `Runtime::apply` and reporting it
 /// atomically.
 #[derive(Debug, Default)]
@@ -248,12 +393,20 @@ pub struct ApplyMetrics {
     tx_gas: u64,
     local_receipts_compute_usage: u64,
     local_receipts_gas: u64,
+    local_receipts_processed_total: u64,
+    local_receipts_processing_seconds_total: f64,
     delayed_receipts_compute_usage: u64,
     delayed_receipts_gas: u64,
+    delayed_receipts_processed_total: u64,
+    delayed_receipts_processing_seconds_total: f64,
     incoming_receipts_compute_usage: u64,
     incoming_receipts_gas: u64,
+    incoming_receipts_processed_total: u64,
+    incoming_receipts_processing_seconds_total: f64,
     yield_timeouts_compute_usage: u64,
     yield_timeouts_gas: u64,
+    yield_timeouts_processed_total: u64,
+    yield_timeouts_processing_seconds_total: f64,
 }
 
 impl ApplyMetrics {
@@ -275,29 +428,96 @@ impl ApplyMetrics {
             self.update_accumulated(accumulated_gas, accumulated_compute);
     }
 
-    pub fn local_receipts_done(&mut self, accumulated_gas: u64, accumulated_compute: u64) {
+    pub fn local_receipts_done(
+        &mut self,
+        count: u64,
+        time: Duration,
+        accumulated_gas: u64,
+        accumulated_compute: u64,
+    ) {
         (self.local_receipts_gas, self.local_receipts_compute_usage) =
             self.update_accumulated(accumulated_gas, accumulated_compute);
+        self.local_receipts_processed_total += count;
+        self.local_receipts_processing_seconds_total += time.as_secs_f64();
     }
 
-    pub fn delayed_receipts_done(&mut self, accumulated_gas: u64, accumulated_compute: u64) {
+    pub fn delayed_receipts_done(
+        &mut self,
+        count: u64,
+        time: Duration,
+        accumulated_gas: u64,
+        accumulated_compute: u64,
+    ) {
         (self.delayed_receipts_gas, self.delayed_receipts_compute_usage) =
             self.update_accumulated(accumulated_gas, accumulated_compute);
+        self.delayed_receipts_processed_total += count;
+        self.delayed_receipts_processing_seconds_total += time.as_secs_f64();
     }
 
-    pub fn incoming_receipts_done(&mut self, accumulated_gas: u64, accumulated_compute: u64) {
+    pub fn incoming_receipts_done(
+        &mut self,
+        count: u64,
+        time: Duration,
+        accumulated_gas: u64,
+        accumulated_compute: u64,
+    ) {
         (self.incoming_receipts_gas, self.incoming_receipts_compute_usage) =
             self.update_accumulated(accumulated_gas, accumulated_compute);
+        self.incoming_receipts_processed_total += count;
+        self.incoming_receipts_processing_seconds_total += time.as_secs_f64();
     }
 
-    pub fn yield_timeouts_done(&mut self, accumulated_gas: u64, accumulated_compute: u64) {
+    pub fn yield_timeouts_done(
+        &mut self,
+
+        count: u64,
+        time: Duration,
+        accumulated_gas: u64,
+        accumulated_compute: u64,
+    ) {
         (self.yield_timeouts_gas, self.yield_timeouts_compute_usage) =
             self.update_accumulated(accumulated_gas, accumulated_compute);
+        self.yield_timeouts_processed_total += count;
+        self.yield_timeouts_processing_seconds_total += time.as_secs_f64();
     }
 
     /// Report statistics
-    pub fn report(&self, shard_id: &str) {
+    pub fn report(&mut self, shard_id: &str) {
         const TERA: f64 = 1_000_000_000_000_f64;
+
+        LOCAL_RECEIPT_PROCESSED_TOTAL
+            .with_label_values(&[shard_id])
+            .inc_by(self.local_receipts_processed_total);
+        self.local_receipts_processed_total = 0;
+        DELAYED_RECEIPT_PROCESSED_TOTAL
+            .with_label_values(&[shard_id])
+            .inc_by(self.delayed_receipts_processed_total);
+        self.delayed_receipts_processed_total = 0;
+        INCOMING_RECEIPT_PROCESSED_TOTAL
+            .with_label_values(&[shard_id])
+            .inc_by(self.incoming_receipts_processed_total);
+        self.incoming_receipts_processed_total = 0;
+        YIELD_TIMEOUTS_PROCESSED_TOTAL
+            .with_label_values(&[shard_id])
+            .inc_by(self.yield_timeouts_processed_total);
+        self.yield_timeouts_processed_total = 0;
+
+        LOCAL_RECEIPT_PROCESSING_SECONDS_TOTAL
+            .with_label_values(&[shard_id])
+            .inc_by(self.local_receipts_processing_seconds_total);
+        self.local_receipts_processing_seconds_total = 0.0;
+        DELAYED_RECEIPT_PROCESSING_SECONDS_TOTAL
+            .with_label_values(&[shard_id])
+            .inc_by(self.delayed_receipts_processing_seconds_total);
+        self.delayed_receipts_processing_seconds_total = 0.0;
+        INCOMING_RECEIPT_PROCESSING_SECONDS_TOTAL
+            .with_label_values(&[shard_id])
+            .inc_by(self.incoming_receipts_processing_seconds_total);
+        self.incoming_receipts_processing_seconds_total = 0.0;
+        YIELD_TIMEOUTS_PROCESSING_SECONDS_TOTAL
+            .with_label_values(&[shard_id])
+            .inc_by(self.yield_timeouts_processing_seconds_total);
+        self.yield_timeouts_processing_seconds_total = 0.0;
 
         CHUNK_TX_TGAS.with_label_values(&[shard_id]).observe(self.tx_gas as f64 / TERA);
         CHUNK_TX_COMPUTE

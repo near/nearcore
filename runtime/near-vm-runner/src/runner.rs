@@ -1,10 +1,12 @@
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{CacheError, CompilationError, VMRunnerError};
 use crate::logic::types::PromiseResult;
-use crate::logic::{CompiledContractCache, External, VMContext, VMOutcome};
-use crate::ContractCode;
+use crate::logic::{External, VMContext, VMOutcome};
+use crate::{ContractCode, ContractRuntimeCache};
 use near_parameters::vm::{Config, VMKind};
 use near_parameters::RuntimeFeesConfig;
+use near_primitives_core::account::Account;
+use near_primitives_core::hash::CryptoHash;
 
 /// Returned by VM::run method.
 ///
@@ -39,35 +41,46 @@ pub(crate) type VMResult<T = VMOutcome> = Result<T, VMRunnerError>;
 ///
 /// The gas cost for contract preparation will be subtracted by the VM
 /// implementation.
+#[tracing::instrument(target = "vm", level = "debug", "run", skip_all, fields(
+    code.hash = %account.code_hash(),
+    method_name,
+    vm_kind = ?wasm_config.vm_kind,
+    burnt_gas = tracing::field::Empty,
+    compute_usage = tracing::field::Empty,
+))]
 pub fn run(
-    code: &ContractCode,
+    account: &Account,
+    code: Option<&ContractCode>,
     method_name: &str,
     ext: &mut dyn External,
-    context: VMContext,
+    context: &VMContext,
     wasm_config: &Config,
     fees_config: &RuntimeFeesConfig,
     promise_results: &[PromiseResult],
-    cache: Option<&dyn CompiledContractCache>,
+    cache: Option<&dyn ContractRuntimeCache>,
 ) -> VMResult {
+    let span = tracing::Span::current();
     let vm_kind = wasm_config.vm_kind;
-    let span = tracing::debug_span!(
-        target: "vm",
-        "run",
-        "code.len" = code.code().len(),
-        %method_name,
-        ?vm_kind,
-        burnt_gas = tracing::field::Empty,
-    )
-    .entered();
-
     let runtime = vm_kind
         .runtime(wasm_config.clone())
         .unwrap_or_else(|| panic!("the {vm_kind:?} runtime has not been enabled at compile time"));
+    let outcome = runtime.run(
+        account.code_hash(),
+        code,
+        method_name,
+        ext,
+        context,
+        fees_config,
+        promise_results,
+        cache,
+    );
+    let outcome = match outcome {
+        Ok(o) => o,
+        e @ Err(_) => return e,
+    };
 
-    let outcome =
-        runtime.run(code, method_name, ext, context, fees_config, promise_results, cache)?;
-
-    span.record("burnt_gas", &outcome.burnt_gas);
+    span.record("burnt_gas", outcome.burnt_gas);
+    span.record("compute_usage", outcome.compute_usage);
     Ok(outcome)
 }
 
@@ -88,13 +101,14 @@ pub trait VM {
     /// implementation.
     fn run(
         &self,
-        code: &ContractCode,
+        code_hash: CryptoHash,
+        code: Option<&ContractCode>,
         method_name: &str,
         ext: &mut dyn External,
-        context: VMContext,
+        context: &VMContext,
         fees_config: &RuntimeFeesConfig,
         promise_results: &[PromiseResult],
-        cache: Option<&dyn CompiledContractCache>,
+        cache: Option<&dyn ContractRuntimeCache>,
     ) -> VMResult;
 
     /// Precompile a WASM contract to a VM specific format and store the result
@@ -106,7 +120,7 @@ pub trait VM {
     fn precompile(
         &self,
         code: &ContractCode,
-        cache: &dyn CompiledContractCache,
+        cache: &dyn ContractRuntimeCache,
     ) -> Result<Result<ContractPrecompilatonResult, CompilationError>, CacheError>;
 }
 

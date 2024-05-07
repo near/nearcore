@@ -1,5 +1,4 @@
-import { useQuery } from 'react-query';
-import { toHumanTime } from './utils';
+import { useQuery } from '@tanstack/react-query';
 import { fetchSnapshotHosts } from './api';
 import './SnapshotHostsView.scss';
 
@@ -32,18 +31,16 @@ export const SnapshotHostsView = ({ addr }: SnapshotHostsViewProps) => {
                     <th>Sync Hash</th>
                 </thead>
                 <tbody>
-                    {snapshot_hosts.hosts.map(
-                        (host) => {
-                            return (
-                                <tr key={host.peer_id}>
-                                    <td>{host.peer_id}</td>
-                                    <td>{JSON.stringify(host.shards)}</td>
-                                    <td>{host.epoch_height}</td>
-                                    <td>{host.sync_hash}</td>
-                                </tr>
-                            );
-                        }
-                    )}
+                    {snapshot_hosts.hosts.map((host) => {
+                        return (
+                            <tr key={host.peer_id}>
+                                <td>{host.peer_id}</td>
+                                <td>{JSON.stringify(host.shards)}</td>
+                                <td>{host.epoch_height}</td>
+                                <td>{host.sync_hash}</td>
+                            </tr>
+                        );
+                    })}
                 </tbody>
             </table>
         </div>

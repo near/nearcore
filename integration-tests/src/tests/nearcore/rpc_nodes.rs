@@ -443,7 +443,6 @@ fn test_check_unknown_tx_must_return_error() {
 
         let client = new_client(&format!("http://{}", rpc_addrs[0]));
         let tx_hash = transaction.get_hash();
-        let bytes = borsh::to_vec(&transaction).unwrap();
 
         spawn_interruptible(async move {
             loop {
@@ -451,7 +450,13 @@ fn test_check_unknown_tx_must_return_error() {
                 if let Ok(Ok(block)) = res {
                     if block.header.height > 10 {
                         let _ = client
-                            .EXPERIMENTAL_tx_status(to_base64(&bytes))
+                            .EXPERIMENTAL_tx_status(RpcTransactionStatusRequest {
+                                transaction_info: TransactionInfo::TransactionId {
+                                    tx_hash,
+                                    sender_account_id: transaction.transaction.signer_id,
+                                },
+                                wait_until: TxExecutionStatus::None,
+                            })
                             .map_err(|err| {
                                 assert_eq!(
                                     err.data.unwrap(),

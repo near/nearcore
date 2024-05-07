@@ -36,7 +36,7 @@ pub fn get_runtime_and_trie_from_genesis(genesis: &Genesis) -> (Runtime, ShardTr
     let shard_layout = &genesis.config.shard_layout;
     let tries = TestTriesBuilder::new()
         .with_shard_layout(shard_layout.version(), shard_layout.shard_ids().count() as NumShards)
-        .with_flat_storage()
+        .with_flat_storage(true)
         .build();
     let runtime = Runtime::new();
     let mut account_ids: HashSet<AccountId> = HashSet::new();
@@ -48,7 +48,7 @@ pub fn get_runtime_and_trie_from_genesis(genesis: &Genesis) -> (Runtime, ShardTr
     let genesis_root = GenesisStateApplier::apply(
         &writers,
         tries.clone(),
-        0,
+        ShardUId::from_shard_id_and_layout(0, shard_layout),
         &genesis
             .config
             .validators

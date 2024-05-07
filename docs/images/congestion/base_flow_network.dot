@@ -1,0 +1,59 @@
+digraph G {
+    rankdir=LR;
+
+    // Nodes
+    subgraph cluster_shard1 {
+        label = "Shard 1";
+        style=filled;
+        color=lightgrey;
+        node [shape=ellipse];
+
+        Source1 [label="Source"];
+        Shard1 [label="Shard"];
+        Sink1 [label="Sink"];
+    }
+
+    subgraph cluster_shard2 {
+        label = "Shard 2";
+        style=filled;
+        color=lightgrey;
+        node [shape=ellipse];
+
+        Source2 [label="Source"];
+        Shard2 [label="Shard"];
+        Sink2 [label="Sink"];
+    }
+
+    subgraph cluster_shard3 {
+        label = "Shard 3";
+        style=filled;
+        color=lightgrey;
+        node [shape=ellipse];
+
+        Source3 [label="Source"];
+        Shard3 [label="Shard"];
+        Sink3 [label="Sink"];
+    }
+
+    // Edges
+    Source1 -> Shard1 [label="∞"];
+    Shard1 -> Sink1 [label="1000 Tgas"];
+
+    Source2 -> Shard2 [label="∞"];
+    Shard2 -> Sink2 [label="1000 Tgas"];
+
+    Source3 -> Shard3 [label="∞"];
+    Shard3 -> Sink3 [label="1000 Tgas"];
+
+    Shard1 -> Shard2 [label="∞"];
+    Shard2 -> Shard1 [label="∞"];
+    Shard1 -> Shard3 [label="∞"];
+    Shard3 -> Shard1 [label="∞"];
+    Shard2 -> Shard3 [label="∞"];
+    Shard3 -> Shard2 [label="∞"];
+
+    // Aligning subgraphs
+    {rank=same; Source1; Source2; Source3;}
+    {rank=same; Shard1; Shard2; Shard3;}
+    {rank=same; Sink1; Sink2; Sink3;}
+}

@@ -47,6 +47,12 @@ tmp/
 # Logs
 *.log
 
+# Git mergetool leaves these sometimes.
+*.orig
+
+# May be generated if your neard panics.
+*.core
+
 # Vim tmp files
 *.swp
 rusty-tags.vi

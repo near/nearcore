@@ -1,12 +1,15 @@
 use assert_matches::assert_matches;
+use aurora_engine_transactions::eip_2930::Transaction2930;
+use aurora_engine_transactions::EthTransactionKind;
+use aurora_engine_types::types::{Address, Wei};
+use ethabi::ethereum_types::U256;
 use near_chain_configs::{Genesis, NEAR_BASE};
 use near_client::{test_utils::TestEnv, ProcessTxResponse};
-use near_crypto::{InMemorySigner, KeyType, SecretKey};
-use near_primitives::errors::{
-    ActionError, ActionErrorKind, FunctionCallError, InvalidAccessKeyError, InvalidTxError,
-    TxExecutionError,
-};
-use near_primitives::test_utils::eth_implicit_test_account;
+use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey};
+use near_primitives::account::id::AccountIdRef;
+use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
+use near_primitives::errors::{InvalidAccessKeyError, InvalidTxError};
+use near_primitives::test_utils::{create_user_test_signer, eth_implicit_test_account};
 use near_primitives::transaction::{
     Action, AddKeyAction, DeployContractAction, FunctionCallAction, SignedTransaction,
     TransferAction,
@@ -23,13 +26,9 @@ use near_vm_runner::ContractCode;
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use node_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT;
-use rlp::RlpStream;
-use testlib::runtime_utils::{alice_account, bob_account, carol_account};
+use testlib::runtime_utils::{alice_account, bob_account};
 
-use crate::{
-    node::{Node, RuntimeNode},
-    tests::client::process_blocks::produce_blocks_from_height,
-};
+use crate::tests::client::process_blocks::produce_blocks_from_height;
 
 /// Try to process tx in the next blocks, check that tx and all generated receipts succeed.
 /// Return height of the next block.
@@ -43,6 +42,7 @@ fn check_tx_processing(
     assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     let next_height = produce_blocks_from_height(env, blocks_number, height);
     let final_outcome = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
+    println!("{final_outcome:?}");
     assert_matches!(final_outcome.status, FinalExecutionStatus::SuccessValue(_));
     next_height
 }
@@ -65,6 +65,22 @@ fn view_request(env: &TestEnv, request: QueryRequest) -> QueryResponse {
         .unwrap()
 }
 
+fn view_balance(env: &TestEnv, account: &AccountIdRef) -> u128 {
+    let request = QueryRequest::ViewAccount { account_id: account.into() };
+    match view_request(&env, request).kind {
+        QueryResponseKind::ViewAccount(view) => view.amount,
+        _ => panic!("wrong query response"),
+    }
+}
+
+fn view_nonce(env: &TestEnv, account: &AccountIdRef, pk: PublicKey) -> u64 {
+    let request = QueryRequest::ViewAccessKey { account_id: account.into(), public_key: pk };
+    match view_request(&env, request).kind {
+        QueryResponseKind::AccessKey(view) => view.nonce,
+        _ => panic!("wrong query response"),
+    }
+}
+
 /// Tests that ETH-implicit account is created correctly, with Wallet Contract hash.
 #[test]
 fn test_eth_implicit_account_creation() {
@@ -74,6 +90,7 @@ fn test_eth_implicit_account_creation() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let chain_id = &genesis.config.chain_id;
 
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let eth_implicit_account_id = eth_implicit_test_account();
@@ -92,7 +109,7 @@ fn test_eth_implicit_account_creation() {
         env.produce_block(0, i);
     }
 
-    let magic_bytes = wallet_contract_magic_bytes();
+    let magic_bytes = wallet_contract_magic_bytes(chain_id);
 
     // Verify the ETH-implicit account has zero balance and appropriate code hash.
     // Check that the account storage fits within zero balance account limit.
@@ -127,6 +144,7 @@ fn test_transaction_from_eth_implicit_account_fail() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let chain_id = &genesis.config.chain_id;
     let deposit_for_account_creation = NEAR_BASE;
     let mut height = 1;
     let blocks_number = 5;
@@ -200,7 +218,7 @@ fn test_transaction_from_eth_implicit_account_fail() {
     assert_eq!(response, expected_tx_error);
 
     // Try to deploy the Wallet Contract again to the ETH-implicit account. Should fail because there is no access key.
-    let wallet_contract_code = wallet_contract().code().to_vec();
+    let wallet_contract_code = wallet_contract(chain_id).code().to_vec();
     let add_access_key_to_eth_implicit_account_tx = SignedTransaction::from_actions(
         nonce,
         eth_implicit_account_id.clone(),
@@ -214,126 +232,258 @@ fn test_transaction_from_eth_implicit_account_fail() {
     assert_eq!(response, expected_tx_error);
 }
 
-// TODO(eth-implicit) Remove this test and replace it with tests that directly call the `Wallet Contract` when it is ready.
-/// Creating an ETH-implicit account with meta-transaction, then attempting to use it with another meta-transaction.
-///
-/// The `create_account` parameter controls whether we create ETH-implicit account
-/// before attempting to use it by making a function call.
-/// Depending on `rlp_transaction` blob that is sent to the `Wallet Contract`
-/// the transaction is either authorized or unauthorized.
-/// The `authorized` parameter controls which case will be tested.
-fn meta_tx_call_wallet_contract(create_account: bool, authorized: bool) {
+#[test]
+fn test_wallet_contract_interaction() {
     if !checked_feature!("stable", EthImplicitAccounts, PROTOCOL_VERSION) {
         return;
     }
-    let genesis = Genesis::test(vec![alice_account(), bob_account(), carol_account()], 3);
-    let relayer = alice_account();
-    let node = RuntimeNode::new_from_genesis(&relayer, genesis);
-    let sender = bob_account();
 
+    let genesis = Genesis::test(vec!["test0".parse().unwrap(), alice_account(), bob_account()], 1);
+    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
+
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let mut height = 1;
+    let blocks_number = 10;
+
+    // As the relayer, alice will be sending Near transactions which
+    // contain the Ethereum transactions the user signs.
+    let relayer = alice_account();
+    let mut relayer_signer =
+        NearSigner { account_id: &relayer, signer: create_user_test_signer(&relayer) };
+    // Bob will receive a $NEAR transfer from the eth implicit account
+    let receiver = bob_account();
+
+    // Generate an eth implicit account for the user
     let secret_key = SecretKey::from_seed(KeyType::SECP256K1, "test");
     let public_key = secret_key.public_key();
     let eth_implicit_account = derive_eth_implicit_account_id(public_key.unwrap_as_secp256k1());
-    let other_public_key = SecretKey::from_seed(KeyType::SECP256K1, "test2").public_key();
 
-    // Although ETH-implicit account can be zero-balance, we pick 1 here in order to make transfer later from this account.
-    let transfer_amount = 1u128;
-    let actions = vec![Action::Transfer(TransferAction { deposit: transfer_amount })];
+    // Create ETH-implicit account by funding it.
+    // Although ETH-implicit account can be zero-balance, we pick a non-zero amount
+    // here in order to make transfer later from this account.
+    let deposit_for_account_creation = NEAR_BASE;
+    let actions = vec![Action::Transfer(TransferAction { deposit: deposit_for_account_creation })];
+    let nonce =
+        view_nonce(&env, relayer_signer.account_id, relayer_signer.signer.public_key.clone()) + 1;
+    let block_hash = *genesis_block.hash();
+    let signed_transaction = SignedTransaction::from_actions(
+        nonce,
+        relayer.clone(),
+        eth_implicit_account.clone(),
+        &relayer_signer.signer,
+        actions,
+        block_hash,
+    );
+    height = check_tx_processing(&mut env, signed_transaction, height, blocks_number);
 
-    if create_account {
-        // Create ETH-implicit account by funding it.
-        node.user()
-            .meta_tx(sender.clone(), eth_implicit_account.clone(), relayer.clone(), actions)
-            .unwrap()
-            .assert_success();
-    }
+    // The relayer adds its key to the eth implicit account so that
+    // can sign Near transactions for the user.
+    let relayer_pk = relayer_signer.signer.public_key.clone();
+    let action = Action::AddKey(Box::new(AddKeyAction {
+        public_key: relayer_pk,
+        access_key: AccessKey {
+            nonce: 0,
+            permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                allowance: None,
+                receiver_id: eth_implicit_account.to_string(),
+                method_names: vec!["rlp_execute".into()],
+            }),
+        },
+    }));
+    let signed_transaction = create_rlp_execute_tx(
+        &eth_implicit_account,
+        action,
+        0,
+        &eth_implicit_account,
+        &secret_key,
+        &mut relayer_signer,
+        &env,
+    );
+    height = check_tx_processing(&mut env, signed_transaction, height, blocks_number);
 
-    let target = carol_account();
-    let initial_balance = node.view_balance(&target).expect("failed looking up balance");
+    // Now the relayer can sign transactions for the implicit account directly
+    relayer_signer.account_id = &eth_implicit_account;
 
-    // TODO(eth-implicit) Append appropriate values to the RLP stream when proper `Wallet Contract` is implemented.
-    let mut stream = RlpStream::new_list(3);
-    stream.append(&target.as_str());
-    // The RLP trait `Encodable` is not implemented for `u128`. We must encode it as bytes.
-    // TODO(eth-implicit) Do not try to encode `u128` values directly, see https://github.com/near/nearcore/pull/10269#discussion_r1425585051.
-    stream.append(&transfer_amount.to_be_bytes().as_slice());
-    if authorized {
-        stream.append(&public_key.key_data());
-    } else {
-        stream.append(&other_public_key.key_data());
-    }
-    let rlp_encoded_data = stream.out().to_vec();
+    let init_wallet_balance = view_balance(&env, &eth_implicit_account);
+    let init_receiver_balance = view_balance(&env, &receiver);
 
-    let args = serde_json::json!({
-        "target": target.to_string(),
-        "rlp_transaction": rlp_encoded_data,
-    })
-    .to_string()
+    // The user signs a transaction to transfer some $NEAR
+    let transfer_amount = NEAR_BASE / 7;
+    let action = Action::Transfer(TransferAction { deposit: transfer_amount });
+    let signed_transaction = create_rlp_execute_tx(
+        &receiver,
+        action,
+        1,
+        &eth_implicit_account,
+        &secret_key,
+        &mut relayer_signer,
+        &env,
+    );
+    check_tx_processing(&mut env, signed_transaction, height, blocks_number);
+
+    let final_wallet_balance = view_balance(&env, &eth_implicit_account);
+    let final_receiver_balance = view_balance(&env, &receiver);
+
+    assert_eq!(final_receiver_balance - init_receiver_balance, transfer_amount);
+    let wallet_balance_diff = init_wallet_balance - final_wallet_balance;
+    // Wallet balance is a little lower due to gas fees.
+    assert!(wallet_balance_diff - transfer_amount < NEAR_BASE / 500);
+}
+
+fn create_rlp_execute_tx(
+    target: &AccountIdRef,
+    mut action: Action,
+    nonce: u64,
+    eth_implicit_account: &AccountIdRef,
+    secret_key: &SecretKey,
+    near_signer: &mut NearSigner<'_>,
+    env: &TestEnv,
+) -> SignedTransaction {
+    const CHAIN_ID: u64 = 399;
+    // handles 24 vs 18 decimal mismatch between $NEAR and $ETH
+    const MAX_YOCTO_NEAR: u128 = 1_000_000;
+
+    // Construct Eth transaction from user's intended action
+    let value = match &mut action {
+        Action::Transfer(tx) => {
+            let raw_amount = tx.deposit;
+            tx.deposit = raw_amount % MAX_YOCTO_NEAR;
+            Wei::new_u128(raw_amount / MAX_YOCTO_NEAR)
+        }
+        Action::FunctionCall(fn_call) => {
+            let raw_amount = fn_call.deposit;
+            fn_call.deposit = raw_amount % MAX_YOCTO_NEAR;
+            Wei::new_u128(raw_amount / MAX_YOCTO_NEAR)
+        }
+        _ => Wei::zero(),
+    };
+    let tx_data = abi_encode(target.to_string(), action);
+    let transaction = Transaction2930 {
+        chain_id: CHAIN_ID,
+        nonce: nonce.into(),
+        gas_price: U256::zero(),
+        gas_limit: U256::zero(),
+        to: Some(derive_address(target)),
+        value,
+        data: tx_data,
+        access_list: Vec::new(),
+    };
+    let signed_tx = sign_eth_transaction(transaction, &secret_key);
+    let signed_tx_bytes: Vec<u8> = (&signed_tx).into();
+    let tx_bytes_b64 = near_primitives::serialize::to_base64(&signed_tx_bytes);
+    let args = format!(
+        r#"{{
+        "target": "{target}",
+        "tx_bytes_b64": "{tx_bytes_b64}"
+    }}"#
+    )
     .into_bytes();
 
+    // Construct Near transaction to `rlp_execute` method
     let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
-        method_name: "execute_rlp".to_owned(),
+        method_name: "rlp_execute".into(),
         args,
-        gas: 30_000_000_000_000,
+        gas: 300_000_000_000_000,
         deposit: 0,
     }))];
-    // Call Wallet Contract with JSON-encoded arguments: `target` and `rlp_transaction`. The `rlp_transaction`'s value is RLP-encoded.
-    let tx_result =
-        node.user().meta_tx(sender, eth_implicit_account.clone(), relayer, actions).unwrap();
-    let wallet_contract_call_result = &tx_result.receipts_outcome[1].outcome.status;
+    let nonce = view_nonce(env, near_signer.account_id, near_signer.signer.public_key.clone()) + 1;
+    let block_hash = *env.clients[0].chain.get_head_block().unwrap().hash();
+    SignedTransaction::from_actions(
+        nonce,
+        near_signer.account_id.into(),
+        eth_implicit_account.into(),
+        &near_signer.signer,
+        actions,
+        block_hash,
+    )
+}
 
-    if create_account && authorized {
-        // If the public key recovered from the RLP transaction's signature is valid for this ETH-implicit account,
-        // the transaction will succeed. `target`'s balance will increase by `transfer_amount`.
-        tx_result.assert_success();
-        let final_balance = node.view_balance(&target).expect("failed looking up balance");
-        assert_eq!(final_balance, initial_balance + transfer_amount);
-        return;
+struct NearSigner<'a> {
+    account_id: &'a AccountIdRef,
+    signer: InMemorySigner,
+}
+
+fn abi_encode(target: String, action: Action) -> Vec<u8> {
+    const ADD_KEY_SELECTOR: &[u8] = &[0x75, 0x3c, 0xe5, 0xab];
+    const TRANSFER_SELECTOR: &[u8] = &[0x3e, 0xd6, 0x41, 0x24];
+
+    let mut buf = Vec::new();
+    match action {
+        Action::AddKey(add_key) => {
+            buf.extend_from_slice(ADD_KEY_SELECTOR);
+            let (public_key_kind, public_key) = match add_key.public_key {
+                PublicKey::ED25519(key) => (0, key.as_ref().to_vec()),
+                PublicKey::SECP256K1(key) => (1, key.as_ref().to_vec()),
+            };
+            let nonce = add_key.access_key.nonce;
+            let (is_full_access, is_limited_allowance, allowance, receiver_id, method_names) =
+                match add_key.access_key.permission {
+                    AccessKeyPermission::FullAccess => (true, false, 0, String::new(), Vec::new()),
+                    AccessKeyPermission::FunctionCall(permission) => (
+                        false,
+                        permission.allowance.is_some(),
+                        permission.allowance.unwrap_or_default(),
+                        permission.receiver_id,
+                        permission.method_names,
+                    ),
+                };
+            let tokens = &[
+                ethabi::Token::Uint(public_key_kind.into()),
+                ethabi::Token::Bytes(public_key),
+                ethabi::Token::Uint(nonce.into()),
+                ethabi::Token::Bool(is_full_access),
+                ethabi::Token::Bool(is_limited_allowance),
+                ethabi::Token::Uint(allowance.into()),
+                ethabi::Token::String(receiver_id),
+                ethabi::Token::Array(method_names.into_iter().map(ethabi::Token::String).collect()),
+            ];
+            buf.extend_from_slice(&ethabi::encode(tokens));
+        }
+        Action::Transfer(tx) => {
+            buf.extend_from_slice(TRANSFER_SELECTOR);
+            let tokens = &[ethabi::Token::String(target), ethabi::Token::Uint(tx.deposit.into())];
+            buf.extend_from_slice(&ethabi::encode(tokens));
+        }
+        _ => unimplemented!(),
     }
+    buf
+}
 
-    if create_account {
-        // The public key recovered from the RLP transaction's signature isn't valid for this ETH-implicit account.
-        // The Wallet Contract will reject this transaction.
-        let expected_error = near_primitives::views::ExecutionStatusView::Failure(
-            TxExecutionError::ActionError(
-                ActionError {
-                    index: Some(0),
-                    kind: ActionErrorKind::FunctionCallError {
-                        0: FunctionCallError::ExecutionError(
-                            "Smart contract panicked: Public key does not match the Wallet Contract address."
-                            .to_string()
-                        )
-                    }
-                }
-            )
-        );
-        assert_eq!(wallet_contract_call_result, &expected_error);
+fn sign_eth_transaction(transaction: Transaction2930, sk: &SecretKey) -> EthTransactionKind {
+    let mut rlp_stream = rlp::RlpStream::new();
+    rlp_stream.append(&aurora_engine_transactions::eip_2930::TYPE_BYTE);
+    transaction.rlp_append_unsigned(&mut rlp_stream);
+    let message_hash = keccak256(rlp_stream.as_raw());
+    let signature = sk.sign(&message_hash);
+    let bytes: [u8; 65] = match signature {
+        near_crypto::Signature::SECP256K1(x) => x.into(),
+        _ => panic!("Expected SECP256K1 key"),
+    };
+    let v = bytes[64];
+    let r = U256::from_big_endian(&bytes[0..32]);
+    let s = U256::from_big_endian(&bytes[32..64]);
+    let signed_transaction = aurora_engine_transactions::eip_2930::SignedTransaction2930 {
+        transaction,
+        parity: v,
+        r,
+        s,
+    };
+    EthTransactionKind::Eip2930(signed_transaction)
+}
+
+fn keccak256(bytes: &[u8]) -> [u8; 32] {
+    use sha3::{Digest, Keccak256};
+
+    Keccak256::digest(bytes).into()
+}
+
+fn derive_address(account_id: &AccountIdRef) -> Address {
+    let bytes = if account_id.as_str().starts_with("0x") {
+        let buf = hex::decode(&account_id.as_str()[2..42]).expect("account_id is hex encoded");
+        return Address::try_from_slice(&buf).expect("slice is correct size");
     } else {
-        // The Wallet Contract function call is not executed because the account does not exist.
-        let expected_error = near_primitives::views::ExecutionStatusView::Failure(
-            TxExecutionError::ActionError(ActionError {
-                index: Some(0),
-                kind: ActionErrorKind::AccountDoesNotExist { account_id: eth_implicit_account },
-            }),
-        );
-        assert_eq!(wallet_contract_call_result, &expected_error);
-    }
-}
-
-/// Wallet Contract function call is rejected because the ETH-implicit account does not exist.
-#[test]
-fn meta_tx_call_wallet_contract_account_does_not_exist() {
-    meta_tx_call_wallet_contract(false, true);
-}
-
-/// Wallet Contract function call fails because the provided public key does not match the ETH-implicit address.
-#[test]
-fn meta_tx_call_wallet_contract_unauthorized() {
-    meta_tx_call_wallet_contract(true, false);
-}
-
-/// Wallet Contract function call is executed succesfully.
-#[test]
-fn meta_tx_call_wallet_contract_authorized() {
-    meta_tx_call_wallet_contract(true, true);
+        account_id.as_bytes()
+    };
+    let hash = keccak256(bytes);
+    Address::try_from_slice(&hash[12..32]).expect("slice is correct size")
 }

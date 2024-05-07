@@ -225,10 +225,11 @@ impl TestBuilder {
                 println!("Running {:?} for protocol version {}", vm_kind, protocol_version);
                 let outcome = runtime
                     .run(
-                        &self.code,
+                        *self.code.hash(),
+                        Some(&self.code),
                         &self.method,
                         &mut fake_external,
-                        context,
+                        &context,
                         &fees,
                         &promise_results,
                         None,

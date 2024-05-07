@@ -184,7 +184,7 @@ impl User for RpcUser {
         .ok()
     }
 
-    fn get_transaction_result(&self, _hash: &CryptoHash) -> ExecutionOutcomeView {
+    fn get_transaction_result(&self, _hash: &CryptoHash) -> Option<ExecutionOutcomeView> {
         unimplemented!()
     }
 

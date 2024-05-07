@@ -6,12 +6,12 @@ use crate::block_body::{BlockBody, BlockBodyV1, ChunkEndorsementSignatures};
 pub use crate::block_header::*;
 use crate::challenge::{Challenges, ChallengesResult};
 use crate::checked_feature;
+use crate::congestion_info::CongestionInfo;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{merklize, verify_path, MerklePath};
 use crate::num_rational::Rational32;
 use crate::sharding::{
-    ChunkHashHeight, EncodedShardChunk, ReedSolomonWrapper, ShardChunk, ShardChunkHeader,
-    ShardChunkHeaderV1,
+    ChunkHashHeight, EncodedShardChunk, ShardChunk, ShardChunkHeader, ShardChunkHeaderV1,
 };
 use crate::types::{Balance, BlockHeight, EpochId, Gas, NumBlocks, StateRoot};
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
@@ -21,6 +21,8 @@ use near_async::time::Utc;
 use near_crypto::Signature;
 use near_primitives_core::types::ShardId;
 use primitive_types::U256;
+use reed_solomon_erasure::galois_8::ReedSolomon;
+use std::collections::HashMap;
 use std::ops::Index;
 use std::sync::Arc;
 
@@ -95,7 +97,7 @@ pub fn genesis_chunks(
     genesis_height: BlockHeight,
     genesis_protocol_version: ProtocolVersion,
 ) -> Vec<ShardChunk> {
-    let mut rs = ReedSolomonWrapper::new(1, 2);
+    let rs = ReedSolomon::new(1, 2).unwrap();
     let state_roots = if state_roots.len() == shard_ids.len() {
         state_roots
     } else {
@@ -113,7 +115,7 @@ pub fn genesis_chunks(
                 CryptoHash::default(),
                 genesis_height,
                 shard_id,
-                &mut rs,
+                &rs,
                 0,
                 initial_gas_limit,
                 0,
@@ -122,6 +124,7 @@ pub fn genesis_chunks(
                 vec![],
                 &[],
                 CryptoHash::default(),
+                CongestionInfo::default(),
                 &EmptyValidatorSigner::default(),
                 genesis_protocol_version,
             )
@@ -588,6 +591,17 @@ impl Block {
         }
     }
 
+    pub fn shards_congestion_info(&self) -> HashMap<ShardId, CongestionInfo> {
+        self.chunks()
+            .iter()
+            .enumerate()
+            // TODO(congestion_control): default is not always appropriate!
+            .map(|(i, chunk_header)| {
+                (i as ShardId, chunk_header.congestion_info().unwrap_or_default())
+            })
+            .collect()
+    }
+
     pub fn hash(&self) -> &CryptoHash {
         self.header().hash()
     }
@@ -693,6 +707,7 @@ impl<'a> ExactSizeIterator for VersionedChunksIter<'a> {
 impl<'a> Index<usize> for ChunksCollection<'a> {
     type Output = ShardChunkHeader;
 
+    /// Deprecated. Please use get instead, it's safer.
     fn index(&self, index: usize) -> &Self::Output {
         match self {
             ChunksCollection::V1(chunks) => &chunks[index],

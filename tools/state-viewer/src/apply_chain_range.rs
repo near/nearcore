@@ -1,3 +1,4 @@
+use crate::cli::ApplyRangeMode;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{
@@ -7,11 +8,13 @@ use near_chain::types::{
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use near_chain_configs::Genesis;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::receipt::DelayedReceiptIndices;
 use near_primitives::transaction::{Action, ExecutionOutcomeWithId, ExecutionOutcomeWithProof};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
+use near_store::flat::{BlockInfo, FlatStateChanges, FlatStorageStatus};
 use near_store::{DBCol, Store};
 use nearcore::NightshadeRuntime;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
@@ -111,6 +114,7 @@ fn maybe_add_to_csv(csv_file_mutex: &Mutex<Option<&mut File>>, s: &str) {
 }
 
 fn apply_block_from_range(
+    mode: ApplyRangeMode,
     height: BlockHeight,
     shard_id: ShardId,
     store: Store,
@@ -231,6 +235,7 @@ fn apply_block_from_range(
         runtime_adapter
             .apply_chunk(
                 RuntimeStorageConfig::new(*chunk_inner.prev_state_root(), use_flat_storage),
+                ApplyChunkReason::UpdateTrackedShard,
                 ApplyChunkShardContext {
                     shard_id,
                     last_validator_proposals: chunk_inner.prev_validator_proposals(),
@@ -241,6 +246,7 @@ fn apply_block_from_range(
                 ApplyChunkBlockContext::from_header(
                     block.header(),
                     prev_block.header().next_gas_price(),
+                    prev_block.shards_congestion_info(),
                 ),
                 &receipts,
                 chunk.transactions(),
@@ -255,6 +261,7 @@ fn apply_block_from_range(
         runtime_adapter
             .apply_chunk(
                 RuntimeStorageConfig::new(*chunk_extra.state_root(), use_flat_storage),
+                ApplyChunkReason::UpdateTrackedShard,
                 ApplyChunkShardContext {
                     shard_id,
                     last_validator_proposals: chunk_extra.validator_proposals(),
@@ -265,6 +272,7 @@ fn apply_block_from_range(
                 ApplyChunkBlockContext::from_header(
                     block.header(),
                     block.header().next_gas_price(),
+                    block.shards_congestion_info(),
                 ),
                 &[],
                 &[],
@@ -272,14 +280,18 @@ fn apply_block_from_range(
             .unwrap()
     };
 
+    let protocol_version =
+        epoch_manager.get_epoch_protocol_version(block.header().epoch_id()).unwrap();
     let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
     let chunk_extra = ChunkExtra::new(
+        protocol_version,
         &apply_result.new_root,
         outcome_root,
         apply_result.validator_proposals,
         apply_result.total_gas_burnt,
         genesis.config.gas_limit,
         apply_result.total_balance_burnt,
+        apply_result.congestion_info,
     );
 
     let state_update =
@@ -322,9 +334,38 @@ fn apply_block_from_range(
         ),
     );
     progress_reporter.inc_and_report_progress(apply_result.total_gas_burnt);
+
+    if mode == ApplyRangeMode::Benchmarking {
+        // Compute delta and immediately apply to flat storage.
+        let changes =
+            FlatStateChanges::from_state_changes(apply_result.trie_changes.state_changes());
+        let delta = near_store::flat::FlatStateDelta {
+            metadata: near_store::flat::FlatStateDeltaMetadata {
+                block: BlockInfo {
+                    hash: block_hash,
+                    height: block.header().height(),
+                    prev_hash: *block.header().prev_hash(),
+                },
+                prev_block_with_changes: None,
+            },
+            changes,
+        };
+
+        let flat_storage_manager = runtime_adapter.get_flat_storage_manager();
+        let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
+        let store_update = flat_storage.add_delta(delta).unwrap();
+        store_update.commit().unwrap();
+        flat_storage.update_flat_head(&block_hash, true).unwrap();
+
+        // Apply trie changes to trie node caches.
+        let mut fake_store_update = store.store_update();
+        apply_result.trie_changes.insertions_into(&mut fake_store_update);
+        apply_result.trie_changes.deletions_into(&mut fake_store_update);
+    }
 }
 
 pub fn apply_chain_range(
+    mode: ApplyRangeMode,
     store: Store,
     genesis: &Genesis,
     start_height: Option<BlockHeight>,
@@ -335,22 +376,54 @@ pub fn apply_chain_range(
     verbose_output: bool,
     csv_file: Option<&mut File>,
     only_contracts: bool,
-    sequential: bool,
     use_flat_storage: bool,
 ) {
     let parent_span = tracing::debug_span!(
         target: "state_viewer",
         "apply_chain_range",
+        ?mode,
         ?start_height,
         ?end_height,
         %shard_id,
         only_contracts,
-        sequential,
         use_flat_storage)
     .entered();
     let chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
-    let end_height = end_height.unwrap_or_else(|| chain_store.head().unwrap().height);
-    let start_height = start_height.unwrap_or_else(|| chain_store.tail().unwrap());
+    let (start_height, end_height) = match mode {
+        ApplyRangeMode::Benchmarking => {
+            // Benchmarking mode requires flat storage and retrieves start and
+            // end heights from flat storage and chain.
+            assert!(use_flat_storage);
+            assert!(start_height.is_none());
+            assert!(end_height.is_none());
+
+            let chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
+            let final_head = chain_store.final_head().unwrap();
+            let shard_layout = epoch_manager.get_shard_layout(&final_head.epoch_id).unwrap();
+            let shard_uid = near_primitives::shard_layout::ShardUId::from_shard_id_and_layout(
+                shard_id,
+                &shard_layout,
+            );
+            let flat_head = match near_store::flat::store_helper::get_flat_storage_status(
+                &store, shard_uid,
+            ) {
+                Ok(FlatStorageStatus::Ready(ready_status)) => ready_status.flat_head,
+                status => {
+                    panic!("cannot create flat storage for shard {shard_id} with status {status:?}")
+                }
+            };
+            let flat_storage_manager = runtime_adapter.get_flat_storage_manager();
+            flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+
+            // Note that first height to apply is the first one after flat
+            // head.
+            (flat_head.height + 1, final_head.height)
+        }
+        _ => (
+            start_height.unwrap_or_else(|| chain_store.tail().unwrap()),
+            end_height.unwrap_or_else(|| chain_store.head().unwrap().height),
+        ),
+    };
 
     println!(
         "Applying chunks in the range {}..={} for shard_id {}",
@@ -365,7 +438,7 @@ pub fn apply_chain_range(
     let progress_reporter = ProgressReporter {
         cnt: AtomicU64::new(0),
         ts: AtomicU64::new(timestamp_ms()),
-        all: end_height - start_height,
+        all: (end_height + 1).saturating_sub(start_height),
         skipped: AtomicU64::new(0),
         empty_blocks: AtomicU64::new(0),
         non_empty_blocks: AtomicU64::new(0),
@@ -373,6 +446,7 @@ pub fn apply_chain_range(
     };
     let process_height = |height| {
         apply_block_from_range(
+            mode,
             height,
             shard_id,
             store.clone(),
@@ -387,26 +461,29 @@ pub fn apply_chain_range(
         );
     };
 
-    if sequential {
-        range.into_iter().for_each(|height| {
-            let _span = tracing::debug_span!(
-                target: "state_viewer",
-                parent: &parent_span,
-                "process_block_in_order",
-                height)
-            .entered();
-            process_height(height)
-        });
-    } else {
-        range.into_par_iter().for_each(|height| {
-            let _span = tracing::debug_span!(
+    match mode {
+        ApplyRangeMode::Sequential | ApplyRangeMode::Benchmarking => {
+            range.into_iter().for_each(|height| {
+                let _span = tracing::debug_span!(
+                    target: "state_viewer",
+                    parent: &parent_span,
+                    "process_block_in_order",
+                    height)
+                .entered();
+                process_height(height)
+            });
+        }
+        ApplyRangeMode::Parallel => {
+            range.into_par_iter().for_each(|height| {
+                let _span = tracing::debug_span!(
                 target: "mock_node",
                 parent: &parent_span,
                 "process_block_in_parallel",
                 height)
-            .entered();
-            process_height(height)
-        });
+                .entered();
+                process_height(height)
+            });
+        }
     }
 
     println!(
@@ -465,6 +542,7 @@ mod test {
     use nearcore::NightshadeRuntime;
 
     use crate::apply_chain_range::apply_chain_range;
+    use crate::cli::ApplyRangeMode;
 
     fn setup(epoch_length: NumBlocks) -> (Store, Genesis, TestEnv) {
         let mut genesis =
@@ -551,6 +629,7 @@ mod test {
             epoch_manager.clone(),
         );
         apply_chain_range(
+            ApplyRangeMode::Parallel,
             store,
             &genesis,
             None,
@@ -560,7 +639,6 @@ mod test {
             runtime,
             true,
             None,
-            false,
             false,
             false,
         );
@@ -594,6 +672,7 @@ mod test {
         );
         let mut file = tempfile::NamedTempFile::new().unwrap();
         apply_chain_range(
+            ApplyRangeMode::Parallel,
             store,
             &genesis,
             None,
@@ -603,7 +682,6 @@ mod test {
             runtime,
             true,
             Some(file.as_file_mut()),
-            false,
             false,
             false,
         );

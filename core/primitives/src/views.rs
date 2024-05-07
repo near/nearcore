@@ -13,6 +13,7 @@ use crate::block_header::{
 use crate::block_header::{BlockHeaderInnerRestV4, BlockHeaderV4};
 use crate::challenge::{Challenge, ChallengesResult};
 use crate::checked_feature;
+use crate::congestion_info::{CongestionInfo, CongestionInfoV1};
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, MerklePath};
@@ -21,7 +22,7 @@ use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptE
 use crate::serialize::dec_format;
 use crate::sharding::{
     ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderInnerV2,
-    ShardChunkHeaderV3,
+    ShardChunkHeaderInnerV3, ShardChunkHeaderV3,
 };
 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
 use crate::transaction::NonrefundableStorageTransferAction;
@@ -62,7 +63,7 @@ pub struct AccountView {
     pub locked: Balance,
     #[serde(with = "dec_format")]
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-    pub nonrefundable: Balance,
+    pub permanent_storage_bytes: StorageUsage,
     pub code_hash: CryptoHash,
     pub storage_usage: StorageUsage,
     /// TODO(2271): deprecated.
@@ -89,6 +90,8 @@ pub struct ViewApplyState {
     pub prev_block_hash: CryptoHash,
     /// Currently building block hash
     pub block_hash: CryptoHash,
+    /// To which shard the applied chunk belongs.
+    pub shard_id: ShardId,
     /// Current epoch id
     pub epoch_id: EpochId,
     /// Current epoch height
@@ -98,7 +101,7 @@ pub struct ViewApplyState {
     /// Current Protocol version when we apply the state transition
     pub current_protocol_version: ProtocolVersion,
     /// Cache for compiled contracts.
-    pub cache: Option<Box<dyn near_vm_runner::logic::CompiledContractCache>>,
+    pub cache: Option<Box<dyn near_vm_runner::ContractRuntimeCache>>,
 }
 
 impl From<&Account> for AccountView {
@@ -107,7 +110,7 @@ impl From<&Account> for AccountView {
             amount: account.amount(),
             locked: account.locked(),
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-            nonrefundable: account.nonrefundable(),
+            permanent_storage_bytes: account.permanent_storage_bytes(),
             code_hash: account.code_hash(),
             storage_usage: account.storage_usage(),
             storage_paid_at: 0,
@@ -124,13 +127,13 @@ impl From<Account> for AccountView {
 impl From<&AccountView> for Account {
     fn from(view: &AccountView) -> Self {
         #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-        let nonrefundable = view.nonrefundable;
+        let permanent_storage_bytes = view.permanent_storage_bytes;
         #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
-        let nonrefundable = 0;
+        let permanent_storage_bytes = 0;
         Account::new(
             view.amount,
             view.locked,
-            nonrefundable,
+            permanent_storage_bytes,
             view.code_hash,
             view.storage_usage,
             PROTOCOL_VERSION,
@@ -726,6 +729,8 @@ pub struct StatusResponse {
     pub node_key: Option<PublicKey>,
     /// Uptime of the node.
     pub uptime_sec: i64,
+    /// Genesis hash of the chain.
+    pub genesis_hash: CryptoHash,
     /// Information about last blocks, network, epoch and chain & chunk info.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detailed_debug_status: Option<DetailedDebugStatus>,
@@ -1060,6 +1065,7 @@ pub struct ChunkHeaderView {
     pub outgoing_receipts_root: CryptoHash,
     pub tx_root: CryptoHash,
     pub validator_proposals: Vec<ValidatorStakeView>,
+    pub congestion_info: Option<CongestionInfoView>,
     pub signature: Signature,
 }
 
@@ -1087,6 +1093,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             outgoing_receipts_root: *inner.prev_outgoing_receipts_root(),
             tx_root: *inner.tx_root(),
             validator_proposals: inner.prev_validator_proposals().map(Into::into).collect(),
+            congestion_info: inner.congestion_info().map(Into::into),
             signature,
         }
     }
@@ -1094,32 +1101,62 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
 
 impl From<ChunkHeaderView> for ShardChunkHeader {
     fn from(view: ChunkHeaderView) -> Self {
-        let mut header = ShardChunkHeaderV3 {
-            inner: ShardChunkHeaderInner::V2(ShardChunkHeaderInnerV2 {
-                prev_block_hash: view.prev_block_hash,
-                prev_state_root: view.prev_state_root,
-                prev_outcome_root: view.outcome_root,
-                encoded_merkle_root: view.encoded_merkle_root,
-                encoded_length: view.encoded_length,
-                height_created: view.height_created,
-                shard_id: view.shard_id,
-                prev_gas_used: view.gas_used,
-                gas_limit: view.gas_limit,
-                prev_balance_burnt: view.balance_burnt,
-                prev_outgoing_receipts_root: view.outgoing_receipts_root,
-                tx_root: view.tx_root,
-                prev_validator_proposals: view
-                    .validator_proposals
-                    .into_iter()
-                    .map(Into::into)
-                    .collect(),
-            }),
-            height_included: view.height_included,
-            signature: view.signature,
-            hash: ChunkHash::default(),
-        };
-        header.init();
-        ShardChunkHeader::V3(header)
+        if let Some(congestion_info) = view.congestion_info {
+            let mut header = ShardChunkHeaderV3 {
+                inner: ShardChunkHeaderInner::V3(ShardChunkHeaderInnerV3 {
+                    prev_block_hash: view.prev_block_hash,
+                    prev_state_root: view.prev_state_root,
+                    prev_outcome_root: view.outcome_root,
+                    encoded_merkle_root: view.encoded_merkle_root,
+                    encoded_length: view.encoded_length,
+                    height_created: view.height_created,
+                    shard_id: view.shard_id,
+                    prev_gas_used: view.gas_used,
+                    gas_limit: view.gas_limit,
+                    prev_balance_burnt: view.balance_burnt,
+                    prev_outgoing_receipts_root: view.outgoing_receipts_root,
+                    tx_root: view.tx_root,
+                    prev_validator_proposals: view
+                        .validator_proposals
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
+                    congestion_info: congestion_info.into(),
+                }),
+                height_included: view.height_included,
+                signature: view.signature,
+                hash: ChunkHash::default(),
+            };
+            header.init();
+            ShardChunkHeader::V3(header)
+        } else {
+            let mut header = ShardChunkHeaderV3 {
+                inner: ShardChunkHeaderInner::V2(ShardChunkHeaderInnerV2 {
+                    prev_block_hash: view.prev_block_hash,
+                    prev_state_root: view.prev_state_root,
+                    prev_outcome_root: view.outcome_root,
+                    encoded_merkle_root: view.encoded_merkle_root,
+                    encoded_length: view.encoded_length,
+                    height_created: view.height_created,
+                    shard_id: view.shard_id,
+                    prev_gas_used: view.gas_used,
+                    gas_limit: view.gas_limit,
+                    prev_balance_burnt: view.balance_burnt,
+                    prev_outgoing_receipts_root: view.outgoing_receipts_root,
+                    tx_root: view.tx_root,
+                    prev_validator_proposals: view
+                        .validator_proposals
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
+                }),
+                height_included: view.height_included,
+                signature: view.signature,
+                hash: ChunkHash::default(),
+            };
+            header.init();
+            ShardChunkHeader::V3(header)
+        }
     }
 }
 
@@ -1690,7 +1727,7 @@ impl ExecutionOutcomeWithIdView {
         self.outcome.to_hashes(self.id)
     }
 }
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TxStatusView {
     pub execution_outcome: Option<FinalExecutionOutcomeViewEnum>,
     pub status: TxExecutionStatus,
@@ -1714,18 +1751,18 @@ pub enum TxExecutionStatus {
     /// Transaction is included into the block. The block may be not finalised yet
     Included,
     /// Transaction is included into the block +
-    /// All the transaction receipts finished their execution.
+    /// All non-refund transaction receipts finished their execution.
     /// The corresponding blocks for tx and each receipt may be not finalised yet
     #[default]
     ExecutedOptimistic,
     /// Transaction is included into finalised block
     IncludedFinal,
     /// Transaction is included into finalised block +
-    /// All the transaction receipts finished their execution.
+    /// All non-refund transaction receipts finished their execution.
     /// The corresponding blocks for each receipt may be not finalised yet
     Executed,
     /// Transaction is included into finalised block +
-    /// Execution of transaction receipts is finalised
+    /// Execution of all transaction receipts is finalised, including refund receipts
     Final,
 }
 
@@ -1756,7 +1793,7 @@ impl TxStatusView {
     }
 }
 
-/// Execution outcome of the transaction and all of subsequent the receipts.
+/// Execution outcome of the transaction and all the subsequent receipts.
 /// Could be not finalised yet
 #[derive(
     BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone,
@@ -1933,14 +1970,23 @@ pub enum ReceiptEnumView {
         output_data_receivers: Vec<DataReceiverView>,
         input_data_ids: Vec<CryptoHash>,
         actions: Vec<ActionView>,
+        #[serde(default = "default_is_promise")]
         is_promise_yield: bool,
     },
     Data {
         data_id: CryptoHash,
         #[serde_as(as = "Option<Base64>")]
         data: Option<Vec<u8>>,
+        #[serde(default = "default_is_promise")]
         is_promise_resume: bool,
     },
+}
+
+// Default value used when deserializing ReceiptEnumViews which are missing either the
+// `is_promise_yield` or `is_promise_resume` fields. Data which is missing this field was
+// serialized before the introduction of yield execution.
+fn default_is_promise() -> bool {
+    false
 }
 
 impl From<Receipt> for ReceiptView {
@@ -2098,6 +2144,18 @@ pub struct CurrentEpochValidatorInfo {
     pub num_produced_chunks_per_shard: Vec<NumBlocks>,
     #[serde(default)]
     pub num_expected_chunks_per_shard: Vec<NumBlocks>,
+    #[serde(default, skip_serializing_if = "num_blocks_is_zero")]
+    pub num_produced_endorsements: NumBlocks,
+    #[serde(default, skip_serializing_if = "num_blocks_is_zero")]
+    pub num_expected_endorsements: NumBlocks,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub num_produced_endorsements_per_shard: Vec<NumBlocks>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub num_expected_endorsements_per_shard: Vec<NumBlocks>,
+}
+
+fn num_blocks_is_zero(n: &NumBlocks) -> bool {
+    n == &0
 }
 
 #[derive(
@@ -2397,6 +2455,44 @@ pub struct SplitStorageInfoView {
     pub cold_head_height: Option<BlockHeight>,
 
     pub hot_db_kind: Option<String>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct CongestionInfoView {
+    #[serde(with = "dec_format")]
+    pub delayed_receipts_gas: u128,
+
+    #[serde(with = "dec_format")]
+    pub buffered_receipts_gas: u128,
+
+    pub receipt_bytes: u64,
+
+    pub allowed_shard: u16,
+}
+
+impl From<CongestionInfo> for CongestionInfoView {
+    fn from(congestion_info: CongestionInfo) -> Self {
+        match congestion_info {
+            CongestionInfo::V1(congestion_info) => congestion_info.into(),
+        }
+    }
+}
+
+impl From<CongestionInfoV1> for CongestionInfoView {
+    fn from(congestion_info: CongestionInfoV1) -> Self {
+        Self {
+            delayed_receipts_gas: congestion_info.delayed_receipts_gas,
+            buffered_receipts_gas: congestion_info.buffered_receipts_gas,
+            receipt_bytes: congestion_info.receipt_bytes,
+            allowed_shard: congestion_info.allowed_shard,
+        }
+    }
+}
+
+impl From<CongestionInfoView> for CongestionInfo {
+    fn from(_: CongestionInfoView) -> Self {
+        CongestionInfo::default()
+    }
 }
 
 #[cfg(test)]

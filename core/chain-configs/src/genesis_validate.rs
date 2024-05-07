@@ -58,7 +58,7 @@ impl<'a> GenesisValidator<'a> {
                         format!("Duplicate account id {} in genesis records", account_id);
                     self.validation_errors.push_genesis_semantics_error(error_message)
                 }
-                self.total_supply += account.locked() + account.amount() + account.nonrefundable();
+                self.total_supply += account.locked() + account.amount();
                 self.account_ids.insert(account_id.clone());
                 if account.locked() > 0 {
                     self.staked_accounts.insert(account_id.clone(), account.locked());
@@ -210,10 +210,10 @@ mod test {
 
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
     #[test]
-    fn test_total_supply_includes_nonrefundable_amount() {
+    fn test_total_supply_does_not_depend_on_permanent_storage_bytes() {
         let mut config = GenesisConfig::default();
         config.epoch_length = 42;
-        config.total_supply = 111;
+        config.total_supply = 110;
         config.validators = vec![AccountInfo {
             account_id: "test".parse().unwrap(),
             public_key: VALID_ED25519_RISTRETTO_KEY.parse().unwrap(),

@@ -15,7 +15,9 @@ use crate::trie::iterator::TrieIterator;
 pub use crate::trie::nibble_slice::NibbleSlice;
 pub use crate::trie::prefetching_trie_storage::{PrefetchApi, PrefetchError};
 pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
-pub use crate::trie::state_snapshot::{SnapshotError, StateSnapshot, StateSnapshotConfig};
+pub use crate::trie::state_snapshot::{
+    SnapshotError, StateSnapshot, StateSnapshotConfig, STATE_SNAPSHOT_COLUMNS,
+};
 pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage, TrieStorage};
 use crate::StorageError;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -31,7 +33,7 @@ use near_primitives::types::{AccountId, StateRoot, StateRootNode};
 use near_vm_runner::ContractCode;
 pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fmt::Write;
 use std::hash::Hash;
 use std::rc::Rc;
@@ -47,6 +49,7 @@ pub mod mem;
 mod nibble_slice;
 mod prefetching_trie_storage;
 mod raw_node;
+pub mod receipts_column_helper;
 pub mod resharding;
 mod shard_tries;
 mod state_parts;
@@ -78,7 +81,7 @@ pub struct TrieCosts {
 }
 
 /// Whether a key lookup will be performed through flat storage or through iterating the trie
-#[derive(PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum KeyLookupMode {
     FlatStorage,
     Trie,
@@ -447,12 +450,12 @@ impl TrieRefcountSubtraction {
 /// Helps produce a list of additions and subtractions to the trie,
 /// especially in the case where deletions don't carry the full value.
 pub struct TrieRefcountDeltaMap {
-    map: HashMap<CryptoHash, (Option<Vec<u8>>, i32)>,
+    map: BTreeMap<CryptoHash, (Option<Vec<u8>>, i32)>,
 }
 
 impl TrieRefcountDeltaMap {
     pub fn new() -> Self {
-        Self { map: HashMap::new() }
+        Self { map: BTreeMap::new() }
     }
 
     pub fn add(&mut self, hash: CryptoHash, data: Vec<u8>, refcount: u32) {
@@ -467,8 +470,9 @@ impl TrieRefcountDeltaMap {
     }
 
     pub fn into_changes(self) -> (Vec<TrieRefcountAddition>, Vec<TrieRefcountSubtraction>) {
-        let mut insertions = Vec::new();
-        let mut deletions = Vec::new();
+        let num_insertions = self.map.iter().filter(|(_h, (_v, rc))| *rc > 0).count();
+        let mut insertions = Vec::with_capacity(num_insertions);
+        let mut deletions = Vec::with_capacity(self.map.len().saturating_sub(num_insertions));
         for (hash, (value, rc)) in self.map.into_iter() {
             if rc > 0 {
                 insertions.push(TrieRefcountAddition {
@@ -561,7 +565,7 @@ pub struct ApplyStatePartResult {
 }
 
 enum NodeOrValue {
-    Node(Box<RawTrieNodeWithSize>),
+    Node,
     Value(std::sync::Arc<[u8]>),
 }
 
@@ -664,6 +668,7 @@ impl Trie {
             self.flat_storage_chunk_view.clone(),
         );
         trie.recorder = Some(RefCell::new(TrieRecorder::new()));
+        trie.charge_gas_for_trie_node_access = self.charge_gas_for_trie_node_access;
         trie
     }
 
@@ -677,6 +682,15 @@ impl Trie {
         self.recorder
             .as_ref()
             .map(|recorder| recorder.borrow().recorded_storage_size())
+            .unwrap_or_default()
+    }
+
+    /// Size of the recorded state proof plus some additional size added to cover removals.
+    /// An upper-bound estimation of the true recorded size after finalization.
+    pub fn recorded_storage_size_upper_bound(&self) -> usize {
+        self.recorder
+            .as_ref()
+            .map(|recorder| recorder.borrow().recorded_storage_size_upper_bound())
             .unwrap_or_default()
     }
 
@@ -713,6 +727,29 @@ impl Trie {
         self.storage.as_caching_storage()
     }
 
+    /// Request recording of the code for the given account.
+    pub fn request_code_recording(&self, account_id: AccountId) {
+        let Some(recorder) = &self.recorder else {
+            return;
+        };
+        {
+            let mut r = recorder.borrow_mut();
+            if r.codes_to_record.contains(&account_id) {
+                return;
+            }
+            r.codes_to_record.insert(account_id.clone());
+        }
+
+        // Get code length from ValueRef to update estimated upper bound for
+        // recorded state.
+        let key = TrieKey::ContractCode { account_id };
+        let value_ref = self.get_optimized_ref(&key.to_vec(), KeyLookupMode::FlatStorage);
+        if let Ok(Some(value_ref)) = value_ref {
+            let mut r = recorder.borrow_mut();
+            r.record_code_len(value_ref.len());
+        }
+    }
+
     /// All access to trie nodes or values must go through this method, so it
     /// can be properly cached and recorded.
     ///
@@ -739,9 +776,16 @@ impl Trie {
 
     #[cfg(test)]
     fn memory_usage_verify(&self, memory: &NodesStorage, handle: NodeHandle) -> u64 {
+        // Cannot compute memory usage naively if given only partial storage.
+        if self.storage.as_partial_storage().is_some() {
+            return 0;
+        }
+        // We don't want to impact recorded storage by retrieving nodes for
+        // this sanity check.
         if self.recorder.is_some() {
             return 0;
         }
+
         let TrieNodeWithSize { node, memory_usage } = match handle {
             NodeHandle::InMemory(h) => memory.node_ref(h).clone(),
             NodeHandle::Hash(h) => self.retrieve_node(&h).expect("storage failure").1,
@@ -810,7 +854,7 @@ impl Trie {
         to: &Option<&AccountId>,
     ) {
         match self.debug_retrieve_raw_node_or_value(hash) {
-            Ok(NodeOrValue::Node(_)) => {
+            Ok(NodeOrValue::Node) => {
                 let mut prefix: Vec<u8> = Vec::new();
                 let mut limit = limit.unwrap_or(u32::MAX);
                 self.print_recursive_internal(
@@ -1113,7 +1157,7 @@ impl Trie {
     ) -> Result<NodeOrValue, StorageError> {
         let bytes = self.internal_retrieve_trie_node(hash, true)?;
         match RawTrieNodeWithSize::try_from_slice(&bytes) {
-            Ok(node) => Ok(NodeOrValue::Node(Box::new(node))),
+            Ok(_) => Ok(NodeOrValue::Node),
             Err(_) => Ok(NodeOrValue::Value(bytes)),
         }
     }
@@ -1482,6 +1526,17 @@ impl Trie {
     where
         I: IntoIterator<Item = (Vec<u8>, Option<Vec<u8>>)>,
     {
+        // Call `get` for contract codes requested to be recorded.
+        let codes_to_record = if let Some(recorder) = &self.recorder {
+            recorder.borrow().codes_to_record.clone()
+        } else {
+            HashSet::default()
+        };
+        for account_id in codes_to_record {
+            let trie_key = TrieKey::ContractCode { account_id: account_id.clone() };
+            let _ = self.get(&trie_key.to_vec());
+        }
+
         match &self.memtries {
             Some(memtries) => {
                 // If we have in-memory tries, use it to construct the changes entirely (for
@@ -1496,7 +1551,44 @@ impl Trie {
                         None => trie_update.delete(&key),
                     }
                 }
-                Ok(trie_update.to_trie_changes())
+                let (trie_changes, trie_accesses) = trie_update.to_trie_changes();
+
+                // Sanity check for tests: all modified trie items must be
+                // present in ever accessed trie items.
+                #[cfg(test)]
+                {
+                    for t in trie_changes.deletions.iter() {
+                        let hash = t.trie_node_or_value_hash;
+                        assert!(
+                            trie_accesses.values.contains_key(&hash)
+                                || trie_accesses.nodes.contains_key(&hash),
+                            "Hash {} is not present in trie accesses",
+                            hash
+                        );
+                    }
+                }
+
+                // Retroactively record all accessed trie items which are
+                // required to process trie update but were not recorded at
+                // processing lookups.
+                // The main case is a branch with two children, one of which
+                // got removed, so we need to read another one and squash it
+                // together with parent.
+                if let Some(recorder) = &self.recorder {
+                    for (node_hash, serialized_node) in trie_accesses.nodes {
+                        recorder.borrow_mut().record(&node_hash, serialized_node);
+                    }
+                    for (value_hash, value) in trie_accesses.values {
+                        let value = match value {
+                            FlatStateValue::Ref(_) => {
+                                self.storage.retrieve_raw_bytes(&value_hash)?
+                            }
+                            FlatStateValue::Inlined(value) => value.into(),
+                        };
+                        recorder.borrow_mut().record(&value_hash, value);
+                    }
+                }
+                Ok(trie_changes)
             }
             None => {
                 let mut memory = NodesStorage::new();
@@ -1783,7 +1875,7 @@ mod tests {
     fn test_contains_key() {
         let sid = ShardUId::single_shard();
         let bid = CryptoHash::default();
-        let tries = TestTriesBuilder::new().with_flat_storage().build();
+        let tries = TestTriesBuilder::new().with_flat_storage(true).build();
         let initial = vec![
             (vec![99, 44, 100, 58, 58, 49], Some(vec![1])),
             (vec![99, 44, 100, 58, 58, 50], Some(vec![1])),
@@ -1877,7 +1969,9 @@ mod tests {
             let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
 
             // Those known keys.
-            for (key, value) in trie_changes.into_iter().collect::<HashMap<_, _>>() {
+            for (key, value) in
+                trie_changes.into_iter().collect::<std::collections::HashMap<_, _>>()
+            {
                 if let Some(value) = value {
                     let want = Some(Ok((key.clone(), value)));
                     let mut iterator = trie.iter().unwrap();

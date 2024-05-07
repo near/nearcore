@@ -21,27 +21,33 @@ borsh.workspace = true
 ed25519-dalek.workspace = true
 enum-map.workspace = true
 finite-wasm = { workspace = true, features = ["instrument"], optional = true }
+lru = "0.12.3"
 memoffset.workspace = true
 num-rational.workspace = true
 once_cell.workspace = true
 parity-wasm = { workspace = true, optional = true }
 prefix-sum-vec.workspace = true
 ripemd.workspace = true
+rustix = { workspace = true, features = [ "fs" ] }
 serde_repr.workspace = true
 serde.workspace = true
 sha2.workspace = true
 sha3.workspace = true
 stdx.workspace = true
 strum.workspace = true
+tempfile.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+prometheus.workspace = true
 wasm-encoder = { workspace = true, optional = true }
 wasmparser = { workspace = true, optional = true }
 wasmtime = { workspace = true, optional = true }
 
 near-crypto.workspace = true
-near-primitives-core.workspace = true
+near-o11y.workspace = true
 near-parameters.workspace = true
+near-primitives-core.workspace = true
+bytesize.workspace = true
 
 # Old versions of pwasm-utils we need to preserve backwards compatibility under
 # old protocol versions.
@@ -73,17 +79,19 @@ ark-std.workspace = true
 assert_matches.workspace = true
 bolero.workspace = true
 csv.workspace = true
+cov-mark.workspace = true
 expect-test.workspace = true
 hex.workspace = true
 near-test-contracts.workspace = true
 rand.workspace = true
 serde_json = { workspace = true, features = ["preserve_order"] }
-wasm-smith.workspace = true
 wasmprinter.workspace = true
+wasm-smith.workspace = true
 wat.workspace = true
 
 [features]
 nightly_protocol = [
+  "near-o11y/nightly_protocol",
   "near-parameters/nightly_protocol",
   "near-primitives-core/nightly_protocol",
   "protocol_feature_bls12381",
@@ -122,6 +130,7 @@ protocol_feature_bls12381 = [
 ]
 
 nightly = [
+  "near-o11y/nightly",
   "near-parameters/nightly",
   "near-primitives-core/nightly",
   "nightly_protocol",

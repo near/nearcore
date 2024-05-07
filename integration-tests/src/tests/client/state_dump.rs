@@ -1,6 +1,6 @@
 use assert_matches::assert_matches;
 
-use near_async::time::Duration;
+use near_async::time::{Clock, Duration};
 use near_chain::near_chain_primitives::error::QueryError;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::ExternalStorageLocation::Filesystem;
@@ -22,7 +22,7 @@ use near_primitives::views::{QueryRequest, QueryResponseKind};
 use near_store::flat::store_helper;
 use near_store::DBCol;
 use near_store::Store;
-use nearcore::state_sync::spawn_state_sync_dump;
+use nearcore::state_sync::StateSyncDumper;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use std::ops::ControlFlow;
 use std::sync::Arc;
@@ -57,15 +57,18 @@ fn test_state_dump() {
             credentials_file: None,
         });
 
-        let _state_sync_dump_handle = spawn_state_sync_dump(
-            &config,
-            ChainGenesis::new(&genesis.config),
-            epoch_manager.clone(),
+        let mut state_sync_dumper = StateSyncDumper {
+            clock: Clock::real(),
+            client_config: config.clone(),
+            chain_genesis: ChainGenesis::new(&genesis.config),
+            epoch_manager: epoch_manager.clone(),
             shard_tracker,
             runtime,
-            Some("test0".parse().unwrap()),
-        )
-        .unwrap();
+            account_id: Some("test0".parse().unwrap()),
+            dump_future_runner: StateSyncDumper::arbiter_dump_future_runner(),
+            handle: None,
+        };
+        state_sync_dumper.start().unwrap();
 
         const MAX_HEIGHT: BlockHeight = 37;
         for i in 1..=MAX_HEIGHT {
@@ -158,15 +161,18 @@ fn run_state_sync_with_dumped_parts(
             iteration_delay: Some(Duration::ZERO),
             credentials_file: None,
         });
-        let _state_sync_dump_handle = spawn_state_sync_dump(
-            &config,
-            ChainGenesis::new(&genesis.config),
-            epoch_manager.clone(),
+        let mut state_sync_dumper = StateSyncDumper {
+            clock: Clock::real(),
+            client_config: config.clone(),
+            chain_genesis: ChainGenesis::new(&genesis.config),
+            epoch_manager: epoch_manager.clone(),
             shard_tracker,
             runtime,
-            Some("test0".parse().unwrap()),
-        )
-        .unwrap();
+            account_id: Some("test0".parse().unwrap()),
+            dump_future_runner: StateSyncDumper::arbiter_dump_future_runner(),
+            handle: None,
+        };
+        state_sync_dumper.start().unwrap();
 
         let account_creation_at_height = (account_creation_at_epoch_height - 1) * epoch_length + 2;
 
@@ -301,7 +307,7 @@ fn run_state_sync_with_dumped_parts(
                 .apply_state_part(0, &state_root, PartId::new(part_id, num_parts), &part, &epoch_id)
                 .unwrap();
         }
-        env.clients[1].chain.set_state_finalize(0, sync_hash, Ok(())).unwrap();
+        env.clients[1].chain.set_state_finalize(0, sync_hash).unwrap();
         tracing::info!("syncing node: state sync finished.");
 
         let synced_block = env.clients[1].chain.get_block(&sync_hash).unwrap();

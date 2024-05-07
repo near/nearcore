@@ -101,9 +101,9 @@ impl SingleShardStorageMutator {
         )
     }
 
-    pub(crate) fn delete_postponed_receipt(&mut self, receipt: Box<Receipt>) -> anyhow::Result<()> {
+    pub(crate) fn delete_postponed_receipt(&mut self, receipt: &Receipt) -> anyhow::Result<()> {
         self.remove(TrieKey::PostponedReceipt {
-            receiver_id: receipt.receiver_id,
+            receiver_id: receipt.receiver_id.clone(),
             receipt_id: receipt.receipt_id,
         })
     }

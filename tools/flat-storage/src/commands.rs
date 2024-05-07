@@ -6,14 +6,16 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
-use near_primitives::shard_layout::ShardVersion;
+use near_primitives::shard_layout::{account_id_to_shard_id, ShardVersion};
+use near_primitives::state::FlatStateValue;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_store::flat::{
-    inline_flat_state_values, store_helper, FlatStateDelta, FlatStateDeltaMetadata,
-    FlatStorageManager, FlatStorageStatus,
+    inline_flat_state_values, store_helper, FlatStateChanges, FlatStateDelta,
+    FlatStateDeltaMetadata, FlatStorageManager, FlatStorageStatus,
 };
 use near_store::{DBCol, Mode, NodeStorage, ShardUId, Store, StoreOpener};
 use nearcore::{load_config, NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicBool;
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tqdm::tqdm;
@@ -103,13 +105,29 @@ pub struct MigrateValueInliningCmd {
 }
 
 #[derive(Parser)]
+pub enum MoveFlatHeadMode {
+    /// Moves head forward to specific height.
+    Forward {
+        #[clap(long)]
+        new_flat_head_height: BlockHeight,
+    },
+    /// Moves head back by specific number of blocks.
+    /// Note: it doesn't record deltas on the way and should be used
+    /// only for replaying chain forward.
+    Back {
+        #[clap(long)]
+        blocks: usize,
+    },
+}
+
+#[derive(Parser)]
 pub struct MoveFlatHeadCmd {
     #[clap(long)]
     shard_id: ShardId,
     #[clap(long)]
     version: ShardVersion,
-    #[clap(long)]
-    new_flat_head_height: BlockHeight,
+    #[clap(subcommand)]
+    mode: MoveFlatHeadMode,
 }
 
 fn print_delta(store: &Store, shard_uid: ShardUId, metadata: FlatStateDeltaMetadata) {
@@ -156,7 +174,8 @@ impl FlatStorageCommand {
             node_storage.get_hot_store(),
             &near_config,
             epoch_manager.clone(),
-        );
+        )
+        .expect("could not create transaction runtime");
         let chain_store = ChainStore::new(node_storage.get_hot_store(), 0, false);
         let hot_store = node_storage.get_hot_store();
         (node_storage, epoch_manager, hot_runtime, chain_store, hot_store)
@@ -399,6 +418,181 @@ impl FlatStorageCommand {
         Ok(())
     }
 
+    // This is a hack needed to find all updated keys which are not recorded
+    // in `DBCol::StateChanges`. Takes keys, values for which are different
+    // in flat storage accessible in `store` and given trie.
+    // TODO(1.40): remove after removal of feature `serialize_all_state_changes`
+    // reaches mainnet.
+    fn find_updated_missing_items(
+        &self,
+        shard_uid: ShardUId,
+        store: &Store,
+        trie: near_store::Trie,
+    ) -> anyhow::Result<Vec<(Vec<u8>, Option<FlatStateValue>)>> {
+        let missing_keys_left_boundary = &[near_primitives::trie_key::col::RECEIVED_DATA];
+        let missing_keys_right_boundary =
+            &[near_primitives::trie_key::col::DELAYED_RECEIPT_OR_INDICES + 1];
+
+        let mut prev_iter = trie.iter()?;
+        let nibbles_left_boundary: Vec<_> =
+            near_store::NibbleSlice::new(missing_keys_left_boundary).iter().collect();
+        let nibbles_right_boundary: Vec<_> =
+            near_store::NibbleSlice::new(missing_keys_right_boundary).iter().collect();
+        let prev_missing_items: HashMap<Vec<u8>, near_primitives::state::FlatStateValue> =
+            HashMap::from_iter(
+                prev_iter
+                    .get_trie_items(&nibbles_left_boundary, &nibbles_right_boundary)?
+                    .into_iter()
+                    .map(|(key, value)| {
+                        (
+                            key,
+                            near_primitives::state::FlatStateValue::Ref(
+                                near_primitives::state::ValueRef::new(&value),
+                            ),
+                        )
+                    }),
+            );
+
+        let iter = store_helper::iter_flat_state_entries(
+            shard_uid,
+            &store,
+            Some(missing_keys_left_boundary),
+            Some(missing_keys_right_boundary),
+        );
+        let missing_items: HashMap<Vec<u8>, near_primitives::state::FlatStateValue> =
+            HashMap::from_iter(iter.map(|it| {
+                let (key, value) = it.unwrap();
+                (key, near_primitives::state::FlatStateValue::Ref(value.to_value_ref()))
+            }));
+
+        let missing_keys: HashSet<_> =
+            prev_missing_items.keys().chain(missing_items.keys()).collect();
+        let mut result = vec![];
+        for key in missing_keys {
+            let prev_value = prev_missing_items.get(key);
+            let value = missing_items.get(key);
+            if prev_value != value {
+                result.push((key.to_vec(), prev_value.cloned()));
+            }
+        }
+        Ok(result)
+    }
+
+    fn move_flat_head_back(
+        &self,
+        epoch_manager: &dyn EpochManagerAdapter,
+        runtime: &dyn RuntimeAdapter,
+        chain_store: ChainStore,
+        mut shard_uid: ShardUId,
+        blocks: usize,
+    ) -> anyhow::Result<()> {
+        let store = chain_store.store();
+        let flat_head = match store_helper::get_flat_storage_status(&store, shard_uid) {
+            Ok(FlatStorageStatus::Ready(ready_status)) => ready_status.flat_head,
+            status => {
+                panic!("invalid flat storage status for shard {shard_uid:?}: {status:?}")
+            }
+        };
+        let mut height = flat_head.height;
+        let shard_id = shard_uid.shard_id();
+
+        for _ in 0..blocks {
+            let block_hash = chain_store.get_block_hash_by_height(height)?;
+            let block = chain_store.get_block(&block_hash)?;
+            let header = block.header();
+            let state_root = block.chunks().get(shard_id as usize).unwrap().prev_state_root();
+            let epoch_id = header.epoch_id();
+            let prev_hash = header.prev_hash();
+            let prev_header = chain_store.get_block_header(&prev_hash)?;
+            let prev_prev_hash = *prev_header.prev_hash();
+            let prev_height = prev_header.height();
+
+            let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+            shard_uid = epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
+
+            let trie =
+                runtime.get_trie_for_shard(shard_uid.shard_id(), &block_hash, state_root, false)?;
+
+            // Find all items which were changed after applying block `block_hash`
+            // and add them to delta.
+            // This is done by iterating over `DBCol::StateChanges` corresponding
+            // to given shard.
+            let mut prev_delta = FlatStateChanges::default();
+            for item in store.iter_prefix(DBCol::StateChanges, &block_hash.0) {
+                let (key, _) = item.unwrap();
+                let maybe_trie_key = &key[32..];
+                let maybe_account_id =
+                    near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key(
+                        maybe_trie_key,
+                    )?;
+                let maybe_trie_key = match maybe_account_id {
+                    Some(account_id) => {
+                        let account_shard_id = account_id_to_shard_id(&account_id, &shard_layout);
+                        if shard_id == account_shard_id {
+                            Some(maybe_trie_key)
+                        } else {
+                            None
+                        }
+                    }
+                    None => {
+                        assert!(maybe_trie_key.len() >= 8);
+                        let (trie_key, shard_uid_raw) =
+                            maybe_trie_key.split_at(maybe_trie_key.len() - 8);
+                        if shard_uid.to_bytes() == shard_uid_raw {
+                            Some(trie_key)
+                        } else {
+                            None
+                        }
+                    }
+                };
+
+                if let Some(trie_key) = maybe_trie_key {
+                    // Take *previous* value for the key from trie corresponding
+                    // to pre-state-root for this block.
+                    let prev_value = trie
+                        .get_optimized_ref(trie_key, near_store::KeyLookupMode::Trie)?
+                        .map(|value_ref| {
+                            near_primitives::state::FlatStateValue::Ref(value_ref.into_value_ref())
+                        });
+                    let value = store_helper::get_flat_state_value(&store, shard_uid, trie_key)?
+                        .map(|val| near_primitives::state::FlatStateValue::Ref(val.to_value_ref()));
+                    if prev_value != value {
+                        prev_delta.insert(trie_key.to_vec(), prev_value);
+                    }
+                }
+            }
+
+            let missing_items = self.find_updated_missing_items(shard_uid, &store, trie)?;
+            for (key, value) in missing_items.into_iter() {
+                prev_delta.insert(key, value);
+            }
+
+            // Change all keys values of which are different for previous
+            // and current block.
+            // Note that we don't write delta to DB, because this command is
+            // used to simulate applying chunks from past blocks, and in that
+            // simulations future deltas should not exist.
+            let mut store_update = store.store_update();
+            prev_delta.apply_to_flat_state(&mut store_update, shard_uid);
+            store_helper::set_flat_storage_status(
+                &mut store_update,
+                shard_uid,
+                FlatStorageStatus::Ready(near_store::flat::FlatStorageReadyStatus {
+                    flat_head: near_store::flat::BlockInfo {
+                        hash: *prev_hash,
+                        height: prev_height,
+                        prev_hash: prev_prev_hash,
+                    },
+                }),
+            );
+            store_update.commit()?;
+
+            height = prev_height;
+            println!("moved to {height}");
+        }
+        Ok(())
+    }
+
     fn move_flat_head(
         &self,
         cmd: &MoveFlatHeadCmd,
@@ -406,16 +600,32 @@ impl FlatStorageCommand {
         near_config: &NearConfig,
         opener: StoreOpener,
     ) -> anyhow::Result<()> {
-        let (_, _, runtime, chain_store, _) =
+        let (_, epoch_manager, runtime, chain_store, _) =
             Self::get_db(&opener, home_dir, &near_config, near_store::Mode::ReadWriteExisting);
 
         let shard_uid = ShardUId { version: cmd.version, shard_id: cmd.shard_id as u32 };
         let flat_storage_manager = runtime.get_flat_storage_manager();
         flat_storage_manager.create_flat_storage_for_shard(shard_uid)?;
         let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
-        let header = chain_store.get_block_header_by_height(cmd.new_flat_head_height)?;
-        println!("Header: {header:?}");
-        flat_storage.update_flat_head(header.hash(), true)?;
+
+        match cmd.mode {
+            MoveFlatHeadMode::Forward { new_flat_head_height } => {
+                let header = chain_store.get_block_header_by_height(new_flat_head_height)?;
+                println!("Moving flat head for shard {shard_uid} forward to header: {header:?}");
+                flat_storage.update_flat_head(header.hash(), true)?;
+            }
+            MoveFlatHeadMode::Back { blocks } => {
+                println!("Moving flat head for shard {shard_uid} back by {blocks} blocks");
+                self.move_flat_head_back(
+                    epoch_manager.as_ref(),
+                    runtime.as_ref(),
+                    chain_store,
+                    shard_uid,
+                    blocks,
+                )?;
+            }
+        }
+
         Ok(())
     }
 

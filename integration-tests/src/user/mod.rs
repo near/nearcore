@@ -76,7 +76,7 @@ pub trait User {
 
     fn get_chunk_by_height(&self, height: BlockHeight, shard_id: ShardId) -> Option<ChunkView>;
 
-    fn get_transaction_result(&self, hash: &CryptoHash) -> ExecutionOutcomeView;
+    fn get_transaction_result(&self, hash: &CryptoHash) -> Option<ExecutionOutcomeView>;
 
     fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView;
 

@@ -1,12 +1,12 @@
 use near_vm_compiler_singlepass::Singlepass;
-use near_vm_engine::universal::{LimitedMemoryPool, Universal};
+use near_vm_engine::universal::{MemoryPool, Universal};
 use near_vm_test_api::*;
 use near_vm_types::InstanceConfig;
 use near_vm_vm::TrapCode;
 
 fn get_store() -> Store {
     let compiler = Singlepass::default();
-    let pool = LimitedMemoryPool::new(6, 0x100000).expect("foo");
+    let pool = MemoryPool::new(6, 0x100000).expect("foo");
     let store = Store::new(Universal::new(compiler).code_memory_pool(pool).engine().into());
     store
 }

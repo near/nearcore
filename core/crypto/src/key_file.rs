@@ -26,7 +26,7 @@ impl KeyFile {
     #[cfg(unix)]
     fn create(path: &Path) -> io::Result<File> {
         use std::os::unix::fs::OpenOptionsExt;
-        std::fs::File::options().mode(0o600).write(true).create(true).open(path)
+        std::fs::File::options().mode(0o600).write(true).create(true).truncate(true).open(path)
     }
 
     #[cfg(not(unix))]

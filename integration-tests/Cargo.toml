@@ -27,6 +27,7 @@ once_cell.workspace = true
 parking_lot.workspace = true
 primitive-types.workspace = true
 rand.workspace = true
+reed-solomon-erasure.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 smart-default.workspace = true
@@ -67,10 +68,14 @@ testlib.workspace = true
 
 [dev-dependencies]
 assert_matches.workspace = true
+aurora-engine-transactions.workspace = true
+aurora-engine-types.workspace = true
 derive-enum-from-into.workspace = true
+ethabi.workspace = true
 insta.workspace = true
 near-undo-block.workspace = true
 rlp.workspace = true
+sha3.workspace = true
 
 [features]
 performance_stats = [

@@ -6,6 +6,7 @@ use near_chain_configs::MIN_GAS_PRICE;
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_parameters::RuntimeConfig;
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::errors::{RuntimeError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
@@ -121,6 +122,7 @@ impl RuntimeUser {
                     }
                     RuntimeError::ReceiptValidationError(e) => panic!("{}", e),
                     RuntimeError::ValidatorError(e) => panic!("{}", e),
+                    RuntimeError::ContextError(e) => panic!("{}", e),
                 })?;
             for outcome_with_id in apply_result.outcomes {
                 self.transaction_results
@@ -151,11 +153,18 @@ impl RuntimeUser {
     }
 
     fn apply_state(&self) -> ApplyState {
+        // TODO(congestion_control) - Set shard id somehow.
+        let shard_id = 0;
+        // TODO(congestion_control) - Set other shard ids somehow.
+        let all_shard_ids = [0, 1, 2, 3, 4, 5];
+
         ApplyState {
+            apply_reason: None,
             block_height: 1,
             prev_block_hash: Default::default(),
             block_hash: Default::default(),
             block_timestamp: 0,
+            shard_id,
             epoch_height: 0,
             gas_price: MIN_GAS_PRICE,
             gas_limit: None,
@@ -167,6 +176,10 @@ impl RuntimeUser {
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
+            congestion_info: all_shard_ids
+                .into_iter()
+                .map(|id| (id, CongestionInfo::default()))
+                .collect(),
         }
     }
 
@@ -174,7 +187,13 @@ impl RuntimeUser {
         &self,
         hash: &CryptoHash,
     ) -> Vec<ExecutionOutcomeWithIdView> {
-        let outcome = self.get_transaction_result(hash);
+        let outcome = match self.get_transaction_result(hash) {
+            Some(outcome) => outcome,
+            None => {
+                return vec![];
+            }
+        };
+
         let receipt_ids = outcome.receipt_ids.clone();
         let mut transactions = vec![ExecutionOutcomeWithIdView {
             id: *hash,
@@ -188,6 +207,7 @@ impl RuntimeUser {
         transactions
     }
 
+    // TODO(#10942) get rid of copy pasted code, it's outdated comparing to the original
     fn get_final_transaction_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView {
         let mut outcomes = self.get_recursive_transaction_results(hash);
         let mut looking_for_id = *hash;
@@ -269,6 +289,9 @@ impl User for RuntimeUser {
         method_name: &str,
         args: &[u8],
     ) -> Result<CallResult, String> {
+        // TODO(congestion_control) - Set shard id somehow.
+        let shard_id = 0;
+
         let apply_state = self.apply_state();
         let client = self.client.read().expect(POISONED_LOCK_ERR);
         let state_update = client.get_state_update();
@@ -277,6 +300,7 @@ impl User for RuntimeUser {
             block_height: apply_state.block_height,
             prev_block_hash: apply_state.prev_block_hash,
             block_hash: apply_state.block_hash,
+            shard_id: shard_id,
             epoch_id: apply_state.epoch_id,
             epoch_height: apply_state.epoch_height,
             block_timestamp: apply_state.block_timestamp,
@@ -341,8 +365,8 @@ impl User for RuntimeUser {
         unimplemented!("get_chunk should not be implemented for RuntimeUser");
     }
 
-    fn get_transaction_result(&self, hash: &CryptoHash) -> ExecutionOutcomeView {
-        self.transaction_results.borrow().get(hash).cloned().unwrap()
+    fn get_transaction_result(&self, hash: &CryptoHash) -> Option<ExecutionOutcomeView> {
+        self.transaction_results.borrow().get(hash).cloned()
     }
 
     fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView {

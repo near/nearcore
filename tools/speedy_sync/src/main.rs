@@ -235,7 +235,8 @@ fn load_snapshot(load_cmd: LoadCmd) {
     let shard_tracker =
         ShardTracker::new(TrackedConfig::from_config(&config.client_config), epoch_manager.clone());
     let runtime =
-        NightshadeRuntime::from_config(home_dir, store.clone(), &config, epoch_manager.clone());
+        NightshadeRuntime::from_config(home_dir, store.clone(), &config, epoch_manager.clone())
+            .expect("could not create transaction runtime");
     // This will initialize the database (add genesis block etc)
     let _chain = Chain::new(
         Clock::real(),
@@ -254,6 +255,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
         },
         None,
         Arc::new(RayonAsyncComputationSpawner),
+        None,
     )
     .unwrap();
 

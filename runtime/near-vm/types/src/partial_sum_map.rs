@@ -14,7 +14,7 @@
 //! The type of a given index can be quickly found with a binary search over the partial sum
 //! field.
 
-/// A Map from keys to values that is able to efficiently store repeating occurences of the value.
+/// A Map from keys to values that is able to efficiently store repeating occurrences of the value.
 ///
 /// This map can only be appended to.
 #[derive(Debug)]

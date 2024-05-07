@@ -1,9 +1,15 @@
-use std::{collections::HashMap, sync::Arc};
-
+use crate::{
+    adapter::ShardsManagerRequestFromClient,
+    logic::{cares_about_shard_this_or_next_epoch, make_outgoing_receipts_proofs},
+    test_utils::{default_tip, tip},
+    ShardsManager,
+};
+use near_async::test_loop::delay_sender::DelaySender;
 use near_async::time;
+use near_async::time::Clock;
 use near_async::{
     messaging::Sender,
-    test_loop::event_handler::{interval, LoopEventHandler, LoopHandlerContext, TryIntoOrSelf},
+    test_loop::event_handler::{LoopEventHandler, TryIntoOrSelf},
 };
 use near_chain::{types::Tip, Chain};
 use near_epoch_manager::{
@@ -16,25 +22,21 @@ use near_network::{
     test_loop::SupportsRoutingLookup,
     types::{NetworkRequests, PeerManagerMessageRequest},
 };
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::{
     hash::CryptoHash,
     merkle::{self, MerklePath},
     sharding::{
         EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkV2, ReceiptProof,
-        ReedSolomonWrapper, ShardChunkHeader,
+        ShardChunkHeader,
     },
     test_utils::create_test_signer,
     types::{AccountId, BlockHeight, BlockHeightDelta, MerkleHash, NumShards, ShardId},
     version::PROTOCOL_VERSION,
 };
 use near_store::Store;
-
-use crate::{
-    adapter::ShardsManagerRequestFromClient,
-    logic::{cares_about_shard_this_or_next_epoch, make_outgoing_receipts_proofs},
-    test_utils::{default_tip, tip},
-    ShardsManager,
-};
+use reed_solomon_erasure::galois_8::ReedSolomon;
+use std::{collections::HashMap, sync::Arc};
 
 pub fn forward_client_request_to_shards_manager(
 ) -> LoopEventHandler<ShardsManager, ShardsManagerRequestFromClient> {
@@ -61,25 +63,24 @@ pub fn route_shards_manager_network_messages<
         + From<PeerManagerMessageRequest>
         + From<ShardsManagerRequestFromNetwork>,
 >(
+    sender: DelaySender<(usize, Event)>,
+    clock: Clock,
     network_delay: time::Duration,
 ) -> LoopEventHandler<Data, (usize, Event)> {
     let mut route_back_lookup: HashMap<CryptoHash, usize> = HashMap::new();
     let mut next_hash: u64 = 0;
-    LoopEventHandler::new(
-        move |event: (usize, Event),
-              data: &mut Data,
-              context: &LoopHandlerContext<(usize, Event)>| {
-            let (idx, event) = event;
-            let message = event.try_into_or_self().map_err(|e| (idx, e.into()))?;
-            match message {
-                PeerManagerMessageRequest::NetworkRequests(request) => {
-                    match request {
-                        NetworkRequests::PartialEncodedChunkRequest { target, request, .. } => {
-                            let target_idx = data.index_for_account(&target.account_id.unwrap());
-                            let route_back = CryptoHash::hash_borsh(next_hash);
-                            route_back_lookup.insert(route_back, idx);
-                            next_hash += 1;
-                            context.sender.send_with_delay(
+    LoopEventHandler::new(move |event: (usize, Event), data: &mut Data| {
+        let (idx, event) = event;
+        let message = event.try_into_or_self().map_err(|e| (idx, e.into()))?;
+        match message {
+            PeerManagerMessageRequest::NetworkRequests(request) => {
+                match request {
+                    NetworkRequests::PartialEncodedChunkRequest { target, request, .. } => {
+                        let target_idx = data.index_for_account(&target.account_id.unwrap());
+                        let route_back = CryptoHash::hash_borsh(next_hash);
+                        route_back_lookup.insert(route_back, idx);
+                        next_hash += 1;
+                        sender.send_with_delay(
                             (target_idx,
                             ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
                                 partial_encoded_chunk_request: request,
@@ -87,72 +88,65 @@ pub fn route_shards_manager_network_messages<
                             }.into()),
                             network_delay,
                         );
-                            Ok(())
-                        }
-                        NetworkRequests::PartialEncodedChunkResponse { route_back, response } => {
-                            let target_idx =
-                                *route_back_lookup.get(&route_back).expect("Route back not found");
-                            context.sender.send_with_delay(
+                        Ok(())
+                    }
+                    NetworkRequests::PartialEncodedChunkResponse { route_back, response } => {
+                        let target_idx =
+                            *route_back_lookup.get(&route_back).expect("Route back not found");
+                        sender.send_with_delay(
                             (target_idx,
                             ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
                                 partial_encoded_chunk_response: response,
-                                received_time: context.clock.now().into(), // TODO: use clock
+                                received_time: clock.now().into(), // TODO: use clock
                             }.into()),
                             network_delay,
                         );
-                            Ok(())
-                        }
-                        NetworkRequests::PartialEncodedChunkMessage {
-                            account_id,
-                            partial_encoded_chunk,
-                        } => {
-                            let target_idx = data.index_for_account(&account_id);
-                            context.sender.send_with_delay(
-                                (
-                                    target_idx,
-                                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
-                                        partial_encoded_chunk.into(),
-                                    )
-                                    .into(),
-                                ),
-                                network_delay,
-                            );
-                            Ok(())
-                        }
-                        NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
-                            let target_idx = data.index_for_account(&account_id);
-                            context.sender.send_with_delay(
-                            (target_idx,
-                            ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(
-                                forward,
-                            ).into()),
+                        Ok(())
+                    }
+                    NetworkRequests::PartialEncodedChunkMessage {
+                        account_id,
+                        partial_encoded_chunk,
+                    } => {
+                        let target_idx = data.index_for_account(&account_id);
+                        sender.send_with_delay(
+                            (
+                                target_idx,
+                                ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
+                                    partial_encoded_chunk.into(),
+                                )
+                                .into(),
+                            ),
                             network_delay,
                         );
-                            Ok(())
-                        }
-                        other_message => Err((
-                            idx,
-                            PeerManagerMessageRequest::NetworkRequests(other_message).into(),
-                        )),
+                        Ok(())
+                    }
+                    NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
+                        let target_idx = data.index_for_account(&account_id);
+                        sender.send_with_delay(
+                            (
+                                target_idx,
+                                ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(
+                                    forward,
+                                )
+                                .into(),
+                            ),
+                            network_delay,
+                        );
+                        Ok(())
+                    }
+                    other_message => {
+                        Err((idx, PeerManagerMessageRequest::NetworkRequests(other_message).into()))
                     }
                 }
-                message => Err((idx, message.into())),
             }
-        },
-    )
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ShardsManagerResendChunkRequests;
-
-/// Periodically call resend_chunk_requests.
-pub fn periodically_resend_chunk_requests(
-    every: time::Duration,
-) -> LoopEventHandler<ShardsManager, ShardsManagerResendChunkRequests> {
-    interval(every, ShardsManagerResendChunkRequests, |data: &mut ShardsManager| {
-        data.resend_chunk_requests()
+            message => Err((idx, message.into())),
+        }
     })
 }
+
+// NOTE: this is no longer needed for TestLoop, but some other non-TestLoop tests depend on it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ShardsManagerResendChunkRequests;
 
 /// A simple implementation of the chain side that interacts with
 /// ShardsManager.
@@ -267,7 +261,7 @@ impl MockChainForShardsManager {
         let signer = create_test_signer(chunk_producer.as_str());
         let data_parts = self.epoch_manager.num_data_parts();
         let parity_parts = self.epoch_manager.num_total_parts() - data_parts;
-        let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
+        let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
         let (chunk, merkle_paths) = ShardsManager::create_encoded_shard_chunk(
             self.tip.last_block_hash,
             CryptoHash::default(),
@@ -282,8 +276,9 @@ impl MockChainForShardsManager {
             &receipts,
             receipts_root,
             MerkleHash::default(),
+            CongestionInfo::default(),
             &signer,
-            &mut rs,
+            &rs,
             PROTOCOL_VERSION,
         )
         .unwrap();

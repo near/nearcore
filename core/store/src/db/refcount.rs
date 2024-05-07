@@ -35,16 +35,19 @@ use crate::DBCol;
 /// In builds with debug assertions enabled, panics if `bytes` are non-empty but
 /// too short to fit 64-bit reference count.
 pub fn decode_value_with_rc(bytes: &[u8]) -> (Option<&[u8]>, i64) {
-    if bytes.len() < 8 {
-        debug_assert!(bytes.is_empty());
-        return (None, 0);
-    }
-    let (head, tail) = stdx::rsplit_slice::<8>(bytes);
-    let rc = i64::from_le_bytes(*tail);
-    if rc <= 0 {
-        (None, rc)
-    } else {
-        (Some(head), rc)
+    match bytes.split_last_chunk::<8>() {
+        None => {
+            debug_assert!(bytes.is_empty());
+            return (None, 0);
+        }
+        Some((head, tail)) => {
+            let rc = i64::from_le_bytes(*tail);
+            if rc <= 0 {
+                (None, rc)
+            } else {
+                (Some(head), rc)
+            }
+        }
     }
 }
 
@@ -94,8 +97,8 @@ pub(crate) fn add_positive_refcount(data: &[u8], rc: std::num::NonZeroU32) -> Ve
 /// Returns empty value with encoded negative reference count.
 ///
 /// `rc` gives the absolute value of the reference count.
-pub(crate) fn encode_negative_refcount(rc: std::num::NonZeroU32) -> Vec<u8> {
-    (-i64::from(rc.get())).to_le_bytes().to_vec()
+pub(crate) fn encode_negative_refcount(rc: std::num::NonZeroU32) -> [u8; 8] {
+    (-i64::from(rc.get())).to_le_bytes()
 }
 
 /// Merge reference counted values together.

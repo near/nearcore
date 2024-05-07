@@ -42,13 +42,13 @@ impl OrphanStateWitnessPool {
     /// `witness_size` is only used for metrics, it's okay to pass 0 if you don't care about the metrics.
     pub fn add_orphan_state_witness(&mut self, witness: ChunkStateWitness, witness_size: usize) {
         // Insert the new ChunkStateWitness into the cache
-        let chunk_header = &witness.inner.chunk_header;
+        let chunk_header = &witness.chunk_header;
         let cache_key = (chunk_header.shard_id(), chunk_header.height_created());
         let metrics_tracker = OrphanWitnessMetricsTracker::new(&witness, witness_size);
         let cache_entry = CacheEntry { witness, _metrics_tracker: metrics_tracker };
         if let Some((_, ejected_entry)) = self.witness_cache.push(cache_key, cache_entry) {
             // Another witness has been ejected from the cache due to capacity limit
-            let header = &ejected_entry.witness.inner.chunk_header;
+            let header = &ejected_entry.witness.chunk_header;
             tracing::debug!(
                 target: "client",
                 ejected_witness_height = header.height_created(),
@@ -68,7 +68,7 @@ impl OrphanStateWitnessPool {
     ) -> Vec<ChunkStateWitness> {
         let mut to_remove: Vec<(ShardId, BlockHeight)> = Vec::new();
         for (cache_key, cache_entry) in self.witness_cache.iter() {
-            if cache_entry.witness.inner.chunk_header.prev_block_hash() == prev_block {
+            if cache_entry.witness.chunk_header.prev_block_hash() == prev_block {
                 to_remove.push(*cache_key);
             }
         }
@@ -89,9 +89,9 @@ impl OrphanStateWitnessPool {
     pub fn remove_witnesses_below_final_height(&mut self, final_height: BlockHeight) {
         let mut to_remove: Vec<(ShardId, BlockHeight)> = Vec::new();
         for ((witness_shard, witness_height), cache_entry) in self.witness_cache.iter() {
-            if *witness_height < final_height {
+            if *witness_height <= final_height {
                 to_remove.push((*witness_shard, *witness_height));
-                let header = &cache_entry.witness.inner.chunk_header;
+                let header = &cache_entry.witness.chunk_header;
                 tracing::debug!(
                     target: "client",
                     final_height,
@@ -136,7 +136,7 @@ mod metrics_tracker {
             witness: &ChunkStateWitness,
             witness_size: usize,
         ) -> OrphanWitnessMetricsTracker {
-            let shard_id = witness.inner.chunk_header.shard_id().to_string();
+            let shard_id = witness.chunk_header.shard_id().to_string();
             metrics::ORPHAN_CHUNK_STATE_WITNESSES_TOTAL_COUNT
                 .with_label_values(&[shard_id.as_str()])
                 .inc();
@@ -188,9 +188,10 @@ mod tests {
         encoded_length: u64,
     ) -> ChunkStateWitness {
         let mut witness = ChunkStateWitness::new_dummy(height, shard_id, prev_block_hash);
-        match &mut witness.inner.chunk_header {
+        match &mut witness.chunk_header {
             ShardChunkHeader::V3(header) => match &mut header.inner {
                 ShardChunkHeaderInner::V2(inner) => inner.encoded_length = encoded_length,
+                ShardChunkHeaderInner::V3(inner) => inner.encoded_length = encoded_length,
                 _ => unimplemented!(),
             },
             _ => unimplemented!(),
@@ -214,7 +215,7 @@ mod tests {
         expected.sort_by(sort_comparator);
         if observed != expected {
             let print_witness_info = |witness: &ChunkStateWitness| {
-                let header = &witness.inner.chunk_header;
+                let header = &witness.chunk_header;
                 eprintln!(
                     "- height = {}, shard_id = {}, encoded_length: {} prev_block: {}",
                     header.height_created(),
@@ -358,7 +359,7 @@ mod tests {
         let waiting_for_100 = pool.take_state_witnesses_waiting_for_block(&block(100));
         assert_contents(waiting_for_100, vec![witness2]);
 
-        pool.remove_witnesses_below_final_height(103);
+        pool.remove_witnesses_below_final_height(102);
 
         let waiting_for_99 = pool.take_state_witnesses_waiting_for_block(&block(99));
         assert_contents(waiting_for_99, vec![]);

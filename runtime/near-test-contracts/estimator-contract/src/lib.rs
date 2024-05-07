@@ -120,7 +120,7 @@ extern "C" {
         data_id_ptr: u64,
         payload_len: u64,
         payload_ptr: u64,
-    ) -> u64;
+    ) -> u32;
     // #######################
     // # Promise API actions #
     // #######################
@@ -1319,6 +1319,38 @@ pub unsafe fn yield_create_byte_1000b_argument_length() {
             1,
             0,
         );
+    }
+}
+
+#[no_mangle]
+pub unsafe fn yield_resume_base_prepare() {
+    const METHOD_NAME: &str = "n";
+    for i in 0..255u8 {
+        promise_yield_create(METHOD_NAME.len() as u64, METHOD_NAME.as_ptr() as u64, 0, 0, 0, 1, 2);
+        storage_write(1, core::ptr::addr_of!(i) as u64, u64::MAX, 2, 3);
+    }
+}
+
+#[no_mangle]
+pub unsafe fn yield_resume_base() {
+    for i in 0..255u8 {
+        match storage_read(1, core::ptr::addr_of!(i) as u64, 0) {
+            0 => panic!("storage_read did not produce data_id"),
+            1 => assert_eq!(promise_yield_resume(u64::MAX, 0, 0, 0), 1),
+            _ => panic!("unexpected storage_read return"),
+        }
+    }
+}
+
+#[no_mangle]
+pub unsafe fn yield_resume_payload() {
+    const ARGUMENTS: [u8; 1000] = [b'a'; 1000];
+    for i in 0..255u8 {
+        match storage_read(1, core::ptr::addr_of!(i) as u64, 0) {
+            0 => panic!("storage_read did not produce data_id"),
+            1 => assert_eq!(promise_yield_resume(u64::MAX, 0, 1000, ARGUMENTS.as_ptr() as u64), 1),
+            _ => panic!("unexpected storage_read return"),
+        }
     }
 }
 

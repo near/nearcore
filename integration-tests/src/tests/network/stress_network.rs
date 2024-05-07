@@ -31,6 +31,7 @@ fn make_peer_manager(
         config,
         noop().into_multi_sender(),
         noop().into_sender(),
+        noop().into_multi_sender(),
         GenesisId::default(),
     )
     .unwrap()

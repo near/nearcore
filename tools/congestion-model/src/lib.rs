@@ -3,7 +3,9 @@ mod model;
 pub mod strategy;
 pub mod workload;
 
-pub use evaluation::{summary_table, TransactionStatus};
+pub use evaluation::{
+    summary_table, QueueStats, ShardQueueLengths, StatsWriter, TransactionStatus,
+};
 pub use model::{Model, Queue, QueueId, Receipt, ShardId, TransactionId};
 pub use strategy::CongestionStrategy;
 pub use workload::{ReceiptDefinition, ReceiptId, TransactionBuilder};

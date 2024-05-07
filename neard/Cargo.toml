@@ -74,8 +74,7 @@ rosetta_rpc = ["nearcore/rosetta_rpc"]
 json_rpc = ["nearcore/json_rpc"]
 protocol_feature_fix_staking_threshold = ["nearcore/protocol_feature_fix_staking_threshold"]
 protocol_feature_nonrefundable_transfer_nep491 = ["near-state-viewer/protocol_feature_nonrefundable_transfer_nep491"]
-serialize_all_state_changes = ["nearcore/serialize_all_state_changes"]
-new_epoch_sync = ["nearcore/new_epoch_sync", "dep:near-epoch-sync-tool"]
+new_epoch_sync = ["nearcore/new_epoch_sync", "near-epoch-sync-tool/new_epoch_sync"]
 yield_resume = ["nearcore/yield_resume"]
 
 nightly = [
@@ -98,7 +97,6 @@ nightly = [
   "nightly_protocol",
   "protocol_feature_fix_staking_threshold",
   "protocol_feature_nonrefundable_transfer_nep491",
-  "serialize_all_state_changes",
   "yield_resume",
 ]
 nightly_protocol = [
@@ -122,6 +120,9 @@ nightly_protocol = [
 statelessnet_protocol = [
   "nearcore/statelessnet_protocol",
   "near-primitives/statelessnet_protocol",
+]
+shadow_chunk_validation = [
+  "near-client/shadow_chunk_validation",
 ]
 
 calimero_zero_storage = [

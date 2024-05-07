@@ -4,10 +4,14 @@
 
 use super::block_stats::BlockStats;
 use super::peer_manager_mock::PeerManagerMock;
-use crate::{start_view_client, Client, ClientActor, SyncAdapter, SyncStatus, ViewClientActor};
+use crate::stateless_validation::partial_witness::partial_witness_actor::{
+    PartialWitnessActor, PartialWitnessSenderForClient,
+};
+use crate::{Client, ClientActor, SyncAdapter, SyncStatus, ViewClientActor, ViewClientActorInner};
 use actix::{Actor, Addr, AsyncContext, Context};
 use futures::{future, FutureExt};
 use near_async::actix::AddrWithAutoSpanContextExt;
+use near_async::actix_wrapper::{spawn_actix_actor, ActixWrapper};
 use near_async::messaging::{noop, CanSend, IntoMultiSender, IntoSender, LateBoundSender, Sender};
 use near_async::time::{Clock, Duration, Instant, Utc};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
@@ -121,12 +125,13 @@ pub fn setup(
         },
         None,
         Arc::new(RayonAsyncComputationSpawner),
+        None,
     )
     .unwrap();
     let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
 
     let signer = Arc::new(create_test_signer(account_id.as_str()));
-    let telemetry = TelemetryActor::default().start();
+    let telemetry = ActixWrapper::new(TelemetryActor::default()).start();
     let config = {
         let mut base = ClientConfig::test(
             skip_sync_wait,
@@ -144,7 +149,7 @@ pub fn setup(
 
     let adv = crate::adversarial::Controls::default();
 
-    let view_client_addr = start_view_client(
+    let view_client_addr = ViewClientActorInner::spawn_actix_actor(
         clock.clone(),
         Some(signer.validator_id().clone()),
         chain_genesis.clone(),
@@ -167,8 +172,20 @@ pub fn setup(
     );
     let shards_manager_adapter = shards_manager_addr.with_auto_span_context();
 
-    let state_sync_adapter =
-        Arc::new(RwLock::new(SyncAdapter::new(noop().into_sender(), noop().into_sender())));
+    let state_sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
+        noop().into_sender(),
+        noop().into_sender(),
+        SyncAdapter::actix_actor_maker(),
+    )));
+
+    let (partial_witness_addr, _) = spawn_actix_actor(PartialWitnessActor::new(
+        clock.clone(),
+        network_adapter.clone(),
+        noop().into_multi_sender(),
+        signer.clone(),
+        epoch_manager.clone(),
+    ));
+    let partial_witness_adapter = partial_witness_addr.with_auto_span_context();
     let client = Client::new(
         clock.clone(),
         config.clone(),
@@ -184,6 +201,7 @@ pub fn setup(
         TEST_SEED,
         None,
         Arc::new(RayonAsyncComputationSpawner),
+        partial_witness_adapter.into_multi_sender(),
     )
     .unwrap();
     let client_actor = ClientActor::new(
@@ -194,7 +212,7 @@ pub fn setup(
         PeerId::new(PublicKey::empty(KeyType::ED25519)),
         network_adapter,
         Some(signer),
-        telemetry,
+        telemetry.with_auto_span_context().into_sender(),
         ctx,
         None,
         adv,
@@ -259,11 +277,12 @@ pub fn setup_only_view(
         },
         None,
         Arc::new(RayonAsyncComputationSpawner),
+        None,
     )
     .unwrap();
 
     let signer = Arc::new(create_test_signer(account_id.as_str()));
-    TelemetryActor::default().start();
+    ActixWrapper::new(TelemetryActor::default()).start();
     let config = ClientConfig::test(
         skip_sync_wait,
         min_block_prod_time,
@@ -277,7 +296,7 @@ pub fn setup_only_view(
 
     let adv = crate::adversarial::Controls::default();
 
-    start_view_client(
+    ViewClientActorInner::spawn_actix_actor(
         clock,
         Some(signer.validator_id().clone()),
         chain_genesis,
@@ -853,13 +872,12 @@ pub fn setup_mock_all_validators(
                         | NetworkRequests::BanPeer { .. }
                         | NetworkRequests::TxStatus(_, _, _)
                         | NetworkRequests::SnapshotHostInfo { .. }
-                        | NetworkRequests::Challenge(_) => {}
-                        NetworkRequests::ChunkStateWitness(_, _) => {
-                            // TODO(#10265): Implement for integration tests.
-                        },
-                        NetworkRequests::ChunkEndorsement(_, _) => {
-                            // TODO(#10265): Implement for integration tests.
-                        },
+                        | NetworkRequests::Challenge(_)
+                        | NetworkRequests::ChunkStateWitness(_, _)
+                        | NetworkRequests::ChunkStateWitnessAck(_, _)
+                        | NetworkRequests::ChunkEndorsement(_, _)
+                        | NetworkRequests::PartialEncodedStateWitness(_)
+                        | NetworkRequests::PartialEncodedStateWitnessForward(_, _) => {}
                     };
                 }
                 resp
@@ -946,7 +964,6 @@ pub fn setup_no_network_with_validity_period_and_no_epoch_sync(
 pub fn setup_client_with_runtime(
     clock: Clock,
     num_validator_seats: NumSeats,
-    account_id: Option<AccountId>,
     enable_doomslug: bool,
     network_adapter: PeerManagerAdapter,
     shards_manager_adapter: SynchronousShardsManagerAdapter,
@@ -958,9 +975,9 @@ pub fn setup_client_with_runtime(
     archive: bool,
     save_trie_changes: bool,
     snapshot_callbacks: Option<SnapshotCallbacks>,
+    partial_witness_adapter: PartialWitnessSenderForClient,
+    validator_signer: Arc<dyn ValidatorSigner>,
 ) -> Client {
-    let validator_signer =
-        account_id.map(|x| Arc::new(create_test_signer(x.as_str())) as Arc<dyn ValidatorSigner>);
     let mut config = ClientConfig::test(
         true,
         10,
@@ -972,8 +989,11 @@ pub fn setup_client_with_runtime(
         true,
     );
     config.epoch_length = chain_genesis.epoch_length;
-    let state_sync_adapter =
-        Arc::new(RwLock::new(SyncAdapter::new(noop().into_sender(), noop().into_sender())));
+    let state_sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
+        noop().into_sender(),
+        noop().into_sender(),
+        SyncAdapter::actix_actor_maker(),
+    )));
     let mut client = Client::new(
         clock,
         config,
@@ -984,11 +1004,12 @@ pub fn setup_client_with_runtime(
         runtime,
         network_adapter,
         shards_manager_adapter.into_sender(),
-        validator_signer,
+        Some(validator_signer),
         enable_doomslug,
         rng_seed,
         snapshot_callbacks,
         Arc::new(RayonAsyncComputationSpawner),
+        partial_witness_adapter,
     )
     .unwrap();
     client.sync_status = SyncStatus::NoSync;
@@ -1027,6 +1048,7 @@ pub fn setup_synchronous_shards_manager(
         }, // irrelevant
         None,
         Arc::new(RayonAsyncComputationSpawner),
+        None,
     )
     .unwrap();
     let chain_head = chain.head().unwrap();

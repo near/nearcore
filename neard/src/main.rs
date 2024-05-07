@@ -13,11 +13,12 @@ use std::time::Duration;
 static NEARD_VERSION: &str = env!("NEARD_VERSION");
 static NEARD_BUILD: &str = env!("NEARD_BUILD");
 static RUSTC_VERSION: &str = env!("NEARD_RUSTC_VERSION");
+static NEARD_FEATURES: &str = env!("NEARD_FEATURES");
 
 static NEARD_VERSION_STRING: Lazy<String> = Lazy::new(|| {
     format!(
-        "(release {}) (build {}) (rustc {}) (protocol {}) (db {})",
-        NEARD_VERSION, NEARD_BUILD, RUSTC_VERSION, PROTOCOL_VERSION, DB_VERSION
+        "(release {}) (build {}) (rustc {}) (protocol {}) (db {})\nfeatures: [{}]",
+        NEARD_VERSION, NEARD_BUILD, RUSTC_VERSION, PROTOCOL_VERSION, DB_VERSION, NEARD_FEATURES
     )
 });
 

@@ -1,37 +1,5 @@
 extern crate core;
 
-use std::fs::File;
-use std::path::Path;
-use std::str::FromStr;
-use std::sync::Arc;
-use std::{fmt, io};
-
-use borsh::{BorshDeserialize, BorshSerialize};
-use metadata::{DbKind, DbVersion, KIND_KEY, VERSION_KEY};
-use once_cell::sync::Lazy;
-use strum;
-
-pub use columns::DBCol;
-pub use db::{
-    CHUNK_TAIL_KEY, COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_JSON_HASH_KEY,
-    GENESIS_STATE_ROOTS_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
-    LATEST_KNOWN_KEY, STATE_SNAPSHOT_KEY, STATE_SYNC_DUMP_KEY, TAIL_KEY,
-};
-use near_crypto::PublicKey;
-use near_fmt::{AbbrBytes, StorageKey};
-use near_primitives::account::{AccessKey, Account};
-pub use near_primitives::errors::{MissingTrieValueContext, StorageError};
-use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{
-    DelayedReceiptIndices, Receipt, ReceiptEnum, ReceivedData, YieldedPromiseQueueEntry,
-    YieldedPromiseQueueIndices,
-};
-pub use near_primitives::shard_layout::ShardUId;
-use near_primitives::trie_key::{trie_key_parsers, TrieKey};
-use near_primitives::types::{AccountId, BlockHeight, StateRoot};
-use near_vm_runner::logic::{CompiledContract, CompiledContractCache};
-use near_vm_runner::ContractCode;
-
 use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics};
 pub use crate::trie::iterator::{TrieIterator, TrieTraversalItem};
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
@@ -40,7 +8,36 @@ pub use crate::trie::{
     PartialStorage, PrefetchApi, PrefetchError, RawTrieNode, RawTrieNodeWithSize, ShardTries,
     StateSnapshot, StateSnapshotConfig, Trie, TrieAccess, TrieCache, TrieCachingStorage,
     TrieChanges, TrieConfig, TrieDBStorage, TrieStorage, WrappedTrieChanges,
+    STATE_SNAPSHOT_COLUMNS,
 };
+use borsh::{BorshDeserialize, BorshSerialize};
+pub use columns::DBCol;
+pub use db::{
+    CHUNK_TAIL_KEY, COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_JSON_HASH_KEY,
+    GENESIS_STATE_ROOTS_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
+    LATEST_KNOWN_KEY, STATE_SNAPSHOT_KEY, STATE_SYNC_DUMP_KEY, TAIL_KEY,
+};
+use metadata::{DbKind, DbVersion, KIND_KEY, VERSION_KEY};
+use near_crypto::PublicKey;
+use near_fmt::{AbbrBytes, StorageKey};
+use near_primitives::account::{AccessKey, Account};
+pub use near_primitives::errors::{MissingTrieValueContext, StorageError};
+use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::{
+    BufferedReceiptIndices, DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout,
+    Receipt, ReceiptEnum, ReceivedData,
+};
+pub use near_primitives::shard_layout::ShardUId;
+use near_primitives::trie_key::{trie_key_parsers, TrieKey};
+use near_primitives::types::{AccountId, BlockHeight, StateRoot};
+use near_vm_runner::{CompiledContractInfo, ContractCode, ContractRuntimeCache};
+use once_cell::sync::Lazy;
+use std::fs::File;
+use std::path::Path;
+use std::str::FromStr;
+use std::sync::Arc;
+use std::{fmt, io};
+use strum;
 
 pub mod cold_storage;
 mod columns;
@@ -254,7 +251,7 @@ impl NodeStorage {
         Ok(match metadata::DbMetadata::read(self.hot_storage.as_ref())?.kind.unwrap() {
             metadata::DbKind::RPC => false,
             metadata::DbKind::Archive => true,
-            metadata::DbKind::Hot | metadata::DbKind::Cold => todo!(),
+            metadata::DbKind::Hot | metadata::DbKind::Cold => true,
         })
     }
 
@@ -363,6 +360,15 @@ impl Store {
     /// Loads state (`State` and `FlatState` columns) from given file.
     ///
     /// See [`Self::save_state_to_file`] for description of the file format.
+    #[tracing::instrument(
+        level = "info",
+        // FIXME: start moving things into tighter modules so that its easier to selectively trace
+        // specific things.
+        target = "store",
+        "Store::load_state_from_file",
+        skip_all,
+        fields(filename = %filename.display())
+    )]
     pub fn load_state_from_file(&self, filename: &Path) -> io::Result<()> {
         let file = File::open(filename)?;
         let mut file = std::io::BufReader::new(file);
@@ -503,7 +509,7 @@ impl StoreUpdate {
     ) {
         assert!(column.is_rc(), "can't update refcount: {column}");
         let value = refcount::encode_negative_refcount(decrease);
-        self.transaction.update_refcount(column, key.to_vec(), value)
+        self.transaction.update_refcount(column, key.to_vec(), value.to_vec())
     }
 
     /// Same as `self.decrement_refcount_by(column, key, 1)`.
@@ -577,6 +583,24 @@ impl StoreUpdate {
         self.transaction.merge(other.transaction)
     }
 
+    #[tracing::instrument(
+        level = "trace",
+        target = "store::update",
+        // FIXME: start moving things into tighter modules so that its easier to selectively trace
+        // specific things.
+        "StoreUpdate::commit",
+        skip_all,
+        fields(
+            transaction.ops.len = self.transaction.ops.len(),
+            total_bytes,
+            inserts,
+            sets,
+            rc_ops,
+            deletes,
+            delete_all_ops,
+            delete_range_ops
+        )
+    )]
     pub fn commit(self) -> io::Result<()> {
         debug_assert!(
             {
@@ -599,26 +623,76 @@ impl StoreUpdate {
             "Transaction overwrites itself: {:?}",
             self
         );
-        let _span = tracing::trace_span!(target: "store", "commit").entered();
-        for op in &self.transaction.ops {
-            match op {
-                DBOp::Insert { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "insert", col = %col, key = %StorageKey(key), size = value.len(), value = %AbbrBytes(value),)
-                }
-                DBOp::Set { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "set", col = %col, key = %StorageKey(key), size = value.len(), value = %AbbrBytes(value))
-                }
-                DBOp::UpdateRefcount { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "update_rc", col = %col, key = %StorageKey(key), size = value.len(), value = %AbbrBytes(value))
-                }
-                DBOp::Delete { col, key } => {
-                    tracing::trace!(target: "store", db_op = "delete", col = %col, key = %StorageKey(key))
-                }
-                DBOp::DeleteAll { col } => {
-                    tracing::trace!(target: "store", db_op = "delete_all", col = %col)
-                }
-                DBOp::DeleteRange { col, from, to } => {
-                    tracing::trace!(target: "store", db_op = "delete_range", col = %col, from = %StorageKey(from), to = %StorageKey(to))
+        let span = tracing::Span::current();
+        if !span.is_disabled() {
+            let [mut insert_count, mut set_count, mut update_rc_count] = [0u64; 3];
+            let [mut delete_count, mut delete_all_count, mut delete_range_count] = [0u64; 3];
+            let mut total_bytes = 0;
+            for op in &self.transaction.ops {
+                total_bytes += op.bytes();
+                let count = match op {
+                    DBOp::Set { .. } => &mut set_count,
+                    DBOp::Insert { .. } => &mut insert_count,
+                    DBOp::UpdateRefcount { .. } => &mut update_rc_count,
+                    DBOp::Delete { .. } => &mut delete_count,
+                    DBOp::DeleteAll { .. } => &mut delete_all_count,
+                    DBOp::DeleteRange { .. } => &mut delete_range_count,
+                };
+                *count += 1;
+            }
+            span.record("inserts", insert_count);
+            span.record("sets", set_count);
+            span.record("rc_ops", update_rc_count);
+            span.record("deletes", delete_count);
+            span.record("delete_all_ops", delete_all_count);
+            span.record("delete_range_ops", delete_range_count);
+            span.record("total_bytes", total_bytes);
+        }
+        if tracing::event_enabled!(target: "store::update::transactions", tracing::Level::TRACE) {
+            for op in &self.transaction.ops {
+                match op {
+                    DBOp::Insert { col, key, value } => tracing::trace!(
+                        target: "store::update::transactions",
+                        db_op = "insert",
+                        %col,
+                        key = %StorageKey(key),
+                        size = value.len(),
+                        value = %AbbrBytes(value),
+                    ),
+                    DBOp::Set { col, key, value } => tracing::trace!(
+                        target: "store::update::transactions",
+                        db_op = "set",
+                        %col,
+                        key = %StorageKey(key),
+                        size = value.len(),
+                        value = %AbbrBytes(value)
+                    ),
+                    DBOp::UpdateRefcount { col, key, value } => tracing::trace!(
+                        target: "store::update::transactions",
+                        db_op = "update_rc",
+                        %col,
+                        key = %StorageKey(key),
+                        size = value.len(),
+                        value = %AbbrBytes(value)
+                    ),
+                    DBOp::Delete { col, key } => tracing::trace!(
+                        target: "store::update::transactions",
+                        db_op = "delete",
+                        %col,
+                        key = %StorageKey(key)
+                    ),
+                    DBOp::DeleteAll { col } => tracing::trace!(
+                        target: "store::update::transactions",
+                        db_op = "delete_all",
+                        %col
+                    ),
+                    DBOp::DeleteRange { col, from, to } => tracing::trace!(
+                        target: "store::update::transactions",
+                        db_op = "delete_range",
+                        %col,
+                        from = %StorageKey(from),
+                        to = %StorageKey(to)
+                    ),
                 }
             }
         }
@@ -755,24 +829,24 @@ pub fn set_delayed_receipt(
         .expect("Next available index for delayed receipt exceeded the integer limit");
 }
 
-pub fn get_yielded_promise_indices(
+pub fn get_promise_yield_indices(
     trie: &dyn TrieAccess,
-) -> Result<YieldedPromiseQueueIndices, StorageError> {
-    Ok(get(trie, &TrieKey::YieldedPromiseQueueIndices)?.unwrap_or_default())
+) -> Result<PromiseYieldIndices, StorageError> {
+    Ok(get(trie, &TrieKey::PromiseYieldIndices)?.unwrap_or_default())
 }
 
-pub fn set_yielded_promise_indices(
+pub fn set_promise_yield_indices(
     state_update: &mut TrieUpdate,
-    yielded_promise_indices: &YieldedPromiseQueueIndices,
+    promise_yield_indices: &PromiseYieldIndices,
 ) {
     assert!(cfg!(feature = "yield_resume"));
-    set(state_update, TrieKey::YieldedPromiseQueueIndices, yielded_promise_indices);
+    set(state_update, TrieKey::PromiseYieldIndices, promise_yield_indices);
 }
 
-// Enqueues given yielded promise in the yield timeout queue
-pub fn enqueue_yielded_promise_timeout(
+// Enqueues given timeout to the PromiseYield timeout queue
+pub fn enqueue_promise_yield_timeout(
     state_update: &mut TrieUpdate,
-    yielded_promise_indices: &mut YieldedPromiseQueueIndices,
+    promise_yield_indices: &mut PromiseYieldIndices,
     account_id: AccountId,
     data_id: CryptoHash,
     expires_at: BlockHeight,
@@ -780,16 +854,16 @@ pub fn enqueue_yielded_promise_timeout(
     assert!(cfg!(feature = "yield_resume"));
     set(
         state_update,
-        TrieKey::YieldedPromiseQueueEntry { index: yielded_promise_indices.next_available_index },
-        &YieldedPromiseQueueEntry { account_id, data_id, expires_at },
+        TrieKey::PromiseYieldTimeout { index: promise_yield_indices.next_available_index },
+        &PromiseYieldTimeout { account_id, data_id, expires_at },
     );
-    yielded_promise_indices.next_available_index = yielded_promise_indices
+    promise_yield_indices.next_available_index = promise_yield_indices
         .next_available_index
         .checked_add(1)
-        .expect("Next available index for yielded promise exceeded the integer limit");
+        .expect("Next available index for PromiseYield timeout queue exceeded the integer limit");
 }
 
-pub fn set_yielded_promise(state_update: &mut TrieUpdate, receipt: &Receipt) {
+pub fn set_promise_yield_receipt(state_update: &mut TrieUpdate, receipt: &Receipt) {
     assert!(cfg!(feature = "yield_resume"));
     match &receipt.receipt {
         ReceiptEnum::PromiseYield(ref action_receipt) => {
@@ -804,7 +878,7 @@ pub fn set_yielded_promise(state_update: &mut TrieUpdate, receipt: &Receipt) {
     }
 }
 
-pub fn remove_yielded_promise(
+pub fn remove_promise_yield_receipt(
     state_update: &mut TrieUpdate,
     receiver_id: &AccountId,
     data_id: CryptoHash,
@@ -812,7 +886,7 @@ pub fn remove_yielded_promise(
     state_update.remove(TrieKey::PromiseYieldReceipt { receiver_id: receiver_id.clone(), data_id });
 }
 
-pub fn get_yielded_promise(
+pub fn get_promise_yield_receipt(
     trie: &dyn TrieAccess,
     receiver_id: &AccountId,
     data_id: CryptoHash,
@@ -820,12 +894,18 @@ pub fn get_yielded_promise(
     get(trie, &TrieKey::PromiseYieldReceipt { receiver_id: receiver_id.clone(), data_id })
 }
 
-pub fn has_yielded_promise(
+pub fn has_promise_yield_receipt(
     trie: &dyn TrieAccess,
     receiver_id: AccountId,
     data_id: CryptoHash,
 ) -> Result<bool, StorageError> {
     trie.contains_key(&TrieKey::PromiseYieldReceipt { receiver_id, data_id })
+}
+
+pub fn get_buffered_receipt_indices(
+    trie: &dyn TrieAccess,
+) -> Result<BufferedReceiptIndices, StorageError> {
+    Ok(get(trie, &TrieKey::BufferedReceiptIndices)?.unwrap_or_default())
 }
 
 pub fn set_access_key(
@@ -955,11 +1035,12 @@ where
     }
 }
 
-pub struct StoreCompiledContractCache {
+#[derive(Clone)]
+pub struct StoreContractRuntimeCache {
     db: Arc<dyn Database>,
 }
 
-impl StoreCompiledContractCache {
+impl StoreContractRuntimeCache {
     pub fn new(store: &Store) -> Self {
         Self { db: store.storage.clone() }
     }
@@ -969,8 +1050,15 @@ impl StoreCompiledContractCache {
 /// We store contracts in VM-specific format in DBCol::CachedContractCode.
 /// Key must take into account VM being used and its configuration, so that
 /// we don't cache non-gas metered binaries, for example.
-impl CompiledContractCache for StoreCompiledContractCache {
-    fn put(&self, key: &CryptoHash, value: CompiledContract) -> io::Result<()> {
+impl ContractRuntimeCache for StoreContractRuntimeCache {
+    #[tracing::instrument(
+        level = "trace",
+        target = "store",
+        "StoreContractRuntimeCache::put",
+        skip_all,
+        fields(key = key.to_string(), value.len = value.compiled.debug_len()),
+    )]
+    fn put(&self, key: &CryptoHash, value: CompiledContractInfo) -> io::Result<()> {
         let mut update = crate::db::DBTransaction::new();
         // We intentionally use `.set` here, rather than `.insert`. We don't yet
         // guarantee deterministic compilation, so, if we happen to compile the
@@ -984,9 +1072,16 @@ impl CompiledContractCache for StoreCompiledContractCache {
         self.db.write(update)
     }
 
-    fn get(&self, key: &CryptoHash) -> io::Result<Option<CompiledContract>> {
+    #[tracing::instrument(
+        level = "trace",
+        target = "store",
+        "StoreContractRuntimeCache::get",
+        skip_all,
+        fields(key = key.to_string()),
+    )]
+    fn get(&self, key: &CryptoHash) -> io::Result<Option<CompiledContractInfo>> {
         match self.db.get_raw_bytes(DBCol::CachedContractCode, key.as_ref()) {
-            Ok(Some(bytes)) => Ok(Some(CompiledContract::try_from_slice(&bytes)?)),
+            Ok(Some(bytes)) => Ok(Some(CompiledContractInfo::try_from_slice(&bytes)?)),
             Ok(None) => Ok(None),
             Err(err) => Err(err),
         }
@@ -995,11 +1090,16 @@ impl CompiledContractCache for StoreCompiledContractCache {
     fn has(&self, key: &CryptoHash) -> io::Result<bool> {
         self.db.get_raw_bytes(DBCol::CachedContractCode, key.as_ref()).map(|entry| entry.is_some())
     }
+
+    fn handle(&self) -> Box<dyn ContractRuntimeCache> {
+        Box::new(self.clone())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use near_primitives::hash::CryptoHash;
+    use near_vm_runner::CompiledContractInfo;
 
     use super::{DBCol, NodeStorage, Store};
 
@@ -1110,20 +1210,23 @@ mod tests {
         test_iter_order_impl(crate::test_utils::create_test_store());
     }
 
-    /// Check StoreCompiledContractCache implementation.
+    /// Check StoreContractRuntimeCache implementation.
     #[test]
     fn test_store_compiled_contract_cache() {
-        use near_vm_runner::logic::{CompiledContract, CompiledContractCache};
+        use near_vm_runner::{CompiledContract, ContractRuntimeCache};
         use std::str::FromStr;
 
         let store = crate::test_utils::create_test_store();
-        let cache = super::StoreCompiledContractCache::new(&store);
+        let cache = super::StoreContractRuntimeCache::new(&store);
         let key = CryptoHash::from_str("75pAU4CJcp8Z9eoXcL6pSU8sRK5vn3NEpgvUrzZwQtr3").unwrap();
 
         assert_eq!(None, cache.get(&key).unwrap());
         assert_eq!(false, cache.has(&key).unwrap());
 
-        let record = CompiledContract::Code(b"foo".to_vec());
+        let record = CompiledContractInfo {
+            wasm_bytes: 3,
+            compiled: CompiledContract::Code(b"foo".to_vec()),
+        };
         cache.put(&key, record.clone()).unwrap();
         assert_eq!(Some(record), cache.get(&key).unwrap());
         assert_eq!(true, cache.has(&key).unwrap());

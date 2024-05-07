@@ -14,8 +14,10 @@ use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::{EpochManagerAdapter, RngSeed};
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::Tip;
 use near_primitives::block_header::{Approval, ApprovalInner};
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::EpochConfig;
@@ -24,12 +26,12 @@ use near_primitives::epoch_manager::ValidatorSelectionConfig;
 use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
-use near_primitives::shard_layout;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::state_part::PartId;
 use near_primitives::stateless_validation::{
-    ChunkEndorsement, ChunkStateWitness, ChunkValidatorAssignments,
+    ChunkEndorsement, ChunkValidatorAssignments, PartialEncodedStateWitness,
+    SignedEncodedChunkStateWitness,
 };
 use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
@@ -40,15 +42,16 @@ use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, Nonce, NumShards,
     ShardId, StateChangesForResharding, StateRoot, StateRootNode, ValidatorInfoIdentifier,
 };
-use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
+use near_primitives::version::{ProtocolFeature, ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::{
     AccessKeyInfoView, AccessKeyList, CallResult, ContractCodeView, EpochValidatorInfo,
     QueryRequest, QueryResponse, QueryResponseKind, ViewStateResult,
 };
+use near_primitives::{checked_feature, shard_layout};
 use near_store::test_utils::TestTriesBuilder;
 use near_store::{
-    set_genesis_hash, set_genesis_state_roots, DBCol, ShardTries, StorageError, Store, StoreUpdate,
-    Trie, TrieChanges, WrappedTrieChanges,
+    set_genesis_hash, set_genesis_state_roots, DBCol, ShardTries, Store, StoreUpdate, Trie,
+    TrieChanges, WrappedTrieChanges,
 };
 use num_rational::Ratio;
 use std::cmp::Ordering;
@@ -389,6 +392,15 @@ impl KeyValueRuntime {
             return Ok(Some(headers_cache.get(hash).unwrap().clone()));
         }
         Ok(None)
+    }
+
+    fn get_congestion_info(protocol_version: ProtocolVersion) -> Option<CongestionInfo> {
+        if ProtocolFeature::CongestionControl.enabled(protocol_version) {
+            // TODO(congestion_control) - properly initialize
+            Some(CongestionInfo::default())
+        } else {
+            None
+        }
     }
 }
 
@@ -950,15 +962,16 @@ impl EpochManagerAdapter for MockEpochManager {
 
     fn verify_chunk_state_witness_signature(
         &self,
-        _state_witness: &ChunkStateWitness,
+        _signed_witness: &SignedEncodedChunkStateWitness,
+        _chunk_producer: &AccountId,
+        _epoch_id: &EpochId,
     ) -> Result<bool, Error> {
         Ok(true)
     }
 
-    fn verify_chunk_state_witness_signature_in_epoch(
+    fn verify_partial_witness_signature(
         &self,
-        _state_witness: &ChunkStateWitness,
-        _epoch_id: &EpochId,
+        _partial_witness: &PartialEncodedStateWitness,
     ) -> Result<bool, Error> {
         Ok(true)
     }
@@ -1083,7 +1096,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn prepare_transactions(
         &self,
-        storage: RuntimeStorageConfig,
+        _storage: RuntimeStorageConfig,
         _chunk: PrepareTransactionsChunkContext,
         _prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
@@ -1094,16 +1107,20 @@ impl RuntimeAdapter for KeyValueRuntime {
         while let Some(iter) = transaction_groups.next() {
             res.push(iter.next().unwrap());
         }
-        Ok(PreparedTransactions {
-            transactions: res,
-            limited_by: None,
-            storage_proof: if storage.record_storage { Some(Default::default()) } else { None },
-        })
+        let storage_proof = if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION)
+            || cfg!(feature = "shadow_chunk_validation")
+        {
+            Some(Default::default())
+        } else {
+            None
+        };
+        Ok(PreparedTransactions { transactions: res, limited_by: None, storage_proof })
     }
 
     fn apply_chunk(
         &self,
         storage_config: RuntimeStorageConfig,
+        _apply_reason: ApplyChunkReason,
         chunk: ApplyChunkShardContext,
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],
@@ -1242,7 +1259,13 @@ impl RuntimeAdapter for KeyValueRuntime {
         let state_root = hash(&data);
         self.state.write().unwrap().insert(state_root, state);
         self.state_size.write().unwrap().insert(state_root, state_size);
-
+        let storage_proof = if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION)
+            || cfg!(feature = "shadow_chunk_validation")
+        {
+            Some(Default::default())
+        } else {
+            None
+        };
         Ok(ApplyChunkResult {
             trie_changes: WrappedTrieChanges::new(
                 self.get_tries(),
@@ -1258,9 +1281,11 @@ impl RuntimeAdapter for KeyValueRuntime {
             validator_proposals: vec![],
             total_gas_burnt: 0,
             total_balance_burnt: 0,
-            proof: if storage_config.record_storage { Some(Default::default()) } else { None },
+            proof: storage_proof,
             processed_delayed_receipts: vec![],
+            processed_yield_timeouts: vec![],
             applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
+            congestion_info: Self::get_congestion_info(PROTOCOL_VERSION),
         })
     }
 
@@ -1451,9 +1476,5 @@ impl RuntimeAdapter for KeyValueRuntime {
         _state_changes: StateChangesForResharding,
     ) -> Result<Vec<ApplyResultForResharding>, Error> {
         Ok(vec![])
-    }
-
-    fn load_mem_tries_on_startup(&self, _shard_uids: &[ShardUId]) -> Result<(), StorageError> {
-        Ok(())
     }
 }

@@ -9,6 +9,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::state::FlatStateValue;
 use near_primitives::types::BlockHeight;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// An old node means a node in the current in-memory trie. An updated node means a
 /// node we're going to store in the in-memory trie but have not constructed there yet.
@@ -43,6 +44,28 @@ pub enum UpdatedMemTrieNode {
     },
 }
 
+/// Keeps values and internal nodes accessed on updating memtrie.
+pub(crate) struct TrieAccesses {
+    /// Hashes and encoded trie nodes.
+    pub nodes: HashMap<CryptoHash, Arc<[u8]>>,
+    /// Hashes of accessed values - because values themselves are not
+    /// necessarily present in memtrie.
+    pub values: HashMap<CryptoHash, FlatStateValue>,
+}
+
+/// Tracks intermediate trie changes, final version of which is to be committed
+/// to disk after finishing trie update.
+struct TrieChangesTracker {
+    /// Changes of reference count on disk for each impacted node.
+    refcount_changes: TrieRefcountDeltaMap,
+    /// All observed values and internal nodes.
+    /// Needed to prepare recorded storage.
+    /// Note that negative `refcount_changes` does not fully cover it, as node
+    /// or value of the same hash can be removed and inserted for the same
+    /// update in different parts of trie!
+    accesses: TrieAccesses,
+}
+
 /// Structure to build an update to the in-memory trie.
 pub struct MemTrieUpdate<'a> {
     /// The original root before updates. It is None iff the original trie had no keys.
@@ -53,8 +76,9 @@ pub struct MemTrieUpdate<'a> {
     /// (1) temporarily we take out the node from the slot to process it and put it back
     /// later; or (2) the node is deleted afterwards.
     pub updated_nodes: Vec<Option<UpdatedMemTrieNode>>,
-    /// Refcount changes to on-disk trie nodes.
-    pub trie_refcount_changes: Option<TrieRefcountDeltaMap>,
+    /// Tracks trie changes necessary to make on-disk updates and recorded
+    /// storage.
+    tracked_trie_changes: Option<TrieChangesTracker>,
 }
 
 impl UpdatedMemTrieNode {
@@ -97,15 +121,18 @@ impl<'a> MemTrieUpdate<'a> {
         root: Option<MemTrieNodeId>,
         arena: &'a ArenaMemory,
         shard_uid: String,
-        track_disk_changes: bool,
+        track_trie_changes: bool,
     ) -> Self {
         let mut trie_update = Self {
             root,
             arena,
             shard_uid,
             updated_nodes: vec![],
-            trie_refcount_changes: if track_disk_changes {
-                Some(TrieRefcountDeltaMap::new())
+            tracked_trie_changes: if track_trie_changes {
+                Some(TrieChangesTracker {
+                    refcount_changes: TrieRefcountDeltaMap::new(),
+                    accesses: TrieAccesses { nodes: HashMap::new(), values: HashMap::new() },
+                })
             } else {
                 None
             },
@@ -145,8 +172,16 @@ impl<'a> MemTrieUpdate<'a> {
         match node {
             None => self.new_updated_node(UpdatedMemTrieNode::Empty),
             Some(node) => {
-                if let Some(trie_refcount_changes) = self.trie_refcount_changes.as_mut() {
-                    trie_refcount_changes.subtract(node.as_ptr(self.arena).view().node_hash(), 1);
+                if let Some(tracked_trie_changes) = self.tracked_trie_changes.as_mut() {
+                    let node_view = node.as_ptr(self.arena).view();
+                    let node_hash = node_view.node_hash();
+                    let raw_node_serialized =
+                        borsh::to_vec(&node_view.to_raw_trie_node_with_size()).unwrap();
+                    tracked_trie_changes
+                        .accesses
+                        .nodes
+                        .insert(node_hash, raw_node_serialized.into());
+                    tracked_trie_changes.refcount_changes.subtract(node_hash, 1);
                 }
                 self.new_updated_node(UpdatedMemTrieNode::from_existing_node_view(
                     node.as_ptr(self.arena).view(),
@@ -164,14 +199,16 @@ impl<'a> MemTrieUpdate<'a> {
     }
 
     fn add_refcount_to_value(&mut self, hash: CryptoHash, value: Option<Vec<u8>>) {
-        if let Some(trie_refcount_changes) = self.trie_refcount_changes.as_mut() {
-            trie_refcount_changes.add(hash, value.unwrap(), 1);
+        if let Some(tracked_node_changes) = self.tracked_trie_changes.as_mut() {
+            tracked_node_changes.refcount_changes.add(hash, value.unwrap(), 1);
         }
     }
 
-    fn subtract_refcount_for_value(&mut self, hash: CryptoHash) {
-        if let Some(trie_refcount_changes) = self.trie_refcount_changes.as_mut() {
-            trie_refcount_changes.subtract(hash, 1);
+    fn subtract_refcount_for_value(&mut self, value: FlatStateValue) {
+        if let Some(tracked_node_changes) = self.tracked_trie_changes.as_mut() {
+            let hash = value.to_value_ref().hash;
+            tracked_node_changes.accesses.values.insert(hash, value);
+            tracked_node_changes.refcount_changes.subtract(hash, 1);
         }
     }
 
@@ -219,7 +256,7 @@ impl<'a> MemTrieUpdate<'a> {
                     if partial.is_empty() {
                         // This branch node is exactly where the value should be added.
                         if let Some(value) = old_value {
-                            self.subtract_refcount_for_value(value.to_value_ref().hash);
+                            self.subtract_refcount_for_value(value);
                         }
                         self.place_node(
                             node_id,
@@ -250,7 +287,7 @@ impl<'a> MemTrieUpdate<'a> {
                     let common_prefix = partial.common_prefix(&existing_key);
                     if common_prefix == existing_key.len() && common_prefix == partial.len() {
                         // We're at the exact leaf. Rewrite the value at this leaf.
-                        self.subtract_refcount_for_value(old_value.to_value_ref().hash);
+                        self.subtract_refcount_for_value(old_value);
                         self.place_node(
                             node_id,
                             UpdatedMemTrieNode::Leaf { extension, value: flat_value },
@@ -389,7 +426,7 @@ impl<'a> MemTrieUpdate<'a> {
                 }
                 UpdatedMemTrieNode::Leaf { extension, value } => {
                     if NibbleSlice::from_encoded(&extension).0 == partial {
-                        self.subtract_refcount_for_value(value.to_value_ref().hash);
+                        self.subtract_refcount_for_value(value);
                         self.place_node(node_id, UpdatedMemTrieNode::Empty);
                         break;
                     } else {
@@ -408,7 +445,7 @@ impl<'a> MemTrieUpdate<'a> {
                             );
                             return;
                         };
-                        self.subtract_refcount_for_value(value.unwrap().to_value_ref().hash);
+                        self.subtract_refcount_for_value(value.unwrap());
                         self.place_node(
                             node_id,
                             UpdatedMemTrieNode::Branch { children: old_children, value: None },
@@ -779,31 +816,36 @@ impl<'a> MemTrieUpdate<'a> {
     }
 
     /// Converts the updates to trie changes as well as memtrie changes.
-    pub fn to_trie_changes(self) -> TrieChanges {
-        let Self { root, arena, shard_uid, trie_refcount_changes, updated_nodes } = self;
-        let mut trie_refcount_changes =
-            trie_refcount_changes.expect("Cannot to_trie_changes for memtrie changes only");
+    pub(crate) fn to_trie_changes(self) -> (TrieChanges, TrieAccesses) {
+        let Self { root, arena, shard_uid, tracked_trie_changes, updated_nodes } = self;
+        let TrieChangesTracker { mut refcount_changes, accesses } =
+            tracked_trie_changes.expect("Cannot to_trie_changes for memtrie changes only");
         let (mem_trie_changes, hashes_and_serialized) =
             Self::to_mem_trie_changes_internal(shard_uid, arena, updated_nodes);
 
         // We've accounted for the dereferenced nodes, as well as value addition/subtractions.
         // The only thing left is to increment refcount for all new nodes.
         for (node_hash, node_serialized) in hashes_and_serialized {
-            trie_refcount_changes.add(node_hash, node_serialized, 1);
+            refcount_changes.add(node_hash, node_serialized, 1);
         }
-        let (insertions, deletions) = trie_refcount_changes.into_changes();
+        let (insertions, deletions) = refcount_changes.into_changes();
 
-        TrieChanges {
-            old_root: root.map(|root| root.as_ptr(arena).view().node_hash()).unwrap_or_default(),
-            new_root: mem_trie_changes
-                .node_ids_with_hashes
-                .last()
-                .map(|(_, hash)| *hash)
-                .unwrap_or_default(),
-            insertions,
-            deletions,
-            mem_trie_changes: Some(mem_trie_changes),
-        }
+        (
+            TrieChanges {
+                old_root: root
+                    .map(|root| root.as_ptr(arena).view().node_hash())
+                    .unwrap_or_default(),
+                new_root: mem_trie_changes
+                    .node_ids_with_hashes
+                    .last()
+                    .map(|(_, hash)| *hash)
+                    .unwrap_or_default(),
+                insertions,
+                deletions,
+                mem_trie_changes: Some(mem_trie_changes),
+            },
+            accesses,
+        )
     }
 }
 
@@ -917,7 +959,7 @@ mod tests {
                     update.delete(&key);
                 }
             }
-            update.to_trie_changes()
+            update.to_trie_changes().0
         }
 
         fn make_memtrie_changes_only(
@@ -1264,6 +1306,7 @@ mod tests {
                         key.push(nibble0 << 4 | nibble1);
                     }
                 }
+
                 let mut value_length = rand::thread_rng().gen_range(0..=10);
                 if value_length == 10 {
                     value_length = 8000; // make a long value that is not inlined

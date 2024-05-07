@@ -55,13 +55,14 @@ near-dyn-configs.workspace = true
 near-epoch-manager.workspace = true
 near-network.workspace = true
 near-o11y.workspace = true
+near-parameters.workspace = true
 near-performance-metrics-macros.workspace = true
 near-performance-metrics.workspace = true
 near-pool.workspace = true
-near-parameters.workspace = true
 near-primitives.workspace = true
 near-store.workspace = true
 near-telemetry.workspace = true
+near-vm-runner.workspace = true
 
 [dev-dependencies]
 assert_matches.workspace = true
@@ -93,6 +94,7 @@ nightly_protocol = [
   "near-primitives/nightly_protocol",
   "near-store/nightly_protocol",
   "near-telemetry/nightly_protocol",
+  "near-vm-runner/nightly_protocol",
 ]
 nightly = [
   "near-actix-test-utils/nightly",
@@ -110,6 +112,7 @@ nightly = [
   "near-primitives/nightly",
   "near-store/nightly",
   "near-telemetry/nightly",
+  "near-vm-runner/nightly",
   "nightly_protocol",
 ]
 sandbox = [

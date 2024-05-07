@@ -137,8 +137,18 @@ pub struct StateSnapshotConfig {
     pub home_dir: PathBuf,
     pub hot_store_path: PathBuf,
     pub state_snapshot_subdir: PathBuf,
-    pub compaction_enabled: bool,
 }
+
+pub const STATE_SNAPSHOT_COLUMNS: &[DBCol] = &[
+    // Keep DbVersion and BlockMisc, otherwise you'll not be able to open the state snapshot as a Store.
+    DBCol::DbVersion,
+    DBCol::BlockMisc,
+    // Flat storage columns.
+    DBCol::FlatState,
+    DBCol::FlatStateChanges,
+    DBCol::FlatStateDeltaMetadata,
+    DBCol::FlatStorageStatus,
+];
 
 impl ShardTries {
     pub fn get_state_snapshot(
@@ -198,16 +208,7 @@ impl ShardTries {
             ),
             // TODO: Cleanup Changes and DeltaMetadata to avoid extra memory usage.
             // Can't be cleaned up now because these columns are needed to `update_flat_head()`.
-            Some(vec![
-                // Keep DbVersion and BlockMisc, otherwise you'll not be able to open the state snapshot as a Store.
-                DBCol::DbVersion,
-                DBCol::BlockMisc,
-                // Flat storage columns.
-                DBCol::FlatState,
-                DBCol::FlatStateChanges,
-                DBCol::FlatStateDeltaMetadata,
-                DBCol::FlatStorageStatus,
-            ]),
+            Some(STATE_SNAPSHOT_COLUMNS),
         )?;
         let store = storage.get_hot_store();
         // It is fine to create a separate FlatStorageManager, because
@@ -238,21 +239,6 @@ impl ShardTries {
         metrics::HAS_STATE_SNAPSHOT.set(1);
         tracing::info!(target: "state_snapshot", ?prev_block_hash, "Made a checkpoint");
         Ok(Some(state_snapshot_lock.as_ref().unwrap().get_shard_uids()))
-    }
-
-    /// Runs compaction on the snapshot.
-    pub fn compact_state_snapshot(&self) -> Result<(), anyhow::Error> {
-        let _span =
-            tracing::info_span!(target: "state_snapshot", "compact_state_snapshot").entered();
-        // It's fine if the access to state snapshot blocks.
-        let state_snapshot_lock = self.state_snapshot().read().unwrap();
-        if let Some(state_snapshot) = &*state_snapshot_lock {
-            let _timer = metrics::COMPACT_STATE_SNAPSHOT_ELAPSED.start_timer();
-            state_snapshot.store.compact()?;
-        } else {
-            tracing::error!(target: "state_snapshot", "Requested compaction but no state snapshot is available.");
-        };
-        Ok(())
     }
 
     /// Deletes all snapshots and unsets the STATE_SNAPSHOT_KEY.

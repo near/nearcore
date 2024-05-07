@@ -455,14 +455,10 @@ fn sync_state_dump() {
                 credentials_file: None,
             });
             near1.config.store.state_snapshot_enabled = true;
-            near1.config.store.state_snapshot_compaction_enabled = false;
 
             let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
-            let nearcore::NearNode {
-                view_client: view_client1,
-                state_sync_dump_handle: _state_sync_dump_handle,
-                ..
-            } = start_with_config(dir1.path(), near1).expect("start_with_config");
+            let nearcore::NearNode { view_client: view_client1, .. } =
+                start_with_config(dir1.path(), near1).expect("start_with_config");
             let dir2 = tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap();
 
             let view_client2_holder = Arc::new(RwLock::new(None));
@@ -691,7 +687,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                 }
             });
             env.clients[1].chain.schedule_apply_state_parts(0, sync_hash, num_parts, &f).unwrap();
-            env.clients[1].chain.set_state_finalize(0, sync_hash, Ok(())).unwrap();
+            env.clients[1].chain.set_state_finalize(0, sync_hash).unwrap();
             let last_chunk_height = epoch_length - num_last_chunks_missing;
             for height in 1..epoch_length {
                 if height < last_chunk_height {
@@ -738,7 +734,6 @@ fn test_state_sync_headers() {
             let dir1 =
                 tempfile::Builder::new().prefix("test_state_sync_headers").tempdir().unwrap();
             near1.config.store.state_snapshot_enabled = true;
-            near1.config.store.state_snapshot_compaction_enabled = false;
 
             let nearcore::NearNode { view_client: view_client1, .. } =
                 start_with_config(dir1.path(), near1).expect("start_with_config");
@@ -935,7 +930,6 @@ fn test_state_sync_headers_no_tracked_shards() {
                 .tempdir()
                 .unwrap();
             near1.config.store.state_snapshot_enabled = false;
-            near1.config.store.state_snapshot_compaction_enabled = false;
             near1.config.state_sync_enabled = false;
             near1.client_config.state_sync_enabled = false;
 
@@ -953,7 +947,6 @@ fn test_state_sync_headers_no_tracked_shards() {
                 .tempdir()
                 .unwrap();
             near2.config.store.state_snapshot_enabled = true;
-            near2.config.store.state_snapshot_compaction_enabled = false;
             near2.config.state_sync_enabled = false;
             near2.client_config.state_sync_enabled = false;
 

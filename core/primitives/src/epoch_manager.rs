@@ -14,6 +14,9 @@ use near_primitives_core::types::BlockHeight;
 use smart_default::SmartDefault;
 use std::collections::{BTreeMap, HashMap};
 
+#[cfg(feature = "nightly")]
+use crate::version::ProtocolFeature;
+
 pub type RngSeed = [u8; 32];
 
 pub const AGGREGATOR_KEY: &[u8] = b"AGGREGATOR";
@@ -146,26 +149,57 @@ impl AllEpochConfig {
         config
     }
 
-    // StatelessNet only. Lower the kickout threshold so the network is more stable while
-    // we figure out issues with block and chunk production.
+    pub fn chain_id(&self) -> &str {
+        &self.chain_id
+    }
+
     fn config_stateless_net(
         config: &mut EpochConfig,
         chain_id: &str,
         protocol_version: ProtocolVersion,
     ) {
-        if chain_id == near_primitives_core::chains::STATELESSNET
-            && checked_feature!(
+        // StatelessNet only.
+        if chain_id == near_primitives_core::chains::STATELESSNET {
+            // Lower the kickout threshold so the network is more stable while
+            // we figure out issues with block and chunk production.
+            if checked_feature!(
                 "stable",
                 LowerValidatorKickoutPercentForDebugging,
                 protocol_version
-            )
-        {
-            config.block_producer_kickout_threshold = 50;
-            config.chunk_producer_kickout_threshold = 50;
+            ) {
+                config.block_producer_kickout_threshold = 50;
+                config.chunk_producer_kickout_threshold = 50;
+            }
+            // Shuffle shard assignments every epoch, to trigger state sync more
+            // frequently to exercise that code path.
+            if checked_feature!(
+                "stable",
+                StatelessnetShuffleShardAssignmentsForChunkProducers,
+                protocol_version
+            ) {
+                config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers =
+                    true;
+            }
         }
     }
 
     fn config_nightshade(config: &mut EpochConfig, protocol_version: ProtocolVersion) {
+        // Unlike the other checks, this one is for strict equality. The testonly nightshade layout
+        // is specifically used in resharding tests, not for any other protocol versions.
+        #[cfg(feature = "nightly")]
+        if protocol_version == ProtocolFeature::SimpleNightshadeTestonly.protocol_version() {
+            Self::config_nightshade_impl(
+                config,
+                ShardLayout::get_simple_nightshade_layout_testonly(),
+            );
+            return;
+        }
+
+        if checked_feature!("stable", SimpleNightshadeV3, protocol_version) {
+            Self::config_nightshade_impl(config, ShardLayout::get_simple_nightshade_layout_v3());
+            return;
+        }
+
         if checked_feature!("stable", SimpleNightshadeV2, protocol_version) {
             Self::config_nightshade_impl(config, ShardLayout::get_simple_nightshade_layout_v2());
             return;
@@ -252,6 +286,8 @@ pub struct ValidatorSelectionConfig {
     pub minimum_validators_per_shard: NumSeats,
     #[default(Rational32::new(160, 1_000_000))]
     pub minimum_stake_ratio: Rational32,
+    #[default(false)]
+    pub shuffle_shard_assignment_for_chunk_producers: bool,
 }
 
 pub mod block_info {
@@ -1181,6 +1217,16 @@ pub mod epoch_info {
             // are not implemented for larger seeds, see
             // https://docs.rs/rand_core/0.6.2/rand_core/trait.SeedableRng.html#associated-types
             // Therefore `buffer` is hashed to obtain a `[u8; 32]`.
+            let seed = hash(&buffer);
+            SeedableRng::from_seed(seed.0)
+        }
+
+        /// Returns a new RNG used for shuffling chunk producer shard assignments.
+        pub fn shard_assignment_shuffling_rng(seed: &RngSeed) -> ChaCha20Rng {
+            let mut buffer = [0u8; 62];
+            buffer[0..32].copy_from_slice(seed);
+            // Do this to avoid any possibility of colliding with any other rng.
+            buffer[32..62].copy_from_slice(b"shard_assignment_shuffling_rng");
             let seed = hash(&buffer);
             SeedableRng::from_seed(seed.0)
         }

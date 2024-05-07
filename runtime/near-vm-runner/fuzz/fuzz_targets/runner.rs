@@ -30,6 +30,15 @@ fn run_fuzz(code: &ContractCode, config: Arc<RuntimeConfig>) -> VMOutcome {
     vm_kind
         .runtime(wasm_config)
         .unwrap()
-        .run(code, &method_name, &mut fake_external, context, fees, &promise_results, None)
+        .run(
+            *code.hash(),
+            Some(&code),
+            &method_name,
+            &mut fake_external,
+            &context,
+            fees,
+            &promise_results,
+            None,
+        )
         .unwrap_or_else(|err| panic!("fatal error: {err:?}"))
 }

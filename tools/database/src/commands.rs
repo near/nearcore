@@ -1,12 +1,15 @@
 use crate::adjust_database::ChangeDbKindCommand;
 use crate::analyse_data_size_distribution::AnalyseDataSizeDistributionCommand;
 use crate::analyse_gas_usage::AnalyseGasUsageCommand;
+use crate::analyse_high_load::HighLoadStatsCommand;
+use crate::analyze_delayed_receipt::AnalyzeDelayedReceiptCommand;
 use crate::compact::RunCompactionCommand;
 use crate::corrupt::CorruptStateSnapshotCommand;
 use crate::make_snapshot::MakeSnapshotCommand;
 use crate::memtrie::LoadMemTrieCommand;
 use crate::run_migrations::RunMigrationsCommand;
 use crate::state_perf::StatePerfCommand;
+use crate::write_to_db::WriteCryptoHashCommand;
 use clap::Parser;
 use std::path::PathBuf;
 
@@ -46,6 +49,13 @@ enum SubCommand {
 
     /// Loads an in-memory trie for research purposes.
     LoadMemTrie(LoadMemTrieCommand),
+    /// Write CryptoHash to DB
+    WriteCryptoHash(WriteCryptoHashCommand),
+    /// Outputs stats that are needed to analise high load
+    /// for a block range and account.
+    HighLoadStats(HighLoadStatsCommand),
+    // Analyze congestion through delayed receipts
+    AnalyzeDelayedReceipt(AnalyzeDelayedReceiptCommand),
 }
 
 impl DatabaseCommand {
@@ -74,6 +84,9 @@ impl DatabaseCommand {
                 .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
                 cmd.run(near_config, home)
             }
+            SubCommand::WriteCryptoHash(cmd) => cmd.run(home),
+            SubCommand::HighLoadStats(cmd) => cmd.run(home),
+            SubCommand::AnalyzeDelayedReceipt(cmd) => cmd.run(home),
         }
     }
 }

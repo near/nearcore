@@ -376,7 +376,7 @@ impl VMOffsets {
     ///
     /// [`VMMemoryImport`]: crate::vmcontext::VMMemoryImport
     pub const fn size_of_vmmemory_import(&self) -> u8 {
-        3 * self.pointer_size
+        2 * self.pointer_size
     }
 }
 

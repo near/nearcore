@@ -1,3 +1,4 @@
+use crate::metrics::{PROTOCOL_VERSION_NEXT, PROTOCOL_VERSION_VOTES};
 use crate::proposals::proposals_to_epoch_info;
 use crate::types::EpochInfoAggregator;
 use near_cache::SyncLruCache;
@@ -16,8 +17,8 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::stateless_validation::ChunkValidatorAssignments;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, EpochId,
-    EpochInfoProvider, NumBlocks, NumSeats, ShardId, ValidatorId, ValidatorInfoIdentifier,
+    AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, ChunkValidatorStats,
+    EpochId, EpochInfoProvider, NumSeats, ShardId, ValidatorId, ValidatorInfoIdentifier,
     ValidatorKickoutReason, ValidatorStats,
 };
 use near_primitives::version::{ProtocolVersion, UPGRADABILITY_FIX_PROTOCOL_VERSION};
@@ -39,6 +40,7 @@ pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
 pub use crate::types::RngSeed;
 
 mod adapter;
+mod metrics;
 mod proposals;
 mod reward_calculator;
 mod shard_assignment;
@@ -108,6 +110,19 @@ impl EpochInfoProvider for EpochManagerHandle {
     fn minimum_stake(&self, prev_block_hash: &CryptoHash) -> Result<Balance, EpochError> {
         let epoch_manager = self.read();
         epoch_manager.minimum_stake(prev_block_hash)
+    }
+
+    fn chain_id(&self) -> String {
+        let epoch_manager = self.read();
+        epoch_manager.config.chain_id().into()
+    }
+
+    fn account_id_to_shard_id(
+        &self,
+        account_id: &AccountId,
+        epoch_id: &EpochId,
+    ) -> Result<ShardId, EpochError> {
+        EpochManagerAdapter::account_id_to_shard_id(self, account_id, epoch_id)
     }
 }
 
@@ -392,22 +407,22 @@ impl EpochManager {
                 .iter()
                 .map(|(account, stats)| {
                     let production_ratio =
-                        if stats.block_stats.expected == 0 && stats.chunk_stats.expected == 0 {
+                        if stats.block_stats.expected == 0 && stats.chunk_stats.expected() == 0 {
                             Rational64::from_integer(1)
                         } else if stats.block_stats.expected == 0 {
                             Rational64::new(
-                                stats.chunk_stats.produced as i64,
-                                stats.chunk_stats.expected as i64,
+                                stats.chunk_stats.produced() as i64,
+                                stats.chunk_stats.expected() as i64,
                             )
-                        } else if stats.chunk_stats.expected == 0 {
+                        } else if stats.chunk_stats.expected() == 0 {
                             Rational64::new(
                                 stats.block_stats.produced as i64,
                                 stats.block_stats.expected as i64,
                             )
                         } else {
                             (Rational64::new(
-                                stats.chunk_stats.produced as i64,
-                                stats.chunk_stats.expected as i64,
+                                stats.chunk_stats.produced() as i64,
+                                stats.chunk_stats.expected() as i64,
                             ) + Rational64::new(
                                 stats.block_stats.produced as i64,
                                 stats.block_stats.expected as i64,
@@ -456,7 +471,7 @@ impl EpochManager {
         config: &EpochConfig,
         epoch_info: &EpochInfo,
         block_validator_tracker: &HashMap<ValidatorId, ValidatorStats>,
-        chunk_validator_tracker: &HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>>,
+        chunk_validator_tracker: &HashMap<ShardId, HashMap<ValidatorId, ChunkValidatorStats>>,
         slashed: &HashMap<AccountId, SlashState>,
         prev_validator_kickout: &HashMap<AccountId, ValidatorKickoutReason>,
     ) -> (HashMap<AccountId, ValidatorKickoutReason>, HashMap<AccountId, BlockChunkValidatorStats>)
@@ -477,11 +492,11 @@ impl EpochManager {
                 .get(&(i as u64))
                 .unwrap_or(&ValidatorStats { expected: 0, produced: 0 })
                 .clone();
-            let mut chunk_stats = ValidatorStats { produced: 0, expected: 0 };
+            let mut chunk_stats = ChunkValidatorStats::default();
             for (_, tracker) in chunk_validator_tracker.iter() {
                 if let Some(stat) = tracker.get(&(i as u64)) {
-                    chunk_stats.expected += stat.expected;
-                    chunk_stats.produced += stat.produced;
+                    *chunk_stats.expected_mut() += stat.expected();
+                    *chunk_stats.produced_mut() += stat.produced();
                 }
             }
             total_stake += v.stake();
@@ -523,13 +538,13 @@ impl EpochManager {
                     },
                 );
             }
-            if stats.chunk_stats.produced * 100
-                < u64::from(chunk_producer_kickout_threshold) * stats.chunk_stats.expected
+            if stats.chunk_stats.produced() * 100
+                < u64::from(chunk_producer_kickout_threshold) * stats.chunk_stats.expected()
             {
                 validator_kickout.entry(account_id.clone()).or_insert_with(|| {
                     ValidatorKickoutReason::NotEnoughChunks {
-                        produced: stats.chunk_stats.produced,
-                        expected: stats.chunk_stats.expected,
+                        produced: stats.chunk_stats.produced(),
+                        expected: stats.chunk_stats.expected(),
                     }
                 });
             }
@@ -569,13 +584,6 @@ impl EpochManager {
         let mut proposals = vec![];
         let mut validator_kickout = HashMap::new();
 
-        // Next protocol version calculation.
-        // Implements https://github.com/nearprotocol/NEPs/pull/64/files#diff-45f773511fe4321b446c3c4226324873R76
-        let mut versions = HashMap::new();
-        for (validator_id, version) in version_tracker {
-            let stake = epoch_info.validator_stake(validator_id);
-            *versions.entry(version).or_insert(0) += stake;
-        }
         let total_block_producer_stake: u128 = epoch_info
             .block_producers_settlement()
             .iter()
@@ -584,6 +592,21 @@ impl EpochManager {
             .iter()
             .map(|&id| epoch_info.validator_stake(id))
             .sum();
+
+        // Next protocol version calculation.
+        // Implements https://github.com/near/NEPs/blob/master/specs/ChainSpec/Upgradability.md
+        let mut versions = HashMap::new();
+        for (validator_id, version) in version_tracker {
+            let stake = epoch_info.validator_stake(validator_id);
+            *versions.entry(version).or_insert(0) += stake;
+        }
+        PROTOCOL_VERSION_VOTES.reset();
+        for (version, stake) in &versions {
+            let stake_percent = 100 * stake / total_block_producer_stake;
+            let stake_percent = stake_percent as i64;
+            PROTOCOL_VERSION_VOTES.with_label_values(&[&version.to_string()]).set(stake_percent);
+            tracing::info!(target: "epoch_manager", ?version, ?stake_percent, "Protocol version voting.");
+        }
 
         let protocol_version =
             if epoch_info.protocol_version() >= UPGRADABILITY_FIX_PROTOCOL_VERSION {
@@ -609,6 +632,10 @@ impl EpochManager {
         } else {
             protocol_version
         };
+
+        PROTOCOL_VERSION_NEXT.set(next_version as i64);
+        tracing::info!(target: "epoch_manager", ?next_version, "Protocol version voting.");
+
         // Gather slashed validators and add them to kick out first.
         let slashed_validators = last_block_info.slashed();
         for (account_id, _) in slashed_validators.iter() {
@@ -715,8 +742,8 @@ impl EpochManager {
             validator_kickout,
             validator_reward,
             minted_amount,
-            next_version,
             epoch_protocol_version,
+            next_version,
         ) {
             Ok(next_next_epoch_info) => next_next_epoch_info,
             Err(EpochError::ThresholdError { stake_sum, num_seats }) => {
@@ -1327,7 +1354,10 @@ impl EpochManager {
                             .get(info.account_id())
                             .unwrap_or(&BlockChunkValidatorStats {
                                 block_stats: ValidatorStats { produced: 0, expected: 0 },
-                                chunk_stats: ValidatorStats { produced: 0, expected: 0 },
+                                chunk_stats: ChunkValidatorStats {
+                                    production: ValidatorStats { produced: 0, expected: 0 },
+                                    endorsement: ValidatorStats { produced: 0, expected: 0 },
+                                },
                             });
                         let mut shards = validator_to_shard[validator_id]
                             .iter()
@@ -1346,8 +1376,19 @@ impl EpochManager {
                             shards,
                             num_produced_blocks: validator_stats.block_stats.produced,
                             num_expected_blocks: validator_stats.block_stats.expected,
-                            num_produced_chunks: validator_stats.chunk_stats.produced,
-                            num_expected_chunks: validator_stats.chunk_stats.expected,
+                            num_produced_chunks: validator_stats.chunk_stats.produced(),
+                            num_expected_chunks: validator_stats.chunk_stats.expected(),
+                            num_produced_endorsements: validator_stats
+                                .chunk_stats
+                                .endorsement_stats()
+                                .produced,
+                            num_expected_endorsements: validator_stats
+                                .chunk_stats
+                                .endorsement_stats()
+                                .expected,
+                            // Same TODO as above for `num_produced_chunks_per_shard`
+                            num_produced_endorsements_per_shard: Vec::new(),
+                            num_expected_endorsements_per_shard: Vec::new(),
                         })
                     })
                     .collect::<Result<Vec<CurrentEpochValidatorInfo>, EpochError>>()?;
@@ -1371,19 +1412,29 @@ impl EpochManager {
                             .unwrap_or(&ValidatorStats { produced: 0, expected: 0 })
                             .clone();
 
-                        let mut chunks_produced_by_shard: HashMap<ShardId, NumBlocks> =
+                        let mut chunks_stats_by_shard: HashMap<ShardId, ChunkValidatorStats> =
                             HashMap::new();
-                        let mut chunks_expected_by_shard: HashMap<ShardId, NumBlocks> =
-                            HashMap::new();
-                        let mut chunk_stats = ValidatorStats { produced: 0, expected: 0 };
+                        let mut chunk_stats = ChunkValidatorStats::default();
                         for (shard, tracker) in aggregator.shard_tracker.iter() {
                             if let Some(stats) = tracker.get(&(validator_id as u64)) {
-                                chunk_stats.produced += stats.produced;
-                                chunk_stats.expected += stats.expected;
-                                *chunks_produced_by_shard.entry(*shard).or_insert(0) +=
-                                    stats.produced;
-                                *chunks_expected_by_shard.entry(*shard).or_insert(0) +=
-                                    stats.expected;
+                                let produced = stats.produced();
+                                let expected = stats.expected();
+                                let endorsement_stats = stats.endorsement_stats();
+
+                                *chunk_stats.produced_mut() += produced;
+                                *chunk_stats.expected_mut() += expected;
+                                chunk_stats.endorsement_stats_mut().produced +=
+                                    endorsement_stats.produced;
+                                chunk_stats.endorsement_stats_mut().expected +=
+                                    endorsement_stats.expected;
+
+                                let shard_stats = chunks_stats_by_shard.entry(*shard).or_default();
+                                *shard_stats.produced_mut() += produced;
+                                *shard_stats.expected_mut() += expected;
+                                shard_stats.endorsement_stats_mut().produced +=
+                                    endorsement_stats.produced;
+                                shard_stats.endorsement_stats_mut().expected +=
+                                    endorsement_stats.expected;
                             }
                         }
                         let mut shards = validator_to_shard[validator_id]
@@ -1400,15 +1451,41 @@ impl EpochManager {
                             shards: shards.clone(),
                             num_produced_blocks: block_stats.produced,
                             num_expected_blocks: block_stats.expected,
-                            num_produced_chunks: chunk_stats.produced,
-                            num_expected_chunks: chunk_stats.expected,
+                            num_produced_chunks: chunk_stats.produced(),
+                            num_expected_chunks: chunk_stats.expected(),
                             num_produced_chunks_per_shard: shards
                                 .iter()
-                                .map(|shard| *chunks_produced_by_shard.entry(*shard).or_default())
+                                .map(|shard| {
+                                    chunks_stats_by_shard
+                                        .get(shard)
+                                        .map_or(0, |stats| stats.produced())
+                                })
                                 .collect(),
                             num_expected_chunks_per_shard: shards
                                 .iter()
-                                .map(|shard| *chunks_expected_by_shard.entry(*shard).or_default())
+                                .map(|shard| {
+                                    chunks_stats_by_shard
+                                        .get(shard)
+                                        .map_or(0, |stats| stats.expected())
+                                })
+                                .collect(),
+                            num_produced_endorsements: chunk_stats.endorsement_stats().produced,
+                            num_expected_endorsements: chunk_stats.endorsement_stats().expected,
+                            num_produced_endorsements_per_shard: shards
+                                .iter()
+                                .map(|shard| {
+                                    chunks_stats_by_shard
+                                        .get(shard)
+                                        .map_or(0, |stats| stats.endorsement_stats().produced)
+                                })
+                                .collect(),
+                            num_expected_endorsements_per_shard: shards
+                                .iter()
+                                .map(|shard| {
+                                    chunks_stats_by_shard
+                                        .get(shard)
+                                        .map_or(0, |stats| stats.endorsement_stats().expected)
+                                })
                                 .collect(),
                         })
                     })
@@ -1541,8 +1618,11 @@ impl EpochManager {
         shard_id: ShardId,
     ) -> Result<bool, EpochError> {
         let epoch_info = self.get_epoch_info(&epoch_id)?;
-        let chunk_producers = epoch_info.chunk_producers_settlement();
-        for validator_id in chunk_producers[shard_id as usize].iter() {
+        let chunk_producers_settlement = epoch_info.chunk_producers_settlement();
+        let chunk_producers = chunk_producers_settlement
+            .get(shard_id as usize)
+            .ok_or_else(|| EpochError::ShardingError(format!("invalid shard id {shard_id}")))?;
+        for validator_id in chunk_producers.iter() {
             if epoch_info.validator_account_id(*validator_id) == account_id {
                 return Ok(true);
             }

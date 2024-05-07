@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::{GGas, Receipt, ShardId, Transaction, TransactionId};
+use crate::{GGas, Receipt, Round, ShardId, Transaction, TransactionId};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ReceiptId(TransactionId, usize);
@@ -23,6 +23,8 @@ pub struct TransactionBuilder {
     //
     /// Unique ID of the transaction within the model execution.
     pub id: TransactionId,
+    /// When the transaction is produced.
+    round: Round,
     /// Where the transaction is converted to the first receipt.
     sender_shard: ShardId,
     /// Gas burnt for converting the transaction to the first receipt.
@@ -36,9 +38,10 @@ pub struct TransactionBuilder {
 }
 
 impl TransactionBuilder {
-    pub fn new(id: TransactionId, sender_shard: ShardId) -> Self {
+    pub fn new(id: TransactionId, sender_shard: ShardId, round: Round) -> Self {
         TransactionBuilder {
             id,
+            round,
             tx_conversion_cost: 0,
             sender_shard,
             receipts: vec![],
@@ -84,7 +87,7 @@ impl TransactionBuilder {
     /// receipt using [`TransactionBuilder::new_outgoing_receipt`] and then add
     /// dependencies from the first two receipts to the third.
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// let builder = TransactionBuilder::new(todo!());
     /// let a = builder.add_first_receipt(todo!());
     /// let b = builder.new_outgoing_receipt(a, todo!());
@@ -169,7 +172,10 @@ impl TransactionBuilder {
 
         Transaction {
             id: self.id,
+            submitted_at: self.round,
             sender_shard: self.sender_shard,
+            initial_receipt_receiver: receipts[&initial_receipt].receiver,
+            initial_receipt_gas: receipts[&initial_receipt].attached_gas,
             initial_receipt,
             tx_conversion_cost: self.tx_conversion_cost,
             outgoing,

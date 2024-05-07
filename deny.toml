@@ -98,9 +98,7 @@ skip = [
     { name = "windows-targets", version = "=0.42.1" },
 
     # ed25519-dalek uses older versions of rand and rand_core
-    { name = "rand", version = "=0.7.3" },
     { name = "rand_core", version = "=0.5.1" },
-    { name = "rand_chacha", version = "=0.2.2" },
     { name = "getrandom", version = "=0.1.16" },
 
     # criterion and criterion-plot use conflicting versions
@@ -137,9 +135,6 @@ skip = [
     # rust-s3 is using an old version of smartstring
     { name = "smartstring", version = "=0.2.10" },
 
-    # validator 0.12 ~ 0.16 is still using an old version of idna
-    { name = "idna", version = "=0.2.3" },
-
     # zeropool-bn uses borsh 0.9
     { name = "borsh", version = "=0.9.3" },
     { name = "borsh-derive", version = "=0.9.3" },
@@ -159,4 +154,12 @@ skip = [
     # cloud-storage
     { name = "base64", version = "=0.12.3" },
     { name = "num-bigint", version = "=0.2.6" },
+
+    # Everything depends on this...
+    { name = "lru", version = "=0.7.8" },
+
+    # reed-solomon-erasure latest version
+    { name = "parking_lot", version = "=0.11.2" },
+    { name = "parking_lot_core", version = "=0.8.6" },
+    { name = "spin", version = "=0.9.8" },
 ]

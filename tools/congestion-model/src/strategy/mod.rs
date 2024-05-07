@@ -1,13 +1,23 @@
 use crate::model::ChunkExecutionContext;
 use crate::{QueueId, ShardId};
 
+pub use fancy_global_transaction_stop::FancyGlobalTransactionStop;
 pub use global_tx_stop::GlobalTxStopShard;
+pub use nep::NepStrategy;
+pub use new_tx_last::NewTxLast;
 pub use no_queues::NoQueueShard;
 pub use simple_backpressure::SimpleBackpressure;
+pub use smooth_traffic_light::SmoothTrafficLight;
+pub use traffic_light::TrafficLight;
 
+mod fancy_global_transaction_stop;
 mod global_tx_stop;
+mod nep;
+mod new_tx_last;
 mod no_queues;
 mod simple_backpressure;
+mod smooth_traffic_light;
+mod traffic_light;
 
 /// Implement the shard behavior to define a new congestion control strategy.
 ///
@@ -24,5 +34,5 @@ pub trait CongestionStrategy {
 
 /// Use this to create queues.
 pub trait QueueFactory {
-    fn register_queue(&mut self, to: ShardId) -> QueueId;
+    fn register_queue(&mut self, to: ShardId, name: &str) -> QueueId;
 }

@@ -9,7 +9,7 @@ use actix::{Actor, Addr, AsyncContext, Context, Handler};
 use actix_rt::{Arbiter, ArbiterHandle};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::futures::ActixArbiterHandleFutureSpawner;
-use near_async::messaging::{IntoMultiSender, IntoSender, Sender};
+use near_async::messaging::{IntoMultiSender, LateBoundSender, Sender};
 use near_async::time::Utc;
 use near_async::time::{Clock, Duration};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
@@ -25,7 +25,7 @@ use near_network::types::PeerManagerAdapter;
 use near_o11y::{handler_debug_span, WithSpanContext};
 use near_primitives::network::PeerId;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_telemetry::TelemetryActor;
+use near_telemetry::TelemetryEvent;
 use rand::Rng;
 use std::fmt::Debug;
 use std::ops::{Deref, DerefMut};
@@ -33,8 +33,10 @@ use std::sync::{Arc, RwLock};
 use tokio::sync::broadcast;
 
 use crate::client_actions::{ClientActionHandler, ClientActions, ClientSenderForClient};
-use crate::sync_jobs_actions::SyncJobsActions;
-use crate::sync_jobs_actor::SyncJobsActor;
+use crate::gc_actor::GCActor;
+use crate::start_gc_actor;
+use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
+use crate::sync_jobs_actor::{SyncJobsActor, SyncJobsSenderForSyncJobs};
 use crate::{metrics, Client, ConfigUpdater, SyncAdapter};
 
 pub struct ClientActor {
@@ -63,27 +65,23 @@ impl ClientActor {
         node_id: PeerId,
         network_adapter: PeerManagerAdapter,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
-        telemetry_actor: Addr<TelemetryActor>,
+        telemetry_sender: Sender<TelemetryEvent>,
         ctx: &Context<ClientActor>,
         shutdown_signal: Option<broadcast::Sender<()>>,
         adv: crate::adversarial::Controls,
         config_updater: Option<ConfigUpdater>,
     ) -> Result<Self, Error> {
-        let state_parts_arbiter = Arbiter::new();
         let self_addr = ctx.address();
         let self_addr_clone = self_addr;
-        let sync_jobs_actor_addr = SyncJobsActor::start_in_arbiter(
-            &state_parts_arbiter.handle(),
-            move |ctx: &mut Context<SyncJobsActor>| -> SyncJobsActor {
-                ctx.set_mailbox_capacity(SyncJobsActor::MAILBOX_CAPACITY);
-                SyncJobsActor {
-                    actions: SyncJobsActions::new(
-                        self_addr_clone.with_auto_span_context().into_multi_sender(),
-                        ctx.address().with_auto_span_context().into_multi_sender(),
-                    ),
-                }
-            },
+
+        let sync_jobs_sender = LateBoundSender::<SyncJobsSenderForSyncJobs>::new();
+        let sync_jobs_actor = SyncJobsActor::new(
+            self_addr_clone.with_auto_span_context().into_multi_sender(),
+            sync_jobs_sender.as_multi_sender(),
         );
+        let (sync_jobs_actor_addr, state_parts_arbiter) = sync_jobs_actor.spawn_actix_actor();
+        sync_jobs_sender
+            .bind(sync_jobs_actor_addr.clone().with_auto_span_context().into_multi_sender());
         let actions = ClientActions::new(
             clock,
             client,
@@ -92,12 +90,12 @@ impl ClientActor {
             node_id,
             network_adapter,
             validator_signer,
-            telemetry_actor.with_auto_span_context().into_sender(),
+            telemetry_sender,
             shutdown_signal,
             adv,
             config_updater,
             sync_jobs_actor_addr.with_auto_span_context().into_multi_sender(),
-            Box::new(ActixArbiterHandleFutureSpawner(state_parts_arbiter.handle())),
+            Box::new(ActixArbiterHandleFutureSpawner(state_parts_arbiter)),
         )?;
         Ok(Self { actions })
     }
@@ -177,6 +175,14 @@ fn wait_until_genesis(genesis_time: &Utc) {
     }
 }
 
+pub struct StartClientResult {
+    pub client_actor: Addr<ClientActor>,
+    pub gc_actor: Addr<GCActor>,
+    pub client_arbiter_handle: ArbiterHandle,
+    pub resharding_handle: ReshardingHandle,
+    pub gc_arbiter_handle: ArbiterHandle,
+}
+
 /// Starts client in a separate Arbiter (thread).
 pub fn start_client(
     clock: Clock,
@@ -190,24 +196,26 @@ pub fn start_client(
     network_adapter: PeerManagerAdapter,
     shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
-    telemetry_actor: Addr<TelemetryActor>,
+    telemetry_sender: Sender<TelemetryEvent>,
     snapshot_callbacks: Option<SnapshotCallbacks>,
     sender: Option<broadcast::Sender<()>>,
     adv: crate::adversarial::Controls,
     config_updater: Option<ConfigUpdater>,
-) -> (Addr<ClientActor>, ArbiterHandle, ReshardingHandle) {
+    partial_witness_adapter: PartialWitnessSenderForClient,
+) -> StartClientResult {
     let client_arbiter = Arbiter::new();
     let client_arbiter_handle = client_arbiter.handle();
+    let genesis_height = chain_genesis.height;
 
     wait_until_genesis(&chain_genesis.time);
     let client = Client::new(
         clock.clone(),
         client_config.clone(),
         chain_genesis,
-        epoch_manager,
+        epoch_manager.clone(),
         shard_tracker,
         state_sync_adapter,
-        runtime,
+        runtime.clone(),
         network_adapter.clone(),
         shards_manager_adapter,
         validator_signer.clone(),
@@ -215,9 +223,19 @@ pub fn start_client(
         random_seed_from_thread(),
         snapshot_callbacks,
         Arc::new(RayonAsyncComputationSpawner),
+        partial_witness_adapter,
     )
     .unwrap();
     let resharding_handle = client.chain.resharding_handle.clone();
+
+    let (gc_actor, gc_arbiter_handle) = start_gc_actor(
+        runtime.store().clone(),
+        genesis_height,
+        client_config.clone(),
+        runtime,
+        epoch_manager,
+    );
+
     let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |ctx| {
         ClientActor::new(
             clock,
@@ -227,7 +245,7 @@ pub fn start_client(
             node_id,
             network_adapter,
             validator_signer,
-            telemetry_actor,
+            telemetry_sender,
             ctx,
             sender,
             adv,
@@ -235,5 +253,12 @@ pub fn start_client(
         )
         .unwrap()
     });
-    (client_addr, client_arbiter_handle, resharding_handle)
+
+    StartClientResult {
+        client_actor: client_addr,
+        client_arbiter_handle,
+        resharding_handle,
+        gc_arbiter_handle,
+        gc_actor,
+    }
 }

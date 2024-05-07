@@ -188,7 +188,7 @@ validator_info = nodes[0].json_rpc('validators', [<some block_hash>])
 For the most popular calls, there are convenience functions:
 
 * `send_tx` sends a signed transaction asynchronously
-* `send_tx_and_waits` sends a signed transaction synchronously
+* `send_tx_and_wait` sends a signed transaction synchronously
 * `get_status` returns the current status (the output of the `/status/endpoint`),
   which contains e.g. last block hash and height
 * `get_tx` returns a transaction by the transaction hash and the recipient ID.

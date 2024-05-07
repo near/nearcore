@@ -27,45 +27,10 @@ pub fn split_array_mut<const N: usize, const L: usize, const R: usize>(
     (left.try_into().unwrap(), right.try_into().unwrap())
 }
 
-/// Splits `&[u8]` into `(&[u8; N], &[u8])`.  **Panics** if slice is shorter
-/// than `N`.
-pub fn split_slice<const N: usize>(slice: &[u8]) -> (&[u8; N], &[u8]) {
-    let (head, tail) = slice.split_at(N);
-    (head.try_into().unwrap(), tail)
-}
-
-/// Splits `&[u8]` into `(&[u8], &[u8; N])`.  **Panics** if slice is shorter
-/// than `N`.
-pub fn rsplit_slice<const N: usize>(slice: &[u8]) -> (&[u8], &[u8; N]) {
-    let index = slice.len().checked_sub(N).expect("len to be ≥ N");
-    let (head, tail) = slice.split_at(index);
-    (head, tail.try_into().unwrap())
-}
-
-/// Splits `&[u8]` into `(&[u8; N], &[u8])`.  **Panics** if slice is shorter
-/// than `N`.
-pub fn split_slice_mut<const N: usize>(slice: &mut [u8]) -> (&mut [u8; N], &mut [u8]) {
-    let (head, tail) = slice.split_at_mut(N);
-    (head.try_into().unwrap(), tail)
-}
-
-/// Splits `&[u8]` into `(&[u8], &[u8; N])`.  **Panics** if slice is shorter
-/// than `N`.
-pub fn rsplit_slice_mut<const N: usize>(slice: &mut [u8]) -> (&mut [u8], &mut [u8; N]) {
-    let index = slice.len().checked_sub(N).expect("len to be ≥ N");
-    let (head, tail) = slice.split_at_mut(index);
-    (head, tail.try_into().unwrap())
-}
-
 #[test]
 fn test_split() {
     assert_eq!((&[0, 1], &[2, 3, 4]), split_array(&[0, 1, 2, 3, 4]));
     assert_eq!((&mut [0, 1], &mut [2, 3, 4]), split_array_mut(&mut [0, 1, 2, 3, 4]));
-
-    assert_eq!((&[0, 1], &[2, 3, 4][..]), split_slice(&[0, 1, 2, 3, 4]));
-    assert_eq!((&[0, 1][..], &[2, 3, 4]), rsplit_slice(&[0, 1, 2, 3, 4]));
-    assert_eq!((&mut [0, 1], &mut [2, 3, 4][..]), split_slice_mut(&mut [0, 1, 2, 3, 4]));
-    assert_eq!((&mut [0, 1][..], &mut [2, 3, 4]), rsplit_slice_mut(&mut [0, 1, 2, 3, 4]));
 }
 
 /// Joins `[u8; L]` and `[u8; R]` into `[u8; L + R]`.

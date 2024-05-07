@@ -1,6 +1,5 @@
 import './App.scss';
-import { NavLink } from 'react-router-dom';
-import { Navigate, Route, Routes, useParams } from 'react-router';
+import { NavLink, Navigate, Route, Routes, useParams } from 'react-router-dom';
 import { ChainAndChunkInfoView } from './ChainAndChunkInfoView';
 import { ClusterView } from './ClusterView';
 import { EpochInfoView } from './EpochInfoView';

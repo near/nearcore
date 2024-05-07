@@ -21,7 +21,8 @@ impl crate::CongestionStrategy for SimpleBackpressure {
         _other_shards: &[crate::ShardId],
         queue_factory: &mut dyn QueueFactory,
     ) {
-        self.delayed_outgoing_receipts = Some(queue_factory.register_queue(id));
+        self.delayed_outgoing_receipts =
+            Some(queue_factory.register_queue(id, "delayed_outgoing_receipts"));
         self.id = Some(id);
     }
 

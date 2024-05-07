@@ -14,8 +14,10 @@ use near_chain_primitives::error::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::EpochManagerAdapter;
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
+use near_primitives::congestion_info::CongestionInfo;
 #[cfg(feature = "new_epoch_sync")]
 use near_primitives::epoch_manager::{block_info::BlockInfo, epoch_sync::EpochSyncInfo};
 use near_primitives::hash::CryptoHash;
@@ -26,6 +28,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
     AccountId, BlockExtra, BlockHeight, BlockHeightDelta, NumShards, ShardId,
 };
+use near_primitives::version::ProtocolFeature;
 use near_primitives::views::LightClientBlockView;
 use std::collections::HashMap;
 #[cfg(feature = "new_epoch_sync")]
@@ -145,10 +148,11 @@ impl<'a> ChainUpdate<'a> {
         &mut self,
         block: &Block,
         apply_results: Vec<ShardUpdateResult>,
+        should_save_state_transition_data: bool,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "chain", "apply_chunk_postprocessing").entered();
         for result in apply_results {
-            self.process_apply_chunk_result(block, result)?;
+            self.process_apply_chunk_result(block, result, should_save_state_transition_data)?;
         }
         Ok(())
     }
@@ -156,7 +160,7 @@ impl<'a> ChainUpdate<'a> {
     /// Postprocess resharding results and do the necessary update on chain for
     /// resharding results.
     /// - Store the chunk extras and trie changes for the apply results.
-    /// - Store the state changes to be applided later for the store results.
+    /// - Store the state changes to be applied later for the store results.
     fn process_resharding_results(
         &mut self,
         block: &Block,
@@ -233,6 +237,9 @@ impl<'a> ChainUpdate<'a> {
                 // TODO(resharding) make sure that is the case.
                 assert_eq!(num_split_shards, results.len() as u64);
 
+                let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
+                let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+
                 for result in results {
                     let gas_burnt = if gas_res > 0 {
                         gas_res -= 1;
@@ -248,13 +255,23 @@ impl<'a> ChainUpdate<'a> {
                         balance_split
                     };
 
+                    if ProtocolFeature::CongestionControl.enabled(protocol_version) {
+                        // This will likely break resharding integration tests
+                        // when congestion control is enabled. Let's mark them
+                        // ignore when that happens.
+                        todo!("implement resharding and congestion control integration");
+                    }
+
                     let new_chunk_extra = ChunkExtra::new(
+                        protocol_version,
                         &result.new_root,
                         outcome_root,
                         validator_proposals_by_shard.remove(&result.shard_uid).unwrap_or_default(),
                         gas_burnt,
                         gas_limit,
                         balance_burnt,
+                        // TODO(congestion_control) - integration with resharding
+                        None,
                     );
                     sum_gas_used += gas_burnt;
                     sum_balance_burnt += balance_burnt;
@@ -269,7 +286,7 @@ impl<'a> ChainUpdate<'a> {
                         result.shard_uid,
                         result.trie_changes.state_changes(),
                     )?;
-                    flat_storage_manager.update_flat_storage_for_shard(*shard_uid, block)?;
+                    flat_storage_manager.update_flat_storage_for_shard(result.shard_uid, block)?;
                     self.chain_store_update.merge(store_update);
 
                     self.chain_store_update.save_chunk_extra(
@@ -299,6 +316,7 @@ impl<'a> ChainUpdate<'a> {
         &mut self,
         block: &Block,
         result: ShardUpdateResult,
+        should_save_state_transition_data: bool,
     ) -> Result<(), Error> {
         let block_hash = block.hash();
         let prev_hash = block.header().prev_hash();
@@ -314,17 +332,22 @@ impl<'a> ChainUpdate<'a> {
                     ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
                 let shard_id = shard_uid.shard_id();
 
+                let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
+                let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+
                 // Save state root after applying transactions.
                 self.chain_store_update.save_chunk_extra(
                     block_hash,
                     &shard_uid,
                     ChunkExtra::new(
+                        protocol_version,
                         &apply_result.new_root,
                         outcome_root,
                         apply_result.validator_proposals,
                         apply_result.total_gas_burnt,
                         gas_limit,
                         apply_result.total_balance_burnt,
+                        apply_result.congestion_info,
                     ),
                 );
 
@@ -351,12 +374,14 @@ impl<'a> ChainUpdate<'a> {
                     apply_result.outcomes,
                     outcome_paths,
                 );
-                self.chain_store_update.save_state_transition_data(
-                    *block_hash,
-                    shard_id,
-                    apply_result.proof,
-                    apply_result.applied_receipts_hash,
-                );
+                if should_save_state_transition_data {
+                    self.chain_store_update.save_state_transition_data(
+                        *block_hash,
+                        shard_id,
+                        apply_result.proof,
+                        apply_result.applied_receipts_hash,
+                    );
+                }
                 if let Some(resharding_results) = resharding_results {
                     self.process_resharding_results(block, &shard_uid, resharding_results)?;
                 }
@@ -366,10 +391,13 @@ impl<'a> ChainUpdate<'a> {
                 apply_result,
                 resharding_results,
             }) => {
+                // The chunk is missing but some fields may need to be updated
+                // anyway. Prepare a chunk extra as a copy of the old chunk
+                // extra and apply changes to it.
                 let old_extra = self.chain_store_update.get_chunk_extra(prev_hash, &shard_uid)?;
-
                 let mut new_extra = ChunkExtra::clone(&old_extra);
                 *new_extra.state_root_mut() = apply_result.new_root;
+                // TODO(congestion_control) handle missing chunks congestion info #11039
 
                 let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
                 let store_update = flat_storage_manager.save_flat_state_changes(
@@ -383,12 +411,14 @@ impl<'a> ChainUpdate<'a> {
 
                 self.chain_store_update.save_chunk_extra(block_hash, &shard_uid, new_extra);
                 self.chain_store_update.save_trie_changes(apply_result.trie_changes);
-                self.chain_store_update.save_state_transition_data(
-                    *block_hash,
-                    shard_uid.shard_id(),
-                    apply_result.proof,
-                    apply_result.applied_receipts_hash,
-                );
+                if should_save_state_transition_data {
+                    self.chain_store_update.save_state_transition_data(
+                        *block_hash,
+                        shard_uid.shard_id(),
+                        apply_result.proof,
+                        apply_result.applied_receipts_hash,
+                    );
+                }
 
                 if let Some(resharding_config) = resharding_results {
                     self.process_resharding_results(block, &shard_uid, resharding_config)?;
@@ -407,12 +437,19 @@ impl<'a> ChainUpdate<'a> {
 
     /// This is the last step of process_block_single, where we take the preprocess block info
     /// apply chunk results and store the results on chain.
+    #[tracing::instrument(
+        level = "debug",
+        target = "chain",
+        "ChainUpdate::postprocess_block",
+        skip_all
+    )]
     pub(crate) fn postprocess_block(
         &mut self,
         me: &Option<AccountId>,
         block: &Block,
         block_preprocess_info: BlockPreprocessInfo,
         apply_chunks_results: Vec<(ShardId, Result<ShardUpdateResult, Error>)>,
+        should_save_state_transition_data: bool,
     ) -> Result<Option<Tip>, Error> {
         let shard_ids = self.epoch_manager.shard_ids(block.header().epoch_id())?;
         let prev_hash = block.header().prev_hash();
@@ -422,7 +459,7 @@ impl<'a> ChainUpdate<'a> {
             }
             x
         }).collect::<Result<Vec<_>, Error>>()?;
-        self.apply_chunk_postprocessing(block, results)?;
+        self.apply_chunk_postprocessing(block, results, should_save_state_transition_data)?;
 
         let BlockPreprocessInfo {
             is_caught_up,
@@ -677,12 +714,15 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
+    /// This method is called when the state sync is finished for a shard. It
+    /// applies the chunk at the height included of the chunk in the sync hash
+    /// and stores the results in the db.
     pub fn set_state_finalize(
         &mut self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
         shard_state_header: ShardStateSyncResponseHeader,
-    ) -> Result<(), Error> {
+    ) -> Result<ShardUId, Error> {
         let _span =
             tracing::debug_span!(target: "sync", "chain_update_set_state_finalize").entered();
         let (chunk, incoming_receipts_proofs) = match shard_state_header {
@@ -725,6 +765,7 @@ impl<'a> ChainUpdate<'a> {
 
         let apply_result = self.runtime_adapter.apply_chunk(
             RuntimeStorageConfig::new(chunk_header.prev_state_root(), true),
+            ApplyChunkReason::UpdateTrackedShard,
             ApplyChunkShardContext {
                 shard_id,
                 gas_limit,
@@ -740,6 +781,13 @@ impl<'a> ChainUpdate<'a> {
                 gas_price,
                 challenges_result: block_header.challenges_result().clone(),
                 random_seed: *block_header.random_value(),
+                // TODO(congestion_control) The congestion info should be
+                // obtained from the previous block. However the previous block
+                // may not be available during state sync. This needs fixing!
+                // congestion_info: prev_block.shards_congestion_info(),
+                congestion_info: CongestionInfo::temp_test_shards_congestion_info(
+                    &self.epoch_manager.shard_ids(block_header.epoch_id())?,
+                ),
             },
             &receipts,
             chunk.transactions(),
@@ -762,13 +810,19 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.merge(store_update);
 
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);
+
+        let epoch_id = self.epoch_manager.get_epoch_id(block_header.hash())?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+
         let chunk_extra = ChunkExtra::new(
+            protocol_version,
             &apply_result.new_root,
             outcome_root,
             apply_result.validator_proposals,
             apply_result.total_gas_burnt,
             gas_limit,
             apply_result.total_balance_burnt,
+            apply_result.congestion_info,
         );
         self.chain_store_update.save_chunk_extra(block_header.hash(), &shard_uid, chunk_extra);
 
@@ -792,9 +846,12 @@ impl<'a> ChainUpdate<'a> {
                 receipt_proof_response.1,
             );
         }
-        Ok(())
+        Ok(shard_uid)
     }
 
+    /// This method is called when the state sync is finished for a shard. It is
+    /// used for applying chunks from after the height included, up until the
+    /// sync hash, and storing the results. Those chunks are old (missing).
     pub fn set_state_finalize_on_height(
         &mut self,
         height: BlockHeight,
@@ -822,6 +879,7 @@ impl<'a> ChainUpdate<'a> {
 
         let apply_result = self.runtime_adapter.apply_chunk(
             RuntimeStorageConfig::new(*chunk_extra.state_root(), true),
+            ApplyChunkReason::UpdateTrackedShard,
             ApplyChunkShardContext {
                 shard_id,
                 last_validator_proposals: chunk_extra.validator_proposals(),
@@ -829,7 +887,17 @@ impl<'a> ChainUpdate<'a> {
                 is_new_chunk: false,
                 is_first_block_with_chunk_of_version: false,
             },
-            ApplyChunkBlockContext::from_header(&block_header, prev_block_header.next_gas_price()),
+            ApplyChunkBlockContext::from_header(
+                &block_header,
+                prev_block_header.next_gas_price(),
+                // TODO(congestion_control) The congestion info should be
+                // obtained from the previous block. However the previous block
+                // may not be available during state sync. This needs fixing!
+                // congestion_info: prev_block.shards_congestion_info(),
+                CongestionInfo::temp_test_shards_congestion_info(
+                    &self.epoch_manager.shard_ids(block_header.epoch_id())?,
+                ),
+            ),
             &[],
             &[],
         )?;
@@ -844,8 +912,12 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.merge(store_update);
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);
 
+        // The chunk is missing but some fields may need to be updated
+        // anyway. Prepare a chunk extra as a copy of the old chunk
+        // extra and apply changes to it.
         let mut new_chunk_extra = ChunkExtra::clone(&chunk_extra);
         *new_chunk_extra.state_root_mut() = apply_result.new_root;
+        // TODO(congestion_control) handle missing chunks congestion info #11039
 
         self.chain_store_update.save_chunk_extra(block_header.hash(), &shard_uid, new_chunk_extra);
         Ok(true)

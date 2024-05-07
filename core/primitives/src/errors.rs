@@ -66,6 +66,8 @@ pub enum RuntimeError {
     ReceiptValidationError(ReceiptValidationError),
     /// Error when accessing validator information. Happens inside epoch manager.
     ValidatorError(EpochError),
+    /// The context provided  to the runtime is inconsistent.
+    ContextError(ContextError),
 }
 
 impl std::fmt::Display for RuntimeError {
@@ -508,8 +510,8 @@ pub enum ActionErrorKind {
     DelegateActionInvalidNonce { delegate_nonce: Nonce, ak_nonce: Nonce },
     /// DelegateAction nonce is larger than the upper bound given by the block height
     DelegateActionNonceTooLarge { delegate_nonce: Nonce, upper_bound: Nonce },
-    /// Sending non-refundable balance to an existing account is not allowed according to NEP-491.
-    NonRefundableBalanceToExistingAccount { account_id: AccountId },
+    /// Non-refundable storage transfer to an existing account is not allowed according to NEP-491.
+    NonRefundableTransferToExistingAccount { account_id: AccountId },
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -834,8 +836,8 @@ impl Display for ActionErrorKind {
             ActionErrorKind::DelegateActionAccessKeyError(access_key_error) => Display::fmt(&access_key_error, f),
             ActionErrorKind::DelegateActionInvalidNonce { delegate_nonce, ak_nonce } => write!(f, "DelegateAction nonce {} must be larger than nonce of the used access key {}", delegate_nonce, ak_nonce),
             ActionErrorKind::DelegateActionNonceTooLarge { delegate_nonce, upper_bound } => write!(f, "DelegateAction nonce {} must be smaller than the access key nonce upper bound {}", delegate_nonce, upper_bound),
-            ActionErrorKind::NonRefundableBalanceToExistingAccount { account_id} => {
-                write!(f, "Can't send non-refundable balance to {} because it already exists", account_id)
+            ActionErrorKind::NonRefundableTransferToExistingAccount { account_id} => {
+                write!(f, "Can't make non-refundable storage transfer to {} because it already exists", account_id)
             }
         }
     }
@@ -930,6 +932,19 @@ impl Debug for EpochError {
 impl From<std::io::Error> for EpochError {
     fn from(error: std::io::Error) -> Self {
         EpochError::IOErr(error.to_string())
+    }
+}
+
+#[derive(Eq, PartialEq, Clone, thiserror::Error, Debug)]
+
+pub enum ContextError {
+    #[error("No congestion info for shard {shard_id} in the runtime context")]
+    MissingCongestionInfo { shard_id: u64 },
+}
+
+impl From<ContextError> for RuntimeError {
+    fn from(other: ContextError) -> Self {
+        RuntimeError::ContextError(other)
     }
 }
 

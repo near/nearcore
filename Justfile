@@ -23,9 +23,10 @@ test-ci *FLAGS: check-cargo-fmt \
                 check-cargo-clippy \
                 check-non-default \
                 check-cargo-udeps \
+                (nextest "stable" FLAGS) \
                 (nextest "nightly" FLAGS) \
                 (nextest "statelessnet" FLAGS) \
-                (nextest "stable" FLAGS)
+                doctests
 # order them with the fastest / most likely to fail checks first
 # when changing this, remember to adjust the CI workflow in parallel, as CI runs each of these in a separate job
 # remove statelessnet everywhere once the program is finished, see
@@ -71,6 +72,9 @@ nextest-integration TYPE *FLAGS:
 [macos]
 nextest-integration TYPE *FLAGS:
     @echo "Nextest integration tests are currently disabled on macos!"
+
+doctests:
+    cargo test --doc
 
 # check various build configurations compile as anticipated
 check-non-default:
