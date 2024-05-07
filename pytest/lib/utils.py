@@ -444,7 +444,7 @@ def poll_blocks(node: cluster.LocalNode,
                 start_height = latest.height
             count += 1
 
-        if latest.height >= __target:
+        if __target and latest.height >= __target:
             return
 
         time.sleep(poll_interval)
