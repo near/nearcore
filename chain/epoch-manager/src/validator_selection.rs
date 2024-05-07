@@ -23,8 +23,8 @@ pub fn proposals_to_epoch_info(
     mut validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
     validator_reward: HashMap<AccountId, Balance>,
     minted_amount: Balance,
+    current_version: ProtocolVersion,
     next_version: ProtocolVersion,
-    last_version: ProtocolVersion,
 ) -> Result<EpochInfo, EpochError> {
     debug_assert!(
         proposals.iter().map(|stake| stake.account_id()).collect::<HashSet<_>>().len()
@@ -39,35 +39,33 @@ pub fn proposals_to_epoch_info(
     };
     let max_bp_selected = epoch_config.num_block_producer_seats as usize;
     let mut stake_change = BTreeMap::new();
-    let mut fishermen = vec![];
     let proposals = proposals_with_rollover(
         proposals,
         prev_epoch_info,
         &validator_reward,
         &validator_kickout,
         &mut stake_change,
-        &mut fishermen,
     );
     let mut block_producer_proposals = order_proposals(proposals.values().cloned());
     let (block_producers, bp_stake_threshold) = select_block_producers(
         &mut block_producer_proposals,
         max_bp_selected,
         min_stake_ratio,
-        last_version,
+        current_version,
     );
     let (chunk_producer_proposals, chunk_producers, cp_stake_threshold) =
         if checked_feature!("stable", ChunkOnlyProducers, next_version) {
             let mut chunk_producer_proposals = order_proposals(proposals.into_values());
             let max_cp_selected = max_bp_selected
                 + (epoch_config.validator_selection_config.num_chunk_only_producer_seats as usize);
-            let (chunk_producers, cp_stake_treshold) = select_chunk_producers(
+            let (chunk_producers, cp_stake_threshold) = select_chunk_producers(
                 &mut chunk_producer_proposals,
                 max_cp_selected,
                 min_stake_ratio,
                 shard_ids.len() as NumShards,
-                last_version,
+                current_version,
             );
-            (chunk_producer_proposals, chunk_producers, cp_stake_treshold)
+            (chunk_producer_proposals, chunk_producers, cp_stake_threshold)
         } else {
             (block_producer_proposals, block_producers.clone(), bp_stake_threshold)
         };
@@ -80,20 +78,12 @@ pub fn proposals_to_epoch_info(
     for OrderedValidatorStake(p) in chunk_producer_proposals {
         let stake = p.stake();
         let account_id = p.account_id();
-        if stake >= epoch_config.fishermen_threshold {
-            fishermen.push(p);
-        } else {
-            *stake_change.get_mut(account_id).unwrap() = 0;
-            if prev_epoch_info.account_is_validator(account_id)
-                || prev_epoch_info.account_is_fisherman(account_id)
-            {
-                debug_assert!(stake < threshold);
-                let account_id = p.take_account_id();
-                validator_kickout.insert(
-                    account_id,
-                    ValidatorKickoutReason::NotEnoughStake { stake, threshold },
-                );
-            }
+        *stake_change.get_mut(account_id).unwrap() = 0;
+        if prev_epoch_info.account_is_validator(account_id) {
+            debug_assert!(stake < threshold);
+            let account_id = p.take_account_id();
+            validator_kickout
+                .insert(account_id, ValidatorKickoutReason::NotEnoughStake { stake, threshold });
         }
     }
 
@@ -158,32 +148,11 @@ pub fn proposals_to_epoch_info(
 
         chunk_producers_settlement
     } else {
-        if chunk_producers.is_empty() {
-            // All validators tried to unstake?
-            return Err(EpochError::NotEnoughValidators {
-                num_validators: 0u64,
-                num_shards: shard_ids.len() as NumShards,
-            });
-        }
-        let mut id = 0usize;
-        // Here we assign validators to chunks (we try to keep number of shards assigned for
-        // each validator as even as possible). Note that in prod configuration number of seats
-        // per shard is the same as maximal number of block producers, so normally all
-        // validators would be assigned to all chunks
-        shard_ids
-            .iter()
-            .map(|&shard_id| shard_id as usize)
-            .map(|shard_id| {
-                (0..epoch_config.num_block_producer_seats_per_shard[shard_id]
-                    .min(block_producers_settlement.len() as u64))
-                    .map(|_| {
-                        let res = block_producers_settlement[id];
-                        id = (id + 1) % block_producers_settlement.len();
-                        res
-                    })
-                    .collect()
-            })
-            .collect()
+        old_validator_selection::assign_chunk_producers_to_shards(
+            epoch_config,
+            chunk_producers,
+            &block_producers_settlement,
+        )?
     };
 
     let validator_mandates = if checked_feature!("stable", StatelessValidationV0, next_version) {
@@ -201,12 +170,6 @@ pub fn proposals_to_epoch_info(
         ValidatorMandates::default()
     };
 
-    let fishermen_to_index = fishermen
-        .iter()
-        .enumerate()
-        .map(|(index, s)| (s.account_id().clone(), index as ValidatorId))
-        .collect::<HashMap<_, _>>();
-
     Ok(EpochInfo::new(
         prev_epoch_info.epoch_height() + 1,
         all_validators,
@@ -214,8 +177,8 @@ pub fn proposals_to_epoch_info(
         block_producers_settlement,
         chunk_producers_settlement,
         vec![],
-        fishermen,
-        fishermen_to_index,
+        vec![],
+        Default::default(),
         stake_change,
         validator_reward,
         validator_kickout,
@@ -244,7 +207,6 @@ fn proposals_with_rollover(
     validator_reward: &HashMap<AccountId, Balance>,
     validator_kickout: &HashMap<AccountId, ValidatorKickoutReason>,
     stake_change: &mut BTreeMap<AccountId, Balance>,
-    fishermen: &mut Vec<ValidatorStake>,
 ) -> HashMap<AccountId, ValidatorStake> {
     let mut proposals_by_account = HashMap::new();
     for p in proposals {
@@ -269,20 +231,6 @@ fn proposals_with_rollover(
             *p.stake_mut() += *reward;
         }
         stake_change.insert(p.account_id().clone(), p.stake());
-    }
-
-    for r in prev_epoch_info.fishermen_iter() {
-        let account_id = r.account_id();
-        if validator_kickout.contains_key(account_id) {
-            stake_change.insert(account_id.clone(), 0);
-            continue;
-        }
-        if !proposals_by_account.contains_key(account_id) {
-            // safe to do this here because fishermen from previous epoch is guaranteed to have no
-            // duplicates.
-            stake_change.insert(account_id.clone(), r.stake());
-            fishermen.push(r);
-        }
     }
 
     proposals_by_account
@@ -387,6 +335,44 @@ impl PartialOrd for OrderedValidatorStake {
 impl Ord for OrderedValidatorStake {
     fn cmp(&self, other: &Self) -> Ordering {
         self.key().cmp(&other.key())
+    }
+}
+
+mod old_validator_selection {
+    use super::*;
+
+    pub fn assign_chunk_producers_to_shards(
+        epoch_config: &EpochConfig,
+        chunk_producers: Vec<ValidatorStake>,
+        block_producers_settlement: &[ValidatorId],
+    ) -> Result<Vec<Vec<ValidatorId>>, EpochError> {
+        let shard_ids: Vec<_> = epoch_config.shard_layout.shard_ids().collect();
+        if chunk_producers.is_empty() {
+            // All validators tried to unstake?
+            return Err(EpochError::NotEnoughValidators {
+                num_validators: 0u64,
+                num_shards: shard_ids.len() as NumShards,
+            });
+        }
+        let mut id = 0usize;
+        // Here we assign validators to chunks (we try to keep number of shards assigned for
+        // each validator as even as possible). Note that in prod configuration number of seats
+        // per shard is the same as maximal number of block producers, so normally all
+        // validators would be assigned to all chunks
+        Ok(shard_ids
+            .iter()
+            .map(|&shard_id| shard_id as usize)
+            .map(|shard_id| {
+                (0..epoch_config.num_block_producer_seats_per_shard[shard_id]
+                    .min(block_producers_settlement.len() as u64))
+                    .map(|_| {
+                        let res = block_producers_settlement[id];
+                        id = (id + 1) % block_producers_settlement.len();
+                        res
+                    })
+                    .collect()
+            })
+            .collect())
     }
 }
 
@@ -899,9 +885,9 @@ mod tests {
         )
         .unwrap();
 
-        // stake below validator threshold, but above fishermen threshold become fishermen
-        let fishermen: Vec<_> = epoch_info.fishermen_iter().map(|v| v.take_account_id()).collect();
-        assert_eq!(fishermen, vec!["test4"]);
+        let fishermen: Vec<AccountId> =
+            epoch_info.fishermen_iter().map(|v| v.take_account_id()).collect();
+        assert!(fishermen.is_empty());
 
         // too low stakes are kicked out
         let kickout = epoch_info.validator_kickout();
