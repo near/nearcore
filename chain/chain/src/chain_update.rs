@@ -17,7 +17,6 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
-use near_primitives::congestion_info::CongestionInfo;
 #[cfg(feature = "new_epoch_sync")]
 use near_primitives::epoch_manager::{block_info::BlockInfo, epoch_sync::EpochSyncInfo};
 use near_primitives::hash::CryptoHash;
