@@ -70,7 +70,6 @@ pub fn proposals_to_epoch_info(
                 next_version,
             );
 
-            println!("PROPOSALS: {:?}", proposals);
             let mut chunk_validator_proposals = order_proposals(proposals.into_values());
             let max_cv_selected = 300;
             let (chunk_validators, cv_stake_threshold) = select_validators(
@@ -108,8 +107,6 @@ pub fn proposals_to_epoch_info(
             )
         };
 
-    println!("CPS: {:?}", chunk_producers);
-    println!("CVS: {:?}", chunk_validators);
     // Add kickouts for validators which fell out of validator set.
     // Used for querying epoch info by RPC.
     for OrderedValidatorStake(p) in unselected_proposals {
@@ -173,7 +170,6 @@ pub fn proposals_to_epoch_info(
                 num_shards: shard_ids.len() as NumShards,
             })?;
 
-            println!("ASSIGN: {:?}", shard_assignment);
             let chunk_producers_settlement = shard_assignment
                 .into_iter()
                 .map(|vs| vs.into_iter().map(|v| validator_to_index[v.account_id()]).collect())
@@ -225,9 +221,6 @@ pub fn proposals_to_epoch_info(
         validator_to_index,
         block_producers_settlement,
         chunk_producers_settlement,
-        vec![],
-        vec![],
-        Default::default(),
         stake_change,
         validator_reward,
         validator_kickout,
