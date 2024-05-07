@@ -23,7 +23,6 @@ pub fn proposals_to_epoch_info(
     mut validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
     validator_reward: HashMap<AccountId, Balance>,
     minted_amount: Balance,
-    current_version: ProtocolVersion,
     next_version: ProtocolVersion,
 ) -> Result<EpochInfo, EpochError> {
     debug_assert!(
@@ -59,16 +58,16 @@ pub fn proposals_to_epoch_info(
                 max_cp_selected,
                 min_stake_ratio,
                 shard_ids.len() as NumShards,
-                current_version,
+                next_version,
             );
 
             let mut block_producer_proposals = order_proposals(proposals.values().cloned());
-            let max_bp_selected = 100;
+            let max_bp_selected = epoch_config.num_block_producer_seats as usize; // 100 in mainnet
             let (block_producers, bp_stake_threshold) = select_block_producers(
                 &mut block_producer_proposals,
                 max_bp_selected,
                 min_stake_ratio,
-                current_version,
+                next_version,
             );
 
             let mut chunk_validator_proposals = order_proposals(proposals.into_values());
@@ -77,7 +76,7 @@ pub fn proposals_to_epoch_info(
                 &mut chunk_validator_proposals,
                 max_cv_selected,
                 min_stake_ratio,
-                current_version,
+                next_version,
             );
 
             let threshold =
@@ -556,7 +555,6 @@ mod tests {
             Default::default(),
             0,
             PROTOCOL_VERSION,
-            PROTOCOL_VERSION,
         )
         .unwrap();
 
@@ -628,7 +626,6 @@ mod tests {
             Default::default(),
             Default::default(),
             0,
-            PROTOCOL_VERSION,
             PROTOCOL_VERSION,
         )
         .unwrap();
@@ -715,7 +712,6 @@ mod tests {
             Default::default(),
             0,
             PROTOCOL_VERSION,
-            PROTOCOL_VERSION,
         )
         .unwrap();
         let epoch_info_no_shuffling_different_seed = proposals_to_epoch_info(
@@ -726,7 +722,6 @@ mod tests {
             Default::default(),
             Default::default(),
             0,
-            PROTOCOL_VERSION,
             PROTOCOL_VERSION,
         )
         .unwrap();
@@ -741,7 +736,6 @@ mod tests {
             Default::default(),
             0,
             PROTOCOL_VERSION,
-            PROTOCOL_VERSION,
         )
         .unwrap();
         let epoch_info_with_shuffling_different_seed = proposals_to_epoch_info(
@@ -752,7 +746,6 @@ mod tests {
             Default::default(),
             Default::default(),
             0,
-            PROTOCOL_VERSION,
             PROTOCOL_VERSION,
         )
         .unwrap();
@@ -826,7 +819,6 @@ mod tests {
             Default::default(),
             0,
             PROTOCOL_VERSION,
-            PROTOCOL_VERSION,
         )
         .unwrap();
 
@@ -869,7 +861,6 @@ mod tests {
             Default::default(),
             0,
             PROTOCOL_VERSION,
-            PROTOCOL_VERSION,
         )
         .unwrap();
 
@@ -896,7 +887,6 @@ mod tests {
             Default::default(),
             Default::default(),
             0,
-            PROTOCOL_VERSION,
             PROTOCOL_VERSION,
         )
         .unwrap();
@@ -956,7 +946,6 @@ mod tests {
             Default::default(),
             Default::default(),
             0,
-            PROTOCOL_VERSION,
             PROTOCOL_VERSION,
         )
         .unwrap();
@@ -1031,7 +1020,6 @@ mod tests {
             Default::default(),
             0,
             PROTOCOL_VERSION,
-            PROTOCOL_VERSION,
         )
         .unwrap();
 
@@ -1075,7 +1063,6 @@ mod tests {
             Default::default(),
             0,
             PROTOCOL_VERSION,
-            PROTOCOL_VERSION,
         )
         .unwrap();
         #[cfg(feature = "protocol_feature_fix_staking_threshold")]
@@ -1098,7 +1085,6 @@ mod tests {
             Default::default(),
             Default::default(),
             0,
-            PROTOCOL_VERSION,
             PROTOCOL_VERSION,
         )
         .unwrap();
@@ -1126,7 +1112,6 @@ mod tests {
             kick_out,
             Default::default(),
             0,
-            PROTOCOL_VERSION,
             PROTOCOL_VERSION,
         )
         .unwrap();
@@ -1156,7 +1141,6 @@ mod tests {
             Default::default(),
             rewards_map,
             0,
-            PROTOCOL_VERSION,
             PROTOCOL_VERSION,
         )
         .unwrap();

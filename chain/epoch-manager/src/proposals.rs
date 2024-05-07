@@ -57,7 +57,6 @@ pub fn proposals_to_epoch_info(
             validator_kickout,
             validator_reward,
             minted_amount,
-            current_version,
             next_version,
         );
     } else {
