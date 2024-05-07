@@ -14,6 +14,7 @@ use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::{EpochManagerAdapter, RngSeed};
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::Tip;
 use near_primitives::block_header::{Approval, ApprovalInner};
 use near_primitives::congestion_info::CongestionInfo;
@@ -41,7 +42,7 @@ use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, Nonce, NumShards,
     ShardId, StateChangesForResharding, StateRoot, StateRootNode, ValidatorInfoIdentifier,
 };
-use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
+use near_primitives::version::{ProtocolFeature, ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::{
     AccessKeyInfoView, AccessKeyList, CallResult, ContractCodeView, EpochValidatorInfo,
     QueryRequest, QueryResponse, QueryResponseKind, ViewStateResult,
@@ -391,6 +392,15 @@ impl KeyValueRuntime {
             return Ok(Some(headers_cache.get(hash).unwrap().clone()));
         }
         Ok(None)
+    }
+
+    fn get_congestion_info(protocol_version: ProtocolVersion) -> Option<CongestionInfo> {
+        if ProtocolFeature::CongestionControl.enabled(protocol_version) {
+            // TODO(congestion_control) - properly initialize
+            Some(CongestionInfo::default())
+        } else {
+            None
+        }
     }
 }
 
@@ -1110,6 +1120,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn apply_chunk(
         &self,
         storage_config: RuntimeStorageConfig,
+        _apply_reason: ApplyChunkReason,
         chunk: ApplyChunkShardContext,
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],
@@ -1274,7 +1285,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             processed_delayed_receipts: vec![],
             processed_yield_timeouts: vec![],
             applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
-            congestion_info: Some(CongestionInfo::default()),
+            congestion_info: Self::get_congestion_info(PROTOCOL_VERSION),
         })
     }
 

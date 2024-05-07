@@ -21,7 +21,7 @@ use near_async::time::Clock;
 use near_crypto::vrf::Value;
 use near_crypto::{EmptySigner, InMemorySigner, KeyType, PublicKey, SecretKey, Signature, Signer};
 use near_primitives_core::account::id::AccountIdRef;
-use near_primitives_core::types::ProtocolVersion;
+use near_primitives_core::types::{ProtocolVersion, ShardId};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -624,6 +624,14 @@ impl EpochInfoProvider for MockEpochInfoProvider {
 
     fn chain_id(&self) -> String {
         "localnet".into()
+    }
+
+    fn account_id_to_shard_id(
+        &self,
+        _account_id: &AccountId,
+        _epoch_id: &EpochId,
+    ) -> Result<ShardId, EpochError> {
+        Ok(0)
     }
 }
 

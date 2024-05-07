@@ -14,8 +14,10 @@ use near_chain_primitives::error::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::EpochManagerAdapter;
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
+use near_primitives::congestion_info::CongestionInfo;
 #[cfg(feature = "new_epoch_sync")]
 use near_primitives::epoch_manager::{block_info::BlockInfo, epoch_sync::EpochSyncInfo};
 use near_primitives::hash::CryptoHash;
@@ -253,7 +255,7 @@ impl<'a> ChainUpdate<'a> {
                         balance_split
                     };
 
-                    if protocol_version >= ProtocolFeature::CongestionControl.protocol_version() {
+                    if ProtocolFeature::CongestionControl.enabled(protocol_version) {
                         // This will likely break resharding integration tests
                         // when congestion control is enabled. Let's mark them
                         // ignore when that happens.
@@ -268,8 +270,7 @@ impl<'a> ChainUpdate<'a> {
                         gas_burnt,
                         gas_limit,
                         balance_burnt,
-                        // TODO(congestion_control) set congestion info for resharding
-                        // TODO(resharding) set congestion info for resharding
+                        // TODO(congestion_control) - integration with resharding
                         None,
                     );
                     sum_gas_used += gas_burnt;
@@ -766,6 +767,7 @@ impl<'a> ChainUpdate<'a> {
 
         let apply_result = self.runtime_adapter.apply_chunk(
             RuntimeStorageConfig::new(chunk_header.prev_state_root(), true),
+            ApplyChunkReason::UpdateTrackedShard,
             ApplyChunkShardContext {
                 shard_id,
                 gas_limit,
@@ -873,6 +875,7 @@ impl<'a> ChainUpdate<'a> {
 
         let apply_result = self.runtime_adapter.apply_chunk(
             RuntimeStorageConfig::new(*chunk_extra.state_root(), true),
+            ApplyChunkReason::UpdateTrackedShard,
             ApplyChunkShardContext {
                 shard_id,
                 last_validator_proposals: chunk_extra.validator_proposals(),

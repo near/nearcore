@@ -111,6 +111,33 @@ pub trait TrieQueue {
         Ok(Some(receipt))
     }
 
+    /// Remove up to `n` values from the end of the queue and return how many
+    /// were actually remove.
+    ///
+    /// Unlike `pop`, this method does not return the actual receipts or even
+    /// check if they existed in state.
+    fn pop_n(&mut self, state_update: &mut TrieUpdate, n: u64) -> Result<u64, StorageError> {
+        self.debug_check_unchanged(state_update);
+
+        let indices = self.indices();
+        let to_remove = std::cmp::min(
+            n,
+            indices.next_available_index.checked_sub(indices.first_index).unwrap_or(0),
+        );
+
+        for index in indices.first_index..(indices.first_index + to_remove) {
+            let key = self.trie_key(index);
+            state_update.remove(key);
+        }
+
+        self.indices_mut().first_index = indices
+            .first_index
+            .checked_add(to_remove)
+            .expect("first_index + to_remove should be < next_available_index");
+        self.write_indices(state_update);
+        Ok(to_remove)
+    }
+
     fn len(&self) -> u64 {
         self.indices().len()
     }
@@ -182,8 +209,24 @@ impl ShardsOutgoingReceiptBuffer {
         OutgoingReceiptBuffer { shard_id, parent: self }
     }
 
-    pub fn write_indices(&self, state_update: &mut TrieUpdate) {
-        set(state_update, TrieKey::BufferedReceiptIndices, &self.shards_indices);
+    /// Returns shard IDs of all shards that have a buffer stored.
+    pub fn shards(&self) -> Vec<ShardId> {
+        self.shards_indices.shard_buffers.keys().copied().collect()
+    }
+
+    fn write_indices(&self, state_update: &mut TrieUpdate) {
+        // A default buffer is displayed as not being there at all. This makes an
+        // empty trie and one with the default `ShardsOutgoingReceiptBuffer`,
+        // which are loaded as equivalent, produce the same trie root hash.
+        // TODO(congestion_control) - Figure out if we need this. It's tricky,
+        // if we write back an empty map as a value, many tests fail because the
+        // trie root changes unexpectedly. But if we store it as empty, we have
+        // to be careful to no re-compute it unnecessarily.
+        if self.shards_indices.shard_buffers.values().all(TrieQueueIndices::is_default) {
+            state_update.remove(TrieKey::BufferedReceiptIndices);
+        } else {
+            set(state_update, TrieKey::BufferedReceiptIndices, &self.shards_indices);
+        }
     }
 }
 

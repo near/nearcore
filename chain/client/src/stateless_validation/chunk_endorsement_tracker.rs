@@ -133,7 +133,7 @@ impl ChunkEndorsementTracker {
         // If we have already processed this chunk endorsement, return early.
         if endorsement_cache
             .get(chunk_hash)
-            .is_some_and(|existing_endorsements| existing_endorsements.get(account_id).is_some())
+            .is_some_and(|existing_endorsements| existing_endorsements.contains_key(account_id))
         {
             tracing::debug!(target: "stateless_validation", ?endorsement, "Already received chunk endorsement.");
             return Ok(());

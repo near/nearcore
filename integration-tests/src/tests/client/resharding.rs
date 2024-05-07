@@ -1050,8 +1050,8 @@ fn test_shard_layout_upgrade_simple_impl(
     tracing::info!(target: "test", "test_shard_layout_upgrade_simple_impl finished");
 }
 
-// TODO(congestion_control) - set congestion control for resharding and
-// un-ignore all integration tests
+// TODO(congestion_control) - integration with resharding
+// set congestion control for resharding and un-ignore all integration tests
 
 #[ignore]
 #[test]

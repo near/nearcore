@@ -17,15 +17,15 @@ use near_chunks::ShardsManager;
 use near_client::client_actions::{
     ClientActions, ClientSenderForClientMessage, SyncJobsSenderForClientMessage,
 };
-use near_client::sync_jobs_actions::{
-    ClientSenderForSyncJobsMessage, SyncJobsActions, SyncJobsSenderForSyncJobsMessage,
+use near_client::sync_jobs_actor::{
+    ClientSenderForSyncJobsMessage, SyncJobsActor, SyncJobsSenderForSyncJobsMessage,
 };
 use near_client::test_utils::test_loop::client_actions::{
     forward_client_messages_from_client_to_client_actions,
     forward_client_messages_from_shards_manager,
     forward_client_messages_from_sync_jobs_to_client_actions,
 };
-use near_client::test_utils::test_loop::sync_jobs_actions::forward_sync_jobs_messages_from_client_to_sync_jobs_actions;
+use near_client::test_utils::test_loop::sync_jobs_actor::forward_messages_from_client_to_sync_jobs_actor;
 use near_client::test_utils::{MAX_BLOCK_PROD_TIME, MIN_BLOCK_PROD_TIME};
 use near_client::{Client, SyncAdapter, SyncMessage};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
@@ -50,7 +50,7 @@ use std::sync::{Arc, RwLock};
 struct TestData {
     pub dummy: (),
     pub client: ClientActions,
-    pub sync_jobs: SyncJobsActions,
+    pub sync_jobs: SyncJobsActor,
     pub shards_manager: ShardsManager,
 }
 
@@ -82,7 +82,7 @@ const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 #[test]
 fn test_client_with_simple_test_loop() {
     let builder = TestLoopBuilder::<TestEvent>::new();
-    let sync_jobs_actions = SyncJobsActions::new(
+    let sync_jobs_actor = SyncJobsActor::new(
         builder.sender().into_wrapped_multi_sender::<ClientSenderForSyncJobsMessage, _>(),
         builder.sender().into_wrapped_multi_sender::<SyncJobsSenderForSyncJobsMessage, _>(),
     );
@@ -221,22 +221,16 @@ fn test_client_with_simple_test_loop() {
     )
     .unwrap();
 
-    let data = TestData {
-        dummy: (),
-        client: client_actions,
-        sync_jobs: sync_jobs_actions,
-        shards_manager,
-    };
+    let data =
+        TestData { dummy: (), client: client_actions, sync_jobs: sync_jobs_actor, shards_manager };
 
     let mut test = builder.build(data);
     test.register_handler(forward_client_messages_from_client_to_client_actions().widen());
     test.register_handler(forward_client_messages_from_sync_jobs_to_client_actions().widen());
     test.register_handler(forward_client_messages_from_shards_manager().widen());
     test.register_handler(
-        forward_sync_jobs_messages_from_client_to_sync_jobs_actions(
-            test.sender().into_future_spawner(),
-        )
-        .widen(),
+        forward_messages_from_client_to_sync_jobs_actor(test.sender().into_future_spawner())
+            .widen(),
     );
     test.register_handler(drive_futures().widen());
     test.register_handler(handle_adhoc_events::<TestData>().widen());
