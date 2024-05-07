@@ -14,26 +14,26 @@ use near_primitives::utils::min_heap::{MinHeap, PeekMut};
 /// producer will be assigned to a single shard.  If there are fewer producers,
 /// some of them will be assigned to multiple shards.
 ///
-/// Panics if chunk_producers vector is not sorted in descending order by
-/// producer’s stake.
+/// Panics if `chunk_producers.len() < min_validators_per_shard` or chunk_producers
+/// vector is not sorted in descending order by producer’s stake.
 pub fn assign_shards<T: HasStake + Eq + Clone>(
     chunk_producers: Vec<T>,
     num_shards: NumShards,
     min_validators_per_shard: usize,
-) -> Result<Vec<Vec<T>>, NotEnoughValidators> {
+) -> Result<Vec<Vec<T>>, ()> {
+    // If there's not enough chunk producers to fill up a single shard there’s
+    // nothing we can do. Return with an error.
+    let num_chunk_producers = chunk_producers.len();
+    if num_chunk_producers < min_validators_per_shard {
+        return Err(());
+    }
+
     for (idx, pair) in chunk_producers.windows(2).enumerate() {
         assert!(
             pair[0].get_stake() >= pair[1].get_stake(),
             "chunk_producers isn’t sorted; first discrepancy at {}",
             idx
         );
-    }
-
-    // If there’s not enough chunk producers to fill up a single shard there’s
-    // nothing we can do.  Return with an error.
-    let num_chunk_producers = chunk_producers.len();
-    if num_chunk_producers < min_validators_per_shard {
-        return Err(NotEnoughValidators);
     }
 
     let mut result: Vec<Vec<T>> = (0..num_shards).map(|_| Vec::new()).collect();
@@ -135,11 +135,6 @@ fn assign_with_possible_repeats<T: HasStake + Eq, I: Iterator<Item = (usize, T)>
     }
 }
 
-/// Marker struct to communicate the error where you try to assign validators to shards
-/// and there are not enough to even meet the minimum per shard.
-#[derive(Debug)]
-pub struct NotEnoughValidators;
-
 pub trait HasStake {
     fn get_stake(&self) -> Balance;
 }
@@ -226,7 +221,7 @@ mod tests {
         stakes: &[Balance],
         num_shards: NumShards,
         min_validators_per_shard: usize,
-    ) -> Result<Vec<(usize, Balance)>, super::NotEnoughValidators> {
+    ) -> Result<Vec<(usize, Balance)>, ()> {
         let chunk_producers = stakes.iter().copied().enumerate().collect();
         let assignments =
             super::assign_shards(chunk_producers, num_shards, min_validators_per_shard)?;

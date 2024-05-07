@@ -39,22 +39,16 @@ pub fn proposals_to_epoch_info(
     };
     let max_bp_selected = epoch_config.num_block_producer_seats as usize;
     let mut stake_change = BTreeMap::new();
-    let proposals = proposals_with_rollover(
+    let proposals = apply_epoch_update_to_proposals(
         proposals,
         prev_epoch_info,
         &validator_reward,
         &validator_kickout,
         &mut stake_change,
     );
-    let mut block_producer_proposals = order_proposals(proposals.values().cloned());
-    let (block_producers, bp_stake_threshold) = select_block_producers(
-        &mut block_producer_proposals,
-        max_bp_selected,
-        min_stake_ratio,
-        current_version,
-    );
-    let (chunk_producer_proposals, chunk_producers, cp_stake_threshold) =
-        if checked_feature!("stable", ChunkOnlyProducers, next_version) {
+
+    let (remaining_proposals, block_producers, chunk_producers, threshold) =
+        if checked_feature!("stable", StatelessValidationV0, next_version) {
             let mut chunk_producer_proposals = order_proposals(proposals.into_values());
             let max_cp_selected = max_bp_selected
                 + (epoch_config.validator_selection_config.num_chunk_only_producer_seats as usize);
@@ -65,17 +59,44 @@ pub fn proposals_to_epoch_info(
                 shard_ids.len() as NumShards,
                 current_version,
             );
-            (chunk_producer_proposals, chunk_producers, cp_stake_threshold)
+
+            (Default::default(), Default::default(), Default::default(), Balance::default())
         } else {
-            (block_producer_proposals, block_producers.clone(), bp_stake_threshold)
+            let mut block_producer_proposals = order_proposals(proposals.values().cloned());
+            let (block_producers, bp_stake_threshold) = select_block_producers(
+                &mut block_producer_proposals,
+                max_bp_selected,
+                min_stake_ratio,
+                current_version,
+            );
+            let (chunk_producer_proposals, chunk_producers, cp_stake_threshold) =
+                if checked_feature!("stable", ChunkOnlyProducers, next_version) {
+                    let mut chunk_producer_proposals = order_proposals(proposals.into_values());
+                    let max_cp_selected = max_bp_selected
+                        + (epoch_config.validator_selection_config.num_chunk_only_producer_seats
+                            as usize);
+                    let (chunk_producers, cp_stake_threshold) = select_chunk_producers(
+                        &mut chunk_producer_proposals,
+                        max_cp_selected,
+                        min_stake_ratio,
+                        shard_ids.len() as NumShards,
+                        current_version,
+                    );
+                    (chunk_producer_proposals, chunk_producers, cp_stake_threshold)
+                } else {
+                    (block_producer_proposals, block_producers.clone(), bp_stake_threshold)
+                };
+
+            // since block producer proposals could become chunk producers, their actual stake threshold
+            // is the smaller of the two thresholds
+            let threshold = cmp::min(bp_stake_threshold, cp_stake_threshold);
+
+            // (remaining proposals, BP, CP, threshold)
+            (chunk_producer_proposals, block_producers, chunk_producers, threshold)
         };
 
-    // since block producer proposals could become chunk producers, their actual stake threshold
-    // is the smaller of the two thresholds
-    let threshold = cmp::min(bp_stake_threshold, cp_stake_threshold);
-
-    // process remaining chunk_producer_proposals that were not selected for either role
-    for OrderedValidatorStake(p) in chunk_producer_proposals {
+    // process remaining proposals that were not selected for either role
+    for OrderedValidatorStake(p) in remaining_proposals {
         let stake = p.stake();
         let account_id = p.account_id();
         *stake_change.get_mut(account_id).unwrap() = 0;
@@ -102,12 +123,14 @@ pub fn proposals_to_epoch_info(
 
     let chunk_producers_settlement = if checked_feature!("stable", ChunkOnlyProducers, next_version)
     {
+        // assign_chunk_producers_to_shards(epoch_config, chunk_producers, &prev_epoch_info)?
         let minimum_validators_per_shard =
             epoch_config.validator_selection_config.minimum_validators_per_shard as usize;
         let shard_assignment = assign_shards(
             chunk_producers,
             shard_ids.len() as NumShards,
             minimum_validators_per_shard,
+            // prev_epoch_info.chunk_producers_settlement(),
         )
         .map_err(|_| EpochError::NotEnoughValidators {
             num_validators: num_chunk_producers as u64,
@@ -190,18 +213,17 @@ pub fn proposals_to_epoch_info(
     ))
 }
 
-/// Generates proposals based on new proposals, last epoch validators/fishermen and validator
-/// kickouts
-/// For each account that was validator or fisherman in last epoch or made stake action last epoch
-/// we apply the following in the order of priority
-/// 1. If account is in validator_kickout it cannot be validator or fisherman for the next epoch,
-///        we will not include it in proposals or fishermen
+/// Generates proposals based on proposals generated throughout last epoch,
+/// last epoch validators and validator kickouts.
+/// For each account that was validator in last epoch or made stake action last epoch
+/// we apply the following in the order of priority:
+/// 1. If account is in validator_kickout it cannot be validator for the next epoch,
+///        we will not include it in proposals
 /// 2. If account made staking action last epoch, it will be included in proposals with stake
 ///        adjusted by rewards from last epoch, if any
 /// 3. If account was validator last epoch, it will be included in proposals with the same stake
 ///        as last epoch, adjusted by rewards from last epoch, if any
-/// 4. If account was fisherman last epoch, it is included in fishermen
-fn proposals_with_rollover(
+fn apply_epoch_update_to_proposals(
     proposals: Vec<ValidatorStake>,
     prev_epoch_info: &EpochInfo,
     validator_reward: &HashMap<AccountId, Balance>,
