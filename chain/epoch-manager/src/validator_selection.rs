@@ -71,7 +71,7 @@ pub fn proposals_to_epoch_info(
             );
 
             let mut chunk_validator_proposals = order_proposals(proposals.into_values());
-            let max_cv_selected = 300;
+            let max_cv_selected = 300; // set to align with obsolete chunk-only producers number in mainnet
             let (chunk_validators, cv_stake_threshold) = select_validators(
                 &mut chunk_validator_proposals,
                 max_cv_selected,

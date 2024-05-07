@@ -236,12 +236,6 @@ mod old_validator_selection {
             chunk_producers_settlement.push(shard_settlement);
         }
 
-        let fishermen_to_index = fishermen
-            .iter()
-            .enumerate()
-            .map(|(index, s)| (s.account_id().clone(), index as ValidatorId))
-            .collect::<HashMap<_, _>>();
-
         let validator_to_index = final_proposals
             .iter()
             .enumerate()
