@@ -1,7 +1,7 @@
 use actix::Actor;
 use near_async::actix_wrapper::ActixWrapper;
-use near_async::futures::{ActixFutureSpawner, FutureSpawner, FutureSpawnerExt};
-use near_async::messaging::{CanSend, Handler, Sender};
+use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
+use near_async::messaging::{CanSend, Handler, HandlerWithContext, Sender};
 use near_async::time::Duration;
 use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
 use near_chain::chain::{
@@ -28,15 +28,8 @@ pub struct ClientSenderForSyncJobs {
     load_memtrie_response: Sender<LoadMemtrieResponse>,
 }
 
-#[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
-#[multi_send_message_derive(Debug)]
-pub struct SyncJobsSenderForSyncJobs {
-    resharding_request: Sender<ReshardingRequest>,
-}
-
 pub struct SyncJobsActor {
     client_sender: ClientSenderForSyncJobs,
-    sync_jobs_sender: SyncJobsSenderForSyncJobs,
 }
 
 impl Handler<LoadMemtrieRequest> for SyncJobsActor {
@@ -60,19 +53,16 @@ impl Handler<BlockCatchUpRequest> for SyncJobsActor {
     }
 }
 
-impl Handler<ReshardingRequest> for SyncJobsActor {
+impl HandlerWithContext<Self, ReshardingRequest> for SyncJobsActor {
     #[perf]
-    fn handle(&mut self, msg: ReshardingRequest) {
-        self.handle_resharding_request(msg, &ActixFutureSpawner);
+    fn handle(&mut self, msg: ReshardingRequest, ctx: &mut dyn DelayedActionRunner<Self>) {
+        self.handle_resharding_request(msg, ctx);
     }
 }
 
 impl SyncJobsActor {
-    pub fn new(
-        client_sender: ClientSenderForSyncJobs,
-        sync_jobs_sender: SyncJobsSenderForSyncJobs,
-    ) -> Self {
-        Self { client_sender, sync_jobs_sender }
+    pub fn new(client_sender: ClientSenderForSyncJobs) -> Self {
+        Self { client_sender }
     }
 
     pub fn spawn_actix_actor(self) -> (actix::Addr<ActixWrapper<Self>>, actix::ArbiterHandle) {
@@ -185,21 +175,17 @@ impl SyncJobsActor {
     pub fn handle_resharding_request(
         &mut self,
         mut resharding_request: ReshardingRequest,
-        future_spawner: &dyn FutureSpawner,
+        ctx: &mut dyn DelayedActionRunner<Self>,
     ) {
         let config = resharding_request.config.get();
 
         // Wait for the initial delay. It should only be used in tests.
-        let initial_delay = config.initial_delay;
+        let initial_delay = config.initial_delay.max(Duration::ZERO);
         if resharding_request.curr_poll_time == Duration::ZERO && initial_delay > Duration::ZERO {
             tracing::debug!(target: "resharding", ?resharding_request, ?initial_delay, "Waiting for the initial delay");
             resharding_request.curr_poll_time += initial_delay;
-            future_spawner.spawn("resharding initial delay", {
-                let sender = self.sync_jobs_sender.clone();
-                async move {
-                    tokio::time::sleep(initial_delay.max(Duration::ZERO).unsigned_abs()).await;
-                    sender.send(resharding_request);
-                }
+            ctx.run_later("resharding initial delay", initial_delay, |act, ctx| {
+                act.handle_resharding_request(resharding_request, ctx)
             });
             return;
         }
@@ -207,15 +193,11 @@ impl SyncJobsActor {
         if Chain::retry_build_state_for_split_shards(&resharding_request) {
             // Actix implementation let's us send message to ourselves with a delay.
             // In case snapshots are not ready yet, we will retry resharding later.
-            let retry_delay = config.retry_delay;
+            let retry_delay = config.retry_delay.max(Duration::ZERO);
             tracing::debug!(target: "resharding", ?resharding_request, ?retry_delay, "Snapshot missing, retrying resharding later");
             resharding_request.curr_poll_time += retry_delay;
-            future_spawner.spawn("resharding retry", {
-                let sender = self.sync_jobs_sender.clone();
-                async move {
-                    tokio::time::sleep(retry_delay.max(Duration::ZERO).unsigned_abs()).await;
-                    sender.send(resharding_request);
-                }
+            ctx.run_later("resharding retry", retry_delay, |act, ctx| {
+                act.handle_resharding_request(resharding_request, ctx)
             });
             return;
         }
