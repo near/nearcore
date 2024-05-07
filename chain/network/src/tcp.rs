@@ -93,14 +93,14 @@ impl Stream {
             std::net::SocketAddr::V6(_) => tokio::net::TcpSocket::new_v6()?,
         };
 
-        let SO_RCVBUF = 1000000;
-        let SO_SNDBUF = 1000000;
+        let so_rcvbuf = 1000000;
+        let so_sndbuf = 1000000;
 
-        socket.set_recv_buffer_size(SO_RCVBUF)?;
-        socket.set_send_buffer_size(SO_SNDBUF)?;
+        socket.set_recv_buffer_size(so_rcvbuf)?;
+        socket.set_send_buffer_size(so_sndbuf)?;
 
-        tracing::debug!(target: "network", "SO_RCVBUF wanted {} got {:?}", SO_RCVBUF, socket.recv_buffer_size());
-        tracing::debug!(target: "network", "SO_SNDBUF wanted {} got {:?}", SO_SNDBUF, socket.send_buffer_size());
+        tracing::debug!(target: "network", "SO_RCVBUF wanted {} got {:?}", so_rcvbuf, socket.recv_buffer_size());
+        tracing::debug!(target: "network", "SO_SNDBUF wanted {} got {:?}", so_sndbuf, socket.send_buffer_size());
 
         // The `connect` may take several minutes. This happens when the
         // `SYN` packet for establishing a TCP connection gets silently
