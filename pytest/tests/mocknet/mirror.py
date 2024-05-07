@@ -223,8 +223,7 @@ ready. After they're ready, you can run `start-traffic`""".format(validators))
         logger.info('enabling in-memory trie in config')
         pmap(
             lambda node: do_update_config(
-                node, 'store.load_mem_tries_for_tracked_shards=true'),
-            nodes)
+                node, 'store.load_mem_tries_for_tracked_shards=true'), nodes)
         logger.info('enabling save_latest_witnesses in config')
         # TODO: it should be possible to update multiple keys in one RPC call so we dont have to make 2 round trips
         pmap(lambda node: do_update_config(node, 'save_latest_witnesses=true'),
