@@ -18,6 +18,10 @@ pub(crate) struct AnalyzeContractSizesCommand {
     /// Show top N contracts by size.
     #[arg(short, long, default_value_t = 50)]
     topn: usize,
+
+    /// Compress contract code before calculating size.
+    #[arg(long, default_value_t = false)]
+    compressed: bool,
 }
 
 struct ContractSizeStats {
@@ -47,7 +51,7 @@ impl ContractSizeStats {
         }
     }
 
-    pub fn print_stats(&self) {
+    pub fn print_stats(&self, compressed: bool) {
         println!("");
         println!("Analyzed {} accounts", self.total_accounts);
         println!("Accounts per shard:");
@@ -55,7 +59,11 @@ impl ContractSizeStats {
             println!("{}: {}", shard_uid, count);
         }
         println!("");
-        println!("Top {} accounts by contract size:", self.topn);
+        if compressed {
+            println!("Top {} accounts by compressed contract size:", self.topn);
+        } else {
+            println!("Top {} accounts by contract size:", self.topn);
+        }
         for (size, account_id) in self.top_accounts.iter().rev() {
             println!("{}: {}", size, account_id);
         }
@@ -104,7 +112,12 @@ impl AnalyzeContractSizesCommand {
                 let account_id_bytes = &key[1..];
                 let account_id_str = std::str::from_utf8(&account_id_bytes).unwrap();
                 let account_id = AccountId::from_str(account_id_str).unwrap();
-                let contract_size = value.len();
+
+                let contract_size = if self.compressed {
+                    zstd::encode_all(value.as_slice(), 3).unwrap().len()
+                } else {
+                    value.len()
+                };
 
                 stats.add_info(shard_uid, account_id, contract_size);
                 if i % 1000 == 0 {
@@ -113,7 +126,7 @@ impl AnalyzeContractSizesCommand {
             }
         }
 
-        stats.print_stats();
+        stats.print_stats(self.compressed);
         Ok(())
     }
 }
