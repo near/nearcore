@@ -184,7 +184,7 @@ def new_genesis_timestamp(node):
     return genesis_time
 
 
-def _apply_stateless_config(node):
+def _apply_stateless_config(args, node):
     """Applies configuration changes to the node for stateless validation,
     including changing config.json file and updating TCP buffer size at OS level."""
     # TODO: it should be possible to update multiple keys in one RPC call so we dont have to make multiple round trips
@@ -235,7 +235,7 @@ ready. After they're ready, you can run `start-traffic`""".format(validators))
     if args.stateless_setup:
         logger.info('Configuring nodes for stateless protocol')
         pmap(
-            lambda node: _apply_stateless_config(node), nodes)
+            lambda node: _apply_stateless_config(args, node), nodes)
 
 
 def status_cmd(args, traffic_generator, nodes):
