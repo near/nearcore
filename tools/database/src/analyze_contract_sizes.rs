@@ -89,7 +89,7 @@ impl AnalyzeContractSizesCommand {
             let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
             println!("Analyzing chunk with uid: {}", shard_uid);
 
-            let state_root = chunk.prev_state_root().clone();
+            let state_root = chunk.prev_state_root();
             let trie_storage = Rc::new(TrieDBStorage::new(store.clone(), shard_uid));
             let trie = Trie::new(trie_storage, state_root, None);
 
