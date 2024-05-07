@@ -53,7 +53,7 @@ impl Handler<BlockCatchUpRequest> for SyncJobsActor {
     }
 }
 
-impl HandlerWithContext<Self, ReshardingRequest> for SyncJobsActor {
+impl HandlerWithContext<ReshardingRequest> for SyncJobsActor {
     #[perf]
     fn handle(&mut self, msg: ReshardingRequest, ctx: &mut dyn DelayedActionRunner<Self>) {
         self.handle_resharding_request(msg, ctx);
