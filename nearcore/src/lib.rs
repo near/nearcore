@@ -23,6 +23,7 @@ use near_chain_configs::ReshardingHandle;
 use near_chain_configs::SyncConfig;
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
+use near_client::gc_actor::GCActor;
 use near_client::sync::adapter::SyncAdapter;
 use near_client::{
     start_client, ClientActor, ConfigUpdater, PartialWitnessActor, StartClientResult,
@@ -374,16 +375,16 @@ pub fn start_with_config_and_synchronization(
         (None, None)
     };
 
-    let StartClientResult {
-        client_actor,
-        client_arbiter_handle,
-        resharding_handle,
-        gc_arbiter_handle,
-        #[cfg(feature = "test_features")]
-        gc_actor,
-        #[cfg(not(feature = "test_features"))]
-            gc_actor: _,
-    } = start_client(
+    let (_gc_actor, gc_arbiter) = spawn_actix_actor(GCActor::new(
+        runtime.store().clone(),
+        chain_genesis.height,
+        runtime.clone(),
+        epoch_manager.clone(),
+        config.client_config.gc,
+        config.client_config.archive,
+    ));
+
+    let StartClientResult { client_actor, client_arbiter_handle, resharding_handle } = start_client(
         Clock::real(),
         config.client_config.clone(),
         chain_genesis.clone(),
@@ -474,7 +475,7 @@ pub fn start_with_config_and_synchronization(
             view_client_addr.clone().with_auto_span_context().into_multi_sender(),
             network_actor.into_multi_sender(),
             #[cfg(feature = "test_features")]
-            gc_actor.into_multi_sender(),
+            _gc_actor.into_multi_sender(),
             Arc::new(entity_debug_handler),
         ));
     }
@@ -502,7 +503,7 @@ pub fn start_with_config_and_synchronization(
         shards_manager_arbiter_handle,
         trie_metrics_arbiter,
         state_snapshot_arbiter,
-        gc_arbiter_handle,
+        gc_arbiter,
     ];
     if let Some(db_metrics_arbiter) = db_metrics_arbiter {
         arbiters.push(db_metrics_arbiter);

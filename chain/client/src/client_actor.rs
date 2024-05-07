@@ -33,8 +33,6 @@ use std::sync::{Arc, RwLock};
 use tokio::sync::broadcast;
 
 use crate::client_actions::{ClientActionHandler, ClientActions, ClientSenderForClient};
-use crate::gc_actor::GCActor;
-use crate::start_gc_actor;
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync_jobs_actor::{SyncJobsActor, SyncJobsSenderForSyncJobs};
 use crate::{metrics, Client, ConfigUpdater, SyncAdapter};
@@ -177,10 +175,8 @@ fn wait_until_genesis(genesis_time: &Utc) {
 
 pub struct StartClientResult {
     pub client_actor: Addr<ClientActor>,
-    pub gc_actor: Addr<GCActor>,
     pub client_arbiter_handle: ArbiterHandle,
     pub resharding_handle: ReshardingHandle,
-    pub gc_arbiter_handle: ArbiterHandle,
 }
 
 /// Starts client in a separate Arbiter (thread).
@@ -228,14 +224,6 @@ pub fn start_client(
     .unwrap();
     let resharding_handle = client.chain.resharding_handle.clone();
 
-    let (gc_actor, gc_arbiter_handle) = start_gc_actor(
-        runtime.store().clone(),
-        genesis_height,
-        client_config.clone(),
-        runtime,
-        epoch_manager,
-    );
-
     let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |ctx| {
         ClientActor::new(
             clock,
@@ -254,11 +242,5 @@ pub fn start_client(
         .unwrap()
     });
 
-    StartClientResult {
-        client_actor: client_addr,
-        client_arbiter_handle,
-        resharding_handle,
-        gc_arbiter_handle,
-        gc_actor,
-    }
+    StartClientResult { client_actor: client_addr, client_arbiter_handle, resharding_handle }
 }

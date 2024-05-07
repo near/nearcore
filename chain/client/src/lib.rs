@@ -16,7 +16,6 @@ pub use crate::config_updater::ConfigUpdater;
 pub use crate::stateless_validation::chunk_validator::orphan_witness_handling::HandleOrphanWitnessOutcome;
 pub use crate::sync::adapter::{SyncAdapter, SyncMessage};
 pub use crate::view_client_actor::{ViewClientActor, ViewClientActorInner};
-pub use gc_actor::start_gc_actor;
 pub use near_client_primitives::debug::DebugStatus;
 pub use near_network::client::{
     BlockApproval, BlockResponse, ProcessTxRequest, ProcessTxResponse, SetNetworkInfo,
