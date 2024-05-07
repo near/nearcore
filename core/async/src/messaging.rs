@@ -8,6 +8,10 @@ use std::fmt::{Debug, Display};
 use std::sync::Arc;
 use tokio::sync::oneshot;
 
+/// Trait for an actor. An actor is a struct that can handle messages and implementes the Handler or
+/// HandlerWithContext trait. We can optionally implement the start_actor trait which is executed in
+/// the beginning of the actor's lifecycle.
+/// This corresponds to the actix::Actor trait `started` function.
 pub trait Actor {
     fn start_actor(&mut self, _ctx: &mut dyn DelayedActionRunner<Self>) {}
 }
