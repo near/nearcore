@@ -214,10 +214,20 @@ impl ClientActions {
 }
 
 #[cfg(feature = "test_features")]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub enum AdvProduceChunksMode {
+    // Produce chunks as usual.
+    Valid,
+    // Stop producing chunks.
+    StopProduce,
+}
+
+#[cfg(feature = "test_features")]
 #[derive(actix::Message, Debug)]
 #[rtype(result = "Option<u64>")]
 pub enum NetworkAdversarialMessage {
     AdvProduceBlocks(u64, bool),
+    AdvProduceChunks(AdvProduceChunksMode),
     AdvSwitchToHeight(u64),
     AdvDisableHeaderSync,
     AdvDisableDoomslug,
@@ -323,6 +333,10 @@ impl ClientActionHandler<NetworkAdversarialMessage> for ClientActions {
                 } else {
                     Some(store_validator.tests_done())
                 }
+            }
+            NetworkAdversarialMessage::AdvProduceChunks(adv_produce_chunks) => {
+                self.client.adv_produce_chunks = Some(adv_produce_chunks);
+                None
             }
         }
     }
