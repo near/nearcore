@@ -221,6 +221,7 @@ pub enum NetworkAdversarialMessage {
     AdvSwitchToHeight(u64),
     AdvDisableHeaderSync,
     AdvDisableDoomslug,
+    AdvDisableChunkValidation(bool),
     AdvGetSavedBlocks,
     AdvCheckStorageConsistency,
 }
@@ -246,6 +247,11 @@ impl ClientActionHandler<NetworkAdversarialMessage> for ClientActions {
             NetworkAdversarialMessage::AdvDisableHeaderSync => {
                 info!(target: "adversary", "Blocking header sync");
                 self.adv.set_disable_header_sync(true);
+                None
+            }
+            NetworkAdversarialMessage::AdvDisableChunkValidation(value) => {
+                info!(target: "adversary", "Disabling chunk validation: {value}");
+                self.client.adv_disable_chunk_validation = value;
                 None
             }
             NetworkAdversarialMessage::AdvProduceBlocks(num_blocks, only_valid) => {
