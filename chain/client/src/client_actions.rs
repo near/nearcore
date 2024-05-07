@@ -214,10 +214,20 @@ impl ClientActions {
 }
 
 #[cfg(feature = "test_features")]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub enum AdvProduceChunksMode {
+    // Produce chunks as usual.
+    Valid,
+    // Stop producing chunks.
+    StopProduce,
+}
+
+#[cfg(feature = "test_features")]
 #[derive(actix::Message, Debug)]
 #[rtype(result = "Option<u64>")]
 pub enum NetworkAdversarialMessage {
     AdvProduceBlocks(u64, bool),
+    AdvProduceChunks(AdvProduceChunksMode),
     AdvSwitchToHeight(u64),
     AdvDisableHeaderSync,
     AdvDisableDoomslug,
@@ -323,6 +333,10 @@ impl ClientActionHandler<NetworkAdversarialMessage> for ClientActions {
                 } else {
                     Some(store_validator.tests_done())
                 }
+            }
+            NetworkAdversarialMessage::AdvProduceChunks(adv_produce_chunks) => {
+                self.client.adv_produce_chunks = Some(adv_produce_chunks);
+                None
             }
         }
     }
@@ -1521,7 +1535,6 @@ impl ClientActions {
         let me = self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
         let block_header = self.client.chain.get_block_header(&sync_hash);
         let block_header = unwrap_and_report_state_sync_result!(block_header);
-        let prev_hash = *block_header.prev_hash();
         let epoch_id = block_header.epoch_id().clone();
         let shards_to_sync = get_shards_cares_about_this_or_next_epoch(
             me.as_ref(),
@@ -1538,29 +1551,8 @@ impl ClientActions {
             self.notify_start_sync(epoch_id, sync_hash, &shards_to_sync);
         }
 
-        let now = self.clock.now_utc();
-
-        // FIXME: it checks if the block exists.. but I have no idea why..
-        // seems that we don't really use this block in case of catchup - we use it only for state sync.
-        // Seems it is related to some bug with block getting orphaned after state sync? but not sure.
-        let (request_block, have_block) =
-            unwrap_and_report_state_sync_result!(self.sync_block_status(&prev_hash, now));
-
-        if request_block {
-            self.client.last_time_sync_block_requested = Some(now);
-            if let Some(peer_info) =
-                self.network_info.highest_height_peers.choose(&mut thread_rng())
-            {
-                let id = peer_info.peer_info.id.clone();
-
-                for hash in vec![*block_header.prev_hash(), *block_header.hash()].into_iter() {
-                    self.client.request_block(hash, id.clone());
-                }
-            }
-        }
-        if have_block {
-            self.client.last_time_sync_block_requested = None;
-        }
+        let have_block = self.request_sync_blocks(block_header);
+        let have_block = unwrap_and_report_state_sync_result!(have_block);
 
         let state_sync_status = match &mut self.client.sync_status {
             SyncStatus::StateSync(s) => s,
@@ -1610,6 +1602,97 @@ impl ClientActions {
                 });
             }
         }
+    }
+
+    /// Checks if the sync blocks are available and requests them if needed.
+    /// Returns true if all the blocks are available.
+    fn request_sync_blocks(
+        &mut self,
+        block_header: BlockHeader,
+    ) -> Result<bool, near_chain::Error> {
+        let now = self.clock.now_utc();
+
+        let mut have_all = true;
+        let mut req_any = false;
+
+        let block_hash = *block_header.hash();
+        let prev_block_hash = *block_header.prev_hash();
+
+        let mut needed_block_hashes = vec![prev_block_hash, block_hash];
+        let mut extra_block_hashes = self.get_extra_sync_block_hashes(prev_block_hash);
+        needed_block_hashes.append(&mut extra_block_hashes);
+
+        for hash in needed_block_hashes.into_iter() {
+            let (request_block, have_block) = self.sync_block_status(&prev_block_hash, now)?;
+            have_all = have_all && have_block;
+            req_any = req_any || request_block;
+
+            if !request_block {
+                continue;
+            }
+
+            let peer_info = self.network_info.highest_height_peers.choose(&mut thread_rng());
+            let Some(peer_info) = peer_info else {
+                continue;
+            };
+            let id = peer_info.peer_info.id.clone();
+            self.client.request_block(hash, id.clone());
+        }
+
+        // If any block was requested update the last time we requested a block.
+        // Do it outside of the loop to keep it consistent for all blocks.
+        if req_any {
+            self.client.last_time_sync_block_requested = Some(now);
+        }
+
+        if have_all {
+            self.client.last_time_sync_block_requested = None;
+        }
+
+        Ok(have_all)
+    }
+
+    /// Returns the list of extra block hashes for blocks that should be
+    /// downloaded before the state sync. The extra blocks are needed when there
+    /// are missing chunks in blocks leading to the sync hash block. We need to
+    /// ensure that for every shard we have at least one new chunk.
+    ///
+    /// This is implemented by finding the minimum height included of the sync
+    /// hash block and finding all blocks till that height.
+    fn get_extra_sync_block_hashes(&mut self, block_hash: CryptoHash) -> Vec<CryptoHash> {
+        // Get the block. It's possible that the block is not yet available.
+        // It's ok because we will retry this method later.
+        let block = self.client.chain.get_block(&block_hash);
+        let Ok(block) = block else {
+            return vec![];
+        };
+
+        let min_height_included = block.chunks().iter().map(|chunk| chunk.height_included()).min();
+        let Some(min_height_included) = min_height_included else {
+            tracing::warn!(target: "sync", ?block_hash, "get_extra_sync_block_hashes: Cannot find the min block height");
+            return vec![];
+        };
+
+        let mut extra_block_hashes = vec![];
+        let mut next_hash = *block.header().prev_hash();
+        loop {
+            let next_header = self.client.chain.get_block_header(&next_hash);
+            let Ok(next_header) = next_header else {
+                tracing::error!(target: "sync", hash=?next_hash, "get_extra_sync_block_hashes: Cannot get block header");
+                break;
+            };
+
+            if next_header.height() < min_height_included - 1 {
+                break;
+            }
+
+            extra_block_hashes.push(next_hash);
+            next_hash = *next_header.prev_hash();
+        }
+
+        tracing::debug!(target: "sync", ?min_height_included, ?extra_block_hashes, "get_extra_sync_block_hashes: Extra block hashes for state sync");
+
+        extra_block_hashes
     }
 
     fn notify_start_sync(
@@ -1664,6 +1747,7 @@ impl ClientActions {
         header_head: Tip,
         highest_height: u64,
     ) -> Result<bool, near_chain::Error> {
+        // State sync is already started, continue.
         if let SyncStatus::StateSync(_) = self.client.sync_status {
             return Ok(true);
         }
@@ -1684,16 +1768,19 @@ impl ClientActions {
         Ok(block_sync_result)
     }
 
-    /// Verifies if the node possesses sync block.
-    /// It is the last block of the previous epoch.
-    /// If the block is absent, the node requests it from peers.
+    /// Verifies if the node possesses sync block. It is the last block of the
+    /// previous epoch. If the block is absent, the node requests it from peers.
+    ///
     /// the return value is a tuple (request_block, have_block)
+    ///
+    /// the return value (false, false) means that the node already requested
+    /// the block but hasn't received it yet
     fn sync_block_status(
         &self,
-        prev_hash: &CryptoHash,
+        block_hash: &CryptoHash,
         now: Utc,
     ) -> Result<(bool, bool), near_chain::Error> {
-        if self.client.chain.block_exists(prev_hash)? {
+        if self.client.chain.block_exists(block_hash)? {
             return Ok((false, true));
         }
         let timeout = self.client.config.state_sync_timeout;
@@ -1707,7 +1794,7 @@ impl ClientActions {
         if (now - last_time) >= timeout {
             tracing::error!(
                 target: "sync",
-                %prev_hash,
+                %block_hash,
                 ?timeout,
                 "State sync: block request timed out"
             );
