@@ -661,6 +661,13 @@ impl Client {
         let (witness, raw_witness_size) =
             self.partially_validate_state_witness(&encoded_witness)?;
 
+        tracing::debug!(
+            target: "stateless_validation",
+            chunk_hash=?witness.chunk_header.chunk_hash(),
+            shard_id=witness.chunk_header.shard_id(),
+            "process_chunk_state_witness",
+        );
+
         // Send the acknowledgement for the state witness back to the chunk producer.
         // This is currently used for network roundtrip time measurement, so we do not need to
         // wait for validation to finish.
@@ -677,7 +684,7 @@ impl Client {
         // as well as malicious behavior of a chunk producer.
         if let Ok(final_head) = self.chain.final_head() {
             if witness.chunk_header.height_created() <= final_head.height {
-                tracing::debug!(
+                tracing::warn!(
                     target: "stateless_validation",
                     chunk_hash=?witness.chunk_header.chunk_hash(),
                     shard_id=witness.chunk_header.shard_id(),
