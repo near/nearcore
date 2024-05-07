@@ -1169,8 +1169,8 @@ impl ClientActions {
             );
             if let Err(e) = &res {
                 match e {
-                    near_chain::Error::ChunksMissing(_) => {
-                        debug!(target: "client", "chunks missing");
+                    near_chain::Error::ChunksMissing(chunk_headers) => {
+                        debug!(target: "client", chunk_hashes=chunk_headers.iter().map(|h| format!("{:?}", h.chunk_hash())).collect::<Vec<_>>().join(","),  "chunks missing");
                         // missing chunks were already handled in Client::process_block, we don't need to
                         // do anything here
                         return Ok(());

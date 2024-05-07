@@ -126,7 +126,7 @@ impl ClientActor {
         msg_type: &str,
         f: impl FnOnce(&mut Self, Req, &mut Context<Self>) -> Res,
     ) -> Res {
-        let (_span, msg) = handler_debug_span!(target: "client", msg, msg_type);
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
         self.actions.check_triggers(ctx);
         let _span_inner = tracing::debug_span!(target: "client",  "NetworkClientMessage").entered();
         metrics::CLIENT_MESSAGES_COUNT.with_label_values(&[msg_type]).inc();
