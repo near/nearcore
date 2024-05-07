@@ -58,14 +58,14 @@ pub fn proposals_to_epoch_info(
             let mut chunk_producer_proposals = order_proposals(proposals.into_values());
             let max_cp_selected = max_bp_selected
                 + (epoch_config.validator_selection_config.num_chunk_only_producer_seats as usize);
-            let (chunk_producers, cp_stake_treshold) = select_chunk_producers(
+            let (chunk_producers, cp_stake_threshold) = select_chunk_producers(
                 &mut chunk_producer_proposals,
                 max_cp_selected,
                 min_stake_ratio,
                 shard_ids.len() as NumShards,
                 current_version,
             );
-            (chunk_producer_proposals, chunk_producers, cp_stake_treshold)
+            (chunk_producer_proposals, chunk_producers, cp_stake_threshold)
         } else {
             (block_producer_proposals, block_producers.clone(), bp_stake_threshold)
         };
