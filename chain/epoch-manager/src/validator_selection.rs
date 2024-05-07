@@ -44,7 +44,7 @@ pub fn proposals_to_epoch_info(
     // Select validators for the next epoch.
     // Returns unselected proposals, validator lists for all roles and stake
     // threshold to become a validator.
-    let (unselected_proposals, block_producers, chunk_producers, chunk_validators, threshold) =
+    let (unselected_proposals, chunk_producers, block_producers, chunk_validators, threshold) =
         if checked_feature!("stable", StatelessValidationV0, next_version) {
             let min_stake_ratio = {
                 let rational = epoch_config.validator_selection_config.minimum_stake_ratio;
@@ -70,6 +70,7 @@ pub fn proposals_to_epoch_info(
                 next_version,
             );
 
+            println!("PROPOSALS: {:?}", proposals);
             let mut chunk_validator_proposals = order_proposals(proposals.into_values());
             let max_cv_selected = 300;
             let (chunk_validators, cv_stake_threshold) = select_validators(
@@ -79,15 +80,26 @@ pub fn proposals_to_epoch_info(
                 next_version,
             );
 
+            // Note that if there are too few validators and too many shards,
+            // assigning chunk producers to shards is more aggressive, so it
+            // is not enough to iterate over chunk validators.
+            // So unfortunately we have to look over all roles to get unselected
+            // proposals.
+            // TODO: must be simplified.
+            let max_validators_for_role = cmp::max(
+                chunk_producers.len(),
+                cmp::max(block_producers.len(), chunk_validators.len()),
+            );
+            let unselected_proposals = if chunk_producers.len() == max_validators_for_role {
+                chunk_producer_proposals
+            } else if block_producers.len() == max_validators_for_role {
+                block_producer_proposals
+            } else {
+                chunk_validator_proposals
+            };
             let threshold =
                 cmp::min(bp_stake_threshold, cmp::min(cp_stake_threshold, cv_stake_threshold));
-            (
-                chunk_validator_proposals,
-                block_producers,
-                chunk_producers,
-                chunk_validators,
-                threshold,
-            )
+            (unselected_proposals, chunk_producers, block_producers, chunk_validators, threshold)
         } else {
             old_validator_selection::select_validators_from_proposals(
                 epoch_config,
@@ -96,6 +108,8 @@ pub fn proposals_to_epoch_info(
             )
         };
 
+    println!("CPS: {:?}", chunk_producers);
+    println!("CVS: {:?}", chunk_validators);
     // Add kickouts for validators which fell out of validator set.
     // Used for querying epoch info by RPC.
     for OrderedValidatorStake(p) in unselected_proposals {
@@ -119,13 +133,30 @@ pub fn proposals_to_epoch_info(
     let (all_validators, validator_to_index, mut chunk_producers_settlement) =
         if checked_feature!("stable", StatelessValidationV0, next_version) {
             // Construct local validator indices.
+            // Note that if there are too few validators and too many shards,
+            // assigning chunk producers to shards is more aggressive, so it
+            // is not enough to iterate over chunk validators.
+            // We assign local indices in the order of roles priority and then
+            // in decreasing order of stake.
+            let max_validators_for_role = cmp::max(
+                chunk_producers.len(),
+                cmp::max(block_producers.len(), chunk_validators.len()),
+            );
             let mut all_validators: Vec<ValidatorStake> =
-                Vec::with_capacity(chunk_validators.len());
+                Vec::with_capacity(max_validators_for_role);
             let mut validator_to_index = HashMap::new();
-            for (i, validator) in chunk_validators.into_iter().enumerate() {
-                let id = i as ValidatorId;
-                validator_to_index.insert(validator.account_id().clone(), id);
-                all_validators.push(validator);
+            for validators_for_role in
+                [&chunk_producers, &block_producers, &chunk_validators].iter()
+            {
+                for validator in validators_for_role.iter() {
+                    let account_id = validator.account_id().clone();
+                    if validator_to_index.contains_key(&account_id) {
+                        continue;
+                    }
+                    let id = all_validators.len() as ValidatorId;
+                    validator_to_index.insert(account_id, id);
+                    all_validators.push(validator.clone());
+                }
             }
 
             // Assign chunk producers to shards.
@@ -142,6 +173,7 @@ pub fn proposals_to_epoch_info(
                 num_shards: shard_ids.len() as NumShards,
             })?;
 
+            println!("ASSIGN: {:?}", shard_assignment);
             let chunk_producers_settlement = shard_assignment
                 .into_iter()
                 .map(|vs| vs.into_iter().map(|v| validator_to_index[v.account_id()]).collect())
@@ -406,8 +438,8 @@ mod old_validator_selection {
 
         (
             chunk_producer_proposals,
-            block_producers,
             chunk_producers,
+            block_producers,
             vec![], // chunk validators are not used for older protocol versions
             threshold,
         )
