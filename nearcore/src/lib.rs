@@ -380,7 +380,7 @@ pub fn start_with_config_and_synchronization(
         chain_genesis.height,
         runtime.clone(),
         epoch_manager.clone(),
-        config.client_config.gc,
+        config.client_config.gc.clone(),
         config.client_config.archive,
     ));
 
@@ -475,7 +475,7 @@ pub fn start_with_config_and_synchronization(
             view_client_addr.clone().with_auto_span_context().into_multi_sender(),
             network_actor.into_multi_sender(),
             #[cfg(feature = "test_features")]
-            _gc_actor.into_multi_sender(),
+            _gc_actor.with_auto_span_context().into_multi_sender(),
             Arc::new(entity_debug_handler),
         ));
     }
