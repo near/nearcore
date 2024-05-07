@@ -134,7 +134,7 @@ base64 = "0.21"
 bencher = "0.1.5"
 bitflags = "1.2"
 blake2 = "0.9.1"
-blst = { git = "https://github.com/supranational/blst.git",  branch = "master" }
+blst = "0.3.11"
 bn = { package = "zeropool-bn", version = "0.5.11", default-features = false }
 # TODO: remove this override when https://github.com/camshaft/bolero/issues/196 is fixed upstream
 # Currently the changes here are: https://github.com/camshaft/bolero/compare/master...Ekleog-NEAR:bolero:reduce-list-tests-run
