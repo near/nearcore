@@ -23,16 +23,16 @@ pub trait Handler<M: actix::Message> {
 /// defined as actix::Context<Self> implements DelayedActionRunner<T>.
 /// Note that the implementer for hander of a message only needs to implement either of Handler or
 /// HandlerWithContext, not both.
-pub trait HandlerWithContext<T, M: actix::Message> {
-    fn handle(&mut self, msg: M, ctx: &mut dyn DelayedActionRunner<T>) -> M::Result;
+pub trait HandlerWithContext<M: actix::Message> {
+    fn handle(&mut self, msg: M, ctx: &mut dyn DelayedActionRunner<Self>) -> M::Result;
 }
 
-impl<A, T, M> HandlerWithContext<T, M> for A
+impl<A, M> HandlerWithContext<M> for A
 where
     M: actix::Message,
     A: Handler<M>,
 {
-    fn handle(&mut self, msg: M, _ctx: &mut dyn DelayedActionRunner<T>) -> M::Result {
+    fn handle(&mut self, msg: M, _ctx: &mut dyn DelayedActionRunner<Self>) -> M::Result {
         Handler::handle(self, msg)
     }
 }
