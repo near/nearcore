@@ -114,8 +114,11 @@ pub fn proposals_to_epoch_info(
     // account names to local indices throughout the epoch and vice versa, for
     // convenience of epoch manager.
     // Assign chunk producers to shards using local validator indices.
+    // TODO: this happens together because assigment logic is more subtle for
+    // older protocol versions, consider decoupling it.
     let (all_validators, validator_to_index, mut chunk_producers_settlement) =
         if checked_feature!("stable", StatelessValidationV0, next_version) {
+            // Construct local validator indices.
             let mut all_validators: Vec<ValidatorStake> =
                 Vec::with_capacity(chunk_validators.len());
             let mut validator_to_index = HashMap::new();
@@ -125,6 +128,7 @@ pub fn proposals_to_epoch_info(
                 all_validators.push(validator);
             }
 
+            // Assign chunk producers to shards.
             let num_chunk_producers = chunk_producers.len();
             let minimum_validators_per_shard =
                 epoch_config.validator_selection_config.minimum_validators_per_shard as usize;
@@ -516,12 +520,7 @@ mod old_validator_selection {
             })
             .collect();
 
-        Ok((
-            all_validators,
-            validator_to_index,
-            block_producers_settlement,
-            chunk_producers_settlement,
-        ))
+        Ok((all_validators, validator_to_index, chunk_producers_settlement))
     }
 }
 
