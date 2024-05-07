@@ -8,6 +8,10 @@ use std::fmt::{Debug, Display};
 use std::sync::Arc;
 use tokio::sync::oneshot;
 
+pub trait Actor {
+    fn start_actor(&mut self, _ctx: &mut dyn DelayedActionRunner<Self>) {}
+}
+
 /// Trait for handling a message.
 /// This works in unison with the [`CanSend`] trait. An actor implements the Handler trait for all
 /// messages it would like to handle, while the CanSend trait implements the logic to send the

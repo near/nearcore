@@ -4,7 +4,7 @@ use actix::Actor;
 use near_o11y::{handler_debug_span, WithSpanContext};
 
 use crate::futures::DelayedActionRunner;
-use crate::messaging::{Handler, HandlerWithContext};
+use crate::messaging;
 
 /// Wrapper on top of a generic actor to make it implement actix::Actor trait. The wrapped actor
 /// should implement the Handler trait for all the messages it would like to handle.
@@ -21,9 +21,13 @@ impl<T> ActixWrapper<T> {
 
 impl<T> actix::Actor for ActixWrapper<T>
 where
-    T: Unpin + 'static,
+    T: messaging::Actor + Unpin + 'static,
 {
     type Context = actix::Context<Self>;
+
+    fn started(&mut self, ctx: &mut Self::Context) {
+        self.actor.start_actor(ctx);
+    }
 }
 
 // Implementing Deref and DerefMut for the wrapped actor to allow access to the inner struct
@@ -45,7 +49,7 @@ impl<M, T> actix::Handler<WithSpanContext<M>> for ActixWrapper<T>
 where
     Self: actix::Actor,
     Self::Context: DelayedActionRunner<T>,
-    T: HandlerWithContext<M>,
+    T: messaging::HandlerWithContext<M>,
     M: actix::Message,
     <M as actix::Message>::Result: actix::dev::MessageResponse<ActixWrapper<T>, WithSpanContext<M>>,
 {
@@ -76,7 +80,7 @@ where
 impl<M, T> actix::Handler<WithSpanContext<M>> for SyncActixWrapper<T>
 where
     Self: actix::Actor,
-    T: Handler<M>,
+    T: messaging::Handler<M>,
     M: actix::Message,
     <M as actix::Message>::Result:
         actix::dev::MessageResponse<SyncActixWrapper<T>, WithSpanContext<M>>,
@@ -92,7 +96,7 @@ where
 /// Note that the actor should implement the Handler trait for all the messages it would like to handle.
 pub fn spawn_actix_actor<T>(actor: T) -> (actix::Addr<ActixWrapper<T>>, actix::ArbiterHandle)
 where
-    T: Unpin + Send + 'static,
+    T: messaging::Actor + Unpin + Send + 'static,
 {
     let actix_wrapper = ActixWrapper::new(actor);
     let arbiter = actix::Arbiter::new().handle();
