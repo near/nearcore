@@ -172,14 +172,15 @@ impl AllEpochConfig {
             }
             // Shuffle shard assignments every epoch, to trigger state sync more
             // frequently to exercise that code path.
-            if checked_feature!(
-                "stable",
-                StatelessnetShuffleShardAssignmentsForChunkProducers,
-                protocol_version
-            ) {
-                config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers =
-                    true;
-            }
+            // FORKNET only - DO NOT MERGE in master.
+            // if checked_feature!(
+            //     "stable",
+            //     StatelessnetShuffleShardAssignmentsForChunkProducers,
+            //     protocol_version
+            // ) {
+            //     config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers =
+            //         true;
+            // }
         }
     }
 
