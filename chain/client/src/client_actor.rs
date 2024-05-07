@@ -201,7 +201,6 @@ pub fn start_client(
 ) -> StartClientResult {
     let client_arbiter = Arbiter::new();
     let client_arbiter_handle = client_arbiter.handle();
-    let genesis_height = chain_genesis.height;
 
     wait_until_genesis(&chain_genesis.time);
     let client = Client::new(
