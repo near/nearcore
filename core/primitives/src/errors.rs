@@ -646,6 +646,8 @@ pub struct BalanceMismatchError {
     #[serde(with = "dec_format")]
     pub processed_delayed_receipts_balance: Balance,
     #[serde(with = "dec_format")]
+    pub processed_yield_timeout_receipts_balance: Balance,
+    #[serde(with = "dec_format")]
     pub initial_postponed_receipts_balance: Balance,
     // Output balances
     #[serde(with = "dec_format")]
@@ -672,6 +674,7 @@ impl Display for BalanceMismatchError {
             .saturating_add(self.initial_accounts_balance)
             .saturating_add(self.incoming_receipts_balance)
             .saturating_add(self.processed_delayed_receipts_balance)
+            .saturating_add(self.processed_yield_timeout_receipts_balance)
             .saturating_add(self.initial_postponed_receipts_balance);
         let final_balance = self
             .final_accounts_balance
@@ -689,6 +692,7 @@ impl Display for BalanceMismatchError {
              \tInitial accounts balance sum: {}\n\
              \tIncoming receipts balance sum: {}\n\
              \tProcessed delayed receipts balance sum: {}\n\
+             \tProcessed yield timeout receipts balance sum: {}\n\
              \tInitial postponed receipts balance sum: {}\n\
              Outputs:\n\
              \tFinal accounts balance sum: {}\n\
@@ -704,6 +708,7 @@ impl Display for BalanceMismatchError {
             self.initial_accounts_balance,
             self.incoming_receipts_balance,
             self.processed_delayed_receipts_balance,
+            self.processed_yield_timeout_receipts_balance,
             self.initial_postponed_receipts_balance,
             self.final_accounts_balance,
             self.outgoing_receipts_balance,
