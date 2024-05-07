@@ -52,7 +52,8 @@ pub fn proposals_to_epoch_info(
             };
 
             let mut chunk_producer_proposals = order_proposals(proposals.values().cloned());
-            let max_cp_selected = 100;
+            let max_cp_selected =
+                epoch_config.validator_selection_config.num_chunk_producer_seats as usize;
             let (chunk_producers, cp_stake_threshold) = select_chunk_producers(
                 &mut chunk_producer_proposals,
                 max_cp_selected,
@@ -71,7 +72,7 @@ pub fn proposals_to_epoch_info(
             );
 
             let mut chunk_validator_proposals = order_proposals(proposals.into_values());
-            let max_cv_selected = 300; // set to align with obsolete chunk-only producers number in mainnet
+            let max_cv_selected = 300; // set to align with obsolete number of chunk-only producers in mainnet
             let (chunk_validators, cv_stake_threshold) = select_validators(
                 &mut chunk_validator_proposals,
                 max_cv_selected,
@@ -611,6 +612,7 @@ mod tests {
             // purposely set the fishermen threshold high so that none become fishermen
             10_000,
             ValidatorSelectionConfig {
+                num_chunk_producer_seats: num_bp_seats + num_cp_seats,
                 num_chunk_only_producer_seats: num_cp_seats,
                 minimum_validators_per_shard: 1,
                 minimum_stake_ratio: Ratio::new(160, 1_000_000),
@@ -685,21 +687,32 @@ mod tests {
 
         // the old, low-stake proposals were not accepted
         let kickout = epoch_info.validator_kickout();
-        assert_eq!(kickout.len(), 2);
-        assert_eq!(
-            kickout.get(AccountIdRef::new_or_panic("test1")).unwrap(),
-            &ValidatorKickoutReason::NotEnoughStake { stake: test1_stake, threshold: 2011 },
-        );
-        assert_eq!(
-            kickout.get(AccountIdRef::new_or_panic("test2")).unwrap(),
-            &ValidatorKickoutReason::NotEnoughStake { stake: 2002, threshold: 2011 },
-        );
+        // For stateless validation, everyone is selected as chunk validator.
+        if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+            assert_eq!(kickout.len(), 0);
+        } else {
+            assert_eq!(kickout.len(), 2);
+            assert_eq!(
+                kickout.get(AccountIdRef::new_or_panic("test1")).unwrap(),
+                &ValidatorKickoutReason::NotEnoughStake { stake: test1_stake, threshold: 2011 },
+            );
+            assert_eq!(
+                kickout.get(AccountIdRef::new_or_panic("test2")).unwrap(),
+                &ValidatorKickoutReason::NotEnoughStake { stake: 2002, threshold: 2011 },
+            );
+        };
     }
 
     // Test that the chunk validators' shard assignments will be shuffled or not shuffled
     // depending on the `shuffle_shard_assignment_for_chunk_producers` flag.
     #[test]
     fn test_validator_assignment_with_chunk_only_producers_with_shard_shuffling() {
+        // Don't run test without stateless validation because it has slight
+        // changes in validator epoch indexing.
+        if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+            return;
+        }
+
         let num_bp_seats = 10;
         let num_cp_seats = 30;
         let mut epoch_config = create_epoch_config(
@@ -708,6 +721,7 @@ mod tests {
             // purposely set the fishermen threshold high so that none become fishermen
             10_000,
             ValidatorSelectionConfig {
+                num_chunk_producer_seats: num_bp_seats + num_cp_seats,
                 num_chunk_only_producer_seats: num_cp_seats,
                 minimum_validators_per_shard: 1,
                 minimum_stake_ratio: Ratio::new(160, 1_000_000),
@@ -774,45 +788,34 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            epoch_info_no_shuffling.chunk_producers_settlement(),
-            vec![
-                vec![0, 10, 11, 12, 13, 14, 15],
-                vec![1, 16, 17, 18, 19, 20, 21],
-                vec![2, 9, 22, 23, 24, 25, 26],
-                vec![3, 8, 27, 28, 29, 30, 31],
-                vec![4, 7, 32, 33, 34, 35],
-                vec![5, 6, 36, 37, 38, 39],
-            ],
-        );
+        let target_settlement = vec![
+            vec![0, 11, 12, 23, 24, 35, 36],
+            vec![1, 10, 13, 22, 25, 34, 37],
+            vec![2, 9, 14, 21, 26, 33, 38],
+            vec![3, 8, 15, 20, 27, 32, 39],
+            vec![4, 7, 16, 19, 28, 31],
+            vec![5, 6, 17, 18, 29, 30],
+        ];
+        assert_eq!(epoch_info_no_shuffling.chunk_producers_settlement(), target_settlement,);
 
         assert_eq!(
             epoch_info_no_shuffling.chunk_producers_settlement(),
             epoch_info_no_shuffling_different_seed.chunk_producers_settlement()
         );
 
-        assert_eq!(
-            epoch_info_with_shuffling.chunk_producers_settlement(),
-            vec![
-                vec![4, 7, 32, 33, 34, 35],
-                vec![2, 9, 22, 23, 24, 25, 26],
-                vec![1, 16, 17, 18, 19, 20, 21],
-                vec![0, 10, 11, 12, 13, 14, 15],
-                vec![5, 6, 36, 37, 38, 39],
-                vec![3, 8, 27, 28, 29, 30, 31],
-            ],
-        );
+        let shuffled_settlement = [4, 2, 1, 0, 5, 3]
+            .into_iter()
+            .map(|i| target_settlement[i].clone())
+            .collect::<Vec<_>>();
+        assert_eq!(epoch_info_with_shuffling.chunk_producers_settlement(), shuffled_settlement);
 
+        let shuffled_settlement = [3, 1, 0, 2, 5, 4]
+            .into_iter()
+            .map(|i| target_settlement[i].clone())
+            .collect::<Vec<_>>();
         assert_eq!(
             epoch_info_with_shuffling_different_seed.chunk_producers_settlement(),
-            vec![
-                vec![3, 8, 27, 28, 29, 30, 31],
-                vec![1, 16, 17, 18, 19, 20, 21],
-                vec![0, 10, 11, 12, 13, 14, 15],
-                vec![2, 9, 22, 23, 24, 25, 26],
-                vec![5, 6, 36, 37, 38, 39],
-                vec![4, 7, 32, 33, 34, 35],
-            ],
+            shuffled_settlement,
         );
     }
 
@@ -824,6 +827,7 @@ mod tests {
             2,
             0,
             ValidatorSelectionConfig {
+                num_chunk_producer_seats: 2,
                 num_chunk_only_producer_seats: 0,
                 minimum_validators_per_shard: 1,
                 minimum_stake_ratio: Ratio::new(160, 1_000_000),
@@ -865,6 +869,7 @@ mod tests {
             2 * num_shards,
             0,
             ValidatorSelectionConfig {
+                num_chunk_producer_seats: 2 * num_shards,
                 num_chunk_only_producer_seats: 0,
                 minimum_validators_per_shard: 1,
                 minimum_stake_ratio: Ratio::new(160, 1_000_000),
@@ -937,6 +942,7 @@ mod tests {
             2 * num_shards,
             0,
             ValidatorSelectionConfig {
+                num_chunk_producer_seats: 2 * num_shards,
                 num_chunk_only_producer_seats: 0,
                 minimum_validators_per_shard: 1,
                 // for example purposes, we choose a higher ratio than in production
@@ -1017,6 +1023,7 @@ mod tests {
             100,
             150,
             ValidatorSelectionConfig {
+                num_chunk_producer_seats: 300,
                 num_chunk_only_producer_seats: 300,
                 minimum_validators_per_shard: 1,
                 // for example purposes, we choose a higher ratio than in production

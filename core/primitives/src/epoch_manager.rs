@@ -281,6 +281,9 @@ impl AllEpochConfig {
 #[derive(Debug, Clone, SmartDefault, PartialEq, Eq)]
 pub struct ValidatorSelectionConfig {
     #[default(300)]
+    pub num_chunk_producer_seats: NumSeats,
+    // Deprecated, should be set to zero for future protocol versions.
+    #[default(300)]
     pub num_chunk_only_producer_seats: NumSeats,
     #[default(1)]
     pub minimum_validators_per_shard: NumSeats,
