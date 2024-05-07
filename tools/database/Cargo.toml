@@ -21,6 +21,7 @@ rayon.workspace = true
 rocksdb.workspace = true
 strum.workspace = true
 tempfile.workspace = true
+bytesize.workspace = true
 
 nearcore.workspace = true
 near-epoch-manager.workspace = true
