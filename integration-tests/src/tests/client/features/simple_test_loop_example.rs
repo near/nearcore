@@ -14,7 +14,7 @@ use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_loop::forward_client_request_to_shards_manager;
 use near_chunks::ShardsManager;
-use near_client::client_actions::{
+use near_client::client_actor::{
     ClientActorInner, ClientSenderForClientMessage, SyncJobsSenderForClientMessage,
 };
 use near_client::sync_jobs_actor::{ClientSenderForSyncJobsMessage, SyncJobsActor};

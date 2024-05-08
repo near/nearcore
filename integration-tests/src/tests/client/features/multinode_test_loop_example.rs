@@ -32,7 +32,7 @@ use near_chunks::test_loop::{
     route_shards_manager_network_messages,
 };
 use near_chunks::ShardsManager;
-use near_client::client_actions::{
+use near_client::client_actor::{
     ClientActorInner, ClientSenderForClientMessage, ClientSenderForPartialWitnessMessage,
     SyncJobsSenderForClientMessage,
 };

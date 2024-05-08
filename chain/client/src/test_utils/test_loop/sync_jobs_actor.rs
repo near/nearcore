@@ -1,4 +1,4 @@
-use crate::client_actions::SyncJobsSenderForClientMessage;
+use crate::client_actor::SyncJobsSenderForClientMessage;
 use crate::sync_jobs_actor::SyncJobsActor;
 use near_async::messaging::Handler;
 use near_async::test_loop::event_handler::LoopEventHandler;

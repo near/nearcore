@@ -3,7 +3,7 @@ pub mod partial_witness_actor;
 pub mod sync_actor;
 pub mod sync_jobs_actor;
 
-use crate::client_actions::{ClientActorInner, ClientSenderForPartialWitnessMessage};
+use crate::client_actor::{ClientActorInner, ClientSenderForPartialWitnessMessage};
 use near_async::messaging::{CanSend, Handler, SendAsync};
 use near_async::test_loop::delay_sender::DelaySender;
 use near_async::test_loop::event_handler::{LoopEventHandler, TryIntoOrSelf};

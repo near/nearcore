@@ -1,7 +1,7 @@
 //! Structs in this file are used for debug purposes, and might change at any time
 //! without backwards compatibility.
 use crate::chunk_inclusion_tracker::ChunkInclusionTracker;
-use crate::client_actions::ClientActorInner;
+use crate::client_actor::ClientActorInner;
 use near_async::messaging::Handler;
 use near_async::time::Clock;
 use near_chain::crypto_hash_timer::CryptoHashTimer;

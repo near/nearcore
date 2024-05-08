@@ -11,7 +11,7 @@ use near_primitives::stateless_validation::{EncodedChunkStateWitness, PartialEnc
 use near_primitives::types::{BlockHeight, ShardId};
 use reed_solomon_erasure::galois_8::ReedSolomon;
 
-use crate::client_actions::ClientSenderForPartialWitness;
+use crate::client_actor::ClientSenderForPartialWitness;
 
 /// Max number of chunks to keep in the witness tracker cache. We reach here only after validation
 /// of the partial_witness so the LRU cache size need not be too large.

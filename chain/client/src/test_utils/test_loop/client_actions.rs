@@ -1,4 +1,4 @@
-use crate::client_actions::{ClientActorInner, ClientSenderForClientMessage};
+use crate::client_actor::{ClientActorInner, ClientSenderForClientMessage};
 use crate::sync_jobs_actor::ClientSenderForSyncJobsMessage;
 use crate::SyncMessage;
 use near_async::messaging::Handler;
