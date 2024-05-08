@@ -219,6 +219,22 @@ ready. After they're ready, you can run `start-traffic`""".format(validators))
             args.genesis_protocol_version,
             genesis_time=genesis_time), all_nodes)
 
+    if args.stateless_setup:
+        logger.info('enabling in-memory trie in config')
+        pmap(
+            lambda node: do_update_config(
+                node, 'store.load_mem_tries_for_tracked_shards=true'), nodes)
+        logger.info('enabling save_latest_witnesses in config')
+        # TODO: it should be possible to update multiple keys in one RPC call so we dont have to make 2 round trips
+        pmap(lambda node: do_update_config(node, 'save_latest_witnesses=true'),
+             nodes)
+        if not args.local_test:
+            logger.info('updating tcp sysctl values')
+            pmap(
+                lambda node: node.run_cmd(
+                    "sudo sysctl -w net.core.rmem_max=8388608 && sudo sysctl -w net.core.wmem_max=8388608 && sudo sysctl -w net.ipv4.tcp_rmem='4096 87380 8388608' && sudo sysctl -w net.ipv4.tcp_wmem='4096 16384 8388608' && sudo sysctl -w net.ipv4.tcp_slow_start_after_idle=0"
+                ), nodes)
+
 
 def status_cmd(args, traffic_generator, nodes):
     all_nodes = nodes + [traffic_generator]
@@ -301,15 +317,19 @@ def stop_traffic_cmd(args, traffic_generator, nodes):
     traffic_generator.neard_runner_stop()
 
 
+def do_update_config(node, config_change):
+    result = node.neard_update_config(config_change)
+    if not result:
+        logger.warning(
+            f'failed updating config on {node.name()}. result: {result}')
+
+
 def update_config_cmd(args, traffic_generator, nodes):
     nodes = nodes + [traffic_generator]
-    results = pmap(
-        lambda node: node.neard_update_config(args.set),
+    pmap(
+        lambda node: do_update_config(node, args.set),
         nodes,
     )
-    if not all(results):
-        logger.warning('failed to update configs for some nodes')
-        return
 
 
 def start_nodes_cmd(args, traffic_generator, nodes):
@@ -431,6 +451,7 @@ if __name__ == '__main__':
     new_test_parser.add_argument('--num-validators', type=int)
     new_test_parser.add_argument('--num-seats', type=int)
     new_test_parser.add_argument('--genesis-protocol-version', type=int)
+    new_test_parser.add_argument('--stateless-setup', action='store_true')
     new_test_parser.add_argument('--yes', action='store_true')
     new_test_parser.set_defaults(func=new_test)
 

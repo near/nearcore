@@ -14,6 +14,7 @@ use near_chain_primitives::error::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::EpochManagerAdapter;
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
 #[cfg(feature = "new_epoch_sync")]
@@ -253,7 +254,7 @@ impl<'a> ChainUpdate<'a> {
                         balance_split
                     };
 
-                    if protocol_version >= ProtocolFeature::CongestionControl.protocol_version() {
+                    if ProtocolFeature::CongestionControl.enabled(protocol_version) {
                         // This will likely break resharding integration tests
                         // when congestion control is enabled. Let's mark them
                         // ignore when that happens.
@@ -761,8 +762,11 @@ impl<'a> ChainUpdate<'a> {
         // TODO(nikurt): Determine the value correctly.
         let is_first_block_with_chunk_of_version = false;
 
+        let prev_block = self.chain_store_update.get_block(block_header.prev_hash())?;
+
         let apply_result = self.runtime_adapter.apply_chunk(
             RuntimeStorageConfig::new(chunk_header.prev_state_root(), true),
+            ApplyChunkReason::UpdateTrackedShard,
             ApplyChunkShardContext {
                 shard_id,
                 gas_limit,
@@ -778,11 +782,7 @@ impl<'a> ChainUpdate<'a> {
                 gas_price,
                 challenges_result: block_header.challenges_result().clone(),
                 random_seed: *block_header.random_value(),
-                // TODO(congestion_control) The congestion info should be
-                // obtained from the previous block. However the previous block
-                // may not be available during state sync. This needs fixing!
-                // congestion_info: prev_block.shards_congestion_info(),
-                congestion_info: HashMap::new(),
+                congestion_info: prev_block.shards_congestion_info(),
             },
             &receipts,
             chunk.transactions(),
@@ -865,15 +865,16 @@ impl<'a> ChainUpdate<'a> {
             // Don't continue
             return Ok(false);
         }
-        let prev_block_header =
-            self.chain_store_update.get_block_header(block_header.prev_hash())?;
+        let prev_hash = block_header.prev_hash();
+        let prev_block = self.chain_store_update.get_block(prev_hash)?;
+        let prev_block_header = self.chain_store_update.get_block_header(prev_hash)?;
 
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, block_header.epoch_id())?;
-        let chunk_extra =
-            self.chain_store_update.get_chunk_extra(prev_block_header.hash(), &shard_uid)?;
+        let chunk_extra = self.chain_store_update.get_chunk_extra(prev_hash, &shard_uid)?;
 
         let apply_result = self.runtime_adapter.apply_chunk(
             RuntimeStorageConfig::new(*chunk_extra.state_root(), true),
+            ApplyChunkReason::UpdateTrackedShard,
             ApplyChunkShardContext {
                 shard_id,
                 last_validator_proposals: chunk_extra.validator_proposals(),
@@ -884,11 +885,7 @@ impl<'a> ChainUpdate<'a> {
             ApplyChunkBlockContext::from_header(
                 &block_header,
                 prev_block_header.next_gas_price(),
-                // TODO(congestion_control) The congestion info should be
-                // obtained from the previous block. However the previous block
-                // may not be available during state sync. This needs fixing!
-                // congestion_info: prev_block.shards_congestion_info(),
-                HashMap::new(),
+                prev_block.shards_congestion_info(),
             ),
             &[],
             &[],

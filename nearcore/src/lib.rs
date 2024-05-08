@@ -10,7 +10,7 @@ use actix_rt::ArbiterHandle;
 use anyhow::Context;
 use cold_storage::ColdStoreLoopHandle;
 use near_async::actix::AddrWithAutoSpanContextExt;
-use near_async::actix_wrapper::spawn_actix_actor;
+use near_async::actix_wrapper::{spawn_actix_actor, ActixWrapper};
 use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::time::{self, Clock};
 pub use near_chain::runtime::NightshadeRuntime;
@@ -23,10 +23,11 @@ use near_chain_configs::ReshardingHandle;
 use near_chain_configs::SyncConfig;
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
+use near_client::gc_actor::GCActor;
 use near_client::sync::adapter::SyncAdapter;
 use near_client::{
-    start_client, start_view_client, ClientActor, ConfigUpdater, PartialWitnessActor,
-    StartClientResult, ViewClientActor,
+    start_client, ClientActor, ConfigUpdater, PartialWitnessActor, StartClientResult,
+    ViewClientActor, ViewClientActorInner,
 };
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
@@ -303,7 +304,7 @@ pub fn start_with_config_and_synchronization(
 
     let cold_store_loop_handle = spawn_cold_store_loop(&config, &storage, epoch_manager.clone())?;
 
-    let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
+    let telemetry = ActixWrapper::new(TelemetryActor::new(config.telemetry_config.clone())).start();
     let chain_genesis = ChainGenesis::new(&config.genesis.config);
     let genesis_block =
         Chain::make_genesis_block(epoch_manager.as_ref(), runtime.as_ref(), &chain_genesis)?;
@@ -328,7 +329,7 @@ pub fn start_with_config_and_synchronization(
     let client_adapter_for_partial_witness_actor = LateBoundSender::new();
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
-    let view_client = start_view_client(
+    let view_client_addr = ViewClientActorInner::spawn_actix_actor(
         Clock::real(),
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
         chain_genesis.clone(),
@@ -340,16 +341,21 @@ pub fn start_with_config_and_synchronization(
         adv.clone(),
     );
 
-    let (state_snapshot_actor, state_snapshot_arbiter) = StateSnapshotActor::spawn(
+    let state_snapshot_sender = LateBoundSender::new();
+    let state_snapshot_actor = StateSnapshotActor::new(
         runtime.get_flat_storage_manager(),
         network_adapter.as_multi_sender(),
         runtime.get_tries(),
+        state_snapshot_sender.as_multi_sender(),
     );
-    let delete_snapshot_callback = get_delete_snapshot_callback(
-        state_snapshot_actor.clone().with_auto_span_context().into_multi_sender(),
+    let (state_snapshot_addr, state_snapshot_arbiter) = spawn_actix_actor(state_snapshot_actor);
+    state_snapshot_sender.bind(state_snapshot_addr.clone().with_auto_span_context());
+
+    let delete_snapshot_callback: Arc<dyn Fn() + Sync + Send> = get_delete_snapshot_callback(
+        state_snapshot_addr.clone().with_auto_span_context().into_multi_sender(),
     );
     let make_snapshot_callback = get_make_snapshot_callback(
-        state_snapshot_actor.with_auto_span_context().into_multi_sender(),
+        state_snapshot_addr.with_auto_span_context().into_multi_sender(),
         runtime.get_flat_storage_manager(),
     );
     let snapshot_callbacks = SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
@@ -369,16 +375,16 @@ pub fn start_with_config_and_synchronization(
         (None, None)
     };
 
-    let StartClientResult {
-        client_actor,
-        client_arbiter_handle,
-        resharding_handle,
-        gc_arbiter_handle,
-        #[cfg(feature = "test_features")]
-        gc_actor,
-        #[cfg(not(feature = "test_features"))]
-            gc_actor: _,
-    } = start_client(
+    let (_gc_actor, gc_arbiter) = spawn_actix_actor(GCActor::new(
+        runtime.store().clone(),
+        chain_genesis.height,
+        runtime.clone(),
+        epoch_manager.clone(),
+        config.client_config.gc.clone(),
+        config.client_config.archive,
+    ));
+
+    let StartClientResult { client_actor, client_arbiter_handle, resharding_handle } = start_client(
         Clock::real(),
         config.client_config.clone(),
         chain_genesis.clone(),
@@ -390,7 +396,7 @@ pub fn start_with_config_and_synchronization(
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         config.validator_signer.clone(),
-        telemetry,
+        telemetry.with_auto_span_context().into_sender(),
         Some(snapshot_callbacks),
         shutdown_signal,
         adv,
@@ -443,7 +449,7 @@ pub fn start_with_config_and_synchronization(
         time::Clock::real(),
         storage.into_inner(near_store::Temperature::Hot),
         config.network_config,
-        client_sender_for_network(client_actor.clone(), view_client.clone()),
+        client_sender_for_network(client_actor.clone(), view_client_addr.clone()),
         shards_manager_adapter.as_sender(),
         partial_witness_actor
             .map(|actor| actor.with_auto_span_context().into_multi_sender())
@@ -466,10 +472,10 @@ pub fn start_with_config_and_synchronization(
             rpc_config,
             config.genesis.config.clone(),
             client_actor.clone().with_auto_span_context().into_multi_sender(),
-            view_client.clone().with_auto_span_context().into_multi_sender(),
+            view_client_addr.clone().with_auto_span_context().into_multi_sender(),
             network_actor.into_multi_sender(),
             #[cfg(feature = "test_features")]
-            gc_actor.into_multi_sender(),
+            _gc_actor.with_auto_span_context().into_multi_sender(),
             Arc::new(entity_debug_handler),
         ));
     }
@@ -483,7 +489,7 @@ pub fn start_with_config_and_synchronization(
                 config.genesis,
                 genesis_block.header().hash(),
                 client_actor.clone(),
-                view_client.clone(),
+                view_client_addr.clone(),
             ),
         ));
     }
@@ -497,7 +503,7 @@ pub fn start_with_config_and_synchronization(
         shards_manager_arbiter_handle,
         trie_metrics_arbiter,
         state_snapshot_arbiter,
-        gc_arbiter_handle,
+        gc_arbiter,
     ];
     if let Some(db_metrics_arbiter) = db_metrics_arbiter {
         arbiters.push(db_metrics_arbiter);
@@ -508,7 +514,7 @@ pub fn start_with_config_and_synchronization(
 
     Ok(NearNode {
         client: client_actor,
-        view_client,
+        view_client: view_client_addr,
         rpc_servers,
         arbiters,
         cold_store_loop_handle,

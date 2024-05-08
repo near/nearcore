@@ -517,16 +517,19 @@ impl InfoHelper {
         self.num_chunks_in_blocks_processed = 0;
         self.gas_used = 0;
 
-        self.telemetry_sender.send(TelemetryEvent::new(self.telemetry_info(
-            head,
-            sync_status,
-            node_id,
-            network_info,
-            client_config,
-            cpu_usage,
-            memory_usage,
-            is_validator,
-        )));
+        let telemetry_event = TelemetryEvent {
+            content: self.telemetry_info(
+                head,
+                sync_status,
+                node_id,
+                network_info,
+                client_config,
+                cpu_usage,
+                memory_usage,
+                is_validator,
+            ),
+        };
+        self.telemetry_sender.send(telemetry_event);
     }
 
     fn telemetry_info(

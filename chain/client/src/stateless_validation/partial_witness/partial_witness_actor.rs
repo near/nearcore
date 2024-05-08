@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use itertools::Itertools;
-use near_async::messaging::{CanSend, Handler, Sender};
+use near_async::messaging::{Actor, CanSend, Handler, Sender};
 use near_async::time::Clock;
 use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
 use near_chain::Error;
@@ -43,6 +43,8 @@ pub struct PartialWitnessActor {
     /// We keep one wrapper for each length of chunk_validators to avoid re-creating the encoder.
     rs_map: RsMap,
 }
+
+impl Actor for PartialWitnessActor {}
 
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
@@ -248,6 +250,8 @@ impl PartialWitnessActor {
         &mut self,
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
+        tracing::debug!(target: "stateless_validation", ?partial_witness, "Receive PartialEncodedStateWitnessMessage");
+
         // Validate the partial encoded state witness.
         self.validate_partial_encoded_state_witness(&partial_witness)?;
 

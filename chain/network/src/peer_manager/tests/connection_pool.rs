@@ -205,7 +205,7 @@ async fn owned_account_conflict() {
 
     let cfg1 = chain.make_config(rng);
     let mut cfg2 = chain.make_config(rng);
-    cfg2.validator = cfg1.validator.clone();
+    cfg2.validator.clone_from(&cfg1.validator);
 
     // Start 2 connections with the same account_key.
     // The second should be rejected.

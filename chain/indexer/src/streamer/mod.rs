@@ -228,7 +228,7 @@ pub async fn build_streamer_message(
             let receipt_ids_included: std::collections::HashSet<CryptoHash> =
                 chunk_non_local_receipts.iter().map(|receipt| receipt.receipt_id).collect();
             for outcome in &receipt_execution_outcomes {
-                if receipt_ids_included.get(&outcome.receipt.receipt_id).is_none() {
+                if !receipt_ids_included.contains(&outcome.receipt.receipt_id) {
                     restored_receipts.push(outcome.receipt.clone());
                 }
             }
