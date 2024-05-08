@@ -12,8 +12,8 @@ use near_chain::ChainGenesis;
 use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, GenesisRecords};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
+use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_chunks::test_loop::forward_client_request_to_shards_manager;
-use near_chunks::ShardsManagerActor;
 use near_client::client_actions::{
     ClientActions, ClientSenderForClientMessage, SyncJobsSenderForClientMessage,
 };

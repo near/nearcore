@@ -46,7 +46,7 @@ use near_chunks::logic::{
     cares_about_shard_this_or_next_epoch, decode_encoded_chunk,
     get_shards_cares_about_this_or_next_epoch, persist_chunk,
 };
-use near_chunks::ShardsManagerActor;
+use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client_primitives::debug::ChunkProduction;
 use near_client_primitives::types::{
     format_shard_sync_phase_per_shard, Error, ShardSyncDownload, ShardSyncStatus,

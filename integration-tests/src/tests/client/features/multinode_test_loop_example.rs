@@ -27,11 +27,11 @@ use near_chain_configs::{
 };
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
+use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_chunks::test_loop::{
     forward_client_request_to_shards_manager, forward_network_request_to_shards_manager,
     route_shards_manager_network_messages,
 };
-use near_chunks::ShardsManagerActor;
 use near_client::client_actions::{
     ClientActions, ClientSenderForClientMessage, ClientSenderForPartialWitnessMessage,
     SyncJobsSenderForClientMessage,

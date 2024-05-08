@@ -3,7 +3,7 @@ use near_async::time::Clock;
 use near_chain::validate::validate_challenge;
 use near_chain::{Block, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::Genesis;
-use near_chunks::ShardsManagerActor;
+use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::test_utils::{create_chunk, create_chunk_with_transactions, TestEnv};
 use near_client::{Client, ProcessTxResponse, ProduceChunkResult};
 use near_crypto::{InMemorySigner, KeyType};

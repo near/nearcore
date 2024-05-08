@@ -26,8 +26,8 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use crate::adapter::ShardsManagerRequestFromClient;
 use crate::client::ShardsManagerResponse;
+use crate::shards_manager_actor::ShardsManagerActor;
 use crate::test_loop::ShardsManagerResendChunkRequests;
-use crate::ShardsManagerActor;
 
 /// Deprecated. Use `MockChainForShardsManager`.
 pub struct ChunkTestFixture {

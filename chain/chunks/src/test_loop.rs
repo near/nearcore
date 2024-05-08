@@ -1,8 +1,8 @@
 use crate::{
     adapter::ShardsManagerRequestFromClient,
     logic::{cares_about_shard_this_or_next_epoch, make_outgoing_receipts_proofs},
+    shards_manager_actor::ShardsManagerActor,
     test_utils::{default_tip, tip},
-    ShardsManagerActor,
 };
 use near_async::test_loop::delay_sender::DelaySender;
 use near_async::time;

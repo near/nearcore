@@ -17,7 +17,7 @@ extern crate bencher;
 use bencher::{black_box, Bencher};
 use borsh::BorshSerialize;
 use near_chain::Chain;
-use near_chunks::ShardsManagerActor;
+use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;

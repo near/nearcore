@@ -24,9 +24,8 @@ use near_chain_configs::{
 };
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
-use near_chunks::shards_manager_actor::start_shards_manager;
+use near_chunks::shards_manager_actor::{start_shards_manager, ShardsManagerActor};
 use near_chunks::test_utils::SynchronousShardsManagerAdapter;
-use near_chunks::ShardsManagerActor;
 use near_crypto::{KeyType, PublicKey};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManagerAdapter;
