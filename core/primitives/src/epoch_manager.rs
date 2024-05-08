@@ -280,8 +280,10 @@ impl AllEpochConfig {
 /// algorithm.  See <https://github.com/near/NEPs/pull/167> for details.
 #[derive(Debug, Clone, SmartDefault, PartialEq, Eq)]
 pub struct ValidatorSelectionConfig {
-    #[default(300)]
+    #[default(100)]
     pub num_chunk_producer_seats: NumSeats,
+    #[default(300)]
+    pub num_chunk_validator_seats: NumSeats,
     // Deprecated, should be set to zero for future protocol versions.
     #[default(300)]
     pub num_chunk_only_producer_seats: NumSeats,

@@ -69,6 +69,10 @@ fn default_minimum_validators_per_shard() -> u64 {
 }
 
 fn default_num_chunk_producer_seats() -> u64 {
+    100
+}
+
+fn default_num_chunk_validator_seats() -> u64 {
     300
 }
 
@@ -194,11 +198,14 @@ pub struct GenesisConfig {
     /// in AllEpochConfig, and we want to have a way to test that code path. This flag is for that.
     /// If set to true, the node will use the same config override path as mainnet and testnet.
     pub use_production_config: bool,
+    #[serde(default = "default_num_chunk_producer_seats")]
+    #[default(100)]
     /// Number of chunk producers.
     /// Don't mess it up with chunk-only producers feature which is deprecated.
-    #[serde(default = "default_num_chunk_producer_seats")]
-    #[default(300)]
     pub num_chunk_producer_seats: NumSeats,
+    #[serde(default = "default_num_chunk_validator_seats")]
+    #[default(300)]
+    pub num_chunk_validator_seats: NumSeats,
 }
 
 impl GenesisConfig {
@@ -228,6 +235,7 @@ impl From<&GenesisConfig> for EpochConfig {
             shard_layout: config.shard_layout.clone(),
             validator_selection_config: near_primitives::epoch_manager::ValidatorSelectionConfig {
                 num_chunk_producer_seats: config.num_chunk_producer_seats,
+                num_chunk_validator_seats: config.num_chunk_validator_seats,
                 num_chunk_only_producer_seats: config.num_chunk_only_producer_seats,
                 minimum_validators_per_shard: config.minimum_validators_per_shard,
                 minimum_stake_ratio: config.minimum_stake_ratio,
