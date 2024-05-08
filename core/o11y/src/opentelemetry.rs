@@ -65,7 +65,7 @@ where
     let tracer = opentelemetry_otlp::new_pipeline()
         .tracing()
         .with_exporter(
-            opentelemetry_otlp::new_exporter().tonic().with_endpoint("http://34.32.208.68:5433"),
+            opentelemetry_otlp::new_exporter().tonic().with_endpoint("http://35.222.229.57:3030"),
         )
         .with_trace_config(
             trace::config()
