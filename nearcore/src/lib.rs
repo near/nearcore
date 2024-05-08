@@ -25,8 +25,8 @@ use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::sync::adapter::SyncAdapter;
 use near_client::{
-    start_client, start_view_client, ClientActor, ConfigUpdater, PartialWitnessActor,
-    StartClientResult, ViewClientActor,
+    start_client, ClientActor, ConfigUpdater, PartialWitnessActor, StartClientResult,
+    ViewClientActor, ViewClientActorInner,
 };
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
@@ -328,7 +328,7 @@ pub fn start_with_config_and_synchronization(
     let client_adapter_for_partial_witness_actor = LateBoundSender::new();
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
-    let view_client = start_view_client(
+    let view_client_addr = ViewClientActorInner::spawn_actix_actor(
         Clock::real(),
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
         chain_genesis.clone(),
@@ -448,7 +448,7 @@ pub fn start_with_config_and_synchronization(
         time::Clock::real(),
         storage.into_inner(near_store::Temperature::Hot),
         config.network_config,
-        client_sender_for_network(client_actor.clone(), view_client.clone()),
+        client_sender_for_network(client_actor.clone(), view_client_addr.clone()),
         shards_manager_adapter.as_sender(),
         partial_witness_actor
             .map(|actor| actor.with_auto_span_context().into_multi_sender())
@@ -471,7 +471,7 @@ pub fn start_with_config_and_synchronization(
             rpc_config,
             config.genesis.config.clone(),
             client_actor.clone().with_auto_span_context().into_multi_sender(),
-            view_client.clone().with_auto_span_context().into_multi_sender(),
+            view_client_addr.clone().with_auto_span_context().into_multi_sender(),
             network_actor.into_multi_sender(),
             #[cfg(feature = "test_features")]
             gc_actor.into_multi_sender(),
@@ -488,7 +488,7 @@ pub fn start_with_config_and_synchronization(
                 config.genesis,
                 genesis_block.header().hash(),
                 client_actor.clone(),
-                view_client.clone(),
+                view_client_addr.clone(),
             ),
         ));
     }
@@ -513,7 +513,7 @@ pub fn start_with_config_and_synchronization(
 
     Ok(NearNode {
         client: client_actor,
-        view_client,
+        view_client: view_client_addr,
         rpc_servers,
         arbiters,
         cold_store_loop_handle,

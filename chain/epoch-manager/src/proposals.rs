@@ -45,10 +45,10 @@ pub fn proposals_to_epoch_info(
     validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
     validator_reward: HashMap<AccountId, Balance>,
     minted_amount: Balance,
+    current_version: ProtocolVersion,
     next_version: ProtocolVersion,
-    last_epoch_version: ProtocolVersion,
 ) -> Result<EpochInfo, EpochError> {
-    if checked_feature!("stable", AliasValidatorSelectionAlgorithm, last_epoch_version) {
+    if checked_feature!("stable", AliasValidatorSelectionAlgorithm, current_version) {
         return crate::validator_selection::proposals_to_epoch_info(
             epoch_config,
             rng_seed,
@@ -57,8 +57,8 @@ pub fn proposals_to_epoch_info(
             validator_kickout,
             validator_reward,
             minted_amount,
+            current_version,
             next_version,
-            last_epoch_version,
         );
     } else {
         return old_validator_selection::proposals_to_epoch_info(

@@ -7,6 +7,7 @@ use near_chain_configs::ReshardingConfig;
 use near_chain_primitives::Error;
 pub use near_epoch_manager::EpochManagerAdapter;
 use near_pool::types::TransactionGroupIterator;
+use near_primitives::apply::ApplyChunkReason;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::challenge::{ChallengesResult, PartialState};
 use near_primitives::checked_feature;
@@ -450,6 +451,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn apply_chunk(
         &self,
         storage: RuntimeStorageConfig,
+        apply_reason: ApplyChunkReason,
         chunk: ApplyChunkShardContext,
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],
