@@ -19,4 +19,14 @@ services:
       ME_CONFIG_MONGODB_URL: mongodb://root:insecure@mongo:27017/
       ME_CONFIG_BASICAUTH: "false"
 
-  # TODO: add services for collector and querier.
+  collector:
+    build: .
+    ports:
+      - 4317:4317
+    command: /app/near-tracing collector --mongodb-uri=mongodb://root:insecure@mongo:27017/
+  
+  querier:
+    build: .
+    ports:
+      - 8080:8080
+    command: /app/near-tracing querier --mongodb-uri=mongodb://root:insecure@mongo:27017/

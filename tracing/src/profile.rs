@@ -205,6 +205,7 @@ pub struct MarkerSchema {}
 pub type MarkerPayload = HashMap<String, String>;
 pub type MarkerPhase = u8;
 
+#[derive(Default)]
 pub struct StringTableBuilder {
     strings: Vec<String>,
     existing: HashMap<String, usize>,
@@ -212,7 +213,7 @@ pub struct StringTableBuilder {
 
 impl StringTableBuilder {
     pub fn new() -> Self {
-        StringTableBuilder { strings: Vec::new(), existing: HashMap::new() }
+        Self::default()
     }
 
     pub fn insert(&mut self, string: &str) -> usize {

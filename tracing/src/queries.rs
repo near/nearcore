@@ -59,14 +59,10 @@ impl QueryFilter {
         let mut node_name = "(unknown)".to_owned();
         for attr in &resource.attributes {
             if attr.key == "service.name" {
-                match &attr.value {
-                    Some(value) => match &value.value {
-                        Some(Value::StringValue(value)) => {
-                            node_name = value.clone();
-                        }
-                        _ => {}
-                    },
-                    _ => {}
+                if let Some(value) = &attr.value {
+                    if let Some(Value::StringValue(value)) = &value.value {
+                        node_name.clone_from(value);
+                    }
                 }
             }
         }
@@ -74,14 +70,10 @@ impl QueryFilter {
         let mut thread_id = -1;
         for attr in &span.attributes {
             if attr.key == "thread.id" {
-                match &attr.value {
-                    Some(value) => match &value.value {
-                        Some(Value::IntValue(value)) => {
-                            thread_id = *value;
-                        }
-                        _ => {}
-                    },
-                    _ => {}
+                if let Some(value) = &attr.value {
+                    if let Some(Value::IntValue(value)) = &value.value {
+                        thread_id = *value;
+                    }
                 }
             }
         }
@@ -120,7 +112,7 @@ async fn raw_trace(
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))?
             .data
             .bytes;
-        let request = ExportTraceServiceRequest::decode(&chunk_bytes.as_slice()[..])
+        let request = ExportTraceServiceRequest::decode(chunk_bytes.as_slice())
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))?;
         result.push(request);
     }
@@ -151,7 +143,7 @@ async fn profile(
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))?
             .data
             .bytes;
-        let request = ExportTraceServiceRequest::decode(&chunk_bytes.as_slice()[..])
+        let request = ExportTraceServiceRequest::decode(chunk_bytes.as_slice())
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))?;
         for resource_span in request.resource_spans {
             if let Some(resource) = resource_span.resource {
