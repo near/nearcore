@@ -7,26 +7,29 @@ services:
     environment:
       MONGO_INITDB_ROOT_USERNAME: root
       MONGO_INITDB_ROOT_PASSWORD: insecure
+    volumes:
+      - ${MONGO_DATA_DIR:-./tracing-data}:/data/db
 
   mongo-express:
     image: mongo-express
     restart: always
     ports:
-      - 8081:8081
+      - ${MONGO_EXPRESS_PORT:-8081}:8081
     environment:
       ME_CONFIG_MONGODB_ADMINUSERNAME: root
       ME_CONFIG_MONGODB_ADMINPASSWORD: example
       ME_CONFIG_MONGODB_URL: mongodb://root:insecure@mongo:27017/
       ME_CONFIG_BASICAUTH: "false"
+      ME_CONFIG_OPTIONS_READONLY: "true"
 
   collector:
     build: .
     ports:
-      - 4317:4317
+      - ${OTLP_PORT:-4317}:4317
     command: /app/near-tracing collector --mongodb-uri=mongodb://root:insecure@mongo:27017/
   
   querier:
     build: .
     ports:
-      - 8080:8080
+      - ${QUERY_PORT:-8080}:8080
     command: /app/near-tracing querier --mongodb-uri=mongodb://root:insecure@mongo:27017/
