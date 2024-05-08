@@ -130,11 +130,13 @@ pub trait TrieQueue {
             state_update.remove(key);
         }
 
-        self.indices_mut().first_index = indices
-            .first_index
-            .checked_add(to_remove)
-            .expect("first_index + to_remove should be < next_available_index");
-        self.write_indices(state_update);
+        if to_remove > 0 {
+            self.indices_mut().first_index = indices
+                .first_index
+                .checked_add(to_remove)
+                .expect("first_index + to_remove should be < next_available_index");
+            self.write_indices(state_update);
+        }
         Ok(to_remove)
     }
 
@@ -215,18 +217,7 @@ impl ShardsOutgoingReceiptBuffer {
     }
 
     fn write_indices(&self, state_update: &mut TrieUpdate) {
-        // A default buffer is displayed as not being there at all. This makes an
-        // empty trie and one with the default `ShardsOutgoingReceiptBuffer`,
-        // which are loaded as equivalent, produce the same trie root hash.
-        // TODO(congestion_control) - Figure out if we need this. It's tricky,
-        // if we write back an empty map as a value, many tests fail because the
-        // trie root changes unexpectedly. But if we store it as empty, we have
-        // to be careful to no re-compute it unnecessarily.
-        if self.shards_indices.shard_buffers.values().all(TrieQueueIndices::is_default) {
-            state_update.remove(TrieKey::BufferedReceiptIndices);
-        } else {
-            set(state_update, TrieKey::BufferedReceiptIndices, &self.shards_indices);
-        }
+        set(state_update, TrieKey::BufferedReceiptIndices, &self.shards_indices);
     }
 }
 
