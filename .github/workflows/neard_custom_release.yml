@@ -54,7 +54,7 @@ jobs:
           if [ -z "$BRANCH" ]; then
             BRANCH=$(git branch -r --contains=${{ github.ref_name }} | head -n1 | cut -c3- | cut -d / -f 2)
           fi
-          aws s3 cp --acl public-read latest s3://build.nearprotocol.com/nearcore/$(uname)/${BRANCH}/latest
+          aws s3 cp --acl public-read latest s3://build.nearprotocol.com/nearcore/$(uname)/${BRANCH}/${{ github.event.inputs.release }}/latest
 
   docker-release:
     name: "Build and publish nearcore Docker image"
