@@ -190,7 +190,8 @@ def _apply_stateless_config(args, node):
     # TODO: it should be possible to update multiple keys in one RPC call so we dont have to make multiple round trips
     do_update_config(
         node, 'store.load_mem_tries_for_tracked_shards=true')
-    do_update_config(node, 'save_latest_witnesses=true')
+    # TODO: Enable saving witness after fixing the performance problems.
+    do_update_config(node, 'save_latest_witnesses=false')
     do_update_config(node, 'tracked_shards=[]')
     if not args.local_test:
         node.run_cmd(
