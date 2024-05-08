@@ -174,16 +174,14 @@ impl PartialWitnessActor {
         ));
     }
 
-    // Break the state witness into parts and send each part to the corresponding chunk validator owner.
-    // The chunk validator owner will then forward the part to all other chunk validators.
-    // Each chunk validator would collect the parts and reconstruct the state witness.
-    fn send_state_witness_parts(
+    // Function to generate the parts of the state witness and return them as a tuple of chunk_validator and part.
+    fn generate_state_witness_parts(
         &mut self,
         epoch_id: EpochId,
         chunk_header: ShardChunkHeader,
         witness_bytes: EncodedChunkStateWitness,
         chunk_validators: Vec<AccountId>,
-    ) -> Result<(), Error> {
+    ) -> Vec<(AccountId, PartialEncodedStateWitness)> {
         // Break the state witness into parts using Reed Solomon encoding.
         let rs = self.rs_map.entry(chunk_validators.len());
 
@@ -196,7 +194,7 @@ impl PartialWitnessActor {
             ),
         };
 
-        let validator_witness_tuple = chunk_validators
+        chunk_validators
             .iter()
             .zip_eq(parts)
             .enumerate()
@@ -213,7 +211,31 @@ impl PartialWitnessActor {
                 );
                 (chunk_validator.clone(), partial_witness)
             })
-            .collect_vec();
+            .collect_vec()
+    }
+
+    // Break the state witness into parts and send each part to the corresponding chunk validator owner.
+    // The chunk validator owner will then forward the part to all other chunk validators.
+    // Each chunk validator would collect the parts and reconstruct the state witness.
+    fn send_state_witness_parts(
+        &mut self,
+        epoch_id: EpochId,
+        chunk_header: ShardChunkHeader,
+        witness_bytes: EncodedChunkStateWitness,
+        chunk_validators: Vec<AccountId>,
+    ) -> Result<(), Error> {
+        // Record time taken to encode the state witness parts.
+        let shard_id_label = chunk_header.shard_id().to_string();
+        let encode_timer = metrics::PARTIAL_WITNESS_ENCODE_TIME
+            .with_label_values(&[shard_id_label.as_str()])
+            .start_timer();
+        let validator_witness_tuple = self.generate_state_witness_parts(
+            epoch_id,
+            chunk_header,
+            witness_bytes,
+            chunk_validators.clone(),
+        );
+        encode_timer.observe_duration();
 
         // Since we can't send network message to ourselves, we need to send the PartialEncodedStateWitnessForward
         // message for our part.
