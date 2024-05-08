@@ -176,7 +176,7 @@ impl PartialWitnessActor {
 
     // Function to generate the parts of the state witness and return them as a tuple of chunk_validator and part.
     fn generate_state_witness_parts(
-        &self,
+        &mut self,
         epoch_id: EpochId,
         chunk_header: ShardChunkHeader,
         witness_bytes: EncodedChunkStateWitness,
@@ -230,9 +230,9 @@ impl PartialWitnessActor {
             .with_label_values(&[shard_id_label.as_str()])
             .start_timer();
         let validator_witness_tuple = self.generate_state_witness_parts(
-            epoch_id.clone(),
-            chunk_header.clone(),
-            witness_bytes.clone(),
+            epoch_id,
+            chunk_header,
+            witness_bytes,
             chunk_validators.clone(),
         );
         encode_timer.observe_duration();
