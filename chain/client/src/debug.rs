@@ -1,8 +1,8 @@
 //! Structs in this file are used for debug purposes, and might change at any time
 //! without backwards compatibility.
 use crate::chunk_inclusion_tracker::ChunkInclusionTracker;
-use crate::ClientActor;
-use actix::{Context, Handler};
+use crate::client_actions::ClientActorInner;
+use near_async::messaging::Handler;
 use near_async::time::Clock;
 use near_chain::crypto_hash_timer::CryptoHashTimer;
 use near_chain::{near_chain_primitives, Chain, ChainStoreAccess};
@@ -16,7 +16,7 @@ use near_client_primitives::{
     types::StatusError,
 };
 use near_epoch_manager::EpochManagerAdapter;
-use near_o11y::{handler_debug_span, log_assert, WithSpanContext};
+use near_o11y::log_assert;
 use near_performance_metrics_macros::perf;
 use near_primitives::state_sync::get_num_state_parts;
 use near_primitives::types::{AccountId, BlockHeight, NumShards, ShardId, ValidatorInfoIdentifier};
@@ -146,16 +146,9 @@ impl BlockProductionTracker {
     }
 }
 
-impl Handler<WithSpanContext<DebugStatus>> for ClientActor {
-    type Result = Result<DebugStatusResponse, StatusError>;
-
+impl Handler<DebugStatus> for ClientActorInner {
     #[perf]
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<DebugStatus>,
-        _ctx: &mut Context<Self>,
-    ) -> Self::Result {
-        let (_span, msg) = handler_debug_span!(target: "client", msg);
+    fn handle(&mut self, msg: DebugStatus) -> Result<DebugStatusResponse, StatusError> {
         match msg {
             DebugStatus::SyncStatus => {
                 Ok(DebugStatusResponse::SyncStatus(self.client.sync_status.clone().into()))
@@ -185,7 +178,7 @@ impl Handler<WithSpanContext<DebugStatus>> for ClientActor {
     }
 }
 
-impl ClientActor {
+impl ClientActorInner {
     // Gets a list of block producers and chunk-only producers for a given epoch.
     fn get_producers_for_epoch(
         &self,

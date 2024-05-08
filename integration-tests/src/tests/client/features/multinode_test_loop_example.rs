@@ -33,7 +33,7 @@ use near_chunks::test_loop::{
 };
 use near_chunks::ShardsManager;
 use near_client::client_actions::{
-    ClientActions, ClientSenderForClientMessage, ClientSenderForPartialWitnessMessage,
+    ClientActorInner, ClientSenderForClientMessage, ClientSenderForPartialWitnessMessage,
     SyncJobsSenderForClientMessage,
 };
 use near_client::sync::sync_actor::SyncActor;
@@ -94,7 +94,7 @@ use std::sync::{Arc, Mutex, RwLock};
 struct TestData {
     pub dummy: (),
     pub account: AccountId,
-    pub client: ClientActions,
+    pub client: ClientActorInner,
     pub sync_jobs: SyncJobsActor,
     pub shards_manager: ShardsManager,
     pub partial_witness: PartialWitnessActor,
@@ -126,7 +126,7 @@ enum TestEvent {
     AsyncComputation(TestLoopAsyncComputationEvent),
 
     /// Allows delayed actions to be posted, as if ClientActor scheduled them, e.g. timers.
-    ClientDelayedActions(TestLoopDelayedActionEvent<ClientActions>),
+    ClientDelayedActions(TestLoopDelayedActionEvent<ClientActorInner>),
     /// Allows delayed actions to be posted, as if ShardsManagerActor scheduled them, e.g. timers.
     ShardsManagerDelayedActions(TestLoopDelayedActionEvent<ShardsManager>),
     /// Allows delayed actions to be posted, as if SyncJobsActor scheduled them, e.g. timers.
@@ -371,7 +371,7 @@ fn test_client_with_multi_test_loop() {
             client.chain.header_head().unwrap(),
         );
 
-        let client_actions = ClientActions::new(
+        let client_actions = ClientActorInner::new(
             builder.clock(),
             client,
             builder
@@ -446,7 +446,7 @@ fn test_client_with_multi_test_loop() {
         test.register_handler(drive_async_computations().widen().for_index(idx));
 
         // Delayed actions.
-        test.register_delayed_action_handler_for_index::<ClientActions>(idx);
+        test.register_delayed_action_handler_for_index::<ClientActorInner>(idx);
         test.register_delayed_action_handler_for_index::<ShardsManager>(idx);
 
         // Messages to the client.

@@ -5,11 +5,12 @@
 //! Unfortunately, this is not the case today. We are in the process of refactoring ClientActor
 //! https://github.com/near/nearcore/issues/7899
 
-use actix::{Actor, Addr, AsyncContext, Context, Handler};
+use actix::{Actor, Addr};
 use actix_rt::{Arbiter, ArbiterHandle};
 use near_async::actix::AddrWithAutoSpanContextExt;
+use near_async::actix_wrapper::ActixWrapper;
 use near_async::futures::ActixArbiterHandleFutureSpawner;
-use near_async::messaging::{IntoMultiSender, Sender};
+use near_async::messaging::{IntoMultiSender, LateBoundSender, Sender};
 use near_async::time::Utc;
 use near_async::time::{Clock, Duration};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
@@ -18,131 +19,22 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::ChainGenesis;
 use near_chain_configs::{ClientConfig, ReshardingHandle};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
-use near_client_primitives::types::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManagerAdapter, RngSeed};
 use near_network::types::PeerManagerAdapter;
-use near_o11y::{handler_debug_span, WithSpanContext};
 use near_primitives::network::PeerId;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_telemetry::TelemetryEvent;
 use rand::Rng;
-use std::fmt::Debug;
-use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, RwLock};
 use tokio::sync::broadcast;
 
-use crate::client_actions::{ClientActionHandler, ClientActions, ClientSenderForClient};
+use crate::client_actions::{ClientActorInner, ClientSenderForClient};
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
-use crate::sync_jobs_actor::SyncJobsActor;
-use crate::{metrics, Client, ConfigUpdater, SyncAdapter};
+use crate::sync_jobs_actor::{ClientSenderForSyncJobs, SyncJobsActor};
+use crate::{Client, ConfigUpdater, SyncAdapter};
 
-pub struct ClientActor {
-    actions: ClientActions,
-}
-
-impl Deref for ClientActor {
-    type Target = ClientActions;
-    fn deref(&self) -> &ClientActions {
-        &self.actions
-    }
-}
-
-impl DerefMut for ClientActor {
-    fn deref_mut(&mut self) -> &mut ClientActions {
-        &mut self.actions
-    }
-}
-
-impl ClientActor {
-    pub fn new(
-        clock: Clock,
-        client: Client,
-        myself_sender: ClientSenderForClient,
-        config: ClientConfig,
-        node_id: PeerId,
-        network_adapter: PeerManagerAdapter,
-        validator_signer: Option<Arc<dyn ValidatorSigner>>,
-        telemetry_sender: Sender<TelemetryEvent>,
-        ctx: &Context<ClientActor>,
-        shutdown_signal: Option<broadcast::Sender<()>>,
-        adv: crate::adversarial::Controls,
-        config_updater: Option<ConfigUpdater>,
-    ) -> Result<Self, Error> {
-        let self_addr = ctx.address();
-        let self_addr_clone = self_addr;
-
-        let sync_jobs_actor =
-            SyncJobsActor::new(self_addr_clone.with_auto_span_context().into_multi_sender());
-        let (sync_jobs_actor_addr, state_parts_arbiter) = sync_jobs_actor.spawn_actix_actor();
-        let actions = ClientActions::new(
-            clock,
-            client,
-            myself_sender,
-            config,
-            node_id,
-            network_adapter,
-            validator_signer,
-            telemetry_sender,
-            shutdown_signal,
-            adv,
-            config_updater,
-            sync_jobs_actor_addr.with_auto_span_context().into_multi_sender(),
-            Box::new(ActixArbiterHandleFutureSpawner(state_parts_arbiter)),
-        )?;
-        Ok(Self { actions })
-    }
-
-    // NOTE: Do not add any more functionality to ClientActor. Add to ClientActions instead.
-}
-
-impl Actor for ClientActor {
-    type Context = Context<Self>;
-
-    fn started(&mut self, ctx: &mut Self::Context) {
-        self.actions.start(ctx);
-    }
-}
-
-impl ClientActor {
-    /// Wrapper for processing actix message which must be called after receiving it.
-    ///
-    /// Due to a bug in Actix library, while there are messages in mailbox, Actix
-    /// will prioritize processing messages until mailbox is empty. In such case execution
-    /// of any other task scheduled with `run_later` will be delayed. At the same time,
-    /// we have several important functions which have to be called regularly, so we put
-    /// these calls into `check_triggers` and call it here as a quick hack.
-    fn wrap<Req: std::fmt::Debug + actix::Message, Res>(
-        &mut self,
-        msg: WithSpanContext<Req>,
-        ctx: &mut Context<Self>,
-        msg_type: &str,
-        f: impl FnOnce(&mut Self, Req, &mut Context<Self>) -> Res,
-    ) -> Res {
-        let (_span, msg) = handler_debug_span!(target: "client", msg, msg_type);
-        self.actions.check_triggers(ctx);
-        let _span_inner = tracing::debug_span!(target: "client", "NetworkClientMessage").entered();
-        metrics::CLIENT_MESSAGES_COUNT.with_label_values(&[msg_type]).inc();
-        let timer =
-            metrics::CLIENT_MESSAGES_PROCESSING_TIME.with_label_values(&[msg_type]).start_timer();
-        let res = f(self, msg, ctx);
-        timer.observe_duration();
-        res
-    }
-}
-
-impl<T> Handler<WithSpanContext<T>> for ClientActor
-where
-    T: actix::Message + Debug,
-    ClientActions: ClientActionHandler<T, Result = T::Result>,
-    T::Result: actix::dev::MessageResponse<ClientActor, WithSpanContext<T>>,
-{
-    type Result = T::Result;
-
-    fn handle(&mut self, msg: WithSpanContext<T>, ctx: &mut Context<Self>) -> Self::Result {
-        self.wrap(msg, ctx, std::any::type_name::<T>(), |this, msg, _| this.actions.handle(msg))
-    }
-}
+pub type ClientActor = ActixWrapper<ClientActorInner>;
 
 /// Returns random seed sampled from the current thread
 fn random_seed_from_thread() -> RngSeed {
@@ -193,6 +85,8 @@ pub fn start_client(
     adv: crate::adversarial::Controls,
     config_updater: Option<ConfigUpdater>,
     partial_witness_adapter: PartialWitnessSenderForClient,
+    enable_doomslug: bool,
+    seed: Option<RngSeed>,
 ) -> StartClientResult {
     let client_arbiter = Arbiter::new();
     let client_arbiter_handle = client_arbiter.handle();
@@ -209,8 +103,8 @@ pub fn start_client(
         network_adapter.clone(),
         shards_manager_adapter,
         validator_signer.clone(),
-        true,
-        random_seed_from_thread(),
+        enable_doomslug,
+        seed.unwrap_or_else(random_seed_from_thread),
         snapshot_callbacks,
         Arc::new(RayonAsyncComputationSpawner),
         partial_witness_adapter,
@@ -218,23 +112,35 @@ pub fn start_client(
     .unwrap();
     let resharding_handle = client.chain.resharding_handle.clone();
 
-    let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |ctx| {
-        ClientActor::new(
+    let client_sender_for_sync_jobs = LateBoundSender::<ClientSenderForSyncJobs>::new();
+    let sync_jobs_actor = SyncJobsActor::new(client_sender_for_sync_jobs.as_multi_sender());
+    let (sync_jobs_actor_addr, sync_jobs_arbiter) = sync_jobs_actor.spawn_actix_actor();
+
+    let client_sender_for_client = LateBoundSender::<ClientSenderForClient>::new();
+    let client_sender_for_client_clone = client_sender_for_client.clone();
+    let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |_| {
+        let client_actor_inner = ClientActorInner::new(
             clock,
             client,
-            ctx.address().with_auto_span_context().into_multi_sender(),
+            client_sender_for_client_clone.as_multi_sender(),
             client_config,
             node_id,
             network_adapter,
             validator_signer,
             telemetry_sender,
-            ctx,
             sender,
             adv,
             config_updater,
+            sync_jobs_actor_addr.with_auto_span_context().into_multi_sender(),
+            Box::new(ActixArbiterHandleFutureSpawner(sync_jobs_arbiter)),
         )
-        .unwrap()
+        .unwrap();
+        ActixWrapper::new(client_actor_inner)
     });
+
+    client_sender_for_sync_jobs
+        .bind(client_addr.clone().with_auto_span_context().into_multi_sender());
+    client_sender_for_client.bind(client_addr.clone().with_auto_span_context().into_multi_sender());
 
     StartClientResult { client_actor: client_addr, client_arbiter_handle, resharding_handle }
 }

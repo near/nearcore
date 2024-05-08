@@ -14,6 +14,15 @@ use tokio::sync::oneshot;
 /// This corresponds to the actix::Actor trait `started` function.
 pub trait Actor {
     fn start_actor(&mut self, _ctx: &mut dyn DelayedActionRunner<Self>) {}
+
+    fn wrap_handler<M: actix::Message>(
+        &mut self,
+        msg: M,
+        ctx: &mut dyn DelayedActionRunner<Self>,
+        f: impl FnOnce(&mut Self, M, &mut dyn DelayedActionRunner<Self>) -> M::Result,
+    ) -> M::Result {
+        f(self, msg, ctx)
+    }
 }
 
 /// Trait for handling a message.
@@ -38,10 +47,10 @@ pub trait HandlerWithContext<M: actix::Message> {
 impl<A, M> HandlerWithContext<M> for A
 where
     M: actix::Message,
-    A: Handler<M>,
+    A: Actor + Handler<M>,
 {
-    fn handle(&mut self, msg: M, _ctx: &mut dyn DelayedActionRunner<Self>) -> M::Result {
-        Handler::handle(self, msg)
+    fn handle(&mut self, msg: M, ctx: &mut dyn DelayedActionRunner<Self>) -> M::Result {
+        self.wrap_handler(msg, ctx, |this, msg, _| Handler::handle(this, msg))
     }
 }
 

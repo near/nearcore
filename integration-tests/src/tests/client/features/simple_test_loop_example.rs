@@ -15,7 +15,7 @@ use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_loop::forward_client_request_to_shards_manager;
 use near_chunks::ShardsManager;
 use near_client::client_actions::{
-    ClientActions, ClientSenderForClientMessage, SyncJobsSenderForClientMessage,
+    ClientActorInner, ClientSenderForClientMessage, SyncJobsSenderForClientMessage,
 };
 use near_client::sync_jobs_actor::{ClientSenderForSyncJobsMessage, SyncJobsActor};
 use near_client::test_utils::test_loop::client_actions::{
@@ -47,7 +47,7 @@ use std::sync::{Arc, RwLock};
 #[derive(derive_more::AsMut, derive_more::AsRef)]
 struct TestData {
     pub dummy: (),
-    pub client: ClientActions,
+    pub client: ClientActorInner,
     pub sync_jobs: SyncJobsActor,
     pub shards_manager: ShardsManager,
 }
@@ -64,7 +64,7 @@ enum TestEvent {
     Task(Arc<TestLoopTask>),
     Adhoc(AdhocEvent<TestData>),
     AsyncComputation(TestLoopAsyncComputationEvent),
-    ClientDelayedActions(TestLoopDelayedActionEvent<ClientActions>),
+    ClientDelayedActions(TestLoopDelayedActionEvent<ClientActorInner>),
     SyncJobsDelayedActions(TestLoopDelayedActionEvent<SyncJobsActor>),
     ClientEventFromNetwork(ClientSenderForNetworkMessage),
     ClientEventFromClient(ClientSenderForClientMessage),
@@ -201,7 +201,7 @@ fn test_client_with_simple_test_loop() {
         client.chain.header_head().unwrap(),
     );
 
-    let client_actions = ClientActions::new(
+    let client_actions = ClientActorInner::new(
         builder.clock(),
         client,
         builder.sender().into_wrapped_multi_sender::<ClientSenderForClientMessage, _>(),
@@ -234,12 +234,12 @@ fn test_client_with_simple_test_loop() {
     test.register_handler(drive_futures().widen());
     test.register_handler(handle_adhoc_events::<TestData>().widen());
     test.register_handler(drive_async_computations().widen());
-    test.register_delayed_action_handler::<ClientActions>();
+    test.register_delayed_action_handler::<ClientActorInner>();
     test.register_handler(forward_client_request_to_shards_manager().widen());
     // TODO: handle additional events.
 
     let mut delayed_runner =
-        test.sender().into_delayed_action_runner::<ClientActions>(test.shutting_down());
+        test.sender().into_delayed_action_runner::<ClientActorInner>(test.shutting_down());
     test.sender().send_adhoc_event("start_client", move |data| {
         data.client.start(&mut delayed_runner);
     });

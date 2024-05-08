@@ -15,7 +15,7 @@ use crate::sync::adapter::{SyncMessage, SyncShardInfo};
 use crate::sync::state::{StateSync, StateSyncResult};
 use crate::{metrics, StatusResponse};
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawner};
-use near_async::messaging::{CanSend, Sender};
+use near_async::messaging::{Actor, CanSend, Handler, Sender};
 use near_async::time::{Clock, Utc};
 use near_async::time::{Duration, Instant};
 use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
@@ -109,7 +109,7 @@ macro_rules! unwrap_and_report_state_sync_result (($obj: expr) => (match $obj {
     }
 }));
 
-pub struct ClientActions {
+pub struct ClientActorInner {
     clock: Clock,
 
     /// Adversarial controls
@@ -152,7 +152,37 @@ pub struct ClientActions {
     config_updater: Option<ConfigUpdater>,
 }
 
-impl ClientActions {
+impl Actor for ClientActorInner {
+    fn start_actor(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
+        self.start(ctx);
+    }
+
+    /// Wrapper for processing actix message which must be called after receiving it.
+    ///
+    /// Due to a bug in Actix library, while there are messages in mailbox, Actix
+    /// will prioritize processing messages until mailbox is empty. In such case execution
+    /// of any other task scheduled with `run_later` will be delayed. At the same time,
+    /// we have several important functions which have to be called regularly, so we put
+    /// these calls into `check_triggers` and call it here as a quick hack.
+    fn wrap_handler<M: actix::Message>(
+        &mut self,
+        msg: M,
+        ctx: &mut dyn DelayedActionRunner<Self>,
+        f: impl FnOnce(&mut Self, M, &mut dyn DelayedActionRunner<Self>) -> M::Result,
+    ) -> M::Result {
+        self.check_triggers(ctx);
+        let _span = tracing::debug_span!(target: "client", "NetworkClientMessage").entered();
+        let msg_type = std::any::type_name::<M>();
+        metrics::CLIENT_MESSAGES_COUNT.with_label_values(&[msg_type]).inc();
+        let timer =
+            metrics::CLIENT_MESSAGES_PROCESSING_TIME.with_label_values(&[msg_type]).start_timer();
+        let res = f(self, msg, ctx);
+        timer.observe_duration();
+        res
+    }
+}
+
+impl ClientActorInner {
     pub fn new(
         clock: Clock,
         client: Client,
@@ -175,7 +205,7 @@ impl ClientActions {
             InfoHelper::new(clock.clone(), telemetry_sender, &config, validator_signer.clone());
 
         let now = clock.now_utc();
-        Ok(ClientActions {
+        Ok(ClientActorInner {
             clock,
             adv,
             myself_sender,
@@ -234,16 +264,9 @@ pub enum NetworkAdversarialMessage {
     AdvCheckStorageConsistency,
 }
 
-pub(crate) trait ClientActionHandler<M: actix::Message> {
-    type Result;
-    fn handle(&mut self, msg: M) -> Self::Result;
-}
-
 #[cfg(feature = "test_features")]
-impl ClientActionHandler<NetworkAdversarialMessage> for ClientActions {
-    type Result = Option<u64>;
-
-    fn handle(&mut self, msg: NetworkAdversarialMessage) -> Self::Result {
+impl Handler<NetworkAdversarialMessage> for ClientActorInner {
+    fn handle(&mut self, msg: NetworkAdversarialMessage) -> Option<u64> {
         match msg {
             NetworkAdversarialMessage::AdvDisableDoomslug => {
                 info!(target: "adversary", "Turning Doomslug off");
@@ -341,18 +364,14 @@ impl ClientActionHandler<NetworkAdversarialMessage> for ClientActions {
     }
 }
 
-impl ClientActionHandler<ProcessTxRequest> for ClientActions {
-    type Result = ProcessTxResponse;
-
-    fn handle(&mut self, msg: ProcessTxRequest) -> Self::Result {
+impl Handler<ProcessTxRequest> for ClientActorInner {
+    fn handle(&mut self, msg: ProcessTxRequest) -> ProcessTxResponse {
         let ProcessTxRequest { transaction, is_forwarded, check_only } = msg;
         self.client.process_tx(transaction, is_forwarded, check_only)
     }
 }
 
-impl ClientActionHandler<BlockResponse> for ClientActions {
-    type Result = ();
-
+impl Handler<BlockResponse> for ClientActorInner {
     fn handle(&mut self, msg: BlockResponse) {
         let BlockResponse { block, peer_id, was_requested } = msg;
         debug!(target: "client", block_height = block.header().height(), block_hash = ?block.header().hash(), "BlockResponse");
@@ -390,10 +409,8 @@ impl ClientActionHandler<BlockResponse> for ClientActions {
     }
 }
 
-impl ClientActionHandler<BlockHeadersResponse> for ClientActions {
-    type Result = Result<(), ReasonForBan>;
-
-    fn handle(&mut self, msg: BlockHeadersResponse) -> Self::Result {
+impl Handler<BlockHeadersResponse> for ClientActorInner {
+    fn handle(&mut self, msg: BlockHeadersResponse) -> Result<(), ReasonForBan> {
         let BlockHeadersResponse(headers, peer_id) = msg;
         if self.receive_headers(headers, peer_id) {
             Ok(())
@@ -404,9 +421,7 @@ impl ClientActionHandler<BlockHeadersResponse> for ClientActions {
     }
 }
 
-impl ClientActionHandler<BlockApproval> for ClientActions {
-    type Result = ();
-
+impl Handler<BlockApproval> for ClientActorInner {
     fn handle(&mut self, msg: BlockApproval) {
         let BlockApproval(approval, peer_id) = msg;
         debug!(target: "client", "Receive approval {:?} from peer {:?}", approval, peer_id);
@@ -416,9 +431,7 @@ impl ClientActionHandler<BlockApproval> for ClientActions {
 
 /// StateResponse is used during StateSync and catchup.
 /// It contains either StateSync header information (that tells us how many parts there are etc) or a single part.
-impl ClientActionHandler<StateResponse> for ClientActions {
-    type Result = ();
-
+impl Handler<StateResponse> for ClientActorInner {
     fn handle(&mut self, msg: StateResponse) {
         let StateResponse(state_response_info) = msg;
         let shard_id = state_response_info.shard_id();
@@ -472,9 +485,7 @@ impl ClientActionHandler<StateResponse> for ClientActions {
     }
 }
 
-impl ClientActionHandler<RecvChallenge> for ClientActions {
-    type Result = ();
-
+impl Handler<RecvChallenge> for ClientActorInner {
     fn handle(&mut self, msg: RecvChallenge) {
         let RecvChallenge(challenge) = msg;
         match self.client.process_challenge(challenge) {
@@ -484,9 +495,7 @@ impl ClientActionHandler<RecvChallenge> for ClientActions {
     }
 }
 
-impl ClientActionHandler<SetNetworkInfo> for ClientActions {
-    type Result = ();
-
+impl Handler<SetNetworkInfo> for ClientActorInner {
     fn handle(&mut self, msg: SetNetworkInfo) {
         // SetNetworkInfo is a large message. Avoid printing it at the `debug` verbosity.
         let SetNetworkInfo(network_info) = msg;
@@ -495,9 +504,7 @@ impl ClientActionHandler<SetNetworkInfo> for ClientActions {
 }
 
 #[cfg(feature = "sandbox")]
-impl ClientActionHandler<near_client_primitives::types::SandboxMessage> for ClientActions {
-    type Result = near_client_primitives::types::SandboxResponse;
-
+impl Handler<near_client_primitives::types::SandboxMessage> for ClientActorInner {
     fn handle(
         &mut self,
         msg: near_client_primitives::types::SandboxMessage,
@@ -532,10 +539,8 @@ impl ClientActionHandler<near_client_primitives::types::SandboxMessage> for Clie
     }
 }
 
-impl ClientActionHandler<Status> for ClientActions {
-    type Result = Result<StatusResponse, StatusError>;
-
-    fn handle(&mut self, msg: Status) -> Self::Result {
+impl Handler<Status> for ClientActorInner {
+    fn handle(&mut self, msg: Status) -> Result<StatusResponse, StatusError> {
         let head = self.client.chain.head()?;
         let head_header = self.client.chain.get_block_header(&head.last_block_hash)?;
         let latest_block_time = head_header.raw_timestamp();
@@ -676,10 +681,8 @@ fn make_known_producer(
     }
 }
 
-impl ClientActionHandler<GetNetworkInfo> for ClientActions {
-    type Result = Result<NetworkInfoResponse, String>;
-
-    fn handle(&mut self, _msg: GetNetworkInfo) -> Self::Result {
+impl Handler<GetNetworkInfo> for ClientActorInner {
+    fn handle(&mut self, _msg: GetNetworkInfo) -> Result<NetworkInfoResponse, String> {
         Ok(NetworkInfoResponse {
             connected_peers: (self.network_info.connected_peers.iter())
                 .map(|fpi| make_peer_info(fpi.full_peer_info.peer_info.clone()))
@@ -698,10 +701,8 @@ impl ClientActionHandler<GetNetworkInfo> for ClientActions {
     }
 }
 
-impl ClientActionHandler<ApplyChunksDoneMessage> for ClientActions {
-    type Result = ();
-
-    fn handle(&mut self, _msg: ApplyChunksDoneMessage) -> Self::Result {
+impl Handler<ApplyChunksDoneMessage> for ClientActorInner {
+    fn handle(&mut self, _msg: ApplyChunksDoneMessage) {
         self.try_process_unfinished_blocks();
     }
 }
@@ -757,7 +758,7 @@ impl fmt::Display for SyncRequirement {
     }
 }
 
-impl ClientActions {
+impl ClientActorInner {
     pub fn start(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
         self.start_flat_storage_creation(ctx);
 
@@ -1848,10 +1849,8 @@ impl ClientActions {
     }
 }
 
-impl ClientActionHandler<ApplyStatePartsResponse> for ClientActions {
-    type Result = ();
-
-    fn handle(&mut self, msg: ApplyStatePartsResponse) -> Self::Result {
+impl Handler<ApplyStatePartsResponse> for ClientActorInner {
+    fn handle(&mut self, msg: ApplyStatePartsResponse) {
         tracing::debug!(target: "client", ?msg);
         if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
             // We are doing catchup
@@ -1862,10 +1861,8 @@ impl ClientActionHandler<ApplyStatePartsResponse> for ClientActions {
     }
 }
 
-impl ClientActionHandler<BlockCatchUpResponse> for ClientActions {
-    type Result = ();
-
-    fn handle(&mut self, msg: BlockCatchUpResponse) -> Self::Result {
+impl Handler<BlockCatchUpResponse> for ClientActorInner {
+    fn handle(&mut self, msg: BlockCatchUpResponse) {
         tracing::debug!(target: "client", ?msg);
         if let Some((_, _, blocks_catch_up_state)) =
             self.client.catchup_state_syncs.get_mut(&msg.sync_hash)
@@ -1881,11 +1878,9 @@ impl ClientActionHandler<BlockCatchUpResponse> for ClientActions {
     }
 }
 
-impl ClientActionHandler<ReshardingResponse> for ClientActions {
-    type Result = ();
-
+impl Handler<ReshardingResponse> for ClientActorInner {
     #[perf]
-    fn handle(&mut self, msg: ReshardingResponse) -> Self::Result {
+    fn handle(&mut self, msg: ReshardingResponse) {
         tracing::debug!(target: "client", ?msg);
         if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
             // We are doing catchup
@@ -1896,15 +1891,13 @@ impl ClientActionHandler<ReshardingResponse> for ClientActions {
     }
 }
 
-impl ClientActionHandler<LoadMemtrieResponse> for ClientActions {
-    type Result = ();
-
+impl Handler<LoadMemtrieResponse> for ClientActorInner {
     // The memtrie was loaded as a part of catchup or state-sync,
     // (see https://github.com/near/nearcore/blob/master/docs/architecture/how/sync.md#basics).
     // Here we save the result of loading memtrie to the appropriate place,
     // depending on whether it was catch-up or state sync.
     #[perf]
-    fn handle(&mut self, msg: LoadMemtrieResponse) -> Self::Result {
+    fn handle(&mut self, msg: LoadMemtrieResponse) {
         tracing::debug!(target: "client", ?msg);
         if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
             // We are doing catchup
@@ -1916,11 +1909,9 @@ impl ClientActionHandler<LoadMemtrieResponse> for ClientActions {
     }
 }
 
-impl ClientActionHandler<ShardsManagerResponse> for ClientActions {
-    type Result = ();
-
+impl Handler<ShardsManagerResponse> for ClientActorInner {
     #[perf]
-    fn handle(&mut self, msg: ShardsManagerResponse) -> Self::Result {
+    fn handle(&mut self, msg: ShardsManagerResponse) {
         match msg {
             ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk } => {
                 self.client.on_chunk_completed(
@@ -1944,53 +1935,43 @@ impl ClientActionHandler<ShardsManagerResponse> for ClientActions {
     }
 }
 
-impl ClientActionHandler<GetClientConfig> for ClientActions {
-    type Result = Result<ClientConfig, GetClientConfigError>;
-
-    fn handle(&mut self, msg: GetClientConfig) -> Self::Result {
+impl Handler<GetClientConfig> for ClientActorInner {
+    fn handle(&mut self, msg: GetClientConfig) -> Result<ClientConfig, GetClientConfigError> {
         tracing::debug!(target: "client", ?msg);
 
         Ok(self.client.config.clone())
     }
 }
 
-impl ClientActionHandler<SyncMessage> for ClientActions {
-    type Result = ();
-
-    fn handle(&mut self, msg: SyncMessage) -> Self::Result {
+impl Handler<SyncMessage> for ClientActorInner {
+    fn handle(&mut self, msg: SyncMessage) {
         tracing::debug!(target: "client", ?msg);
         // TODO
         // process messages from SyncActors
     }
 }
 
-impl ClientActionHandler<ChunkStateWitnessMessage> for ClientActions {
-    type Result = ();
-
+impl Handler<ChunkStateWitnessMessage> for ClientActorInner {
     #[perf]
-    fn handle(&mut self, msg: ChunkStateWitnessMessage) -> Self::Result {
+    fn handle(&mut self, msg: ChunkStateWitnessMessage) {
         if let Err(err) = self.client.process_signed_chunk_state_witness(msg.0, None) {
             tracing::error!(target: "client", ?err, "Error processing signed chunk state witness");
         }
     }
 }
 
-impl ClientActionHandler<ProcessChunkStateWitnessMessage> for ClientActions {
-    type Result = ();
-
+impl Handler<ProcessChunkStateWitnessMessage> for ClientActorInner {
     #[perf]
-    fn handle(&mut self, msg: ProcessChunkStateWitnessMessage) -> Self::Result {
+    fn handle(&mut self, msg: ProcessChunkStateWitnessMessage) {
         if let Err(err) = self.client.process_chunk_state_witness(msg.0, None) {
             tracing::error!(target: "client", ?err, "Error processing chunk state witness");
         }
     }
 }
 
-impl ClientActionHandler<ChunkEndorsementMessage> for ClientActions {
-    type Result = ();
-
+impl Handler<ChunkEndorsementMessage> for ClientActorInner {
     #[perf]
-    fn handle(&mut self, msg: ChunkEndorsementMessage) -> Self::Result {
+    fn handle(&mut self, msg: ChunkEndorsementMessage) {
         if let Err(err) = self.client.process_chunk_endorsement(msg.0) {
             tracing::error!(target: "client", ?err, "Error processing chunk endorsement");
         }
