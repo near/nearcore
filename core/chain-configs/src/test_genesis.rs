@@ -360,7 +360,6 @@ impl TestGenesisBuilder {
             };
             tracing::warn!(
                 "Genesis kickouts_config not explicitly set, defaulting to disabling kickouts.",
-                default
             );
             default
         });
@@ -531,16 +530,11 @@ fn derive_validator_setup(specs: ValidatorsSpec) -> DerivedValidatorSetup {
             validators,
             num_block_producer_seats,
             num_chunk_only_producer_seats,
-        } => {
-            let num_block_producer_seats = num_block_producer_seats;
-            let num_chunk_only_producer_seats = num_chunk_only_producer_seats;
-            let validators = validators;
-            DerivedValidatorSetup {
-                validators,
-                num_block_producer_seats,
-                num_chunk_only_producer_seats,
-                minimum_stake_ratio: Rational32::new(160, 1000000),
-            }
-        }
+        } => DerivedValidatorSetup {
+            validators,
+            num_block_producer_seats,
+            num_chunk_only_producer_seats,
+            minimum_stake_ratio: Rational32::new(160, 1000000),
+        },
     }
 }
