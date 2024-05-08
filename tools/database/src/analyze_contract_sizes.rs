@@ -86,20 +86,17 @@ impl AnalyzeContractSizesCommand {
             EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
                 .unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&head.epoch_id).unwrap();
-        let last_block = chain_store.get_block(&head.last_block_hash).unwrap();
-        if last_block.header().chunk_mask().contains(&false) {
-            panic!("Last block doesn't have all chunks, please try again later!");
-        }
 
         let mut stats = ContractSizeStats::new(self.topn);
-        for chunk in last_block.chunks().iter() {
-            let shard_id = chunk.shard_id();
-            let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+        for shard_uid in shard_layout.shard_uids() {
             println!("Analyzing chunk with uid: {}", shard_uid);
 
-            let state_root = chunk.prev_state_root();
+            let chunk_extra =
+                chain_store.get_chunk_extra(&head.last_block_hash, &shard_uid).unwrap();
+
+            let state_root = chunk_extra.state_root();
             let trie_storage = Rc::new(TrieDBStorage::new(store.clone(), shard_uid));
-            let trie = Trie::new(trie_storage, state_root, None);
+            let trie = Trie::new(trie_storage, *state_root, None);
 
             let mut iterator = trie.iter().unwrap();
             iterator.seek_prefix(&[col::CONTRACT_CODE]).unwrap();
