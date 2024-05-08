@@ -98,8 +98,14 @@ def get_nodes(chain_id, start_height, unique_id):
         sys.exit(f'no known nodes matching {pattern}')
 
     traffic_generator = None
+    tracing_server = None
+    state_dumper = None
     nodes = []
     for n in all_nodes:
+        if n.instance_name.endswith('tracing-server'):
+            tracing_server = n
+        if n.instance_name.endswith('dumper'):
+            state_dumper = n
         if n.instance_name.endswith('traffic'):
             if traffic_generator is not None:
                 sys.exit(
@@ -122,9 +128,8 @@ def get_nodes(chain_id, start_height, unique_id):
             f'could not find any mounts in /home/ubuntu/.near on {traffic_generator.instance_name}'
         )
     traffic_runner_home = os.path.join(traffic_target_home, 'neard-runner')
-    return NodeHandle(RemoteNeardRunner(
-        traffic_generator, traffic_runner_home)), [
-            NodeHandle(
-                RemoteNeardRunner(node, '/home/ubuntu/.near/neard-runner'))
-            for node in nodes
-        ]
+    traffic_generator = NodeHandle(RemoteNeardRunner(traffic_generator, traffic_runner_home))
+    nodes = [ NodeHandle(RemoteNeardRunner(node, '/home/ubuntu/.near/neard-runner')) for node in nodes ]
+    if state_dumper is not None:
+        state_dumper = NodeHandle(RemoteNeardRunner(state_dumper, '/home/ubuntu/.near/neard-runner'))
+    return traffic_generator, nodes, state_dumper

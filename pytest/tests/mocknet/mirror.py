@@ -548,10 +548,11 @@ if __name__ == '__main__':
                 f'cannot give --chain-id --start-height or --unique-id along with --local-test'
             )
         traffic_generator, nodes = local_test_node.get_nodes()
+        state_dumper = None
     else:
         if args.chain_id is None or args.start_height is None or args.unique_id is None:
             sys.exit(
                 f'must give all of --chain-id --start-height and --unique-id')
-        traffic_generator, nodes = remote_node.get_nodes(
+        traffic_generator, nodes, state_dumper = remote_node.get_nodes(
             args.chain_id, args.start_height, args.unique_id)
     args.func(args, traffic_generator, nodes)
