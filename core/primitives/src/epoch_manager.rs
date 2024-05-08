@@ -285,6 +285,7 @@ pub struct ValidatorSelectionConfig {
     #[default(300)]
     pub num_chunk_validator_seats: NumSeats,
     // TODO (#11267): deprecate after StatelessValidationV0 is in place.
+    // Use 300 for older protocol versions.
     #[default(300)]
     pub num_chunk_only_producer_seats: NumSeats,
     #[default(1)]
