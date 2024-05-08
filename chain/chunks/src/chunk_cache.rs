@@ -277,7 +277,7 @@ mod tests {
     use near_primitives::validator_signer::InMemoryValidatorSigner;
 
     use crate::chunk_cache::EncodedChunksCache;
-    use crate::ChunkRequestInfo;
+    use crate::shards_manager_actor::ChunkRequestInfo;
 
     fn create_chunk_header(height: u64, shard_id: u64) -> ShardChunkHeader {
         let signer =

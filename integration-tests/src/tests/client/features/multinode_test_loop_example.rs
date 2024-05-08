@@ -27,11 +27,11 @@ use near_chain_configs::{
 };
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
+use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_chunks::test_loop::{
     forward_client_request_to_shards_manager, forward_network_request_to_shards_manager,
     route_shards_manager_network_messages,
 };
-use near_chunks::ShardsManager;
 use near_client::client_actions::{
     ClientActions, ClientSenderForClientMessage, ClientSenderForPartialWitnessMessage,
     SyncJobsSenderForClientMessage,
@@ -96,7 +96,7 @@ struct TestData {
     pub account: AccountId,
     pub client: ClientActions,
     pub sync_jobs: SyncJobsActor,
-    pub shards_manager: ShardsManager,
+    pub shards_manager: ShardsManagerActor,
     pub partial_witness: PartialWitnessActor,
     pub sync_actors: TestSyncActors,
     pub state_sync_dumper: StateSyncDumper,
@@ -128,7 +128,7 @@ enum TestEvent {
     /// Allows delayed actions to be posted, as if ClientActor scheduled them, e.g. timers.
     ClientDelayedActions(TestLoopDelayedActionEvent<ClientActions>),
     /// Allows delayed actions to be posted, as if ShardsManagerActor scheduled them, e.g. timers.
-    ShardsManagerDelayedActions(TestLoopDelayedActionEvent<ShardsManager>),
+    ShardsManagerDelayedActions(TestLoopDelayedActionEvent<ShardsManagerActor>),
     /// Allows delayed actions to be posted, as if SyncJobsActor scheduled them, e.g. timers.
     SyncJobsDelayedActions(TestLoopDelayedActionEvent<SyncJobsActor>),
 
@@ -359,7 +359,7 @@ fn test_client_with_multi_test_loop() {
         )
         .unwrap();
 
-        let shards_manager = ShardsManager::new(
+        let shards_manager = ShardsManagerActor::new(
             builder.clock(),
             Some(accounts[idx].clone()),
             epoch_manager.clone(),
@@ -369,6 +369,7 @@ fn test_client_with_multi_test_loop() {
             ReadOnlyChunksStore::new(store),
             client.chain.head().unwrap(),
             client.chain.header_head().unwrap(),
+            Duration::milliseconds(100),
         );
 
         let client_actions = ClientActions::new(
@@ -447,7 +448,7 @@ fn test_client_with_multi_test_loop() {
 
         // Delayed actions.
         test.register_delayed_action_handler_for_index::<ClientActions>(idx);
-        test.register_delayed_action_handler_for_index::<ShardsManager>(idx);
+        test.register_delayed_action_handler_for_index::<ShardsManagerActor>(idx);
 
         // Messages to the client.
         test.register_handler(
@@ -524,7 +525,6 @@ fn test_client_with_multi_test_loop() {
         test.sender().for_index(idx).send_adhoc_event("start_shards_manager", move |data| {
             data.shards_manager.periodically_resend_chunk_requests(
                 &mut sender.into_delayed_action_runner(shutting_down),
-                Duration::milliseconds(100),
             );
         });
 
