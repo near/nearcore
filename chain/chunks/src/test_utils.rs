@@ -27,7 +27,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use crate::adapter::ShardsManagerRequestFromClient;
 use crate::client::ShardsManagerResponse;
 use crate::test_loop::ShardsManagerResendChunkRequests;
-use crate::ShardsManager;
+use crate::ShardsManagerActor;
 
 /// Deprecated. Use `MockChainForShardsManager`.
 pub struct ChunkTestFixture {
@@ -136,7 +136,7 @@ impl ChunkTestFixture {
         let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
         let receipts_hashes = Chain::build_receipts_hashes(&receipts, &shard_layout);
         let (receipts_root, _) = merkle::merklize(&receipts_hashes);
-        let (mock_chunk, mock_merkle_paths) = ShardsManager::create_encoded_shard_chunk(
+        let (mock_chunk, mock_merkle_paths) = ShardsManagerActor::create_encoded_shard_chunk(
             mock_parent_hash,
             Default::default(),
             Default::default(),
@@ -286,7 +286,7 @@ impl MockClientAdapterForShardsManager {
 pub struct SynchronousShardsManagerAdapter {
     // Need a mutex here even though we only support single-threaded tests, because
     // MsgRecipient requires Sync.
-    pub shards_manager: Arc<Mutex<ShardsManager>>,
+    pub shards_manager: Arc<Mutex<ShardsManagerActor>>,
 }
 
 impl CanSend<ShardsManagerRequestFromClient> for SynchronousShardsManagerAdapter {
@@ -311,7 +311,7 @@ impl CanSend<ShardsManagerResendChunkRequests> for SynchronousShardsManagerAdapt
 }
 
 impl SynchronousShardsManagerAdapter {
-    pub fn new(shards_manager: ShardsManager) -> Self {
+    pub fn new(shards_manager: ShardsManagerActor) -> Self {
         Self { shards_manager: Arc::new(Mutex::new(shards_manager)) }
     }
 }

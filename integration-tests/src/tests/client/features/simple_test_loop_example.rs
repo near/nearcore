@@ -13,7 +13,7 @@ use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, GenesisRecords};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_loop::forward_client_request_to_shards_manager;
-use near_chunks::ShardsManager;
+use near_chunks::ShardsManagerActor;
 use near_client::client_actions::{
     ClientActions, ClientSenderForClientMessage, SyncJobsSenderForClientMessage,
 };
@@ -49,7 +49,7 @@ struct TestData {
     pub dummy: (),
     pub client: ClientActions,
     pub sync_jobs: SyncJobsActor,
-    pub shards_manager: ShardsManager,
+    pub shards_manager: ShardsManagerActor,
 }
 
 impl AsMut<TestData> for TestData {
@@ -189,7 +189,7 @@ fn test_client_with_simple_test_loop() {
     )
     .unwrap();
 
-    let shards_manager = ShardsManager::new(
+    let shards_manager = ShardsManagerActor::new(
         builder.clock(),
         Some(accounts[0].clone()),
         epoch_manager,
@@ -199,6 +199,7 @@ fn test_client_with_simple_test_loop() {
         ReadOnlyChunksStore::new(store),
         client.chain.head().unwrap(),
         client.chain.header_head().unwrap(),
+        Duration::milliseconds(100),
     );
 
     let client_actions = ClientActions::new(

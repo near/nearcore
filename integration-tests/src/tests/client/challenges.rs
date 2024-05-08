@@ -3,7 +3,7 @@ use near_async::time::Clock;
 use near_chain::validate::validate_challenge;
 use near_chain::{Block, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::Genesis;
-use near_chunks::ShardsManager;
+use near_chunks::ShardsManagerActor;
 use near_client::test_utils::{create_chunk, create_chunk_with_transactions, TestEnv};
 use near_client::{Client, ProcessTxResponse, ProduceChunkResult};
 use near_crypto::{InMemorySigner, KeyType};
@@ -362,7 +362,7 @@ fn test_verify_chunk_invalid_state_challenge() {
     let data_parts = env.clients[0].epoch_manager.num_data_parts();
     let parity_parts = total_parts - data_parts;
     let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
-    let (mut invalid_chunk, merkle_paths) = ShardsManager::create_encoded_shard_chunk(
+    let (mut invalid_chunk, merkle_paths) = ShardsManagerActor::create_encoded_shard_chunk(
         *last_block.hash(),
         Trie::EMPTY_ROOT,
         CryptoHash::default(),

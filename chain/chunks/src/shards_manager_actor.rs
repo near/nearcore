@@ -1,5 +1,5 @@
 use crate::{
-    adapter::ShardsManagerRequestFromClient, client::ShardsManagerResponse, ShardsManager,
+    adapter::ShardsManagerRequestFromClient, client::ShardsManagerResponse, ShardsManagerActor,
 };
 use actix::{Actor, Addr, Arbiter, ArbiterHandle, Context, Handler};
 use near_async::messaging::Sender;
@@ -16,14 +16,13 @@ use near_store::{DBCol, Store, HEADER_HEAD_KEY, HEAD_KEY};
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
-pub struct ShardsManagerActor {
-    shards_mgr: ShardsManager,
-    chunk_request_retry_period: Duration,
+pub struct ShardsManagerActor2 {
+    shards_mgr: ShardsManagerActor,
 }
 
 // Needed for DerefMut.
-impl Deref for ShardsManagerActor {
-    type Target = ShardsManager;
+impl Deref for ShardsManagerActor2 {
+    type Target = ShardsManagerActor;
 
     fn deref(&self) -> &Self::Target {
         &self.shards_mgr
@@ -31,27 +30,27 @@ impl Deref for ShardsManagerActor {
 }
 
 // Needed to convert actix `Context<ShardsManagerActor>` to `dyn DelayedActionRunner<ShardsManager>`.
-impl DerefMut for ShardsManagerActor {
+impl DerefMut for ShardsManagerActor2 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.shards_mgr
     }
 }
 
-impl ShardsManagerActor {
-    fn new(shards_mgr: ShardsManager, chunk_request_retry_period: Duration) -> Self {
-        Self { shards_mgr, chunk_request_retry_period }
+impl ShardsManagerActor2 {
+    fn new(shards_mgr: ShardsManagerActor) -> Self {
+        Self { shards_mgr }
     }
 }
 
-impl Actor for ShardsManagerActor {
+impl Actor for ShardsManagerActor2 {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        self.shards_mgr.periodically_resend_chunk_requests(ctx, self.chunk_request_retry_period);
+        self.shards_mgr.periodically_resend_chunk_requests(ctx);
     }
 }
 
-impl Handler<WithSpanContext<ShardsManagerRequestFromClient>> for ShardsManagerActor {
+impl Handler<WithSpanContext<ShardsManagerRequestFromClient>> for ShardsManagerActor2 {
     type Result = ();
 
     #[perf]
@@ -64,7 +63,7 @@ impl Handler<WithSpanContext<ShardsManagerRequestFromClient>> for ShardsManagerA
     }
 }
 
-impl Handler<WithSpanContext<ShardsManagerRequestFromNetwork>> for ShardsManagerActor {
+impl Handler<WithSpanContext<ShardsManagerRequestFromNetwork>> for ShardsManagerActor2 {
     type Result = ();
 
     #[perf]
@@ -85,7 +84,7 @@ pub fn start_shards_manager(
     me: Option<AccountId>,
     store: Store,
     chunk_request_retry_period: Duration,
-) -> (Addr<ShardsManagerActor>, ArbiterHandle) {
+) -> (Addr<ShardsManagerActor2>, ArbiterHandle) {
     let shards_manager_arbiter = Arbiter::new();
     let shards_manager_arbiter_handle = shards_manager_arbiter.handle();
     // TODO: make some better API for accessing chain properties like head.
@@ -98,7 +97,7 @@ pub fn start_shards_manager(
         .unwrap()
         .expect("ShardsManager must be initialized after the chain is initialized");
     let chunks_store = ReadOnlyChunksStore::new(store);
-    let shards_manager = ShardsManager::new(
+    let shards_manager = ShardsManagerActor::new(
         Clock::real(),
         me,
         epoch_manager,
@@ -108,10 +107,11 @@ pub fn start_shards_manager(
         chunks_store,
         chain_head,
         chain_header_head,
+        chunk_request_retry_period,
     );
     let shards_manager_addr =
-        ShardsManagerActor::start_in_arbiter(&shards_manager_arbiter_handle, move |_| {
-            ShardsManagerActor::new(shards_manager, chunk_request_retry_period)
+        ShardsManagerActor2::start_in_arbiter(&shards_manager_arbiter_handle, move |_| {
+            ShardsManagerActor2::new(shards_manager)
         });
     (shards_manager_addr, shards_manager_arbiter_handle)
 }
