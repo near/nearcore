@@ -81,7 +81,9 @@ pub fn proposals_to_epoch_info(
             // is not enough to iterate over chunk validators.
             // So unfortunately we have to look over all roles to get unselected
             // proposals.
-            // TODO: must be simplified.
+            // TODO: getting unselected proposals must be simpler. For example,
+            // we can track all roles assign to each validator in some structure
+            // and then return all validators which don't have any role.
             let max_validators_for_role = cmp::max(
                 chunk_producers.len(),
                 cmp::max(block_producers.len(), chunk_validators.len()),

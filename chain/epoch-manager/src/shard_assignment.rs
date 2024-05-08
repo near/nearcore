@@ -14,8 +14,8 @@ use near_primitives::utils::min_heap::{MinHeap, PeekMut};
 /// producer will be assigned to a single shard.  If there are fewer producers,
 /// some of them will be assigned to multiple shards.
 ///
-/// Panics if `chunk_producers.len() < min_validators_per_shard` or chunk_producers
-/// vector is not sorted in descending order by producer’s stake.
+/// Returns error if `chunk_producers.len() < min_validators_per_shard`.
+/// Panics if chunk_producers vector is not sorted in descending order by stake.
 pub fn assign_shards<T: HasStake + Eq + Clone>(
     chunk_producers: Vec<T>,
     num_shards: NumShards,
