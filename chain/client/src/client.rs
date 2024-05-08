@@ -551,6 +551,38 @@ impl Client {
         self.produce_block_on_head(height, true)
     }
 
+    /// Wrapper on top of `self.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion`
+    /// and uses block approvals for chunk endorsements
+    pub fn prepare_chunk_headers_ready_for_inclusion(
+        &mut self,
+        prev_block_hash: &CryptoHash,
+        height: BlockHeight,
+    ) -> Result<(), Error> {
+        let prev = self.chain.get_block_header(prev_block_hash)?;
+        // Compute a map of shard id -> chunk producers who already sent approvals. For those chunk producers, if they also
+        // act as a chunk validator, they don't need to send chunk endorsements.
+        let witness = self.doomslug.get_witness(prev.hash(), prev.height(), height);
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
+        let mut chunk_producers_with_approvals = HashMap::new();
+        for shard_id in self.epoch_manager.shard_ids(&epoch_id)? {
+            let chunk_producers =
+                self.epoch_manager.get_epoch_chunk_producers_for_shard(&epoch_id, shard_id)?;
+            for chunk_producer in chunk_producers {
+                if witness.contains_key(chunk_producer.account_id()) {
+                    chunk_producers_with_approvals
+                        .entry(shard_id)
+                        .or_insert_with(HashSet::new)
+                        .insert(chunk_producer.account_id().clone());
+                }
+            }
+        }
+        Ok(self.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
+            prev_block_hash,
+            self.chunk_endorsement_tracker.as_ref(),
+            chunk_producers_with_approvals,
+        )?)
+    }
+
     /// Produce block for given `height` on top of chain head.
     /// Either returns produced block (not applied) or error.
     pub fn produce_block_on_head(
@@ -568,10 +600,7 @@ impl Client {
         );
 
         if prepare_chunk_headers {
-            self.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
-                &head.last_block_hash,
-                self.chunk_endorsement_tracker.as_ref(),
-            )?;
+            self.prepare_chunk_headers_ready_for_inclusion(&head.last_block_hash, height)?;
         }
 
         self.produce_block_on(height, head.last_block_hash)
