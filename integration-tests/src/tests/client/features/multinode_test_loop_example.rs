@@ -37,9 +37,7 @@ use near_client::client_actions::{
     SyncJobsSenderForClientMessage,
 };
 use near_client::sync::sync_actor::SyncActor;
-use near_client::sync_jobs_actor::{
-    ClientSenderForSyncJobsMessage, SyncJobsActor, SyncJobsSenderForSyncJobsMessage,
-};
+use near_client::sync_jobs_actor::{ClientSenderForSyncJobsMessage, SyncJobsActor};
 use near_client::test_utils::test_loop::client_actions::{
     forward_client_messages_from_client_to_client_actions,
     forward_client_messages_from_network_to_client_actions,
@@ -54,10 +52,7 @@ use near_client::test_utils::test_loop::sync_actor::{
     forward_sync_actor_messages_from_client, forward_sync_actor_messages_from_network,
     test_loop_sync_actor_maker, TestSyncActors,
 };
-use near_client::test_utils::test_loop::sync_jobs_actor::{
-    forward_messages_from_client_to_sync_jobs_actor,
-    forward_messages_from_sync_jobs_to_sync_jobs_actor,
-};
+use near_client::test_utils::test_loop::sync_jobs_actor::forward_messages_from_client_to_sync_jobs_actor;
 use near_client::test_utils::test_loop::{
     forward_messages_from_partial_witness_actor_to_client,
     print_basic_client_info_before_each_event,
@@ -134,6 +129,8 @@ enum TestEvent {
     ClientDelayedActions(TestLoopDelayedActionEvent<ClientActions>),
     /// Allows delayed actions to be posted, as if ShardsManagerActor scheduled them, e.g. timers.
     ShardsManagerDelayedActions(TestLoopDelayedActionEvent<ShardsManager>),
+    /// Allows delayed actions to be posted, as if SyncJobsActor scheduled them, e.g. timers.
+    SyncJobsDelayedActions(TestLoopDelayedActionEvent<SyncJobsActor>),
 
     /// Message that the network layer sends to the client.
     ClientEventFromNetwork(ClientSenderForNetworkMessage),
@@ -148,8 +145,6 @@ enum TestEvent {
 
     /// Message that the client sends to the SyncJobs component.
     SyncJobsEventFromClient(SyncJobsSenderForClientMessage),
-    /// Message that the SyncJobs component sends to itself.
-    SyncJobsEventFromSyncJobs(SyncJobsSenderForSyncJobsMessage),
 
     /// Message that the client sends to the SyncActor component.
     SyncActorEventFromClient((ShardUId, SyncMessage)),
@@ -294,10 +289,6 @@ fn test_client_with_multi_test_loop() {
                 .sender()
                 .for_index(idx)
                 .into_wrapped_multi_sender::<ClientSenderForSyncJobsMessage, _>(),
-            builder
-                .sender()
-                .for_index(idx)
-                .into_wrapped_multi_sender::<SyncJobsSenderForSyncJobsMessage, _>(),
         );
         let chain_genesis = ChainGenesis::new(&genesis.config);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
@@ -477,14 +468,7 @@ fn test_client_with_multi_test_loop() {
         // Messages to the SyncJobs component.
         test.register_handler(
             forward_messages_from_client_to_sync_jobs_actor(
-                test.sender().for_index(idx).into_future_spawner(),
-            )
-            .widen()
-            .for_index(idx),
-        );
-        test.register_handler(
-            forward_messages_from_sync_jobs_to_sync_jobs_actor(
-                test.sender().for_index(idx).into_future_spawner(),
+                test.sender().for_index(idx).into_delayed_action_runner(test.shutting_down()),
             )
             .widen()
             .for_index(idx),

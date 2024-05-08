@@ -52,7 +52,6 @@ use near_performance_metrics;
 use near_performance_metrics_macros::perf;
 use near_primitives::block::Tip;
 use near_primitives::block_header::ApprovalType;
-use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::{BlockHeight, EpochId};
@@ -66,7 +65,7 @@ use near_store::DBCol;
 use near_store::ShardUId;
 use near_telemetry::TelemetryEvent;
 use rand::seq::SliceRandom;
-use rand::{thread_rng, Rng};
+use rand::thread_rng;
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
@@ -1996,11 +1995,4 @@ impl ClientActionHandler<ChunkEndorsementMessage> for ClientActions {
             tracing::error!(target: "client", ?err, "Error processing chunk endorsement");
         }
     }
-}
-
-/// Returns random seed sampled from the current thread
-pub fn random_seed_from_thread() -> RngSeed {
-    let mut rng_seed: RngSeed = [0; 32];
-    rand::thread_rng().fill(&mut rng_seed);
-    rng_seed
 }

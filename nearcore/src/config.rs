@@ -1339,6 +1339,7 @@ mod tests {
     use std::path::Path;
     use std::str::FromStr;
 
+    use near_async::time::Duration;
     use near_chain_configs::{GCConfig, Genesis, GenesisValidationMode};
     use near_crypto::InMemorySigner;
     use near_primitives::shard_layout::account_id_to_shard_id;
@@ -1492,14 +1493,14 @@ mod tests {
                     gc_blocks_limit: 42,
                     gc_fork_clean_step: 420,
                     gc_num_epochs_to_keep: 24,
-                    gc_step_period: std::time::Duration::from_secs(1),
+                    gc_step_period: Duration::seconds(1),
                 }
             } else {
                 GCConfig {
                     gc_blocks_limit: 2,
                     gc_fork_clean_step: 100,
                     gc_num_epochs_to_keep: 5,
-                    gc_step_period: std::time::Duration::from_secs(1),
+                    gc_step_period: Duration::seconds(1),
                 }
             };
             assert_eq!(want_gc, config.gc);
