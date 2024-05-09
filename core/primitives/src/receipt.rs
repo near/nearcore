@@ -131,9 +131,7 @@ impl BorshDeserialize for ReceiptEnum {
         match ordinal {
             0u8 => Ok(ReceiptEnum::Action(ActionReceipt::deserialize_reader(rd)?)),
             1u8 => Ok(ReceiptEnum::Data(DataReceipt::deserialize_reader(rd)?)),
-            #[cfg(feature = "yield_resume")]
             2u8 => Ok(ReceiptEnum::PromiseYield(ActionReceipt::deserialize_reader(rd)?)),
-            #[cfg(feature = "yield_resume")]
             3u8 => Ok(ReceiptEnum::PromiseResume(DataReceipt::deserialize_reader(rd)?)),
             _ => Err(Error::from(ErrorKind::InvalidData)),
         }
