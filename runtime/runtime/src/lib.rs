@@ -3104,7 +3104,7 @@ mod tests {
     }
 
     /// Check that applying nothing does not change the state trie.
-    /// 
+    ///
     /// This test is useful to check that trie columns are not accidentally
     /// initialized. Many integration tests will fail as well if this fails, but
     /// those are harder to root cause.
