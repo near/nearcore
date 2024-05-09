@@ -1710,6 +1710,9 @@ impl Runtime {
             total.gas,
             total.compute,
         );
+        // After receipt processing is done, report metrics on outgoing buffers
+        // and on congestion indicators.
+        metrics::report_congestion_metrics(&receipt_sink, apply_state.shard_id);
 
         let _span = tracing::debug_span!(target: "runtime", "apply_commit").entered();
 

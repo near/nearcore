@@ -214,6 +214,10 @@ impl ShardsOutgoingReceiptBuffer {
         self.shards_indices.shard_buffers.keys().copied().collect()
     }
 
+    pub fn buffer_len(&self, shard_id: ShardId) -> Option<u64> {
+        self.shards_indices.shard_buffers.get(&shard_id).map(TrieQueueIndices::len)
+    }
+
     fn write_indices(&self, state_update: &mut TrieUpdate) {
         // A default buffer is displayed as not being there at all. This makes an
         // empty trie and one with the default `ShardsOutgoingReceiptBuffer`,
