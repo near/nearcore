@@ -662,7 +662,7 @@ impl Client {
             self.partially_validate_state_witness(&encoded_witness)?;
 
         tracing::debug!(
-            target: "stateless_validation",
+            target: "client",
             chunk_hash=?witness.chunk_header.chunk_hash(),
             shard_id=witness.chunk_header.shard_id(),
             "process_chunk_state_witness",
@@ -685,7 +685,7 @@ impl Client {
         if let Ok(final_head) = self.chain.final_head() {
             if witness.chunk_header.height_created() <= final_head.height {
                 tracing::warn!(
-                    target: "stateless_validation",
+                    target: "client",
                     chunk_hash=?witness.chunk_header.chunk_hash(),
                     shard_id=witness.chunk_header.shard_id(),
                     witness_height=witness.chunk_header.height_created(),

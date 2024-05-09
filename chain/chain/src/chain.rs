@@ -1080,7 +1080,7 @@ impl Chain {
         header: &BlockHeader,
         challenges: &mut Vec<ChallengeBody>,
     ) -> Result<(), Error> {
-        debug!(target: "chain", "Process block header: {} at {}", header.hash(), header.height());
+        debug!(target: "chain", block_hash=?header.hash(), height=header.height(), "process_block_header", );
 
         check_known(self, header.hash())?.map_err(|e| Error::BlockKnown(e))?;
         self.validate_header(header, &Provenance::NONE, challenges)?;
@@ -1413,12 +1413,12 @@ impl Chain {
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) -> Result<(), Error> {
+        let block_height = block.header().height();
         let _span =
-            debug_span!(target: "chain", "start_process_block_async", ?provenance).entered();
+            debug_span!(target: "chain", "start_process_block_async", ?provenance, height=block_height).entered();
         let block_received_time = self.clock.now();
         metrics::BLOCK_PROCESSING_ATTEMPTS_TOTAL.inc();
 
-        let block_height = block.header().height();
         let hash = *block.hash();
         let res = self.start_process_block_impl(
             me,
@@ -1627,7 +1627,8 @@ impl Chain {
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) -> Result<(), Error> {
-        let _span = tracing::debug_span!(target: "sync", "reset_heads_post_state_sync").entered();
+        let _span = tracing::debug_span!(target: "sync", "reset_heads_post_state_sync", sync_hash)
+            .entered();
         // Get header we were syncing into.
         let header = self.get_block_header(&sync_hash)?;
         let hash = *header.prev_hash();
@@ -1738,8 +1739,7 @@ impl Chain {
                             .add_block_with_missing_chunks(orphan, missing_chunk_hashes.clone());
                         debug!(
                             target: "chain",
-                            "Process block: missing chunks. Block hash: {:?}. Missing chunks: {:?}",
-                            block_hash, missing_chunk_hashes,
+                            block_hash, missing_chunk_hashes, "Process block: missing chunks"
                         );
                     }
                     Error::EpochOutOfBounds(epoch_id) => {
@@ -1750,10 +1750,9 @@ impl Chain {
                     Error::BlockKnown(block_known_error) => {
                         debug!(
                             target: "chain",
-                            "Block {} at {} is known at this time: {:?}",
-                            block.hash(),
-                            block_height,
-                            block_known_error);
+                            block_hash=block.hash(),
+                            height=block_height,
+                            error=block_known_error, "Block known at this time");
                     }
                     _ => {}
                 }
@@ -1920,12 +1919,7 @@ impl Chain {
                     true,
                 )
             };
-            tracing::debug!(
-                target: "chain",
-                "Updating flat storage for shard {} need_flat_storage_update: {}",
-                shard_id,
-                need_flat_storage_update
-            );
+            tracing::debug!(target: "chain",shard_id,need_flat_storage_update,"Updating flat storage");
 
             if need_flat_storage_update {
                 let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
@@ -2007,7 +2001,7 @@ impl Chain {
         // see if the block is already in processing or if there are too many blocks being processed
         self.blocks_in_processing.add_dry_run(block.hash())?;
 
-        debug!(target: "chain", num_approvals = header.num_approvals(), "Preprocess block");
+        debug!(target: "chain", height=header.height, num_approvals = header.num_approvals(), "preprocess_block");
 
         // Check that we know the epoch of the block before we try to get the header
         // (so that a block from unknown epoch doesn't get marked as an orphan)

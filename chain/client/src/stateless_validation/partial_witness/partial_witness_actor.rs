@@ -272,7 +272,7 @@ impl PartialWitnessActor {
         &mut self,
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
-        tracing::debug!(target: "stateless_validation", ?partial_witness, "Receive PartialEncodedStateWitnessMessage");
+        tracing::debug!(target: "client", ?partial_witness, "Receive PartialEncodedStateWitnessMessage");
 
         // Validate the partial encoded state witness.
         self.validate_partial_encoded_state_witness(&partial_witness)?;

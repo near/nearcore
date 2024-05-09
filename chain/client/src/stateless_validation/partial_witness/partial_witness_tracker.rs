@@ -179,7 +179,7 @@ impl PartialEncodedStateWitnessTracker {
         &mut self,
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
-        tracing::debug!(target: "stateless_validation", ?partial_witness, "store_partial_encoded_state_witness");
+        tracing::debug!(target: "client", ?partial_witness, "store_partial_encoded_state_witness");
 
         self.maybe_insert_new_entry_in_parts_cache(&partial_witness)?;
 
@@ -187,7 +187,7 @@ impl PartialEncodedStateWitnessTracker {
         let entry = self.parts_cache.get_mut(&key).unwrap();
 
         if let Some(encoded_witness) = entry.insert_in_cache_entry(partial_witness) {
-            tracing::debug!(target: "stateless_validation", ?key, "Sending encoded witness to client.");
+            tracing::debug!(target: "client", ?key, "Sending encoded witness to client.");
 
             // Record the time taken from receiving first part to decoding partial witness.
             metrics::PARTIAL_WITNESS_DECODE_TIME
