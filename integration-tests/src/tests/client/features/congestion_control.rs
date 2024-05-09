@@ -24,14 +24,10 @@ fn setup_runtime(sender_id: AccountId) -> TestEnv {
 /// no traffic at all.
 #[test]
 fn test_protocol_upgrade() {
-    // The following only makes sense to test is the feature is enabled in the current build.
+    // The following only makes sense to test if the feature is enabled in the current build.
     if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
         return;
     }
-
-    // The immediate protocol upgrade needs to be set for this test to pass in
-    // the release branch where the protocol upgrade date is set.
-    std::env::set_var("NEAR_TESTS_IMMEDIATE_PROTOCOL_UPGRADE", "1");
 
     let mut env = setup_runtime("test0".parse().unwrap());
 
@@ -44,16 +40,12 @@ fn test_protocol_upgrade() {
     // Ensure we are still in the old version and no congestion info is shared.
     check_old_protocol(&env);
 
-    // The following only makes sense to test is the feature is enabled in the current build.
-    if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     env.upgrade_protocol_to_latest_version();
 
     // check we are in the new version
-    let block = env.clients[0].chain.get_head_block().unwrap();
     assert!(ProtocolFeature::CongestionControl.enabled(env.get_head_protocol_version()));
 
+    let block = env.clients[0].chain.get_head_block().unwrap();
     // check congestion info is available and represents "no congestion"
     let chunks = block.chunks();
     assert!(chunks.len() > 0);
@@ -68,14 +60,10 @@ fn test_protocol_upgrade() {
 
 #[test]
 fn test_protocol_upgrade_under_congestion() {
-    // The following only makes sense to test is the feature is enabled in the current build.
+    // The following only makes sense to test if the feature is enabled in the current build.
     if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
         return;
     }
-
-    // The immediate protocol upgrade needs to be set for this test to pass in
-    // the release branch where the protocol upgrade date is set.
-    std::env::set_var("NEAR_TESTS_IMMEDIATE_PROTOCOL_UPGRADE", "1");
 
     let sender_id: AccountId = "test0".parse().unwrap();
     let contract_id: AccountId = "contract.test0".parse().unwrap();
@@ -138,9 +126,9 @@ fn test_protocol_upgrade_under_congestion() {
     env.upgrade_protocol_to_latest_version();
 
     // check we are in the new version
-    let block = env.clients[0].chain.get_head_block().unwrap();
-    assert!(ProtocolFeature::CongestionControl.enabled(block.header().latest_protocol_version()));
+    assert!(ProtocolFeature::CongestionControl.enabled(env.get_head_protocol_version()));
     // check congestion info is available
+    let block = env.clients[0].chain.get_head_block().unwrap();
     let chunks = block.chunks();
     for chunk_header in chunks.iter() {
         chunk_header
