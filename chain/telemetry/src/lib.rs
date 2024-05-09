@@ -1,10 +1,9 @@
 mod metrics;
 
-use actix::{Actor, Context, Handler};
 use awc::{Client, Connector};
 use futures::FutureExt;
+use near_async::messaging::{Actor, Handler};
 use near_async::time::{Duration, Instant};
-use near_o11y::{handler_debug_span, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use std::ops::Sub;
 
@@ -34,13 +33,7 @@ impl Default for TelemetryConfig {
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub struct TelemetryEvent {
-    content: serde_json::Value,
-}
-
-impl TelemetryEvent {
-    pub fn new(content: serde_json::Value) -> Self {
-        Self { content }
-    }
+    pub content: serde_json::Value,
 }
 
 pub struct TelemetryActor {
@@ -54,6 +47,8 @@ impl Default for TelemetryActor {
         Self::new(TelemetryConfig::default())
     }
 }
+
+impl Actor for TelemetryActor {}
 
 impl TelemetryActor {
     pub fn new(config: TelemetryConfig) -> Self {
@@ -80,16 +75,9 @@ impl TelemetryActor {
     }
 }
 
-impl Actor for TelemetryActor {
-    type Context = Context<Self>;
-}
-
-impl Handler<WithSpanContext<TelemetryEvent>> for TelemetryActor {
-    type Result = ();
-
+impl Handler<TelemetryEvent> for TelemetryActor {
     #[perf]
-    fn handle(&mut self, msg: WithSpanContext<TelemetryEvent>, _ctx: &mut Context<Self>) {
-        let (_span, msg) = handler_debug_span!(target: "telemetry", msg);
+    fn handle(&mut self, msg: TelemetryEvent) {
         tracing::debug!(target: "client", ?msg);
         let now = Instant::now();
         if now - self.last_telemetry_update < self.config.reporting_interval {

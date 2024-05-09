@@ -12,7 +12,7 @@ use near_async::time::Duration;
 use near_chain::chunks_store::ReadOnlyChunksStore;
 use near_chain::state_snapshot_actor::{
     get_delete_snapshot_callback, get_make_snapshot_callback, SnapshotCallbacks,
-    StateSnapshotActions, StateSnapshotSenderForClient, StateSnapshotSenderForClientMessage,
+    StateSnapshotActor, StateSnapshotSenderForClient, StateSnapshotSenderForClientMessage,
     StateSnapshotSenderForStateSnapshot, StateSnapshotSenderForStateSnapshotMessage,
 };
 use near_chain::test_utils::test_loop::{
@@ -28,26 +28,24 @@ use near_chain_configs::{
 };
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
+use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_chunks::test_loop::{
     forward_client_request_to_shards_manager, forward_network_request_to_shards_manager,
     route_shards_manager_network_messages,
 };
-use near_chunks::ShardsManager;
-use near_client::client_actions::{
-    ClientActions, ClientSenderForClientMessage, ClientSenderForPartialWitnessMessage,
+use near_client::client_actor::{
+    ClientActorInner, ClientSenderForClientMessage, ClientSenderForPartialWitnessMessage,
     SyncJobsSenderForClientMessage,
 };
 use near_client::sync::sync_actor::SyncActor;
-use near_client::sync_jobs_actions::{
-    ClientSenderForSyncJobsMessage, SyncJobsActions, SyncJobsSenderForSyncJobsMessage,
-};
-use near_client::test_utils::test_loop::client_actions::{
-    forward_client_messages_from_client_to_client_actions,
-    forward_client_messages_from_network_to_client_actions,
+use near_client::sync_jobs_actor::{ClientSenderForSyncJobsMessage, SyncJobsActor};
+use near_client::test_utils::test_loop::client_actor::{
+    forward_client_messages_from_client_to_client_actor,
+    forward_client_messages_from_network_to_client_actor,
     forward_client_messages_from_shards_manager, forward_client_messages_from_sync_adapter,
-    forward_client_messages_from_sync_jobs_to_client_actions,
+    forward_client_messages_from_sync_jobs_to_client_actor,
 };
-use near_client::test_utils::test_loop::partial_witness_actions::{
+use near_client::test_utils::test_loop::partial_witness_actor::{
     forward_messages_from_client_to_partial_witness_actor,
     forward_messages_from_network_to_partial_witness_actor,
 };
@@ -55,17 +53,14 @@ use near_client::test_utils::test_loop::sync_actor::{
     forward_sync_actor_messages_from_client, forward_sync_actor_messages_from_network,
     test_loop_sync_actor_maker, TestSyncActors,
 };
-use near_client::test_utils::test_loop::sync_jobs_actions::{
-    forward_sync_jobs_messages_from_client_to_sync_jobs_actions,
-    forward_sync_jobs_messages_from_sync_jobs_to_sync_jobs_actions,
-};
+use near_client::test_utils::test_loop::sync_jobs_actor::forward_messages_from_client_to_sync_jobs_actor;
 use near_client::test_utils::test_loop::{
     forward_messages_from_partial_witness_actor_to_client,
     print_basic_client_info_before_each_event,
 };
 use near_client::test_utils::test_loop::{route_network_messages_to_client, ClientQueries};
 use near_client::{
-    Client, PartialWitnessActions, PartialWitnessSenderForClientMessage, SyncAdapter, SyncMessage,
+    Client, PartialWitnessActor, PartialWitnessSenderForClientMessage, SyncAdapter, SyncMessage,
 };
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
@@ -95,13 +90,13 @@ use std::sync::{Arc, Mutex, RwLock};
 struct TestData {
     pub dummy: (),
     pub account: AccountId,
-    pub client: ClientActions,
-    pub sync_jobs: SyncJobsActions,
-    pub shards_manager: ShardsManager,
-    pub partial_witness: PartialWitnessActions,
+    pub client: ClientActorInner,
+    pub sync_jobs: SyncJobsActor,
+    pub shards_manager: ShardsManagerActor,
+    pub partial_witness: PartialWitnessActor,
     pub sync_actors: TestSyncActors,
     pub state_sync_dumper: StateSyncDumper,
-    pub state_snapshot: StateSnapshotActions,
+    pub state_snapshot: StateSnapshotActor,
 }
 
 impl AsMut<TestData> for TestData {
@@ -127,9 +122,11 @@ enum TestEvent {
     AsyncComputation(TestLoopAsyncComputationEvent),
 
     /// Allows delayed actions to be posted, as if ClientActor scheduled them, e.g. timers.
-    ClientDelayedActions(TestLoopDelayedActionEvent<ClientActions>),
+    ClientDelayedActions(TestLoopDelayedActionEvent<ClientActorInner>),
     /// Allows delayed actions to be posted, as if ShardsManagerActor scheduled them, e.g. timers.
-    ShardsManagerDelayedActions(TestLoopDelayedActionEvent<ShardsManager>),
+    ShardsManagerDelayedActions(TestLoopDelayedActionEvent<ShardsManagerActor>),
+    /// Allows delayed actions to be posted, as if SyncJobsActor scheduled them, e.g. timers.
+    SyncJobsDelayedActions(TestLoopDelayedActionEvent<SyncJobsActor>),
 
     /// Message that the network layer sends to the client.
     ClientEventFromNetwork(ClientSenderForNetworkMessage),
@@ -144,8 +141,6 @@ enum TestEvent {
 
     /// Message that the client sends to the SyncJobs component.
     SyncJobsEventFromClient(SyncJobsSenderForClientMessage),
-    /// Message that the SyncJobs component sends to itself.
-    SyncJobsEventFromSyncJobs(SyncJobsSenderForSyncJobsMessage),
 
     /// Message that the client sends to the SyncActor component.
     SyncActorEventFromClient((ShardUId, SyncMessage)),
@@ -173,9 +168,9 @@ enum TestEvent {
     /// Message from Client to PartialWitnessActor.
     PartialWitnessSenderForClient(PartialWitnessSenderForClientMessage),
     /// Message from Network to PartialWitnessActor.
-    PArtialWitnessSenderForNetwork(PartialWitnessSenderForNetworkMessage),
+    PartialWitnessSenderForNetwork(PartialWitnessSenderForNetworkMessage),
     /// Message from PartialWitnessActor to Client.
-    PartialSenderForStateWitness(ClientSenderForPartialWitnessMessage),
+    ClientSenderForPartialWitness(ClientSenderForPartialWitnessMessage),
 }
 
 const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
@@ -247,15 +242,11 @@ fn test_client_with_multi_test_loop() {
         let store = opener.open().unwrap().get_hot_store();
         initialize_genesis_state(store.clone(), &genesis, None);
 
-        let sync_jobs_actions = SyncJobsActions::new(
+        let sync_jobs_actor = SyncJobsActor::new(
             builder
                 .sender()
                 .for_index(idx)
                 .into_wrapped_multi_sender::<ClientSenderForSyncJobsMessage, _>(),
-            builder
-                .sender()
-                .for_index(idx)
-                .into_wrapped_multi_sender::<SyncJobsSenderForSyncJobsMessage, _>(),
         );
         let chain_genesis = ChainGenesis::new(&genesis.config);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
@@ -281,7 +272,7 @@ fn test_client_with_multi_test_loop() {
             StateSnapshotType::EveryEpoch,
         );
 
-        let state_snapshot = StateSnapshotActions::new(
+        let state_snapshot = StateSnapshotActor::new(
             runtime_adapter.get_flat_storage_manager(),
             builder.sender().for_index(idx).into_multi_sender(),
             runtime_adapter.get_tries(),
@@ -326,7 +317,7 @@ fn test_client_with_multi_test_loop() {
         )
         .unwrap();
 
-        let shards_manager = ShardsManager::new(
+        let shards_manager = ShardsManagerActor::new(
             builder.clock(),
             Some(accounts[idx].clone()),
             epoch_manager.clone(),
@@ -336,9 +327,10 @@ fn test_client_with_multi_test_loop() {
             ReadOnlyChunksStore::new(store),
             client.chain.head().unwrap(),
             client.chain.header_head().unwrap(),
+            Duration::milliseconds(100),
         );
 
-        let client_actions = ClientActions::new(
+        let client_actor = ClientActorInner::new(
             builder.clock(),
             client,
             builder
@@ -361,7 +353,7 @@ fn test_client_with_multi_test_loop() {
         )
         .unwrap();
 
-        let partial_witness_actions = PartialWitnessActions::new(
+        let partial_witness_actions = PartialWitnessActor::new(
             builder.clock(),
             builder.sender().for_index(idx).into_multi_sender(),
             builder
@@ -391,8 +383,8 @@ fn test_client_with_multi_test_loop() {
         let data = TestData {
             dummy: (),
             account: accounts[idx].clone(),
-            client: client_actions,
-            sync_jobs: sync_jobs_actions,
+            client: client_actor,
+            sync_jobs: sync_jobs_actor,
             shards_manager,
             partial_witness: partial_witness_actions,
             sync_actors,
@@ -413,18 +405,18 @@ fn test_client_with_multi_test_loop() {
         test.register_handler(drive_async_computations().widen().for_index(idx));
 
         // Delayed actions.
-        test.register_delayed_action_handler_for_index::<ClientActions>(idx);
-        test.register_delayed_action_handler_for_index::<ShardsManager>(idx);
+        test.register_delayed_action_handler_for_index::<ClientActorInner>(idx);
+        test.register_delayed_action_handler_for_index::<ShardsManagerActor>(idx);
 
         // Messages to the client.
         test.register_handler(
-            forward_client_messages_from_network_to_client_actions().widen().for_index(idx),
+            forward_client_messages_from_network_to_client_actor().widen().for_index(idx),
         );
         test.register_handler(
-            forward_client_messages_from_client_to_client_actions().widen().for_index(idx),
+            forward_client_messages_from_client_to_client_actor().widen().for_index(idx),
         );
         test.register_handler(
-            forward_client_messages_from_sync_jobs_to_client_actions().widen().for_index(idx),
+            forward_client_messages_from_sync_jobs_to_client_actor().widen().for_index(idx),
         );
         test.register_handler(forward_client_messages_from_shards_manager().widen().for_index(idx));
         test.register_handler(
@@ -434,15 +426,8 @@ fn test_client_with_multi_test_loop() {
 
         // Messages to the SyncJobs component.
         test.register_handler(
-            forward_sync_jobs_messages_from_client_to_sync_jobs_actions(
-                test.sender().for_index(idx).into_future_spawner(),
-            )
-            .widen()
-            .for_index(idx),
-        );
-        test.register_handler(
-            forward_sync_jobs_messages_from_sync_jobs_to_sync_jobs_actions(
-                test.sender().for_index(idx).into_future_spawner(),
+            forward_messages_from_client_to_sync_jobs_actor(
+                test.sender().for_index(idx).into_delayed_action_runner(test.shutting_down()),
             )
             .widen()
             .for_index(idx),
@@ -498,7 +483,6 @@ fn test_client_with_multi_test_loop() {
         test.sender().for_index(idx).send_adhoc_event("start_shards_manager", move |data| {
             data.shards_manager.periodically_resend_chunk_requests(
                 &mut sender.into_delayed_action_runner(shutting_down),
-                Duration::milliseconds(100),
             );
         });
 

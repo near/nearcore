@@ -624,7 +624,7 @@ impl Chain {
     }
 
     fn get_genesis_congestion_info(protocol_version: ProtocolVersion) -> Option<CongestionInfo> {
-        if protocol_version >= ProtocolFeature::CongestionControl.protocol_version() {
+        if ProtocolFeature::CongestionControl.enabled(protocol_version) {
             // TODO(congestion_control) - properly initialize
             Some(CongestionInfo::default())
         } else {
@@ -2853,6 +2853,15 @@ impl Chain {
         Ok(())
     }
 
+    /// This method is called when the state sync is finished for a shard. It
+    /// applies the chunks and populates information in the db, most notably for
+    /// the chunk, chunk extra and flat storage.
+    ///
+    /// It starts at the height included of the chunk in the sync hash up until
+    /// the height of the sync hash.
+    ///
+    /// The first chunk, the one at height included, is a new chunk. The
+    /// remaining ones are old (missing) chunks.
     pub fn set_state_finalize(
         &mut self,
         shard_id: ShardId,

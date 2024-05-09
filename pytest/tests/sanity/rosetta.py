@@ -21,7 +21,6 @@ from utils import load_binary_file
 from configured_logger import logger
 import cluster
 import key
-import mocknet_helpers
 import transaction
 
 JsonDict = typing.Dict[str, typing.Any]
@@ -668,7 +667,7 @@ class RosettaTestCase(unittest.TestCase):
         implicit = key.Key.implicit_account()
         contract_key = self.node.validator_key
         contract = load_binary_file(
-            '../../../runtime/near-test-contracts/res/fungible_token.wasm')
+            '../runtime/near-test-contracts/res/fungible_token.wasm')
 
         ### 1. Deploy the ft smart contract
         latest_block_hash = self.node.get_latest_block().hash
@@ -700,7 +699,7 @@ class RosettaTestCase(unittest.TestCase):
                                                block_hash)
         res = self.node.send_tx_and_wait(tx, 100)
         logger.info(f'Storage deposit: {res}')
-        mocknet_helpers.wait_at_least_one_block()
+        self.node.wait_at_least_one_block()
 
         ### 4. Rosetta ft_call
         ft_result = self.rosetta.ft_transfer(src=validator,

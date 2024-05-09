@@ -3,9 +3,6 @@ use near_dyn_configs::{UpdateableConfigLoaderError, UpdateableConfigs};
 use std::sync::Arc;
 use tokio::sync::broadcast::Receiver;
 
-#[derive(Debug)]
-pub enum ClientConfigUpdateError {}
-
 /// Manages updating the config encapsulating.
 pub struct ConfigUpdater {
     /// Receives config updates while the node is running.

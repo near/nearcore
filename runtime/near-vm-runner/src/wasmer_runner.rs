@@ -1,5 +1,5 @@
 use crate::cache::{CompiledContract, CompiledContractInfo, ContractRuntimeCache};
-use crate::errors::{ContractPrecompilatonResult, IntoVMError};
+use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{
     CacheError, CompilationError, FunctionCallError, MethodResolveError, VMRunnerError, WasmTrap,
 };
@@ -28,6 +28,10 @@ fn check_method(module: &Module, method_name: &str) -> Result<(), FunctionCallEr
     } else {
         Err(FunctionCallError::MethodResolveError(MethodResolveError::MethodNotFound))
     }
+}
+
+trait IntoVMError {
+    fn into_vm_error(self) -> Result<FunctionCallError, VMRunnerError>;
 }
 
 impl IntoVMError for wasmer_runtime::error::Error {

@@ -120,8 +120,8 @@ pub struct CongestionInfoV1 {
     pub delayed_receipts_gas: u128,
     /// Sum of gas in currently buffered receipts.
     pub buffered_receipts_gas: u128,
-    /// Size of borsh serialized receipts stored in state because they
-    /// were delayed, buffered, postponed, or yielded.
+    /// Size of borsh serialized receipts stored in state because they were
+    /// delayed or buffered. Postponed and yielded receipts not included.
     pub receipt_bytes: u64,
     /// If fully congested, only this shard can forward receipts.
     pub allowed_shard: u16,
@@ -160,6 +160,29 @@ impl CongestionInfo {
     pub fn congestion_level(&self) -> f64 {
         match self {
             CongestionInfo::V1(inner) => inner.congestion_level(),
+        }
+    }
+
+    /// Computes and sets the `allowed_shard` field.
+    ///
+    /// If in a fully congested state, also known as RED state, decide which shard of `other_shards` is
+    /// allowed to forward to `own_shard` this round.
+    /// In this case, we stop all of `other_shards` from sending anything to `own_shard`.
+    /// But to guarantee progress, we allow one shard of `other_shards` to send `RED_GAS` in the next chunk.
+    ///
+    /// Otherwise, when the congestion level is < 1.0, `allowed_shard` to
+    /// `own_shard`. The field is ignored in this case but we still want a
+    /// unique representation.
+    pub fn finalize_allowed_shard(
+        &mut self,
+        own_shard: ShardId,
+        other_shards: &[ShardId],
+        congestion_seed: u64,
+    ) {
+        match self {
+            CongestionInfo::V1(inner) => {
+                inner.finalize_allowed_shard(own_shard, other_shards, congestion_seed)
+            }
         }
     }
 
@@ -234,6 +257,16 @@ impl CongestionInfo {
         }
         Ok(())
     }
+
+    /// TODO(congestion_info) - Fix all caller-sites and remove this function
+    ///
+    /// As we are still fixing things around congestion info, we need to fill valid
+    /// congestion infos for all shards in a few places in tests.
+    pub fn temp_test_shards_congestion_info(
+        shard_ids: &[ShardId],
+    ) -> std::collections::HashMap<ShardId, CongestionInfo> {
+        shard_ids.iter().map(|&id| (id, CongestionInfo::default())).collect()
+    }
 }
 
 impl CongestionInfoV1 {
@@ -282,6 +315,32 @@ impl CongestionInfoV1 {
     /// Whether we can accept new transaction with the receiver set to this shard.
     pub fn shard_accepts_transactions(&self) -> bool {
         self.congestion_level() < REJECT_TX_CONGESTION_THRESHOLD
+    }
+
+    /// Computes and sets the `allowed_shard` field.
+    ///
+    /// Refer to [`CongestionInfo::finalize_allowed_shard`].
+    pub fn finalize_allowed_shard(
+        &mut self,
+        own_shard: ShardId,
+        other_shards: &[ShardId],
+        congestion_seed: u64,
+    ) {
+        if self.congestion_level() < 1.0 {
+            self.allowed_shard = own_shard as u16;
+        } else {
+            if let Some(index) = congestion_seed.checked_rem(other_shards.len() as u64) {
+                // round robin for other shards based on the seed
+                self.allowed_shard = *other_shards
+                    .get(index as usize)
+                    .expect("`checked_rem` should have ensured array access is in bound")
+                    as u16;
+            } else {
+                // checked_rem failed, hence other_shards.len() is 0
+                // own_shard is the only choice.
+                self.allowed_shard = own_shard as u16;
+            }
+        }
     }
 }
 

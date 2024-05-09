@@ -16,10 +16,6 @@ pub(crate) enum RegisterPeerError {
     InvalidEdge,
 }
 
-#[derive(actix::Message)]
-#[rtype(result = "()")]
-pub(crate) struct StopMsg {}
-
 #[derive(actix::Message, Clone, Debug)]
 #[rtype(result = "()")]
 pub(crate) struct SendMessage {

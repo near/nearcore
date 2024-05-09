@@ -41,6 +41,9 @@ pytest --timeout=600 sanity/state_sync_routed.py manytx 115 --features nightly
 # working on a fix / deciding whether to remove them.
 #pytest --timeout=300 sanity/state_sync_late.py notx
 #pytest --timeout=300 sanity/state_sync_late.py notx --features nightly
+pytest sanity/state_sync_missing_chunks.py
+pytest sanity/state_sync_missing_chunks.py --features nightly
+
 pytest sanity/single_shard_tracking.py
 pytest sanity/single_shard_tracking.py --features nightly
 
@@ -131,8 +134,8 @@ pytest sanity/rpc_tx_submission.py --features nightly
 # The state sync fail test checks that state sync fails during or after
 # resharding. Currently it's disabled because resharding and congestion control
 # are not fully integrated. There are two steps to be taken:
-# TODO(congestion_control) - fix integration with resharding and enable fail test
-# TODO(resharding) - fix integration with state sync and adjust fail test
+# TODO(congestion_control) - integration with resharding and enable fail_test
+# TODO(resharding) - integration with state sync and adjust fail_test
 # TODO(#9519)
 # pytest sanity/state_sync_fail.py
 # pytest sanity/state_sync_fail.py --features nightly

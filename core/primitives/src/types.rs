@@ -791,6 +791,9 @@ pub mod chunk_extra {
     }
 
     impl ChunkExtra {
+        /// This method creates a slimmed down and invalid ChunkExtra. It's used
+        /// for resharding where we only need the state root. This should not be
+        /// used as part of regular processing.
         pub fn new_with_only_state_root(state_root: &StateRoot) -> Self {
             Self::new(
                 PROTOCOL_VERSION,
@@ -800,9 +803,7 @@ pub mod chunk_extra {
                 0,
                 0,
                 0,
-                // TODO(congestion_control) - this breaks the invariant that
-                // congestion info is set when protocol version is greater equal
-                // to the congestion control protocol version.
+                // TODO(congestion_control) - integration with resharding
                 None,
             )
         }
@@ -817,8 +818,7 @@ pub mod chunk_extra {
             balance_burnt: Balance,
             congestion_info: Option<CongestionInfo>,
         ) -> Self {
-            if protocol_version >= ProtocolFeature::CongestionControl.protocol_version() {
-                // TODO(congestion_control)
+            if ProtocolFeature::CongestionControl.enabled(protocol_version) {
                 assert!(congestion_info.is_some());
                 Self::V3(ChunkExtraV3 {
                     state_root: *state_root,
@@ -830,8 +830,7 @@ pub mod chunk_extra {
                     congestion_info: congestion_info.unwrap(),
                 })
             } else {
-                // TODO(congestion_control)
-                // assert!(congestion_info.is_none());
+                assert!(congestion_info.is_none());
                 Self::V2(ChunkExtraV2 {
                     state_root: *state_root,
                     outcome_root,
@@ -1093,6 +1092,13 @@ pub trait EpochInfoProvider {
 
     /// Get the chain_id of the chain this epoch belongs to
     fn chain_id(&self) -> String;
+
+    /// Which shard the account belongs to in the given epoch.
+    fn account_id_to_shard_id(
+        &self,
+        account_id: &AccountId,
+        epoch_id: &EpochId,
+    ) -> Result<ShardId, EpochError>;
 }
 
 /// Mode of the trie cache.

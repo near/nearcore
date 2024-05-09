@@ -1,9 +1,10 @@
 use crate::metrics;
+use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
+use near_async::messaging::Actor;
 #[cfg(feature = "test_features")]
-use actix::Handler;
-use actix::{Actor, Addr, Arbiter, ArbiterHandle, AsyncContext, Context};
+use near_async::messaging::Handler;
 use near_chain::{types::RuntimeAdapter, ChainStore, ChainStoreAccess};
-use near_chain_configs::{ClientConfig, GCConfig};
+use near_chain_configs::GCConfig;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::types::BlockHeight;
 use near_store::{metadata::DbKind, Store};
@@ -71,7 +72,7 @@ impl GCActor {
         self.store.clear_archive_data(self.gc_config.gc_blocks_limit, self.runtime_adapter.clone())
     }
 
-    fn gc(&mut self, ctx: &mut Context<GCActor>) {
+    fn gc(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
         if !self.no_gc {
             let timer = metrics::GC_TIME.start_timer();
             if let Err(e) = self.clear_data() {
@@ -80,16 +81,14 @@ impl GCActor {
             timer.observe_duration();
         }
 
-        ctx.run_later(self.gc_config.gc_step_period, move |act, ctx| {
+        ctx.run_later("garbage collection", self.gc_config.gc_step_period, move |act, ctx| {
             act.gc(ctx);
         });
     }
 }
 
 impl Actor for GCActor {
-    type Context = Context<Self>;
-
-    fn started(&mut self, ctx: &mut Self::Context) {
+    fn start_actor(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
         self.gc(ctx);
     }
 }
@@ -104,9 +103,7 @@ pub enum NetworkAdversarialMessage {
 
 #[cfg(feature = "test_features")]
 impl Handler<NetworkAdversarialMessage> for GCActor {
-    type Result = ();
-
-    fn handle(&mut self, msg: NetworkAdversarialMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: NetworkAdversarialMessage) {
         match msg {
             NetworkAdversarialMessage::StopGC => {
                 self.no_gc = true;
@@ -116,25 +113,4 @@ impl Handler<NetworkAdversarialMessage> for GCActor {
             }
         }
     }
-}
-
-pub fn start_gc_actor(
-    store: Store,
-    genesis_height: BlockHeight,
-    client_config: ClientConfig,
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
-    epoch_manager: Arc<dyn EpochManagerAdapter>,
-) -> (Addr<GCActor>, ArbiterHandle) {
-    let gc_arbiter = Arbiter::new().handle();
-    let gc_addr = GCActor::start_in_arbiter(&gc_arbiter, move |_ctx| {
-        GCActor::new(
-            store,
-            genesis_height,
-            runtime_adapter,
-            epoch_manager,
-            client_config.gc,
-            client_config.archive,
-        )
-    });
-    (gc_addr, gc_arbiter)
 }

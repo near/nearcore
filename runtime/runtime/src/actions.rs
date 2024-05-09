@@ -61,7 +61,7 @@ fn get_contract_code(
         assert!(&code_hash == wallet_contract_magic_bytes(&chain_id).hash());
         return Ok(Some(wallet_contract(&chain_id)));
     }
-    runtime_ext.get_code(code_hash).map(|option| option.map(Arc::new))
+    Ok(runtime_ext.get_code(code_hash).map(Arc::new))
 }
 
 /// Runs given function call with given context / apply state.
@@ -115,11 +115,15 @@ pub(crate) fn execute_function_call(
     // the first access time. Although nodes are accessed for other actions as well, we do it only here because we
     // charge only for trie nodes touched during function calls.
     // TODO (#5920): Consider using RAII for switching the state back
+
     let protocol_version = runtime_ext.protocol_version();
     if checked_feature!("stable", ChunkNodesCache, protocol_version) {
         runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingChunk);
     }
-    let (result_from_cache, mut metrics) = near_vm_runner::run(
+
+    near_vm_runner::reset_metrics();
+
+    let result_from_cache = near_vm_runner::run(
         account,
         None,
         &function_call.method_name,
@@ -130,7 +134,6 @@ pub(crate) fn execute_function_call(
         promise_results,
         apply_state.cache.as_deref(),
     );
-    metrics.report(&apply_state.shard_id.to_string());
     let result = match result_from_cache {
         Err(VMRunnerError::CacheError(CacheError::ReadError(err)))
             if err.kind() == std::io::ErrorKind::NotFound =>
@@ -158,7 +161,7 @@ pub(crate) fn execute_function_call(
             if checked_feature!("stable", ChunkNodesCache, protocol_version) {
                 runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingChunk);
             }
-            let (r, mut metrics) = near_vm_runner::run(
+            let r = near_vm_runner::run(
                 account,
                 Some(&code),
                 &function_call.method_name,
@@ -169,11 +172,18 @@ pub(crate) fn execute_function_call(
                 promise_results,
                 apply_state.cache.as_deref(),
             );
-            metrics.report(&apply_state.shard_id.to_string());
             r
         }
         res => res,
     };
+
+    near_vm_runner::report_metrics(
+        &apply_state.shard_id.to_string(),
+        &apply_state
+            .apply_reason
+            .as_ref()
+            .map_or_else(|| String::from("unknown"), |r| r.to_string()),
+    );
 
     if checked_feature!("stable", ChunkNodesCache, protocol_version) {
         runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingShard);
@@ -241,6 +251,7 @@ pub(crate) fn action_function_call(
         )
         .into());
     }
+    state_update.trie.request_code_recording(account_id.clone());
     let mut receipt_manager = ReceiptManager::default();
     let mut runtime_ext = RuntimeExt::new(
         state_update,
@@ -1408,6 +1419,7 @@ mod tests {
 
     fn create_apply_state(block_height: BlockHeight) -> ApplyState {
         ApplyState {
+            apply_reason: None,
             block_height,
             prev_block_hash: CryptoHash::default(),
             block_hash: CryptoHash::default(),
