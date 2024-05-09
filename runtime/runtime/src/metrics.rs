@@ -343,18 +343,18 @@ pub static CHUNK_RECORDED_SIZE_UPPER_BOUND_RATIO: Lazy<Histogram> = Lazy::new(||
     .unwrap()
 });
 
-static RECEIPT_FORWARDING_UNUSED_CAPACITY_GAS: Lazy<IntGaugeVec> = Lazy::new(|| {
+static CONGESTION_RECEIPT_FORWARDING_UNUSED_CAPACITY_GAS: Lazy<IntGaugeVec> = Lazy::new(|| {
     try_create_int_gauge_vec(
-        "near_receipt_forwarding_unused_capacity_gas",
+        "near_congestion_receipt_forwarding_unused_capacity_gas",
         "How much additional gas could have been forwarded in the same chunk from one shard to another. An indicator for congestion backpressure.",
         &["sender_shard_id", "receiver_shard_id"],
     )
     .unwrap()
 });
 
-static OUTGOING_RECEIPT_BUFFER_LEN: Lazy<IntGaugeVec> = Lazy::new(|| {
+static CONGESTION_OUTGOING_RECEIPT_BUFFER_LEN: Lazy<IntGaugeVec> = Lazy::new(|| {
     try_create_int_gauge_vec(
-        "near_outgoing_receipt_buffer_len",
+        "near_congestion_outgoing_receipt_buffer_len",
         "Number of receipts currently stored in the outgoing receipt buffer which were held back because the receiver is congested.",
         &["sender_shard_id", "receiver_shard_id"],
     )
@@ -382,7 +382,7 @@ static CONGESTION_RECEIPT_BYTES: Lazy<IntGaugeVec> = Lazy::new(|| {
 static CONGESTION_INCOMING_GAS: Lazy<IntGaugeVec> = Lazy::new(|| {
     try_create_int_gauge_vec(
         "near_congestion_incoming_gas",
-        "Gas of all receipts currently delayed to congestion.",
+        "Gas of all receipts currently delayed due to congestion.",
         &["shard_id"],
     )
     .unwrap()
@@ -656,12 +656,12 @@ fn report_outgoing_buffers(
     for (&receiver_shard_id, &unused_capacity) in inner.outgoing_limit.iter() {
         let receiver_shard_label = receiver_shard_id.to_string();
 
-        RECEIPT_FORWARDING_UNUSED_CAPACITY_GAS
+        CONGESTION_RECEIPT_FORWARDING_UNUSED_CAPACITY_GAS
             .with_label_values(&[&sender_shard_label, &receiver_shard_label])
             .set(i64::try_from(unused_capacity).unwrap_or(i64::MAX));
 
         if let Some(len) = inner.outgoing_buffers.buffer_len(receiver_shard_id) {
-            OUTGOING_RECEIPT_BUFFER_LEN
+            CONGESTION_OUTGOING_RECEIPT_BUFFER_LEN
                 .with_label_values(&[&sender_shard_label, &receiver_shard_label])
                 .set(i64::try_from(len).unwrap_or(i64::MAX));
         }
