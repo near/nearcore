@@ -1,11 +1,29 @@
 use crate::break_apart::BreakApart;
 use crate::functional::{SendAsyncFunction, SendFunction};
+use crate::futures::DelayedActionRunner;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use once_cell::sync::OnceCell;
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
 use tokio::sync::oneshot;
+
+/// Trait for an actor. An actor is a struct that can handle messages and implementes the Handler or
+/// HandlerWithContext trait. We can optionally implement the start_actor trait which is executed in
+/// the beginning of the actor's lifecycle.
+/// This corresponds to the actix::Actor trait `started` function.
+pub trait Actor {
+    fn start_actor(&mut self, _ctx: &mut dyn DelayedActionRunner<Self>) {}
+
+    fn wrap_handler<M: actix::Message>(
+        &mut self,
+        msg: M,
+        ctx: &mut dyn DelayedActionRunner<Self>,
+        f: impl FnOnce(&mut Self, M, &mut dyn DelayedActionRunner<Self>) -> M::Result,
+    ) -> M::Result {
+        f(self, msg, ctx)
+    }
+}
 
 /// Trait for handling a message.
 /// This works in unison with the [`CanSend`] trait. An actor implements the Handler trait for all
@@ -14,6 +32,26 @@ use tokio::sync::oneshot;
 /// Note that the actor is any struct that implements the Handler trait, not just actix actors.
 pub trait Handler<M: actix::Message> {
     fn handle(&mut self, msg: M) -> M::Result;
+}
+
+/// Trait for handling a message with context.
+/// This is similar to the [`Handler`] trait, but it allows the handler to access the delayed action
+/// runner that is used to schedule actions to be run in the future. For actix::Actor, the context
+/// defined as actix::Context<Self> implements DelayedActionRunner<T>.
+/// Note that the implementer for hander of a message only needs to implement either of Handler or
+/// HandlerWithContext, not both.
+pub trait HandlerWithContext<M: actix::Message> {
+    fn handle(&mut self, msg: M, ctx: &mut dyn DelayedActionRunner<Self>) -> M::Result;
+}
+
+impl<A, M> HandlerWithContext<M> for A
+where
+    M: actix::Message,
+    A: Actor + Handler<M>,
+{
+    fn handle(&mut self, msg: M, ctx: &mut dyn DelayedActionRunner<Self>) -> M::Result {
+        self.wrap_handler(msg, ctx, |this, msg, _| Handler::handle(this, msg))
+    }
 }
 
 /// Trait for sending a typed message. The sent message is then handled by the Handler trait.

@@ -2,7 +2,7 @@ mod metrics;
 
 use awc::{Client, Connector};
 use futures::FutureExt;
-use near_async::messaging::Handler;
+use near_async::messaging::{Actor, Handler};
 use near_async::time::{Duration, Instant};
 use near_performance_metrics_macros::perf;
 use std::ops::Sub;
@@ -47,6 +47,8 @@ impl Default for TelemetryActor {
         Self::new(TelemetryConfig::default())
     }
 }
+
+impl Actor for TelemetryActor {}
 
 impl TelemetryActor {
     pub fn new(config: TelemetryConfig) -> Self {

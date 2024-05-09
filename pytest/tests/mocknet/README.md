@@ -1,6 +1,6 @@
 Mirror transactions from a given network into a custom mocktest network and add load
 
-1. Setup a custom mocknet network following the [README](https://github.com/Near-One/infra-ops/blob/main/provisioning/terraform/infra/network/mocknet/mirror/README) in the `provisioning/terraform/infra/network/mocknet/mirror/` directory of the [Near-One/infra-ops repository](https://github.com/Near-One/infra-ops).
+1. Setup a custom mocknet network following the instructions in the `README` file in the `provisioning/terraform/infra/network/mocknet/mirror/` directory of the Near-One/infra-ops repository.
     - An example setup command should look like the following: `terraform apply -var="unique_id=stateless" -var="chain_id=mainnet" -var="start_height=116991260" -var="size=small"`
 
     - Use the same values of `unique_id`, `chain_id`, and `start_height` from this setup when running the mirror.py commands below. 

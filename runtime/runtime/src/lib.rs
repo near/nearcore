@@ -37,16 +37,17 @@ use near_primitives::transaction::{
     SignedTransaction, TransferAction,
 };
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::ShardId;
 use near_primitives::types::{
     validator_stake::ValidatorStake, AccountId, Balance, BlockHeight, Compute, EpochHeight,
-    EpochId, EpochInfoProvider, Gas, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
+    EpochId, EpochInfoProvider, Gas, RawStateChangesWithTrieKey, ShardId, StateChangeCause,
+    StateRoot,
 };
 use near_primitives::utils::{
     create_action_hash_from_receipt_id, create_receipt_id_from_receipt_id,
     create_receipt_id_from_transaction,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives_core::apply::ApplyChunkReason;
 use near_store::trie::receipts_column_helper::{DelayedReceiptQueue, TrieQueue};
 use near_store::{
     get, get_account, get_postponed_receipt, get_promise_yield_receipt, get_received_data,
@@ -82,6 +83,9 @@ const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
 
 #[derive(Debug)]
 pub struct ApplyState {
+    /// Represents a phase of the chain lifecycle that we want to run apply for.
+    /// This is currently represented as a static string and used as dimension in some metrics.
+    pub apply_reason: Option<ApplyChunkReason>,
     /// Currently building block height.
     pub block_height: BlockHeight,
     /// Prev block hash
@@ -1706,6 +1710,9 @@ impl Runtime {
             total.gas,
             total.compute,
         );
+        // After receipt processing is done, report metrics on outgoing buffers
+        // and on congestion indicators.
+        metrics::report_congestion_metrics(&receipt_sink, apply_state.shard_id);
 
         let _span = tracing::debug_span!(target: "runtime", "apply_commit").entered();
 
@@ -2033,6 +2040,7 @@ mod tests {
         let congestion_info: HashMap<ShardId, CongestionInfo> =
             [(0, CongestionInfo::default())].into();
         let apply_state = ApplyState {
+            apply_reason: None,
             block_height: 1,
             prev_block_hash: Default::default(),
             block_hash: Default::default(),
@@ -3096,6 +3104,42 @@ mod tests {
         assert_matches!(storage.get(&code_key.to_vec()), Ok(Some(_)));
         let code_key = TrieKey::ContractCode { account_id: bob_account() };
         assert_matches!(storage.get(&code_key.to_vec()), Err(_) | Ok(None));
+    }
+
+    /// Check that applying nothing does not change the state trie.
+    ///
+    /// This test is useful to check that trie columns are not accidentally
+    /// initialized. Many integration tests will fail as well if this fails, but
+    /// those are harder to root cause.
+    #[test]
+    fn test_empty_apply() {
+        let initial_balance = to_yocto(1_000_000);
+        let initial_locked = to_yocto(500_000);
+        let gas_limit = 10u64.pow(15);
+        let (runtime, tries, root_before, apply_state, _signer, epoch_info_provider) =
+            setup_runtime(initial_balance, initial_locked, gas_limit);
+
+        let receipts = [];
+        let transactions = [];
+
+        let apply_result = runtime
+            .apply(
+                tries.get_trie_for_shard(ShardUId::single_shard(), root_before),
+                &None,
+                &apply_state,
+                &receipts,
+                &transactions,
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap();
+        let mut store_update = tries.store_update();
+        let root_after = tries.apply_all(
+            &apply_result.trie_changes,
+            ShardUId::single_shard(),
+            &mut store_update,
+        );
+        assert_eq!(root_before, root_after, "state root changed for applying empty receipts");
     }
 }
 

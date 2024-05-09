@@ -9,7 +9,7 @@ use near_chain::{Chain, ChainGenesis};
 use near_chain_configs::{ClientConfig, Genesis, GenesisConfig};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
-use near_client::{start_client, start_view_client, PartialWitnessActor, SyncAdapter};
+use near_client::{start_client, PartialWitnessActor, SyncAdapter, ViewClientActorInner};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManager;
 use near_network::actix::ActixSystem;
@@ -108,9 +108,11 @@ fn setup_network_node(
         adv.clone(),
         None,
         noop().into_multi_sender(),
+        true,
+        None,
     )
     .client_actor;
-    let view_client_actor = start_view_client(
+    let view_client_addr = ViewClientActorInner::spawn_actix_actor(
         Clock::real(),
         config.validator.as_ref().map(|v| v.account_id()),
         chain_genesis,
@@ -142,7 +144,7 @@ fn setup_network_node(
         time::Clock::real(),
         db.clone(),
         config,
-        client_sender_for_network(client_actor, view_client_actor),
+        client_sender_for_network(client_actor, view_client_addr),
         shards_manager_adapter.as_sender(),
         partial_witness_actor.with_auto_span_context().into_multi_sender(),
         genesis_id,
