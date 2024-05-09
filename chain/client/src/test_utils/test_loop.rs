@@ -1,4 +1,4 @@
-pub mod client_actions;
+pub mod client_actor;
 pub mod partial_witness_actor;
 pub mod sync_actor;
 pub mod sync_jobs_actor;
@@ -351,9 +351,9 @@ impl<Data: AsRef<Client> + AsRef<AccountId>> ClientQueries for Vec<Data> {
 
 pub fn forward_messages_from_partial_witness_actor_to_client(
 ) -> LoopEventHandler<ClientActorInner, ClientSenderForPartialWitnessMessage> {
-    LoopEventHandler::new_simple(|msg, client_actions: &mut ClientActorInner| match msg {
+    LoopEventHandler::new_simple(|msg, client_actor: &mut ClientActorInner| match msg {
         ClientSenderForPartialWitnessMessage::_receive_chunk_state_witness(msg) => {
-            client_actions.handle(msg)
+            client_actor.handle(msg)
         }
     })
 }

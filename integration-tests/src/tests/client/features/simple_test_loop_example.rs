@@ -18,10 +18,10 @@ use near_client::client_actor::{
     ClientActorInner, ClientSenderForClientMessage, SyncJobsSenderForClientMessage,
 };
 use near_client::sync_jobs_actor::{ClientSenderForSyncJobsMessage, SyncJobsActor};
-use near_client::test_utils::test_loop::client_actions::{
-    forward_client_messages_from_client_to_client_actions,
+use near_client::test_utils::test_loop::client_actor::{
+    forward_client_messages_from_client_to_client_actor,
     forward_client_messages_from_shards_manager,
-    forward_client_messages_from_sync_jobs_to_client_actions,
+    forward_client_messages_from_sync_jobs_to_client_actor,
 };
 use near_client::test_utils::test_loop::sync_jobs_actor::forward_messages_from_client_to_sync_jobs_actor;
 use near_client::test_utils::{MAX_BLOCK_PROD_TIME, MIN_BLOCK_PROD_TIME};
@@ -202,7 +202,7 @@ fn test_client_with_simple_test_loop() {
         Duration::milliseconds(100),
     );
 
-    let client_actions = ClientActorInner::new(
+    let client_actor = ClientActorInner::new(
         builder.clock(),
         client,
         builder.sender().into_wrapped_multi_sender::<ClientSenderForClientMessage, _>(),
@@ -220,11 +220,11 @@ fn test_client_with_simple_test_loop() {
     .unwrap();
 
     let data =
-        TestData { dummy: (), client: client_actions, sync_jobs: sync_jobs_actor, shards_manager };
+        TestData { dummy: (), client: client_actor, sync_jobs: sync_jobs_actor, shards_manager };
 
     let mut test = builder.build(data);
-    test.register_handler(forward_client_messages_from_client_to_client_actions().widen());
-    test.register_handler(forward_client_messages_from_sync_jobs_to_client_actions().widen());
+    test.register_handler(forward_client_messages_from_client_to_client_actor().widen());
+    test.register_handler(forward_client_messages_from_sync_jobs_to_client_actor().widen());
     test.register_handler(forward_client_messages_from_shards_manager().widen());
     test.register_handler(
         forward_messages_from_client_to_sync_jobs_actor(
