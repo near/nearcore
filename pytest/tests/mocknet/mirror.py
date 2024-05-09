@@ -218,7 +218,7 @@ def new_test(args, traffic_generator, nodes):
     test_keys = pmap(lambda node: node.neard_runner_new_test(), all_nodes)
 
     validators, boot_nodes = get_network_nodes(
-        zip([n.ip_addr() for n in all_nodes], test_keys), args.num_validators)
+        zip([n.ip_addr() for n in nodes], test_keys), args.num_validators)
 
     logger.info("""setting validators: {0}
 Then running neard amend-genesis on all nodes, and starting neard to compute genesis \
