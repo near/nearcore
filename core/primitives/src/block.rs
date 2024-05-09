@@ -6,7 +6,7 @@ use crate::block_body::{BlockBody, BlockBodyV1, ChunkEndorsementSignatures};
 pub use crate::block_header::*;
 use crate::challenge::{Challenges, ChallengesResult};
 use crate::checked_feature;
-use crate::congestion_info::CongestionInfo;
+use crate::congestion_info::{CongestionInfo, ExtendedCongestionInfo};
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{merklize, verify_path, MerklePath};
 use crate::num_rational::Rational32;
@@ -591,15 +591,22 @@ impl Block {
         }
     }
 
-    pub fn shards_congestion_info(&self) -> HashMap<ShardId, CongestionInfo> {
-        self.chunks()
-            .iter()
-            .enumerate()
+    pub fn shards_congestion_info(&self) -> HashMap<ShardId, ExtendedCongestionInfo> {
+        let mut result = HashMap::new();
+
+        for chunk in self.chunks().iter() {
+            let shard_id = chunk.shard_id();
             // TODO(congestion_control): default is not always appropriate!
-            .map(|(i, chunk_header)| {
-                (i as ShardId, chunk_header.congestion_info().unwrap_or_default())
-            })
-            .collect()
+            let congestion_info = chunk.congestion_info().unwrap_or_default();
+            let height_included = chunk.height_included();
+            let height_current = self.header().height();
+            let missed_chunks_count = height_current - height_included;
+
+            let extended_congestion_info =
+                ExtendedCongestionInfo::new(congestion_info, missed_chunks_count);
+            result.insert(shard_id, extended_congestion_info);
+        }
+        result
     }
 
     pub fn hash(&self) -> &CryptoHash {

@@ -17,7 +17,7 @@ use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
 use near_primitives::account::Account;
 use near_primitives::checked_feature;
-use near_primitives::congestion_info::CongestionInfo;
+use near_primitives::congestion_info::{CongestionInfo, ExtendedCongestionInfo};
 use near_primitives::errors::{
     ActionError, ActionErrorKind, ContextError, IntegerOverflowError, RuntimeError,
     TxExecutionError,
@@ -121,7 +121,7 @@ pub struct ApplyState {
     /// Flags for migrations indicating whether they can be applied at this block
     pub migration_flags: MigrationFlags,
     /// Congestion level on each shard based on the latest known chunk header of each shard.
-    pub congestion_info: HashMap<ShardId, CongestionInfo>,
+    pub congestion_info: HashMap<ShardId, ExtendedCongestionInfo>,
 }
 
 /// Contains information to update validators accounts at the first block of a new epoch.
@@ -1394,7 +1394,7 @@ impl Runtime {
                 proof,
                 delayed_receipts_count: delayed_receipts.len(),
                 metrics: None,
-                congestion_info,
+                congestion_info: congestion_info.map(ExtendedCongestionInfo::congestion_info),
             });
         }
 
@@ -1798,7 +1798,7 @@ impl Runtime {
             proof,
             delayed_receipts_count: delayed_receipts.len(),
             metrics: Some(metrics),
-            congestion_info,
+            congestion_info: congestion_info.map(ExtendedCongestionInfo::congestion_info),
         })
     }
 
@@ -1835,7 +1835,7 @@ impl ApplyState {
     fn own_congestion_info(
         &self,
         protocol_version: ProtocolVersion,
-    ) -> Result<Option<CongestionInfo>, RuntimeError> {
+    ) -> Result<Option<ExtendedCongestionInfo>, RuntimeError> {
         if ProtocolFeature::CongestionControl.enabled(protocol_version) {
             let congestion_info = self
                 .congestion_info
@@ -2037,8 +2037,8 @@ mod tests {
         let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
         store_update.commit().unwrap();
         let contract_cache = FilesystemContractRuntimeCache::test().unwrap();
-        let congestion_info: HashMap<ShardId, CongestionInfo> =
-            [(0, CongestionInfo::default())].into();
+        let congestion_info: HashMap<ShardId, ExtendedCongestionInfo> =
+            [(0, ExtendedCongestionInfo::default())].into();
         let apply_state = ApplyState {
             apply_reason: None,
             block_height: 1,
@@ -3148,7 +3148,7 @@ pub mod estimator {
     use super::{ReceiptSink, Runtime};
     use crate::congestion_control::ReceiptSinkV2;
     use crate::{ApplyState, ApplyStats};
-    use near_primitives::congestion_info::CongestionInfo;
+    use near_primitives::congestion_info::ExtendedCongestionInfo;
     use near_primitives::errors::RuntimeError;
     use near_primitives::receipt::Receipt;
     use near_primitives::transaction::ExecutionOutcomeWithId;
@@ -3170,7 +3170,7 @@ pub mod estimator {
         // For the estimator, create a limitless receipt sink that always
         // forwards. This captures congestion accounting overhead but does not
         // create unexpected congestion in estimations.
-        let mut congestion_info = CongestionInfo::default();
+        let mut congestion_info = ExtendedCongestionInfo::default();
         // no limits set for any shards => limitless
         let outgoing_limit = HashMap::new();
 

@@ -3,7 +3,7 @@ use crate::config::{
 };
 use crate::ApplyState;
 use near_parameters::{ActionCosts, RuntimeConfig};
-use near_primitives::congestion_info::{CongestionInfo, CongestionInfoV1};
+use near_primitives::congestion_info::{CongestionInfo, CongestionInfoV1, ExtendedCongestionInfo};
 use near_primitives::errors::{IntegerOverflowError, RuntimeError};
 use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::types::{EpochInfoProvider, Gas, ShardId};
@@ -36,7 +36,7 @@ pub(crate) struct ReceiptSinkV1<'a> {
 /// receiving shard and stopping us from sending more receipts to it than its
 /// nodes can keep in memory.
 pub(crate) struct ReceiptSinkV2<'a> {
-    pub(crate) congestion_info: &'a mut CongestionInfo,
+    pub(crate) congestion_info: &'a mut ExtendedCongestionInfo,
     pub(crate) outgoing_receipts: &'a mut Vec<Receipt>,
     pub(crate) outgoing_limit: HashMap<ShardId, Gas>,
     pub(crate) outgoing_buffers: ShardsOutgoingReceiptBuffer,
@@ -52,7 +52,7 @@ impl<'a> ReceiptSink<'a> {
         protocol_version: ProtocolVersion,
         trie: &dyn TrieAccess,
         apply_state: &ApplyState,
-        congestion_info: &'a mut Option<CongestionInfo>,
+        congestion_info: &'a mut Option<ExtendedCongestionInfo>,
         outgoing_receipts: &'a mut Vec<Receipt>,
     ) -> Result<Self, StorageError> {
         if let Some(ref mut congestion_info) = congestion_info {

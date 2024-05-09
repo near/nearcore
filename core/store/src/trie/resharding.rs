@@ -103,7 +103,7 @@ impl ShardTries {
                         None => trie_update.remove(trie_key),
                     }
                 }
-                // TODO(congestion_control)
+                // TODO(congestion_control) - integration with resharding
                 TrieKey::BufferedReceiptIndices => todo!(),
                 TrieKey::BufferedReceipt { .. } => todo!(),
             }

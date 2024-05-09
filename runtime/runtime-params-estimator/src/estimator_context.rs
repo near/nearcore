@@ -4,7 +4,7 @@ use crate::gas_cost::GasCost;
 use genesis_populate::get_account_id;
 use genesis_populate::state_dump::StateDump;
 use near_parameters::{ExtCosts, RuntimeConfigStore};
-use near_primitives::congestion_info::CongestionInfo;
+use near_primitives::congestion_info::ExtendedCongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
@@ -166,7 +166,7 @@ impl<'c> EstimatorContext<'c> {
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
-            congestion_info: HashMap::from([(shard_id, CongestionInfo::default())]),
+            congestion_info: HashMap::from([(shard_id, ExtendedCongestionInfo::default())]),
         }
     }
 

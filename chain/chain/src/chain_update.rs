@@ -396,7 +396,6 @@ impl<'a> ChainUpdate<'a> {
                 let old_extra = self.chain_store_update.get_chunk_extra(prev_hash, &shard_uid)?;
                 let mut new_extra = ChunkExtra::clone(&old_extra);
                 *new_extra.state_root_mut() = apply_result.new_root;
-                // TODO(congestion_control) handle missing chunks congestion info #11039
 
                 let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
                 let store_update = flat_storage_manager.save_flat_state_changes(
@@ -906,7 +905,6 @@ impl<'a> ChainUpdate<'a> {
         // extra and apply changes to it.
         let mut new_chunk_extra = ChunkExtra::clone(&chunk_extra);
         *new_chunk_extra.state_root_mut() = apply_result.new_root;
-        // TODO(congestion_control) handle missing chunks congestion info #11039
 
         self.chain_store_update.save_chunk_extra(block_header.hash(), &shard_uid, new_chunk_extra);
         Ok(true)

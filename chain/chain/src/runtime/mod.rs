@@ -828,10 +828,10 @@ impl RuntimeAdapter for NightshadeRuntime {
                             &tx.transaction.receiver_id,
                             &epoch_id,
                         )?;
-                        if let Some(shard_congestion) =
+                        if let Some(congestion_info) =
                             prev_block.congestion_info.get(&receiving_shard)
                         {
-                            if !shard_congestion.shard_accepts_transactions() {
+                            if !congestion_info.shard_accepts_transactions() {
                                 tracing::trace!(target: "runtime", tx=?tx.get_hash(), "discarding transaction due to congestion");
                                 continue;
                             }
