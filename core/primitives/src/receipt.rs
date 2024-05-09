@@ -10,8 +10,6 @@ use serde_with::serde_as;
 use std::borrow::Borrow;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
-use std::io;
-use std::io::{Error, ErrorKind};
 
 /// The outgoing (egress) data which will be transformed
 /// to a `DataReceipt` to be sent to a `receipt.receiver`
