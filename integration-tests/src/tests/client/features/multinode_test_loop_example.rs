@@ -23,8 +23,8 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::ChainGenesis;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_chain_configs::{
-    ClientConfig, DumpConfig, ExternalStorageConfig, ExternalStorageLocation, Genesis,
-    GenesisConfig, GenesisRecords, StateSyncConfig, SyncConfig,
+    ClientConfig, DumpConfig, ExternalStorageConfig, ExternalStorageLocation, StateSyncConfig,
+    SyncConfig,
 };
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
@@ -77,15 +77,10 @@ use near_network::state_sync::StateSyncResponse;
 use near_network::state_witness::PartialWitnessSenderForNetworkMessage;
 use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo};
 use near_primitives::network::PeerId;
-use near_primitives::shard_layout::{ShardLayout, ShardUId};
-use near_primitives::state_record::StateRecord;
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, AccountInfo};
-use near_primitives::utils::from_timestamp;
-use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives_core::account::{AccessKey, Account};
-use near_primitives_core::hash::CryptoHash;
+use near_primitives::types::AccountId;
 use near_store::config::StateSnapshotType;
 use near_store::genesis::initialize_genesis_state;
 use near_store::{NodeStorage, StoreConfig, TrieConfig};
