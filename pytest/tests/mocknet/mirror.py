@@ -17,6 +17,7 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from configured_logger import logger
 import local_test_node
+import node_config
 import remote_node
 
 
@@ -110,7 +111,10 @@ def init_neard_runners(args, traffic_generator, nodes, remove_home_dir=False):
 
 
 def init_cmd(args, traffic_generator, nodes):
-    init_neard_runners(args, traffic_generator, nodes, remove_home_dir=False)
+    init_neard_runners(args,
+                       traffic_generator,
+                       wanted_nodes,
+                       remove_home_dir=False)
 
 
 def hard_reset_cmd(args, traffic_generator, nodes):
@@ -141,9 +145,10 @@ def stop_runner_cmd(args, traffic_generator, nodes):
 def get_network_nodes(new_test_rpc_responses, num_validators):
     validators = []
     boot_nodes = []
-    for ip_addr, response in new_test_rpc_responses:
+    for node, response in new_test_rpc_responses:
         if len(validators) < num_validators:
-            if response['validator_account_id'] is not None:
+            if node.can_validate and response[
+                    'validator_account_id'] is not None:
                 # we assume here that validator_account_id is not null, validator_public_key
                 # better not be null either
                 validators.append({
@@ -153,7 +158,8 @@ def get_network_nodes(new_test_rpc_responses, num_validators):
                 })
         if len(boot_nodes) < 20:
             boot_nodes.append(
-                f'{response["node_key"]}@{ip_addr}:{response["listen_port"]}')
+                f'{response["node_key"]}@{node.ip_addr()}:{response["listen_port"]}'
+            )
 
         if len(validators) >= num_validators and len(boot_nodes) >= 20:
             break
@@ -198,6 +204,23 @@ def _apply_stateless_config(args, node):
         )
 
 
+def _apply_config_changes(node, state_sync_location):
+    if state_sync_location is None:
+        changes = {'state_sync_enabled': False}
+    else:
+        changes = {
+            'state_sync.sync': {
+                "ExternalStorage": {
+                    "location": state_sync_location
+                }
+            }
+        }
+    if node.want_state_dump:
+        changes['state_sync.dump.location'] = state_sync_location
+    for key, change in changes.items():
+        do_update_config(node, f'{key}={json.dumps(change)}')
+
+
 def new_test(args, traffic_generator, nodes):
     prompt_setup_flags(args)
 
@@ -217,8 +240,8 @@ def new_test(args, traffic_generator, nodes):
     logger.info(f'resetting/initializing home dirs')
     test_keys = pmap(lambda node: node.neard_runner_new_test(), all_nodes)
 
-    validators, boot_nodes = get_network_nodes(
-        zip([n.ip_addr() for n in nodes], test_keys), args.num_validators)
+    validators, boot_nodes = get_network_nodes(zip(nodes, test_keys),
+                                               args.num_validators)
 
     logger.info("""setting validators: {0}
 Then running neard amend-genesis on all nodes, and starting neard to compute genesis \
@@ -232,6 +255,27 @@ ready. After they're ready, you can run `start-traffic`""".format(validators))
             args.num_seats,
             args.genesis_protocol_version,
             genesis_time=genesis_time), all_nodes)
+
+    if args.local_test:
+        location = {
+            "Filesystem": {
+                "root_dir":
+                    str(local_test_node.DEFAULT_LOCAL_MOCKNET_DIR /
+                        'state-parts')
+            }
+        }
+    else:
+        if args.gcs_state_sync:
+            location = {
+                "GCS": {
+                    "bucket":
+                        f'near-state-dumper-mocknet-{args.chain_id}-{args.start_height}-{args.unique_id}'
+                }
+            }
+        else:
+            location = None
+    logger.info('Applying default config changes')
+    pmap(lambda node: _apply_config_changes(node, location), all_nodes)
 
     if args.stateless_setup:
         logger.info('Configuring nodes for stateless protocol')
@@ -454,6 +498,7 @@ if __name__ == '__main__':
     new_test_parser.add_argument('--num-seats', type=int)
     new_test_parser.add_argument('--genesis-protocol-version', type=int)
     new_test_parser.add_argument('--stateless-setup', action='store_true')
+    new_test_parser.add_argument('--gcs-state-sync', action='store_true')
     new_test_parser.add_argument('--yes', action='store_true')
     new_test_parser.set_defaults(func=new_test)
 
@@ -548,10 +593,20 @@ if __name__ == '__main__':
                 f'cannot give --chain-id --start-height or --unique-id along with --local-test'
             )
         traffic_generator, nodes = local_test_node.get_nodes()
+        node_config.configure_nodes(nodes + [traffic_generator],
+                                    node_config.TEST_CONFIG)
     else:
         if args.chain_id is None or args.start_height is None or args.unique_id is None:
             sys.exit(
                 f'must give all of --chain-id --start-height and --unique-id')
         traffic_generator, nodes = remote_node.get_nodes(
             args.chain_id, args.start_height, args.unique_id)
-    args.func(args, traffic_generator, nodes)
+        node_config.configure_nodes(nodes + [traffic_generator],
+                                    node_config.REMOTE_CONFIG)
+
+    wanted_nodes = []
+    for node in nodes:
+        if node.want_neard_runner:
+            wanted_nodes.append(node)
+
+    args.func(args, traffic_generator, wanted_nodes)

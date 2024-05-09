@@ -123,7 +123,7 @@ def get_nodes(chain_id, start_height, unique_id):
         )
     traffic_runner_home = os.path.join(traffic_target_home, 'neard-runner')
     return NodeHandle(RemoteNeardRunner(
-        traffic_generator, traffic_runner_home)), [
+        traffic_generator, traffic_runner_home), can_validate=False), [
             NodeHandle(
                 RemoteNeardRunner(node, '/home/ubuntu/.near/neard-runner'))
             for node in nodes
