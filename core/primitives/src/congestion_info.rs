@@ -373,12 +373,20 @@ impl CongestionInfoV1 {
         let incoming_congestion = self.incoming_congestion();
         let outgoing_congestion = self.outgoing_congestion();
         let memory_congestion = self.memory_congestion();
+<<<<<<< HEAD
         let missed_chunks_congestion = self.missed_chunks_congestion(missed_chunks_count);
+=======
+        let missed_chunk_congestion = self.missed_chunks_congestion(missed_chunks_count);
+>>>>>>> d70324c80 (feat(congestion_control) - handling missing chunks)
 
         incoming_congestion
             .max(outgoing_congestion)
             .max(memory_congestion)
+<<<<<<< HEAD
             .max(missed_chunks_congestion)
+=======
+            .max(missed_chunk_congestion)
+>>>>>>> d70324c80 (feat(congestion_control) - handling missing chunks)
     }
 
     fn incoming_congestion(&self) -> f64 {
@@ -418,11 +426,16 @@ impl CongestionInfoV1 {
         other_shards: &[ShardId],
         congestion_seed: u64,
     ) {
+<<<<<<< HEAD
         // For the purpose of setting the allowed shard ignore the missed chunks
         // congestion. This is to disallow any shard from sending traffic to
         // this shard if there are multiple missed chunks in a row in it.
         let missed_chunks_count = 0;
         if self.congestion_level(missed_chunks_count) < 1.0 {
+=======
+        // TODO(congestion_control) Set missed chunks count correctly.
+        if self.congestion_level(0) < 1.0 {
+>>>>>>> d70324c80 (feat(congestion_control) - handling missing chunks)
             self.allowed_shard = own_shard as u16;
         } else {
             if let Some(index) = congestion_seed.checked_rem(other_shards.len() as u64) {
