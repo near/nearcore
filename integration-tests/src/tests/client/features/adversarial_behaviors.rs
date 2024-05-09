@@ -7,7 +7,8 @@ use near_async::{
 use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_chunks::{
-    test_loop::ShardsManagerResendChunkRequests, CHUNK_REQUEST_SWITCH_TO_FULL_FETCH,
+    shards_manager_actor::CHUNK_REQUEST_SWITCH_TO_FULL_FETCH,
+    test_loop::ShardsManagerResendChunkRequests,
 };
 use near_client::test_utils::TestEnv;
 use near_network::{

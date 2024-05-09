@@ -27,9 +27,8 @@ use near_chain_configs::{
 };
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
-use near_chunks::shards_manager_actor::start_shards_manager;
+use near_chunks::shards_manager_actor::{start_shards_manager, ShardsManagerActor};
 use near_chunks::test_utils::SynchronousShardsManagerAdapter;
-use near_chunks::ShardsManager;
 use near_crypto::{KeyType, PublicKey};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManagerAdapter;
@@ -1037,7 +1036,7 @@ pub fn setup_synchronous_shards_manager(
     .unwrap();
     let chain_head = chain.head().unwrap();
     let chain_header_head = chain.header_head().unwrap();
-    let shards_manager = ShardsManager::new(
+    let shards_manager = ShardsManagerActor::new(
         clock,
         account_id,
         epoch_manager,
@@ -1047,6 +1046,7 @@ pub fn setup_synchronous_shards_manager(
         chain.chain_store().new_read_only_chunks_store(),
         chain_head,
         chain_header_head,
+        Duration::hours(1),
     );
     SynchronousShardsManagerAdapter::new(shards_manager)
 }
