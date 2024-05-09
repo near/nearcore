@@ -46,7 +46,7 @@ use near_chunks::logic::{
     cares_about_shard_this_or_next_epoch, decode_encoded_chunk,
     get_shards_cares_about_this_or_next_epoch, persist_chunk,
 };
-use near_chunks::ShardsManager;
+use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client_primitives::debug::ChunkProduction;
 use near_client_primitives::types::{
     format_shard_sync_phase_per_shard, Error, ShardSyncDownload, ShardSyncStatus,
@@ -90,7 +90,7 @@ use std::sync::RwLock;
 use tracing::{debug, debug_span, error, info, trace, warn};
 
 #[cfg(feature = "test_features")]
-use crate::client_actions::AdvProduceChunksMode;
+use crate::client_actor::AdvProduceChunksMode;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
@@ -180,9 +180,8 @@ pub struct Client {
     tier1_accounts_cache: Option<(EpochId, Arc<AccountKeys>)>,
     /// Used when it is needed to create flat storage in background for some shards.
     flat_storage_creator: Option<FlatStorageCreator>,
-    /// When the "sync block" was requested.
-    /// The "sync block" is the last block of the previous epoch, i.e. `prev_hash` of the `sync_hash` block.
-    pub last_time_sync_block_requested: Option<near_async::time::Utc>,
+    /// A map storing the last time a block was requested for state sync.
+    pub last_time_sync_block_requested: HashMap<CryptoHash, near_async::time::Utc>,
     /// Helper module for stateless validation functionality like chunk witness production, validation
     /// chunk endorsements tracking etc.
     pub chunk_validator: ChunkValidator,
@@ -407,7 +406,7 @@ impl Client {
             chunk_production_info: lru::LruCache::new(PRODUCTION_TIMES_CACHE_SIZE),
             tier1_accounts_cache: None,
             flat_storage_creator,
-            last_time_sync_block_requested: None,
+            last_time_sync_block_requested: HashMap::new(),
             chunk_validator,
             chunk_inclusion_tracker: ChunkInclusionTracker::new(),
             chunk_endorsement_tracker,
@@ -895,7 +894,7 @@ impl Client {
         #[cfg(feature = "test_features")]
         let gas_used = if self.produce_invalid_chunks { gas_used + 1 } else { gas_used };
         let congestion_info = chunk_extra.congestion_info().unwrap_or_default();
-        let (encoded_chunk, merkle_paths) = ShardsManager::create_encoded_shard_chunk(
+        let (encoded_chunk, merkle_paths) = ShardsManagerActor::create_encoded_shard_chunk(
             prev_block_hash,
             *chunk_extra.state_root(),
             *chunk_extra.outcome_root(),
@@ -1722,7 +1721,11 @@ impl Client {
         #[cfg(feature = "test_features")]
         match self.adv_produce_chunks {
             Some(AdvProduceChunksMode::StopProduce) => {
-                tracing::info!(target: "adversary", "skipping chunk production due to adversary configuration");
+                tracing::info!(
+                    target: "adversary",
+                    block_height = block.header().height(),
+                    "skipping chunk production due to adversary configuration"
+                );
                 return;
             }
             _ => {}
@@ -2558,7 +2561,7 @@ impl Client {
                 debug!(target: "client", ?hash, "send_block_request_to_peer: block already known")
             }
             Err(err) => {
-                error!(target: "client", ?err, "send_block_request_to_peer: failed to check block exists")
+                error!(target: "client", ?hash, ?err, "send_block_request_to_peer: failed to check block exists")
             }
         }
     }

@@ -7,7 +7,7 @@ use crate::{
         MockChainForShardsManagerConfig,
     },
     test_utils::default_tip,
-    ShardsManager, CHUNK_REQUEST_RETRY,
+    ShardsManagerActor, CHUNK_REQUEST_RETRY,
 };
 use derive_enum_from_into::{EnumFrom, EnumTryInto};
 use near_async::test_loop::futures::TestLoopDelayedActionEvent;
@@ -34,7 +34,7 @@ use near_store::test_utils::create_test_store;
 
 #[derive(derive_more::AsMut, derive_more::AsRef)]
 struct TestData {
-    shards_manager: ShardsManager,
+    shards_manager: ShardsManagerActor,
     chain: MockChainForShardsManager,
     client_events: Vec<ShardsManagerResponse>,
     account_id: AccountId,
@@ -49,7 +49,7 @@ impl AsMut<TestData> for TestData {
 #[derive(EnumTryInto, Debug, EnumFrom)]
 enum TestEvent {
     Adhoc(AdhocEvent<TestData>),
-    ShardsManagerDelayedActions(TestLoopDelayedActionEvent<ShardsManager>),
+    ShardsManagerDelayedActions(TestLoopDelayedActionEvent<ShardsManagerActor>),
     ClientToShardsManager(ShardsManagerRequestFromClient),
     NetworkToShardsManager(ShardsManagerRequestFromNetwork),
     ShardsManagerToClient(ShardsManagerResponse),
@@ -88,7 +88,7 @@ fn basic_setup(config: BasicSetupConfig) -> ShardsManagerTestLoop {
                     shards_manager: builder.sender().for_index(idx).into_sender(),
                 },
             );
-            let shards_manager = ShardsManager::new(
+            let shards_manager = ShardsManagerActor::new(
                 builder.clock(),
                 Some(account.clone()),
                 chain.epoch_manager.clone(),
@@ -98,6 +98,7 @@ fn basic_setup(config: BasicSetupConfig) -> ShardsManagerTestLoop {
                 ReadOnlyChunksStore::new(store),
                 default_tip(),
                 default_tip(),
+                CHUNK_REQUEST_RETRY,
             );
             TestData { shards_manager, chain, client_events: vec![], account_id: account.clone() }
         })
@@ -105,7 +106,7 @@ fn basic_setup(config: BasicSetupConfig) -> ShardsManagerTestLoop {
     let mut test = builder.build(data);
     for idx in 0..test.data.len() {
         test.register_handler(handle_adhoc_events::<TestData>().widen().for_index(idx));
-        test.register_delayed_action_handler_for_index::<ShardsManager>(idx);
+        test.register_delayed_action_handler_for_index::<ShardsManagerActor>(idx);
         test.register_handler(forward_client_request_to_shards_manager().widen().for_index(idx));
         test.register_handler(forward_network_request_to_shards_manager().widen().for_index(idx));
         test.register_handler(capture_events::<ShardsManagerResponse>().widen().for_index(idx));
@@ -120,7 +121,6 @@ fn basic_setup(config: BasicSetupConfig) -> ShardsManagerTestLoop {
         test.sender().for_index(idx).send_adhoc_event("start_shards_manager", |data| {
             data.shards_manager.periodically_resend_chunk_requests(
                 &mut sender.into_delayed_action_runner(shutting_down),
-                CHUNK_REQUEST_RETRY,
             );
         })
     }

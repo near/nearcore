@@ -10,8 +10,11 @@ from configured_logger import logger
 
 class NodeHandle:
 
-    def __init__(self, node):
+    def __init__(self, node, can_validate=True, want_state_dump=False):
         self.node = node
+        self.can_validate = can_validate
+        self.want_state_dump = want_state_dump
+        self.want_neard_runner = True
 
     def name(self):
         return self.node.name()

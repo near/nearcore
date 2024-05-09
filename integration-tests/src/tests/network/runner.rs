@@ -108,6 +108,8 @@ fn setup_network_node(
         adv.clone(),
         None,
         noop().into_multi_sender(),
+        true,
+        None,
     )
     .client_actor;
     let view_client_addr = ViewClientActorInner::spawn_actix_actor(
