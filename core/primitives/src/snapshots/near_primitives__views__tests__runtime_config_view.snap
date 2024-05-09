@@ -170,10 +170,10 @@ expression: "&view"
       "alt_bn128_g1_sum_element": 5000000000,
       "alt_bn128_pairing_check_base": 9686000000000,
       "alt_bn128_pairing_check_element": 5102000000000,
-      "yield_create_base": 300000000000000,
-      "yield_create_byte": 300000000000000,
-      "yield_resume_base": 300000000000000,
-      "yield_resume_byte": 300000000000000
+      "yield_create_base": 153411779276,
+      "yield_create_byte": 15643988,
+      "yield_resume_base": 1195627285210,
+      "yield_resume_byte": 1195627285210
     },
     "grow_mem_cost": 1,
     "regular_op_cost": 822756,
@@ -187,7 +187,7 @@ expression: "&view"
     "alt_bn128": true,
     "function_call_weight": true,
     "eth_implicit_accounts": false,
-    "yield_resume_host_functions": false,
+    "yield_resume_host_functions": true,
     "limit_config": {
       "max_gas_burnt": 300000000000000,
       "max_stack_height": 262144,
