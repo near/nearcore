@@ -27,6 +27,7 @@ jobs:
       with:
         name: book
         path: target/book
+        overwrite: true
 
   deploy:
     name: Deploy
