@@ -203,9 +203,7 @@ impl ProtocolFeature {
             #[cfg(not(feature = "statelessnet_protocol"))]
             ProtocolFeature::SimpleNightshadeV3 => 65,
             ProtocolFeature::DecreaseFunctionCallBaseCost => 66,
-
-            // Nightly features which should be tested for compatibility with resharding
-            ProtocolFeature::YieldExecution => 78,
+            ProtocolFeature::YieldExecution => 67,
 
             // This protocol version is reserved for use in resharding tests. An extra resharding
             // is simulated on top of the latest shard layout in production. Note that later

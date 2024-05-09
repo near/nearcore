@@ -839,7 +839,6 @@ pub fn set_promise_yield_indices(
     state_update: &mut TrieUpdate,
     promise_yield_indices: &PromiseYieldIndices,
 ) {
-    assert!(cfg!(feature = "yield_resume"));
     set(state_update, TrieKey::PromiseYieldIndices, promise_yield_indices);
 }
 
@@ -851,7 +850,6 @@ pub fn enqueue_promise_yield_timeout(
     data_id: CryptoHash,
     expires_at: BlockHeight,
 ) {
-    assert!(cfg!(feature = "yield_resume"));
     set(
         state_update,
         TrieKey::PromiseYieldTimeout { index: promise_yield_indices.next_available_index },
@@ -864,7 +862,6 @@ pub fn enqueue_promise_yield_timeout(
 }
 
 pub fn set_promise_yield_receipt(state_update: &mut TrieUpdate, receipt: &Receipt) {
-    assert!(cfg!(feature = "yield_resume"));
     match &receipt.receipt {
         ReceiptEnum::PromiseYield(ref action_receipt) => {
             assert!(action_receipt.input_data_ids.len() == 1);
