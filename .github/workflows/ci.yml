@@ -85,7 +85,7 @@ jobs:
           retention-days: 2
       - uses: actions/upload-artifact@v4
         with:
-          name: coverage-codecov
+          name: coverage-codecov-${{ github.ref }}-cargo_nextest-${{ matrix.name }}
           path: coverage/codecov
 
   protobuf_backward_compat:
@@ -121,7 +121,7 @@ jobs:
       - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-backward-compat.json
       - uses: actions/upload-artifact@v4
         with:
-          name: coverage-codecov
+          name: coverage-codecov-${{ github.ref }}-py_backward_compat
           path: coverage/codecov
 
   py_db_migration:
@@ -148,7 +148,7 @@ jobs:
       - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-db-migration.json
       - uses: actions/upload-artifact@v4
         with:
-          name: coverage-codecov
+          name: coverage-codecov-${{ github.ref }}-py_db_migration
           path: coverage/codecov
 
   py_sanity_checks:
@@ -183,7 +183,7 @@ jobs:
       - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-sanity-checks.json
       - uses: actions/upload-artifact@v4
         with:
-          name: coverage-codecov
+          name: coverage-codecov-${{ github.ref }}-py_sanity_checks
           path: coverage/codecov
 
   py_genesis_check:
@@ -209,7 +209,7 @@ jobs:
       - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-genesis-check.json
       - uses: actions/upload-artifact@v4
         with:
-          name: coverage-codecov
+          name: coverage-codecov-${{ github.ref }}-py_genesis_check
           path: coverage/codecov
 
   py_style_check:
@@ -250,7 +250,7 @@ jobs:
       - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-upgradability.json
       - uses: actions/upload-artifact@v4
         with:
-          name: coverage-codecov
+          name: coverage-codecov-${{ github.ref }}-py_upgradability
           path: coverage/codecov
 
   rpc_error_schema:
@@ -418,7 +418,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: coverage-codecov
+          name: coverage-codecov-*
+          merge-multiple: true
       # Keep the number of uploads here in sync with codecov.yml’s after_n_build value
       # codecov will send a comment only after having receidev this number of uploads.
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
