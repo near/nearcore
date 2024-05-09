@@ -9,7 +9,7 @@ use actix::{Actor, Addr, AsyncContext, Context, Handler};
 use actix_rt::{Arbiter, ArbiterHandle};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::futures::ActixArbiterHandleFutureSpawner;
-use near_async::messaging::{IntoMultiSender, LateBoundSender, Sender};
+use near_async::messaging::{IntoMultiSender, Sender};
 use near_async::time::Utc;
 use near_async::time::{Clock, Duration};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
@@ -33,10 +33,8 @@ use std::sync::{Arc, RwLock};
 use tokio::sync::broadcast;
 
 use crate::client_actions::{ClientActionHandler, ClientActions, ClientSenderForClient};
-use crate::gc_actor::GCActor;
-use crate::start_gc_actor;
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
-use crate::sync_jobs_actor::{SyncJobsActor, SyncJobsSenderForSyncJobs};
+use crate::sync_jobs_actor::SyncJobsActor;
 use crate::{metrics, Client, ConfigUpdater, SyncAdapter};
 
 pub struct ClientActor {
@@ -74,14 +72,9 @@ impl ClientActor {
         let self_addr = ctx.address();
         let self_addr_clone = self_addr;
 
-        let sync_jobs_sender = LateBoundSender::<SyncJobsSenderForSyncJobs>::new();
-        let sync_jobs_actor = SyncJobsActor::new(
-            self_addr_clone.with_auto_span_context().into_multi_sender(),
-            sync_jobs_sender.as_multi_sender(),
-        );
+        let sync_jobs_actor =
+            SyncJobsActor::new(self_addr_clone.with_auto_span_context().into_multi_sender());
         let (sync_jobs_actor_addr, state_parts_arbiter) = sync_jobs_actor.spawn_actix_actor();
-        sync_jobs_sender
-            .bind(sync_jobs_actor_addr.clone().with_auto_span_context().into_multi_sender());
         let actions = ClientActions::new(
             clock,
             client,
@@ -152,7 +145,7 @@ where
 }
 
 /// Returns random seed sampled from the current thread
-pub fn random_seed_from_thread() -> RngSeed {
+fn random_seed_from_thread() -> RngSeed {
     let mut rng_seed: RngSeed = [0; 32];
     rand::thread_rng().fill(&mut rng_seed);
     rng_seed
@@ -177,10 +170,8 @@ fn wait_until_genesis(genesis_time: &Utc) {
 
 pub struct StartClientResult {
     pub client_actor: Addr<ClientActor>,
-    pub gc_actor: Addr<GCActor>,
     pub client_arbiter_handle: ArbiterHandle,
     pub resharding_handle: ReshardingHandle,
-    pub gc_arbiter_handle: ArbiterHandle,
 }
 
 /// Starts client in a separate Arbiter (thread).
@@ -205,7 +196,6 @@ pub fn start_client(
 ) -> StartClientResult {
     let client_arbiter = Arbiter::new();
     let client_arbiter_handle = client_arbiter.handle();
-    let genesis_height = chain_genesis.height;
 
     wait_until_genesis(&chain_genesis.time);
     let client = Client::new(
@@ -228,14 +218,6 @@ pub fn start_client(
     .unwrap();
     let resharding_handle = client.chain.resharding_handle.clone();
 
-    let (gc_actor, gc_arbiter_handle) = start_gc_actor(
-        runtime.store().clone(),
-        genesis_height,
-        client_config.clone(),
-        runtime,
-        epoch_manager,
-    );
-
     let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |ctx| {
         ClientActor::new(
             clock,
@@ -254,11 +236,5 @@ pub fn start_client(
         .unwrap()
     });
 
-    StartClientResult {
-        client_actor: client_addr,
-        client_arbiter_handle,
-        resharding_handle,
-        gc_arbiter_handle,
-        gc_actor,
-    }
+    StartClientResult { client_actor: client_addr, client_arbiter_handle, resharding_handle }
 }

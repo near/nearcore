@@ -17,9 +17,7 @@ use near_chunks::ShardsManager;
 use near_client::client_actions::{
     ClientActions, ClientSenderForClientMessage, SyncJobsSenderForClientMessage,
 };
-use near_client::sync_jobs_actor::{
-    ClientSenderForSyncJobsMessage, SyncJobsActor, SyncJobsSenderForSyncJobsMessage,
-};
+use near_client::sync_jobs_actor::{ClientSenderForSyncJobsMessage, SyncJobsActor};
 use near_client::test_utils::test_loop::client_actions::{
     forward_client_messages_from_client_to_client_actions,
     forward_client_messages_from_shards_manager,
@@ -67,12 +65,12 @@ enum TestEvent {
     Adhoc(AdhocEvent<TestData>),
     AsyncComputation(TestLoopAsyncComputationEvent),
     ClientDelayedActions(TestLoopDelayedActionEvent<ClientActions>),
+    SyncJobsDelayedActions(TestLoopDelayedActionEvent<SyncJobsActor>),
     ClientEventFromNetwork(ClientSenderForNetworkMessage),
     ClientEventFromClient(ClientSenderForClientMessage),
     ClientEventFromSyncJobs(ClientSenderForSyncJobsMessage),
     ClientEventFromShardsManager(ShardsManagerResponse),
     SyncJobsEventFromClient(SyncJobsSenderForClientMessage),
-    SyncJobsEventFromSyncJobs(SyncJobsSenderForSyncJobsMessage),
     ShardsManagerRequestFromClient(ShardsManagerRequestFromClient),
     ClientEventFromStateSyncAdapter(SyncMessage),
 }
@@ -84,7 +82,6 @@ fn test_client_with_simple_test_loop() {
     let builder = TestLoopBuilder::<TestEvent>::new();
     let sync_jobs_actor = SyncJobsActor::new(
         builder.sender().into_wrapped_multi_sender::<ClientSenderForSyncJobsMessage, _>(),
-        builder.sender().into_wrapped_multi_sender::<SyncJobsSenderForSyncJobsMessage, _>(),
     );
     let client_config = ClientConfig::test(
         true,
@@ -229,8 +226,10 @@ fn test_client_with_simple_test_loop() {
     test.register_handler(forward_client_messages_from_sync_jobs_to_client_actions().widen());
     test.register_handler(forward_client_messages_from_shards_manager().widen());
     test.register_handler(
-        forward_messages_from_client_to_sync_jobs_actor(test.sender().into_future_spawner())
-            .widen(),
+        forward_messages_from_client_to_sync_jobs_actor(
+            test.sender().into_delayed_action_runner(test.shutting_down()),
+        )
+        .widen(),
     );
     test.register_handler(drive_futures().widen());
     test.register_handler(handle_adhoc_events::<TestData>().widen());
