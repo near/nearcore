@@ -28,18 +28,18 @@ def _is_three(node):
     return node.name() == 'node3'
 
 TEST_CONFIG = [
-    {
-        'node_matches': _is_two,
-        'can_validate': False,
-        'want_state_dump': True,
-        'want_neard_runner': True,
-    },
-    {
-        'node_matches': _is_three,
-        'can_validate': False,
-        'want_state_dump': False,
-        'want_neard_runner': False,
-    },
+    # {
+    #     'node_matches': _is_two,
+    #     'can_validate': False,
+    #     'want_state_dump': True,
+    #     'want_neard_runner': True,
+    # },
+    # {
+    #     'node_matches': _is_three,
+    #     'can_validate': False,
+    #     'want_state_dump': False,
+    #     'want_neard_runner': False,
+    # },
 ]
 
 # set attributes (e.g. do we want this node to possibly validate?) on this particular node
