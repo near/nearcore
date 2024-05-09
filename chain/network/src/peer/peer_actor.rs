@@ -974,7 +974,6 @@ impl PeerActor {
                 None
             }
             RoutedMessageBody::BlockApproval(approval) => {
-                tracing::debug!("Received PartialEncodedChunkRequest");
                 network_state.client.send_async(BlockApproval(approval, peer_id)).await.ok();
                 None
             }
