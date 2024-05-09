@@ -90,7 +90,7 @@ use std::sync::RwLock;
 use tracing::{debug, debug_span, error, info, trace, warn};
 
 #[cfg(feature = "test_features")]
-use crate::client_actions::AdvProduceChunksMode;
+use crate::client_actor::AdvProduceChunksMode;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 

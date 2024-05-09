@@ -32,17 +32,17 @@ use near_chunks::test_loop::{
     forward_client_request_to_shards_manager, forward_network_request_to_shards_manager,
     route_shards_manager_network_messages,
 };
-use near_client::client_actions::{
-    ClientActions, ClientSenderForClientMessage, ClientSenderForPartialWitnessMessage,
+use near_client::client_actor::{
+    ClientActorInner, ClientSenderForClientMessage, ClientSenderForPartialWitnessMessage,
     SyncJobsSenderForClientMessage,
 };
 use near_client::sync::sync_actor::SyncActor;
 use near_client::sync_jobs_actor::{ClientSenderForSyncJobsMessage, SyncJobsActor};
-use near_client::test_utils::test_loop::client_actions::{
-    forward_client_messages_from_client_to_client_actions,
-    forward_client_messages_from_network_to_client_actions,
+use near_client::test_utils::test_loop::client_actor::{
+    forward_client_messages_from_client_to_client_actor,
+    forward_client_messages_from_network_to_client_actor,
     forward_client_messages_from_shards_manager, forward_client_messages_from_sync_adapter,
-    forward_client_messages_from_sync_jobs_to_client_actions,
+    forward_client_messages_from_sync_jobs_to_client_actor,
 };
 use near_client::test_utils::test_loop::partial_witness_actor::{
     forward_messages_from_client_to_partial_witness_actor,
@@ -94,7 +94,7 @@ use std::sync::{Arc, Mutex, RwLock};
 struct TestData {
     pub dummy: (),
     pub account: AccountId,
-    pub client: ClientActions,
+    pub client: ClientActorInner,
     pub sync_jobs: SyncJobsActor,
     pub shards_manager: ShardsManagerActor,
     pub partial_witness: PartialWitnessActor,
@@ -126,7 +126,7 @@ enum TestEvent {
     AsyncComputation(TestLoopAsyncComputationEvent),
 
     /// Allows delayed actions to be posted, as if ClientActor scheduled them, e.g. timers.
-    ClientDelayedActions(TestLoopDelayedActionEvent<ClientActions>),
+    ClientDelayedActions(TestLoopDelayedActionEvent<ClientActorInner>),
     /// Allows delayed actions to be posted, as if ShardsManagerActor scheduled them, e.g. timers.
     ShardsManagerDelayedActions(TestLoopDelayedActionEvent<ShardsManagerActor>),
     /// Allows delayed actions to be posted, as if SyncJobsActor scheduled them, e.g. timers.
@@ -372,7 +372,7 @@ fn test_client_with_multi_test_loop() {
             Duration::milliseconds(100),
         );
 
-        let client_actions = ClientActions::new(
+        let client_actor = ClientActorInner::new(
             builder.clock(),
             client,
             builder
@@ -425,7 +425,7 @@ fn test_client_with_multi_test_loop() {
         let data = TestData {
             dummy: (),
             account: accounts[idx].clone(),
-            client: client_actions,
+            client: client_actor,
             sync_jobs: sync_jobs_actor,
             shards_manager,
             partial_witness: partial_witness_actions,
@@ -447,18 +447,18 @@ fn test_client_with_multi_test_loop() {
         test.register_handler(drive_async_computations().widen().for_index(idx));
 
         // Delayed actions.
-        test.register_delayed_action_handler_for_index::<ClientActions>(idx);
+        test.register_delayed_action_handler_for_index::<ClientActorInner>(idx);
         test.register_delayed_action_handler_for_index::<ShardsManagerActor>(idx);
 
         // Messages to the client.
         test.register_handler(
-            forward_client_messages_from_network_to_client_actions().widen().for_index(idx),
+            forward_client_messages_from_network_to_client_actor().widen().for_index(idx),
         );
         test.register_handler(
-            forward_client_messages_from_client_to_client_actions().widen().for_index(idx),
+            forward_client_messages_from_client_to_client_actor().widen().for_index(idx),
         );
         test.register_handler(
-            forward_client_messages_from_sync_jobs_to_client_actions().widen().for_index(idx),
+            forward_client_messages_from_sync_jobs_to_client_actor().widen().for_index(idx),
         );
         test.register_handler(forward_client_messages_from_shards_manager().widen().for_index(idx));
         test.register_handler(

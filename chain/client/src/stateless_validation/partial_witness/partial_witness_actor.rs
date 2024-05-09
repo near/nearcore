@@ -22,7 +22,7 @@ use near_primitives::stateless_validation::{
 use near_primitives::types::{AccountId, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
 
-use crate::client_actions::ClientSenderForPartialWitness;
+use crate::client_actor::ClientSenderForPartialWitness;
 use crate::metrics;
 use crate::stateless_validation::state_witness_tracker::ChunkStateWitnessTracker;
 
