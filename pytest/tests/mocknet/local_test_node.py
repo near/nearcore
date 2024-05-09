@@ -358,14 +358,16 @@ def get_node_homes(local_mocknet_path):
 
 DEFAULT_LOCAL_MOCKNET_DIR = pathlib.Path.home() / '.near/local-mocknet'
 
+
 # return a NodeHandle for each of the neard runner directories in `local_mocknet_path`
 def get_nodes(local_mocknet_path=DEFAULT_LOCAL_MOCKNET_DIR):
     runner_port = 3000
     neard_rpc_port = 3040
     neard_protocol_port = 24577
-    traffic_generator = NodeHandle(
-        LocalTestNeardRunner(local_mocknet_path / 'traffic-generator',
-                             runner_port, neard_rpc_port, neard_protocol_port), can_validate=False)
+    traffic_generator = NodeHandle(LocalTestNeardRunner(
+        local_mocknet_path / 'traffic-generator', runner_port, neard_rpc_port,
+        neard_protocol_port),
+                                   can_validate=False)
 
     node_homes = get_node_homes(local_mocknet_path)
     nodes = []
