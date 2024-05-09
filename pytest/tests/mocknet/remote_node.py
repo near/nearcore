@@ -122,9 +122,10 @@ def get_nodes(chain_id, start_height, unique_id):
             f'could not find any mounts in /home/ubuntu/.near on {traffic_generator.instance_name}'
         )
     traffic_runner_home = os.path.join(traffic_target_home, 'neard-runner')
-    return NodeHandle(RemoteNeardRunner(
-        traffic_generator, traffic_runner_home)), [
-            NodeHandle(
-                RemoteNeardRunner(node, '/home/ubuntu/.near/neard-runner'))
-            for node in nodes
-        ]
+    return NodeHandle(RemoteNeardRunner(traffic_generator, traffic_runner_home),
+                      can_validate=False), [
+                          NodeHandle(
+                              RemoteNeardRunner(
+                                  node, '/home/ubuntu/.near/neard-runner'))
+                          for node in nodes
+                      ]
