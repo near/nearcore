@@ -221,7 +221,7 @@ def _apply_config_changes(node, state_sync_location):
         do_update_config(node, f'{key}={json.dumps(change)}')
 
 
-def new_test(args, traffic_generator, nodes):
+def new_test_cmd(args, traffic_generator, nodes):
     prompt_setup_flags(args)
 
     if args.epoch_length <= 0:
@@ -500,7 +500,7 @@ if __name__ == '__main__':
     new_test_parser.add_argument('--stateless-setup', action='store_true')
     new_test_parser.add_argument('--gcs-state-sync', action='store_true')
     new_test_parser.add_argument('--yes', action='store_true')
-    new_test_parser.set_defaults(func=new_test)
+    new_test_parser.set_defaults(func=new_test_cmd)
 
     status_parser = subparsers.add_parser(
         'status',
