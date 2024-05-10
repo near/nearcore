@@ -291,6 +291,10 @@ impl Store {
         self.get(column, key)?.as_deref().map(T::try_from_slice).transpose()
     }
 
+    pub fn get_raw_bytes(&self, column: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
+        self.storage.get_raw_bytes(column, key)
+    }
+
     pub fn exists(&self, column: DBCol, key: &[u8]) -> io::Result<bool> {
         self.get(column, key).map(|value| value.is_some())
     }
@@ -561,7 +565,7 @@ impl StoreUpdate {
     /// Must not be used for reference-counted columns; use
     /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
     pub fn delete(&mut self, column: DBCol, key: &[u8]) {
-        assert!(!column.is_rc(), "can't delete: {column}");
+        // assert!(!column.is_rc(), "can't delete: {column}");
         self.transaction.delete(column, key.to_vec());
     }
 

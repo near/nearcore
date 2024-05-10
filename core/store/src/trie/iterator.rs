@@ -1,3 +1,4 @@
+use near_primitives::errors::StackTracePrinter;
 use near_primitives::hash::CryptoHash;
 
 use crate::trie::nibble_slice::NibbleSlice;
@@ -207,7 +208,11 @@ impl<'a> TrieIterator<'a> {
         let (bytes, node) = self.trie.retrieve_node(hash)?;
         if let Some(ref mut visited) = self.visited_nodes {
             visited.push(bytes.ok_or({
-                StorageError::MissingTrieValue(MissingTrieValueContext::TrieIterator, *hash)
+                StorageError::MissingTrieValue(
+                    MissingTrieValueContext::TrieIterator,
+                    *hash,
+                    StackTracePrinter::new("MissingTrieValue"),
+                )
             })?);
         }
         self.trail.push(Crumb { status: CrumbStatus::Entering, node, prefix_boundary: false });

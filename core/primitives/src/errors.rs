@@ -5,6 +5,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_primitives_core::types::ProtocolVersion;
 use near_rpc_error_macro::RpcError;
+use std::backtrace::Backtrace;
 use std::fmt::{Debug, Display};
 
 /// Error returned in the ExecutionOutcome in case of failure
@@ -91,6 +92,22 @@ pub enum MissingTrieValueContext {
     TrieStorage,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StackTracePrinter {
+    dummy: (),
+}
+
+impl StackTracePrinter {
+    pub fn new(context: &str) -> Self {
+        println!("{}: {}", context, Backtrace::capture());
+        StackTracePrinter { dummy: () }
+    }
+
+    pub fn do_not_print() -> Self {
+        StackTracePrinter { dummy: () }
+    }
+}
+
 /// Errors which may occur during working with trie storages, storing
 /// trie values (trie nodes and state values) by their hashes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -98,7 +115,7 @@ pub enum StorageError {
     /// Key-value db internal failure
     StorageInternalError,
     /// Requested trie value by its hash which is missing in storage.
-    MissingTrieValue(MissingTrieValueContext, CryptoHash),
+    MissingTrieValue(MissingTrieValueContext, CryptoHash, StackTracePrinter),
     /// Found trie node which shouldn't be part of state. Raised during
     /// validation of state sync parts where incorrect node was passed.
     /// TODO (#8997): consider including hash of trie node.

@@ -1,4 +1,5 @@
 use crate::adjust_database::ChangeDbKindCommand;
+use crate::aggressive_trimming::AggressiveTrimmingCommand;
 use crate::analyse_data_size_distribution::AnalyseDataSizeDistributionCommand;
 use crate::analyse_gas_usage::AnalyseGasUsageCommand;
 use crate::analyse_high_load::HighLoadStatsCommand;
@@ -56,6 +57,8 @@ enum SubCommand {
     HighLoadStats(HighLoadStatsCommand),
     // Analyze congestion through delayed receipts
     AnalyzeDelayedReceipt(AnalyzeDelayedReceiptCommand),
+
+    AggressiveTrimming(AggressiveTrimmingCommand),
 }
 
 impl DatabaseCommand {
@@ -87,6 +90,7 @@ impl DatabaseCommand {
             SubCommand::WriteCryptoHash(cmd) => cmd.run(home),
             SubCommand::HighLoadStats(cmd) => cmd.run(home),
             SubCommand::AnalyzeDelayedReceipt(cmd) => cmd.run(home),
+            SubCommand::AggressiveTrimming(cmd) => cmd.run(home),
         }
     }
 }

@@ -2076,6 +2076,7 @@ mod tests {
             trie3.get(b"doge"),
             Err(StorageError::MissingTrieValue(
                 MissingTrieValueContext::TrieMemoryPartialStorage,
+                _,
                 _
             ))
         );

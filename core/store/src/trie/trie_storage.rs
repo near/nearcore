@@ -7,6 +7,7 @@ use near_o11y::log_assert;
 use near_o11y::metrics::prometheus;
 use near_o11y::metrics::prometheus::core::{GenericCounter, GenericGauge};
 use near_primitives::challenge::PartialState;
+use near_primitives::errors::StackTracePrinter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::ShardId;
@@ -314,6 +315,7 @@ impl TrieStorage for TrieMemoryPartialStorage {
             self.recorded_storage.get(hash).cloned().ok_or(StorageError::MissingTrieValue(
                 MissingTrieValueContext::TrieMemoryPartialStorage,
                 *hash,
+                StackTracePrinter::new("MissingTrieValue"),
             ));
         if result.is_ok() {
             self.visited_nodes.borrow_mut().insert(*hash);
@@ -540,7 +542,11 @@ fn read_node_from_db(
     let val = store
         .get(DBCol::State, key.as_ref())
         .map_err(|_| StorageError::StorageInternalError)?
-        .ok_or(StorageError::MissingTrieValue(MissingTrieValueContext::TrieStorage, *hash))?;
+        .ok_or(StorageError::MissingTrieValue(
+            MissingTrieValueContext::TrieStorage,
+            *hash,
+            StackTracePrinter::new("MissingTrieValue"),
+        ))?;
     Ok(val.into())
 }
 
