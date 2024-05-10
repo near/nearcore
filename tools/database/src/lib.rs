@@ -10,7 +10,6 @@ mod compact;
 mod corrupt;
 mod make_snapshot;
 mod memtrie;
-mod parallel_iter;
 mod run_migrations;
 mod state_perf;
 mod utils;

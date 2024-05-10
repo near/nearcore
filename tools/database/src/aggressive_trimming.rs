@@ -1,9 +1,3 @@
-use std::{
-    collections::BTreeMap,
-    path::PathBuf,
-    sync::{Arc, Mutex},
-};
-
 use borsh::BorshDeserialize;
 use clap::Parser;
 use indicatif::HumanBytes;
@@ -15,13 +9,16 @@ use near_store::{
         store_helper::{decode_flat_state_db_key, encode_flat_state_db_key},
         FlatStateChanges,
     },
+    parallel_iter::StoreParallelIterator,
     DBCol, Store,
 };
 use nearcore::{load_config, open_storage};
+use std::{
+    collections::BTreeMap,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
-use crate::parallel_iter::RocksDBParallelIterator;
-
-/// Analyze delayed receipts in a piece of history of the blockchain to understand congestion of each shard
 #[derive(Parser)]
 pub(crate) struct AggressiveTrimmingCommand {
     #[clap(long)]
@@ -33,13 +30,7 @@ impl AggressiveTrimmingCommand {
         let mut near_config = load_config(home, GenesisValidationMode::UnsafeFast).unwrap();
         let node_storage = open_storage(&home, &mut near_config).unwrap();
         let store = node_storage.get_split_store().unwrap_or_else(|| node_storage.get_hot_store());
-
-        // Self::delete_small_state_from_store(
-        //     store.clone(),
-        //     self.state_deletion_batch_size.unwrap_or(100000),
-        // )?;
         Self::keep_only_flat_state(store.clone())?;
-
         Ok(())
     }
 
@@ -48,14 +39,14 @@ impl AggressiveTrimmingCommand {
 
         {
             let keys_to_read = keys_to_read.clone();
-            RocksDBParallelIterator::for_each_parallel(
+            StoreParallelIterator::for_each_in_range(
                 store.clone(),
                 DBCol::FlatState,
                 vec![3, 0, 0, 0],
                 vec![3, 0, 0, 1],
                 6,
                 move |key, value| {
-                    let value = FlatStateValue::try_from_slice(value.unwrap()).unwrap();
+                    let value = FlatStateValue::try_from_slice(value).unwrap();
                     match value {
                         FlatStateValue::Ref(r) => {
                             let (shard_uid, _) = decode_flat_state_db_key(key).unwrap();
@@ -71,6 +62,7 @@ impl AggressiveTrimmingCommand {
                         FlatStateValue::Inlined(_) => {}
                     }
                 },
+                true,
             );
         }
 
@@ -85,18 +77,18 @@ impl AggressiveTrimmingCommand {
 
         {
             let keys_to_read = keys_to_read.clone();
-            RocksDBParallelIterator::for_each_parallel(
+            StoreParallelIterator::for_each_in_range(
                 store.clone(),
                 DBCol::FlatStateChanges,
                 Vec::new(),
                 Vec::new(),
                 6,
-                move |key, value| {
+                move |key: &[u8], value| {
                     let key = KeyForFlatStateDelta::try_from_slice(key).unwrap();
                     if key.shard_uid.version != 3 {
                         return;
                     }
-                    let changes = FlatStateChanges::try_from_slice(value.unwrap()).unwrap();
+                    let changes = FlatStateChanges::try_from_slice(value).unwrap();
                     for (_, value) in changes.0 {
                         if let Some(FlatStateValue::Ref(r)) = value {
                             let mut keys = keys_to_read.lock().unwrap();
@@ -110,6 +102,7 @@ impl AggressiveTrimmingCommand {
                         }
                     }
                 },
+                true,
             );
         }
 
@@ -127,7 +120,7 @@ impl AggressiveTrimmingCommand {
             let keys =
                 keys_to_read.lock().unwrap().drain(..).map(|(_, key)| key).collect::<Vec<_>>();
             let values_read = values_read.clone();
-            RocksDBParallelIterator::lookup_parallel(
+            StoreParallelIterator::lookup_keys(
                 store.clone(),
                 DBCol::State,
                 keys,
@@ -138,6 +131,7 @@ impl AggressiveTrimmingCommand {
                     let mut values = values_read.lock().unwrap();
                     values.insert(key.to_vec(), value);
                 },
+                true,
             )
         }
 
@@ -179,10 +173,6 @@ impl AggressiveTrimmingCommand {
             HumanBytes(total_bytes_written as u64),
             HumanBytes(total_bytes_to_write as u64)
         );
-
-        println!("Compacting store");
-        store.compact()?;
-        println!("Done");
 
         Ok(())
     }

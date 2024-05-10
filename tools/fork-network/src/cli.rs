@@ -1,5 +1,6 @@
 use crate::single_shard_storage_mutator::SingleShardStorageMutator;
 use crate::storage_mutator::StorageMutator;
+use crate::trim_database;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use near_chain::types::{RuntimeAdapter, Tip};
@@ -39,7 +40,6 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use strum::IntoEnumIterator;
 
 #[derive(clap::Parser)]
 /// Use the following sub-commands:
@@ -416,15 +416,11 @@ impl ForkNetworkCommand {
         let storage = open_storage(&home_dir, near_config).unwrap();
         let store = storage.get_hot_store();
 
-        tracing::info!("Delete unneeded columns in the original DB");
-        let mut update = store.store_update();
-        for col in DBCol::iter() {
-            match col {
-                DBCol::DbVersion | DBCol::Misc | DBCol::State | DBCol::FlatState => {}
-                _ => update.delete_all(col),
-            }
-        }
-        update.commit()?;
+        let temp_storage =
+            open_storage(&home_dir.join("data/temp-trimmed-db"), near_config).unwrap();
+        let temp_store = temp_storage.get_hot_store();
+
+        trim_database::trim_database(store, &near_config.genesis.config, temp_store)?;
         Ok(())
     }
 
