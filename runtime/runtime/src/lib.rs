@@ -953,14 +953,12 @@ impl Runtime {
         }
 
         if deposit_refund > 0 {
-            println!("deposit refund: {}", deposit_refund);
             result
                 .new_receipts
                 .push(Receipt::new_balance_refund(&receipt.predecessor_id, deposit_refund));
         }
 
         if gas_balance_refund > 0 {
-            println!("gas refund: {}", gas_balance_refund);
             if checked_feature!("nightly_protocol", GasPriceRefundAdjustment, protocol_version) {
                 // Charging for gas refund receipt. Send fee is burnt now, exec will be burnt at the
                 // refund time.
@@ -2671,6 +2669,12 @@ mod tests {
             total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap(),
         )
         .unwrap();
+        let gas_penalty_for_gas_refund =
+            if checked_feature!("nightly_protocol", GasPriceRefundAdjustment, PROTOCOL_VERSION) {
+                apply_state.config.fees.gas_penalty_for_gas_refund(gas)
+            } else {
+                0
+            };
         let receipts = vec![Receipt {
             predecessor_id: bob_account(),
             receiver_id: alice_account(),
@@ -2685,7 +2689,7 @@ mod tests {
             }),
         }];
         let total_receipt_cost = Balance::from(gas + expected_gas_burnt) * gas_price;
-        let expected_gas_burnt_amount = Balance::from(expected_gas_burnt) * GAS_PRICE;
+        let expected_gas_burnt_amount = Balance::from(expected_gas_burnt + gas_penalty_for_gas_refund) * GAS_PRICE;
         let expected_refund = total_receipt_cost - expected_gas_burnt_amount;
 
         let result = runtime
@@ -2704,9 +2708,11 @@ mod tests {
         // The refund is less than the received amount.
         match &result.outgoing_receipts[0].receipt {
             ReceiptEnum::Action(ActionReceipt { actions, .. }) => {
-                assert!(
-                    matches!(actions[0], Action::Transfer(TransferAction { deposit }) if deposit == expected_refund)
-                );
+                if let Action::Transfer(TransferAction { deposit }) = &actions[0] {
+                    assert_eq!(*deposit, expected_refund);
+                } else {
+                    panic!("Expected Transfer action");
+                }
             }
             _ => unreachable!(),
         };
@@ -2734,6 +2740,12 @@ mod tests {
             total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap(),
         )
         .unwrap();
+        let gas_penalty_for_gas_refund =
+            if checked_feature!("nightly_protocol", GasPriceRefundAdjustment, PROTOCOL_VERSION) {
+                std::cmp::min(gas, apply_state.config.fees.gas_penalty_for_gas_refund(gas))
+            } else {
+                0
+            };
         let receipts = vec![Receipt {
             predecessor_id: bob_account(),
             receiver_id: alice_account(),
@@ -2748,7 +2760,7 @@ mod tests {
             }),
         }];
         let total_receipt_cost = Balance::from(gas + expected_gas_burnt) * gas_price;
-        let expected_gas_burnt_amount = Balance::from(expected_gas_burnt) * GAS_PRICE;
+        let expected_gas_burnt_amount = Balance::from(expected_gas_burnt + gas_penalty_for_gas_refund) * GAS_PRICE;
         let expected_deficit = expected_gas_burnt_amount - total_receipt_cost;
 
         let result = runtime
