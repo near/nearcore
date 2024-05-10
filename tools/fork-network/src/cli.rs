@@ -416,11 +416,28 @@ impl ForkNetworkCommand {
         let storage = open_storage(&home_dir, near_config).unwrap();
         let store = storage.get_hot_store();
 
-        let temp_storage =
-            open_storage(&home_dir.join("data/temp-trimmed-db"), near_config).unwrap();
+        let store_path = home_dir
+            .join(near_config.config.store.path.clone().unwrap_or_else(|| PathBuf::from("data")));
+        let temp_storage = open_storage(&store_path.join("temp-trimmed-db"), near_config).unwrap();
         let temp_store = temp_storage.get_hot_store();
+        let temp_store_path = store_path.join("temp-trimmed-db/data");
 
         trim_database::trim_database(store, &near_config.genesis.config, temp_store)?;
+
+        tracing::info!("Removing all current data");
+        for entry in std::fs::read_dir(&store_path)? {
+            let entry = entry?;
+            if entry.file_type()?.is_file() {
+                std::fs::remove_file(&entry.path())?;
+            }
+        }
+        tracing::info!("Moving in the new database");
+        for entry in std::fs::read_dir(&temp_store_path)? {
+            let entry = entry?;
+            std::fs::rename(&entry.path(), &store_path.join(entry.file_name()))?;
+        }
+        std::fs::remove_dir(&temp_store_path)?;
+
         Ok(())
     }
 
