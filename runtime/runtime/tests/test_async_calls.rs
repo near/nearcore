@@ -650,11 +650,7 @@ fn test_create_account_with_transfer_and_full_key() {
                         assert_eq!(function_call_action.deposit, 0);
                      }
                      => [r1, ref0] );
-    if checked_feature!(
-                    "nightly_protocol",
-                    GasPriceRefundAdjustment,
-                    PROTOCOL_VERSION
-                ) {
+    if checked_feature!("nightly_protocol", GasPriceRefundAdjustment, PROTOCOL_VERSION) {
         assert_receipts!(group, "near_1" => r1 @ "near_2",
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,

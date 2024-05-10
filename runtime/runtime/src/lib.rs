@@ -2735,7 +2735,8 @@ mod tests {
             }),
         }];
         let total_receipt_cost = Balance::from(gas + expected_gas_burnt) * gas_price;
-        let expected_gas_burnt_amount = Balance::from(expected_gas_burnt + gas_penalty_for_gas_refund) * GAS_PRICE;
+        let expected_gas_burnt_amount =
+            Balance::from(expected_gas_burnt + gas_penalty_for_gas_refund) * GAS_PRICE;
         let expected_refund = total_receipt_cost - expected_gas_burnt_amount;
 
         let result = runtime
@@ -2806,7 +2807,8 @@ mod tests {
             }),
         }];
         let total_receipt_cost = Balance::from(gas + expected_gas_burnt) * gas_price;
-        let expected_gas_burnt_amount = Balance::from(expected_gas_burnt + gas_penalty_for_gas_refund) * GAS_PRICE;
+        let expected_gas_burnt_amount =
+            Balance::from(expected_gas_burnt + gas_penalty_for_gas_refund) * GAS_PRICE;
         let expected_deficit = expected_gas_burnt_amount - total_receipt_cost;
 
         let result = runtime
