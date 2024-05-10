@@ -583,17 +583,29 @@ fn test_simple_transfer() {
                         assert_eq!(function_call_action.deposit, 0);
                      }
                      => [r1, ref0] );
-    assert_receipts!(group, "near_1" => r1 @ "near_2",
-                     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
-                     actions,
-                     a0, Action::Transfer(TransferAction{deposit}), {
-                        assert_eq!(*deposit, 1000000000);
-                     }
-                     => [ref1] );
+    if checked_feature!("nightly_protocol", GasPriceRefundAdjustment, PROTOCOL_VERSION) {
+        assert_receipts!(group, "near_1" => r1 @ "near_2",
+                         ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+                         actions,
+                         a0, Action::Transfer(TransferAction{deposit}), {
+                            assert_eq!(*deposit, 1000000000);
+                         }
+                         => [] );
 
-    assert_refund!(group, ref0 @ "near_0");
-    // For gas price difference
-    assert_refund!(group, ref1 @ "near_0");
+        assert_refund!(group, ref0 @ "near_0");
+    } else {
+        assert_receipts!(group, "near_1" => r1 @ "near_2",
+                         ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+                         actions,
+                         a0, Action::Transfer(TransferAction{deposit}), {
+                            assert_eq!(*deposit, 1000000000);
+                         }
+                         => [ref1] );
+
+        assert_refund!(group, ref0 @ "near_0");
+        // For gas price difference
+        assert_refund!(group, ref1 @ "near_0");
+    }
 }
 
 #[test]
@@ -1018,15 +1030,26 @@ fn test_transfer_64len_hex() {
                         assert_eq!(function_call_action.deposit, 0);
                      }
                      => [r1, ref0] );
-    assert_receipts!(group, "near_1" => r1 @ account_id.as_str(),
+    if checked_feature!("nightly_protocol", GasPriceRefundAdjustment, PROTOCOL_VERSION) {
+        assert_receipts!(group, "near_1" => r1 @ account_id.as_str(),
+                     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+                     actions,
+                     a0, Action::Transfer(TransferAction{deposit}), {
+                        assert_eq!(*deposit, TESTING_INIT_BALANCE / 2);
+                     }
+                     => [] );
+        assert_refund!(group, ref0 @ "near_0");
+    } else {
+        assert_receipts!(group, "near_1" => r1 @ account_id.as_str(),
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
                      a0, Action::Transfer(TransferAction{deposit}), {
                         assert_eq!(*deposit, TESTING_INIT_BALANCE / 2);
                      }
                      => [ref1] );
-    assert_refund!(group, ref0 @ "near_0");
-    assert_refund!(group, ref1 @ "near_0");
+        assert_refund!(group, ref0 @ "near_0");
+        assert_refund!(group, ref1 @ "near_0");
+    }
 }
 
 #[test]
@@ -1084,7 +1107,19 @@ fn test_create_transfer_64len_hex_fail() {
                         assert_eq!(function_call_action.deposit, 0);
                      }
                      => [r1, ref0] );
-    assert_receipts!(group, "near_1" => r1 @ account_id.as_str(),
+    if checked_feature!("nightly_protocol", GasPriceRefundAdjustment, PROTOCOL_VERSION) {
+        assert_receipts!(group, "near_1" => r1 @ account_id.as_str(),
+                     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+                     actions,
+                     a0, Action::CreateAccount(CreateAccountAction{}), {},
+                     a1, Action::Transfer(TransferAction{deposit}), {
+                        assert_eq!(*deposit, TESTING_INIT_BALANCE / 2);
+                     }
+                     => [ref1] );
+        assert_refund!(group, ref0 @ "near_0");
+        assert_refund!(group, ref1 @ "near_1");
+    } else {
+        assert_receipts!(group, "near_1" => r1 @ account_id.as_str(),
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
                      a0, Action::CreateAccount(CreateAccountAction{}), {},
@@ -1092,7 +1127,8 @@ fn test_create_transfer_64len_hex_fail() {
                         assert_eq!(*deposit, TESTING_INIT_BALANCE / 2);
                      }
                      => [ref1, ref2] );
-    assert_refund!(group, ref0 @ "near_0");
-    assert_refund!(group, ref1 @ "near_1");
-    assert_refund!(group, ref2 @ "near_0");
+        assert_refund!(group, ref0 @ "near_0");
+        assert_refund!(group, ref1 @ "near_1");
+        assert_refund!(group, ref2 @ "near_0");
+    }
 }
