@@ -600,7 +600,9 @@ impl Block {
             let congestion_info = chunk.congestion_info().unwrap_or_default();
             let height_included = chunk.height_included();
             let height_current = self.header().height();
-            let missed_chunks_count = height_current - height_included;
+            let missed_chunks_count = height_current.checked_sub(height_included);
+            let missed_chunks_count = missed_chunks_count
+                .expect("The chunk height included must be less or equal than block height!");
 
             let extended_congestion_info =
                 ExtendedCongestionInfo::new(congestion_info, missed_chunks_count);

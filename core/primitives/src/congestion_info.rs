@@ -317,7 +317,6 @@ impl ExtendedCongestionInfo {
         self.congestion_info.remove_buffered_receipt_gas(gas)
     }
 
-    #[cfg(test)]
     /// Congestion level in the range [0.0, 1.0].
     pub fn congestion_level(&self) -> f64 {
         match self.congestion_info {
@@ -419,8 +418,11 @@ impl CongestionInfoV1 {
         other_shards: &[ShardId],
         congestion_seed: u64,
     ) {
-        // TODO(congestion_control) Set missed chunks count correctly.
-        if self.congestion_level(0) < 1.0 {
+        // For the purpose of setting the allowed shard ignore the missed chunks
+        // congestion. This is to disallow any shard from sending traffic to
+        // this shard if there are multiple missed chunks in a row in it.
+        let missed_chunks_count = 0;
+        if self.congestion_level(missed_chunks_count) < 1.0 {
             self.allowed_shard = own_shard as u16;
         } else {
             if let Some(index) = congestion_seed.checked_rem(other_shards.len() as u64) {
@@ -658,5 +660,73 @@ mod tests {
         );
         // at 12.5%, new transactions are allowed (threshold is 0.25)
         assert!(congestion_info.shard_accepts_transactions());
+    }
+
+    #[test]
+    fn test_missed_chunks_congestion() {
+        // Test missed chunks congestion without any other congestion
+        let make = |count| ExtendedCongestionInfo::new(CongestionInfo::default(), count);
+
+        assert_eq!(make(0).congestion_level(), 0.0);
+        assert_eq!(make(1).congestion_level(), 0.0);
+        assert_eq!(make(2).congestion_level(), 0.2);
+        assert_eq!(make(3).congestion_level(), 0.3);
+        assert_eq!(make(10).congestion_level(), 1.0);
+        assert_eq!(make(20).congestion_level(), 1.0);
+
+        // Test missed chunks congestion with outgoing congestion
+        let mut congestion_info = CongestionInfo::default();
+        congestion_info.add_buffered_receipt_gas(MAX_CONGESTION_OUTGOING_GAS / 2).unwrap();
+        let make = |count| ExtendedCongestionInfo::new(congestion_info.clone(), count);
+
+        assert_eq!(make(0).congestion_level(), 0.5);
+        assert_eq!(make(1).congestion_level(), 0.5);
+        assert_eq!(make(2).congestion_level(), 0.5);
+        assert_eq!(make(5).congestion_level(), 0.5);
+        assert_eq!(make(6).congestion_level(), 0.6);
+        assert_eq!(make(10).congestion_level(), 1.0);
+        assert_eq!(make(20).congestion_level(), 1.0);
+    }
+
+    #[test]
+    fn test_missed_chunks_finalize() {
+        // Setup half congested congestion info.
+        let mut congestion_info = CongestionInfo::default();
+        congestion_info.add_buffered_receipt_gas(MAX_CONGESTION_OUTGOING_GAS / 2).unwrap();
+        let shard = 2;
+        let other_shards = [0, 1, 3, 4];
+
+        // Test without missed chunks congestion.
+
+        let missed_chunks_count = 0;
+        let mut info = ExtendedCongestionInfo::new(congestion_info.clone(), missed_chunks_count);
+        info.finalize_allowed_shard(shard, &other_shards, 3);
+
+        let expected_outgoing_limit = 0.5 * MIN_OUTGOING_GAS as f64 + 0.5 * MAX_OUTGOING_GAS as f64;
+        for other_shard in other_shards {
+            assert_eq!(info.outgoing_limit(other_shard), expected_outgoing_limit as u64);
+        }
+
+        // Test with some missed chunks congestion.
+
+        let missed_chunks_count = 7;
+        let mut info = ExtendedCongestionInfo::new(congestion_info.clone(), missed_chunks_count);
+        info.finalize_allowed_shard(shard, &other_shards, 3);
+
+        let expected_outgoing_limit = 0.3 * MIN_OUTGOING_GAS as f64 + 0.7 * MAX_OUTGOING_GAS as f64;
+        for other_shard in other_shards {
+            assert_eq!(info.outgoing_limit(other_shard), expected_outgoing_limit as u64);
+        }
+
+        // Test with full missed chunks congestion.
+
+        let missed_chunks_count = MAX_CONGESTION_MISSED_CHUNKS;
+        let mut info = ExtendedCongestionInfo::new(congestion_info.clone(), missed_chunks_count);
+        info.finalize_allowed_shard(shard, &other_shards, 3);
+
+        let expected_outgoing_limit = 0;
+        for other_shard in other_shards {
+            assert_eq!(info.outgoing_limit(other_shard), expected_outgoing_limit as u64);
+        }
     }
 }
