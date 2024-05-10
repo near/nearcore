@@ -22,6 +22,7 @@ use near_primitives_core::account::id::{AccountId, AccountType};
 use std::mem::size_of;
 use std::ops::Deref;
 
+pub mod io;
 pub mod min_heap;
 
 /// Number of nano seconds in a second.

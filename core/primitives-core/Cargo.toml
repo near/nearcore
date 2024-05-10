@@ -35,10 +35,9 @@ expect-test.workspace = true
 default = []
 protocol_feature_fix_staking_threshold = []
 protocol_feature_fix_contract_loading_cost = []
-protocol_feature_reject_blocks_with_outdated_protocol_version = []
-protocol_feature_nonrefundable_transfer_nep491 = []
 protocol_feature_gas_price_refund_adjustment_nep536 = []
-yield_resume = []
+protocol_feature_nonrefundable_transfer_nep491 = []
+protocol_feature_reject_blocks_with_outdated_protocol_version = []
 
 nightly = [
   "nightly_protocol",
@@ -47,7 +46,6 @@ nightly = [
   "protocol_feature_gas_price_refund_adjustment_nep536",
   "protocol_feature_nonrefundable_transfer_nep491",
   "protocol_feature_reject_blocks_with_outdated_protocol_version",
-  "yield_resume",
 ]
 
 nightly_protocol = [

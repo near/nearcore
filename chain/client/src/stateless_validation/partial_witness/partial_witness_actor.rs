@@ -1,11 +1,17 @@
 use std::sync::Arc;
 
 use itertools::Itertools;
-use near_async::messaging::CanSend;
+use near_async::messaging::{Actor, CanSend, Handler, Sender};
 use near_async::time::Clock;
+use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
+use near_network::state_witness::{
+    ChunkStateWitnessAckMessage, PartialEncodedStateWitnessForwardMessage,
+    PartialEncodedStateWitnessMessage,
+};
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
+use near_performance_metrics_macros::perf;
 use near_primitives::checked_feature;
 use near_primitives::reed_solomon::reed_solomon_encode;
 use near_primitives::sharding::ShardChunkHeader;
@@ -16,14 +22,13 @@ use near_primitives::stateless_validation::{
 use near_primitives::types::{AccountId, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
 
-use crate::client_actions::ClientSenderForStateWitness;
+use crate::client_actor::ClientSenderForPartialWitness;
 use crate::metrics;
+use crate::stateless_validation::state_witness_tracker::ChunkStateWitnessTracker;
 
 use super::partial_witness_tracker::{PartialEncodedStateWitnessTracker, RsMap};
-use super::state_witness_actor::DistributeStateWitnessRequest;
-use super::state_witness_tracker::ChunkStateWitnessTracker;
 
-pub struct StateWitnessActions {
+pub struct PartialWitnessActor {
     /// Adapter to send messages to the network.
     network_adapter: PeerManagerAdapter,
     /// Validator signer to sign the state witness.
@@ -39,11 +44,58 @@ pub struct StateWitnessActions {
     rs_map: RsMap,
 }
 
-impl StateWitnessActions {
+impl Actor for PartialWitnessActor {}
+
+#[derive(actix::Message, Debug)]
+#[rtype(result = "()")]
+pub struct DistributeStateWitnessRequest {
+    pub epoch_id: EpochId,
+    pub chunk_header: ShardChunkHeader,
+    pub state_witness: ChunkStateWitness,
+}
+
+#[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
+#[multi_send_message_derive(Debug)]
+pub struct PartialWitnessSenderForClient {
+    pub distribute_chunk_state_witness: Sender<DistributeStateWitnessRequest>,
+}
+
+impl Handler<DistributeStateWitnessRequest> for PartialWitnessActor {
+    #[perf]
+    fn handle(&mut self, msg: DistributeStateWitnessRequest) {
+        if let Err(err) = self.handle_distribute_state_witness_request(msg) {
+            tracing::error!(target: "stateless_validation", ?err, "Failed to handle distribute chunk state witness request");
+        }
+    }
+}
+
+impl Handler<ChunkStateWitnessAckMessage> for PartialWitnessActor {
+    fn handle(&mut self, msg: ChunkStateWitnessAckMessage) {
+        self.handle_chunk_state_witness_ack(msg.0);
+    }
+}
+
+impl Handler<PartialEncodedStateWitnessMessage> for PartialWitnessActor {
+    fn handle(&mut self, msg: PartialEncodedStateWitnessMessage) {
+        if let Err(err) = self.handle_partial_encoded_state_witness(msg.0) {
+            tracing::error!(target: "stateless_validation", ?err, "Failed to handle PartialEncodedStateWitnessMessage");
+        }
+    }
+}
+
+impl Handler<PartialEncodedStateWitnessForwardMessage> for PartialWitnessActor {
+    fn handle(&mut self, msg: PartialEncodedStateWitnessForwardMessage) {
+        if let Err(err) = self.handle_partial_encoded_state_witness_forward(msg.0) {
+            tracing::error!(target: "stateless_validation", ?err, "Failed to handle PartialEncodedStateWitnessForwardMessage");
+        }
+    }
+}
+
+impl PartialWitnessActor {
     pub fn new(
         clock: Clock,
         network_adapter: PeerManagerAdapter,
-        client_sender: ClientSenderForStateWitness,
+        client_sender: ClientSenderForPartialWitness,
         my_signer: Arc<dyn ValidatorSigner>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
     ) -> Self {
@@ -122,16 +174,14 @@ impl StateWitnessActions {
         ));
     }
 
-    // Break the state witness into parts and send each part to the corresponding chunk validator owner.
-    // The chunk validator owner will then forward the part to all other chunk validators.
-    // Each chunk validator would collect the parts and reconstruct the state witness.
-    fn send_state_witness_parts(
+    // Function to generate the parts of the state witness and return them as a tuple of chunk_validator and part.
+    fn generate_state_witness_parts(
         &mut self,
         epoch_id: EpochId,
         chunk_header: ShardChunkHeader,
         witness_bytes: EncodedChunkStateWitness,
         chunk_validators: Vec<AccountId>,
-    ) -> Result<(), Error> {
+    ) -> Vec<(AccountId, PartialEncodedStateWitness)> {
         // Break the state witness into parts using Reed Solomon encoding.
         let rs = self.rs_map.entry(chunk_validators.len());
 
@@ -144,7 +194,7 @@ impl StateWitnessActions {
             ),
         };
 
-        let validator_witness_tuple = chunk_validators
+        chunk_validators
             .iter()
             .zip_eq(parts)
             .enumerate()
@@ -161,7 +211,31 @@ impl StateWitnessActions {
                 );
                 (chunk_validator.clone(), partial_witness)
             })
-            .collect_vec();
+            .collect_vec()
+    }
+
+    // Break the state witness into parts and send each part to the corresponding chunk validator owner.
+    // The chunk validator owner will then forward the part to all other chunk validators.
+    // Each chunk validator would collect the parts and reconstruct the state witness.
+    fn send_state_witness_parts(
+        &mut self,
+        epoch_id: EpochId,
+        chunk_header: ShardChunkHeader,
+        witness_bytes: EncodedChunkStateWitness,
+        chunk_validators: Vec<AccountId>,
+    ) -> Result<(), Error> {
+        // Record time taken to encode the state witness parts.
+        let shard_id_label = chunk_header.shard_id().to_string();
+        let encode_timer = metrics::PARTIAL_WITNESS_ENCODE_TIME
+            .with_label_values(&[shard_id_label.as_str()])
+            .start_timer();
+        let validator_witness_tuple = self.generate_state_witness_parts(
+            epoch_id,
+            chunk_header,
+            witness_bytes,
+            chunk_validators.clone(),
+        );
+        encode_timer.observe_duration();
 
         // Since we can't send network message to ourselves, we need to send the PartialEncodedStateWitnessForward
         // message for our part.
@@ -198,6 +272,8 @@ impl StateWitnessActions {
         &mut self,
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
+        tracing::debug!(target: "stateless_validation", ?partial_witness, "Receive PartialEncodedStateWitnessMessage");
+
         // Validate the partial encoded state witness.
         self.validate_partial_encoded_state_witness(&partial_witness)?;
 

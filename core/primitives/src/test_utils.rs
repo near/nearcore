@@ -21,7 +21,7 @@ use near_async::time::Clock;
 use near_crypto::vrf::Value;
 use near_crypto::{EmptySigner, InMemorySigner, KeyType, PublicKey, SecretKey, Signature, Signer};
 use near_primitives_core::account::id::AccountIdRef;
-use near_primitives_core::types::ProtocolVersion;
+use near_primitives_core::types::{ProtocolVersion, ShardId};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -625,6 +625,14 @@ impl EpochInfoProvider for MockEpochInfoProvider {
     fn chain_id(&self) -> String {
         "localnet".into()
     }
+
+    fn account_id_to_shard_id(
+        &self,
+        _account_id: &AccountId,
+        _epoch_id: &EpochId,
+    ) -> Result<ShardId, EpochError> {
+        Ok(0)
+    }
 }
 
 /// Encode array of `u64` to be passed as a smart contract argument.
@@ -675,7 +683,11 @@ impl FinalExecutionOutcomeView {
     #[track_caller]
     /// Check transaction and all transitive receipts for success status.
     pub fn assert_success(&self) {
-        assert!(matches!(self.status, FinalExecutionStatus::SuccessValue(_)));
+        assert!(
+            matches!(self.status, FinalExecutionStatus::SuccessValue(_)),
+            "error: {:?}",
+            self.status
+        );
         for (i, receipt) in self.receipts_outcome.iter().enumerate() {
             assert!(
                 matches!(

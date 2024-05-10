@@ -550,7 +550,6 @@ fn sync_state_dump() {
 
 #[test]
 // Test that state sync behaves well when the chunks are absent at the end of the epoch.
-// The test actually fails and the code needs fixing.
 fn test_dump_epoch_missing_chunk_in_last_block() {
     heavy_test(|| {
         init_test_logger();
@@ -558,6 +557,12 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
 
         for num_last_chunks_missing in 0..6 {
             assert!(num_last_chunks_missing < epoch_length);
+
+            tracing::info!(
+                target: "test",
+                ?num_last_chunks_missing,
+                "starting test_dump_epoch_missing_chunk_in_last_block"
+            );
             let mut genesis =
                 Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
             genesis.config.epoch_length = epoch_length;
@@ -574,6 +579,12 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                 InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
             let target_height = epoch_length + 1;
             for i in 1..=target_height {
+                tracing::info!(
+                    target: "test",
+                    height=i,
+                    "producing block"
+                );
+
                 let block = env.clients[0].produce_block(i).unwrap().unwrap();
                 blocks.push(block.clone());
                 if (i % epoch_length) != 0
@@ -612,6 +623,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
 
             // Simulate state sync
 
+            tracing::info!(target: "test", "state sync - get parts");
             // No blocks were skipped, therefore we can compute the block height of the first block of the current epoch.
             let sync_hash_height = ((target_height / epoch_length) * epoch_length + 1) as usize;
             let sync_hash = *blocks[sync_hash_height].hash();
@@ -632,6 +644,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                 })
                 .collect();
 
+            tracing::info!(target: "test", "state sync - apply parts");
             env.clients[1].chain.reset_data_pre_state_sync(sync_hash).unwrap();
             let epoch_id = blocks.last().unwrap().header().epoch_id();
             for i in 0..num_parts {
@@ -647,6 +660,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                     .unwrap();
             }
 
+            tracing::info!(target: "test", "state sync - set parts");
             env.clients[1].chain.set_state_header(0, sync_hash, state_sync_header).unwrap();
             for i in 0..num_parts {
                 env.clients[1]
@@ -686,8 +700,13 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                     .unwrap();
                 }
             });
+
+            tracing::info!(target: "test", "state sync - schedule");
             env.clients[1].chain.schedule_apply_state_parts(0, sync_hash, num_parts, &f).unwrap();
+
+            tracing::info!(target: "test", "state sync - set state finalize");
             env.clients[1].chain.set_state_finalize(0, sync_hash).unwrap();
+
             let last_chunk_height = epoch_length - num_last_chunks_missing;
             for height in 1..epoch_length {
                 if height < last_chunk_height {

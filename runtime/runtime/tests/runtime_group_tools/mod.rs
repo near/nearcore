@@ -97,6 +97,7 @@ impl StandaloneRuntime {
             .collect();
 
         let apply_state = ApplyState {
+            apply_reason: None,
             block_height: 1,
             prev_block_hash: Default::default(),
             block_hash: Default::default(),

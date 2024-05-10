@@ -10,8 +10,6 @@ use serde_with::serde_as;
 use std::borrow::Borrow;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
-use std::io;
-use std::io::{Error, ErrorKind};
 
 /// The outgoing (egress) data which will be transformed
 /// to a `DataReceipt` to be sent to a `receipt.receiver`
@@ -116,28 +114,21 @@ impl Receipt {
 }
 
 /// Receipt could be either ActionReceipt or DataReceipt
-#[derive(BorshSerialize, Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub enum ReceiptEnum {
     Action(ActionReceipt),
     Data(DataReceipt),
     PromiseYield(ActionReceipt),
     PromiseResume(DataReceipt),
-}
-
-impl BorshDeserialize for ReceiptEnum {
-    fn deserialize_reader<R: io::Read>(rd: &mut R) -> io::Result<Self> {
-        // after we stabilize yield_resume we can simply derive BorshDeserialize trait again
-        let ordinal = u8::deserialize_reader(rd)?;
-        match ordinal {
-            0u8 => Ok(ReceiptEnum::Action(ActionReceipt::deserialize_reader(rd)?)),
-            1u8 => Ok(ReceiptEnum::Data(DataReceipt::deserialize_reader(rd)?)),
-            #[cfg(feature = "yield_resume")]
-            2u8 => Ok(ReceiptEnum::PromiseYield(ActionReceipt::deserialize_reader(rd)?)),
-            #[cfg(feature = "yield_resume")]
-            3u8 => Ok(ReceiptEnum::PromiseResume(DataReceipt::deserialize_reader(rd)?)),
-            _ => Err(Error::from(ErrorKind::InvalidData)),
-        }
-    }
 }
 
 /// ActionReceipt is derived from an Action from `Transaction or from Receipt`
@@ -269,6 +260,10 @@ pub struct TrieQueueIndices {
 impl TrieQueueIndices {
     pub fn len(&self) -> u64 {
         self.next_available_index - self.first_index
+    }
+
+    pub fn is_default(&self) -> bool {
+        self.next_available_index == 0
     }
 }
 

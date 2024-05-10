@@ -8,6 +8,7 @@ use near_chain::types::{
 };
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::combine_hash;
 use near_primitives::receipt::Receipt;
@@ -133,6 +134,7 @@ pub(crate) fn apply_chunk(
     Ok((
         runtime.apply_chunk(
             RuntimeStorageConfig::new(prev_state_root, use_flat_storage),
+            ApplyChunkReason::UpdateTrackedShard,
             ApplyChunkShardContext {
                 shard_id,
                 last_validator_proposals: chunk_header.prev_validator_proposals(),

@@ -1,11 +1,10 @@
-pub mod client_actions;
-pub mod state_witness_actions;
+pub mod client_actor;
+pub mod partial_witness_actor;
 pub mod sync_actor;
-pub mod sync_jobs_actions;
+pub mod sync_jobs_actor;
 
-use crate::client_actions::ClientSenderForStateWitnessMessage;
-use crate::client_actions::{ClientActionHandler, ClientActions};
-use near_async::messaging::{CanSend, SendAsync};
+use crate::client_actor::{ClientActorInner, ClientSenderForPartialWitnessMessage};
+use near_async::messaging::{CanSend, Handler, SendAsync};
 use near_async::test_loop::delay_sender::DelaySender;
 use near_async::test_loop::event_handler::{LoopEventHandler, TryIntoOrSelf};
 
@@ -18,8 +17,8 @@ use near_network::client::{
 };
 use near_network::state_witness::{
     ChunkStateWitnessAckMessage, PartialEncodedStateWitnessForwardMessage,
-    PartialEncodedStateWitnessMessage, StateWitnessSenderForNetwork,
-    StateWitnessSenderForNetworkMessage,
+    PartialEncodedStateWitnessMessage, PartialWitnessSenderForNetwork,
+    PartialWitnessSenderForNetworkMessage,
 };
 use near_network::test_loop::SupportsRoutingLookup;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
@@ -34,7 +33,7 @@ pub fn print_basic_client_info_before_each_event<Data, Event>(
     idx: Option<usize>,
 ) -> LoopEventHandler<Data, Event>
 where
-    Data: AsRef<ClientActions>,
+    Data: AsRef<ClientActorInner>,
 {
     let idx_prefix = idx.map(|idx| format!("[Client #{}] ", idx)).unwrap_or_default();
 
@@ -89,7 +88,7 @@ pub fn route_network_messages_to_client<
     Event: TryIntoOrSelf<PeerManagerMessageRequest>
         + From<PeerManagerMessageRequest>
         + From<ClientSenderForNetworkMessage>
-        + From<StateWitnessSenderForNetworkMessage>,
+        + From<PartialWitnessSenderForNetworkMessage>,
 >(
     sender: DelaySender<(usize, Event)>,
     network_delay: Duration,
@@ -117,7 +116,7 @@ pub fn route_network_messages_to_client<
                 sender
                     .with_additional_delay(network_delay)
                     .for_index(idx)
-                    .into_wrapped_multi_sender::<StateWitnessSenderForNetworkMessage, StateWitnessSenderForNetwork>()
+                    .into_wrapped_multi_sender::<PartialWitnessSenderForNetworkMessage, PartialWitnessSenderForNetwork>()
             })
             .collect::<Vec<_>>();
 
@@ -350,11 +349,11 @@ impl<Data: AsRef<Client> + AsRef<AccountId>> ClientQueries for Vec<Data> {
     }
 }
 
-pub fn forward_messages_from_state_witness_actor_to_client(
-) -> LoopEventHandler<ClientActions, ClientSenderForStateWitnessMessage> {
-    LoopEventHandler::new_simple(|msg, client_actions: &mut ClientActions| match msg {
-        ClientSenderForStateWitnessMessage::_receive_chunk_state_witness(msg) => {
-            client_actions.handle(msg)
+pub fn forward_messages_from_partial_witness_actor_to_client(
+) -> LoopEventHandler<ClientActorInner, ClientSenderForPartialWitnessMessage> {
+    LoopEventHandler::new_simple(|msg, client_actor: &mut ClientActorInner| match msg {
+        ClientSenderForPartialWitnessMessage::_receive_chunk_state_witness(msg) => {
+            client_actor.handle(msg)
         }
     })
 }

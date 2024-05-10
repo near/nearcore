@@ -116,6 +116,14 @@ impl EpochInfoProvider for EpochManagerHandle {
         let epoch_manager = self.read();
         epoch_manager.config.chain_id().into()
     }
+
+    fn account_id_to_shard_id(
+        &self,
+        account_id: &AccountId,
+        epoch_id: &EpochId,
+    ) -> Result<ShardId, EpochError> {
+        EpochManagerAdapter::account_id_to_shard_id(self, account_id, epoch_id)
+    }
 }
 
 /// Tracks epoch information across different forks, such as validators.
@@ -734,8 +742,8 @@ impl EpochManager {
             validator_kickout,
             validator_reward,
             minted_amount,
-            next_version,
             epoch_protocol_version,
+            next_version,
         ) {
             Ok(next_next_epoch_info) => next_next_epoch_info,
             Err(EpochError::ThresholdError { stake_sum, num_seats }) => {

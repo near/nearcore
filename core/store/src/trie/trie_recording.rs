@@ -1,7 +1,8 @@
 use crate::PartialStorage;
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
-use std::collections::HashMap;
+use near_primitives::types::AccountId;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 /// A simple struct to capture a state proof as it's being accumulated.
@@ -11,11 +12,21 @@ pub struct TrieRecorder {
     /// Counts removals performed while recording.
     /// recorded_storage_size_upper_bound takes it into account when calculating the total size.
     removal_counter: usize,
+    /// Counts the total size of the contract codes read while recording.
+    code_len_counter: usize,
+    /// Account IDs for which the code should be recorded.
+    pub codes_to_record: HashSet<AccountId>,
 }
 
 impl TrieRecorder {
     pub fn new() -> Self {
-        Self { recorded: HashMap::new(), size: 0, removal_counter: 0 }
+        Self {
+            recorded: HashMap::new(),
+            size: 0,
+            removal_counter: 0,
+            code_len_counter: 0,
+            codes_to_record: Default::default(),
+        }
     }
 
     pub fn record(&mut self, hash: &CryptoHash, node: Arc<[u8]>) {
@@ -29,6 +40,10 @@ impl TrieRecorder {
         self.removal_counter = self.removal_counter.saturating_add(1)
     }
 
+    pub fn record_code_len(&mut self, code_len: usize) {
+        self.code_len_counter = self.code_len_counter.saturating_add(code_len)
+    }
+
     pub fn recorded_storage(&mut self) -> PartialStorage {
         let mut nodes: Vec<_> = self.recorded.drain().map(|(_key, value)| value).collect();
         nodes.sort();
@@ -40,13 +55,16 @@ impl TrieRecorder {
         self.size
     }
 
-    /// Size of the recorded state proof plus some additional size added to cover removals.
+    /// Size of the recorded state proof plus some additional size added to cover removals
+    /// and contract codes.
     /// An upper-bound estimation of the true recorded size after finalization.
     /// See https://github.com/near/nearcore/issues/10890 and https://github.com/near/nearcore/pull/11000 for details.
     pub fn recorded_storage_size_upper_bound(&self) -> usize {
         // Charge 2000 bytes for every removal
         let removals_size = self.removal_counter.saturating_mul(2000);
-        self.recorded_storage_size().saturating_add(removals_size)
+        self.recorded_storage_size()
+            .saturating_add(removals_size)
+            .saturating_add(self.code_len_counter)
     }
 }
 
@@ -68,7 +86,7 @@ mod trie_recording_tests {
     use near_primitives::state::ValueRef;
     use near_primitives::types::chunk_extra::ChunkExtra;
     use near_primitives::types::StateRoot;
-    use near_primitives::version::PROTOCOL_VERSION;
+    use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
     use rand::prelude::SliceRandom;
     use rand::{random, thread_rng, Rng};
     use std::collections::{HashMap, HashSet};
@@ -123,6 +141,10 @@ mod trie_recording_tests {
             &trie_changes,
         );
 
+        let congestion_info = ProtocolFeature::CongestionControl
+            .enabled(PROTOCOL_VERSION)
+            .then(CongestionInfo::default);
+
         // ChunkExtra is needed for in-memory trie loading code to query state roots.
         let chunk_extra = ChunkExtra::new(
             PROTOCOL_VERSION,
@@ -132,7 +154,7 @@ mod trie_recording_tests {
             0,
             0,
             0,
-            Some(CongestionInfo::default()),
+            congestion_info,
         );
         let mut update_for_chunk_extra = tries_for_building.store_update();
         update_for_chunk_extra

@@ -1,8 +1,8 @@
 use crate::{
     adapter::ShardsManagerRequestFromClient,
     logic::{cares_about_shard_this_or_next_epoch, make_outgoing_receipts_proofs},
+    shards_manager_actor::ShardsManagerActor,
     test_utils::{default_tip, tip},
-    ShardsManager,
 };
 use near_async::test_loop::delay_sender::DelaySender;
 use near_async::time;
@@ -39,15 +39,15 @@ use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::{collections::HashMap, sync::Arc};
 
 pub fn forward_client_request_to_shards_manager(
-) -> LoopEventHandler<ShardsManager, ShardsManagerRequestFromClient> {
-    LoopEventHandler::new_simple(|event, data: &mut ShardsManager| {
+) -> LoopEventHandler<ShardsManagerActor, ShardsManagerRequestFromClient> {
+    LoopEventHandler::new_simple(|event, data: &mut ShardsManagerActor| {
         data.handle_client_request(event);
     })
 }
 
 pub fn forward_network_request_to_shards_manager(
-) -> LoopEventHandler<ShardsManager, ShardsManagerRequestFromNetwork> {
-    LoopEventHandler::new_simple(|event, data: &mut ShardsManager| {
+) -> LoopEventHandler<ShardsManagerActor, ShardsManagerRequestFromNetwork> {
+    LoopEventHandler::new_simple(|event, data: &mut ShardsManagerActor| {
         data.handle_network_request(event);
     })
 }
@@ -262,7 +262,7 @@ impl MockChainForShardsManager {
         let data_parts = self.epoch_manager.num_data_parts();
         let parity_parts = self.epoch_manager.num_total_parts() - data_parts;
         let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
-        let (chunk, merkle_paths) = ShardsManager::create_encoded_shard_chunk(
+        let (chunk, merkle_paths) = ShardsManagerActor::create_encoded_shard_chunk(
             self.tip.last_block_hash,
             CryptoHash::default(),
             CryptoHash::default(),

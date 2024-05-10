@@ -78,7 +78,6 @@ no_cache = []
 single_thread_rocksdb = [] # Deactivate RocksDB IO background threads
 test_features = []
 new_epoch_sync = []
-yield_resume = []
 
 nightly_protocol = [
   "near-async/nightly_protocol",
@@ -102,5 +101,4 @@ nightly = [
   "near-primitives/nightly",
   "near-vm-runner/nightly",
   "nightly_protocol",
-  "yield_resume",
 ]
