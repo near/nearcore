@@ -954,13 +954,22 @@ impl EpochManager {
             Ok(producers.iter().map(|producer_id| epoch_info.get_validator(*producer_id)).collect())
         })
     }
-    
-    pub fn get_chunk_producers_for_shard(&self, epoch_id: &EpochId, shard_id: ShardId) -> Result<Vec<ValidatorStake>, EpochError> {
+
+    pub fn get_chunk_producers_for_shard(
+        &self,
+        epoch_id: &EpochId,
+        shard_id: ShardId,
+    ) -> Result<Vec<ValidatorStake>, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?;
         let chunk_producers = epoch_info.chunk_producers_settlement();
         let chunk_producers = chunk_producers
             .get(shard_id as usize)
-            .ok_or_else(|| EpochError::ShardingError(format!("{} is not a valid shard id", shard_id)))?.iter().map(|i| epoch_info.get_validator(*i)).collect();
+            .ok_or_else(|| {
+                EpochError::ShardingError(format!("{} is not a valid shard id", shard_id))
+            })?
+            .iter()
+            .map(|i| epoch_info.get_validator(*i))
+            .collect();
         Ok(chunk_producers)
     }
 

@@ -31,14 +31,21 @@ impl Chain {
         }
 
         // Get the block producers who have sent approvals for the block. They should be counted towards chunk endorsements.
-        let block_producers = self.epoch_manager.get_epoch_block_approvers_ordered(block.header().prev_hash())?;
-        let chunk_endorsement_from_approvals = block_producers.into_iter().zip(block.header().approvals()).filter_map(|((approval, _), signature)| {
-            if signature.is_some() {
-                Some(approval.account_id.clone())
-            } else {
-                None
-            }
-        }).collect::<HashSet<_>>();
+        let block_producers =
+            self.epoch_manager.get_epoch_block_approvers_ordered(block.header().prev_hash())?;
+        let chunk_endorsement_from_approvals = block_producers
+            .into_iter()
+            .zip(block.header().approvals())
+            .filter_map(
+                |((approval, _), signature)| {
+                    if signature.is_some() {
+                        Some(approval.account_id)
+                    } else {
+                        None
+                    }
+                },
+            )
+            .collect::<HashSet<_>>();
 
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(block.header().prev_hash())?;
@@ -106,7 +113,10 @@ impl Chain {
                 endorsed_chunk_validators.insert(account_id.clone());
             }
 
-            for chunk_producer in self.epoch_manager.get_epoch_chunk_producers_for_shard(&epoch_id, chunk_header.shard_id())? {
+            for chunk_producer in self
+                .epoch_manager
+                .get_epoch_chunk_producers_for_shard(&epoch_id, chunk_header.shard_id())?
+            {
                 if chunk_endorsement_from_approvals.contains(chunk_producer.account_id()) {
                     endorsed_chunk_validators.insert(chunk_producer.account_id().clone());
                 }

@@ -196,7 +196,9 @@ impl ChunkEndorsementTracker {
         //    2. The chunk endorsements signatures are valid.
 
         let chunk_endorsements = {
-            if let Some(chunk_endorsements) = self.chunk_endorsements.get(&chunk_header.chunk_hash()) {
+            if let Some(chunk_endorsements) =
+                self.chunk_endorsements.get(&chunk_header.chunk_hash())
+            {
                 all_endorsers.extend(chunk_endorsements.keys().cloned());
                 chunk_endorsements
             } else {
@@ -204,7 +206,8 @@ impl ChunkEndorsementTracker {
             }
         };
 
-        let endorsement_stats = chunk_validator_assignments.compute_endorsement_stats(&all_endorsers);
+        let endorsement_stats =
+            chunk_validator_assignments.compute_endorsement_stats(&all_endorsers);
 
         // Check whether the current set of chunk_validators have enough stake to include chunk in block.
         if !endorsement_stats.has_enough_stake() {

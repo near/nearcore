@@ -114,8 +114,10 @@ impl ChunkInclusionTracker {
 
         for (shard_id, chunk_hash) in entry.iter() {
             let chunk_info = self.chunk_hash_to_chunk_info.get_mut(chunk_hash).unwrap();
-            chunk_info.endorsements =
-                endorsement_tracker.compute_chunk_endorsements(&chunk_info.chunk_header, chunk_producers_with_approvals.remove(shard_id).unwrap_or_default())?;
+            chunk_info.endorsements = endorsement_tracker.compute_chunk_endorsements(
+                &chunk_info.chunk_header,
+                chunk_producers_with_approvals.remove(shard_id).unwrap_or_default(),
+            )?;
         }
         Ok(())
     }

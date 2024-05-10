@@ -2297,12 +2297,7 @@ fn test_validate_chunk_extra() {
     // Produce a block on top of block1.
     // Validate that result of chunk execution in `block1` is legit.
     let height = next_height + 2;
-    client
-        .prepare_chunk_headers_ready_for_inclusion(
-            block1.hash(),
-            height,
-        )
-        .unwrap();
+    client.prepare_chunk_headers_ready_for_inclusion(block1.hash(), height).unwrap();
     let block = client.produce_block_on(height, *block1.hash()).unwrap().unwrap();
     client.process_block_test(block.into(), Provenance::PRODUCED).unwrap();
     let chunks = client

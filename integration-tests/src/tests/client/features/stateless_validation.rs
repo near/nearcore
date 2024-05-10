@@ -353,7 +353,8 @@ fn test_implicit_chunk_endorsements() {
         return;
     }
 
-    let accounts = vec!["test0".parse().unwrap(), "test1".parse().unwrap(), "test2".parse().unwrap()];
+    let accounts =
+        vec!["test0".parse().unwrap(), "test1".parse().unwrap(), "test2".parse().unwrap()];
     let signers: Vec<near_primitives::validator_signer::InMemoryValidatorSigner> = accounts
         .iter()
         .map(|account_id: &AccountId| create_test_signer(account_id.as_str()))
