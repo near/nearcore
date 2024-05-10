@@ -145,11 +145,11 @@ fn test_protocol_upgrade_under_congestion() {
     let sender_chunk =
         env.clients[0].chain.get_chunk(&sender_shard_chunk_header.chunk_hash()).unwrap();
     assert!(
-        sender_chunk.transactions().len() > 0,
+        !sender_chunk.transactions().is_empty(),
         "test setup error: sender is out of transactions"
     );
     assert!(
-        sender_chunk.prev_outgoing_receipts().len() > 0,
+        !sender_chunk.prev_outgoing_receipts().is_empty(),
         "test setup error: sender is not sending receipts"
     );
 
