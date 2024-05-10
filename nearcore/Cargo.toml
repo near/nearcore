@@ -123,10 +123,6 @@ protocol_feature_nonrefundable_transfer_nep491 = [
 new_epoch_sync = [
   "near-client/new_epoch_sync"
 ]
-yield_resume = [
-  "near-store/yield_resume",
-  "near-primitives/yield_resume",
-]
 
 nightly = [
   "near-actix-test-utils/nightly",
@@ -156,7 +152,6 @@ nightly = [
   "protocol_feature_fix_staking_threshold",
   "protocol_feature_nonrefundable_transfer_nep491",
   "testlib/nightly",
-  "yield_resume",
 ]
 nightly_protocol = [
   "near-actix-test-utils/nightly_protocol",
