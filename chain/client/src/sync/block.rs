@@ -72,7 +72,8 @@ impl BlockSync {
         highest_height: BlockHeight,
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<bool, near_chain::Error> {
-        let _span = tracing::debug_span!(target: "sync", "run", sync = "BlockSync").entered();
+        let _span =
+            tracing::debug_span!(target: "sync", "run_sync", sync_type = "BlockSync").entered();
         let head = chain.head()?;
         let header_head = chain.header_head()?;
 

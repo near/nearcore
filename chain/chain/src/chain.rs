@@ -1627,7 +1627,7 @@ impl Chain {
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) -> Result<(), Error> {
-        let _span = tracing::debug_span!(target: "sync", "reset_heads_post_state_sync", sync_hash)
+        let _span = tracing::debug_span!(target: "sync", "reset_heads_post_state_sync", ?sync_hash)
             .entered();
         // Get header we were syncing into.
         let header = self.get_block_header(&sync_hash)?;
@@ -1739,7 +1739,7 @@ impl Chain {
                             .add_block_with_missing_chunks(orphan, missing_chunk_hashes.clone());
                         debug!(
                             target: "chain",
-                            block_hash, missing_chunk_hashes, "Process block: missing chunks"
+                            ?block_hash, chunk_hashes=missing_chunk_hashes.iter().map(|h| format!("{:?}", h)).join(","), "Process block: missing chunks"
                         );
                     }
                     Error::EpochOutOfBounds(epoch_id) => {
@@ -1750,9 +1750,9 @@ impl Chain {
                     Error::BlockKnown(block_known_error) => {
                         debug!(
                             target: "chain",
-                            block_hash=block.hash(),
+                            block_hash=?block.hash(),
                             height=block_height,
-                            error=block_known_error, "Block known at this time");
+                            error=?block_known_error, "Block known at this time");
                     }
                     _ => {}
                 }
@@ -2001,7 +2001,7 @@ impl Chain {
         // see if the block is already in processing or if there are too many blocks being processed
         self.blocks_in_processing.add_dry_run(block.hash())?;
 
-        debug!(target: "chain", height=header.height, num_approvals = header.num_approvals(), "preprocess_block");
+        debug!(target: "chain", height=header.height(), num_approvals = header.num_approvals(), "preprocess_block");
 
         // Check that we know the epoch of the block before we try to get the header
         // (so that a block from unknown epoch doesn't get marked as an orphan)
@@ -2519,7 +2519,7 @@ impl Chain {
             "get_state_response_part",
             shard_id,
             part_id,
-            %sync_hash)
+            ?sync_hash)
         .entered();
         // Check cache
         let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id))?;

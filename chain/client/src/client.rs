@@ -846,7 +846,14 @@ impl Client {
             return Ok(None);
         }
 
-        self.produce_chunk(prev_block, epoch_id, last_header, next_height, shard_id, validator_signer)
+        self.produce_chunk(
+            prev_block,
+            epoch_id,
+            last_header,
+            next_height,
+            shard_id,
+            validator_signer,
+        )
     }
 
     pub fn produce_chunk(
@@ -861,7 +868,7 @@ impl Client {
         let timer = Instant::now();
         let _timer =
             metrics::PRODUCE_CHUNK_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
-        let span = tracing::debug_span!(target: "client", "produce_chunk", next_height, shard_id, ?epoch_id).entered();
+        let span = tracing::debug_span!(target: "client", "produce_chunk", height=next_height, shard_id, ?epoch_id).entered();
 
         let prev_block_hash = *prev_block.hash();
         if self.epoch_manager.is_next_block_epoch_start(&prev_block_hash)? {
@@ -1765,7 +1772,13 @@ impl Client {
                 .with_label_values(&[&shard_id.to_string()])
                 .start_timer();
             let last_header = Chain::get_prev_chunk_header(epoch_manager, block, shard_id).unwrap();
-            match self.try_produce_chunk(block, &epoch_id, last_header.clone(), next_height, shard_id) {
+            match self.try_produce_chunk(
+                block,
+                &epoch_id,
+                last_header.clone(),
+                next_height,
+                shard_id,
+            ) {
                 Ok(Some(result)) => {
                     let shard_chunk = self
                         .persist_and_distribute_encoded_chunk(
