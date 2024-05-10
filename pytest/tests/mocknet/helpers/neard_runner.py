@@ -109,6 +109,29 @@ class TestState(Enum):
 
 backup_id_pattern = re.compile(r'^[0-9a-zA-Z.][0-9a-zA-Z_\-.]+$')
 
+# Rotate the logs if they get larger than __neard_logs_file_size__
+# Remove old files if all the logs are past __neard_logs_max_size__
+LOGROTATE_TEMPLATE = """__neard_logs_dir__/__neard_logs_file_name__ {
+    su ubuntu ubuntu
+    size __neard_logs_file_size__
+    rotate __neard_logs_max_file_count__
+    copytruncate
+    missingok
+    notifempty
+    dateext
+    dateformat -%Y-%m-%d-%H-%M-%S
+    create 0644 ubuntu ubuntu
+    prerotate
+        total_size=$(du -sb __neard_logs_dir__/__neard_logs_file_name__* | awk '{total+=$1}END{print total}')
+        while [ $total_size -gt __neard_logs_max_size__ ]; do
+            # get the oldest file alphabetically 
+            oldest_file=$(ls -1 __neard_logs_dir__/__neard_logs_file_name__-* | head -n1)
+            rm -f "$oldest_file"
+            total_size=$(du -sb __neard_logs_dir__/__neard_logs_file_name__* | awk '{total+=$1}END{print total}')
+        done
+    endscript
+}"""
+
 
 class NeardRunner:
 
@@ -116,10 +139,8 @@ class NeardRunner:
         self.home = args.home
         self.neard_home = args.neard_home
         self.neard_logs_dir = args.neard_logs_dir
-        try:
-            os.mkdir(self.neard_logs_dir)
-        except FileExistsError:
-            pass
+        self.neard_logs_file_name = 'logs.txt'
+        self._configure_neard_logs()
         with open(self.home_path('config.json'), 'r') as f:
             self.config = json.load(f)
         self.neard = None
@@ -149,6 +170,43 @@ class NeardRunner:
         # TODO: consider locking the TestState variable separately, since there
         # is no need to block reading that when inside the update_binaries rpc for example
         self.lock = threading.Lock()
+
+    def _configure_neard_logs(self):
+        try:
+            os.mkdir(self.neard_logs_dir)
+        except FileExistsError:
+            pass
+
+        variables = {
+            '__neard_logs_dir__': f'{self.neard_logs_dir}',
+            '__neard_logs_file_name__': f'{self.neard_logs_file_name}',
+            '__neard_logs_file_size__': '100M',
+            '__neard_logs_max_file_count__': '0',  # Unlimited
+            '__neard_logs_max_size__': '100000000000',  # 100G
+        }
+        logrotate_config = LOGROTATE_TEMPLATE
+        # Replace variables in the template
+        for var, value in variables.items():
+            logrotate_config = re.sub(re.escape(var), value, logrotate_config)
+        self.logrotate_config_path = f'{self.neard_logs_dir}/.neard_logrotate_policy'
+        logging.info(
+            f'Setting log rotation policy in {self.logrotate_config_path}')
+        with open(self.logrotate_config_path, 'w') as config_file:
+            config_file.write(logrotate_config)
+
+    # Try to rotate the logs based on the policy defined here: self.logrotate_config_path.
+    def run_logrotate(self):
+        run_logrotate_cmd = [
+            '/usr/sbin/logrotate', '-s',
+            f'{self.neard_logs_dir}/.logrotate_status',
+            self.logrotate_config_path
+        ]
+        subprocess.Popen(
+            run_logrotate_cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
     def is_legacy(self):
         if os.path.exists(os.path.join(
@@ -749,15 +807,8 @@ class NeardRunner:
 
     # If this is a regular node, starts neard run. If it's a traffic generator, starts neard mirror run
     def start_neard(self, batch_interval_millis=None):
-        for i in range(20, -1, -1):
-            old_log = os.path.join(self.neard_logs_dir, f'log-{i}.txt')
-            new_log = os.path.join(self.neard_logs_dir, f'log-{i+1}.txt')
-            try:
-                os.rename(old_log, new_log)
-            except FileNotFoundError:
-                pass
-
-        with open(os.path.join(self.neard_logs_dir, 'log-0.txt'), 'ab') as out:
+        with open(os.path.join(self.neard_logs_dir, self.neard_logs_file_name),
+                  'ab') as out:
             if self.is_traffic_generator():
                 cmd = [
                     self.data['current_neard_path'],
@@ -1158,6 +1209,7 @@ class NeardRunner:
                     self.reset_near_home()
                 elif state == TestState.MAKING_BACKUP:
                     self.make_backup()
+                self.run_logrotate()
             time.sleep(10)
 
     def serve(self, port):
