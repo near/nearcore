@@ -244,8 +244,10 @@ impl<'a> External for RuntimeExt<'a> {
             .map_err(wrap_storage_error)?
         {
             self.receipt_manager.create_promise_resume_receipt(data_id, data)?;
+            println!("HEYY OKKKKKK");
             return Ok(true);
         }
+        println!("HEYY {} NOT FOUND IN TRIE???", data_id);
 
         // If the yielded promise was created by the current transaction, we'll find it in the
         // receipt manager.

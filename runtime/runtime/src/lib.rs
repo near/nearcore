@@ -1324,6 +1324,8 @@ impl Runtime {
         epoch_info_provider: &dyn EpochInfoProvider,
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyResult, RuntimeError> {
+        println!("HEY APPLY WAS CALLED WITH {} TRANSACTIONS", transactions.len());
+
         // state_patch must be empty unless this is sandbox build.  Thanks to
         // conditional compilation this always resolves to true so technically
         // the check is not necessary.  It’s defence in depth to make sure any
@@ -1435,6 +1437,11 @@ impl Runtime {
                     epoch_info_provider,
                 )?;
             }
+
+            println!(
+                "HEY PROCESSING A TRANSACTION COST {}",
+                outcome_with_id.outcome.compute_usage.unwrap()
+            );
 
             total.add(
                 outcome_with_id.outcome.gas_burnt,
@@ -1628,6 +1635,11 @@ impl Runtime {
             incoming_processing_start.elapsed(),
             total.gas,
             total.compute,
+        );
+
+        println!(
+            "HEY total compute is {} (limit {}) after processing local/incoming receipts",
+            total.compute, compute_limit
         );
 
         // Resolve timed-out PromiseYield receipts
