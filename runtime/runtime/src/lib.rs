@@ -1324,8 +1324,6 @@ impl Runtime {
         epoch_info_provider: &dyn EpochInfoProvider,
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyResult, RuntimeError> {
-        println!("HEY APPLY WAS CALLED WITH {} TRANSACTIONS", transactions.len());
-
         // state_patch must be empty unless this is sandbox build.  Thanks to
         // conditional compilation this always resolves to true so technically
         // the check is not necessary.  It’s defence in depth to make sure any
@@ -1437,11 +1435,6 @@ impl Runtime {
                     epoch_info_provider,
                 )?;
             }
-
-            println!(
-                "HEY PROCESSING A TRANSACTION COST {}",
-                outcome_with_id.outcome.compute_usage.unwrap()
-            );
 
             total.add(
                 outcome_with_id.outcome.gas_burnt,
@@ -1637,11 +1630,6 @@ impl Runtime {
             total.compute,
         );
 
-        println!(
-            "HEY total compute is {} (limit {}) after processing local/incoming receipts",
-            total.compute, compute_limit
-        );
-
         // Resolve timed-out PromiseYield receipts
         let mut promise_yield_indices: PromiseYieldIndices =
             get(&state_update, &TrieKey::PromiseYieldIndices)?.unwrap_or_default();
@@ -1702,12 +1690,12 @@ impl Runtime {
                     }),
                 };
 
-                // For yielded promises the sender is always the receiver. We can process
-                // the receipt directly because we know it is destined for the local shard.
-                //
-                // Note that we don't invoke the prefetcher as it doesn't do anything
-                // for data receipts.
-                process_receipt(&resume_receipt, &mut state_update, &mut total)?;
+                receipt_sink.forward_or_buffer_receipt(
+                    resume_receipt.clone(),
+                    apply_state,
+                    &mut state_update,
+                    epoch_info_provider,
+                )?;
                 timeout_receipts.push(resume_receipt);
             }
 
