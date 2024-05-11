@@ -1,11 +1,12 @@
-use crate::utils::{flat_head, flat_head_state_root, open_rocksdb};
-use near_epoch_manager::EpochManager;
+use crate::utils::open_rocksdb;
+use anyhow::Context;
+use near_chain::types::RuntimeAdapter;
+use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::block::Tip;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::types::ShardId;
-use near_store::trie::mem::loading::load_trie_from_flat_state;
 use near_store::{DBCol, ShardUId, HEAD_KEY};
-use nearcore::NearConfig;
+use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -13,12 +14,21 @@ use std::time::Duration;
 /// Command to load an in-memory trie for research purposes.
 #[derive(clap::Parser)]
 pub struct LoadMemTrieCommand {
-    #[clap(long)]
-    shard_id: ShardId,
+    #[clap(long, use_value_delimiter = true, value_delimiter = ',')]
+    shard_id: Option<Vec<ShardId>>,
 }
 
+/// RUST_LOG=info ./target/debug/neard --home /home/elmas/.near/localnet/node0/ database load-mem-trie --shard-id 0,1,2
+
 impl LoadMemTrieCommand {
-    pub fn run(&self, near_config: NearConfig, home: &Path) -> anyhow::Result<()> {
+    pub fn run(&self, home: &Path) -> anyhow::Result<()> {
+        let mut near_config = nearcore::config::load_config(
+            &home,
+            near_chain_configs::GenesisValidationMode::UnsafeFast,
+        )
+        .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
+        near_config.config.store.load_mem_tries_for_tracked_shards = true;
+
         let rocksdb = Arc::new(open_rocksdb(home, near_store::Mode::ReadOnly)?);
         let store = near_store::NodeStorage::new(rocksdb).get_hot_store();
         let genesis_config = &near_config.genesis.config;
@@ -29,20 +39,27 @@ impl LoadMemTrieCommand {
         let block_header = store
             .get_ser::<BlockHeader>(DBCol::BlockHeader, &borsh::to_vec(&head).unwrap())?
             .ok_or_else(|| anyhow::anyhow!("Block header not found"))?;
-        let epoch_manager =
-            EpochManager::new_from_genesis_config(store.clone(), &genesis_config).unwrap();
-        let shard_layout = epoch_manager.get_shard_layout(block_header.epoch_id()).unwrap();
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis_config);
 
-        let shard_uid = ShardUId::from_shard_id_and_layout(self.shard_id, &shard_layout);
-        let state_root = flat_head_state_root(&store, &shard_uid);
-        let flat_head_height = flat_head(&store, &shard_uid).height;
+        let all_shard_uids: Vec<ShardUId> =
+            epoch_manager.get_shard_layout(block_header.epoch_id()).unwrap().shard_uids().collect();
+        let selected_shard_uids: Vec<ShardUId> = match &self.shard_id {
+            None => all_shard_uids,
+            Some(shard_ids) => all_shard_uids
+                .iter()
+                .filter(|uid| shard_ids.contains(&uid.shard_id()))
+                .map(|uid| uid.clone())
+                .collect(),
+        };
 
-        let _trie = load_trie_from_flat_state(&store, shard_uid, state_root, flat_head_height)?;
-        println!(
-            "Loaded trie for shard {} at height {}, press Ctrl-C to exit.",
-            self.shard_id, flat_head_height
-        );
-        std::thread::sleep(Duration::from_secs(10000000000));
+        let runtime =
+            NightshadeRuntime::from_config(home, store.clone(), &near_config, epoch_manager)
+                .context("could not create the transaction runtime")?;
+
+        println!("Loading memtries for shards {:?}...", selected_shard_uids);
+        runtime.get_tries().load_mem_tries_for_enabled_shards(&selected_shard_uids)?;
+        println!("Finished loading memtries, press Ctrl-C to exit.");
+        std::thread::sleep(Duration::from_secs(10_000_000_000));
         Ok(())
     }
 }
