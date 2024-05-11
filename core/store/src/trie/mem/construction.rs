@@ -3,6 +3,7 @@ use super::node::MemTrieNodeId;
 use crate::trie::mem::node::InputMemTrieNode;
 use crate::NibbleSlice;
 use near_primitives::state::FlatStateValue;
+use crate::concurrency::scope::{self, Scope};
 
 /// Algorithm to construct a trie from a given stream of sorted leaf values.
 ///
@@ -61,9 +62,10 @@ use near_primitives::state::FlatStateValue;
 //
 // As the bottom two segments are no longer part of the right-most path, they
 // are converted to concrete TrieMemNodeId's.
-pub struct TrieConstructor<'a> {
+pub struct TrieConstructor<'a, 'b, E: 'static> {
     arena: &'a mut Arena,
     segments: Vec<TrieConstructionSegment>,
+    scope: Option<&'b Scope<'b, E>>,
 }
 
 /// A segment of the rightmost path of the trie under construction, as
@@ -139,9 +141,9 @@ impl TrieConstructionSegment {
     }
 }
 
-impl<'a> TrieConstructor<'a> {
-    pub fn new(arena: &'a mut Arena) -> Self {
-        Self { arena, segments: vec![] }
+impl<'a, 'b, E: 'static> TrieConstructor<'a, 'b, E> {
+    pub fn new(arena: &'a mut Arena, scope: Option<&'b Scope<'b, E>>) -> Self {
+        Self { arena, segments: vec![], scope }
     }
 
     /// Encodes the bottom-most segment into a node, and pops it off the stack.
