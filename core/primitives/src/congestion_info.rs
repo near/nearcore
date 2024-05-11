@@ -709,11 +709,11 @@ mod tests {
 
         // Test with some missed chunks congestion.
 
-        let missed_chunks_count = 7;
+        let missed_chunks_count = 8;
         let mut info = ExtendedCongestionInfo::new(congestion_info.clone(), missed_chunks_count);
         info.finalize_allowed_shard(shard, &other_shards, 3);
 
-        let expected_outgoing_limit = 0.3 * MIN_OUTGOING_GAS as f64 + 0.7 * MAX_OUTGOING_GAS as f64;
+        let expected_outgoing_limit = mix(MAX_OUTGOING_GAS, MIN_OUTGOING_GAS, 0.8) as f64;
         for other_shard in other_shards {
             assert_eq!(info.outgoing_limit(other_shard), expected_outgoing_limit as u64);
         }
@@ -724,6 +724,8 @@ mod tests {
         let mut info = ExtendedCongestionInfo::new(congestion_info.clone(), missed_chunks_count);
         info.finalize_allowed_shard(shard, &other_shards, 3);
 
+        // The allowed shard should be set to own shard. None of the other
+        // shards should be allowed to send anything.
         let expected_outgoing_limit = 0;
         for other_shard in other_shards {
             assert_eq!(info.outgoing_limit(other_shard), expected_outgoing_limit as u64);
