@@ -21,12 +21,12 @@ const YIELD_CREATE_HEIGHT: u64 = 4;
 const NEXT_BLOCK_HEIGHT_AFTER_SETUP: u64 = 5;
 
 // The height of the block in which we expect the yield timeout to trigger,
-// executing the yield callback.
+// producing a YieldResume receipt.
 const YIELD_TIMEOUT_HEIGHT: u64 = YIELD_CREATE_HEIGHT + TEST_CONFIG_YIELD_TIMEOUT_LENGTH;
 
 /// Helper function which checks the outgoing receipts from the latest block.
-/// Returns the yield data id of the first PromiseYield or PromiseResume receipt it finds.
-fn find_yield_data_id_from_latest_block(env: &TestEnv) -> Option<CryptoHash> {
+/// Returns yield data ids for all PromiseYield and PromiseResume receipts.
+fn find_yield_data_ids_from_latest_block(env: &TestEnv) -> Vec<CryptoHash> {
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let epoch_id = genesis_block.header().epoch_id().clone();
     let shard_layout = env.clients[0].epoch_manager.get_shard_layout(&epoch_id).unwrap();
@@ -34,20 +34,22 @@ fn find_yield_data_id_from_latest_block(env: &TestEnv) -> Option<CryptoHash> {
     let last_block_hash = env.clients[0].chain.head().unwrap().last_block_hash;
     let last_block_height = env.clients[0].chain.head().unwrap().height;
 
+    let mut result = vec![];
+
     for receipt in env.clients[0]
         .chain
         .get_outgoing_receipts_for_shard(last_block_hash, shard_id, last_block_height)
         .unwrap()
     {
-        if let PromiseYield(action_receipt) = receipt.receipt {
-            return Some(action_receipt.input_data_ids[0]);
+        if let PromiseYield(ref action_receipt) = receipt.receipt {
+            result.push(action_receipt.input_data_ids[0]);
         }
-        if let PromiseResume(data_receipt) = receipt.receipt {
-            return Some(data_receipt.data_id);
+        if let PromiseResume(ref data_receipt) = receipt.receipt {
+            result.push(data_receipt.data_id);
         }
     }
 
-    None
+    result
 }
 
 /// Create environment with an unresolved promise yield callback.
@@ -113,9 +115,10 @@ fn prepare_env_with_yield(
         env.produce_block(0, i);
     }
 
-    let yield_data_id = find_yield_data_id_from_latest_block(&env).unwrap();
+    let yield_data_ids = find_yield_data_ids_from_latest_block(&env);
+    assert_eq!(yield_data_ids.len(), 1);
 
-    (env, yield_tx_hash, yield_data_id)
+    (env, yield_tx_hash, yield_data_ids[0])
 }
 
 /// Add a transaction which invokes yield resume using given data id.
@@ -201,7 +204,7 @@ fn simple_yield_timeout() {
     // In this block the timeout is processed, producing a YieldResume receipt.
     env.produce_block(0, YIELD_TIMEOUT_HEIGHT);
     // Checks that the anticipated YieldResume receipt was produced.
-    assert_eq!(data_id, find_yield_data_id_from_latest_block(&env).unwrap());
+    assert_eq!(find_yield_data_ids_from_latest_block(&env), vec![data_id]);
     assert_eq!(
         env.clients[0].chain.get_partial_transaction_result(&yield_tx_hash).unwrap().status,
         FinalExecutionStatus::Started
@@ -278,10 +281,10 @@ fn yield_resume_just_before_timeout() {
         env.clients[0].chain.get_partial_transaction_result(&yield_tx_hash).unwrap().status,
         FinalExecutionStatus::Started
     );
-    // Checks that the anticipated YieldResume receipt was produced.
-    assert_eq!(data_id, find_yield_data_id_from_latest_block(&env).unwrap());
+    // Here we expect two receipts to be produced; one from yield_resume and one from timeout.
+    assert_eq!(find_yield_data_ids_from_latest_block(&env), vec![data_id, data_id]);
 
-    // In this block the resume receipt is applied and the callback will execute.
+    // In this block the resume receipt is applied and the callback is executed with the resume payload.
     env.produce_block(0, YIELD_TIMEOUT_HEIGHT + 1);
     assert_eq!(
         env.clients[0].chain.get_partial_transaction_result(&yield_tx_hash).unwrap().status,

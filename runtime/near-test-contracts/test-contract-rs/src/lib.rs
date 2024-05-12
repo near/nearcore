@@ -881,7 +881,7 @@ fn call_promise() {
 }
 
 /// Used as the yield callback in tests of yield create / yield resume.
-/// The function takes an argument indicating the expected yield payload.
+/// The function takes an argument indicating the expected yield payload (promise input).
 /// It panics if executed with the wrong payload.
 /// Returns the payload length.
 #[no_mangle]
@@ -892,22 +892,24 @@ unsafe fn check_promise_result_return_value() {
     read_register(0, expected.as_ptr() as u64);
 
     assert_eq!(promise_results_count(), 1);
-    let result = match promise_result(0, 0) {
-        1 => {
-            let result = vec![0; register_len(0) as usize];
-            read_register(0, result.as_ptr() as *const u64 as u64);
-            assert_eq!(expected, result);
 
-            vec![register_len(0) as u8]
+    let payload_len = match promise_result(0, 0) {
+        1 => {
+            let payload = vec![0; register_len(0) as usize];
+            read_register(0, payload.as_ptr() as *const u64 as u64);
+            assert_eq!(expected, payload);
+
+            payload.len()
         }
         2 => {
             assert_eq!(expected_result_len, 0);
 
-            vec![0u8]
+            0
         }
         _ => unreachable!(),
     };
 
+    let result = vec![payload_len as u8];
     value_return(1u64, result.as_ptr() as u64);
 }
 
