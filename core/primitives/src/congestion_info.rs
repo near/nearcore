@@ -120,8 +120,8 @@ pub struct CongestionInfoV1 {
     pub delayed_receipts_gas: u128,
     /// Sum of gas in currently buffered receipts.
     pub buffered_receipts_gas: u128,
-    /// Size of borsh serialized receipts stored in state because they
-    /// were delayed, buffered, postponed, or yielded.
+    /// Size of borsh serialized receipts stored in state because they were
+    /// delayed or buffered. Postponed and yielded receipts not included.
     pub receipt_bytes: u64,
     /// If fully congested, only this shard can forward receipts.
     pub allowed_shard: u16,

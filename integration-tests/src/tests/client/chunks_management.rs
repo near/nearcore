@@ -5,7 +5,7 @@ use near_actix_test_utils::run_actix;
 use near_async::time::{self, Clock};
 use near_chain::test_utils::ValidatorSchedule;
 use near_chain_configs::{ChunkDistributionNetworkConfig, ChunkDistributionUris};
-use near_chunks::{
+use near_chunks::shards_manager_actor::{
     CHUNK_REQUEST_RETRY, CHUNK_REQUEST_SWITCH_TO_FULL_FETCH, CHUNK_REQUEST_SWITCH_TO_OTHERS,
 };
 use near_client::test_utils::{setup_mock_all_validators, ActorHandlesForTesting};

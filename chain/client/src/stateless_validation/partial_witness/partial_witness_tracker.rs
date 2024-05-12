@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use lru::LruCache;
 use near_async::messaging::CanSend;
+use near_async::time::{Duration, Instant};
 use near_chain::chain::ProcessChunkStateWitnessMessage;
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
@@ -11,7 +12,8 @@ use near_primitives::stateless_validation::{EncodedChunkStateWitness, PartialEnc
 use near_primitives::types::{BlockHeight, ShardId};
 use reed_solomon_erasure::galois_8::ReedSolomon;
 
-use crate::client_actions::ClientSenderForPartialWitness;
+use crate::client_actor::ClientSenderForPartialWitness;
+use crate::metrics;
 
 /// Max number of chunks to keep in the witness tracker cache. We reach here only after validation
 /// of the partial_witness so the LRU cache size need not be too large.
@@ -51,6 +53,9 @@ impl RsMap {
 
 struct CacheEntry {
     pub is_decoded: bool,
+    pub shard_id: ShardId,
+    pub timer: Instant,
+    pub duration_to_last_part: Duration,
     pub data_parts_present: usize,
     pub data_parts_required: usize,
     pub parts: Vec<Option<Box<[u8]>>>,
@@ -65,6 +70,9 @@ impl CacheEntry {
         };
         Self {
             is_decoded: false,
+            shard_id: 0, // Dummy value
+            timer: Instant::now(),
+            duration_to_last_part: Duration::seconds(0),
             data_parts_present: 0,
             data_parts_required: data_parts,
             parts: vec![None; total_parts],
@@ -94,14 +102,17 @@ impl CacheEntry {
             return None;
         }
 
+        // Increment the count of data parts present even if the part has been decoded before.
+        // We use this in metrics to track the number of parts received. Insert the part into the cache entry.
+        self.data_parts_present += 1;
+        self.parts[part_ord] = Some(part);
+        self.shard_id = shard_id;
+        self.duration_to_last_part = self.timer.elapsed();
+
         // Check if we have already decoded the state witness.
         if self.is_decoded {
             return None;
         }
-
-        // Insert the part into the cache entry.
-        self.parts[part_ord] = Some(part);
-        self.data_parts_present += 1;
 
         // If we have enough parts, try to decode the state witness.
         if self.data_parts_present < self.data_parts_required {
@@ -168,12 +179,21 @@ impl PartialEncodedStateWitnessTracker {
         &mut self,
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
+        tracing::debug!(target: "stateless_validation", ?partial_witness, "store_partial_encoded_state_witness");
+
         self.maybe_insert_new_entry_in_parts_cache(&partial_witness)?;
 
         let key = (partial_witness.shard_id(), partial_witness.height_created());
         let entry = self.parts_cache.get_mut(&key).unwrap();
 
         if let Some(encoded_witness) = entry.insert_in_cache_entry(partial_witness) {
+            tracing::debug!(target: "stateless_validation", ?key, "Sending encoded witness to client.");
+
+            // Record the time taken from receiving first part to decoding partial witness.
+            metrics::PARTIAL_WITNESS_DECODE_TIME
+                .with_label_values(&[entry.shard_id.to_string().as_str()])
+                .observe(entry.duration_to_last_part.as_seconds_f64());
+
             self.client_sender.send(ProcessChunkStateWitnessMessage(encoded_witness));
         }
         Ok(())
@@ -206,6 +226,19 @@ impl PartialEncodedStateWitnessTracker {
         let rs = self.rs_map.entry(num_parts);
         let new_entry = CacheEntry::new(rs);
         if let Some((evicted_chunk_hash, evicted_entry)) = self.parts_cache.push(key, new_entry) {
+            // Record the ratio of parts received to parts required for the evicted entry.
+            // Note that this includes the parts received after decoding the state witness.
+            let parts_received_ratio =
+                evicted_entry.data_parts_present as f64 / evicted_entry.data_parts_required as f64;
+            metrics::PARTIAL_WITNESS_PARTS_RECEIVED_RATIO
+                .with_label_values(&[evicted_entry.shard_id.to_string().as_str()])
+                .observe(parts_received_ratio);
+
+            // Record the time taken from receiving first part to receiving the last part.
+            metrics::PARTIAL_WITNESS_TOTAL_TIME
+                .with_label_values(&[evicted_entry.shard_id.to_string().as_str()])
+                .observe(evicted_entry.duration_to_last_part.as_seconds_f64());
+
             // Check if the evicted entry has been fully decoded and processed.
             if !evicted_entry.is_decoded {
                 tracing::warn!(

@@ -10,13 +10,12 @@ pub use near_client_primitives::types::{
 
 pub use crate::client::{Client, ProduceChunkResult};
 #[cfg(feature = "test_features")]
-pub use crate::client_actions::NetworkAdversarialMessage;
+pub use crate::client_actor::NetworkAdversarialMessage;
 pub use crate::client_actor::{start_client, ClientActor, StartClientResult};
 pub use crate::config_updater::ConfigUpdater;
 pub use crate::stateless_validation::chunk_validator::orphan_witness_handling::HandleOrphanWitnessOutcome;
 pub use crate::sync::adapter::{SyncAdapter, SyncMessage};
-pub use crate::view_client::{start_view_client, ViewClientActor};
-pub use gc_actor::start_gc_actor;
+pub use crate::view_client_actor::{ViewClientActor, ViewClientActorInner};
 pub use near_client_primitives::debug::DebugStatus;
 pub use near_network::client::{
     BlockApproval, BlockResponse, ProcessTxRequest, ProcessTxResponse, SetNetworkInfo,
@@ -31,8 +30,7 @@ pub mod adversarial;
 mod chunk_distribution_network;
 mod chunk_inclusion_tracker;
 mod client;
-pub mod client_actions;
-mod client_actor;
+pub mod client_actor;
 mod config_updater;
 pub mod debug;
 pub mod gc_actor;
@@ -44,4 +42,4 @@ pub mod sync_jobs_actor;
 pub mod test_utils;
 #[cfg(test)]
 mod tests;
-mod view_client;
+mod view_client_actor;

@@ -42,7 +42,6 @@ use super::*;
 
 use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use near_async::time::Clock;
-use near_primitives::account::id::AccountIdRef;
 use near_primitives::trie_key::TrieKey;
 use primitive_types::U256;
 
@@ -504,10 +503,7 @@ fn test_validator_rotation() {
     );
     let test2_acc = env.view_account(&"test2".parse().unwrap());
     // Become fishermen instead
-    assert_eq!(
-        (test2_acc.amount, test2_acc.locked),
-        (TESTING_INIT_BALANCE - test2_stake_amount, test2_stake_amount)
-    );
+    assert_eq!((test2_acc.amount, test2_acc.locked), (TESTING_INIT_BALANCE, 0));
     let test3_acc = env.view_account(&"test3".parse().unwrap());
     // Got 3 * X, staking 2 * X of them.
     assert_eq!((test3_acc.amount, test3_acc.locked), (TESTING_INIT_STAKE, 2 * TESTING_INIT_STAKE));
@@ -1237,20 +1233,13 @@ fn test_fishermen_stake() {
         env.step_default(vec![]);
     }
     let account0 = env.view_account(block_producers[0].validator_id());
-    assert_eq!(account0.locked, fishermen_stake);
-    assert_eq!(account0.amount, TESTING_INIT_BALANCE - fishermen_stake);
+    assert_eq!(account0.locked, 0);
+    assert_eq!(account0.amount, TESTING_INIT_BALANCE);
     let response = env
         .epoch_manager
         .get_validator_info(ValidatorInfoIdentifier::BlockHash(env.head.last_block_hash))
         .unwrap();
-    assert_eq!(
-        response
-            .current_fishermen
-            .into_iter()
-            .map(|fishermen| fishermen.take_account_id())
-            .collect::<Vec<_>>(),
-        vec!["test1", "test2"]
-    );
+    assert!(response.current_fishermen.is_empty());
     let staking_transaction = stake(2, &signers[0], &block_producers[0], TESTING_INIT_STAKE);
     let staking_transaction2 = stake(2, &signers[1], &block_producers[1], 0);
     env.step_default(vec![staking_transaction, staking_transaction2]);
@@ -1308,20 +1297,13 @@ fn test_fishermen_unstake() {
     }
 
     let account0 = env.view_account(block_producers[0].validator_id());
-    assert_eq!(account0.locked, fishermen_stake);
-    assert_eq!(account0.amount, TESTING_INIT_BALANCE - fishermen_stake);
+    assert_eq!(account0.locked, 0);
+    assert_eq!(account0.amount, TESTING_INIT_BALANCE);
     let response = env
         .epoch_manager
         .get_validator_info(ValidatorInfoIdentifier::BlockHash(env.head.last_block_hash))
         .unwrap();
-    assert_eq!(
-        response
-            .current_fishermen
-            .into_iter()
-            .map(|fishermen| fishermen.take_account_id())
-            .collect::<Vec<_>>(),
-        vec![AccountIdRef::new_or_panic("test1")]
-    );
+    assert!(response.current_fishermen.is_empty());
     let staking_transaction = stake(2, &signers[0], &block_producers[0], 0);
     env.step_default(vec![staking_transaction]);
     for _ in 10..17 {

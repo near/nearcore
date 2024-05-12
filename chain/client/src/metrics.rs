@@ -788,3 +788,43 @@ pub(crate) static BLOCK_PRODUCER_MISSING_ENDORSEMENT_COUNT: Lazy<HistogramVec> =
     )
     .unwrap()
 });
+
+pub(crate) static PARTIAL_WITNESS_ENCODE_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_partial_witness_encode_time",
+        "Partial state witness generation from encoded state witness time in seconds",
+        &["shard_id"],
+        Some(linear_buckets(0.0, 0.005, 20).unwrap()),
+    )
+    .unwrap()
+});
+
+pub(crate) static PARTIAL_WITNESS_DECODE_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_partial_witness_decode_time",
+        "Time taken from receiving first partial witness part to receiving enough parts to decode the state witness",
+        &["shard_id"],
+        Some(exponential_buckets(0.001, 2.0, 13).unwrap()),
+    )
+    .unwrap()
+});
+
+pub(crate) static PARTIAL_WITNESS_TOTAL_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_partial_witness_total_time",
+        "Time taken from receiving first partial witness part to receiving last partial witness part",
+        &["shard_id"],
+        Some(exponential_buckets(0.001, 2.0, 13).unwrap()),
+    )
+    .unwrap()
+});
+
+pub(crate) static PARTIAL_WITNESS_PARTS_RECEIVED_RATIO: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_partial_witness_parts_received_ratio",
+        "Ratio (the value is between 0.0 and 1.0) of the number of parts received for the partial state witness",
+        &["shard_id"],
+        Some(linear_buckets(0.0, 0.05, 20).unwrap()),
+    )
+    .unwrap()
+});

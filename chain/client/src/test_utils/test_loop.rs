@@ -1,12 +1,10 @@
-pub mod client_actions;
+pub mod client_actor;
 pub mod partial_witness_actor;
 pub mod sync_actor;
 pub mod sync_jobs_actor;
 
-use crate::client_actions::{
-    ClientActionHandler, ClientActions, ClientSenderForPartialWitnessMessage,
-};
-use near_async::messaging::{CanSend, SendAsync};
+use crate::client_actor::{ClientActorInner, ClientSenderForPartialWitnessMessage};
+use near_async::messaging::{CanSend, Handler, SendAsync};
 use near_async::test_loop::delay_sender::DelaySender;
 use near_async::test_loop::event_handler::{LoopEventHandler, TryIntoOrSelf};
 
@@ -35,7 +33,7 @@ pub fn print_basic_client_info_before_each_event<Data, Event>(
     idx: Option<usize>,
 ) -> LoopEventHandler<Data, Event>
 where
-    Data: AsRef<ClientActions>,
+    Data: AsRef<ClientActorInner>,
 {
     let idx_prefix = idx.map(|idx| format!("[Client #{}] ", idx)).unwrap_or_default();
 
@@ -352,10 +350,10 @@ impl<Data: AsRef<Client> + AsRef<AccountId>> ClientQueries for Vec<Data> {
 }
 
 pub fn forward_messages_from_partial_witness_actor_to_client(
-) -> LoopEventHandler<ClientActions, ClientSenderForPartialWitnessMessage> {
-    LoopEventHandler::new_simple(|msg, client_actions: &mut ClientActions| match msg {
+) -> LoopEventHandler<ClientActorInner, ClientSenderForPartialWitnessMessage> {
+    LoopEventHandler::new_simple(|msg, client_actor: &mut ClientActorInner| match msg {
         ClientSenderForPartialWitnessMessage::_receive_chunk_state_witness(msg) => {
-            client_actions.handle(msg)
+            client_actor.handle(msg)
         }
     })
 }

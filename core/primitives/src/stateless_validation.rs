@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::fmt::{Debug, Formatter};
 
 use crate::challenge::PartialState;
 use crate::congestion_info::CongestionInfo;
@@ -27,10 +28,21 @@ type SignatureDifferentiator = String;
 /// These are created and signed by the chunk producer and sent to the chunk validators.
 /// Note that the chunk validators do not require all the parts of the state witness to
 /// reconstruct the full state witness due to the Reed Solomon erasure encoding.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct PartialEncodedStateWitness {
     inner: PartialEncodedStateWitnessInner,
     signature: Signature,
+}
+
+impl Debug for PartialEncodedStateWitness {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PartialEncodedStateWitness")
+            .field("epoch_id", &self.inner.epoch_id)
+            .field("shard_id", &self.inner.shard_id)
+            .field("height_created", &self.inner.height_created)
+            .field("part_ord", &self.inner.part_ord)
+            .finish()
+    }
 }
 
 impl PartialEncodedStateWitness {
@@ -80,7 +92,7 @@ impl PartialEncodedStateWitness {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct PartialEncodedStateWitnessInner {
     epoch_id: EpochId,
     shard_id: ShardId,
