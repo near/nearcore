@@ -392,7 +392,8 @@ fn test_implicit_chunk_endorsements() {
                 env.clients[i].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
             assert_eq!(blocks_processed, vec![*block.hash()]);
             if block.header().height() > 1 {
-                // Check that chunks are included in the block
+                // Check that chunks are included in the block. This is only possible if we have block approvals working
+                // as chunk endorsements since chunk endorsements are not sent in this test.
                 assert!(block.header().chunk_mask().iter().all(|&b| b));
             }
             for approval in &approvals {
@@ -404,5 +405,7 @@ fn test_implicit_chunk_endorsements() {
         for j in 0..env.clients.len() {
             env.process_shards_manager_responses_and_finish_processing_blocks(j);
         }
+        // Do not propagate chunk state witnesses and endorsements
+        // Block producers should be able to endorse through approvals and process chunks without state witness
     }
 }
