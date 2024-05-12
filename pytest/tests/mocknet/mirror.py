@@ -519,7 +519,7 @@ if __name__ == '__main__':
         help=
         '''Interval in millis between sending each mainnet block\'s worth of transactions.
         Without this flag, the traffic generator will try to match the per-block load on mainnet.
-        So, transactions from consecutive mainnet blocks will be be sent with delays
+        So, transactions from consecutive mainnet blocks will be sent with delays
         between them such that they will probably appear in consecutive mocknet blocks.
         ''')
     start_traffic_parser.set_defaults(func=start_traffic_cmd)

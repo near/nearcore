@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-defines the LocalTestNeardRunner class meant to to test mocknet itself locally
+defines the LocalTestNeardRunner class meant to test mocknet itself locally
 """
 from argparse import ArgumentParser
 import http.server
