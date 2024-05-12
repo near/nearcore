@@ -211,7 +211,7 @@ fn simple_yield_timeout() {
     env.produce_block(0, YIELD_TIMEOUT_HEIGHT + 1);
     assert_eq!(
         env.clients[0].chain.get_partial_transaction_result(&yield_tx_hash).unwrap().status,
-        FinalExecutionStatus::SuccessValue(vec![23u8]),
+        FinalExecutionStatus::SuccessValue(vec![0u8]),
     );
 }
 
@@ -246,7 +246,7 @@ fn yield_timeout_under_congestion() {
 
     assert_eq!(
         env.clients[0].chain.get_partial_transaction_result(&yield_tx_hash).unwrap().status,
-        FinalExecutionStatus::SuccessValue(vec![23u8]),
+        FinalExecutionStatus::SuccessValue(vec![0u8]),
     );
 }
 
@@ -286,6 +286,6 @@ fn yield_resume_just_before_timeout() {
     env.produce_block(0, YIELD_TIMEOUT_HEIGHT + 1);
     assert_eq!(
         env.clients[0].chain.get_partial_transaction_result(&yield_tx_hash).unwrap().status,
-        FinalExecutionStatus::SuccessValue(vec![12u8]),
+        FinalExecutionStatus::SuccessValue(vec![16u8]),
     );
 }

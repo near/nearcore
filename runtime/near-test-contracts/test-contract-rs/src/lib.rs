@@ -880,11 +880,10 @@ fn call_promise() {
     }
 }
 
-/// Function which expects to receive exactly one promise result,
-/// the contents of which should match the function's input.
-///
 /// Used as the yield callback in tests of yield create / yield resume.
-/// Returns double the first byte of the payload, if there is one.
+/// The function takes an argument indicating the expected yield payload.
+/// It panics if executed with the wrong payload.
+/// Returns the payload length.
 #[no_mangle]
 unsafe fn check_promise_result_return_value() {
     input(0);
@@ -893,24 +892,23 @@ unsafe fn check_promise_result_return_value() {
     read_register(0, expected.as_ptr() as u64);
 
     assert_eq!(promise_results_count(), 1);
-    match promise_result(0, 0) {
+    let result = match promise_result(0, 0) {
         1 => {
-            let mut result = vec![0; register_len(0) as usize];
+            let result = vec![0; register_len(0) as usize];
             read_register(0, result.as_ptr() as *const u64 as u64);
             assert_eq!(expected, result);
 
-            // Double the first byte of the payload, then return it.
-            // Used in tests to verify that this function's return value is handled as expected.
-            result[0] *= 2;
-            value_return(1u64, result.as_ptr() as u64);
+            vec![register_len(0) as u8]
         }
         2 => {
             assert_eq!(expected_result_len, 0);
-            let result = vec![23u8];
-            value_return(1u64, result.as_ptr() as u64);
+
+            vec![0u8]
         }
         _ => unreachable!(),
     };
+
+    value_return(1u64, result.as_ptr() as u64);
 }
 
 /// Function which expects to receive exactly one promise result,
