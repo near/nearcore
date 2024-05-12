@@ -70,7 +70,7 @@ pub trait TrieQueue {
     /// depending on impl.
     fn write_indices(&self, state_update: &mut TrieUpdate);
 
-    /// Construct the the trie key for a queue item depending on impl.
+    /// Construct the trie key for a queue item depending on impl.
     fn trie_key(&self, queue_index: u64) -> TrieKey;
 
     fn push(
