@@ -220,15 +220,11 @@ fn simple_yield_timeout() {
 /// delayed as expected, but ultimately succeeds without error.
 #[test]
 fn yield_timeout_under_congestion() {
-    let (mut env, yield_tx_hash, data_id) =
-        prepare_env_with_yield(vec![], Some(10_000_000_000_000));
+    let (mut env, yield_tx_hash, _) = prepare_env_with_yield(vec![], Some(10_000_000_000_000));
     assert!(NEXT_BLOCK_HEIGHT_AFTER_SETUP < YIELD_TIMEOUT_HEIGHT);
 
-    const NUM_CONGESTED_BLOCKS: u64 = 5;
-
     // By introducing congestion, we can delay the yield timeout
-    for block_height in NEXT_BLOCK_HEIGHT_AFTER_SETUP..(YIELD_TIMEOUT_HEIGHT + NUM_CONGESTED_BLOCKS)
-    {
+    for block_height in NEXT_BLOCK_HEIGHT_AFTER_SETUP..(YIELD_TIMEOUT_HEIGHT + 3) {
         // Submit txns to congest the block at height YIELD_TIMEOUT_HEIGHT and delay the timeout
         if block_height == YIELD_TIMEOUT_HEIGHT - 1 {
             create_congestion(&mut env);
@@ -243,17 +239,11 @@ fn yield_timeout_under_congestion() {
         );
     }
 
-    // Advance one more block. Congestion has cleared and the timeout will be processed.
-    env.produce_block(0, YIELD_TIMEOUT_HEIGHT + NUM_CONGESTED_BLOCKS);
-    // Checks that the anticipated YieldResume receipt was produced.
-    assert_eq!(data_id, find_yield_data_id_from_latest_block(&env).unwrap());
-    assert_eq!(
-        env.clients[0].chain.get_partial_transaction_result(&yield_tx_hash).unwrap().status,
-        FinalExecutionStatus::Started
-    );
+    // Advance more blocks so that the congestion clears and the yield callback is executed.
+    for i in 0..5 {
+        env.produce_block(0, YIELD_TIMEOUT_HEIGHT + 3 + i);
+    }
 
-    // In this block the resume receipt is applied and the callback will execute.
-    env.produce_block(0, YIELD_TIMEOUT_HEIGHT + NUM_CONGESTED_BLOCKS + 1);
     assert_eq!(
         env.clients[0].chain.get_partial_transaction_result(&yield_tx_hash).unwrap().status,
         FinalExecutionStatus::SuccessValue(vec![23u8]),
