@@ -329,3 +329,38 @@ fn yield_resume_after_timeout_height() {
         FinalExecutionStatus::SuccessValue(vec![16u8]),
     );
 }
+
+/// In this test there is no block produced at height YIELD_TIMEOUT_HEIGHT.
+#[test]
+fn skip_timeout_height() {
+    let (mut env, yield_tx_hash, data_id) = prepare_env_with_yield(vec![], None);
+    assert!(NEXT_BLOCK_HEIGHT_AFTER_SETUP < YIELD_TIMEOUT_HEIGHT);
+
+    // Advance through the blocks during which the yield will await resumption
+    for block_height in NEXT_BLOCK_HEIGHT_AFTER_SETUP..YIELD_TIMEOUT_HEIGHT {
+        env.produce_block(0, block_height);
+
+        // The transaction will not have a result until the timeout is reached
+        assert_eq!(
+            env.clients[0].chain.get_partial_transaction_result(&yield_tx_hash).unwrap().status,
+            FinalExecutionStatus::Started
+        );
+    }
+
+    // Skip the timeout height and produce a block at height YIELD_TIMEOUT_HEIGHT + 1.
+    // We still expect the timeout to be processed and produce a YieldResume receipt.
+    env.produce_block(0, YIELD_TIMEOUT_HEIGHT + 1);
+    // Checks that the anticipated YieldResume receipt was produced.
+    assert_eq!(find_yield_data_ids_from_latest_block(&env), vec![data_id]);
+    assert_eq!(
+        env.clients[0].chain.get_partial_transaction_result(&yield_tx_hash).unwrap().status,
+        FinalExecutionStatus::Started
+    );
+
+    // In this block the resume receipt is applied and the callback will execute.
+    env.produce_block(0, YIELD_TIMEOUT_HEIGHT + 2);
+    assert_eq!(
+        env.clients[0].chain.get_partial_transaction_result(&yield_tx_hash).unwrap().status,
+        FinalExecutionStatus::SuccessValue(vec![0u8]),
+    );
+}
