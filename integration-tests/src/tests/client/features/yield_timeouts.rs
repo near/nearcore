@@ -161,7 +161,7 @@ fn create_congestion(env: &mut TestEnv) {
 
     let mut tx_hashes = vec![];
 
-    for i in 0..13 {
+    for i in 0..25 {
         let signed_transaction = SignedTransaction::from_actions(
             i + 100,
             "test0".parse().unwrap(),
@@ -243,7 +243,7 @@ fn yield_timeout_under_congestion() {
     }
 
     // Advance more blocks so that the congestion clears and the yield callback is executed.
-    for i in 0..5 {
+    for i in 0..10 {
         env.produce_block(0, YIELD_TIMEOUT_HEIGHT + 3 + i);
     }
 
@@ -320,7 +320,7 @@ fn yield_resume_after_timeout_height() {
     invoke_yield_resume(&mut env, data_id, yield_payload);
 
     // Advance more blocks so that the congestion clears and the yield callback is executed.
-    for i in 0..5 {
+    for i in 0..10 {
         env.produce_block(0, YIELD_TIMEOUT_HEIGHT + 3 + i);
     }
 
