@@ -507,7 +507,7 @@ impl ChunkValidatorAssignments {
 
     pub fn compute_endorsement_stats(
         &self,
-        endorsed_chunk_validators: &HashSet<&AccountId>,
+        endorsed_chunk_validators: &HashSet<AccountId>,
     ) -> EndorsementStats {
         let mut total_stake = 0;
         let mut endorsed_stake = 0;

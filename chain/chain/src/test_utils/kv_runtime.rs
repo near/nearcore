@@ -742,6 +742,15 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(chunk_producers[index].account_id().clone())
     }
 
+    fn get_epoch_chunk_producers_for_shard(
+        &self,
+        epoch_id: &EpochId,
+        shard_id: ShardId,
+    ) -> Result<Vec<ValidatorStake>, EpochError> {
+        let valset = self.get_valset_for_epoch(epoch_id)?;
+        Ok(self.get_chunk_producers(valset, shard_id))
+    }
+
     fn get_chunk_validator_assignments(
         &self,
         epoch_id: &EpochId,
