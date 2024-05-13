@@ -234,7 +234,8 @@ impl BlockSync {
                     request_from_archival,
                     peer = ?peer.peer_info.id,
                     num_peers = highest_height_peers.len(),
-                    "Block sync: requested block");
+                    "Block sync: requested block"
+                );
                 self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                     NetworkRequests::BlockRequest { hash, peer_id: peer.peer_info.id.clone() },
                 ));

@@ -8,6 +8,10 @@ use near_primitives_core::version::PROTOCOL_VERSION;
 
 use super::parameter_table::InvalidConfigError;
 
+// Lowered promise yield timeout length used in integration tests.
+// The resharding tests for yield timeouts take too long to run otherwise.
+pub const TEST_CONFIG_YIELD_TIMEOUT_LENGTH: u64 = 10;
+
 /// The structure that holds the parameters of the runtime, mostly economics.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeConfig {
@@ -44,7 +48,7 @@ impl RuntimeConfig {
         let mut wasm_config =
             crate::vm::Config::clone(&config_store.get_config(PROTOCOL_VERSION).wasm_config);
         // Lower the yield timeout length so that we can observe timeouts in integration tests.
-        wasm_config.limit_config.yield_timeout_length_in_blocks = 10;
+        wasm_config.limit_config.yield_timeout_length_in_blocks = TEST_CONFIG_YIELD_TIMEOUT_LENGTH;
 
         RuntimeConfig {
             fees: RuntimeFeesConfig::test(),

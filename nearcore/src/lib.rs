@@ -405,6 +405,8 @@ pub fn start_with_config_and_synchronization(
             .clone()
             .map(|actor| actor.with_auto_span_context().into_multi_sender())
             .unwrap_or_else(|| noop().into_multi_sender()),
+        true,
+        None,
     );
     if let SyncConfig::Peers = config.client_config.state_sync.sync {
         client_adapter_for_sync.bind(client_actor.clone().with_auto_span_context())

@@ -46,7 +46,7 @@ use near_chunks::logic::{
     cares_about_shard_this_or_next_epoch, decode_encoded_chunk,
     get_shards_cares_about_this_or_next_epoch, persist_chunk,
 };
-use near_chunks::ShardsManager;
+use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client_primitives::debug::ChunkProduction;
 use near_client_primitives::types::{
     format_shard_sync_phase_per_shard, Error, ShardSyncDownload, ShardSyncStatus,
@@ -90,7 +90,7 @@ use std::sync::RwLock;
 use tracing::{debug, debug_span, error, info, trace, warn};
 
 #[cfg(feature = "test_features")]
-use crate::client_actions::AdvProduceChunksMode;
+use crate::client_actor::AdvProduceChunksMode;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
@@ -180,9 +180,8 @@ pub struct Client {
     tier1_accounts_cache: Option<(EpochId, Arc<AccountKeys>)>,
     /// Used when it is needed to create flat storage in background for some shards.
     flat_storage_creator: Option<FlatStorageCreator>,
-    /// When the "sync block" was requested.
-    /// The "sync block" is the last block of the previous epoch, i.e. `prev_hash` of the `sync_hash` block.
-    pub last_time_sync_block_requested: Option<near_async::time::Utc>,
+    /// A map storing the last time a block was requested for state sync.
+    pub last_time_sync_block_requested: HashMap<CryptoHash, near_async::time::Utc>,
     /// Helper module for stateless validation functionality like chunk witness production, validation
     /// chunk endorsements tracking etc.
     pub chunk_validator: ChunkValidator,
@@ -407,7 +406,7 @@ impl Client {
             chunk_production_info: lru::LruCache::new(PRODUCTION_TIMES_CACHE_SIZE),
             tier1_accounts_cache: None,
             flat_storage_creator,
-            last_time_sync_block_requested: None,
+            last_time_sync_block_requested: HashMap::new(),
             chunk_validator,
             chunk_inclusion_tracker: ChunkInclusionTracker::new(),
             chunk_endorsement_tracker,
@@ -558,6 +557,38 @@ impl Client {
         self.produce_block_on_head(height, true)
     }
 
+    /// Wrapper on top of `self.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion`
+    /// and uses block approvals for chunk endorsements
+    pub fn prepare_chunk_headers_ready_for_inclusion(
+        &mut self,
+        prev_block_hash: &CryptoHash,
+        height: BlockHeight,
+    ) -> Result<(), Error> {
+        let prev = self.chain.get_block_header(prev_block_hash)?;
+        // Compute a map of shard id -> chunk producers who already sent approvals. For those chunk producers, if they also
+        // act as a chunk validator, they don't need to send chunk endorsements.
+        let witness = self.doomslug.get_witness(prev.hash(), prev.height(), height);
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
+        let mut chunk_producers_with_approvals = HashMap::new();
+        for shard_id in self.epoch_manager.shard_ids(&epoch_id)? {
+            let chunk_producers =
+                self.epoch_manager.get_epoch_chunk_producers_for_shard(&epoch_id, shard_id)?;
+            for chunk_producer in chunk_producers {
+                if witness.contains_key(chunk_producer.account_id()) {
+                    chunk_producers_with_approvals
+                        .entry(shard_id)
+                        .or_insert_with(HashSet::new)
+                        .insert(chunk_producer.account_id().clone());
+                }
+            }
+        }
+        Ok(self.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
+            prev_block_hash,
+            self.chunk_endorsement_tracker.as_ref(),
+            chunk_producers_with_approvals,
+        )?)
+    }
+
     /// Produce block for given `height` on top of chain head.
     /// Either returns produced block (not applied) or error.
     pub fn produce_block_on_head(
@@ -575,10 +606,7 @@ impl Client {
         );
 
         if prepare_chunk_headers {
-            self.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
-                &head.last_block_hash,
-                self.chunk_endorsement_tracker.as_ref(),
-            )?;
+            self.prepare_chunk_headers_ready_for_inclusion(&head.last_block_hash, height)?;
         }
 
         self.produce_block_on(height, head.last_block_hash)
@@ -895,7 +923,7 @@ impl Client {
         #[cfg(feature = "test_features")]
         let gas_used = if self.produce_invalid_chunks { gas_used + 1 } else { gas_used };
         let congestion_info = chunk_extra.congestion_info().unwrap_or_default();
-        let (encoded_chunk, merkle_paths) = ShardsManager::create_encoded_shard_chunk(
+        let (encoded_chunk, merkle_paths) = ShardsManagerActor::create_encoded_shard_chunk(
             prev_block_hash,
             *chunk_extra.state_root(),
             *chunk_extra.outcome_root(),
@@ -1722,7 +1750,11 @@ impl Client {
         #[cfg(feature = "test_features")]
         match self.adv_produce_chunks {
             Some(AdvProduceChunksMode::StopProduce) => {
-                tracing::info!(target: "adversary", "skipping chunk production due to adversary configuration");
+                tracing::info!(
+                    target: "adversary",
+                    block_height = block.header().height(),
+                    "skipping chunk production due to adversary configuration"
+                );
                 return;
             }
             _ => {}
@@ -2558,7 +2590,7 @@ impl Client {
                 debug!(target: "client", ?hash, "send_block_request_to_peer: block already known")
             }
             Err(err) => {
-                error!(target: "client", ?err, "send_block_request_to_peer: failed to check block exists")
+                error!(target: "client", ?hash, ?err, "send_block_request_to_peer: failed to check block exists")
             }
         }
     }

@@ -17,7 +17,7 @@ extern crate bencher;
 use bencher::{black_box, Bencher};
 use borsh::BorshSerialize;
 use near_chain::Chain;
-use near_chunks::ShardsManager;
+use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
@@ -184,7 +184,7 @@ fn create_encoded_shard_chunk(
     receipts: &[Receipt],
 ) -> (EncodedShardChunk, Vec<Vec<MerklePathItem>>) {
     let rs = ReedSolomon::new(33, 67).unwrap();
-    ShardsManager::create_encoded_shard_chunk(
+    ShardsManagerActor::create_encoded_shard_chunk(
         Default::default(),
         Default::default(),
         Default::default(),
