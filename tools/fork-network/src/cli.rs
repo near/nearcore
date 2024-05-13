@@ -24,7 +24,7 @@ use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_account_k
 use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeight, EpochId, NumBlocks, ShardId, StateRoot,
 };
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_store::db::RocksDB;
 use near_store::flat::{store_helper, BlockInfo, FlatStorageManager, FlatStorageStatus};
 use near_store::{
@@ -111,6 +111,10 @@ struct SetValidatorsCmd {
     /// to create a consistent forked network across many machines
     #[arg(long)]
     pub genesis_time: Option<DateTime<Utc>>,
+    /// Genesis protocol version. If not present, the protocol version of the current epoch
+    /// will be used.
+    #[arg(long)]
+    pub protocol_version: Option<ProtocolVersion>,
 }
 
 #[derive(clap::Parser)]
@@ -181,12 +185,14 @@ impl ForkNetworkCommand {
             }
             SubCommand::SetValidators(SetValidatorsCmd {
                 genesis_time,
+                protocol_version,
                 validators,
                 epoch_length,
                 chain_id_suffix,
             }) => {
                 self.set_validators(
                     genesis_time.unwrap_or_else(chrono::Utc::now),
+                    *protocol_version,
                     validators,
                     *epoch_length,
                     chain_id_suffix,
@@ -351,6 +357,7 @@ impl ForkNetworkCommand {
     fn set_validators(
         &self,
         genesis_time: DateTime<Utc>,
+        protocol_version: Option<ProtocolVersion>,
         validators: &Path,
         epoch_length: u64,
         chain_id_suffix: &str,
@@ -387,6 +394,7 @@ impl ForkNetworkCommand {
         backup_genesis_file(home_dir, &near_config)?;
         self.make_and_write_genesis(
             genesis_time,
+            protocol_version,
             epoch_length,
             block_height,
             chain_id_suffix,
@@ -752,6 +760,7 @@ impl ForkNetworkCommand {
     fn make_and_write_genesis(
         &self,
         genesis_time: DateTime<Utc>,
+        protocol_version: Option<ProtocolVersion>,
         epoch_length: u64,
         height: BlockHeight,
         chain_id_suffix: &str,
@@ -763,7 +772,13 @@ impl ForkNetworkCommand {
         near_config: &NearConfig,
     ) -> anyhow::Result<()> {
         let epoch_config = epoch_manager.get_epoch_config(epoch_id)?;
-        let epoch_info = epoch_manager.get_epoch_info(epoch_id)?;
+        let protocol_version = match protocol_version {
+            Some(v) => v,
+            None => {
+                let epoch_info = epoch_manager.get_epoch_info(epoch_id)?;
+                epoch_info.protocol_version()
+            }
+        };
         let original_config = near_config.genesis.config.clone();
 
         let new_config = GenesisConfig {
@@ -794,7 +809,7 @@ impl ForkNetworkCommand {
                 .validator_selection_config
                 .shuffle_shard_assignment_for_chunk_producers,
             dynamic_resharding: false,
-            protocol_version: epoch_info.protocol_version(),
+            protocol_version,
             validators: new_validator_accounts,
             gas_price_adjustment_rate: original_config.gas_price_adjustment_rate,
             gas_limit: original_config.gas_limit,
