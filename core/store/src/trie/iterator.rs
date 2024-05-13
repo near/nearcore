@@ -5,6 +5,8 @@ use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::{TrieNode, TrieNodeWithSize, ValueHandle};
 use crate::{MissingTrieValueContext, StorageError, Trie};
 
+use super::mem::iter::MemTrieIterator;
+
 /// Crumb is a piece of trie iteration state. It describes a node on the trail and processing status of that node.
 #[derive(Debug)]
 struct Crumb {
@@ -50,7 +52,7 @@ impl Crumb {
 /// currently being processed.
 /// The trail and the key_nibbles may have different lengths e.g. an extension trie node
 /// will add only a single item to the trail but may add multiple nibbles to the key_nibbles.
-pub struct TrieIterator<'a> {
+pub struct DiskTrieIterator<'a> {
     trie: &'a Trie,
     trail: Vec<Crumb>,
     pub(crate) key_nibbles: Vec<u8>,
@@ -83,14 +85,14 @@ pub struct TrieTraversalItem {
     pub key: Option<Vec<u8>>,
 }
 
-impl<'a> TrieIterator<'a> {
+impl<'a> DiskTrieIterator<'a> {
     #![allow(clippy::new_ret_no_self)]
     /// Create a new iterator.
     pub(super) fn new(
         trie: &'a Trie,
         prune_condition: Option<Box<dyn Fn(&Vec<u8>) -> bool>>,
     ) -> Result<Self, StorageError> {
-        let mut r = TrieIterator {
+        let mut r = DiskTrieIterator {
             trie,
             trail: Vec::with_capacity(8),
             key_nibbles: Vec::with_capacity(64),
@@ -207,7 +209,7 @@ impl<'a> TrieIterator<'a> {
     fn descend_into_node(&mut self, hash: &CryptoHash) -> Result<(), StorageError> {
         let (bytes, node) = self.trie.retrieve_node(hash)?;
         if let Some(ref mut visited) = self.visited_nodes {
-            visited.push(bytes.ok_or({
+            visited.push(bytes.ok_or_else(|| {
                 StorageError::MissingTrieValue(
                     MissingTrieValueContext::TrieIterator,
                     *hash,
@@ -396,7 +398,7 @@ enum IterStep {
     Value(CryptoHash),
 }
 
-impl<'a> Iterator for TrieIterator<'a> {
+impl<'a> Iterator for DiskTrieIterator<'a> {
     type Item = Result<TrieItem, StorageError>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -429,19 +431,78 @@ impl<'a> Iterator for TrieIterator<'a> {
     }
 }
 
+pub enum TrieIterator<'a> {
+    Disk(DiskTrieIterator<'a>),
+    Memtrie(MemTrieIterator<'a>),
+}
+
+impl<'a> Iterator for TrieIterator<'a> {
+    type Item = Result<TrieItem, StorageError>;
+
+    fn next(&mut self) -> Option<Result<TrieItem, StorageError>> {
+        match self {
+            TrieIterator::Disk(iter) => iter.next(),
+            TrieIterator::Memtrie(iter) => iter.next(),
+        }
+    }
+}
+
+impl<'a> TrieIterator<'a> {
+    pub fn seek_prefix<K: AsRef<[u8]>>(&mut self, key: K) -> Result<(), StorageError> {
+        match self {
+            TrieIterator::Disk(iter) => iter.seek_prefix(key),
+            TrieIterator::Memtrie(iter) => Ok(iter.seek_prefix(key)),
+        }
+    }
+
+    pub fn remember_visited_nodes(&mut self, remember: bool) {
+        match self {
+            TrieIterator::Disk(iter) => iter.remember_visited_nodes(remember),
+            TrieIterator::Memtrie(_) => unreachable!(),
+        }
+    }
+
+    pub fn into_visited_nodes(self) -> Vec<std::sync::Arc<[u8]>> {
+        match self {
+            TrieIterator::Disk(iter) => iter.into_visited_nodes(),
+            TrieIterator::Memtrie(_) => unreachable!(),
+        }
+    }
+
+    pub fn visit_nodes_interval(
+        &mut self,
+        path_begin: &[u8],
+        path_end: &[u8],
+    ) -> Result<Vec<TrieTraversalItem>, StorageError> {
+        match self {
+            TrieIterator::Disk(iter) => iter.visit_nodes_interval(path_begin, path_end),
+            TrieIterator::Memtrie(_) => unreachable!(),
+        }
+    }
+
+    pub fn get_trie_items(
+        &mut self,
+        path_begin: &[u8],
+        path_end: &[u8],
+    ) -> Result<Vec<TrieItem>, StorageError> {
+        match self {
+            TrieIterator::Disk(iter) => iter.get_trie_items(path_begin, path_end),
+            TrieIterator::Memtrie(_) => unreachable!(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
-    use itertools::Itertools;
-    use rand::seq::SliceRandom;
-    use rand::Rng;
-
     use crate::test_utils::{gen_changes, simplify_changes, test_populate_trie, TestTriesBuilder};
     use crate::trie::iterator::IterStep;
     use crate::trie::nibble_slice::NibbleSlice;
-    use crate::Trie;
+    use crate::{Trie, TrieIterator};
+    use itertools::Itertools;
     use near_primitives::shard_layout::ShardUId;
+    use rand::seq::SliceRandom;
+    use rand::Rng;
+    use std::collections::BTreeMap;
 
     fn value() -> Option<Vec<u8>> {
         Some(vec![0])
@@ -667,7 +728,9 @@ mod tests {
                 trie_changes.clone(),
             );
             let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
-            let mut iterator = trie.iter().unwrap();
+            let TrieIterator::Disk(mut iterator) = trie.iter().unwrap() else {
+                panic!("Should return disk trie");
+            };
             loop {
                 let iter_step = match iterator.iter_step() {
                     Some(iter_step) => iter_step,

@@ -75,6 +75,22 @@ impl Database for TestDB {
         refcount::iter_with_rc_logic(col, iterator.into_iter())
     }
 
+    fn iter_range_raw_bytes<'a>(
+        &'a self,
+        col: DBCol,
+        lower_bound: Option<&[u8]>,
+        upper_bound: Option<&[u8]>,
+    ) -> DBIterator<'a> {
+        let lower = lower_bound.map_or(Bound::Unbounded, |f| Bound::Included(f.to_vec()));
+        let upper = upper_bound.map_or(Bound::Unbounded, |f| Bound::Excluded(f.to_vec()));
+
+        let iterator = self.db.read().unwrap()[col]
+            .range((lower, upper))
+            .map(|(k, v)| Ok((k.clone().into_boxed_slice(), v.clone().into_boxed_slice())))
+            .collect::<Vec<io::Result<_>>>();
+        Box::new(iterator.into_iter())
+    }
+
     fn write(&self, transaction: DBTransaction) -> io::Result<()> {
         let mut db = self.db.write().unwrap();
         for op in transaction.ops {

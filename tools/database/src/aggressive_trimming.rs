@@ -30,7 +30,7 @@ impl AggressiveTrimmingCommand {
         let mut near_config = load_config(home, GenesisValidationMode::UnsafeFast).unwrap();
         let node_storage = open_storage(&home, &mut near_config).unwrap();
         let store = node_storage.get_split_store().unwrap_or_else(|| node_storage.get_hot_store());
-        Self::keep_only_flat_state(store.clone())?;
+        Self::keep_only_flat_state(store)?;
         Ok(())
     }
 

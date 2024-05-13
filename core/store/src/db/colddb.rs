@@ -82,6 +82,17 @@ impl Database for ColdDB {
         self.cold.iter_range(col, lower_bound, upper_bound)
     }
 
+    /// Like `iter_raw_bytes` but for a specific range.
+    fn iter_range_raw_bytes<'a>(
+        &'a self,
+        col: DBCol,
+        lower_bound: Option<&[u8]>,
+        upper_bound: Option<&[u8]>,
+    ) -> DBIterator<'a> {
+        Self::log_assert_is_in_colddb(col);
+        self.cold.iter_range_raw_bytes(col, lower_bound, upper_bound)
+    }
+
     /// Atomically applies operations in given transaction.
     ///
     /// If debug assertions are enabled, panics if there are any delete

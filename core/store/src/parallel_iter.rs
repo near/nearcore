@@ -70,7 +70,7 @@ impl StoreParallelIterator {
                         };
                         let end =
                             if range.end.is_empty() { None } else { Some(range.end.as_slice()) };
-                        let iter = options.store.iter_range(options.column, start, end);
+                        let iter = options.store.iter_range_raw_bytes(options.column, start, end);
 
                         for kv in iter {
                             let (key, value) = kv.unwrap();
@@ -387,7 +387,7 @@ impl IterationRange {
 
         // Now we have the split points, we can create the ranges.
         let mut ranges = Vec::new();
-        let mut prev = start.clone();
+        let mut prev = start;
         for point in split_points {
             assert!(!point.is_empty());
             assert!(prev < point, "{} < {}", hex::encode(&prev), hex::encode(&point));
@@ -537,11 +537,11 @@ mod tests {
             let key_len = rand::random::<usize>() % 10;
             let key = (0..key_len).map(|_| rand::random::<u8>()).collect::<Vec<_>>();
             let value_len = rand::random::<usize>() % 10;
-            let value = (0..value_len).map(|_| rand::random::<u8>()).collect::<Vec<_>>();
-            if !data.contains_key(&key) {
-                update.insert(DBCol::BlockHeader, key.clone(), value.clone());
-                data.insert(key, value);
-            }
+            data.entry(key.clone()).or_insert_with(|| {
+                let value = (0..value_len).map(|_| rand::random::<u8>()).collect::<Vec<_>>();
+                update.insert(DBCol::BlockHeader, key, value.clone());
+                value
+            });
         }
         update.commit().unwrap();
 
@@ -574,11 +574,11 @@ mod tests {
             let key_len = rand::random::<usize>() % 10;
             let key = (0..key_len).map(|_| rand::random::<u8>()).collect::<Vec<_>>();
             let value_len = rand::random::<usize>() % 10;
-            let value = (0..value_len).map(|_| rand::random::<u8>()).collect::<Vec<_>>();
-            if !data.contains_key(&key) {
-                update.insert(DBCol::BlockHeader, key.clone(), value.clone());
-                data.insert(key, value);
-            }
+            data.entry(key.clone()).or_insert_with(|| {
+                let value = (0..value_len).map(|_| rand::random::<u8>()).collect::<Vec<_>>();
+                update.insert(DBCol::BlockHeader, key, value.clone());
+                value
+            });
         }
         update.commit().unwrap();
 

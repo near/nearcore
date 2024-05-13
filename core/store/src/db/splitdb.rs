@@ -170,6 +170,23 @@ impl Database for SplitDB {
         return Self::merge_iter(self.hot.iter_raw_bytes(col), self.cold.iter_raw_bytes(col));
     }
 
+    /// Like `iter_raw_bytes` but for a specific range.
+    fn iter_range_raw_bytes<'a>(
+        &'a self,
+        col: DBCol,
+        lower_bound: Option<&[u8]>,
+        upper_bound: Option<&[u8]>,
+    ) -> DBIterator<'a> {
+        if !col.is_cold() {
+            return self.hot.iter_range_raw_bytes(col, lower_bound, upper_bound);
+        }
+
+        return Self::merge_iter(
+            self.hot.iter_range_raw_bytes(col, lower_bound, upper_bound),
+            self.cold.iter_range_raw_bytes(col, lower_bound, upper_bound),
+        );
+    }
+
     /// The split db, in principle, should be read only and only used in view client.
     /// However the view client *does* write to the db in order to update cache.
     /// Hence we need to allow writing to the split db but only write to the hot db.

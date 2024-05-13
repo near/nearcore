@@ -208,6 +208,7 @@ impl ContractAccountIterator {
 
         // finally, use trie iterator to find all contract nodes
         let vec_of_nodes = trie_iter.visit_nodes_interval(&nibbles_before, &nibbles_after)?;
+        drop(trie_iter);
         let contract_nodes = VecDeque::from(vec_of_nodes);
         Ok(Self { contract_nodes, filter, trie })
     }

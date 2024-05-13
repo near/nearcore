@@ -1,5 +1,7 @@
 use self::accounting_cache::TrieAccountingCache;
+use self::iterator::DiskTrieIterator;
 use self::mem::flexible_data::value::ValueView;
+use self::mem::iter::MemTrieIterator;
 use self::mem::lookup::memtrie_lookup;
 use self::mem::updating::{UpdatedMemTrieNode, UpdatedMemTrieNodeId};
 use self::mem::MemTries;
@@ -38,7 +40,7 @@ use std::fmt::Write;
 use std::hash::Hash;
 use std::rc::Rc;
 use std::str;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, RwLockReadGuard};
 
 pub mod accounting_cache;
 mod config;
@@ -1610,29 +1612,63 @@ impl Trie {
         }
     }
 
-    pub fn iter<'a>(&'a self) -> Result<TrieIterator<'a>, StorageError> {
-        TrieIterator::new(self, None)
+    pub fn iter(&self) -> Result<TrieIterator<'_>, StorageError> {
+        Ok(TrieIterator::Disk(DiskTrieIterator::new(self, None)?))
     }
 
     pub fn iter_with_max_depth<'a>(
         &'a self,
         max_depth: usize,
     ) -> Result<TrieIterator<'a>, StorageError> {
-        TrieIterator::new(
+        Ok(TrieIterator::Disk(DiskTrieIterator::new(
             self,
             Some(Box::new(move |key_nibbles: &Vec<u8>| key_nibbles.len() > max_depth)),
-        )
+        )?))
     }
 
     pub fn iter_with_prune_condition<'a>(
         &'a self,
         prune_condition: Option<Box<dyn Fn(&Vec<u8>) -> bool>>,
     ) -> Result<TrieIterator<'a>, StorageError> {
-        TrieIterator::new(self, prune_condition)
+        Ok(TrieIterator::Disk(DiskTrieIterator::new(self, prune_condition)?))
+    }
+
+    pub fn lock_for_iter(&self) -> TrieWithReadLock<'_> {
+        TrieWithReadLock { trie: self, memtries: self.memtries.as_ref().map(|m| m.read().unwrap()) }
     }
 
     pub fn get_trie_nodes_count(&self) -> TrieNodesCount {
         self.accounting_cache.borrow().get_trie_nodes_count()
+    }
+}
+
+pub struct TrieWithReadLock<'a> {
+    trie: &'a Trie,
+    memtries: Option<RwLockReadGuard<'a, MemTries>>,
+}
+
+impl<'a> TrieWithReadLock<'a> {
+    pub fn iter(&self) -> Result<TrieIterator<'_>, StorageError> {
+        match &self.memtries {
+            Some(memtries) => {
+                let root = if self.trie.root == CryptoHash::default() {
+                    None
+                } else {
+                    Some(memtries.get_root(&self.trie.root).ok_or_else(|| {
+                        StorageError::StorageInconsistentState(format!(
+                            "Failed to find root node {} in memtrie",
+                            self.trie.root
+                        ))
+                    })?)
+                };
+                Ok(TrieIterator::Memtrie(MemTrieIterator::new(
+                    root,
+                    None,
+                    Box::new(|value_ref| self.trie.deref_optimized(&value_ref)),
+                )))
+            }
+            None => Ok(TrieIterator::Disk(DiskTrieIterator::new(self.trie, None)?)),
+        }
     }
 }
 

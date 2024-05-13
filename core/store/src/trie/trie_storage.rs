@@ -311,12 +311,13 @@ pub struct TrieMemoryPartialStorage {
 
 impl TrieStorage for TrieMemoryPartialStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
-        let result =
-            self.recorded_storage.get(hash).cloned().ok_or(StorageError::MissingTrieValue(
+        let result = self.recorded_storage.get(hash).cloned().ok_or_else(|| {
+            StorageError::MissingTrieValue(
                 MissingTrieValueContext::TrieMemoryPartialStorage,
                 *hash,
                 StackTracePrinter::new("MissingTrieValue"),
-            ));
+            )
+        });
         if result.is_ok() {
             self.visited_nodes.borrow_mut().insert(*hash);
         }
@@ -542,11 +543,13 @@ fn read_node_from_db(
     let val = store
         .get(DBCol::State, key.as_ref())
         .map_err(|_| StorageError::StorageInternalError)?
-        .ok_or(StorageError::MissingTrieValue(
-            MissingTrieValueContext::TrieStorage,
-            *hash,
-            StackTracePrinter::new("MissingTrieValue"),
-        ))?;
+        .ok_or_else(|| {
+            StorageError::MissingTrieValue(
+                MissingTrieValueContext::TrieStorage,
+                *hash,
+                StackTracePrinter::new("MissingTrieValue"),
+            )
+        })?;
     Ok(val.into())
 }
 
