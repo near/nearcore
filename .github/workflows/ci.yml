@@ -80,7 +80,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: matrix.upload_profraws
         with:
-          name: coverage-profraw
+          name: coverage-profraw-${{ github.sha }}
           path: coverage/profraw
           retention-days: 2
       - uses: actions/upload-artifact@v4
@@ -371,8 +371,9 @@ jobs:
           fetch-depth: 1000 # have enough history to find the merge-base between PR and master
       - uses: actions/download-artifact@v4
         with:
-          name: coverage-profraw
+          name: coverage-profraw-*
           path: coverage/profraw
+          merge-multiple: true
       - uses: taiki-e/install-action@9b5b983efc779f85e5e5d11539f005e85ccb27ff
         with:
           tool: cargo-llvm-cov
