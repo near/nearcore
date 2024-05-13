@@ -373,12 +373,12 @@ impl CongestionInfoV1 {
         let incoming_congestion = self.incoming_congestion();
         let outgoing_congestion = self.outgoing_congestion();
         let memory_congestion = self.memory_congestion();
-        let missed_chunk_congestion = self.missed_chunks_congestion(missed_chunks_count);
+        let missed_chunks_congestion = self.missed_chunks_congestion(missed_chunks_count);
 
         incoming_congestion
             .max(outgoing_congestion)
             .max(memory_congestion)
-            .max(missed_chunk_congestion)
+            .max(missed_chunks_congestion)
     }
 
     fn incoming_congestion(&self) -> f64 {

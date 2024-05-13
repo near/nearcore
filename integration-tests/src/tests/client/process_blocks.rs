@@ -2543,7 +2543,7 @@ fn test_refund_receipts_processing() {
     }
 
     // Make sure all transactions are processed.
-    for i in 3..16 {
+    for i in 1..16 {
         env.produce_block(0, i);
     }
 
