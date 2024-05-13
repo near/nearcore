@@ -14,8 +14,10 @@ use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::{EpochManagerAdapter, RngSeed};
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::Tip;
 use near_primitives::block_header::{Approval, ApprovalInner};
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::EpochConfig;
@@ -28,7 +30,8 @@ use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::state_part::PartId;
 use near_primitives::stateless_validation::{
-    ChunkEndorsement, ChunkValidatorAssignments, SignedEncodedChunkStateWitness,
+    ChunkEndorsement, ChunkValidatorAssignments, PartialEncodedStateWitness,
+    SignedEncodedChunkStateWitness,
 };
 use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
@@ -39,7 +42,7 @@ use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, Nonce, NumShards,
     ShardId, StateChangesForResharding, StateRoot, StateRootNode, ValidatorInfoIdentifier,
 };
-use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
+use near_primitives::version::{ProtocolFeature, ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::{
     AccessKeyInfoView, AccessKeyList, CallResult, ContractCodeView, EpochValidatorInfo,
     QueryRequest, QueryResponse, QueryResponseKind, ViewStateResult,
@@ -390,6 +393,15 @@ impl KeyValueRuntime {
         }
         Ok(None)
     }
+
+    fn get_congestion_info(protocol_version: ProtocolVersion) -> Option<CongestionInfo> {
+        if ProtocolFeature::CongestionControl.enabled(protocol_version) {
+            // TODO(congestion_control) - properly initialize
+            Some(CongestionInfo::default())
+        } else {
+            None
+        }
+    }
 }
 
 pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: NumShards) -> ShardId {
@@ -730,6 +742,15 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(chunk_producers[index].account_id().clone())
     }
 
+    fn get_epoch_chunk_producers_for_shard(
+        &self,
+        epoch_id: &EpochId,
+        shard_id: ShardId,
+    ) -> Result<Vec<ValidatorStake>, EpochError> {
+        let valset = self.get_valset_for_epoch(epoch_id)?;
+        Ok(self.get_chunk_producers(valset, shard_id))
+    }
+
     fn get_chunk_validator_assignments(
         &self,
         epoch_id: &EpochId,
@@ -957,6 +978,13 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(true)
     }
 
+    fn verify_partial_witness_signature(
+        &self,
+        _partial_witness: &PartialEncodedStateWitness,
+    ) -> Result<bool, Error> {
+        Ok(true)
+    }
+
     fn cares_about_shard_from_prev_block(
         &self,
         parent_hash: &CryptoHash,
@@ -1101,6 +1129,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn apply_chunk(
         &self,
         storage_config: RuntimeStorageConfig,
+        _apply_reason: ApplyChunkReason,
         chunk: ApplyChunkShardContext,
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],
@@ -1269,6 +1298,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             processed_delayed_receipts: vec![],
             processed_yield_timeouts: vec![],
             applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
+            congestion_info: Self::get_congestion_info(PROTOCOL_VERSION),
         })
     }
 

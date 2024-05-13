@@ -1,4 +1,5 @@
 pub use near_primitives_core::account;
+pub use near_primitives_core::apply;
 pub use near_primitives_core::borsh;
 pub use near_primitives_core::config;
 pub use near_primitives_core::hash;
@@ -10,6 +11,7 @@ pub mod block;
 pub mod block_body;
 pub mod block_header;
 pub mod challenge;
+pub mod congestion_info;
 pub mod epoch_manager;
 pub mod epoch_sync;
 pub mod errors;

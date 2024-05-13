@@ -229,13 +229,26 @@ class MirrorProcess:
         env = os.environ.copy()
         env["RUST_LOG"] = "actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn,indexer=info," + env.get(
             "RUST_LOG", "debug")
+        config_path = dot_near() / f'{MIRROR_DIR}/config.json'
         with open(dot_near() / f'{MIRROR_DIR}/stdout', 'ab') as stdout, \
-            open(dot_near() / f'{MIRROR_DIR}/stderr', 'ab') as stderr:
+            open(dot_near() / f'{MIRROR_DIR}/stderr', 'ab') as stderr, \
+            open(config_path, 'w') as mirror_config:
+            json.dump({'tx_batch_interval': {
+                'secs': 0,
+                'nanos': 600000000
+            }}, mirror_config)
             args = [
-                self.neard, 'mirror', 'run', "--source-home", self.source_home,
+                self.neard,
+                'mirror',
+                'run',
+                "--source-home",
+                self.source_home,
                 "--target-home",
-                dot_near() / f'{MIRROR_DIR}/target/', '--secret-file',
-                dot_near() / f'{MIRROR_DIR}/target/mirror-secret.json'
+                dot_near() / f'{MIRROR_DIR}/target/',
+                '--secret-file',
+                dot_near() / f'{MIRROR_DIR}/target/mirror-secret.json',
+                '--config-path',
+                config_path,
             ]
             if self.online_source:
                 args.append('--online-source')

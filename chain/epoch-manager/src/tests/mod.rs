@@ -13,6 +13,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::block::Tip;
 use near_primitives::challenge::SlashedValidator;
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardLayout;
@@ -747,14 +748,8 @@ fn test_validator_reward_one_validator() {
 
     let epoch_info = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap();
     check_validators(&epoch_info, &[("test2", stake_amount + test2_reward)]);
-    check_fishermen(&epoch_info, &[("test1", test1_stake_amount)]);
-    check_stake_change(
-        &epoch_info,
-        vec![
-            ("test1".parse().unwrap(), test1_stake_amount),
-            ("test2".parse().unwrap(), stake_amount + test2_reward),
-        ],
-    );
+    check_fishermen(&epoch_info, &[]);
+    check_stake_change(&epoch_info, vec![("test2".parse().unwrap(), stake_amount + test2_reward)]);
     check_kickout(&epoch_info, &[]);
     check_reward(
         &epoch_info,
@@ -1704,13 +1699,13 @@ fn test_fishermen() {
     );
     let epoch_info = em.get_epoch_info(&EpochId::default()).unwrap();
     check_validators(&epoch_info, &[("test1", stake_amount), ("test2", stake_amount)]);
-    check_fishermen(&epoch_info, &[("test3", fishermen_threshold)]);
+    check_fishermen(&epoch_info, &[]);
     check_stake_change(
         &epoch_info,
         vec![
             ("test1".parse().unwrap(), stake_amount),
             ("test2".parse().unwrap(), stake_amount),
-            ("test3".parse().unwrap(), fishermen_threshold),
+            ("test3".parse().unwrap(), 0),
             ("test4".parse().unwrap(), 0),
         ],
     );
@@ -1755,10 +1750,7 @@ fn test_fishermen_unstake() {
         ],
     );
     let kickout = epoch_info.validator_kickout();
-    assert_eq!(
-        kickout.get(AccountIdRef::new_or_panic("test2")).unwrap(),
-        &ValidatorKickoutReason::Unstaked
-    );
+    assert!(!kickout.contains_key(AccountIdRef::new_or_panic("test2")));
     matches!(
         kickout.get(AccountIdRef::new_or_panic("test3")),
         Some(ValidatorKickoutReason::NotEnoughStake { .. })
@@ -1849,11 +1841,7 @@ fn test_kickout_set() {
     );
     assert_eq!(
         epoch_info1.stake_change().clone(),
-        change_stake(vec![
-            ("test1".parse().unwrap(), stake_amount),
-            ("test2".parse().unwrap(), 0),
-            ("test3".parse().unwrap(), 10)
-        ])
+        change_stake(vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), 0)])
     );
     assert!(epoch_info1.validator_kickout().is_empty());
     record_block(
@@ -1866,15 +1854,11 @@ fn test_kickout_set() {
     record_block(&mut epoch_manager, h[3], h[4], 4, vec![]);
     let epoch_info = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap();
     check_validators(&epoch_info, &[("test1", stake_amount), ("test2", stake_amount)]);
-    check_fishermen(&epoch_info, &[("test3", 10)]);
+    check_fishermen(&epoch_info, &[]);
     check_kickout(&epoch_info, &[]);
     check_stake_change(
         &epoch_info,
-        vec![
-            ("test1".parse().unwrap(), stake_amount),
-            ("test2".parse().unwrap(), stake_amount),
-            ("test3".parse().unwrap(), 10),
-        ],
+        vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), stake_amount)],
     );
 }
 
@@ -2158,6 +2142,7 @@ fn check_validators(epoch_info: &EpochInfo, expected_validators: &[(&str, u128)]
 }
 
 fn check_fishermen(epoch_info: &EpochInfo, expected_fishermen: &[(&str, u128)]) {
+    assert_eq!(epoch_info.fishermen_iter().len(), expected_fishermen.len());
     for (v, (account_id, stake)) in epoch_info.fishermen_iter().zip(expected_fishermen.into_iter())
     {
         assert_eq!(v.account_id(), *account_id);
@@ -2179,51 +2164,6 @@ fn check_kickout(epoch_info: &EpochInfo, reasons: &[(&str, ValidatorKickoutReaso
         .map(|(account, reason)| (account.parse().unwrap(), reason.clone()))
         .collect::<HashMap<_, _>>();
     assert_eq!(epoch_info.validator_kickout(), &kickout);
-}
-
-#[test]
-fn test_fisherman_kickout() {
-    let stake_amount = 1_000_000;
-    let validators = vec![
-        ("test1".parse().unwrap(), stake_amount),
-        ("test2".parse().unwrap(), stake_amount),
-        ("test3".parse().unwrap(), stake_amount),
-    ];
-    let mut epoch_manager = setup_default_epoch_manager(validators, 1, 1, 3, 0, 90, 60);
-    let h = hash_range(6);
-    record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
-    record_block(&mut epoch_manager, h[0], h[1], 1, vec![stake("test1".parse().unwrap(), 148)]);
-    // test1 starts as validator,
-    // - reduces stake in epoch T, will be fisherman in epoch T+2
-    // - Misses a block in epoch T+1, will be kicked out in epoch T+3
-    // - Finalize epoch T+1 => T+3 kicks test1 as fisherman without a record in stake_change
-    record_block(&mut epoch_manager, h[1], h[3], 3, vec![]);
-
-    let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[1])).unwrap();
-    check_validators(&epoch_info2, &[("test2", stake_amount), ("test3", stake_amount)]);
-    check_fishermen(&epoch_info2, &[("test1", 148)]);
-    check_stake_change(
-        &epoch_info2,
-        vec![
-            ("test1".parse().unwrap(), 148),
-            ("test2".parse().unwrap(), stake_amount),
-            ("test3".parse().unwrap(), stake_amount),
-        ],
-    );
-    check_kickout(&epoch_info2, &[]);
-
-    let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap();
-    check_validators(&epoch_info3, &[("test2", stake_amount), ("test3", stake_amount)]);
-    check_fishermen(&epoch_info3, &[]);
-    check_stake_change(
-        &epoch_info3,
-        vec![
-            ("test1".parse().unwrap(), 0),
-            ("test2".parse().unwrap(), stake_amount),
-            ("test3".parse().unwrap(), stake_amount),
-        ],
-    );
-    check_kickout(&epoch_info3, &[("test1", NotEnoughBlocks { produced: 0, expected: 1 })]);
 }
 
 fn set_block_info_protocol_version(info: &mut BlockInfo, protocol_version: ProtocolVersion) {
@@ -2793,6 +2733,7 @@ fn test_max_kickout_stake_ratio() {
 
 fn test_chunk_header(h: &[CryptoHash], signer: &dyn ValidatorSigner) -> ShardChunkHeader {
     ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+        PROTOCOL_VERSION,
         h[0],
         h[2],
         h[2],
@@ -2806,6 +2747,7 @@ fn test_chunk_header(h: &[CryptoHash], signer: &dyn ValidatorSigner) -> ShardChu
         h[2],
         h[2],
         vec![],
+        CongestionInfo::default(),
         signer,
     ))
 }

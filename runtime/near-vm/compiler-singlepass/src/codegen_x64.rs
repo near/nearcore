@@ -1220,16 +1220,6 @@ impl<'a> FuncGen<'a> {
         Ok(())
     }
 
-    /// Emits a System V call sequence, specialized for labels as the call target.
-    fn _emit_call_native_label<I: Iterator<Item = Location>>(
-        &mut self,
-        label: DynamicLabel,
-        params: I,
-    ) -> Result<(), CodegenError> {
-        self.emit_call_native(|this| this.assembler.emit_call_label(label), params)?;
-        Ok(())
-    }
-
     /// Emits a memory operation.
     fn emit_memory_op<F: FnOnce(&mut Self, GPR) -> Result<(), CodegenError>>(
         &mut self,

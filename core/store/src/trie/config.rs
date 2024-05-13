@@ -61,10 +61,9 @@ impl TrieConfig {
                 Err(e) => error!(target: "config", "invalid account id {account}: {e}"),
             }
         }
-        this.claim_sweat_prefetch_config = config.claim_sweat_prefetch_config.clone();
-        this.kaiching_prefetch_config = config.kaiching_prefetch_config.clone();
-
-        this.load_mem_tries_for_shards = config.load_mem_tries_for_shards.clone();
+        this.claim_sweat_prefetch_config.clone_from(&config.claim_sweat_prefetch_config);
+        this.kaiching_prefetch_config.clone_from(&config.kaiching_prefetch_config);
+        this.load_mem_tries_for_shards.clone_from(&config.load_mem_tries_for_shards);
         this.load_mem_tries_for_tracked_shards = config.load_mem_tries_for_tracked_shards;
 
         this
@@ -86,7 +85,7 @@ impl TrieConfig {
         self.shard_cache_config.shard_cache_deletions_queue_capacity
     }
 
-    /// Checks if any of prefetching related configs was enabled.  
+    /// Checks if any of prefetching related configs was enabled.
     pub fn prefetch_enabled(&self) -> bool {
         self.enable_receipt_prefetching
             || (!self.sweat_prefetch_receivers.is_empty()

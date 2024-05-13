@@ -2,7 +2,7 @@
 version = "0.0.0"                               # managed by cargo-workspaces, see below
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2021"
-rust-version = "1.77.0"
+rust-version = "1.78.0"
 repository = "https://github.com/near/nearcore"
 license = "MIT OR Apache-2.0"
 
@@ -93,6 +93,9 @@ members = [
     "utils/mainnet-res",
     "utils/near-cache",
     "utils/stdx",
+]
+exclude = [
+    "tracing",
 ]
 
 [workspace.lints.clippy]
@@ -304,7 +307,7 @@ rand_hc = "0.3.1"
 rand_xorshift = "0.3"
 rayon = "1.5"
 redis = "0.23.0"
-reed-solomon-erasure = "4"
+reed-solomon-erasure = "6.0.0"
 regex = "1.7.1"
 region = "3.0"
 reqwest = { version = "0.11.14", features = ["blocking"] }

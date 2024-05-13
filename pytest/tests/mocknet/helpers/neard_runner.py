@@ -151,19 +151,24 @@ class NeardRunner:
         self.lock = threading.Lock()
 
     def is_legacy(self):
-        if os.path.exists(os.path.join(self.neard_home, 'setup', 'data')):
-            if os.path.exists(
-                    os.path.join(self.neard_home, 'setup', 'records.json')):
-                logging.warning(
-                    f'found both records.json and data/ in {os.path.join(self.neard_home, "setup")}'
-                )
-            return False
         if os.path.exists(os.path.join(
                 self.neard_home, 'setup', 'records.json')) and os.path.exists(
                     os.path.join(self.neard_home, 'setup', 'genesis.json')):
+            if os.path.exists(os.path.join(self.neard_home, 'setup', 'data')):
+                logging.warning(
+                    f'found both records.json and data/ in {os.path.join(self.neard_home, "setup")}'
+                )
             return True
+        if self.is_traffic_generator():
+            target_dir = os.path.join(self.neard_home, 'target', 'setup')
+        else:
+            target_dir = os.path.join(self.neard_home, 'setup')
+        if os.path.exists(target_dir) and os.path.exists(
+                os.path.join(target_dir, 'data')) and os.path.exists(
+                    os.path.join(target_dir, 'config.json')):
+            return False
         sys.exit(
-            f'did not find either records.json and genesis.json or data/ in {os.path.join(self.neard_home, "setup")}'
+            f'did not find either records.json and genesis.json in {os.path.join(self.neard_home, "setup")} or neard home in {target_dir}'
         )
 
     def is_traffic_generator(self):
@@ -252,6 +257,16 @@ class NeardRunner:
                 self.reset_current_neard_path()
             self.save_data()
 
+    def setup_path(self, *args):
+        if not self.is_traffic_generator() or self.legacy_records:
+            args = ('setup',) + args
+        else:
+            args = (
+                'target',
+                'setup',
+            ) + args
+        return os.path.join(self.neard_home, *args)
+
     def target_near_home_path(self, *args):
         if self.is_traffic_generator():
             args = ('target',) + args
@@ -312,7 +327,16 @@ class NeardRunner:
             cmd = [
                 self.data['binaries'][0]['system_path'],
                 '--home',
-                os.path.join(self.neard_home, 'setup'),
+                self.setup_path(),
+                'database',
+                'run-migrations',
+            ]
+            logging.info(f'running {" ".join(cmd)}')
+            subprocess.check_call(cmd)
+            cmd = [
+                self.data['binaries'][0]['system_path'],
+                '--home',
+                self.setup_path(),
                 'database',
                 'make-snapshot',
                 '--destination',
@@ -339,9 +363,8 @@ class NeardRunner:
             shutil.move(self.tmp_near_home_path(path),
                         self.target_near_home_path(path))
         if not self.legacy_records:
-            shutil.copyfile(
-                os.path.join(self.neard_home, 'setup', 'genesis.json'),
-                self.target_near_home_path('genesis.json'))
+            shutil.copyfile(self.setup_path('genesis.json'),
+                            self.target_near_home_path('genesis.json'))
 
     # This RPC method tells to stop neard and re-initialize its home dir. This returns the
     # validator and node key that resulted from the initialization. We can't yet call amend-genesis
@@ -489,11 +512,22 @@ class NeardRunner:
 
         return True
 
-    def do_start(self):
+    def do_start(self, batch_interval_millis=None):
+        if batch_interval_millis is not None and not isinstance(
+                batch_interval_millis, int):
+            raise ValueError(
+                f'batch_interval_millis: {batch_interval_millis} not an int')
         with self.lock:
             state = self.get_state()
             if state == TestState.STOPPED:
-                self.start_neard()
+                if batch_interval_millis is not None and not self.is_traffic_generator(
+                ):
+                    logging.warn(
+                        f'got batch_interval_millis = {batch_interval_millis} on non traffic generator node. Ignoring it.'
+                    )
+                    batch_interval_millis = None
+                # TODO: restart it if we get a different batch_interval_millis than last time
+                self.start_neard(batch_interval_millis)
                 self.set_state(TestState.RUNNING)
                 self.save_data()
             elif state != TestState.RUNNING:
@@ -703,8 +737,18 @@ class NeardRunner:
         self.data['neard_process'] = None
         self.save_data()
 
+    def source_near_home_path(self):
+        if not self.is_traffic_generator():
+            logging.warn(
+                'source_near_home_path() called on non-traffic-generator node')
+            return self.neard_home
+        if self.legacy_records:
+            return self.neard_home
+        else:
+            return os.path.join(self.neard_home, 'source')
+
     # If this is a regular node, starts neard run. If it's a traffic generator, starts neard mirror run
-    def start_neard(self):
+    def start_neard(self, batch_interval_millis=None):
         for i in range(20, -1, -1):
             old_log = os.path.join(self.neard_logs_dir, f'log-{i}.txt')
             new_log = os.path.join(self.neard_logs_dir, f'log-{i+1}.txt')
@@ -720,11 +764,27 @@ class NeardRunner:
                     'mirror',
                     'run',
                     '--source-home',
-                    self.neard_home,
+                    self.source_near_home_path(),
                     '--target-home',
                     self.target_near_home_path(),
                     '--no-secret',
                 ]
+                if batch_interval_millis is not None:
+                    with open(self.target_near_home_path('mirror-config.json'),
+                              'w') as f:
+                        secs = batch_interval_millis // 1000
+                        nanos = (batch_interval_millis % 1000) * 1000000
+                        json.dump(
+                            {
+                                'tx_batch_interval': {
+                                    'secs': secs,
+                                    'nanos': nanos
+                                }
+                            },
+                            f,
+                            indent=2)
+                    cmd.append('--config-path')
+                    cmd.append(self.target_near_home_path('mirror-config.json'))
             else:
                 cmd = [
                     self.data['current_neard_path'], '--log-span-events',
@@ -817,9 +877,9 @@ class NeardRunner:
                 self.data['binaries'][0]['system_path'],
                 'amend-genesis',
                 '--genesis-file-in',
-                os.path.join(self.neard_home, 'setup', 'genesis.json'),
+                self.setup_path('genesis.json'),
                 '--records-file-in',
-                os.path.join(self.neard_home, 'setup', 'records.json'),
+                self.setup_path('records.json'),
                 '--genesis-file-out',
                 self.target_near_home_path('genesis.json'),
                 '--records-file-out',
@@ -851,6 +911,9 @@ class NeardRunner:
                 str(n['epoch_length']), '--genesis-time',
                 str(n['genesis_time'])
             ]
+            if n['protocol_version'] is not None:
+                cmd.append('--protocol-version')
+                cmd.append(str(n['protocol_version']))
 
             self.run_neard(cmd)
             self.set_state(TestState.SET_VALIDATORS)
@@ -975,12 +1038,21 @@ class NeardRunner:
             logging.warn(f'{backup_dir} already exists')
             self.set_state(TestState.ERROR)
             return
+        # Make a RockDB snapshot of the db to save space. This takes advantage of the immutability of sst files.
         logging.info(f'copying data dir to {backup_dir}')
-        shutil.copytree(self.target_near_home_path('data'),
-                        backup_dir,
-                        dirs_exist_ok=True)
-        logging.info(f'copied data dir to {backup_dir}')
-
+        cmd = [
+            self.data['current_neard_path'], '--home',
+            self.target_near_home_path(), '--unsafe-fast-startup', 'database',
+            'make-snapshot', '--destination', backup_dir
+        ]
+        logging.info(f'running {" ".join(cmd)}')
+        exit_code = subprocess.check_call(cmd)
+        logging.info(
+            f'copying data dir to {backup_dir} finished with code {exit_code}')
+        # Copy config, genesis and node_key to the backup folder to use them to restore the db.
+        for file in ["config.json", "genesis.json", "node_key.json"]:
+            shutil.copyfile(self.target_near_home_path(file),
+                            os.path.join(backup_dir, file))
         backups = self.data.get('backups', {})
         if name in backups:
             # shouldn't happen if we check this in do_make_backups(), but fine to be paranoid and at least warn here
@@ -1027,6 +1099,28 @@ class NeardRunner:
             self.kill_neard()
             self.make_initial_backup()
 
+    def run_restore_from_backup_cmd(self, backup_path):
+        logging.info(f'restoring data dir from backup at {backup_path}')
+        # Before using snapshots for backup we used to copy the 'data' folder.
+        # This is useful to be able to restore from backups done the old way.
+        if not os.path.exists(os.path.join(backup_path, 'data')):
+            # TODO: Remove this branch once we no longer support old backups
+            shutil.copytree(backup_path, self.target_near_home_path('data'))
+            logging.info(
+                f'data dir restored by copying files from {backup_path}')
+        else:
+            cmd = [
+                self.data['current_neard_path'], '--home', backup_path,
+                '--unsafe-fast-startup', 'database', 'make-snapshot',
+                '--destination',
+                self.target_near_home_path()
+            ]
+            logging.info(f'running {" ".join(cmd)}')
+            exit_code = subprocess.check_call(cmd)
+            logging.info(
+                f'snapshot restoration of {backup_path} terminated with code {exit_code}'
+            )
+
     def reset_near_home(self):
         backup_id = self.data['state_data']
         if backup_id is None:
@@ -1041,9 +1135,7 @@ class NeardRunner:
             shutil.rmtree(self.target_near_home_path('data'))
         except FileNotFoundError:
             pass
-        logging.info(f'restoring data dir from backup at {backup_path}')
-        shutil.copytree(backup_path, self.target_near_home_path('data'))
-        logging.info('data dir restored')
+        self.run_restore_from_backup_cmd(backup_path)
         self.set_state(TestState.STOPPED)
         self.save_data()
 

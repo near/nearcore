@@ -15,8 +15,9 @@ use near_primitives::stateless_validation::{
 use near_primitives::types::{AccountId, EpochId};
 
 use crate::stateless_validation::chunk_validator::send_chunk_endorsement_to_block_producers;
-use crate::stateless_validation::state_witness_actor::DistributeStateWitnessRequest;
 use crate::Client;
+
+use super::partial_witness::partial_witness_actor::DistributeStateWitnessRequest;
 
 impl Client {
     /// Distributes the chunk state witness to chunk validators that are
@@ -43,6 +44,10 @@ impl Client {
             transactions_storage_proof,
         )?;
 
+        if self.config.save_latest_witnesses {
+            self.chain.chain_store.save_latest_chunk_state_witness(&state_witness)?;
+        }
+
         let chunk_header = chunk.cloned_header();
         let shard_id = chunk_header.shard_id();
         let height = chunk_header.height_created();
@@ -61,7 +66,11 @@ impl Client {
             );
         }
 
-        self.state_witness_adapter.send(DistributeStateWitnessRequest { state_witness });
+        self.partial_witness_adapter.send(DistributeStateWitnessRequest {
+            epoch_id: epoch_id.clone(),
+            chunk_header,
+            state_witness,
+        });
         Ok(())
     }
 

@@ -54,6 +54,8 @@ use near_primitives::stateless_validation::StoredChunkStateTransitionData;
 use near_store::db::{StoreStatistics, STATE_SYNC_DUMP_KEY};
 use std::sync::Arc;
 
+mod latest_witnesses;
+
 /// lru cache size
 #[cfg(not(feature = "no_cache"))]
 const CACHE_SIZE: usize = 100;

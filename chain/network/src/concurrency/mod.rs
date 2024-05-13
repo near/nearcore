@@ -1,5 +1,4 @@
 pub mod arc_mutex;
-mod asyncfn;
 pub mod atomic_cell;
 pub mod ctx;
 pub mod demux;

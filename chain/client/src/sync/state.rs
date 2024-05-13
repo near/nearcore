@@ -1054,6 +1054,13 @@ impl StateSync {
         Ok(())
     }
 
+    /// Checks and updates the status of state sync for the given shard.
+    ///
+    /// If shard sync is done the status is updated to either StateSyncDone or
+    /// ReshardingScheduling in which case the next step is to start resharding.
+    ///
+    /// Returns true only when the shard sync is fully done. Returns false when
+    /// the shard sync is in progress or if the next step is resharding.
     fn sync_shards_apply_finalizing_status(
         &mut self,
         shard_uid: ShardUId,
@@ -1063,44 +1070,58 @@ impl StateSync {
         need_to_reshard: bool,
         shard_sync_download: &mut ShardSyncDownload,
     ) -> Result<bool, near_chain::Error> {
+        let shard_id = shard_uid.shard_id();
+        let result = self.sync_shards_apply_finalizing_status_impl(
+            shard_uid,
+            chain,
+            sync_hash,
+            need_to_reshard,
+            shard_sync_download,
+        );
+
+        if let Err(err) = &result {
+            // Cannot finalize the downloaded state.
+            // The reasonable behavior here is to start from the very beginning.
+            metrics::STATE_SYNC_DISCARD_PARTS.with_label_values(&[&shard_id.to_string()]).inc();
+            tracing::error!(target: "sync", %shard_id, %sync_hash, ?err, "State sync finalizing error");
+            *shard_sync_download = ShardSyncDownload::new_download_state_header(now);
+            let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
+            let state_num_parts = shard_state_header.num_state_parts();
+            chain.clear_downloaded_parts(shard_id, sync_hash, state_num_parts)?;
+        }
+
+        return result;
+    }
+
+    fn sync_shards_apply_finalizing_status_impl(
+        &mut self,
+        shard_uid: ShardUId,
+        chain: &mut Chain,
+        sync_hash: CryptoHash,
+        need_to_reshard: bool,
+        shard_sync_download: &mut ShardSyncDownload,
+    ) -> Result<bool, near_chain::Error> {
         // Keep waiting until our shard is on the list of results
         // (these are set via callback from ClientActor - both for sync and catchup).
         let mut shard_sync_done = false;
-        if let Some(result) = self.load_memtrie_results.remove(&shard_uid) {
-            let shard_id = shard_uid.shard_id();
-            result
-                .and_then(|_| {
-                    chain.set_state_finalize(shard_id, sync_hash)?;
-                    // If the shard layout is changing in this epoch - we have to apply it right now.
-                    if need_to_reshard {
-                        *shard_sync_download = ShardSyncDownload {
-                            downloads: vec![],
-                            status: ShardSyncStatus::ReshardingScheduling,
-                        };
-                    } else {
-                        // If there is no layout change - we're done.
-                        *shard_sync_download = ShardSyncDownload {
-                            downloads: vec![],
-                            status: ShardSyncStatus::StateSyncDone,
-                        };
-                        shard_sync_done = true;
-                    }
-                    Ok(())
-                })
-                .or_else(|err| -> Result<(), near_chain::Error> {
-                    // Cannot finalize the downloaded state.
-                    // The reasonable behavior here is to start from the very beginning.
-                    metrics::STATE_SYNC_DISCARD_PARTS
-                        .with_label_values(&[&shard_id.to_string()])
-                        .inc();
-                    tracing::error!(target: "sync", %shard_id, %sync_hash, ?err, "State sync finalizing error");
-                    *shard_sync_download = ShardSyncDownload::new_download_state_header(now);
-                    let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
-                    let state_num_parts = shard_state_header.num_state_parts();
-                    chain.clear_downloaded_parts(shard_id, sync_hash, state_num_parts)?;
-                    Ok(())
-                })?;
+        let Some(result) = self.load_memtrie_results.remove(&shard_uid) else {
+            return Ok(shard_sync_done);
+        };
+
+        result?;
+
+        chain.set_state_finalize(shard_uid.shard_id(), sync_hash)?;
+        if need_to_reshard {
+            // If the shard layout is changing in this epoch - we have to apply it right now.
+            let status = ShardSyncStatus::ReshardingScheduling;
+            *shard_sync_download = ShardSyncDownload { downloads: vec![], status };
+        } else {
+            // If there is no layout change - we're done.
+            let status = ShardSyncStatus::StateSyncDone;
+            *shard_sync_download = ShardSyncDownload { downloads: vec![], status };
+            shard_sync_done = true;
         }
+
         Ok(shard_sync_done)
     }
 

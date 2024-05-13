@@ -24,8 +24,8 @@ use near_primitives::account::{AccessKey, Account};
 pub use near_primitives::errors::{MissingTrieValueContext, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout, Receipt, ReceiptEnum,
-    ReceivedData,
+    BufferedReceiptIndices, DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout,
+    Receipt, ReceiptEnum, ReceivedData,
 };
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
@@ -839,7 +839,6 @@ pub fn set_promise_yield_indices(
     state_update: &mut TrieUpdate,
     promise_yield_indices: &PromiseYieldIndices,
 ) {
-    assert!(cfg!(feature = "yield_resume"));
     set(state_update, TrieKey::PromiseYieldIndices, promise_yield_indices);
 }
 
@@ -851,7 +850,6 @@ pub fn enqueue_promise_yield_timeout(
     data_id: CryptoHash,
     expires_at: BlockHeight,
 ) {
-    assert!(cfg!(feature = "yield_resume"));
     set(
         state_update,
         TrieKey::PromiseYieldTimeout { index: promise_yield_indices.next_available_index },
@@ -864,7 +862,6 @@ pub fn enqueue_promise_yield_timeout(
 }
 
 pub fn set_promise_yield_receipt(state_update: &mut TrieUpdate, receipt: &Receipt) {
-    assert!(cfg!(feature = "yield_resume"));
     match receipt.receipt() {
         ReceiptEnum::PromiseYield(ref action_receipt) => {
             assert!(action_receipt.input_data_ids.len() == 1);
@@ -900,6 +897,12 @@ pub fn has_promise_yield_receipt(
     data_id: CryptoHash,
 ) -> Result<bool, StorageError> {
     trie.contains_key(&TrieKey::PromiseYieldReceipt { receiver_id, data_id })
+}
+
+pub fn get_buffered_receipt_indices(
+    trie: &dyn TrieAccess,
+) -> Result<BufferedReceiptIndices, StorageError> {
+    Ok(get(trie, &TrieKey::BufferedReceiptIndices)?.unwrap_or_default())
 }
 
 pub fn set_access_key(

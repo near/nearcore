@@ -8,6 +8,7 @@ use near_chain::types::{
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use near_chain_configs::Genesis;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::receipt::DelayedReceiptIndices;
 use near_primitives::transaction::{Action, ExecutionOutcomeWithId, ExecutionOutcomeWithProof};
 use near_primitives::trie_key::TrieKey;
@@ -234,6 +235,7 @@ fn apply_block_from_range(
         runtime_adapter
             .apply_chunk(
                 RuntimeStorageConfig::new(*chunk_inner.prev_state_root(), use_flat_storage),
+                ApplyChunkReason::UpdateTrackedShard,
                 ApplyChunkShardContext {
                     shard_id,
                     last_validator_proposals: chunk_inner.prev_validator_proposals(),
@@ -244,6 +246,7 @@ fn apply_block_from_range(
                 ApplyChunkBlockContext::from_header(
                     block.header(),
                     prev_block.header().next_gas_price(),
+                    prev_block.shards_congestion_info(),
                 ),
                 &receipts,
                 chunk.transactions(),
@@ -258,6 +261,7 @@ fn apply_block_from_range(
         runtime_adapter
             .apply_chunk(
                 RuntimeStorageConfig::new(*chunk_extra.state_root(), use_flat_storage),
+                ApplyChunkReason::UpdateTrackedShard,
                 ApplyChunkShardContext {
                     shard_id,
                     last_validator_proposals: chunk_extra.validator_proposals(),
@@ -268,6 +272,7 @@ fn apply_block_from_range(
                 ApplyChunkBlockContext::from_header(
                     block.header(),
                     block.header().next_gas_price(),
+                    block.shards_congestion_info(),
                 ),
                 &[],
                 &[],
@@ -275,14 +280,18 @@ fn apply_block_from_range(
             .unwrap()
     };
 
+    let protocol_version =
+        epoch_manager.get_epoch_protocol_version(block.header().epoch_id()).unwrap();
     let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
     let chunk_extra = ChunkExtra::new(
+        protocol_version,
         &apply_result.new_root,
         outcome_root,
         apply_result.validator_proposals,
         apply_result.total_gas_burnt,
         genesis.config.gas_limit,
         apply_result.total_balance_burnt,
+        apply_result.congestion_info,
     );
 
     let state_update =

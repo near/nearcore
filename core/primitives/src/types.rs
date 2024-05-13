@@ -379,6 +379,8 @@ impl StateChanges {
                 TrieKey::PromiseYieldIndices => {}
                 TrieKey::PromiseYieldTimeout { .. } => {}
                 TrieKey::PromiseYieldReceipt { .. } => {}
+                TrieKey::BufferedReceiptIndices => {}
+                TrieKey::BufferedReceipt { .. } => {}
             }
         }
 
@@ -733,11 +735,14 @@ pub struct BlockExtra {
 }
 
 pub mod chunk_extra {
+    use crate::congestion_info::CongestionInfo;
     use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
     use crate::types::StateRoot;
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_primitives_core::hash::CryptoHash;
     use near_primitives_core::types::{Balance, Gas};
+    use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
+    use near_vm_runner::logic::ProtocolVersion;
 
     pub use super::ChunkExtraV1;
 
@@ -746,6 +751,7 @@ pub mod chunk_extra {
     pub enum ChunkExtra {
         V1(ChunkExtraV1),
         V2(ChunkExtraV2),
+        V3(ChunkExtraV3),
     }
 
     #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq)]
@@ -764,27 +770,82 @@ pub mod chunk_extra {
         pub balance_burnt: Balance,
     }
 
+    /// V2 -> V3: add congestion info fields.
+    #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq)]
+    pub struct ChunkExtraV3 {
+        /// Post state root after applying give chunk.
+        pub state_root: StateRoot,
+        /// Root of merklizing results of receipts (transactions) execution.
+        pub outcome_root: CryptoHash,
+        /// Validator proposals produced by given chunk.
+        pub validator_proposals: Vec<ValidatorStake>,
+        /// Actually how much gas were used.
+        pub gas_used: Gas,
+        /// Gas limit, allows to increase or decrease limit based on expected time vs real time for computing the chunk.
+        pub gas_limit: Gas,
+        /// Total balance burnt after processing the current chunk.
+        pub balance_burnt: Balance,
+        /// Congestion info. This field should be set to None for chunks before
+        /// the congestion control protocol version and Some otherwise.
+        congestion_info: CongestionInfo,
+    }
+
     impl ChunkExtra {
+        /// This method creates a slimmed down and invalid ChunkExtra. It's used
+        /// for resharding where we only need the state root. This should not be
+        /// used as part of regular processing.
         pub fn new_with_only_state_root(state_root: &StateRoot) -> Self {
-            Self::new(state_root, CryptoHash::default(), vec![], 0, 0, 0)
+            // TODO(congestion_control) - integration with resharding
+            let congestion_control = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION)
+            {
+                Some(CongestionInfo::default())
+            } else {
+                None
+            };
+            Self::new(
+                PROTOCOL_VERSION,
+                state_root,
+                CryptoHash::default(),
+                vec![],
+                0,
+                0,
+                0,
+                congestion_control,
+            )
         }
 
         pub fn new(
+            protocol_version: ProtocolVersion,
             state_root: &StateRoot,
             outcome_root: CryptoHash,
             validator_proposals: Vec<ValidatorStake>,
             gas_used: Gas,
             gas_limit: Gas,
             balance_burnt: Balance,
+            congestion_info: Option<CongestionInfo>,
         ) -> Self {
-            Self::V2(ChunkExtraV2 {
-                state_root: *state_root,
-                outcome_root,
-                validator_proposals,
-                gas_used,
-                gas_limit,
-                balance_burnt,
-            })
+            if ProtocolFeature::CongestionControl.enabled(protocol_version) {
+                assert!(congestion_info.is_some());
+                Self::V3(ChunkExtraV3 {
+                    state_root: *state_root,
+                    outcome_root,
+                    validator_proposals,
+                    gas_used,
+                    gas_limit,
+                    balance_burnt,
+                    congestion_info: congestion_info.unwrap(),
+                })
+            } else {
+                assert!(congestion_info.is_none());
+                Self::V2(ChunkExtraV2 {
+                    state_root: *state_root,
+                    outcome_root,
+                    validator_proposals,
+                    gas_used,
+                    gas_limit,
+                    balance_burnt,
+                })
+            }
         }
 
         #[inline]
@@ -792,6 +853,7 @@ pub mod chunk_extra {
             match self {
                 Self::V1(v1) => &v1.outcome_root,
                 Self::V2(v2) => &v2.outcome_root,
+                Self::V3(v3) => &v3.outcome_root,
             }
         }
 
@@ -800,6 +862,7 @@ pub mod chunk_extra {
             match self {
                 Self::V1(v1) => &v1.state_root,
                 Self::V2(v2) => &v2.state_root,
+                Self::V3(v3) => &v3.state_root,
             }
         }
 
@@ -808,6 +871,7 @@ pub mod chunk_extra {
             match self {
                 Self::V1(v1) => &mut v1.state_root,
                 Self::V2(v2) => &mut v2.state_root,
+                Self::V3(v3) => &mut v3.state_root,
             }
         }
 
@@ -816,6 +880,7 @@ pub mod chunk_extra {
             match self {
                 Self::V1(v1) => ValidatorStakeIter::v1(&v1.validator_proposals),
                 Self::V2(v2) => ValidatorStakeIter::new(&v2.validator_proposals),
+                Self::V3(v3) => ValidatorStakeIter::new(&v3.validator_proposals),
             }
         }
 
@@ -824,6 +889,7 @@ pub mod chunk_extra {
             match self {
                 Self::V1(v1) => v1.gas_limit,
                 Self::V2(v2) => v2.gas_limit,
+                Self::V3(v3) => v3.gas_limit,
             }
         }
 
@@ -832,6 +898,7 @@ pub mod chunk_extra {
             match self {
                 Self::V1(v1) => v1.gas_used,
                 Self::V2(v2) => v2.gas_used,
+                Self::V3(v3) => v3.gas_used,
             }
         }
 
@@ -840,6 +907,16 @@ pub mod chunk_extra {
             match self {
                 Self::V1(v1) => v1.balance_burnt,
                 Self::V2(v2) => v2.balance_burnt,
+                Self::V3(v3) => v3.balance_burnt,
+            }
+        }
+
+        #[inline]
+        pub fn congestion_info(&self) -> Option<CongestionInfo> {
+            match self {
+                Self::V1(_) => None,
+                Self::V2(_) => None,
+                Self::V3(v3) => v3.congestion_info.into(),
             }
         }
     }
@@ -1021,6 +1098,13 @@ pub trait EpochInfoProvider {
 
     /// Get the chain_id of the chain this epoch belongs to
     fn chain_id(&self) -> String;
+
+    /// Which shard the account belongs to in the given epoch.
+    fn account_id_to_shard_id(
+        &self,
+        account_id: &AccountId,
+        epoch_id: &EpochId,
+    ) -> Result<ShardId, EpochError>;
 }
 
 /// Mode of the trie cache.

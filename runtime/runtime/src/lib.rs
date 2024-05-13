@@ -10,13 +10,17 @@ pub use crate::verifier::{
     validate_transaction, verify_and_charge_transaction, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT,
 };
 use config::total_prepaid_send_fees;
+pub use congestion_control::compute_congestion_info;
+use congestion_control::ReceiptSink;
 pub use near_crypto;
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
 use near_primitives::account::Account;
 use near_primitives::checked_feature;
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, IntegerOverflowError, RuntimeError, TxExecutionError,
+    ActionError, ActionErrorKind, ContextError, IntegerOverflowError, RuntimeError,
+    TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
@@ -35,20 +39,22 @@ use near_primitives::transaction::{
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     validator_stake::ValidatorStake, AccountId, Balance, BlockHeight, Compute, EpochHeight,
-    EpochId, EpochInfoProvider, Gas, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
+    EpochId, EpochInfoProvider, Gas, RawStateChangesWithTrieKey, ShardId, StateChangeCause,
+    StateRoot,
 };
 use near_primitives::utils::{
     create_action_hash_from_receipt_id, create_receipt_id_from_receipt_id,
     create_receipt_id_from_transaction,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives_core::apply::ApplyChunkReason;
+use near_store::trie::receipts_column_helper::{DelayedReceiptQueue, TrieQueue};
 use near_store::{
     get, get_account, get_postponed_receipt, get_promise_yield_receipt, get_received_data,
-    has_received_data, remove_postponed_receipt, remove_promise_yield_receipt, set, set_account,
-    set_delayed_receipt, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
+    has_received_data, remove_postponed_receipt, remove_promise_yield_receipt, set, set_access_key,
+    set_account, set_code, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
     PartialStorage, StorageError, Trie, TrieChanges, TrieUpdate,
 };
-use near_store::{set_access_key, set_code};
 use near_vm_runner::logic::types::PromiseResult;
 use near_vm_runner::logic::ReturnData;
 pub use near_vm_runner::with_ext_cost_counter;
@@ -64,6 +70,7 @@ mod actions;
 pub mod adapter;
 mod balance_checker;
 pub mod config;
+mod congestion_control;
 mod conversions;
 pub mod ext;
 mod metrics;
@@ -76,12 +83,17 @@ const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
 
 #[derive(Debug)]
 pub struct ApplyState {
+    /// Represents a phase of the chain lifecycle that we want to run apply for.
+    /// This is currently represented as a static string and used as dimension in some metrics.
+    pub apply_reason: Option<ApplyChunkReason>,
     /// Currently building block height.
     pub block_height: BlockHeight,
     /// Prev block hash
     pub prev_block_hash: CryptoHash,
     /// Current block hash
     pub block_hash: CryptoHash,
+    /// To which shard the applied chunk belongs.
+    pub shard_id: ShardId,
     /// Current epoch id
     pub epoch_id: EpochId,
     /// Current epoch height
@@ -108,6 +120,8 @@ pub struct ApplyState {
     pub migration_data: Arc<MigrationData>,
     /// Flags for migrations indicating whether they can be applied at this block
     pub migration_flags: MigrationFlags,
+    /// Congestion level on each shard based on the latest known chunk header of each shard.
+    pub congestion_info: HashMap<ShardId, CongestionInfo>,
 }
 
 /// Contains information to update validators accounts at the first block of a new epoch.
@@ -161,6 +175,7 @@ pub struct ApplyResult {
     pub proof: Option<PartialStorage>,
     pub delayed_receipts_count: u64,
     pub metrics: Option<metrics::ApplyMetrics>,
+    pub congestion_info: Option<CongestionInfo>,
 }
 
 #[derive(Debug)]
@@ -517,7 +532,7 @@ impl Runtime {
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
         receipt: &Receipt,
-        outgoing_receipts: &mut Vec<Receipt>,
+        receipt_sink: &mut ReceiptSink,
         validator_proposals: &mut Vec<ValidatorStake>,
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
@@ -802,14 +817,22 @@ impl Runtime {
                     new_receipt.receipt(),
                     ReceiptEnum::Action(_) | ReceiptEnum::PromiseYield(_)
                 );
-                outgoing_receipts.push(new_receipt);
-                if is_action {
-                    Some(receipt_id)
+
+                let res = receipt_sink.forward_or_buffer_receipt(
+                    new_receipt,
+                    apply_state,
+                    state_update,
+                    epoch_info_provider,
+                );
+                if let Err(e) = res {
+                    Some(Err(e))
+                } else if is_action {
+                    Some(Ok(receipt_id))
                 } else {
                     None
                 }
             })
-            .collect();
+            .collect::<Result<_, _>>()?;
 
         let status = match result.result {
             Ok(ReturnData::ReceiptIndex(receipt_index)) => {
@@ -921,7 +944,7 @@ impl Runtime {
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
         receipt: &Receipt,
-        outgoing_receipts: &mut Vec<Receipt>,
+        receipt_sink: &mut ReceiptSink,
         validator_proposals: &mut Vec<ValidatorStake>,
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
@@ -989,7 +1012,7 @@ impl Runtime {
                                 state_update,
                                 apply_state,
                                 &ready_receipt,
-                                outgoing_receipts,
+                                receipt_sink,
                                 validator_proposals,
                                 stats,
                                 epoch_info_provider,
@@ -1043,7 +1066,7 @@ impl Runtime {
                             state_update,
                             apply_state,
                             receipt,
-                            outgoing_receipts,
+                            receipt_sink,
                             validator_proposals,
                             stats,
                             epoch_info_provider,
@@ -1094,7 +1117,7 @@ impl Runtime {
                             state_update,
                             apply_state,
                             &yield_receipt,
-                            outgoing_receipts,
+                            receipt_sink,
                             validator_proposals,
                             stats,
                             epoch_info_provider,
@@ -1356,15 +1379,15 @@ impl Runtime {
             receipts_to_restore.as_slice()
         };
 
-        let mut delayed_receipts_indices: DelayedReceiptIndices =
-            get(&state_update, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default();
-        let initial_delayed_receipt_indices = delayed_receipts_indices.clone();
+        let mut delayed_receipts = DelayedReceiptQueue::load(&state_update)?;
+        let mut congestion_info = apply_state.own_congestion_info(protocol_version)?;
 
         if !apply_state.is_new_chunk
             && protocol_version >= ProtocolFeature::FixApplyChunks.protocol_version()
         {
             let (trie, trie_changes, state_changes) = state_update.finalize()?;
             let proof = trie.recorded_storage();
+
             return Ok(ApplyResult {
                 state_root: trie_changes.new_root,
                 trie_changes,
@@ -1376,8 +1399,9 @@ impl Runtime {
                 processed_delayed_receipts: vec![],
                 processed_yield_timeouts: vec![],
                 proof,
-                delayed_receipts_count: delayed_receipts_indices.len(),
+                delayed_receipts_count: delayed_receipts.len(),
                 metrics: None,
+                congestion_info,
             });
         }
 
@@ -1387,6 +1411,18 @@ impl Runtime {
         let mut outcomes = vec![];
         let mut processed_delayed_receipts = vec![];
         let mut metrics = metrics::ApplyMetrics::default();
+
+        let mut receipt_sink = ReceiptSink::new(
+            protocol_version,
+            &state_update.trie,
+            apply_state,
+            &mut congestion_info,
+            &mut outgoing_receipts,
+        )?;
+
+        // Forward buffered receipts from previous chunks.
+        receipt_sink.forward_from_buffer(&mut state_update, apply_state)?;
+
         total.add(gas_used_for_migrations, gas_used_for_migrations)?;
 
         for signed_transaction in transactions {
@@ -1399,7 +1435,12 @@ impl Runtime {
             if receipt.receiver_id() == signed_transaction.transaction.signer_id() {
                 local_receipts.push(receipt);
             } else {
-                outgoing_receipts.push(receipt);
+                receipt_sink.forward_or_buffer_receipt(
+                    receipt,
+                    apply_state,
+                    &mut state_update,
+                    epoch_info_provider,
+                )?;
             }
 
             total.add(
@@ -1440,7 +1481,7 @@ impl Runtime {
                 state_update,
                 apply_state,
                 receipt,
-                &mut outgoing_receipts,
+                &mut receipt_sink,
                 &mut validator_proposals,
                 &mut stats,
                 epoch_info_provider,
@@ -1508,7 +1549,7 @@ impl Runtime {
                     state_update.trie.recorded_storage_size_upper_bound() > limit
                 })
             {
-                set_delayed_receipt(&mut state_update, &mut delayed_receipts_indices, receipt);
+                delayed_receipts.push(&mut state_update, receipt)?;
             } else {
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
                 // the `verify_and_charge_transaction`.
@@ -1525,7 +1566,7 @@ impl Runtime {
         // Then we process the delayed receipts. It's a backlog of receipts from the past blocks.
         let delayed_processing_start = std::time::Instant::now();
         let mut delayed_receipt_count = 0;
-        while delayed_receipts_indices.first_index < delayed_receipts_indices.next_available_index {
+        while delayed_receipts.len() > 0 {
             if total.compute >= compute_limit
                 || proof_size_limit.is_some_and(|limit| {
                     state_update.trie.recorded_storage_size_upper_bound() > limit
@@ -1534,13 +1575,7 @@ impl Runtime {
                 break;
             }
             delayed_receipt_count += 1;
-            let key = TrieKey::DelayedReceipt { index: delayed_receipts_indices.first_index };
-            let receipt: Receipt = get(&state_update, &key)?.ok_or_else(|| {
-                StorageError::StorageInconsistentState(format!(
-                    "Delayed receipt #{} should be in the state",
-                    delayed_receipts_indices.first_index
-                ))
-            })?;
+            let receipt = delayed_receipts.pop(&mut state_update)?.expect("queue is not empty");
 
             if let Some(prefetcher) = &mut prefetcher {
                 // Prefetcher is allowed to fail
@@ -1555,14 +1590,11 @@ impl Runtime {
             )
             .map_err(|e| {
                 StorageError::StorageInconsistentState(format!(
-                    "Delayed receipt #{} in the state is invalid: {}",
-                    delayed_receipts_indices.first_index, e
+                    "Delayed receipt {:?} in the state is invalid: {}",
+                    receipt, e
                 ))
             })?;
 
-            state_update.remove(key);
-            // Math checked above: first_index is less than next_available_index
-            delayed_receipts_indices.first_index += 1;
             process_receipt(&receipt, &mut state_update, &mut total)?;
             processed_delayed_receipts.push(receipt);
         }
@@ -1593,7 +1625,7 @@ impl Runtime {
                     state_update.trie.recorded_storage_size_upper_bound() > limit
                 })
             {
-                set_delayed_receipt(&mut state_update, &mut delayed_receipts_indices, receipt);
+                delayed_receipts.push(&mut state_update, receipt)?;
             } else {
                 process_receipt(receipt, &mut state_update, &mut total)?;
             }
@@ -1665,12 +1697,17 @@ impl Runtime {
                     }),
                 });
 
-                // For yielded promises the sender is always the receiver. We can process
-                // the receipt directly because we know it is destined for the local shard.
-                //
-                // Note that we don't invoke the prefetcher as it doesn't do anything
-                // for data receipts.
-                process_receipt(&resume_receipt, &mut state_update, &mut total)?;
+                // The receipt is destined for the local shard and will be placed in the outgoing
+                // receipts buffer. It is possible that there is already an outgoing receipt resolving
+                // this yield if `yield_resume` was invoked by some receipt which was processed in
+                // the current chunk. The ordering will be maintained because the receipts are
+                // destined for the same shard; the timeout will be processed second and discarded.
+                receipt_sink.forward_or_buffer_receipt(
+                    resume_receipt.clone(),
+                    apply_state,
+                    &mut state_update,
+                    epoch_info_provider,
+                )?;
                 timeout_receipts.push(resume_receipt);
             }
 
@@ -1685,14 +1722,29 @@ impl Runtime {
             total.gas,
             total.compute,
         );
+        // After receipt processing is done, report metrics on outgoing buffers
+        // and on congestion indicators.
+        metrics::report_congestion_metrics(&receipt_sink, apply_state.shard_id);
 
         let _span = tracing::debug_span!(target: "runtime", "apply_commit").entered();
-        if delayed_receipts_indices != initial_delayed_receipt_indices {
-            set(&mut state_update, TrieKey::DelayedReceiptIndices, &delayed_receipts_indices);
-        }
 
         if promise_yield_indices != initial_promise_yield_indices {
             set(&mut state_update, TrieKey::PromiseYieldIndices, &promise_yield_indices);
+        }
+
+        // Congestion info needs a final touch to select an allowed shard if
+        // this shard is fully congested.
+        if let Some(congestion_info) = &mut congestion_info {
+            congestion_info.finalize_allowed_shard(
+                apply_state.shard_id,
+                &apply_state
+                    .congestion_info
+                    .keys()
+                    .filter(|&&id| id != apply_state.shard_id)
+                    .copied()
+                    .collect::<Vec<_>>(),
+                apply_state.block_height,
+            );
         }
 
         check_balance(
@@ -1756,8 +1808,9 @@ impl Runtime {
             processed_delayed_receipts,
             processed_yield_timeouts,
             proof,
-            delayed_receipts_count: delayed_receipts_indices.len(),
+            delayed_receipts_count: delayed_receipts.len(),
             metrics: Some(metrics),
+            congestion_info,
         })
     }
 
@@ -1787,6 +1840,23 @@ impl Runtime {
             }
         }
         state_update.commit(StateChangeCause::Migration);
+    }
+}
+
+impl ApplyState {
+    fn own_congestion_info(
+        &self,
+        protocol_version: ProtocolVersion,
+    ) -> Result<Option<CongestionInfo>, RuntimeError> {
+        if ProtocolFeature::CongestionControl.enabled(protocol_version) {
+            let congestion_info = self
+                .congestion_info
+                .get(&self.shard_id)
+                .ok_or(ContextError::MissingCongestionInfo { shard_id: self.shard_id })?;
+            Ok(Some(*congestion_info))
+        } else {
+            Ok(None)
+        }
     }
 }
 
@@ -1980,10 +2050,14 @@ mod tests {
         let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
         store_update.commit().unwrap();
         let contract_cache = FilesystemContractRuntimeCache::test().unwrap();
+        let congestion_info: HashMap<ShardId, CongestionInfo> =
+            [(0, CongestionInfo::default())].into();
         let apply_state = ApplyState {
+            apply_reason: None,
             block_height: 1,
             prev_block_hash: Default::default(),
             block_hash: Default::default(),
+            shard_id: ShardUId::single_shard().shard_id(),
             epoch_id: Default::default(),
             epoch_height: 0,
             gas_price: GAS_PRICE,
@@ -1996,6 +2070,7 @@ mod tests {
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
+            congestion_info,
         };
 
         (runtime, tries, root, apply_state, signer, MockEpochInfoProvider::default())
@@ -2970,7 +3045,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // TODO: figure out why this test stopped passing with #10852, cc @shreyan-gupta
     fn test_storage_proof_size_soft_limit() {
         if !checked_feature!("stable", StateWitnessSizeLimit, PROTOCOL_VERSION) {
             return;
@@ -3042,19 +3116,68 @@ mod tests {
 
         // We expect function_call_fn(bob_account()) to be in delayed receipts
         assert_eq!(apply_result.delayed_receipts_count, 1);
+
+        // Check that alice contract is present in storage proof and bob
+        // contract is not.
+        let partial_storage = apply_result.proof.unwrap();
+        let storage = Trie::from_recorded_storage(partial_storage, root, false);
+        let code_key = TrieKey::ContractCode { account_id: alice_account() };
+        assert_matches!(storage.get(&code_key.to_vec()), Ok(Some(_)));
+        let code_key = TrieKey::ContractCode { account_id: bob_account() };
+        assert_matches!(storage.get(&code_key.to_vec()), Err(_) | Ok(None));
+    }
+
+    /// Check that applying nothing does not change the state trie.
+    ///
+    /// This test is useful to check that trie columns are not accidentally
+    /// initialized. Many integration tests will fail as well if this fails, but
+    /// those are harder to root cause.
+    #[test]
+    fn test_empty_apply() {
+        let initial_balance = to_yocto(1_000_000);
+        let initial_locked = to_yocto(500_000);
+        let gas_limit = 10u64.pow(15);
+        let (runtime, tries, root_before, apply_state, _signer, epoch_info_provider) =
+            setup_runtime(initial_balance, initial_locked, gas_limit);
+
+        let receipts = [];
+        let transactions = [];
+
+        let apply_result = runtime
+            .apply(
+                tries.get_trie_for_shard(ShardUId::single_shard(), root_before),
+                &None,
+                &apply_state,
+                &receipts,
+                &transactions,
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap();
+        let mut store_update = tries.store_update();
+        let root_after = tries.apply_all(
+            &apply_result.trie_changes,
+            ShardUId::single_shard(),
+            &mut store_update,
+        );
+        assert_eq!(root_before, root_after, "state root changed for applying empty receipts");
     }
 }
 
 /// Interface provided for gas cost estimations.
 pub mod estimator {
-    use super::Runtime;
+    use super::{ReceiptSink, Runtime};
+    use crate::congestion_control::ReceiptSinkV2;
     use crate::{ApplyState, ApplyStats};
+    use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::errors::RuntimeError;
     use near_primitives::receipt::Receipt;
     use near_primitives::transaction::ExecutionOutcomeWithId;
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::types::EpochInfoProvider;
+    use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
     use near_store::TrieUpdate;
+    use std::collections::HashMap;
 
     pub fn apply_action_receipt(
         state_update: &mut TrieUpdate,
@@ -3065,11 +3188,24 @@ pub mod estimator {
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
+        // For the estimator, create a limitless receipt sink that always
+        // forwards. This captures congestion accounting overhead but does not
+        // create unexpected congestion in estimations.
+        let mut congestion_info = CongestionInfo::default();
+        // no limits set for any shards => limitless
+        let outgoing_limit = HashMap::new();
+
+        let mut receipt_sink = ReceiptSink::V2(ReceiptSinkV2 {
+            congestion_info: &mut congestion_info,
+            outgoing_limit: outgoing_limit,
+            outgoing_buffers: ShardsOutgoingReceiptBuffer::load(&state_update.trie)?,
+            outgoing_receipts,
+        });
         Runtime {}.apply_action_receipt(
             state_update,
             apply_state,
             receipt,
-            outgoing_receipts,
+            &mut receipt_sink,
             validator_proposals,
             stats,
             epoch_info_provider,

@@ -1,7 +1,6 @@
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
-use near_primitives::stateless_validation::{
-    ChunkStateWitness, EncodedChunkStateWitness, SignedEncodedChunkStateWitness,
-};
+use near_primitives::block::{Approval, ApprovalType};
+use near_primitives::stateless_validation::{ChunkStateWitness, EncodedChunkStateWitness};
 use near_store::test_utils::create_test_store;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -11,7 +10,7 @@ use near_chain::Provenance;
 use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords};
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
-use near_o11y::testonly::init_integration_logger;
+use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_primitives::epoch_manager::AllEpochConfigTestOverrides;
 use near_primitives::num_rational::Rational32;
 use near_primitives::shard_layout::ShardLayout;
@@ -333,16 +332,80 @@ fn test_chunk_state_witness_bad_shard_id() {
     let previous_block = env.clients[0].chain.head().unwrap().prev_block_hash;
     let invalid_shard_id = 1000000000;
     let witness = ChunkStateWitness::new_dummy(upper_height, invalid_shard_id, previous_block);
-    let signed_witness = SignedEncodedChunkStateWitness {
-        witness_bytes: EncodedChunkStateWitness::encode(&witness).unwrap().0,
-        signature: Default::default(),
-    };
+    let encoded_witness = EncodedChunkStateWitness::encode(&witness).unwrap().0;
 
     // Client should reject this ChunkStateWitness and the error message should mention "shard"
     tracing::info!(target: "test", "Processing invalid ChunkStateWitness");
-    let res = env.clients[0].process_chunk_state_witness(signed_witness, None);
+    let res = env.clients[0].process_chunk_state_witness(encoded_witness, None);
     let error = res.unwrap_err();
     let error_message = format!("{}", error).to_lowercase();
     tracing::info!(target: "test", "error message: {}", error_message);
     assert!(error_message.contains("shard"));
+}
+
+/// Test that block approvals can serve as chunk endorsements by not sending chunk endorsements from block producers
+#[test]
+fn test_implicit_chunk_endorsements() {
+    init_test_logger();
+
+    if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+        println!("Test not applicable without StatelessValidation enabled");
+        return;
+    }
+
+    let accounts =
+        vec!["test0".parse().unwrap(), "test1".parse().unwrap(), "test2".parse().unwrap()];
+    let signers: Vec<near_primitives::validator_signer::InMemoryValidatorSigner> = accounts
+        .iter()
+        .map(|account_id: &AccountId| create_test_signer(account_id.as_str()))
+        .collect();
+    let genesis = Genesis::test(accounts.clone(), 2);
+    let mut env = TestEnv::builder(&genesis.config)
+        .validators(accounts.clone())
+        .clients(accounts)
+        .nightshade_runtimes(&genesis)
+        .build();
+
+    // Run the client for a few blocks
+    let target_height = 6;
+    for _ in 1..target_height {
+        let tip = env.clients[0].chain.head().unwrap();
+        let block_producer = env.get_block_producer_at_offset(&tip, 1);
+        tracing::info!(
+            target: "stateless_validation",
+            "Producing block at height {} by {}", tip.height + 1, block_producer
+        );
+        let block = env.client(&block_producer).produce_block(tip.height + 1).unwrap().unwrap();
+        let approvals: Vec<_> = signers
+            .iter()
+            .map(|signer| {
+                Approval::new(
+                    *block.hash(),
+                    block.header().height(),
+                    block.header().height() + 1,
+                    signer,
+                )
+            })
+            .collect();
+        for i in 0..env.clients.len() {
+            let blocks_processed =
+                env.clients[i].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
+            assert_eq!(blocks_processed, vec![*block.hash()]);
+            if block.header().height() > 1 {
+                // Check that chunks are included in the block. This is only possible if we have block approvals working
+                // as chunk endorsements since chunk endorsements are not sent in this test.
+                assert!(block.header().chunk_mask().iter().all(|&b| b));
+            }
+            for approval in &approvals {
+                env.clients[i].collect_block_approval(approval, ApprovalType::SelfApproval);
+            }
+        }
+
+        env.process_partial_encoded_chunks();
+        for j in 0..env.clients.len() {
+            env.process_shards_manager_responses_and_finish_processing_blocks(j);
+        }
+        // Do not propagate chunk state witnesses and endorsements
+        // Block producers should be able to endorse through approvals and process chunks without state witness
+    }
 }

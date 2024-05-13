@@ -19,8 +19,8 @@ use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::snapshot_hosts::SnapshotHostsCache;
-use crate::state_witness::StateWitnessSenderForNetworkInput;
-use crate::state_witness::StateWitnessSenderForNetworkMessage;
+use crate::state_witness::PartialWitnessSenderForNetworkInput;
+use crate::state_witness::PartialWitnessSenderForNetworkMessage;
 use crate::tcp;
 use crate::test_utils;
 use crate::testonly::actix::ActixSystem;
@@ -68,11 +68,12 @@ impl actix::Handler<WithNetworkState> for PeerManagerActor {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum Event {
     ShardsManager(ShardsManagerRequestFromNetwork),
     Client(ClientSenderForNetworkInput),
     PeerManager(PME),
-    StateWitness(StateWitnessSenderForNetworkInput),
+    PartialWitness(PartialWitnessSenderForNetworkInput),
 }
 
 pub(crate) struct ActorHandler {
@@ -626,8 +627,8 @@ pub(crate) async fn start(
             });
             let state_witness_sender = Sender::from_fn({
                 let send = send.clone();
-                move |event: StateWitnessSenderForNetworkMessage| {
-                    send.send(Event::StateWitness(event.into_input()));
+                move |event: PartialWitnessSenderForNetworkMessage| {
+                    send.send(Event::PartialWitness(event.into_input()));
                 }
             });
             PeerManagerActor::spawn(

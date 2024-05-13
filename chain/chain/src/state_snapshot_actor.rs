@@ -1,7 +1,6 @@
-use actix::{Actor, Addr, Arbiter, ArbiterHandle, AsyncContext, Context};
-use near_async::messaging::CanSend;
+use near_async::messaging::{Actor, CanSend, Handler, Sender};
+use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
-use near_o11y::{handler_debug_span, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
@@ -19,38 +18,32 @@ pub struct StateSnapshotActor {
     flat_storage_manager: FlatStorageManager,
     network_adapter: PeerManagerAdapter,
     tries: ShardTries,
+    self_sender: StateSnapshotSenderForStateSnapshot,
 }
 
+impl Actor for StateSnapshotActor {}
+
 impl StateSnapshotActor {
-    pub fn spawn(
+    pub fn new(
         flat_storage_manager: FlatStorageManager,
         network_adapter: PeerManagerAdapter,
         tries: ShardTries,
-    ) -> (Addr<Self>, ArbiterHandle) {
-        let arbiter = Arbiter::new().handle();
-        let addr = Self::start_in_arbiter(&arbiter, |_ctx| Self {
-            flat_storage_manager,
-            network_adapter,
-            tries,
-        });
-        (addr, arbiter)
+        self_sender: StateSnapshotSenderForStateSnapshot,
+    ) -> Self {
+        Self { flat_storage_manager, network_adapter, tries, self_sender }
     }
-}
-
-impl actix::Actor for StateSnapshotActor {
-    type Context = Context<Self>;
 }
 
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
-struct DeleteAndMaybeCreateSnapshotRequest {
+pub struct DeleteAndMaybeCreateSnapshotRequest {
     /// Optionally send request to create a new snapshot after deleting any existing snapshots.
     create_snapshot_request: Option<CreateSnapshotRequest>,
 }
 
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
-struct CreateSnapshotRequest {
+pub struct CreateSnapshotRequest {
     /// prev_hash of the last processed block.
     prev_block_hash: CryptoHash,
     /// epoch height associated with prev_block_hash
@@ -61,16 +54,11 @@ struct CreateSnapshotRequest {
     block: Block,
 }
 
-impl actix::Handler<WithSpanContext<DeleteAndMaybeCreateSnapshotRequest>> for StateSnapshotActor {
-    type Result = ();
-
-    #[perf]
-    fn handle(
+impl StateSnapshotActor {
+    pub fn handle_delete_and_maybe_create_snapshot_request(
         &mut self,
-        msg: WithSpanContext<DeleteAndMaybeCreateSnapshotRequest>,
-        context: &mut Context<Self>,
+        msg: DeleteAndMaybeCreateSnapshotRequest,
     ) {
-        let (_span, msg) = handler_debug_span!(target: "state_snapshot", msg);
         tracing::debug!(target: "state_snapshot", ?msg);
 
         // We don't need to acquire any locks on flat storage or snapshot.
@@ -79,21 +67,11 @@ impl actix::Handler<WithSpanContext<DeleteAndMaybeCreateSnapshotRequest>> for St
 
         // Optionally send a create_snapshot_request after deletion
         if let Some(create_snapshot_request) = create_snapshot_request {
-            context.address().do_send(create_snapshot_request.with_span_context());
+            self.self_sender.send(create_snapshot_request);
         }
     }
-}
 
-impl actix::Handler<WithSpanContext<CreateSnapshotRequest>> for StateSnapshotActor {
-    type Result = ();
-
-    #[perf]
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<CreateSnapshotRequest>,
-        _context: &mut Context<Self>,
-    ) {
-        let (_span, msg) = handler_debug_span!(target: "state_snapshot", msg);
+    pub fn handle_create_snapshot_request(&mut self, msg: CreateSnapshotRequest) {
         tracing::debug!(target: "state_snapshot", ?msg);
 
         let CreateSnapshotRequest { prev_block_hash, epoch_height, shard_uids, block } = msg;
@@ -128,6 +106,30 @@ impl actix::Handler<WithSpanContext<CreateSnapshotRequest>> for StateSnapshotAct
     }
 }
 
+impl Handler<DeleteAndMaybeCreateSnapshotRequest> for StateSnapshotActor {
+    #[perf]
+    fn handle(&mut self, msg: DeleteAndMaybeCreateSnapshotRequest) {
+        self.handle_delete_and_maybe_create_snapshot_request(msg)
+    }
+}
+
+impl Handler<CreateSnapshotRequest> for StateSnapshotActor {
+    #[perf]
+    fn handle(&mut self, msg: CreateSnapshotRequest) {
+        self.handle_create_snapshot_request(msg)
+    }
+}
+
+#[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
+#[multi_send_message_derive(Debug)]
+pub struct StateSnapshotSenderForStateSnapshot {
+    create_snapshot: Sender<CreateSnapshotRequest>,
+}
+
+#[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
+#[multi_send_message_derive(Debug)]
+pub struct StateSnapshotSenderForClient(Sender<DeleteAndMaybeCreateSnapshotRequest>);
+
 type MakeSnapshotCallback =
     Arc<dyn Fn(CryptoHash, EpochHeight, Vec<ShardUId>, Block) -> () + Send + Sync + 'static>;
 
@@ -140,7 +142,7 @@ pub struct SnapshotCallbacks {
 
 /// Sends a request to make a state snapshot.
 pub fn get_make_snapshot_callback(
-    state_snapshot_addr: actix::Addr<StateSnapshotActor>,
+    sender: StateSnapshotSenderForClient,
     flat_storage_manager: FlatStorageManager,
 ) -> MakeSnapshotCallback {
     Arc::new(move |prev_block_hash, epoch_height, shard_uids, block| {
@@ -157,26 +159,20 @@ pub fn get_make_snapshot_callback(
         }
         let create_snapshot_request =
             CreateSnapshotRequest { prev_block_hash, epoch_height, shard_uids, block };
-        state_snapshot_addr.do_send(
-            DeleteAndMaybeCreateSnapshotRequest {
-                create_snapshot_request: Some(create_snapshot_request),
-            }
-            .with_span_context(),
-        );
+        sender.send(DeleteAndMaybeCreateSnapshotRequest {
+            create_snapshot_request: Some(create_snapshot_request),
+        });
     })
 }
 
 /// Sends a request to delete a state snapshot.
 pub fn get_delete_snapshot_callback(
-    state_snapshot_addr: actix::Addr<StateSnapshotActor>,
+    sender: StateSnapshotSenderForClient,
 ) -> DeleteSnapshotCallback {
     Arc::new(move || {
         tracing::info!(
             target: "state_snapshot",
             "delete_snapshot_callback sends `DeleteAndMaybeCreateSnapshotRequest` to state_snapshot_addr");
-        state_snapshot_addr.do_send(
-            DeleteAndMaybeCreateSnapshotRequest { create_snapshot_request: None }
-                .with_span_context(),
-        );
+        sender.send(DeleteAndMaybeCreateSnapshotRequest { create_snapshot_request: None });
     })
 }

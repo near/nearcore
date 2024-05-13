@@ -1,7 +1,7 @@
 use crate::stateless_validation::processing_tracker::{
     ProcessingDoneTracker, ProcessingDoneWaiter,
 };
-use crate::Client;
+use crate::{Client, DistributeStateWitnessRequest};
 use near_async::messaging::{CanSend, IntoMultiSender};
 use near_async::time::Clock;
 use near_async::time::{Duration, Instant};
@@ -27,7 +27,7 @@ use near_primitives::epoch_manager::RngSeed;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
-use near_primitives::stateless_validation::{ChunkEndorsement, SignedEncodedChunkStateWitness};
+use near_primitives::stateless_validation::{ChunkEndorsement, EncodedChunkStateWitness};
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, NumSeats, ShardId};
@@ -38,10 +38,12 @@ use near_primitives::views::{
 };
 use near_store::metadata::DbKind;
 use near_store::ShardUId;
+use near_vm_runner::logic::ProtocolVersion;
 use once_cell::sync::OnceCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
+use super::mock_partial_witness_adapter::MockPartialWitnessAdapter;
 use super::setup::setup_client_with_runtime;
 use super::test_env_builder::TestEnvBuilder;
 use super::TEST_SEED;
@@ -57,6 +59,7 @@ pub struct TestEnv {
     pub validators: Vec<AccountId>,
     pub network_adapters: Vec<Arc<MockPeerManagerAdapter>>,
     pub client_adapters: Vec<Arc<MockClientAdapterForShardsManager>>,
+    pub partial_witness_adapters: Vec<MockPartialWitnessAdapter>,
     pub shards_manager_adapters: Vec<SynchronousShardsManagerAdapter>,
     pub clients: Vec<Client>,
     pub(crate) account_indices: AccountIndices,
@@ -325,9 +328,9 @@ impl TestEnv {
     }
 
     fn found_differing_post_state_root_due_to_state_transitions(
-        signed_witness: &SignedEncodedChunkStateWitness,
+        encoded_witness: &EncodedChunkStateWitness,
     ) -> bool {
-        let witness = signed_witness.witness_bytes.decode().unwrap().0;
+        let witness = encoded_witness.decode().unwrap().0;
         let mut post_state_roots = HashSet::from([witness.main_state_transition.post_state_root]);
         post_state_roots.extend(witness.implicit_transitions.iter().map(|t| t.post_state_root));
         post_state_roots.len() >= 2
@@ -344,38 +347,49 @@ impl TestEnv {
         };
         let mut witness_processing_done_waiters: Vec<ProcessingDoneWaiter> = Vec::new();
 
-        let network_adapters = self.network_adapters.clone();
-        for network_adapter in network_adapters {
-            network_adapter.handle_filtered(|request| match request {
-                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::ChunkStateWitness(
-                    account_ids,
-                    state_witness,
-                )) => {
-                    // Process chunk state witness for each client.
-                    for account_id in account_ids.iter() {
-                        let processing_done_tracker = ProcessingDoneTracker::new();
-                        witness_processing_done_waiters.push(processing_done_tracker.make_waiter());
+        // Here we are completely bypassing the partial_witness_actor and directly distributing the state witness to the
+        // clients. Ideally the route should have been the following:
+        // [client] ----(DistributeStateWitnessRequest)----> [partial_witness_actor]
+        // [partial_witness_actor] ----(PartialEncodedStateWitness + Forward)----> [partial_witness_actor]
+        // [partial_witness_actor] ----(ProcessChunkStateWitnessMessage)----> [client]
+        // But we go directly from processing DistributeStateWitnessRequest to sending it to all the chunk validators.
+        // Validation of state witness is done in the partial_witness_actor which should be tested by test_loop.
+        let partial_witness_adapters = self.partial_witness_adapters.clone();
+        for (client_idx, partial_witness_adapter) in partial_witness_adapters.iter().enumerate() {
+            while let Some(request) = partial_witness_adapter.pop_distribution_request() {
+                let DistributeStateWitnessRequest { epoch_id, chunk_header, state_witness } =
+                    request;
+                let (encoded_witness, _) =
+                    EncodedChunkStateWitness::encode(&state_witness).unwrap();
+                let chunk_validators = self.clients[client_idx]
+                    .epoch_manager
+                    .get_chunk_validator_assignments(
+                        &epoch_id,
+                        chunk_header.shard_id(),
+                        chunk_header.height_created(),
+                    )
+                    .unwrap()
+                    .ordered_chunk_validators();
 
-                        let processing_result =
-                            self.client(account_id).process_chunk_state_witness(
-                                state_witness.clone(),
-                                Some(processing_done_tracker),
-                            );
-                        if !allow_errors {
-                            processing_result.unwrap();
-                        }
+                for account_id in chunk_validators {
+                    let processing_done_tracker = ProcessingDoneTracker::new();
+                    witness_processing_done_waiters.push(processing_done_tracker.make_waiter());
+
+                    let processing_result = self.client(&account_id).process_chunk_state_witness(
+                        encoded_witness.clone(),
+                        Some(processing_done_tracker),
+                    );
+                    if !allow_errors {
+                        processing_result.unwrap();
                     }
-
-                    // Update output.
-                    output.found_differing_post_state_root_due_to_state_transitions |=
-                        Self::found_differing_post_state_root_due_to_state_transitions(
-                            &state_witness,
-                        );
-
-                    None
                 }
-                _ => Some(request),
-            });
+
+                // Update output.
+                output.found_differing_post_state_root_due_to_state_transitions |=
+                    Self::found_differing_post_state_root_due_to_state_transitions(
+                        &encoded_witness,
+                    );
+            }
         }
 
         // Wait for all state witnesses to be processed before returning.
@@ -490,6 +504,11 @@ impl TestEnv {
         for i in 0..self.clients[0].chain.epoch_length * 2 {
             self.produce_block(0, tip.height + i + 2);
         }
+    }
+
+    pub fn get_head_protocol_version(&self) -> ProtocolVersion {
+        let tip = self.clients[0].chain.head().unwrap();
+        self.clients[0].epoch_manager.get_epoch_protocol_version(&tip.epoch_id).unwrap()
     }
 
     pub fn query_account(&mut self, account_id: AccountId) -> AccountView {
@@ -612,7 +631,7 @@ impl TestEnv {
             self.archive,
             self.save_trie_changes,
             None,
-            self.clients[idx].state_witness_adapter.clone(),
+            self.clients[idx].partial_witness_adapter.clone(),
             self.clients[idx].validator_signer.clone().unwrap(),
         )
     }

@@ -1,8 +1,8 @@
 use crate::{
     adapter::ShardsManagerRequestFromClient,
     logic::{cares_about_shard_this_or_next_epoch, make_outgoing_receipts_proofs},
+    shards_manager_actor::ShardsManagerActor,
     test_utils::{default_tip, tip},
-    ShardsManager,
 };
 use near_async::test_loop::delay_sender::DelaySender;
 use near_async::time;
@@ -22,10 +22,10 @@ use near_network::{
     test_loop::SupportsRoutingLookup,
     types::{NetworkRequests, PeerManagerMessageRequest},
 };
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::{
     hash::CryptoHash,
     merkle::{self, MerklePath},
-    reed_solomon::ReedSolomonWrapper,
     sharding::{
         EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkV2, ReceiptProof,
         ShardChunkHeader,
@@ -35,18 +35,19 @@ use near_primitives::{
     version::PROTOCOL_VERSION,
 };
 use near_store::Store;
+use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::{collections::HashMap, sync::Arc};
 
 pub fn forward_client_request_to_shards_manager(
-) -> LoopEventHandler<ShardsManager, ShardsManagerRequestFromClient> {
-    LoopEventHandler::new_simple(|event, data: &mut ShardsManager| {
+) -> LoopEventHandler<ShardsManagerActor, ShardsManagerRequestFromClient> {
+    LoopEventHandler::new_simple(|event, data: &mut ShardsManagerActor| {
         data.handle_client_request(event);
     })
 }
 
 pub fn forward_network_request_to_shards_manager(
-) -> LoopEventHandler<ShardsManager, ShardsManagerRequestFromNetwork> {
-    LoopEventHandler::new_simple(|event, data: &mut ShardsManager| {
+) -> LoopEventHandler<ShardsManagerActor, ShardsManagerRequestFromNetwork> {
+    LoopEventHandler::new_simple(|event, data: &mut ShardsManagerActor| {
         data.handle_network_request(event);
     })
 }
@@ -260,8 +261,8 @@ impl MockChainForShardsManager {
         let signer = create_test_signer(chunk_producer.as_str());
         let data_parts = self.epoch_manager.num_data_parts();
         let parity_parts = self.epoch_manager.num_total_parts() - data_parts;
-        let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
-        let (chunk, merkle_paths) = ShardsManager::create_encoded_shard_chunk(
+        let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
+        let (chunk, merkle_paths) = ShardsManagerActor::create_encoded_shard_chunk(
             self.tip.last_block_hash,
             CryptoHash::default(),
             CryptoHash::default(),
@@ -275,8 +276,9 @@ impl MockChainForShardsManager {
             &receipts,
             receipts_root,
             MerkleHash::default(),
+            CongestionInfo::default(),
             &signer,
-            &mut rs,
+            &rs,
             PROTOCOL_VERSION,
         )
         .unwrap();

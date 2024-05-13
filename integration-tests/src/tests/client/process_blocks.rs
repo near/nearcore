@@ -59,7 +59,7 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion};
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
@@ -1172,6 +1172,7 @@ fn test_bad_orphan() {
             match &mut chunk.inner {
                 ShardChunkHeaderInner::V1(inner) => inner.prev_outcome_root = CryptoHash([1; 32]),
                 ShardChunkHeaderInner::V2(inner) => inner.prev_outcome_root = CryptoHash([1; 32]),
+                ShardChunkHeaderInner::V3(inner) => inner.prev_outcome_root = CryptoHash([1; 32]),
             }
             chunk.hash = ShardChunkHeaderV3::compute_hash(&chunk.inner);
         }
@@ -2300,14 +2301,9 @@ fn test_validate_chunk_extra() {
 
     // Produce a block on top of block1.
     // Validate that result of chunk execution in `block1` is legit.
-    client
-        .chunk_inclusion_tracker
-        .prepare_chunk_headers_ready_for_inclusion(
-            block1.hash(),
-            client.chunk_endorsement_tracker.as_ref(),
-        )
-        .unwrap();
-    let block = client.produce_block_on(next_height + 2, *block1.hash()).unwrap().unwrap();
+    let height = next_height + 2;
+    client.prepare_chunk_headers_ready_for_inclusion(block1.hash(), height).unwrap();
+    let block = client.produce_block_on(height, *block1.hash()).unwrap().unwrap();
     client.process_block_test(block.into(), Provenance::PRODUCED).unwrap();
     let chunks = client
         .chunk_inclusion_tracker
@@ -2594,6 +2590,11 @@ fn test_refund_receipts_processing() {
 #[test]
 fn test_delayed_receipt_count_limit() {
     init_test_logger();
+
+    if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
+        // congestion control replaces the delayed receipt count limit, making this test irrelevant
+        return;
+    }
 
     let epoch_length = 5;
     let min_gas_price = 10000;
@@ -3489,6 +3490,7 @@ mod contract_precompilation_tests {
             block_height: EPOCH_LENGTH,
             prev_block_hash: *block.header().prev_hash(),
             block_hash: *block.hash(),
+            shard_id: ShardUId::single_shard().shard_id(),
             epoch_id: block.header().epoch_id().clone(),
             epoch_height: 1,
             block_timestamp: block.header().raw_timestamp(),

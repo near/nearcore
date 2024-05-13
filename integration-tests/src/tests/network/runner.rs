@@ -1,6 +1,7 @@
 use actix::{Actor, Addr};
 use anyhow::{anyhow, bail, Context};
 use near_async::actix::AddrWithAutoSpanContextExt;
+use near_async::actix_wrapper::{spawn_actix_actor, ActixWrapper};
 use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::time::{self, Clock};
 use near_chain::types::RuntimeAdapter;
@@ -8,7 +9,7 @@ use near_chain::{Chain, ChainGenesis};
 use near_chain_configs::{ClientConfig, Genesis, GenesisConfig};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
-use near_client::{start_client, start_view_client, StateWitnessActor, SyncAdapter};
+use near_client::{start_client, PartialWitnessActor, SyncAdapter, ViewClientActorInner};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManager;
 use near_network::actix::ActixSystem;
@@ -66,7 +67,8 @@ fn setup_network_node(
         epoch_manager.clone(),
     );
     let signer = Arc::new(create_test_signer(account_id.as_str()));
-    let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
+    let telemetry_actor =
+        ActixWrapper::new(TelemetryActor::new(TelemetryConfig::default())).start();
 
     let db = node_storage.into_inner(near_store::Temperature::Hot);
     let mut client_config =
@@ -83,8 +85,11 @@ fn setup_network_node(
     let network_adapter = LateBoundSender::new();
     let shards_manager_adapter = LateBoundSender::new();
     let adv = near_client::adversarial::Controls::default();
-    let state_sync_adapter =
-        Arc::new(RwLock::new(SyncAdapter::new(noop().into_sender(), noop().into_sender())));
+    let state_sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
+        noop().into_sender(),
+        noop().into_sender(),
+        SyncAdapter::actix_actor_maker(),
+    )));
     let client_actor = start_client(
         Clock::real(),
         client_config.clone(),
@@ -97,15 +102,17 @@ fn setup_network_node(
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         Some(signer.clone()),
-        telemetry_actor,
+        telemetry_actor.with_auto_span_context().into_sender(),
         None,
         None,
         adv.clone(),
         None,
         noop().into_multi_sender(),
+        true,
+        None,
     )
     .client_actor;
-    let view_client_actor = start_view_client(
+    let view_client_addr = ViewClientActorInner::spawn_actix_actor(
         Clock::real(),
         config.validator.as_ref().map(|v| v.account_id()),
         chain_genesis,
@@ -125,20 +132,21 @@ fn setup_network_node(
         runtime.store().clone(),
         client_config.chunk_request_retry_period,
     );
-    let (state_witness_actor, _) = StateWitnessActor::spawn(
+    let (partial_witness_actor, _) = spawn_actix_actor(PartialWitnessActor::new(
         Clock::real(),
         network_adapter.as_multi_sender(),
+        client_actor.clone().with_auto_span_context().into_multi_sender(),
         signer,
         epoch_manager,
-    );
+    ));
     shards_manager_adapter.bind(shards_manager_actor.with_auto_span_context());
     let peer_manager = PeerManagerActor::spawn(
         time::Clock::real(),
         db.clone(),
         config,
-        client_sender_for_network(client_actor, view_client_actor),
+        client_sender_for_network(client_actor, view_client_addr),
         shards_manager_adapter.as_sender(),
-        state_witness_actor.with_auto_span_context().into_multi_sender(),
+        partial_witness_actor.with_auto_span_context().into_multi_sender(),
         genesis_id,
     )
     .unwrap();
@@ -330,7 +338,7 @@ impl Runner {
     /// Specify boot nodes. By default there are no boot nodes.
     pub fn use_boot_nodes(mut self, boot_nodes: Vec<usize>) -> Self {
         self.apply_all(move |test_config| {
-            test_config.boot_nodes = boot_nodes.clone();
+            test_config.boot_nodes.clone_from(&boot_nodes);
         });
         self
     }

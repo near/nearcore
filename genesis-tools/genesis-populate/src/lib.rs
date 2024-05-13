@@ -13,16 +13,19 @@ use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{genesis_chunks, Tip};
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardUId};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, Balance, EpochId, ShardId, StateChangeCause, StateRoot};
 use near_primitives::utils::to_timestamp;
+use near_primitives::version::ProtocolFeature;
 use near_store::genesis::{compute_storage_usage, initialize_genesis_state};
 use near_store::{
     get_account, get_genesis_state_roots, set_access_key, set_account, set_code, Store, TrieUpdate,
 };
+use near_vm_runner::logic::ProtocolVersion;
 use near_vm_runner::ContractCode;
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use std::collections::BTreeMap;
@@ -245,6 +248,8 @@ impl GenesisBuilder {
             .expect("save genesis block header shouldn't fail");
         store_update.save_block(genesis.clone());
 
+        let protocol_version = self.genesis.config.protocol_version;
+        let congestion_info = Self::get_congestion_control(protocol_version);
         for (chunk_header, state_root) in genesis.chunks().iter().zip(self.roots.values()) {
             store_update.save_chunk_extra(
                 genesis.hash(),
@@ -253,12 +258,14 @@ impl GenesisBuilder {
                     &self.genesis.config.shard_layout,
                 ),
                 ChunkExtra::new(
+                    self.genesis.config.protocol_version,
                     state_root,
                     CryptoHash::default(),
                     vec![],
                     0,
                     self.genesis.config.gas_limit,
                     0,
+                    congestion_info,
                 ),
             );
         }
@@ -269,6 +276,15 @@ impl GenesisBuilder {
         store_update.commit().unwrap();
 
         Ok(())
+    }
+
+    fn get_congestion_control(protocol_version: ProtocolVersion) -> Option<CongestionInfo> {
+        if ProtocolFeature::CongestionControl.enabled(protocol_version) {
+            // TODO(congestion_control) - properly initialize
+            Some(CongestionInfo::default())
+        } else {
+            None
+        }
     }
 
     fn add_additional_account(&mut self, account_id: AccountId) -> Result<()> {

@@ -6,10 +6,10 @@ use near_epoch_manager::test_utils::setup_epoch_manager_with_block_and_chunk_pro
 use near_epoch_manager::EpochManagerHandle;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::test_utils::MockPeerManagerAdapter;
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{self, MerklePath};
 use near_primitives::receipt::Receipt;
-use near_primitives::reed_solomon::ReedSolomonWrapper;
 use near_primitives::sharding::{
     EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV2,
     ShardChunkHeader,
@@ -20,13 +20,14 @@ use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 use near_store::Store;
+use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, RwLock};
 
 use crate::adapter::ShardsManagerRequestFromClient;
 use crate::client::ShardsManagerResponse;
+use crate::shards_manager_actor::ShardsManagerActor;
 use crate::test_loop::ShardsManagerResendChunkRequests;
-use crate::ShardsManager;
 
 /// Deprecated. Use `MockChainForShardsManager`.
 pub struct ChunkTestFixture {
@@ -46,7 +47,7 @@ pub struct ChunkTestFixture {
     pub mock_chunk_header: ShardChunkHeader,
     pub mock_chunk_parts: Vec<PartialEncodedChunkPart>,
     pub mock_chain_head: Tip,
-    pub rs: ReedSolomonWrapper,
+    pub rs: ReedSolomon,
 }
 
 impl Default for ChunkTestFixture {
@@ -86,7 +87,7 @@ impl ChunkTestFixture {
 
         let data_parts = epoch_manager.num_data_parts();
         let parity_parts = epoch_manager.num_total_parts() - data_parts;
-        let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
+        let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
         let mock_ancestor_hash = CryptoHash::default();
         // generate a random block hash for the block at height 1
         let (mock_parent_hash, mock_height) =
@@ -135,7 +136,7 @@ impl ChunkTestFixture {
         let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
         let receipts_hashes = Chain::build_receipts_hashes(&receipts, &shard_layout);
         let (receipts_root, _) = merkle::merklize(&receipts_hashes);
-        let (mock_chunk, mock_merkle_paths) = ShardsManager::create_encoded_shard_chunk(
+        let (mock_chunk, mock_merkle_paths) = ShardsManagerActor::create_encoded_shard_chunk(
             mock_parent_hash,
             Default::default(),
             Default::default(),
@@ -149,8 +150,9 @@ impl ChunkTestFixture {
             &receipts,
             receipts_root,
             MerkleHash::default(),
+            CongestionInfo::default(),
             &signer,
-            &mut rs,
+            &rs,
             PROTOCOL_VERSION,
         )
         .unwrap();
@@ -274,9 +276,6 @@ impl MockClientAdapterForShardsManager {
     pub fn pop(&self) -> Option<ShardsManagerResponse> {
         self.requests.write().unwrap().pop_front()
     }
-    pub fn pop_most_recent(&self) -> Option<ShardsManagerResponse> {
-        self.requests.write().unwrap().pop_back()
-    }
 }
 
 // Allows ShardsManagerActor-like behavior, except without having to spawn an actor,
@@ -287,7 +286,7 @@ impl MockClientAdapterForShardsManager {
 pub struct SynchronousShardsManagerAdapter {
     // Need a mutex here even though we only support single-threaded tests, because
     // MsgRecipient requires Sync.
-    pub shards_manager: Arc<Mutex<ShardsManager>>,
+    pub shards_manager: Arc<Mutex<ShardsManagerActor>>,
 }
 
 impl CanSend<ShardsManagerRequestFromClient> for SynchronousShardsManagerAdapter {
@@ -312,7 +311,7 @@ impl CanSend<ShardsManagerResendChunkRequests> for SynchronousShardsManagerAdapt
 }
 
 impl SynchronousShardsManagerAdapter {
-    pub fn new(shards_manager: ShardsManager) -> Self {
+    pub fn new(shards_manager: ShardsManagerActor) -> Self {
         Self { shards_manager: Arc::new(Mutex::new(shards_manager)) }
     }
 }

@@ -35,16 +35,11 @@ atomic!(
     f64 => AtomicU64
 );
 
-/// A trait that represants an atomic type.
-pub trait Atomicity {}
-
 /// Atomically.
 pub struct Atomically;
-impl Atomicity for Atomically {}
 
 /// Non-atomically.
 pub struct NonAtomically;
-impl Atomicity for NonAtomically {}
 
 /// A view into a memory.
 pub struct MemoryView<'a, T: 'a, A = NonAtomically> {

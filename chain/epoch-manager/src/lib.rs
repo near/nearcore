@@ -116,6 +116,14 @@ impl EpochInfoProvider for EpochManagerHandle {
         let epoch_manager = self.read();
         epoch_manager.config.chain_id().into()
     }
+
+    fn account_id_to_shard_id(
+        &self,
+        account_id: &AccountId,
+        epoch_id: &EpochId,
+    ) -> Result<ShardId, EpochError> {
+        EpochManagerAdapter::account_id_to_shard_id(self, account_id, epoch_id)
+    }
 }
 
 /// Tracks epoch information across different forks, such as validators.
@@ -734,8 +742,8 @@ impl EpochManager {
             validator_kickout,
             validator_reward,
             minted_amount,
-            next_version,
             epoch_protocol_version,
+            next_version,
         ) {
             Ok(next_next_epoch_info) => next_next_epoch_info,
             Err(EpochError::ThresholdError { stake_sum, num_seats }) => {
@@ -945,6 +953,24 @@ impl EpochManager {
 
             Ok(producers.iter().map(|producer_id| epoch_info.get_validator(*producer_id)).collect())
         })
+    }
+
+    pub fn get_chunk_producers_for_shard(
+        &self,
+        epoch_id: &EpochId,
+        shard_id: ShardId,
+    ) -> Result<Vec<ValidatorStake>, EpochError> {
+        let epoch_info = self.get_epoch_info(epoch_id)?;
+        let chunk_producers = epoch_info.chunk_producers_settlement();
+        let chunk_producers = chunk_producers
+            .get(shard_id as usize)
+            .ok_or_else(|| {
+                EpochError::ShardingError(format!("{} is not a valid shard id", shard_id))
+            })?
+            .iter()
+            .map(|i| epoch_info.get_validator(*i))
+            .collect();
+        Ok(chunk_producers)
     }
 
     /// Returns the list of chunk_validators for the given shard_id and height and set of account ids.

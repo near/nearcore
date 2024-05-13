@@ -103,6 +103,9 @@ impl ShardTries {
                         None => trie_update.remove(trie_key),
                     }
                 }
+                // TODO(congestion_control)
+                TrieKey::BufferedReceiptIndices => todo!(),
+                TrieKey::BufferedReceipt { .. } => todo!(),
             }
         }
         for (_, update) in trie_updates.iter_mut() {
@@ -337,13 +340,6 @@ fn apply_promise_yield_timeouts_to_children_states_impl(
     delete_timeouts: &[PromiseYieldTimeout],
     account_id_to_shard_uid: &dyn Fn(&AccountId) -> ShardUId,
 ) -> Result<(), StorageError> {
-    // TODO: we can remove this check once yield execution is stabilized.
-    // For now it prevents populating promise yield indices for the child shards with default
-    // values if the feature has not been enabled.
-    if insert_timeouts.is_empty() && delete_timeouts.is_empty() {
-        return Ok(());
-    }
-
     let mut promise_yield_indices_by_shard = HashMap::new();
     for (shard_uid, update) in trie_updates.iter() {
         promise_yield_indices_by_shard.insert(*shard_uid, get_promise_yield_indices(update)?);

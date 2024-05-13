@@ -22,19 +22,21 @@ use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_pool::TransactionGroupIteratorWrapper;
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
 use near_primitives::stateless_validation::{
     ChunkEndorsement, ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessSize,
-    SignedEncodedChunkStateWitness,
+    EncodedChunkStateWitness, SignedEncodedChunkStateWitness,
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::ShardId;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::PartialStorage;
+use near_vm_runner::logic::ProtocolVersion;
 use orphan_witness_pool::OrphanStateWitnessPool;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -153,15 +155,14 @@ pub(crate) fn validate_prepared_transactions(
     storage_config: RuntimeStorageConfig,
     transactions: &[SignedTransaction],
 ) -> Result<PreparedTransactions, Error> {
-    let parent_block_header =
-        chain.chain_store().get_block_header(chunk_header.prev_block_hash())?;
+    let parent_block = chain.chain_store().get_block(chunk_header.prev_block_hash())?;
 
     runtime_adapter.prepare_transactions(
         storage_config,
         chunk_header.into(),
-        (&parent_block_header).into(),
+        (&parent_block).into(),
         &mut TransactionGroupIteratorWrapper::new(transactions),
-        &mut chain.transaction_validity_check(parent_block_header),
+        &mut chain.transaction_validity_check(parent_block.header().clone()),
         None,
     )
 }
@@ -278,8 +279,10 @@ pub(crate) fn pre_validate_chunk_state_witness(
     }
 
     let main_transition_params = if last_chunk_block.header().is_genesis() {
+        let epoch_id = last_chunk_block.header().epoch_id();
+        let genesis_protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         MainTransition::Genesis {
-            chunk_extra: chain.genesis_chunk_extra(shard_id)?,
+            chunk_extra: chain.genesis_chunk_extra(shard_id, genesis_protocol_version)?,
             block_hash: *last_chunk_block.hash(),
             shard_id,
         }
@@ -292,7 +295,7 @@ pub(crate) fn pre_validate_chunk_state_witness(
             block: Chain::get_apply_chunk_block_context(
                 epoch_manager,
                 last_chunk_block.header(),
-                &store.get_previous_header(last_chunk_block.header())?,
+                &store.get_block(last_chunk_block.header().prev_hash())?,
                 true,
             )?,
             is_first_block_with_chunk_of_version: false,
@@ -314,7 +317,7 @@ pub(crate) fn pre_validate_chunk_state_witness(
                 Ok(Chain::get_apply_chunk_block_context(
                     epoch_manager,
                     block.header(),
-                    &store.get_previous_header(block.header())?,
+                    &store.get_block(block.header().prev_hash())?,
                     false,
                 )?)
             })
@@ -428,6 +431,7 @@ fn validate_receipt_proof(
     Ok(())
 }
 
+#[allow(clippy::large_enum_variant)]
 enum MainTransition {
     Genesis { chunk_extra: ChunkExtra, block_hash: CryptoHash, shard_id: ShardId },
     NewChunk(NewChunkData),
@@ -468,11 +472,13 @@ pub(crate) fn validate_chunk_state_witness(
     let epoch_id = epoch_manager.get_epoch_id(&block_hash)?;
     let shard_uid = epoch_manager
         .shard_id_to_uid(pre_validation_output.main_transition_params.shard_id(), &epoch_id)?;
+    let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
     let (mut chunk_extra, outgoing_receipts) = match pre_validation_output.main_transition_params {
         MainTransition::Genesis { chunk_extra, .. } => (chunk_extra, vec![]),
         MainTransition::NewChunk(new_chunk_data) => {
             let chunk_header = new_chunk_data.chunk_header.clone();
             let NewChunkResult { apply_result: mut main_apply_result, .. } = apply_new_chunk(
+                ApplyChunkReason::ValidateChunkStateWitness,
                 &span,
                 new_chunk_data,
                 ShardContext {
@@ -486,7 +492,9 @@ pub(crate) fn validate_chunk_state_witness(
                 epoch_manager,
             )?;
             let outgoing_receipts = std::mem::take(&mut main_apply_result.outgoing_receipts);
-            (apply_result_to_chunk_extra(main_apply_result, &chunk_header), outgoing_receipts)
+            let chunk_extra =
+                apply_result_to_chunk_extra(protocol_version, main_apply_result, &chunk_header);
+            (chunk_extra, outgoing_receipts)
         }
     };
     if chunk_extra.state_root() != &state_witness.main_state_transition.post_state_root {
@@ -518,6 +526,7 @@ pub(crate) fn validate_chunk_state_witness(
             },
         };
         let OldChunkResult { apply_result, .. } = apply_old_chunk(
+            ApplyChunkReason::ValidateChunkStateWitness,
             &span,
             old_chunk_data,
             ShardContext {
@@ -560,17 +569,20 @@ pub(crate) fn validate_chunk_state_witness(
 }
 
 fn apply_result_to_chunk_extra(
+    protocol_version: ProtocolVersion,
     apply_result: ApplyChunkResult,
     chunk: &ShardChunkHeader,
 ) -> ChunkExtra {
     let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
     ChunkExtra::new(
+        protocol_version,
         &apply_result.new_root,
         outcome_root,
         apply_result.validator_proposals,
         apply_result.total_gas_burnt,
         chunk.gas_limit(),
         apply_result.total_balance_burnt,
+        apply_result.congestion_info,
     )
 }
 
@@ -616,21 +628,54 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
 }
 
 impl Client {
+    // TODO(stateless_validation): Remove this function after partial state witness impl
+    pub fn process_signed_chunk_state_witness(
+        &mut self,
+        signed_witness: SignedEncodedChunkStateWitness,
+        processing_done_tracker: Option<ProcessingDoneTracker>,
+    ) -> Result<(), Error> {
+        // TODO(stateless_validation): Inefficient, we are decoding the witness twice, but fine for temporary measure
+        let (witness, _) = signed_witness.witness_bytes.decode()?;
+        if !self.epoch_manager.verify_chunk_state_witness_signature(
+            &signed_witness,
+            &witness.chunk_producer,
+            &witness.epoch_id,
+        )? {
+            return Err(Error::InvalidChunkStateWitness("Invalid signature".to_string()));
+        }
+
+        self.process_chunk_state_witness(signed_witness.witness_bytes, processing_done_tracker)?;
+
+        Ok(())
+    }
+
     /// Responds to a network request to verify a `ChunkStateWitness`, which is
     /// sent by chunk producers after they produce a chunk.
     /// State witness is processed asynchronously, if you want to wait for the processing to finish
     /// you can use the `processing_done_tracker` argument (but it's optional, it's safe to pass None there).
     pub fn process_chunk_state_witness(
         &mut self,
-        signed_witness: SignedEncodedChunkStateWitness,
+        encoded_witness: EncodedChunkStateWitness,
         processing_done_tracker: Option<ProcessingDoneTracker>,
     ) -> Result<(), Error> {
-        let (witness, raw_witness_size) = self.partially_validate_state_witness(&signed_witness)?;
+        let (witness, raw_witness_size) =
+            self.partially_validate_state_witness(&encoded_witness)?;
+
+        tracing::debug!(
+            target: "stateless_validation",
+            chunk_hash=?witness.chunk_header.chunk_hash(),
+            shard_id=witness.chunk_header.shard_id(),
+            "process_chunk_state_witness",
+        );
 
         // Send the acknowledgement for the state witness back to the chunk producer.
         // This is currently used for network roundtrip time measurement, so we do not need to
         // wait for validation to finish.
         self.send_state_witness_ack(&witness);
+
+        if self.config.save_latest_witnesses {
+            self.chain.chain_store.save_latest_chunk_state_witness(&witness)?;
+        }
 
         // Avoid processing state witness for old chunks.
         // In particular it is impossible for a chunk created at a height
@@ -639,7 +684,7 @@ impl Client {
         // as well as malicious behavior of a chunk producer.
         if let Ok(final_head) = self.chain.final_head() {
             if witness.chunk_header.height_created() <= final_head.height {
-                tracing::debug!(
+                tracing::warn!(
                     target: "stateless_validation",
                     chunk_hash=?witness.chunk_header.chunk_hash(),
                     shard_id=witness.chunk_header.shard_id(),
@@ -697,10 +742,10 @@ impl Client {
     /// epoch_id actually corresponds to the chunk's previous block.
     fn partially_validate_state_witness(
         &self,
-        signed_witness: &SignedEncodedChunkStateWitness,
+        encoded_witness: &EncodedChunkStateWitness,
     ) -> Result<(ChunkStateWitness, ChunkStateWitnessSize), Error> {
         let decode_start = std::time::Instant::now();
-        let (witness, raw_witness_size) = signed_witness.witness_bytes.decode()?;
+        let (witness, raw_witness_size) = encoded_witness.decode()?;
         let decode_elapsed_seconds = decode_start.elapsed().as_secs_f64();
         let chunk_header = &witness.chunk_header;
         let witness_height = chunk_header.height_created();
@@ -740,14 +785,6 @@ impl Client {
         )?;
         if !chunk_validator_assignments.contains(my_signer.validator_id()) {
             return Err(Error::NotAChunkValidator);
-        }
-
-        if !self.epoch_manager.verify_chunk_state_witness_signature(
-            &signed_witness,
-            &witness.chunk_producer,
-            &witness.epoch_id,
-        )? {
-            return Err(Error::InvalidChunkStateWitness("Invalid signature".to_string()));
         }
 
         // Record metrics after validating the witness

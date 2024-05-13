@@ -34,8 +34,12 @@ impl fmt::Debug for GCMode {
     }
 }
 
-/// Both functions here are only used for testing as they create convenient wrappers
-/// that allow us to do correctness integration testing without having to fully spin up GCActor
+/// Both functions here are only used for testing as they create convenient
+/// wrappers that allow us to do correctness integration testing without having
+/// to fully spin up GCActor
+///
+/// TODO - the reset_data_pre_state_sync function seems to also be used in
+/// production code. It's used in update_sync_status <- handle_sync_needed <- run_sync_step
 impl Chain {
     pub fn clear_data(&mut self, gc_config: &GCConfig) -> Result<(), Error> {
         let runtime_adapter = self.runtime_adapter.clone();
@@ -121,7 +125,9 @@ impl ChainStore {
     // State Sync Clearing:
     // 1. Executing State Sync means that no data in the storage is useful for block processing
     //    and should be removed completely.
-    // 2. The Tail should be set to the block preceding Sync Block.
+    // 2. The Tail should be set to the block preceding Sync Block if there are
+    //    no missing chunks or to a block before that such that all shards have
+    //    at least one new chunk in the blocks leading to the Sync Block.
     // 3. All the data preceding new Tail is deleted in State Sync Clearing
     //    and the Trie is updated with having only Genesis data.
     // 4. State Sync Clearing happens in `reset_data_pre_state_sync()`.
@@ -313,7 +319,25 @@ impl ChainStore {
         let header = self.get_block_header(&sync_hash)?;
         let prev_hash = *header.prev_hash();
         let sync_height = header.height();
-        let gc_height = std::cmp::min(head.height + 1, sync_height);
+        // The congestion control added a dependency on the prev block when
+        // applying chunks in a block. This means that we need to keep the
+        // blocks at sync hash, prev hash and prev prev hash. The heigh of that
+        // block is sync_height - 2.
+        let mut gc_height = std::cmp::min(head.height + 1, sync_height - 2);
+
+        // In case there are missing chunks we need to keep more than just the
+        // sync hash block. The logic below adjusts the gc_height so that every
+        // shard is guaranteed to have at least one new chunk in the blocks
+        // leading to the sync hash block.
+        let prev_block = self.get_block(&prev_hash);
+        if let Ok(prev_block) = prev_block {
+            let min_height_included =
+                prev_block.chunks().iter().map(|chunk| chunk.height_included()).min();
+            if let Some(min_height_included) = min_height_included {
+                tracing::debug!(target: "sync", ?min_height_included, ?gc_height, "adjusting gc_height for missing chunks");
+                gc_height = std::cmp::min(gc_height, min_height_included - 1);
+            };
+        }
 
         // GC all the data from current tail up to `gc_height`. In case tail points to a height where
         // there is no block, we need to make sure that the last block before tail is cleaned.
@@ -1011,6 +1035,9 @@ impl<'a> ChainStoreUpdate<'a> {
                 store_update.delete(col, key);
             }
             DBCol::StateTransitionData => {
+                store_update.delete(col, key);
+            }
+            DBCol::LatestChunkStateWitnesses => {
                 store_update.delete(col, key);
             }
             DBCol::DbVersion

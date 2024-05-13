@@ -33,7 +33,7 @@ use near_primitives::types::{AccountId, StateRoot, StateRootNode};
 use near_vm_runner::ContractCode;
 pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fmt::Write;
 use std::hash::Hash;
 use std::rc::Rc;
@@ -49,6 +49,7 @@ pub mod mem;
 mod nibble_slice;
 mod prefetching_trie_storage;
 mod raw_node;
+pub mod receipts_column_helper;
 pub mod resharding;
 mod shard_tries;
 mod state_parts;
@@ -724,6 +725,29 @@ impl Trie {
 
     pub fn internal_get_storage_as_caching_storage(&self) -> Option<&TrieCachingStorage> {
         self.storage.as_caching_storage()
+    }
+
+    /// Request recording of the code for the given account.
+    pub fn request_code_recording(&self, account_id: AccountId) {
+        let Some(recorder) = &self.recorder else {
+            return;
+        };
+        {
+            let mut r = recorder.borrow_mut();
+            if r.codes_to_record.contains(&account_id) {
+                return;
+            }
+            r.codes_to_record.insert(account_id.clone());
+        }
+
+        // Get code length from ValueRef to update estimated upper bound for
+        // recorded state.
+        let key = TrieKey::ContractCode { account_id };
+        let value_ref = self.get_optimized_ref(&key.to_vec(), KeyLookupMode::FlatStorage);
+        if let Ok(Some(value_ref)) = value_ref {
+            let mut r = recorder.borrow_mut();
+            r.record_code_len(value_ref.len());
+        }
     }
 
     /// All access to trie nodes or values must go through this method, so it
@@ -1502,6 +1526,17 @@ impl Trie {
     where
         I: IntoIterator<Item = (Vec<u8>, Option<Vec<u8>>)>,
     {
+        // Call `get` for contract codes requested to be recorded.
+        let codes_to_record = if let Some(recorder) = &self.recorder {
+            recorder.borrow().codes_to_record.clone()
+        } else {
+            HashSet::default()
+        };
+        for account_id in codes_to_record {
+            let trie_key = TrieKey::ContractCode { account_id: account_id.clone() };
+            let _ = self.get(&trie_key.to_vec());
+        }
+
         match &self.memtries {
             Some(memtries) => {
                 // If we have in-memory tries, use it to construct the changes entirely (for
