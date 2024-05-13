@@ -25,4 +25,5 @@ mod restrict_tla;
 mod simple_test_loop_example;
 mod stateless_validation;
 mod wallet_contract;
+mod yield_timeouts;
 mod zero_balance_account;

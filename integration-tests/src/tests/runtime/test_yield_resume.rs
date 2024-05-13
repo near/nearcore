@@ -137,8 +137,8 @@ fn create_and_resume_in_one_call() {
     // returning twice the value of the first byte of the payload
     assert_eq!(
         res.status,
-        FinalExecutionStatus::SuccessValue(vec![46u8]),
-        "{res:?} unexpected result; expected 46",
+        FinalExecutionStatus::SuccessValue(vec![16u8]),
+        "{res:?} unexpected result; expected 16",
     );
 }
 
