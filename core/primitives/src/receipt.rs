@@ -490,8 +490,9 @@ pub type ReceiptResult = HashMap<ShardId, Vec<Receipt>>;
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
-    fn test_receipt_serialization() {
+    fn test_receipt_v0_serialization() {
         let receipt_v0 = Receipt::V0(ReceiptV0 {
             predecessor_id: "predecessor_id".parse().unwrap(),
             receiver_id: "receiver_id".parse().unwrap(),
@@ -508,7 +509,10 @@ mod tests {
         let serialized_receipt = borsh::to_vec(&receipt_v0).unwrap();
         let receipt2 = Receipt::try_from_slice(&serialized_receipt).unwrap();
         assert_eq!(receipt_v0, receipt2);
+    }
 
+    #[test]
+    fn test_receipt_v1_serialization() {
         let receipt_v1 = Receipt::V1(ReceiptV1 {
             predecessor_id: "predecessor_id".parse().unwrap(),
             receiver_id: "receiver_id".parse().unwrap(),
