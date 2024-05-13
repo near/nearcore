@@ -3,7 +3,6 @@ use super::node::MemTrieNodeId;
 use crate::trie::mem::node::InputMemTrieNode;
 use crate::NibbleSlice;
 use near_primitives::state::FlatStateValue;
-use crate::concurrency::scope::{self, Scope};
 
 /// Algorithm to construct a trie from a given stream of sorted leaf values.
 ///
@@ -62,10 +61,10 @@ use crate::concurrency::scope::{self, Scope};
 //
 // As the bottom two segments are no longer part of the right-most path, they
 // are converted to concrete TrieMemNodeId's.
-pub struct TrieConstructor<'a, 'b, E: 'static> {
+
+pub struct TrieConstructor<'a> {
     arena: &'a mut Arena,
     segments: Vec<TrieConstructionSegment>,
-    scope: Option<&'b Scope<'b, E>>,
 }
 
 /// A segment of the rightmost path of the trie under construction, as
@@ -141,13 +140,13 @@ impl TrieConstructionSegment {
     }
 }
 
-impl<'a, 'b, E: 'static> TrieConstructor<'a, 'b, E> {
-    pub fn new(arena: &'a mut Arena, scope: Option<&'b Scope<'b, E>>) -> Self {
-        Self { arena, segments: vec![], scope }
+impl<'a> TrieConstructor<'a> {
+    pub fn new(arena: &'a mut Arena) -> Self {
+        Self { arena, segments: vec![] }
     }
 
     /// Encodes the bottom-most segment into a node, and pops it off the stack.
-    fn pop_segment(&mut self) {
+    fn pop_segment(&mut self)  -> MemTrieNodeId {
         let segment = self.segments.pop().unwrap();
         let node = segment.into_node(self.arena);
         let parent = self.segments.last_mut().unwrap();
@@ -157,11 +156,13 @@ impl<'a, 'b, E: 'static> TrieConstructor<'a, 'b, E> {
             assert!(parent.child.is_none());
             parent.child = Some(node);
         }
+        node
     }
 
     /// Adds a leaf to the trie. The key must be greater than all previous keys
     /// inserted.
-    pub fn add_leaf(&mut self, key: &[u8], value: FlatStateValue) {
+    pub fn add_leaf(&mut self, key: &[u8], value: FlatStateValue) -> Vec<MemTrieNodeId> {
+        let mut parents: Vec<MemTrieNodeId> = vec![];
         let mut nibbles = NibbleSlice::new(key);
         let mut i = 0;
         // We'll go down the segments to find where our nibbles deviate.
@@ -190,7 +191,8 @@ impl<'a, 'b, E: 'static> TrieConstructor<'a, 'b, E> {
             // We can already pop off all the extra segments below it, as they
             // have no chance to be relevant to the leaf we're inserting.
             while i < self.segments.len() - 1 {
-                self.pop_segment();
+                let parent = self.pop_segment();
+                parents.push(parent);
             }
 
             // If the deviation happens in the middle of a segment, i.e. we have
@@ -251,7 +253,8 @@ impl<'a, 'b, E: 'static> TrieConstructor<'a, 'b, E> {
                     self.segments.push(segment);
                     // The bottom segment is no longer relevant to our new leaf,
                     // so pop that off.
-                    self.pop_segment();
+                    let parent = self.pop_segment();
+                    parents.push(parent);
                 } else {
                     // If the old segment was an extension with just 1 nibble,
                     // then that segment is no longer needed. We can add the old
@@ -304,6 +307,7 @@ impl<'a, 'b, E: 'static> TrieConstructor<'a, 'b, E> {
             let segment = TrieConstructionSegment::new_leaf(nibbles.encoded(true).to_vec(), value);
             self.segments.push(segment);
         }
+        parents
     }
 
     /// Finishes the construction of the trie, returning the ID of the root

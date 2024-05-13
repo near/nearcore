@@ -102,4 +102,19 @@ impl<'a> MemTrieNodePtrMut<'a> {
             }
         }
     }
+
+    pub(crate) fn get_small_children(
+        self,
+        threshold_memory_usage: u64,
+    ) -> Vec<MemTrieNodePtrMut<'a>> {
+        let mut children = Vec::<MemTrieNodePtrMut>::new();
+        if self.as_const().view().memory_usage() > threshold_memory_usage {
+            for child in self.split_children_mut() {
+                if child.as_const().view().memory_usage() < threshold_memory_usage {
+                    children.push(child);
+                }
+            }
+        }
+        children
+    }
 }
