@@ -825,7 +825,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     if ProtocolFeature::CongestionControl.enabled(protocol_version) {
                         let receiving_shard = EpochManagerAdapter::account_id_to_shard_id(
                             self.epoch_manager.as_ref(),
-                            &tx.transaction.receiver_id,
+                            tx.transaction.receiver_id(),
                             &epoch_id,
                         )?;
                         if let Some(shard_congestion) =

@@ -186,7 +186,7 @@ impl ReceiptSinkV2<'_> {
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<(), RuntimeError> {
         let shard = epoch_info_provider
-            .account_id_to_shard_id(&receipt.receiver_id, &apply_state.epoch_id)?;
+            .account_id_to_shard_id(receipt.receiver_id(), &apply_state.epoch_id)?;
         if shard == apply_state.shard_id {
             // No limits on receipts that stay on the same shard. Backpressure
             // wouldn't help, the receipt takes the same memory if buffered or
@@ -260,11 +260,11 @@ fn receipt_congestion_gas(
     receipt: &Receipt,
     config: &RuntimeConfig,
 ) -> Result<Gas, IntegerOverflowError> {
-    match &receipt.receipt {
+    match receipt.receipt() {
         ReceiptEnum::Action(action_receipt) => {
             // account for gas guaranteed to be used for executing the receipts
             let prepaid_exec_gas = safe_add_gas(
-                total_prepaid_exec_fees(config, &action_receipt.actions, &receipt.receiver_id)?,
+                total_prepaid_exec_fees(config, &action_receipt.actions, receipt.receiver_id())?,
                 config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
             )?;
             // account for gas guaranteed to be used for creating new receipts
