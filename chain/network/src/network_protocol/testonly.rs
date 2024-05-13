@@ -138,6 +138,10 @@ pub fn make_edge(a: &SecretKey, b: &SecretKey, nonce: u64) -> Edge {
     Edge::new(ap, bp, nonce, a.sign(hash.as_ref()), b.sign(hash.as_ref()))
 }
 
+pub fn make_edge_tombstone(a: &SecretKey, b: &SecretKey) -> Edge {
+    make_edge(a, b, 1).remove_edge(PeerId::new(a.public_key()), &a)
+}
+
 pub fn make_routing_table<R: Rng>(rng: &mut R) -> RoutingTableUpdate {
     let signers: Vec<_> = (0..7).map(|_| make_secret_key(rng)).collect();
     RoutingTableUpdate {

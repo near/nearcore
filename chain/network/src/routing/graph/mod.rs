@@ -4,6 +4,7 @@ use crate::network_protocol::{Edge, EdgeState};
 use crate::routing::bfs;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
+use crate::store;
 use arc_swap::ArcSwap;
 use near_async::time;
 use near_primitives::network::PeerId;
@@ -46,6 +47,7 @@ struct Inner {
     edges: im::HashMap<EdgeKey, Edge>,
     /// Last time a peer was reachable.
     peer_reachable_at: HashMap<PeerId, time::Instant>,
+    store: store::Store,
 }
 
 fn has(set: &im::HashMap<EdgeKey, Edge>, edge: &Edge) -> bool {
@@ -103,8 +105,54 @@ impl Inner {
         }
     }
 
+    /// If peer_id is not in memory check if it is on disk in bring it back on memory.
+    ///
+    /// Note: here an advanced example, which shows what's happening.
+    /// Let's say we have a full graph fully connected with nodes `A, B, C, D`.
+    /// Step 1 ) `A`, `B` get removed.
+    /// We store edges belonging to `A` and `B`: `<A,B>, <A,C>, <A, D>, <B, C>, <B, D>`
+    /// into component 1 let's call it `C_1`.
+    /// And mapping from `A` to `C_1`, and from `B` to `C_1`
+    ///
+    /// Note that `C`, `D` is still active.
+    ///
+    /// Step 2) 'C' gets removed.
+    /// We stored edges <C, D> into component 2 `C_2`.
+    /// And a mapping from `C` to `C_2`.
+    ///
+    /// Note that `D` is still active.
+    ///
+    /// Step 3) An active edge gets added from `D` to `A`.
+    /// We will load `C_1` and try to re-add all edges belonging to `C_1`.
+    /// We will add `<A,B>, <A,C>, <A, D>, <B, C>, <B, D>`
+    ///
+    /// Important note: `C_1` also contains an edge from `A` to `C`, though `C` was removed in `C_2`.
+    /// - 1) We will not load edges belonging to `C_2`, even though we are adding an edges from `A` to deleted `C`.
+    /// - 2) We will not delete mapping from `C` to `C_2`, because `C` doesn't belong to `C_1`.
+    /// - 3) Later, `C` will be deleted, because we will figure out it's not reachable.
+    /// New component `C_3` will be created.
+    /// And mapping from `C` to `C_2` will be overridden by mapping from `C` to `C_3`.
+    /// And therefore `C_2` component will become unreachable.
+    /// TODO(gprusak): this whole algorithm seems to be leaking stuff to storage and never cleaning up.
+    /// What is the point of it? What does it actually gives us?
+    fn load_component(&mut self, now: time::Utc, peer_id: PeerId) {
+        if peer_id == self.config.node_id || self.peer_reachable_at.contains_key(&peer_id) {
+            return;
+        }
+        let edges = match self.store.pop_component(&peer_id) {
+            Ok(edges) => edges,
+            Err(e) => {
+                tracing::warn!("self.store.pop_component({}): {}", peer_id, e);
+                return;
+            }
+        };
+        for e in edges {
+            self.update_edge(now, e);
+        }
+    }
+
     /// Prunes peers unreachable since <unreachable_since> (and their adjacent edges)
-    /// from the in-mem graph.
+    /// from the in-mem graph and stores them in DB.
     fn prune_unreachable_peers(&mut self, unreachable_since: time::Instant) {
         // Select peers to prune.
         let mut peers = HashSet::new();
@@ -130,7 +178,12 @@ impl Inner {
         }
 
         // Prune edges from graph.
-        self.remove_adjacent_edges(&peers);
+        let edges = self.remove_adjacent_edges(&peers);
+
+        // Store the pruned data in DB.
+        if let Err(e) = self.store.push_component(&peers, &edges) {
+            tracing::warn!("self.store.push_component(): {}", e);
+        }
     }
 
     /// Verifies edges, then adds them to the graph.
@@ -151,6 +204,17 @@ impl Inner {
         // PROTOCOL_VERSION 60 earliest.
         edges = Edge::deduplicate(edges);
 
+        // load the components BEFORE updating the edges.
+        // so that result doesn't contain edges we already have in storage.
+        // It is especially important for initial full sync with peers, because
+        // we broadcast all the returned edges to all connected peers.
+        let now = clock.now_utc();
+        for edge in &edges {
+            let key = edge.key();
+            self.load_component(now, key.0.clone());
+            self.load_component(now, key.1.clone());
+        }
+
         // Retain only new edges.
         edges.retain(|e| !has(&self.edges, e));
 
@@ -167,7 +231,7 @@ impl Inner {
         });
 
         // Add the verified edges to the graph.
-        edges.retain(|e| self.update_edge(clock.now_utc(), e.clone()));
+        edges.retain(|e| self.update_edge(now, e.clone()));
         (edges, ok)
     }
 
@@ -223,7 +287,7 @@ pub(crate) struct Graph {
 }
 
 impl Graph {
-    pub fn new(config: GraphConfig) -> Self {
+    pub fn new(config: GraphConfig, store: store::Store) -> Self {
         Self {
             routing_table: RoutingTableView::new(),
             inner: Arc::new(Mutex::new(Inner {
@@ -231,6 +295,7 @@ impl Graph {
                 config,
                 edges: Default::default(),
                 peer_reachable_at: HashMap::new(),
+                store,
             })),
             unreliable_peers: ArcSwap::default(),
             snapshot: ArcSwap::default(),
