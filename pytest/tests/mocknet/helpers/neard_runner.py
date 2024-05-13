@@ -110,7 +110,10 @@ class TestState(Enum):
 backup_id_pattern = re.compile(r'^[0-9a-zA-Z.][0-9a-zA-Z_\-.]+$')
 
 # Rotate the logs if they get larger than __neard_logs_file_size__
+# Remove old files if the number of files is __neard_logs_max_file_count__
 # Remove old files if all the logs are past __neard_logs_max_size__
+# The prerotate logic serves us in case neard_runner is not running for a while
+# and we end up with a file larger than the estimated size.
 LOGROTATE_TEMPLATE = """__neard_logs_dir__/__neard_logs_file_name__ {
     su ubuntu ubuntu
     size __neard_logs_file_size__
@@ -181,7 +184,7 @@ class NeardRunner:
             '__neard_logs_dir__': f'{self.neard_logs_dir}',
             '__neard_logs_file_name__': f'{self.neard_logs_file_name}',
             '__neard_logs_file_size__': '100M',
-            '__neard_logs_max_file_count__': '0',  # Unlimited
+            '__neard_logs_max_file_count__': '99',
             '__neard_logs_max_size__': '100000000000',  # 100G
         }
         logrotate_config = LOGROTATE_TEMPLATE
