@@ -1,3 +1,6 @@
+import sys
+
+
 # TODO: these should be identified by tags
 def _is_tracing_server(node):
     return node.name().endswith('tracing-server')
@@ -55,7 +58,8 @@ def configure_nodes(nodes, node_setup_config):
             if c['node_matches'](node):
                 if node_config is not None:
                     sys.exit(
-                        f'multiple node configuration matches for {f.node()}')
+                        f'multiple node configuration matches for {node.name()}'
+                    )
                 node_config = c
         if node_config is None:
             continue
