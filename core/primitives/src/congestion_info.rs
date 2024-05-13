@@ -677,7 +677,7 @@ mod tests {
         // Test missed chunks congestion with outgoing congestion
         let mut congestion_info = CongestionInfo::default();
         congestion_info.add_buffered_receipt_gas(MAX_CONGESTION_OUTGOING_GAS / 2).unwrap();
-        let make = |count| ExtendedCongestionInfo::new(congestion_info.clone(), count);
+        let make = |count| ExtendedCongestionInfo::new(congestion_info, count);
 
         assert_eq!(make(0).congestion_level(), 0.5);
         assert_eq!(make(1).congestion_level(), 0.5);
@@ -699,7 +699,7 @@ mod tests {
         // Test without missed chunks congestion.
 
         let missed_chunks_count = 0;
-        let mut info = ExtendedCongestionInfo::new(congestion_info.clone(), missed_chunks_count);
+        let mut info = ExtendedCongestionInfo::new(congestion_info, missed_chunks_count);
         info.finalize_allowed_shard(shard, &other_shards, 3);
 
         let expected_outgoing_limit = 0.5 * MIN_OUTGOING_GAS as f64 + 0.5 * MAX_OUTGOING_GAS as f64;
@@ -710,7 +710,7 @@ mod tests {
         // Test with some missed chunks congestion.
 
         let missed_chunks_count = 8;
-        let mut info = ExtendedCongestionInfo::new(congestion_info.clone(), missed_chunks_count);
+        let mut info = ExtendedCongestionInfo::new(congestion_info, missed_chunks_count);
         info.finalize_allowed_shard(shard, &other_shards, 3);
 
         let expected_outgoing_limit = mix(MAX_OUTGOING_GAS, MIN_OUTGOING_GAS, 0.8) as f64;
@@ -721,7 +721,7 @@ mod tests {
         // Test with full missed chunks congestion.
 
         let missed_chunks_count = MAX_CONGESTION_MISSED_CHUNKS;
-        let mut info = ExtendedCongestionInfo::new(congestion_info.clone(), missed_chunks_count);
+        let mut info = ExtendedCongestionInfo::new(congestion_info, missed_chunks_count);
         info.finalize_allowed_shard(shard, &other_shards, 3);
 
         // The allowed shard should be set to own shard. None of the other
