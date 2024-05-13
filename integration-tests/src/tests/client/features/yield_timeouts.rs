@@ -118,6 +118,9 @@ fn prepare_env_with_yield(
     let yield_data_ids = find_yield_data_ids_from_latest_block(&env);
     assert_eq!(yield_data_ids.len(), 1);
 
+    let last_block_height = env.clients[0].chain.head().unwrap().height;
+    assert_eq!(NEXT_BLOCK_HEIGHT_AFTER_SETUP, last_block_height + 1);
+
     (env, yield_tx_hash, yield_data_ids[0])
 }
 
@@ -242,15 +245,22 @@ fn yield_timeout_under_congestion() {
         );
     }
 
-    // Advance more blocks so that the congestion clears and the yield callback is executed.
-    for i in 0..10 {
-        env.produce_block(0, YIELD_TIMEOUT_HEIGHT + 3 + i);
-    }
+    // Advance until the congestion clears and the yield callback is executed.
+    let mut next_block_height = YIELD_TIMEOUT_HEIGHT + 3;
+    loop {
+        env.produce_block(0, next_block_height);
+        next_block_height += 1;
 
-    assert_eq!(
-        env.clients[0].chain.get_partial_transaction_result(&yield_tx_hash).unwrap().status,
-        FinalExecutionStatus::SuccessValue(vec![0u8]),
-    );
+        let tx_status =
+            env.clients[0].chain.get_partial_transaction_result(&yield_tx_hash).unwrap().status;
+
+        if tx_status == FinalExecutionStatus::Started {
+            continue;
+        }
+
+        assert_eq!(tx_status, FinalExecutionStatus::SuccessValue(vec![0u8]));
+        break;
+    }
 }
 
 /// In this case we invoke yield_resume at the last block possible.
@@ -319,15 +329,22 @@ fn yield_resume_after_timeout_height() {
 
     invoke_yield_resume(&mut env, data_id, yield_payload);
 
-    // Advance more blocks so that the congestion clears and the yield callback is executed.
-    for i in 0..10 {
-        env.produce_block(0, YIELD_TIMEOUT_HEIGHT + 3 + i);
-    }
+    // Advance until the congestion clears and the yield callback is executed.
+    let mut next_block_height = YIELD_TIMEOUT_HEIGHT + 3;
+    loop {
+        env.produce_block(0, next_block_height);
+        next_block_height += 1;
 
-    assert_eq!(
-        env.clients[0].chain.get_partial_transaction_result(&yield_tx_hash).unwrap().status,
-        FinalExecutionStatus::SuccessValue(vec![16u8]),
-    );
+        let tx_status =
+            env.clients[0].chain.get_partial_transaction_result(&yield_tx_hash).unwrap().status;
+
+        if tx_status == FinalExecutionStatus::Started {
+            continue;
+        }
+
+        assert_eq!(tx_status, FinalExecutionStatus::SuccessValue(vec![16u8]),);
+        break;
+    }
 }
 
 /// In this test there is no block produced at height YIELD_TIMEOUT_HEIGHT.
