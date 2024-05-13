@@ -5,6 +5,7 @@ use crate::flat::store_helper::{
 };
 use crate::flat::{FlatStorageError, FlatStorageStatus};
 use crate::trie::mem::construction::TrieConstructor;
+use crate::trie::mem::node::MemTrieNodePtrMut;
 use crate::trie::mem::updating::apply_memtrie_changes;
 use crate::{DBCol, Store};
 use near_primitives::errors::StorageError;
@@ -49,11 +50,15 @@ pub fn load_trie_from_flat_state(
                     FlatStorageError::StorageInternalError(format!("invalid FlatState key format: {err}"))
                 })?;
 
-                let subtrees = recon.add_leaf(&key, value);
-                for mut subtree in subtrees.into_iter() {
-                    scope.spawn(move || {
-                        subtree.compute_hash_recursively();
-                    });
+                let parents = recon.add_leaf(&key, value);
+                for parent in parents.into_iter() {
+                    let mut subtrees: Vec<MemTrieNodePtrMut> = Vec::new();
+                    parent.as_ptr_mut(arena.memory_mut()).take_small_subtrees(1024 * 1024, &mut subtrees);
+                    for mut subtree in subtrees.into_iter() {
+                        scope.spawn(move || {
+                           subtree.compute_hash_recursively();
+                        });
+                    }
                 }
                 
                 num_keys_loaded += 1;
