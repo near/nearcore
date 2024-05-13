@@ -24,5 +24,8 @@ pub fn forward_messages_from_client_to_partial_witness_actor(
         PartialWitnessSenderForClientMessage::_distribute_chunk_state_witness(msg) => {
             partial_witness_actor.handle(msg);
         }
+        PartialWitnessSenderForClientMessage::_update_chain_head(msg) => {
+            partial_witness_actor.handle(msg);
+        }
     })
 }

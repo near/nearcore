@@ -7,7 +7,9 @@ use crate::debug::BlockProductionTracker;
 use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
 use crate::stateless_validation::chunk_endorsement_tracker::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validator::ChunkValidator;
-use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
+use crate::stateless_validation::partial_witness::partial_witness_actor::{
+    PartialWitnessSenderForClient, UpdateChainHeadRequest,
+};
 use crate::sync::adapter::SyncShardInfo;
 use crate::sync::block::BlockSync;
 use crate::sync::epoch::EpochSync;
@@ -1302,10 +1304,12 @@ impl Client {
             apply_chunks_done_sender,
         );
         if accepted_blocks.iter().any(|accepted_block| accepted_block.status.is_new_head()) {
+            let head = self.chain.head().unwrap();
             self.shards_manager_adapter.send(ShardsManagerRequestFromClient::UpdateChainHeads {
-                head: self.chain.head().unwrap(),
+                head: head.clone(),
                 header_head: self.chain.header_head().unwrap(),
             });
+            self.partial_witness_adapter.send(UpdateChainHeadRequest { head });
         }
         self.process_block_processing_artifact(block_processing_artifacts);
         let accepted_blocks_hashes =

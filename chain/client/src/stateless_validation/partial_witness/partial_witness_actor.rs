@@ -4,6 +4,7 @@ use itertools::Itertools;
 use near_async::messaging::{CanSend, Handler, Sender};
 use near_async::time::Clock;
 use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
+use near_chain::types::Tip;
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::state_witness::{
@@ -52,10 +53,17 @@ pub struct DistributeStateWitnessRequest {
     pub state_witness: ChunkStateWitness,
 }
 
+#[derive(actix::Message, Debug)]
+#[rtype(result = "()")]
+pub struct UpdateChainHeadRequest {
+    pub head: Tip,
+}
+
 #[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
 #[multi_send_message_derive(Debug)]
 pub struct PartialWitnessSenderForClient {
     pub distribute_chunk_state_witness: Sender<DistributeStateWitnessRequest>,
+    pub update_chain_head: Sender<UpdateChainHeadRequest>,
 }
 
 impl Handler<DistributeStateWitnessRequest> for PartialWitnessActor {
@@ -65,6 +73,11 @@ impl Handler<DistributeStateWitnessRequest> for PartialWitnessActor {
             tracing::error!(target: "stateless_validation", ?err, "Failed to handle distribute chunk state witness request");
         }
     }
+}
+
+impl Handler<UpdateChainHeadRequest> for PartialWitnessActor {
+    #[perf]
+    fn handle(&mut self, _msg: UpdateChainHeadRequest) {}
 }
 
 impl Handler<ChunkStateWitnessAckMessage> for PartialWitnessActor {
