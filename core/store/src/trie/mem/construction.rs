@@ -61,7 +61,6 @@ use near_primitives::state::FlatStateValue;
 //
 // As the bottom two segments are no longer part of the right-most path, they
 // are converted to concrete TrieMemNodeId's.
-
 pub struct TrieConstructor<'a> {
     arena: &'a mut Arena,
     segments: Vec<TrieConstructionSegment>,
