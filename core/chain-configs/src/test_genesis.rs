@@ -190,6 +190,8 @@ impl TestGenesisBuilder {
             validators,
             num_block_producer_seats,
             num_chunk_only_producer_seats,
+            num_chunk_producer_seats: num_block_producer_seats,
+            num_chunk_validator_seats: num_block_producer_seats + num_chunk_only_producer_seats,
         });
         self
     }
