@@ -49,16 +49,13 @@ pub fn load_trie_from_flat_state(
                     FlatStorageError::StorageInternalError(format!("invalid FlatState key format: {err}"))
                 })?;
 
-                let parents = recon.add_leaf(&key, value);
-                for parent in parents.into_iter() {
-                    let children = parent.as_ptr_mut(arena.memory_mut()).get_small_children(128);
-                    for mut child in children.into_iter() {
-                        scope.spawn(move || {
-                            child.compute_hash_recursively();
-                        });
-                    }
+                let subtrees = recon.add_leaf(&key, value);
+                for mut subtree in subtrees.into_iter() {
+                    scope.spawn(move || {
+                        subtree.compute_hash_recursively();
+                    });
                 }
-
+                
                 num_keys_loaded += 1;
                 if num_keys_loaded % 1000000 == 0 {
                     debug!(

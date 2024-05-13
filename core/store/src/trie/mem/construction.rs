@@ -1,5 +1,6 @@
 use super::arena::Arena;
-use super::node::MemTrieNodeId;
+use crate::trie::mem::arena::ArenaMemory;
+use super::node::{MemTrieNodeId, MemTrieNodePtrMut};
 use crate::trie::mem::node::InputMemTrieNode;
 use crate::NibbleSlice;
 use near_primitives::state::FlatStateValue;
@@ -160,7 +161,7 @@ impl<'a> TrieConstructor<'a> {
 
     /// Adds a leaf to the trie. The key must be greater than all previous keys
     /// inserted.
-    pub fn add_leaf(&mut self, key: &[u8], value: FlatStateValue) -> Vec<MemTrieNodeId> {
+    pub fn add_leaf<'b>(&'b mut self, key: &[u8], value: FlatStateValue) -> Vec<MemTrieNodePtrMut<'a>> where 'a: 'b {
         let mut parents: Vec<MemTrieNodeId> = vec![];
         let mut nibbles = NibbleSlice::new(key);
         let mut i = 0;
@@ -306,7 +307,16 @@ impl<'a> TrieConstructor<'a> {
             let segment = TrieConstructionSegment::new_leaf(nibbles.encoded(true).to_vec(), value);
             self.segments.push(segment);
         }
-        parents
+        
+        Self::take_small_subtrees(self.arena.memory_mut(), parents)
+    }
+
+    fn take_small_subtrees(memory: &'a mut ArenaMemory, parents: Vec<MemTrieNodeId>) -> Vec<MemTrieNodePtrMut<'a>> {
+        let mut subtrees = Vec::new();
+        for parent in parents.into_iter() {
+            parent.as_ptr_mut(memory).take_small_subtrees_v2(128, &mut subtrees);
+        }
+        subtrees
     }
 
     /// Finishes the construction of the trie, returning the ID of the root
