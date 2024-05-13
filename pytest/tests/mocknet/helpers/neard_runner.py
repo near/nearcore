@@ -196,11 +196,14 @@ class NeardRunner:
             f'Setting log rotation policy in {self.logrotate_config_path}')
         with open(self.logrotate_config_path, 'w') as config_file:
             config_file.write(logrotate_config)
+        self.logrotate_binary_path = shutil.which('logrotate')
+        if self.logrotate_binary_path is None:
+            logging.error('The logrotate tool was not found on this system.')
 
     # Try to rotate the logs based on the policy defined here: self.logrotate_config_path.
     def run_logrotate(self):
         run_logrotate_cmd = [
-            '/usr/sbin/logrotate', '-s',
+            self.logrotate_binary_path, '-s',
             f'{self.neard_logs_dir}/.logrotate_status',
             self.logrotate_config_path
         ]
