@@ -85,7 +85,7 @@ jobs:
           retention-days: 2
       - uses: actions/upload-artifact@v4
         with:
-          name: coverage-codecov-${{ github.ref }}-cargo_nextest-${{ matrix.name }}
+          name: coverage-codecov-${{ github.sha }}-cargo_nextest-${{ matrix.name }}
           path: coverage/codecov
 
   protobuf_backward_compat:
@@ -121,7 +121,7 @@ jobs:
       - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-backward-compat.json
       - uses: actions/upload-artifact@v4
         with:
-          name: coverage-codecov-${{ github.ref }}-py_backward_compat
+          name: coverage-codecov-${{ github.sha }}-py_backward_compat
           path: coverage/codecov
 
   py_db_migration:
@@ -148,7 +148,7 @@ jobs:
       - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-db-migration.json
       - uses: actions/upload-artifact@v4
         with:
-          name: coverage-codecov-${{ github.ref }}-py_db_migration
+          name: coverage-codecov-${{ github.sha }}-py_db_migration
           path: coverage/codecov
 
   py_sanity_checks:
@@ -183,7 +183,7 @@ jobs:
       - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-sanity-checks.json
       - uses: actions/upload-artifact@v4
         with:
-          name: coverage-codecov-${{ github.ref }}-py_sanity_checks
+          name: coverage-codecov-${{ github.sha }}-py_sanity_checks
           path: coverage/codecov
 
   py_genesis_check:
@@ -209,7 +209,7 @@ jobs:
       - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-genesis-check.json
       - uses: actions/upload-artifact@v4
         with:
-          name: coverage-codecov-${{ github.ref }}-py_genesis_check
+          name: coverage-codecov-${{ github.sha }}-py_genesis_check
           path: coverage/codecov
 
   py_style_check:
@@ -250,7 +250,7 @@ jobs:
       - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-upgradability.json
       - uses: actions/upload-artifact@v4
         with:
-          name: coverage-codecov-${{ github.ref }}-py_upgradability
+          name: coverage-codecov-${{ github.sha }}-py_upgradability
           path: coverage/codecov
 
   rpc_error_schema:
