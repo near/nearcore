@@ -1752,7 +1752,8 @@ impl Chain {
                             target: "chain",
                             block_hash=?block.hash(),
                             height=block_height,
-                            error=?block_known_error, "Block known at this time");
+                            error=?block_known_error,
+                            "Block known at this time");
                     }
                     _ => {}
                 }
