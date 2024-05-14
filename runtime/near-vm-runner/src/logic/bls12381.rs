@@ -27,13 +27,16 @@ pub(super) fn p1_sum(data: &[u8]) -> Result<(u64, Vec<u8>)> {
     let mut res_pk = blst::blst_p1::default();
 
     for item_data in data.chunks_exact(ITEM_SIZE) {
-        if item_data[BLS_BOOL_SIZE] & 0x80 != 0 {
+        let (sign_data, point_data) = item_data.split_at(BLS_BOOL_SIZE);
+        debug_assert_eq!(point_data.len(), BLS_P1_SIZE);
+
+        if point_data[0] & 0x80 != 0 {
             return Ok((1, vec![]));
         }
 
         let mut pk_aff = blst::blst_p1_affine::default();
         let error_code =
-            unsafe { blst::blst_p1_deserialize(&mut pk_aff, item_data[BLS_BOOL_SIZE..].as_ptr()) };
+            unsafe { blst::blst_p1_deserialize(&mut pk_aff, point_data.as_ptr()) };
 
         if error_code != blst::BLST_ERROR::BLST_SUCCESS {
             return Ok((1, vec![]));
@@ -44,7 +47,7 @@ pub(super) fn p1_sum(data: &[u8]) -> Result<(u64, Vec<u8>)> {
             blst::blst_p1_from_affine(&mut pk, &pk_aff);
         }
 
-        let sign = item_data[0];
+        let sign = sign_data[0];
         if sign == 1 {
             unsafe {
                 blst::blst_p1_cneg(&mut pk, true);
@@ -88,13 +91,16 @@ pub(super) fn p2_sum(data: &[u8]) -> Result<(u64, Vec<u8>)> {
     let mut res_pk = blst::blst_p2::default();
 
     for item_data in data.chunks_exact(ITEM_SIZE) {
-        if item_data[BLS_BOOL_SIZE] & 0x80 != 0 {
+        let (sign_data, point_data) = item_data.split_at(BLS_BOOL_SIZE);
+        debug_assert_eq!(point_data.len(), BLS_P2_SIZE);
+
+        if point_data[0] & 0x80 != 0 {
             return Ok((1, vec![]));
         }
 
         let mut pk_aff = blst::blst_p2_affine::default();
         let error_code =
-            unsafe { blst::blst_p2_deserialize(&mut pk_aff, item_data[BLS_BOOL_SIZE..].as_ptr()) };
+            unsafe { blst::blst_p2_deserialize(&mut pk_aff, point_data.as_ptr()) };
 
         if error_code != blst::BLST_ERROR::BLST_SUCCESS {
             return Ok((1, vec![]));
@@ -105,7 +111,7 @@ pub(super) fn p2_sum(data: &[u8]) -> Result<(u64, Vec<u8>)> {
             blst::blst_p2_from_affine(&mut pk, &pk_aff);
         }
 
-        let sign = item_data[0];
+        let sign = sign_data[0];
         if sign == 1 {
             unsafe {
                 blst::blst_p2_cneg(&mut pk, true);
@@ -150,13 +156,16 @@ pub(super) fn p1_multiexp(data: &[u8]) -> Result<(u64, Vec<u8>)> {
     let mut res_pk = blst::blst_p1::default();
 
     for item_data in data.chunks_exact(ITEM_SIZE) {
-        if item_data[0] & 0x80 != 0 {
+        let (point_data, scalar_data) = item_data.split_at(BLS_P1_SIZE);
+        debug_assert_eq!(scalar_data.len(), BLS_SCALAR_SIZE);
+
+        if point_data[0] & 0x80 != 0 {
             return Ok((1, vec![]));
         }
 
         let mut pk_aff = blst::blst_p1_affine::default();
         let error_code =
-            unsafe { blst::blst_p1_deserialize(&mut pk_aff, item_data[..BLS_P1_SIZE].as_ptr()) };
+            unsafe { blst::blst_p1_deserialize(&mut pk_aff, point_data.as_ptr()) };
 
         if error_code != blst::BLST_ERROR::BLST_SUCCESS {
             return Ok((1, vec![]));
@@ -172,7 +181,7 @@ pub(super) fn p1_multiexp(data: &[u8]) -> Result<(u64, Vec<u8>)> {
             blst::blst_p1_unchecked_mult(
                 &mut pk_mul,
                 &pk,
-                item_data[BLS_P1_SIZE..].as_ptr(),
+                scalar_data.as_ptr(),
                 BLS_SCALAR_SIZE * 8,
             );
         }
@@ -212,13 +221,16 @@ pub(super) fn p2_multiexp(data: &[u8]) -> Result<(u64, Vec<u8>)> {
 
     let mut res_pk = blst::blst_p2::default();
     for item_data in data.chunks_exact(ITEM_SIZE) {
-        if item_data[0] & 0x80 != 0 {
+        let (point_data, scalar_data) = item_data.split_at(BLS_P2_SIZE);
+        debug_assert_eq!(scalar_data.len(), BLS_SCALAR_SIZE);
+
+        if point_data[0] & 0x80 != 0 {
             return Ok((1, vec![]));
         }
 
         let mut pk_aff = blst::blst_p2_affine::default();
         let error_code =
-            unsafe { blst::blst_p2_deserialize(&mut pk_aff, item_data[0..BLS_P2_SIZE].as_ptr()) };
+            unsafe { blst::blst_p2_deserialize(&mut pk_aff, point_data.as_ptr()) };
 
         if error_code != blst::BLST_ERROR::BLST_SUCCESS {
             return Ok((1, vec![]));
@@ -234,7 +246,7 @@ pub(super) fn p2_multiexp(data: &[u8]) -> Result<(u64, Vec<u8>)> {
             blst::blst_p2_unchecked_mult(
                 &mut pk_mul,
                 &pk,
-                item_data[BLS_P2_SIZE..].as_ptr(),
+                scalar_data.as_ptr(),
                 BLS_SCALAR_SIZE * 8,
             );
         }
@@ -409,12 +421,15 @@ pub(super) fn pairing_check(data: &[u8]) -> Result<u64> {
         vec![blst::blst_p2_affine::default(); elements_count];
 
     for (item_data, i) in data.chunks_exact(ITEM_SIZE).zip(0..elements_count) {
-        if item_data[0] & 0x80 != 0 {
+        let (point1_data, point2_data) = item_data.split_at(BLS_P1_SIZE);
+        debug_assert_eq!(point2_data.len(), BLS_P2_SIZE);
+
+        if point1_data[0] & 0x80 != 0 {
             return Ok(1);
         }
 
         let error_code = unsafe {
-            blst::blst_p1_deserialize(&mut blst_g1_list[i], item_data[..BLS_P1_SIZE].as_ptr())
+            blst::blst_p1_deserialize(&mut blst_g1_list[i], point1_data.as_ptr())
         };
 
         if error_code != blst::BLST_ERROR::BLST_SUCCESS {
@@ -426,12 +441,12 @@ pub(super) fn pairing_check(data: &[u8]) -> Result<u64> {
             return Ok(1);
         }
 
-        if item_data[BLS_P1_SIZE] & 0x80 != 0 {
+        if point2_data[0] & 0x80 != 0 {
             return Ok(1);
         }
 
         let error_code = unsafe {
-            blst::blst_p2_deserialize(&mut blst_g2_list[i], item_data[BLS_P1_SIZE..].as_ptr())
+            blst::blst_p2_deserialize(&mut blst_g2_list[i], point2_data.as_ptr())
         };
         if error_code != blst::BLST_ERROR::BLST_SUCCESS {
             return Ok(1);
