@@ -3,7 +3,7 @@ use crate::config::{
 };
 use crate::ApplyState;
 use near_parameters::{ActionCosts, RuntimeConfig};
-use near_primitives::congestion_info::{CongestionInfo, CongestionInfoV1, ExtendedCongestionInfo};
+use near_primitives::congestion_info::{CongestionControl, CongestionInfo, CongestionInfoV1};
 use near_primitives::errors::{IntegerOverflowError, RuntimeError};
 use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::types::{EpochInfoProvider, Gas, ShardId};
@@ -36,7 +36,7 @@ pub(crate) struct ReceiptSinkV1<'a> {
 /// receiving shard and stopping us from sending more receipts to it than its
 /// nodes can keep in memory.
 pub(crate) struct ReceiptSinkV2<'a> {
-    pub(crate) congestion_info: &'a mut ExtendedCongestionInfo,
+    pub(crate) congestion_control: &'a mut CongestionControl,
     pub(crate) outgoing_receipts: &'a mut Vec<Receipt>,
     pub(crate) outgoing_limit: HashMap<ShardId, Gas>,
     pub(crate) outgoing_buffers: ShardsOutgoingReceiptBuffer,
@@ -52,10 +52,10 @@ impl<'a> ReceiptSink<'a> {
         protocol_version: ProtocolVersion,
         trie: &dyn TrieAccess,
         apply_state: &ApplyState,
-        congestion_info: &'a mut Option<ExtendedCongestionInfo>,
+        congestion_control: &'a mut Option<CongestionControl>,
         outgoing_receipts: &'a mut Vec<Receipt>,
     ) -> Result<Self, StorageError> {
-        if let Some(ref mut congestion_info) = congestion_info {
+        if let Some(ref mut congestion_control) = congestion_control {
             debug_assert!(ProtocolFeature::CongestionControl.enabled(protocol_version));
             let outgoing_buffers = ShardsOutgoingReceiptBuffer::load(trie)?;
 
@@ -63,12 +63,18 @@ impl<'a> ReceiptSink<'a> {
                 .congestion_info
                 .iter()
                 .map(|(&shard_id, congestion)| {
-                    (shard_id, congestion.outgoing_limit(apply_state.shard_id))
+                    let other_congestion_control = CongestionControl::new(
+                        congestion_control.config,
+                        congestion.congestion_info(),
+                        congestion.missed_chunks_count(),
+                    );
+
+                    (shard_id, other_congestion_control.outgoing_limit(apply_state.shard_id))
                 })
                 .collect();
 
             Ok(ReceiptSink::V2(ReceiptSinkV2 {
-                congestion_info: congestion_info,
+                congestion_control: congestion_control,
                 outgoing_receipts: outgoing_receipts,
                 outgoing_limit,
                 outgoing_buffers,
@@ -159,8 +165,8 @@ impl ReceiptSinkV2<'_> {
                 apply_state,
             )? {
                 ReceiptForwarding::Forwarded => {
-                    self.congestion_info.remove_receipt_bytes(bytes as u64)?;
-                    self.congestion_info.remove_buffered_receipt_gas(gas)?;
+                    self.congestion_control.info.remove_receipt_bytes(bytes as u64)?;
+                    self.congestion_control.info.remove_buffered_receipt_gas(gas)?;
                     // count how many to release later to avoid modifying
                     // `state_update` while iterating based on
                     // `state_update.trie`.
@@ -249,8 +255,8 @@ impl ReceiptSinkV2<'_> {
     ) -> Result<(), RuntimeError> {
         let bytes = receipt_size(&receipt)?;
         let gas = receipt_congestion_gas(&receipt, config)?;
-        self.congestion_info.add_receipt_bytes(bytes as u64)?;
-        self.congestion_info.add_buffered_receipt_gas(gas)?;
+        self.congestion_control.info.add_receipt_bytes(bytes as u64)?;
+        self.congestion_control.info.add_buffered_receipt_gas(gas)?;
         self.outgoing_buffers.to_shard(shard).push(state_update, &receipt)?;
         Ok(())
     }
@@ -347,14 +353,18 @@ pub fn compute_congestion_info(
         }
     }
 
-    let mut congestion_info = CongestionInfo::V1(CongestionInfoV1 {
+    let congestion_info = CongestionInfo::V1(CongestionInfoV1 {
         delayed_receipts_gas: delayed_receipts_gas as u128,
         buffered_receipts_gas: buffered_receipts_gas as u128,
         receipt_bytes,
         // will be overwritten in a moment
         allowed_shard: 0,
     });
-    congestion_info.finalize_allowed_shard(shard_id, other_shard_ids, congestion_seed);
+    // For the purpose of calculating the allowed shard set the missed chunks
+    // count to zero. It is ignored anyway.
+    let mut congestion_control =
+        CongestionControl::new(config.congestion_control_config, congestion_info, 0);
+    congestion_control.finalize_allowed_shard(shard_id, other_shard_ids, congestion_seed);
 
     Ok(congestion_info)
 }

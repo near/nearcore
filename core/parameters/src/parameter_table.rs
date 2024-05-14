@@ -1,4 +1,5 @@
 use super::config::{AccountCreationConfig, RuntimeConfig};
+use crate::config::CongestionControlConfig;
 use crate::cost::{
     ActionCosts, ExtCostsConfig, Fee, ParameterCost, RuntimeFeesConfig, StorageUsageConfig,
 };
@@ -333,6 +334,8 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 registrar_account_id: params.get(Parameter::RegistrarAccountId)?,
             },
             storage_proof_size_soft_limit: params.get(Parameter::StorageProofSizeSoftLimit)?,
+            // TODO(congestion_control) - Implement congestion control config in runtime.
+            congestion_control_config: CongestionControlConfig::default(),
         })
     }
 }

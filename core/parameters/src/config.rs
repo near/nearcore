@@ -3,7 +3,7 @@ use crate::config_store::INITIAL_TESTNET_CONFIG;
 use crate::cost::RuntimeFeesConfig;
 use crate::parameter_table::ParameterTable;
 use near_account_id::AccountId;
-use near_primitives_core::types::Balance;
+use near_primitives_core::types::{Balance, Gas};
 use near_primitives_core::version::PROTOCOL_VERSION;
 
 use super::parameter_table::InvalidConfigError;
@@ -13,7 +13,7 @@ use super::parameter_table::InvalidConfigError;
 pub const TEST_CONFIG_YIELD_TIMEOUT_LENGTH: u64 = 10;
 
 /// The structure that holds the parameters of the runtime, mostly economics.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RuntimeConfig {
     /// Action gas costs, storage fees, and economic constants around them.
     ///
@@ -29,6 +29,8 @@ pub struct RuntimeConfig {
     pub account_creation_config: AccountCreationConfig,
     /// The maximum size of the storage proof in state witness after which we defer execution of any new receipts.
     pub storage_proof_size_soft_limit: usize,
+
+    pub congestion_control_config: CongestionControlConfig,
 }
 
 impl RuntimeConfig {
@@ -55,6 +57,7 @@ impl RuntimeConfig {
             wasm_config,
             account_creation_config: AccountCreationConfig::default(),
             storage_proof_size_soft_limit: usize::MAX,
+            congestion_control_config: CongestionControlConfig::default(),
         }
     }
 
@@ -68,6 +71,7 @@ impl RuntimeConfig {
             wasm_config,
             account_creation_config: AccountCreationConfig::default(),
             storage_proof_size_soft_limit: usize::MAX,
+            congestion_control_config: CongestionControlConfig::default(),
         }
     }
 
@@ -94,3 +98,109 @@ impl Default for AccountCreationConfig {
         }
     }
 }
+
+const PGAS: Gas = 10u64.pow(15);
+const TGAS: Gas = 10u64.pow(12);
+
+/// The configuration for congestion control.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct CongestionControlConfig {
+    /// How much gas in delayed receipts of a shard is 100% incoming congestion.
+    ///
+    /// Based on incoming congestion levels, a shard reduces the gas it spends on
+    /// accepting new transactions instead of working on incoming receipts. Plus,
+    /// incoming congestion contributes to overall congestion, which reduces how
+    /// much other shards are allowed to forward to this shard.
+    pub max_congestion_incoming_gas: Gas,
+
+    /// How much gas in outgoing buffered receipts of a shard is 100% congested.
+    ///
+    /// Outgoing congestion contributes to overall congestion, which reduces how
+    /// much other shards are allowed to forward to this shard.
+    pub max_congestion_outgoing_gas: Gas,
+
+    /// How much memory space of all delayed and buffered receipts in a shard is
+    /// considered 100% congested.
+    ///
+    /// Memory congestion contributes to overall congestion, which reduces how much
+    /// other shards are allowed to forward to this shard.
+    ///
+    /// This threshold limits memory requirements of validators to a degree but it
+    /// is not a hard guarantee.
+    pub max_congestion_memory_consumption: u64,
+
+    /// How many missed chunks in a row in a shard is considered 100% congested.
+    /// TODO(congestion_control) - find a good limit for missed chunks.
+    pub max_congestion_missed_chunks: u64,
+
+    /// The maximum amount of gas attached to receipts a shard can forward to
+    /// another shard per chunk.
+    ///
+    /// The actual gas forwarding allowance is a linear interpolation between
+    /// [`MIN_OUTGOING_GAS`] and [`MAX_OUTGOING_GAS`], or 0 if the receiver is
+    /// fully congested.
+    pub max_outgoing_gas: Gas,
+
+    /// The minimum gas each shard can send to a shard that is not fully congested.
+    ///
+    /// The actual gas forwarding allowance is a linear interpolation between
+    /// [`MIN_OUTGOING_GAS`] and [`MAX_OUTGOING_GAS`], or 0 if the receiver is
+    /// fully congested.
+    pub min_outgoing_gas: Gas,
+
+    /// How much gas the chosen allowed shard can send to a 100% congested shard.
+    ///
+    /// This amount is the absolute minimum of new workload a congested shard has to
+    /// accept every round. It ensures deadlocks are provably impossible. But in
+    /// ideal conditions, the gradual reduction of new workload entering the system
+    /// combined with gradually limited forwarding to congested shards should
+    /// prevent shards from becoming 100% congested in the first place.
+    pub red_gas: Gas,
+
+    /// The maximum amount of gas in a chunk spent on converting new transactions to
+    /// receipts.
+    ///
+    /// The actual gas forwarding allowance is a linear interpolation between
+    /// [`MIN_TX_GAS`] and [`MAX_TX_GAS`], based on the incoming congestion of the
+    /// local shard. Additionally, transactions can be rejected if the receiving
+    /// remote shard is congested more than [`REJECT_TX_CONGESTION_THRESHOLD`] based
+    /// on their general congestion level.
+    pub max_tx_gas: Gas,
+
+    /// The minimum amount of gas in a chunk spent on converting new transactions
+    /// to receipts, as long as the receiving shard is not congested.
+    ///
+    /// The actual gas forwarding allowance is a linear interpolation between
+    /// [`MIN_TX_GAS`] and [`MAX_TX_GAS`], based on the incoming congestion of the
+    /// local shard. Additionally, transactions can be rejected if the receiving
+    /// remote shard is congested more than [`REJECT_TX_CONGESTION_THRESHOLD`] based
+    /// on their general congestion level.
+    pub min_tx_gas: Gas,
+
+    /// How much congestion a shard can tolerate before it stops all shards from
+    /// accepting new transactions with the receiver set to the congested shard.
+    pub reject_tx_congestion_threshold: f64,
+}
+
+// The following default constants have been defined in
+// [NEP-539](https://github.com/near/NEPs/pull/539) after extensive fine-tuning
+// and discussions.
+
+impl Default for CongestionControlConfig {
+    fn default() -> Self {
+        Self {
+            max_congestion_incoming_gas: 20 * PGAS,
+            max_congestion_outgoing_gas: 2 * PGAS,
+            max_congestion_memory_consumption: bytesize::ByteSize::mb(1000u64).0,
+            max_congestion_missed_chunks: 10,
+            max_outgoing_gas: 300 * PGAS,
+            min_outgoing_gas: 1 * PGAS,
+            red_gas: 1 * PGAS,
+            max_tx_gas: 500 * TGAS,
+            min_tx_gas: 20 * TGAS,
+            reject_tx_congestion_threshold: 0.25,
+        }
+    }
+}
+
+impl Eq for CongestionControlConfig {}

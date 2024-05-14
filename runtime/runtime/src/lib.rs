@@ -17,7 +17,7 @@ use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
 use near_primitives::account::Account;
 use near_primitives::checked_feature;
-use near_primitives::congestion_info::{CongestionInfo, ExtendedCongestionInfo};
+use near_primitives::congestion_info::{CongestionControl, CongestionInfo, ExtendedCongestionInfo};
 use near_primitives::errors::{
     ActionError, ActionErrorKind, ContextError, IntegerOverflowError, RuntimeError,
     TxExecutionError,
@@ -1381,6 +1381,16 @@ impl Runtime {
 
         let mut delayed_receipts = DelayedReceiptQueue::load(&state_update)?;
         let mut congestion_info = apply_state.own_congestion_info(protocol_version)?;
+        let mut congestion_control = if let Some(congestion_info) = &mut congestion_info {
+            let congestion_control = CongestionControl::new(
+                apply_state.config.congestion_control_config.clone(),
+                congestion_info.congestion_info(),
+                congestion_info.missed_chunks_count(),
+            );
+            Some(congestion_control)
+        } else {
+            None
+        };
 
         if !apply_state.is_new_chunk
             && protocol_version >= ProtocolFeature::FixApplyChunks.protocol_version()
@@ -1416,7 +1426,7 @@ impl Runtime {
             protocol_version,
             &state_update.trie,
             apply_state,
-            &mut congestion_info,
+            &mut congestion_control,
             &mut outgoing_receipts,
         )?;
 
@@ -1734,15 +1744,16 @@ impl Runtime {
 
         // Congestion info needs a final touch to select an allowed shard if
         // this shard is fully congested.
-        if let Some(congestion_info) = &mut congestion_info {
-            congestion_info.finalize_allowed_shard(
+        if let Some(congestion_control) = &mut congestion_control {
+            let other_shards = apply_state
+                .congestion_info
+                .keys()
+                .filter(|&&id| id != apply_state.shard_id)
+                .copied()
+                .collect::<Vec<_>>();
+            congestion_control.finalize_allowed_shard(
                 apply_state.shard_id,
-                &apply_state
-                    .congestion_info
-                    .keys()
-                    .filter(|&&id| id != apply_state.shard_id)
-                    .copied()
-                    .collect::<Vec<_>>(),
+                &other_shards,
                 apply_state.block_height,
             );
         }
@@ -3169,7 +3180,7 @@ pub mod estimator {
     use super::{ReceiptSink, Runtime};
     use crate::congestion_control::ReceiptSinkV2;
     use crate::{ApplyState, ApplyStats};
-    use near_primitives::congestion_info::ExtendedCongestionInfo;
+    use near_primitives::congestion_info::CongestionControl;
     use near_primitives::errors::RuntimeError;
     use near_primitives::receipt::Receipt;
     use near_primitives::transaction::ExecutionOutcomeWithId;
@@ -3191,12 +3202,12 @@ pub mod estimator {
         // For the estimator, create a limitless receipt sink that always
         // forwards. This captures congestion accounting overhead but does not
         // create unexpected congestion in estimations.
-        let mut congestion_info = ExtendedCongestionInfo::default();
+        let mut congestion_control = CongestionControl::default();
         // no limits set for any shards => limitless
         let outgoing_limit = HashMap::new();
 
         let mut receipt_sink = ReceiptSink::V2(ReceiptSinkV2 {
-            congestion_info: &mut congestion_info,
+            congestion_control: &mut congestion_control,
             outgoing_limit: outgoing_limit,
             outgoing_buffers: ShardsOutgoingReceiptBuffer::load(&state_update.trie)?,
             outgoing_receipts,
