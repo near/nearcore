@@ -80,6 +80,7 @@ pub struct ReceiptV1 {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
 pub enum Receipt {
     V0(ReceiptV0),
     V1(ReceiptV1),
