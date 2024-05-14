@@ -398,11 +398,11 @@ jobs:
       - run: diff-cover --compare-branch=origin/master --html-report coverage/html/${{matrix.type}}-diff.html coverage/lcov/${{matrix.type}}.lcov
       - uses: actions/upload-artifact@v4
         with:
-          name: coverage-lcov-${{ matrix.name }}
+          name: coverage-lcov-${{ matrix.type }}
           path: coverage/lcov
       - uses: actions/upload-artifact@v4
         with:
-          name: coverage-html-${{ matrix.name }}
+          name: coverage-html-${{ matrix.type }}
           path: coverage/html
 
   upload_coverage:
