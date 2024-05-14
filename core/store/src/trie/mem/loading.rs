@@ -21,7 +21,7 @@ use std::thread;
 use std::time::Instant;
 use tracing::{debug, info};
 
-const MEMORY_USAGE_THRESHOLD_FOR_PARALLEL_COMPUTE_HASH: u64 = 512;
+const MEMORY_USAGE_THRESHOLD_FOR_PARALLEL_COMPUTE_HASH: u64 = 1024 * 1024;
 
 /// Loads a trie from the FlatState column. The returned `MemTries` contains
 /// exactly one trie root.
@@ -166,11 +166,6 @@ pub fn load_trie_from_flat_state(
             "Loaded {} keys; computed hash for {} subtrees; finalizing hashes...",
             num_keys_loaded, num_subtrees
         );
-        // let mut subtrees = Vec::new();
-        // root_id.as_ptr_mut(arena.memory_mut()).take_small_subtrees(MEMORY_USAGE_THRESHOLD_FOR_PARALLEL_COMPUTE_HASH, &mut subtrees);
-        // subtrees.into_par_iter().for_each(|mut subtree| {
-        //     subtree.compute_hash_recursively();
-        // });
         root_id.as_ptr_mut(arena.memory_mut()).compute_hash_recursively();
         info!(target: "memtrie", shard_uid=%shard_uid, "Done loading trie from flat state, took {:?}", load_start.elapsed());
 
@@ -265,7 +260,7 @@ pub fn load_trie_from_flat_state_and_delta(
                 apply_memtrie_changes(&mut mem_tries, &mem_trie_changes, height);
             assert_eq!(new_root_after_apply, new_state_root);
         }
-        debug!(target: "memtrie", %shard_uid, "Applied memtrie changes for height {}", height);
+        // DO NOT SUBMIT: debug!(target: "memtrie", %shard_uid, "Applied memtrie changes for height {}", height);
     }
 
     debug!(target: "memtrie", %shard_uid, "Done loading memtries for shard");

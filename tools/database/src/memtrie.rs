@@ -2,6 +2,8 @@ use crate::utils::open_rocksdb;
 use anyhow::Context;
 use near_chain::types::RuntimeAdapter;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
+use near_o11y::default_subscriber;
+use near_o11y::env_filter::EnvFilterBuilder;
 use near_primitives::block::Tip;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::types::ShardId;
@@ -18,10 +20,12 @@ pub struct LoadMemTrieCommand {
     shard_id: Option<Vec<ShardId>>,
 }
 
-/// RUST_LOG=info ./target/debug/neard --home /home/elmas/.near/localnet/node0/ database load-mem-trie --shard-id 0,1,2
+/// cargo run -p neard --profile dev-release -- --home /home/elmas/.near/localnet/node0/ database load-mem-trie --shard-id 0,1,2
 
 impl LoadMemTrieCommand {
     pub fn run(&self, home: &Path) -> anyhow::Result<()> {
+        let env_filter = EnvFilterBuilder::from_env().verbose(Some("memtrie")).finish()?;
+        let _subscriber = default_subscriber(env_filter, &Default::default()).global();
         let mut near_config = nearcore::config::load_config(
             &home,
             near_chain_configs::GenesisValidationMode::UnsafeFast,

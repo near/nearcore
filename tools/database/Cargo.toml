@@ -23,6 +23,7 @@ strum.workspace = true
 tempfile.workspace = true
 
 nearcore.workspace = true
+near-o11y.workspace = true
 near-epoch-manager.workspace = true
 near-chain.workspace = true
 near-chain-configs.workspace = true
