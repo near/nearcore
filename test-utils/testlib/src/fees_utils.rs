@@ -1,8 +1,10 @@
 //! Helper functions to compute the costs of certain actions assuming they succeed and the only
 //! actions in the transaction batch.
 use near_parameters::{ActionCosts, RuntimeConfig, RuntimeFeesConfig};
+use near_primitives::checked_feature;
 use near_primitives::transaction::Action;
 use near_primitives::types::{AccountId, Balance, Gas};
+use near_primitives::version::PROTOCOL_VERSION;
 
 pub struct FeeHelper {
     pub rt_cfg: RuntimeConfig,
@@ -19,9 +21,14 @@ impl FeeHelper {
     }
 
     pub fn gas_to_balance_inflated(&self, gas: Gas) -> Balance {
-        gas as Balance
-            * (self.gas_price * (*self.cfg().pessimistic_gas_price_inflation_ratio.numer() as u128)
-                / (*self.cfg().pessimistic_gas_price_inflation_ratio.denom() as u128))
+        if checked_feature!("nightly_protocol", GasPriceRefundAdjustment, PROTOCOL_VERSION) {
+            self.gas_to_balance(gas)
+        } else {
+            gas as Balance
+                * (self.gas_price
+                    * (*self.cfg().pessimistic_gas_price_inflation_ratio.numer() as u128)
+                    / (*self.cfg().pessimistic_gas_price_inflation_ratio.denom() as u128))
+        }
     }
 
     pub fn gas_to_balance(&self, gas: Gas) -> Balance {
@@ -90,14 +97,26 @@ impl FeeHelper {
         self.gas_to_balance(send_gas) + self.gas_to_balance_inflated(exec_gas)
     }
 
-    pub fn create_account_transfer_full_key_cost_fail_on_create_account(&self) -> Balance {
+    pub fn create_account_transfer_full_key_cost_fail_on_create_account(
+        &self,
+        extra_exec_cost: Gas,
+    ) -> Balance {
         let exec_gas = self.cfg().fee(ActionCosts::new_action_receipt).exec_fee()
             + self.cfg().fee(ActionCosts::create_account).exec_fee();
         let send_gas = self.cfg().fee(ActionCosts::new_action_receipt).send_fee(false)
             + self.cfg().fee(ActionCosts::create_account).send_fee(false)
             + self.cfg().fee(ActionCosts::transfer).send_fee(false)
             + self.cfg().fee(ActionCosts::add_full_access_key).send_fee(false);
-        self.gas_to_balance(exec_gas + send_gas)
+        let gas_refund_fee =
+            if checked_feature!("nightly_protocol", GasPriceRefundAdjustment, PROTOCOL_VERSION) {
+                let refund_gas = self.cfg().fee(ActionCosts::transfer).exec_fee()
+                    + self.cfg().fee(ActionCosts::add_full_access_key).exec_fee()
+                    + extra_exec_cost;
+                std::cmp::min(refund_gas, self.cfg().gas_penalty_for_gas_refund(refund_gas))
+            } else {
+                0
+            };
+        self.gas_to_balance(exec_gas + send_gas + gas_refund_fee)
     }
 
     pub fn deploy_contract_cost(&self, num_bytes: u64) -> Balance {

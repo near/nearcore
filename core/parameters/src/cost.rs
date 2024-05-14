@@ -488,6 +488,31 @@ impl RuntimeFeesConfig {
         self.fee(ActionCosts::new_action_receipt).min_send_and_exec_fee()
             + self.fee(ActionCosts::function_call_base).min_send_and_exec_fee()
     }
+
+    pub fn gas_refund_send_fee(&self) -> Gas {
+        self.fee(ActionCosts::new_action_receipt).send_fee(false)
+            + self.fee(ActionCosts::transfer).send_fee(false)
+            + self.fee(ActionCosts::add_function_call_key_base).send_fee(false)
+    }
+
+    pub fn gas_refund_exec_fee(&self) -> Gas {
+        self.fee(ActionCosts::new_action_receipt).exec_fee()
+            + self.fee(ActionCosts::transfer).exec_fee()
+            + self.fee(ActionCosts::add_function_call_key_base).exec_fee()
+    }
+
+    /// Penalty for the large gas refunds. Use 5% based on https://github.com/near/NEPs/pull/536
+    pub fn gas_penalty_for_gas_refund(&self, gas_refund: Gas) -> Gas {
+        if self.gas_refund_send_fee() > 0 {
+            std::cmp::max(
+                (u128::from(gas_refund) * 5 / 100) as Gas,
+                self.gas_refund_send_fee() + self.gas_refund_exec_fee(),
+            )
+        } else {
+            // To account for free config
+            0
+        }
+    }
 }
 
 impl StorageUsageConfig {
@@ -563,4 +588,31 @@ pub fn transfer_send_fee(
                 + cfg.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver)
         }
     }
+}
+
+pub fn transfer_send_and_exec_fee(
+    cfg: &RuntimeFeesConfig,
+    sender_is_receiver: bool,
+    implicit_account_creation_allowed: bool,
+    eth_implicit_accounts_enabled: bool,
+    receiver_account_type: AccountType,
+) -> Gas {
+    // TODO: Add `Copy` to `AccountType`.
+    let copy_of_receiver_account_type = match &receiver_account_type {
+        AccountType::NamedAccount => AccountType::NamedAccount,
+        AccountType::NearImplicitAccount => AccountType::NearImplicitAccount,
+        AccountType::EthImplicitAccount => AccountType::EthImplicitAccount,
+    };
+    transfer_send_fee(
+        cfg,
+        sender_is_receiver,
+        implicit_account_creation_allowed,
+        eth_implicit_accounts_enabled,
+        receiver_account_type,
+    ) + transfer_exec_fee(
+        cfg,
+        implicit_account_creation_allowed,
+        eth_implicit_accounts_enabled,
+        copy_of_receiver_account_type,
+    )
 }

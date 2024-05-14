@@ -159,6 +159,9 @@ pub enum ProtocolFeature {
     CongestionControl,
     // Stateless validation: Distribute state witness as reed solomon encoded parts
     PartialEncodedStateWitness,
+    // Disable gas price refunds and require some amount of gas for refunds.
+    #[cfg(feature = "protocol_feature_gas_price_refund_adjustment_nep536")]
+    GasPriceRefundAdjustment,
 }
 
 impl ProtocolFeature {
@@ -236,6 +239,8 @@ impl ProtocolFeature {
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
+            #[cfg(feature = "protocol_feature_gas_price_refund_adjustment_nep536")]
+            ProtocolFeature::GasPriceRefundAdjustment => 144,
         }
     }
 
@@ -255,7 +260,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "statelessnet_pr
     86
 } else if cfg!(feature = "nightly_protocol") {
     // On nightly, pick big enough version to support all features.
-    143
+    144
 } else {
     // Enable all stable features.
     STABLE_PROTOCOL_VERSION

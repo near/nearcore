@@ -151,6 +151,15 @@ pub struct VerificationResult {
     pub burnt_amount: Balance,
 }
 
+/// The result from refund receipts generation.
+#[derive(Debug)]
+pub struct RefundResult {
+    /// The amount of tokens burnt based on gas price difference and for the gas refund receipt.
+    pub extra_tx_burnt_amount: Balance,
+    /// The deficit of amount due to the difference in the gas prices.
+    pub gas_deficit_amount: Balance,
+}
+
 #[derive(Debug, Default)]
 pub struct ApplyStats {
     pub tx_burnt_amount: Balance,
@@ -658,13 +667,13 @@ impl Runtime {
                     Err(StorageStakingError::StorageError(err)) => {
                         return Err(RuntimeError::StorageError(
                             StorageError::StorageInconsistentState(err),
-                        ))
+                        ));
                     }
                 }
             }
         }
 
-        let gas_deficit_amount = if receipt.predecessor_id.is_system() {
+        let refund_result = if receipt.predecessor_id.is_system() {
             // We will set gas_burnt for refund receipts to be 0 when we calculate tx_burnt_amount
             // Here we don't set result.gas_burnt to be zero if CountRefundReceiptsInGasLimit is
             // enabled because we want it to be counted in gas limit calculation later
@@ -676,6 +685,29 @@ impl Runtime {
                 result.gas_burnt = 0;
                 result.compute_usage = 0;
                 result.gas_used = 0;
+            } else {
+                // Since refund receipts can't create implicit account, the execution cost of such
+                // receipts not include the implicit account creation cost.
+                if checked_feature!(
+                    "nightly_protocol",
+                    GasPriceRefundAdjustment,
+                    apply_state.current_protocol_version
+                ) {
+                    let mut gas_refund_cost =
+                        apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee()
+                            + apply_state.config.fees.fee(ActionCosts::transfer).exec_fee();
+                    // Gas refund receipt touches the function call key to refund the allowance.
+                    if action_receipt.signer_id == receipt.receiver_id {
+                        gas_refund_cost += apply_state
+                            .config
+                            .fees
+                            .fee(ActionCosts::add_function_call_key_base)
+                            .exec_fee();
+                    }
+                    result.gas_burnt = gas_refund_cost;
+                    result.compute_usage = gas_refund_cost;
+                    result.gas_used = gas_refund_cost;
+                }
             }
 
             // If the refund fails tokens are burned.
@@ -685,18 +717,13 @@ impl Runtime {
                     total_deposit(&action_receipt.actions)?,
                 )?
             }
-            0
+            RefundResult { extra_tx_burnt_amount: 0, gas_deficit_amount: 0 }
         } else {
             // Calculating and generating refunds
-            self.generate_refund_receipts(
-                apply_state.gas_price,
-                receipt,
-                action_receipt,
-                &mut result,
-                &apply_state.config,
-            )?
+            self.generate_refund_receipts(receipt, action_receipt, &mut result, &apply_state)?
         };
-        stats.gas_deficit_amount = safe_add_balance(stats.gas_deficit_amount, gas_deficit_amount)?;
+        stats.gas_deficit_amount =
+            safe_add_balance(stats.gas_deficit_amount, refund_result.gas_deficit_amount)?;
 
         // Moving validator proposals
         validator_proposals.append(&mut result.validator_proposals);
@@ -721,9 +748,11 @@ impl Runtime {
 
         // If the receipt is a refund, then we consider it free without burnt gas.
         let gas_burnt: Gas = if receipt.predecessor_id.is_system() { 0 } else { result.gas_burnt };
-        // `gas_deficit_amount` is strictly less than `gas_price * gas_burnt`.
-        let mut tx_burnt_amount =
-            safe_gas_to_balance(apply_state.gas_price, gas_burnt)? - gas_deficit_amount;
+        // `gas_deficit_amount` is less than `gas_price * gas_burnt + extra_tx_burnt_amount`.
+        let mut tx_burnt_amount = safe_add_balance(
+            safe_gas_to_balance(apply_state.gas_price, gas_burnt)?,
+            refund_result.extra_tx_burnt_amount,
+        )? - refund_result.gas_deficit_amount;
         // The amount of tokens burnt for the execution of this receipt. It's used in the execution
         // outcome.
         let tokens_burnt = tx_burnt_amount;
@@ -735,7 +764,7 @@ impl Runtime {
         // The balance that the current account should receive as a reward for function call
         // execution.
         let receiver_reward = safe_gas_to_balance(apply_state.gas_price, receiver_gas_reward)?
-            .saturating_sub(gas_deficit_amount);
+            .saturating_sub(refund_result.gas_deficit_amount);
         if receiver_reward > 0 {
             let mut account = get_account(state_update, account_id)?;
             if let Some(ref mut account) = account {
@@ -864,12 +893,16 @@ impl Runtime {
 
     fn generate_refund_receipts(
         &self,
-        current_gas_price: Balance,
         receipt: &Receipt,
         action_receipt: &ActionReceipt,
         result: &mut ActionResult,
-        config: &RuntimeConfig,
-    ) -> Result<Balance, RuntimeError> {
+        apply_state: &ApplyState,
+    ) -> Result<RefundResult, RuntimeError> {
+        let config = &apply_state.config;
+        let protocol_version = apply_state.current_protocol_version;
+        let current_gas_price = apply_state.gas_price;
+        let mut refund_result = RefundResult { extra_tx_burnt_amount: 0, gas_deficit_amount: 0 };
+
         let total_deposit = total_deposit(&action_receipt.actions)?;
         let prepaid_gas = safe_add_gas(
             total_prepaid_gas(&action_receipt.actions)?,
@@ -880,39 +913,58 @@ impl Runtime {
             config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
         )?;
         let deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
-        let gas_refund = if result.result.is_err() {
-            safe_add_gas(prepaid_gas, prepaid_exec_gas)? - result.gas_burnt
+        let total_prepaid_gas = safe_add_gas(prepaid_gas, prepaid_exec_gas)?;
+        let mut gas_refund = if result.result.is_err() {
+            total_prepaid_gas - result.gas_burnt
         } else {
-            safe_add_gas(prepaid_gas, prepaid_exec_gas)? - result.gas_used
+            total_prepaid_gas - result.gas_used
         };
+        let gas_penalty_for_gas_refund =
+            if checked_feature!("nightly_protocol", GasPriceRefundAdjustment, protocol_version) {
+                config.fees.gas_penalty_for_gas_refund(gas_refund)
+            } else {
+                0
+            };
+        // The gas cost for the gas refund receipt, even if it's not enough to cover it.
+        let gas_for_gas_refund = std::cmp::min(gas_refund, gas_penalty_for_gas_refund);
+        gas_refund -= gas_for_gas_refund;
+        refund_result.extra_tx_burnt_amount =
+            safe_gas_to_balance(current_gas_price, gas_for_gas_refund)?;
+        let gas_burnt_with_gas_refund = result.gas_burnt + gas_for_gas_refund;
+
         // Refund for the unused portion of the gas at the price at which this gas was purchased.
         let mut gas_balance_refund = safe_gas_to_balance(action_receipt.gas_price, gas_refund)?;
-        let mut gas_deficit_amount = 0;
         if current_gas_price > action_receipt.gas_price {
             // In a rare scenario, when the current gas price is higher than the purchased gas
             // price, the difference is subtracted from the refund. If the refund doesn't have
             // enough balance to cover the difference, then the remaining balance is considered
             // the deficit and it's reported in the stats for the balance checker.
-            gas_deficit_amount = safe_gas_to_balance(
+            refund_result.gas_deficit_amount = safe_gas_to_balance(
                 current_gas_price - action_receipt.gas_price,
-                result.gas_burnt,
+                gas_burnt_with_gas_refund,
             )?;
-            if gas_balance_refund >= gas_deficit_amount {
-                gas_balance_refund -= gas_deficit_amount;
-                gas_deficit_amount = 0;
+            if gas_balance_refund >= refund_result.gas_deficit_amount {
+                gas_balance_refund -= refund_result.gas_deficit_amount;
+                refund_result.gas_deficit_amount = 0;
             } else {
-                gas_deficit_amount -= gas_balance_refund;
+                refund_result.gas_deficit_amount -= gas_balance_refund;
                 gas_balance_refund = 0;
             }
         } else {
-            // Refund for the difference of the purchased gas price and the current gas price.
-            gas_balance_refund = safe_add_balance(
-                gas_balance_refund,
-                safe_gas_to_balance(
-                    action_receipt.gas_price - current_gas_price,
-                    result.gas_burnt,
-                )?,
+            let gas_price_difference_amount = safe_gas_to_balance(
+                action_receipt.gas_price - current_gas_price,
+                gas_burnt_with_gas_refund,
             )?;
+            if checked_feature!("nightly_protocol", GasPriceRefundAdjustment, protocol_version) {
+                refund_result.extra_tx_burnt_amount = safe_add_balance(
+                    refund_result.extra_tx_burnt_amount,
+                    gas_price_difference_amount,
+                )?;
+            } else {
+                // Refund for the difference of the purchased gas price and the current gas price.
+                gas_balance_refund =
+                    safe_add_balance(gas_balance_refund, gas_price_difference_amount)?;
+            }
         }
 
         if deposit_refund > 0 {
@@ -920,7 +972,21 @@ impl Runtime {
                 .new_receipts
                 .push(Receipt::new_balance_refund(&receipt.predecessor_id, deposit_refund));
         }
+
         if gas_balance_refund > 0 {
+            if checked_feature!("nightly_protocol", GasPriceRefundAdjustment, protocol_version) {
+                // Charging for gas refund receipt. Send fee is burnt now, exec will be burnt at the
+                // refund time.
+                let burn_gas_fee = config.fees.gas_refund_send_fee();
+                result.gas_burnt += burn_gas_fee;
+                result.gas_used += burn_gas_fee + config.fees.gas_refund_exec_fee();
+                result.compute_usage += burn_gas_fee;
+                let cost = safe_gas_to_balance(current_gas_price, burn_gas_fee)?;
+                // The cost should be smaller than the extra_tx_burnt_amount, because the
+                // burn_gas_fee is smaller than the gas_for_gas_refund.
+                refund_result.extra_tx_burnt_amount -= cost;
+            }
+
             // Gas refunds refund the allowance of the access key, so if the key exists on the
             // account it will increase the allowance by the refund amount.
             result.new_receipts.push(Receipt::new_gas_refund(
@@ -929,7 +995,7 @@ impl Runtime {
                 action_receipt.signer_public_key.clone(),
             ));
         }
-        Ok(gas_deficit_amount)
+        Ok(refund_result)
     }
 
     fn process_receipt(
@@ -2425,19 +2491,19 @@ mod tests {
                     PROTOCOL_VERSION,
                     &local_transactions[0],
                     &apply_state.prev_block_hash,
-                    &apply_state.block_hash
+                    &apply_state.block_hash,
                 ), // receipt for tx 0
                 create_receipt_id_from_transaction(
                     PROTOCOL_VERSION,
                     &local_transactions[1],
                     &apply_state.prev_block_hash,
-                    &apply_state.block_hash
+                    &apply_state.block_hash,
                 ), // receipt for tx 1
                 create_receipt_id_from_transaction(
                     PROTOCOL_VERSION,
                     &local_transactions[2],
                     &apply_state.prev_block_hash,
-                    &apply_state.block_hash
+                    &apply_state.block_hash,
                 ), // receipt for tx 2
             ],
             "STEP #1 failed",
@@ -2654,6 +2720,12 @@ mod tests {
             total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap(),
         )
         .unwrap();
+        let gas_penalty_for_gas_refund =
+            if checked_feature!("nightly_protocol", GasPriceRefundAdjustment, PROTOCOL_VERSION) {
+                apply_state.config.fees.gas_penalty_for_gas_refund(gas)
+            } else {
+                0
+            };
         let receipts = vec![Receipt {
             predecessor_id: bob_account(),
             receiver_id: alice_account(),
@@ -2668,7 +2740,8 @@ mod tests {
             }),
         }];
         let total_receipt_cost = Balance::from(gas + expected_gas_burnt) * gas_price;
-        let expected_gas_burnt_amount = Balance::from(expected_gas_burnt) * GAS_PRICE;
+        let expected_gas_burnt_amount =
+            Balance::from(expected_gas_burnt + gas_penalty_for_gas_refund) * GAS_PRICE;
         let expected_refund = total_receipt_cost - expected_gas_burnt_amount;
 
         let result = runtime
@@ -2687,9 +2760,11 @@ mod tests {
         // The refund is less than the received amount.
         match &result.outgoing_receipts[0].receipt {
             ReceiptEnum::Action(ActionReceipt { actions, .. }) => {
-                assert!(
-                    matches!(actions[0], Action::Transfer(TransferAction { deposit }) if deposit == expected_refund)
-                );
+                if let Action::Transfer(TransferAction { deposit }) = &actions[0] {
+                    assert_eq!(*deposit, expected_refund);
+                } else {
+                    panic!("Expected Transfer action");
+                }
             }
             _ => unreachable!(),
         };
@@ -2717,6 +2792,12 @@ mod tests {
             total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap(),
         )
         .unwrap();
+        let gas_penalty_for_gas_refund =
+            if checked_feature!("nightly_protocol", GasPriceRefundAdjustment, PROTOCOL_VERSION) {
+                std::cmp::min(gas, apply_state.config.fees.gas_penalty_for_gas_refund(gas))
+            } else {
+                0
+            };
         let receipts = vec![Receipt {
             predecessor_id: bob_account(),
             receiver_id: alice_account(),
@@ -2731,7 +2812,8 @@ mod tests {
             }),
         }];
         let total_receipt_cost = Balance::from(gas + expected_gas_burnt) * gas_price;
-        let expected_gas_burnt_amount = Balance::from(expected_gas_burnt) * GAS_PRICE;
+        let expected_gas_burnt_amount =
+            Balance::from(expected_gas_burnt + gas_penalty_for_gas_refund) * GAS_PRICE;
         let expected_deficit = expected_gas_burnt_amount - total_receipt_cost;
 
         let result = runtime
