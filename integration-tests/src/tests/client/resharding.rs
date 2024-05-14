@@ -1605,6 +1605,7 @@ fn generate_yield_create_tx(
             deposit: 0,
         }))],
         *block_hash,
+        0,
     )
 }
 
@@ -1633,6 +1634,7 @@ fn setup_test_env_with_promise_yield_txs(
             &signer,
             actions,
             genesis_hash,
+            0,
         );
         init_txs.push(init_tx);
     }

@@ -563,7 +563,8 @@
         "InvalidChain",
         "Expired",
         "ActionsValidation",
-        "TransactionSizeExceeded"
+        "TransactionSizeExceeded",
+        "InvalidTransactionVersion"
       ],
       "props": {}
     },
