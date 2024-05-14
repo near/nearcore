@@ -547,6 +547,11 @@
         "account_id": ""
       }
     },
+    "InvalidTransactionVersion": {
+      "name": "InvalidTransactionVersion",
+      "subtypes": [],
+      "props": {}
+    },
     "InvalidTxError": {
       "name": "InvalidTxError",
       "subtypes": [
