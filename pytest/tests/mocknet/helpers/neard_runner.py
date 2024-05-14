@@ -184,7 +184,7 @@ class NeardRunner:
             '__neard_logs_dir__': f'{self.neard_logs_dir}',
             '__neard_logs_file_name__': f'{self.neard_logs_file_name}',
             '__neard_logs_file_size__': '100M',
-            '__neard_logs_max_file_count__': '99',
+            '__neard_logs_max_file_count__': '900',
             '__neard_logs_max_size__': '100000000000',  # 100G
         }
         logrotate_config = LOGROTATE_TEMPLATE
