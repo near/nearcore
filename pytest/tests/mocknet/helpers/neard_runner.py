@@ -21,6 +21,7 @@ import threading
 import time
 import http
 import http.server
+import dotenv
 
 
 def get_lock(home):
@@ -56,6 +57,10 @@ class JSONHandler(http.server.BaseHTTPRequestHandler):
                                    name="make_backup")
         self.dispatcher.add_method(server.neard_runner.do_ls_backups,
                                    name="ls_backups")
+        self.dispatcher.add_method(server.neard_runner.do_clear_env,
+                                   name="clear_env")
+        self.dispatcher.add_method(server.neard_runner.do_add_env,
+                                   name="add_env")
         super().__init__(request, client_address, server)
 
     def do_GET(self):
@@ -685,6 +690,24 @@ class NeardRunner:
             state = self.get_state()
             return state == TestState.RUNNING or state == TestState.STOPPED
 
+    def do_clear_env(self):
+        with self.lock:
+            try:
+                env_file_path = self.home_path('.env')
+                open(env_file_path, 'w').close()
+                print(f'File {env_file_path} has been successfully cleared.')
+            except Exception as e:
+                print(f'An error occurred while clearing the env: {e}')
+
+    def do_add_env(self, key_value):
+        with self.lock:
+            env_file_path = self.home_path('.env')
+            # Create the file if it does not exit
+            open(env_file_path, 'a').close()
+            logging.info(f'Updating env with {key_value}')
+            [key, value] = key_value.split("=", 1)
+            dotenv.set_key(env_file_path, key, value)
+
     # check the current epoch height, and return the binary path that we should
     # be running given the epoch heights specified in config.json
     # TODO: should we update it at a random time in the middle of the
@@ -718,7 +741,12 @@ class NeardRunner:
     def run_neard(self, cmd, out_file=None):
         assert (self.neard is None)
         assert (self.data['neard_process'] is None)
-        env = os.environ.copy()
+        home_path = os.path.expanduser('~')
+        env = {
+            **dotenv.dotenv_values(self.home_path('.env')),  # load neard variables
+            **dotenv.dotenv_values(self.home_path(home_path, '.env.secrets')),  # load sensitive variables
+            **os.environ,  # override loaded values with environment variables
+        }
         if 'RUST_LOG' not in env:
             env['RUST_LOG'] = 'actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn,indexer=info,debug'
         logging.info(f'running {" ".join(cmd)}')
