@@ -14,13 +14,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 /// Command to load an in-memory trie for research purposes.
+/// Example usage: neard database load-mem-trie --shard-id 0,1,2
 #[derive(clap::Parser)]
 pub struct LoadMemTrieCommand {
     #[clap(long, use_value_delimiter = true, value_delimiter = ',')]
     shard_id: Option<Vec<ShardId>>,
 }
-
-/// cargo run -p neard --profile dev-release -- --home /home/elmas/.near/localnet/node0/ database load-mem-trie --shard-id 0,1,2
 
 impl LoadMemTrieCommand {
     pub fn run(&self, home: &Path) -> anyhow::Result<()> {
