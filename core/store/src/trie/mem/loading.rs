@@ -21,6 +21,76 @@ use std::thread;
 use std::time::Instant;
 use tracing::{debug, info};
 
+const MEMORY_USAGE_THRESHOLD_FOR_PARALLEL_COMPUTE_HASH: u64 = 512;
+
+/// Loads a trie from the FlatState column. The returned `MemTries` contains
+/// exactly one trie root.
+pub fn load_trie_from_flat_state_original(
+    store: &Store,
+    shard_uid: ShardUId,
+    state_root: CryptoHash,
+    block_height: BlockHeight,
+) -> Result<MemTries, StorageError> {
+    let mut tries = MemTries::new(shard_uid);
+
+    tries.construct_root(block_height, |arena| -> Result<Option<MemTrieNodeId>, StorageError> {
+        info!(target: "memtrie", shard_uid=%shard_uid, "Loading trie from flat state...");
+        let load_start = Instant::now();
+        let mut recon = TrieConstructor::new(arena);
+        let mut num_keys_loaded = 0;
+        for item in store
+            .iter_prefix_ser::<FlatStateValue>(DBCol::FlatState, &borsh::to_vec(&shard_uid).unwrap())
+        {
+            let (key, value) = item.map_err(|err| {
+                FlatStorageError::StorageInternalError(format!("Error iterating over FlatState: {err}"))
+            })?;
+            let (_, key) = decode_flat_state_db_key(&key).map_err(|err| {
+                FlatStorageError::StorageInternalError(format!(
+                    "invalid FlatState key format: {err}"
+                ))})?;
+            recon.add_leaf(&key, value);
+            num_keys_loaded += 1;
+            if num_keys_loaded % 1000000 == 0 {
+                debug!(
+                    target: "memtrie",
+                    %shard_uid,
+                    "Loaded {} keys, current key: {}",
+                    num_keys_loaded,
+                    hex::encode(&key)
+                );
+            }
+        }
+        let root_id = match recon.finalize() {
+            Some(root_id) => root_id,
+            None => {
+                info!(target: "memtrie", shard_uid=%shard_uid, "No keys loaded, trie is empty");
+                return Ok(None);
+            }
+        };
+
+        debug!(
+            target: "memtrie",
+            %shard_uid,
+            "Loaded {} keys; computing hash and memory usage...",
+            num_keys_loaded
+        );
+        let mut subtrees = Vec::new();
+        root_id.as_ptr_mut(arena.memory_mut()).take_small_subtrees(MEMORY_USAGE_THRESHOLD_FOR_PARALLEL_COMPUTE_HASH, &mut subtrees);
+        subtrees.into_par_iter().for_each(|mut subtree| {
+            subtree.compute_hash_recursively();
+        });
+        root_id.as_ptr_mut(arena.memory_mut()).compute_hash_recursively();
+        info!(target: "memtrie", shard_uid=%shard_uid, "Done loading trie from flat state, took {:?}", load_start.elapsed());
+
+        let root = root_id.as_ptr(arena.memory());
+        assert_eq!(
+            root.view().node_hash(), state_root,
+            "In-memory trie for shard {} has incorrect state root", shard_uid);
+        Ok(Some(root.id()))
+    })?;
+    Ok(tries)
+}
+
 /// Loads a trie from the FlatState column. The returned `MemTries` contains
 /// exactly one trie root.
 pub fn load_trie_from_flat_state(
@@ -34,7 +104,8 @@ pub fn load_trie_from_flat_state(
     tries.construct_root(block_height, |arena| -> Result<Option<MemTrieNodeId>, StorageError> {
         info!(target: "memtrie", shard_uid=%shard_uid, "Loading trie from flat state...");
         let load_start = Instant::now();
-        let mut num_keys_loaded = 0;
+        let mut num_keys_loaded: u64 = 0;
+        let mut num_subtrees: u64 = 0;
         
         let arena_mut = arena as *mut Arena;
         let mut recon = TrieConstructor::new(unsafe { &mut *arena_mut });
@@ -54,11 +125,14 @@ pub fn load_trie_from_flat_state(
                 let parents = recon.add_leaf(&key, value);
                 for parent in parents.into_iter() {
                     let mut subtrees: Vec<MemTrieNodePtrMut> = Vec::new();
-                    parent.as_ptr_mut( unsafe { &mut *arena_mut }.memory_mut()).take_small_subtrees_v2(1024 * 1024, &mut subtrees);
-                    for mut subtree in subtrees.into_iter() {
-                        scope.spawn(move || {
-                           subtree.compute_hash_recursively();
-                        });
+                    parent.as_ptr_mut( unsafe { &mut *arena_mut }.memory_mut()).take_small_subtrees_v2(MEMORY_USAGE_THRESHOLD_FOR_PARALLEL_COMPUTE_HASH, &mut subtrees);
+                    if subtrees.len() > 0 {
+                        num_subtrees += subtrees.len() as u64;
+                        for mut subtree in subtrees.into_iter() {
+                            scope.spawn(move || {
+                                subtree.compute_hash_recursively();
+                            });
+                        }
                     }
                 }
                 
@@ -78,13 +152,6 @@ pub fn load_trie_from_flat_state(
 
         }).expect("Failed to construct memtrie from flat storage");
 
-        debug!(
-            target: "memtrie",
-            %shard_uid,
-            "Loaded {} keys; computing hash and memory usage...",
-            num_keys_loaded
-        );
-
         let root_id = match recon.finalize() {
             Some(root_id) => root_id,
             None => {
@@ -93,8 +160,14 @@ pub fn load_trie_from_flat_state(
             }
         };
 
+        debug!(
+            target: "memtrie",
+            %shard_uid,
+            "Loaded {} keys; computed hash for {} subtrees; finalizing hashes...",
+            num_keys_loaded, num_subtrees
+        );
         // let mut subtrees = Vec::new();
-        // root_id.as_ptr_mut(arena.memory_mut()).take_small_subtrees(1024 * 1024, &mut subtrees);
+        // root_id.as_ptr_mut(arena.memory_mut()).take_small_subtrees(MEMORY_USAGE_THRESHOLD_FOR_PARALLEL_COMPUTE_HASH, &mut subtrees);
         // subtrees.into_par_iter().for_each(|mut subtree| {
         //     subtree.compute_hash_recursively();
         // });
@@ -200,7 +273,7 @@ pub fn load_trie_from_flat_state_and_delta(
 }
 
 #[cfg(test)]
-mod tests {
+mod load_mem_trie_tests {
     use super::load_trie_from_flat_state_and_delta;
     use crate::flat::test_utils::MockChain;
     use crate::flat::{store_helper, BlockInfo, FlatStorageReadyStatus, FlatStorageStatus};

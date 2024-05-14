@@ -1,6 +1,5 @@
 use super::arena::Arena;
-use super::node::{MemTrieNodeId, MemTrieNodePtrMut};
-use crate::trie::mem::arena::ArenaMemory;
+use super::node::MemTrieNodeId;
 use crate::trie::mem::node::InputMemTrieNode;
 use crate::NibbleSlice;
 use near_primitives::state::FlatStateValue;
