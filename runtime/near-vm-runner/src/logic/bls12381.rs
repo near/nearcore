@@ -29,6 +29,10 @@ pub(super) fn p1_sum(
     let elements_count = data.len() / ITEM_SIZE;
 
     for i in 0..elements_count {
+        if data[i * ITEM_SIZE + BLS_BOOL_SIZE] & 0x80 != 0 {
+            return Ok((1, vec![]));
+        }
+
         let mut pk_aff = blst::blst_p1_affine::default();
         let error_code = unsafe {
             blst::blst_p1_deserialize(
@@ -39,9 +43,7 @@ pub(super) fn p1_sum(
             )
         };
 
-        if (error_code != blst::BLST_ERROR::BLST_SUCCESS)
-            || (data[i * ITEM_SIZE + BLS_BOOL_SIZE] & 0x80 != 0)
-        {
+        if error_code != blst::BLST_ERROR::BLST_SUCCESS {
             return Ok((1, vec![]));
         }
 
@@ -97,6 +99,10 @@ pub(super) fn p2_sum(
     let elements_count = data.len() / ITEM_SIZE;
 
     for i in 0..elements_count {
+        if data[i * ITEM_SIZE + BLS_BOOL_SIZE] & 0x80 != 0 {
+            return Ok((1, vec![]));
+        }
+
         let mut pk_aff = blst::blst_p2_affine::default();
         let error_code = unsafe {
             blst::blst_p2_deserialize(
@@ -105,9 +111,7 @@ pub(super) fn p2_sum(
             )
         };
 
-        if (error_code != blst::BLST_ERROR::BLST_SUCCESS)
-            || (data[i * ITEM_SIZE + BLS_BOOL_SIZE] & 0x80 != 0)
-        {
+        if error_code != blst::BLST_ERROR::BLST_SUCCESS {
             return Ok((1, vec![]));
         }
 
@@ -164,6 +168,10 @@ pub(super) fn p1_multiexp(
     let mut res_pk = blst::blst_p1::default();
 
     for i in 0..elements_count {
+        if data[i * ITEM_SIZE] & 0x80 != 0 {
+            return Ok((1, vec![]));
+        }
+
         let mut pk_aff = blst::blst_p1_affine::default();
         let error_code = unsafe {
             blst::blst_p1_deserialize(
@@ -172,7 +180,7 @@ pub(super) fn p1_multiexp(
             )
         };
 
-        if (error_code != blst::BLST_ERROR::BLST_SUCCESS) || (data[i * ITEM_SIZE] & 0x80 != 0) {
+        if error_code != blst::BLST_ERROR::BLST_SUCCESS {
             return Ok((1, vec![]));
         }
 
@@ -229,6 +237,10 @@ pub(super) fn p2_multiexp(
 
     let mut res_pk = blst::blst_p2::default();
     for i in 0..elements_count {
+        if data[i * ITEM_SIZE] & 0x80 != 0 {
+            return Ok((1, vec![]));
+        }
+
         let mut pk_aff = blst::blst_p2_affine::default();
         let error_code = unsafe {
             blst::blst_p2_deserialize(
@@ -237,7 +249,7 @@ pub(super) fn p2_multiexp(
             )
         };
 
-        if (error_code != blst::BLST_ERROR::BLST_SUCCESS) || (data[i * ITEM_SIZE] & 0x80 != 0) {
+        if error_code != blst::BLST_ERROR::BLST_SUCCESS {
             return Ok((1, vec![]));
         }
 
@@ -437,18 +449,27 @@ pub(super) fn pairing_check(
         vec![blst::blst_p2_affine::default(); elements_count];
 
     for i in 0..elements_count {
+        if data[i * ITEM_SIZE] & 0x80 != 0 {
+            return Ok(1);
+        }
+
         let error_code = unsafe {
             blst::blst_p1_deserialize(
                 &mut blst_g1_list[i],
                 data[(i * ITEM_SIZE)..(i * ITEM_SIZE + BLS_P1_SIZE)].as_ptr(),
             )
         };
-        if (error_code != blst::BLST_ERROR::BLST_SUCCESS) || (data[i * ITEM_SIZE] & 0x80 != 0) {
+
+        if error_code != blst::BLST_ERROR::BLST_SUCCESS {
             return Ok(1);
         }
 
         let g1_check = unsafe { blst::blst_p1_affine_in_g1(&blst_g1_list[i]) };
         if g1_check == false {
+            return Ok(1);
+        }
+
+        if data[i * ITEM_SIZE + BLS_P1_SIZE] & 0x80 != 0 {
             return Ok(1);
         }
 
@@ -458,9 +479,7 @@ pub(super) fn pairing_check(
                 data[(i * ITEM_SIZE + BLS_P1_SIZE)..((i + 1) * ITEM_SIZE)].as_ptr(),
             )
         };
-        if (error_code != blst::BLST_ERROR::BLST_SUCCESS)
-            || (data[i * ITEM_SIZE + BLS_P1_SIZE] & 0x80 != 0)
-        {
+        if error_code != blst::BLST_ERROR::BLST_SUCCESS {
             return Ok(1);
         }
 
