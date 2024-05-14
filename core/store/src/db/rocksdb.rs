@@ -381,6 +381,15 @@ impl Database for RocksDB {
         refcount::iter_with_rc_logic(col, iter)
     }
 
+    fn iter_range_raw_bytes<'a>(
+        &'a self,
+        col: DBCol,
+        lower_bound: Option<&[u8]>,
+        upper_bound: Option<&[u8]>,
+    ) -> DBIterator<'a> {
+        Box::new(self.iter_raw_bytes_internal(col, None, lower_bound, upper_bound))
+    }
+
     #[tracing::instrument(
         target = "store::db::rocksdb",
         level = "trace",

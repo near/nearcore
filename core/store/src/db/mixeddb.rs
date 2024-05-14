@@ -110,6 +110,18 @@ impl Database for MixedDB {
         );
     }
 
+    fn iter_range_raw_bytes<'a>(
+        &'a self,
+        col: DBCol,
+        lower_bound: Option<&[u8]>,
+        upper_bound: Option<&[u8]>,
+    ) -> DBIterator<'a> {
+        return Self::merge_iter(
+            self.first_db().iter_range_raw_bytes(col, lower_bound, upper_bound),
+            self.second_db().iter_range_raw_bytes(col, lower_bound, upper_bound),
+        );
+    }
+
     fn write(&self, batch: DBTransaction) -> io::Result<()> {
         self.write_db.write(batch)
     }

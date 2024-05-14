@@ -226,6 +226,14 @@ pub trait Database: Sync + Send {
     /// want this method.
     fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a>;
 
+    /// Like `iter_raw_bytes``, but specifying a range.
+    fn iter_range_raw_bytes<'a>(
+        &'a self,
+        col: DBCol,
+        lower_bound: Option<&[u8]>,
+        upper_bound: Option<&[u8]>,
+    ) -> DBIterator<'a>;
+
     /// Atomically apply all operations in given batch at once.
     fn write(&self, batch: DBTransaction) -> io::Result<()>;
 

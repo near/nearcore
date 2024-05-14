@@ -4,7 +4,7 @@ use crate::trie::TrieNodesCount;
 use crate::{PartialStorage, Trie, TrieUpdate};
 use assert_matches::assert_matches;
 use near_primitives::challenge::PartialState;
-use near_primitives::errors::{MissingTrieValueContext, StorageError};
+use near_primitives::errors::{MissingTrieValueContext, StackTracePrinter, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::shard_layout::ShardUId;
 use rand::seq::SliceRandom;
@@ -48,6 +48,7 @@ impl TrieStorage for IncompletePartialStorage {
             Err(StorageError::MissingTrieValue(
                 MissingTrieValueContext::TrieMemoryPartialStorage,
                 *hash,
+                StackTracePrinter::new("MissingTrieValue"),
             ))
         } else {
             Ok(result)
@@ -87,6 +88,7 @@ where
                 result,
                 Err(StorageError::MissingTrieValue(
                     MissingTrieValueContext::TrieMemoryPartialStorage,
+                    _,
                     _
                 ))
             );
@@ -291,7 +293,7 @@ mod trie_storage_tests {
         let key = hash(&value);
 
         let result = trie_caching_storage.retrieve_raw_bytes(&key);
-        assert_matches!(result, Err(StorageError::MissingTrieValue(_, _)));
+        assert_matches!(result, Err(StorageError::MissingTrieValue(_, _, _)));
     }
 
     /// Check that large values does not fall into shard cache, but fall into accounting cache.

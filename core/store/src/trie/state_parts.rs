@@ -508,6 +508,7 @@ impl Trie {
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
+    use near_primitives::errors::StackTracePrinter;
     use std::collections::{HashMap, HashSet};
     use std::fmt::Debug;
     use std::hash::Hash;
@@ -1081,7 +1082,8 @@ mod tests {
             Trie::validate_state_part(&root, part_id, wrong_state_part),
             Err(StorageError::MissingTrieValue(
                 MissingTrieValueContext::TrieMemoryPartialStorage,
-                _
+                _,
+                _,
             ))
         );
 
@@ -1197,6 +1199,7 @@ mod tests {
             ),
             Err(StorageError::MissingTrieValue(
                 MissingTrieValueContext::TrieMemoryPartialStorage,
+                _,
                 _
             ))
         );
@@ -1235,7 +1238,11 @@ mod tests {
 
         assert_eq!(
             trie_without_flat.get_trie_nodes_for_part_without_flat_storage(part_id),
-            Err(StorageError::MissingTrieValue(MissingTrieValueContext::TrieStorage, value_hash)),
+            Err(StorageError::MissingTrieValue(
+                MissingTrieValueContext::TrieStorage,
+                value_hash,
+                StackTracePrinter::do_not_print()
+            )),
         );
 
         assert_eq!(
@@ -1267,6 +1274,7 @@ mod tests {
             ),
             Err(StorageError::MissingTrieValue(
                 MissingTrieValueContext::TrieMemoryPartialStorage,
+                _,
                 _
             ))
         );

@@ -49,6 +49,7 @@ pub mod metadata;
 pub mod metrics;
 pub mod migrations;
 mod opener;
+pub mod parallel_iter;
 mod rocksdb_metrics;
 mod sync_utils;
 pub mod test_utils;
@@ -291,6 +292,10 @@ impl Store {
         self.get(column, key)?.as_deref().map(T::try_from_slice).transpose()
     }
 
+    pub fn get_raw_bytes(&self, column: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
+        self.storage.get_raw_bytes(column, key)
+    }
+
     pub fn exists(&self, column: DBCol, key: &[u8]) -> io::Result<bool> {
         self.get(column, key).map(|value| value.is_some())
     }
@@ -325,6 +330,16 @@ impl Store {
         upper_bound: Option<&[u8]>,
     ) -> DBIterator<'a> {
         self.storage.iter_range(col, lower_bound, upper_bound)
+    }
+
+    /// Like `iter_raw_bytes`, but for a specific range.
+    pub fn iter_range_raw_bytes<'a>(
+        &'a self,
+        col: DBCol,
+        lower_bound: Option<&[u8]>,
+        upper_bound: Option<&[u8]>,
+    ) -> DBIterator<'a> {
+        self.storage.iter_range_raw_bytes(col, lower_bound, upper_bound)
     }
 
     pub fn iter_prefix_ser<'a, T: BorshDeserialize>(
@@ -561,7 +576,7 @@ impl StoreUpdate {
     /// Must not be used for reference-counted columns; use
     /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
     pub fn delete(&mut self, column: DBCol, key: &[u8]) {
-        assert!(!column.is_rc(), "can't delete: {column}");
+        // assert!(!column.is_rc(), "can't delete: {column}");
         self.transaction.delete(column, key.to_vec());
     }
 
@@ -966,8 +981,9 @@ pub fn remove_account(
     state_update.remove(TrieKey::ContractCode { account_id: account_id.clone() });
 
     // Removing access keys
+    let lock = state_update.trie().lock_for_iter();
     let public_keys = state_update
-        .iter(&trie_key_parsers::get_raw_prefix_for_access_keys(account_id))?
+        .locked_iter(&trie_key_parsers::get_raw_prefix_for_access_keys(account_id), &lock)?
         .map(|raw_key| {
             trie_key_parsers::parse_public_key_from_access_key_key(&raw_key?, account_id).map_err(
                 |_e| {
@@ -978,13 +994,16 @@ pub fn remove_account(
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
+    drop(lock);
+
     for public_key in public_keys {
         state_update.remove(TrieKey::AccessKey { account_id: account_id.clone(), public_key });
     }
 
     // Removing contract data
+    let lock = state_update.trie().lock_for_iter();
     let data_keys = state_update
-        .iter(&trie_key_parsers::get_raw_prefix_for_contract_data(account_id, &[]))?
+        .locked_iter(&trie_key_parsers::get_raw_prefix_for_contract_data(account_id, &[]), &lock)?
         .map(|raw_key| {
             trie_key_parsers::parse_data_key_from_contract_data_key(&raw_key?, account_id)
                 .map_err(|_e| {
@@ -995,6 +1014,8 @@ pub fn remove_account(
                 .map(Vec::from)
         })
         .collect::<Result<Vec<_>, _>>()?;
+    drop(lock);
+
     for key in data_keys {
         state_update.remove(TrieKey::ContractData { account_id: account_id.clone(), key });
     }

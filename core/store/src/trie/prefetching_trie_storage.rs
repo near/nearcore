@@ -8,6 +8,7 @@ use crossbeam::select;
 use near_o11y::metrics::prometheus;
 use near_o11y::metrics::prometheus::core::GenericGauge;
 use near_o11y::tracing::error;
+use near_primitives::errors::StackTracePrinter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::TrieKey;
@@ -259,6 +260,7 @@ impl TrieStorage for TriePrefetchingStorage {
                         Err(StorageError::MissingTrieValue(
                             MissingTrieValueContext::TriePrefetchingStorage,
                             *hash,
+                            StackTracePrinter::new("MissingTrieValue"),
                         ))
                     }
                     Err(e) => {
