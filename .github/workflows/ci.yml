@@ -80,7 +80,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: matrix.upload_profraws
         with:
-          name: coverage-profraw-${{ github.sha }}
+          name: coverage-profraw-${{ github.sha }}-${{ matrix.name }}
           path: coverage/profraw
           retention-days: 2
       - uses: actions/upload-artifact@v4
