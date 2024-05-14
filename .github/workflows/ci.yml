@@ -371,7 +371,7 @@ jobs:
           fetch-depth: 1000 # have enough history to find the merge-base between PR and master
       - uses: actions/download-artifact@v4
         with:
-          name: coverage-profraw-*
+          pattern: coverage-profraw-*
           path: coverage/profraw
           merge-multiple: true
       - uses: taiki-e/install-action@9b5b983efc779f85e5e5d11539f005e85ccb27ff
@@ -419,7 +419,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: coverage-codecov-*
+          pattern: coverage-codecov-*
           merge-multiple: true
       # Keep the number of uploads here in sync with codecov.yml’s after_n_build value
       # codecov will send a comment only after having receidev this number of uploads.
