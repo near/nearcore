@@ -3,11 +3,16 @@ use std::ptr::null;
 
 pub type Result<T, E = VMLogicError> = ::std::result::Result<T, E>;
 
+const BLS_BOOL_SIZE: usize = 1;
+const BLS_SCALAR_SIZE: usize = 32;
+const BLS_FP_SIZE: usize = 48;
+const BLS_FP2_SIZE: usize = 96;
+const BLS_P1_SIZE: usize = 96;
+const BLS_P2_SIZE: usize = 192;
+
 pub(super) fn p1_sum(
     data: &[u8]
 ) -> Result<(u64, Vec<u8>)> {
-    const BLS_BOOL_SIZE: usize = 1;
-    const BLS_P1_SIZE: usize = 96;
     const ITEM_SIZE: usize = BLS_BOOL_SIZE + BLS_P1_SIZE;
 
     if data.len() % ITEM_SIZE != 0 {
@@ -76,8 +81,6 @@ pub(super) fn p1_sum(
 pub(super) fn p2_sum(
     data: &[u8]
 ) -> Result<(u64, Vec<u8>)>  {
-    const BLS_BOOL_SIZE: usize = 1;
-    const BLS_P2_SIZE: usize = 192;
     const ITEM_SIZE: usize = BLS_BOOL_SIZE + BLS_P2_SIZE;
 
     if data.len() % ITEM_SIZE != 0 {
@@ -144,8 +147,6 @@ pub(super) fn p2_sum(
 pub(super) fn p1_multiexp(
     data: &[u8]
 ) -> Result<(u64, Vec<u8>)>  {
-    const BLS_SCALAR_SIZE: usize = 32;
-    const BLS_P1_SIZE: usize = 96;
     const ITEM_SIZE: usize = BLS_SCALAR_SIZE + BLS_P1_SIZE;
 
     if data.len() % ITEM_SIZE != 0 {
@@ -212,8 +213,6 @@ pub(super) fn p1_multiexp(
 pub(super) fn p2_multiexp(
     data: &[u8]
 ) -> Result<(u64, Vec<u8>)>  {
-    const BLS_SCALAR_SIZE: usize = 32;
-    const BLS_P2_SIZE: usize = 192;
     const ITEM_SIZE: usize = BLS_SCALAR_SIZE + BLS_P2_SIZE;
 
     if data.len() % ITEM_SIZE != 0 {
@@ -279,8 +278,6 @@ pub(super) fn p2_multiexp(
 pub(super) fn map_fp_to_g1(
     data: &[u8]
 ) -> Result<(u64, Vec<u8>)> {
-    const BLS_P1_SIZE: usize = 96;
-    const BLS_FP_SIZE: usize = 48;
     const ITEM_SIZE: usize = BLS_FP_SIZE;
 
     if data.len() % ITEM_SIZE != 0 {
@@ -343,9 +340,6 @@ pub(super) fn map_fp_to_g1(
 pub(super) fn map_fp2_to_g2(
     data: &[u8]
 ) -> Result<(u64, Vec<u8>)> {
-    const BLS_P2_SIZE: usize = 192;
-    const BLS_FP_SIZE: usize = 48;
-    const BLS_FP2_SIZE: usize = 96;
     const ITEM_SIZE: usize = BLS_FP2_SIZE;
 
     if data.len() % ITEM_SIZE != 0 {
@@ -423,8 +417,6 @@ pub(super) fn map_fp2_to_g2(
 pub(super) fn pairing_check(
     data: &[u8]
 ) -> Result<u64> {
-    const BLS_P1_SIZE: usize = 96;
-    const BLS_P2_SIZE: usize = 192;
     const ITEM_SIZE: usize = BLS_P1_SIZE + BLS_P2_SIZE;
 
     if data.len() % ITEM_SIZE != 0 {
