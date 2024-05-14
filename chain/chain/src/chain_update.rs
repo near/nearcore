@@ -171,7 +171,7 @@ impl<'a> ChainUpdate<'a> {
         let height = block.header().height();
         match resharding_results {
             ReshardingResults::ApplyReshardingResults(mut results) => {
-                tracing::debug!(target: "resharding", height, shard_id=?shard_uid.shard_id(), "process_resharding_results apply");
+                tracing::debug!(target: "resharding", height, ?shard_uid, "process_resharding_results apply");
 
                 // Sort the results so that the gas reassignment is deterministic.
                 results.sort_unstable_by_key(|r| r.shard_uid);

@@ -87,7 +87,7 @@ use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::RwLock;
-use tracing::{debug, debug_span, error, info, trace, warn};
+use tracing::{debug, debug_span, error, info, instrument, trace, warn};
 
 #[cfg(feature = "test_features")]
 use crate::client_actor::AdvProduceChunksMode;
@@ -856,6 +856,12 @@ impl Client {
         )
     }
 
+    #[instrument(target = "client", level = "debug", "produce_chunk", skip_all, fields(
+        height = next_height,
+        shard_id,
+        ?epoch_id,
+        chunk_hash = tracing::field::Empty,
+    ))]
     pub fn produce_chunk(
         &mut self,
         prev_block: &Block,
@@ -865,11 +871,10 @@ impl Client {
         shard_id: ShardId,
         validator_signer: Arc<dyn ValidatorSigner>,
     ) -> Result<Option<ProduceChunkResult>, Error> {
+        let span = tracing::Span::current();
         let timer = Instant::now();
         let _timer =
             metrics::PRODUCE_CHUNK_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
-        let span = tracing::debug_span!(target: "client", "produce_chunk", height=next_height, shard_id, ?epoch_id).entered();
-
         let prev_block_hash = *prev_block.hash();
         if self.epoch_manager.is_next_block_epoch_start(&prev_block_hash)? {
             let prev_prev_hash = *self.chain.get_block_header(&prev_block_hash)?.prev_hash();
@@ -933,7 +938,7 @@ impl Client {
             protocol_version,
         )?;
 
-        span.record("chunk_hash", format!("{:?}", encoded_chunk.chunk_hash()));
+        span.record("chunk_hash", tracing::field::debug(encoded_chunk.chunk_hash()));
         debug!(target: "client",
             me = %validator_signer.validator_id(),
             chunk_hash = ?encoded_chunk.chunk_hash(),
