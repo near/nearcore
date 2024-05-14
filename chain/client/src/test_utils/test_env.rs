@@ -38,6 +38,7 @@ use near_primitives::views::{
 };
 use near_store::metadata::DbKind;
 use near_store::ShardUId;
+use near_vm_runner::logic::ProtocolVersion;
 use once_cell::sync::OnceCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -505,6 +506,11 @@ impl TestEnv {
         }
     }
 
+    pub fn get_head_protocol_version(&self) -> ProtocolVersion {
+        let tip = self.clients[0].chain.head().unwrap();
+        self.clients[0].epoch_manager.get_epoch_protocol_version(&tip.epoch_id).unwrap()
+    }
+
     pub fn query_account(&mut self, account_id: AccountId) -> AccountView {
         let client = &self.clients[0];
         let head = client.chain.head().unwrap();
@@ -691,6 +697,7 @@ impl TestEnv {
             signer,
             actions,
             tip.last_block_hash,
+            0,
         )
     }
 
@@ -729,6 +736,7 @@ impl TestEnv {
             &relayer_signer,
             vec![Action::Delegate(Box::new(signed_delegate_action))],
             tip.last_block_hash,
+            0,
         )
     }
 

@@ -295,16 +295,16 @@ fn try_find_actions_spawned_by_receipt(
         .map_err(|e| ContractAccountError::InvalidReceipt(e, key))?;
 
     // Skip refunds.
-    if receipt.receiver_id.is_system() {
+    if receipt.receiver_id().is_system() {
         return Ok(());
     }
 
     // Note: We could use the entry API here to avoid the double hash, but we
     // would have to clone the key string. It's unclear which is better, I will
     // avoid the entry API because normal contains/get_mut seems simpler.
-    if accounts.contains_key(&receipt.receiver_id) {
+    if accounts.contains_key(receipt.receiver_id()) {
         // yes, this is a contract in our map (skip/select filtering has already been applied when constructing the map)
-        let entry = accounts.get_mut(&receipt.receiver_id).unwrap();
+        let entry = accounts.get_mut(receipt.receiver_id()).unwrap();
         if filter.receipts_in {
             *entry.receipts_in.get_or_insert(0) += 1;
         }
@@ -327,7 +327,7 @@ fn try_find_actions_spawned_by_receipt(
                     let outgoing_receipt = maybe_outgoing_receipt.ok_or_else(|| {
                         ContractAccountError::MissingOutgoingReceipt(*outgoing_receipt_id)
                     })?;
-                    match outgoing_receipt.receipt {
+                    match outgoing_receipt.receipt() {
                         ReceiptEnum::Action(action_receipt)
                         | ReceiptEnum::PromiseYield(action_receipt) => {
                             for action in &action_receipt.actions {
@@ -493,7 +493,7 @@ mod tests {
     use borsh::BorshSerialize;
     use near_crypto::{InMemorySigner, Signer};
     use near_primitives::hash::CryptoHash;
-    use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
+    use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
     use near_primitives::transaction::{
         Action, CreateAccountAction, DeployContractAction, ExecutionMetadata, ExecutionOutcome,
         ExecutionOutcomeWithProof, ExecutionStatus, FunctionCallAction, TransferAction,
@@ -722,7 +722,7 @@ mod tests {
         let sender_id: AccountId = sender.parse().unwrap();
         let signer =
             InMemorySigner::from_seed(sender_id.clone(), near_crypto::KeyType::ED25519, "seed");
-        Receipt {
+        Receipt::V0(ReceiptV0 {
             predecessor_id: sender_id.clone(),
             receiver_id: receiver.parse().unwrap(),
             receipt_id: CryptoHash::default(),
@@ -734,6 +734,6 @@ mod tests {
                 input_data_ids: vec![],
                 actions,
             }),
-        }
+        })
     }
 }

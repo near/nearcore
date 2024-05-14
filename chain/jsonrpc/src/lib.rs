@@ -659,7 +659,7 @@ impl JsonRpcHandler {
     ) -> Result<ProcessTxResponse, near_jsonrpc_primitives::types::transactions::RpcTransactionError>
     {
         let tx_hash = tx.get_hash();
-        let signer_account_id = tx.transaction.signer_id.clone();
+        let signer_account_id = tx.transaction.signer_id().clone();
         let response = self
             .client_sender
             .send_async(ProcessTxRequest { transaction: tx, is_forwarded: false, check_only })

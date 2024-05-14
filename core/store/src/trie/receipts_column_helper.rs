@@ -246,7 +246,7 @@ impl TrieQueue for OutgoingReceiptBuffer<'_> {
     }
 
     fn trie_key(&self, index: u64) -> TrieKey {
-        TrieKey::DelayedReceipt { index }
+        TrieKey::BufferedReceipt { index, receiving_shard: self.shard_id }
     }
 }
 

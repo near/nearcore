@@ -4094,6 +4094,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "borsh 1.0.0",
+ "bytesize",
  "clap",
  "indicatif",
  "near-chain",
@@ -4108,6 +4109,7 @@ dependencies = [
  "rocksdb",
  "strum",
  "tempfile",
+ "zstd",
 ]
 
 [[package]]
@@ -5227,7 +5229,6 @@ dependencies = [
  "borsh 1.0.0",
  "enum-map",
  "hex",
- "indicatif",
  "near-chain-configs",
  "near-crypto",
  "near-o11y",
@@ -5239,12 +5240,10 @@ dependencies = [
  "near-vm-runner",
  "near-wallet-contract",
  "num-bigint 0.3.3",
- "num-rational 0.3.2",
  "num-traits",
  "once_cell",
  "rand",
  "rayon",
- "serde",
  "serde_json",
  "sha2 0.10.6",
  "tempfile",

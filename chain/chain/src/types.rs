@@ -12,6 +12,7 @@ pub use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::challenge::{ChallengesResult, PartialState};
 use near_primitives::checked_feature;
 use near_primitives::congestion_info::CongestionInfo;
+use near_primitives::congestion_info::ExtendedCongestionInfo;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
@@ -291,14 +292,14 @@ pub struct ApplyChunkBlockContext {
     pub gas_price: Balance,
     pub challenges_result: ChallengesResult,
     pub random_seed: CryptoHash,
-    pub congestion_info: HashMap<ShardId, CongestionInfo>,
+    pub congestion_info: HashMap<ShardId, ExtendedCongestionInfo>,
 }
 
 impl ApplyChunkBlockContext {
     pub fn from_header(
         header: &BlockHeader,
         gas_price: Balance,
-        congestion_info: HashMap<ShardId, CongestionInfo>,
+        congestion_info: HashMap<ShardId, ExtendedCongestionInfo>,
     ) -> Self {
         Self {
             height: header.height(),
@@ -348,7 +349,7 @@ pub struct PrepareTransactionsBlockContext {
     pub next_gas_price: Balance,
     pub height: BlockHeight,
     pub block_hash: CryptoHash,
-    pub congestion_info: HashMap<ShardId, CongestionInfo>,
+    pub congestion_info: HashMap<ShardId, ExtendedCongestionInfo>,
 }
 
 impl From<&Block> for PrepareTransactionsBlockContext {

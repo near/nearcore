@@ -557,6 +557,38 @@ impl Client {
         self.produce_block_on_head(height, true)
     }
 
+    /// Wrapper on top of `self.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion`
+    /// and uses block approvals for chunk endorsements
+    pub fn prepare_chunk_headers_ready_for_inclusion(
+        &mut self,
+        prev_block_hash: &CryptoHash,
+        height: BlockHeight,
+    ) -> Result<(), Error> {
+        let prev = self.chain.get_block_header(prev_block_hash)?;
+        // Compute a map of shard id -> chunk producers who already sent approvals. For those chunk producers, if they also
+        // act as a chunk validator, they don't need to send chunk endorsements.
+        let witness = self.doomslug.get_witness(prev.hash(), prev.height(), height);
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
+        let mut chunk_producers_with_approvals = HashMap::new();
+        for shard_id in self.epoch_manager.shard_ids(&epoch_id)? {
+            let chunk_producers =
+                self.epoch_manager.get_epoch_chunk_producers_for_shard(&epoch_id, shard_id)?;
+            for chunk_producer in chunk_producers {
+                if witness.contains_key(chunk_producer.account_id()) {
+                    chunk_producers_with_approvals
+                        .entry(shard_id)
+                        .or_insert_with(HashSet::new)
+                        .insert(chunk_producer.account_id().clone());
+                }
+            }
+        }
+        Ok(self.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
+            prev_block_hash,
+            self.chunk_endorsement_tracker.as_ref(),
+            chunk_producers_with_approvals,
+        )?)
+    }
+
     /// Produce block for given `height` on top of chain head.
     /// Either returns produced block (not applied) or error.
     pub fn produce_block_on_head(
@@ -574,10 +606,7 @@ impl Client {
         );
 
         if prepare_chunk_headers {
-            self.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
-                &head.last_block_hash,
-                self.chunk_endorsement_tracker.as_ref(),
-            )?;
+            self.prepare_chunk_headers_ready_for_inclusion(&head.last_block_hash, height)?;
         }
 
         self.produce_block_on(height, head.last_block_hash)
@@ -984,6 +1013,7 @@ impl Client {
                     "other".parse().unwrap(),
                     3,
                     prev_block_hash,
+                    0,
                 ),
             ));
             if txs.storage_proof.is_none() {
@@ -1626,13 +1656,19 @@ impl Client {
                 info!(target: "client", "not producing a chunk");
             }
         }
-        if let Err(err) = self.shadow_validate_block_chunks(&block) {
-            tracing::error!(
-                target: "client",
-                ?err,
-                block_hash = ?block.hash(),
-                "block chunks shadow validation failed"
-            );
+
+        // Run shadown chunk validation on the new block, unless it's coming from sync.
+        // Syncing has to be fast to catch up with the rest of the chain,
+        // applying the chunks would make the sync unworkably slow.
+        if provenance != Provenance::SYNC {
+            if let Err(err) = self.shadow_validate_block_chunks(&block) {
+                tracing::error!(
+                    target: "client",
+                    ?err,
+                    block_hash = ?block.hash(),
+                    "block chunks shadow validation failed"
+                );
+            }
         }
 
         self.shards_manager_adapter
@@ -2083,7 +2119,7 @@ impl Client {
     /// Forwards given transaction to upcoming validators.
     fn forward_tx(&self, epoch_id: &EpochId, tx: &SignedTransaction) -> Result<(), Error> {
         let shard_id =
-            self.epoch_manager.account_id_to_shard_id(&tx.transaction.signer_id, epoch_id)?;
+            self.epoch_manager.account_id_to_shard_id(tx.transaction.signer_id(), epoch_id)?;
         // Use the header head to make sure the list of validators is as
         // up-to-date as possible.
         let head = self.chain.header_head()?;
@@ -2100,7 +2136,7 @@ impl Client {
             if let Some(next_epoch_id) = &maybe_next_epoch_id {
                 let next_shard_id = self
                     .epoch_manager
-                    .account_id_to_shard_id(&tx.transaction.signer_id, next_epoch_id)?;
+                    .account_id_to_shard_id(tx.transaction.signer_id(), next_epoch_id)?;
                 let validator = self.epoch_manager.get_chunk_producer(
                     next_epoch_id,
                     target_height,
@@ -2191,7 +2227,7 @@ impl Client {
         // `cur_block_header`.
         if let Err(e) = self.chain.chain_store().check_transaction_validity_period(
             &cur_block_header,
-            &tx.transaction.block_hash,
+            tx.transaction.block_hash(),
             transaction_validity_period,
         ) {
             debug!(target: "client", ?tx, "Invalid tx: expired or from a different fork");
@@ -2212,7 +2248,7 @@ impl Client {
         }
 
         let shard_id =
-            self.epoch_manager.account_id_to_shard_id(&tx.transaction.signer_id, &epoch_id)?;
+            self.epoch_manager.account_id_to_shard_id(tx.transaction.signer_id(), &epoch_id)?;
         let care_about_shard =
             self.shard_tracker.care_about_shard(me, &head.last_block_hash, shard_id, true);
         let will_care_about_shard =

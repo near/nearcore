@@ -13,7 +13,7 @@ use crate::utils::{average_cost, percentiles};
 use near_crypto::{KeyType, PublicKey};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{ActionReceipt, Receipt};
+use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptV0};
 use near_primitives::transaction::Action;
 use near_primitives::types::{AccountId, Gas};
 use std::iter;
@@ -264,12 +264,12 @@ impl ActionEstimation {
             input_data_ids: vec![],
             actions,
         };
-        let receipt = Receipt {
+        let receipt = Receipt::V0(ReceiptV0 {
             predecessor_id,
             receiver_id,
             receipt_id: CryptoHash::new(),
             receipt: near_primitives::receipt::ReceiptEnum::Action(action_receipt),
-        };
+        });
         testbed.apply_action_receipt(&receipt, self.metric)
     }
 
