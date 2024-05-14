@@ -294,7 +294,7 @@ pub(super) fn map_fp_to_g1(
 
     let elements_count: usize = data.len() / ITEM_SIZE;
 
-    let mut res_concat: Vec<u8> = vec![];
+    let mut res_concat: Vec<u8> = Vec::with_capacity(BLS_P1_SIZE * elements_count);
 
     for i in 0..elements_count {
         unsafe {
@@ -353,7 +353,7 @@ pub(super) fn map_fp2_to_g2(
 
     let elements_count: usize = data.len() / ITEM_SIZE;
 
-    let mut res_concat: Vec<u8> = vec![];
+    let mut res_concat: Vec<u8> = Vec::with_capacity(BLS_P2_SIZE * elements_count);
 
     for i in 0..elements_count {
         let mut c_fp1 = [blst::blst_fp::default(); 2];
@@ -500,9 +500,8 @@ pub(super) fn p1_decompress(
             .into());
     }
 
-    let mut res = Vec::<u8>::new();
-
     let elements_count = data.len() / ITEM_SIZE;
+    let mut res = Vec::<u8>::with_capacity(elements_count * BLS_P1_SIZE);
 
     for i in 0..elements_count {
         let pk_res =
@@ -534,9 +533,8 @@ pub(super) fn p2_decompress(
             .into());
     }
 
-    let mut res = Vec::<u8>::new();
-
     let elements_count = data.len() / ITEM_SIZE;
+    let mut res = Vec::<u8>::with_capacity(elements_count * BLS_P2_SIZE);
 
     for i in 0..elements_count {
         let sig_res =
