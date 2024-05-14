@@ -1080,7 +1080,7 @@ impl Chain {
         header: &BlockHeader,
         challenges: &mut Vec<ChallengeBody>,
     ) -> Result<(), Error> {
-        debug!(target: "chain", block_hash=?header.hash(), height=header.height(), "process_block_header", );
+        debug!(target: "chain", block_hash=?header.hash(), height=header.height(), "process_block_header");
 
         check_known(self, header.hash())?.map_err(|e| Error::BlockKnown(e))?;
         self.validate_header(header, &Provenance::NONE, challenges)?;
