@@ -2,6 +2,7 @@ mod adjust_database;
 mod analyse_data_size_distribution;
 mod analyse_gas_usage;
 mod analyse_high_load;
+mod analyze_contract_sizes;
 mod analyze_delayed_receipt;
 mod block_iterators;
 pub mod commands;

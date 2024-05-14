@@ -77,15 +77,15 @@ jobs:
       - run: mv coverage/profraw/binaries/{new,${{matrix.id}}}.tar.zst
 
       # Upload the coverage
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         if: matrix.upload_profraws
         with:
-          name: coverage-profraw
+          name: coverage-profraw-${{ github.sha }}-${{ matrix.name }}
           path: coverage/profraw
           retention-days: 2
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
-          name: coverage-codecov
+          name: coverage-codecov-${{ github.sha }}-cargo_nextest-${{ matrix.name }}
           path: coverage/codecov
 
   protobuf_backward_compat:
@@ -103,7 +103,7 @@ jobs:
     runs-on: ubuntu-22.04-8core
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: 3.11
           cache: pip
@@ -119,9 +119,9 @@ jobs:
       - run: cd pytest && python3 tests/sanity/backward_compatible.py
       - run: mkdir -p coverage/codecov
       - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-backward-compat.json
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
-          name: coverage-codecov
+          name: coverage-codecov-${{ github.sha }}-py_backward_compat
           path: coverage/codecov
 
   py_db_migration:
@@ -129,7 +129,7 @@ jobs:
     runs-on: ubuntu-22.04-8core
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: 3.11
           cache: pip
@@ -146,9 +146,9 @@ jobs:
       - run: cd pytest && python3 tests/sanity/db_migration.py
       - run: mkdir -p coverage/codecov
       - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-db-migration.json
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
-          name: coverage-codecov
+          name: coverage-codecov-${{ github.sha }}-py_db_migration
           path: coverage/codecov
 
   py_sanity_checks:
@@ -159,7 +159,7 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: 3.11
           cache: pip
@@ -181,9 +181,9 @@ jobs:
           NEAR_ROOT: "target/dev-release"
       - run: mkdir -p coverage/codecov
       - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-sanity-checks.json
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
-          name: coverage-codecov
+          name: coverage-codecov-${{ github.sha }}-py_sanity_checks
           path: coverage/codecov
 
   py_genesis_check:
@@ -191,7 +191,7 @@ jobs:
     runs-on: ubuntu-22.04-8core
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: 3.11
           cache: pip
@@ -207,9 +207,9 @@ jobs:
       - run: python3 scripts/state/update_res.py check
       - run: mkdir -p coverage/codecov
       - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-genesis-check.json
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
-          name: coverage-codecov
+          name: coverage-codecov-${{ github.sha }}-py_genesis_check
           path: coverage/codecov
 
   py_style_check:
@@ -220,7 +220,7 @@ jobs:
       - uses: taiki-e/install-action@9b5b983efc779f85e5e5d11539f005e85ccb27ff
         with:
           tool: just
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: 3.11
           cache: pip
@@ -232,7 +232,7 @@ jobs:
     runs-on: ubuntu-22.04-8core
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: 3.11
           cache: pip
@@ -248,9 +248,9 @@ jobs:
       - run: cd pytest && python3 tests/sanity/upgradable.py
       - run: mkdir -p coverage/codecov
       - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-upgradability.json
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
-          name: coverage-codecov
+          name: coverage-codecov-${{ github.sha }}-py_upgradability
           path: coverage/codecov
 
   rpc_error_schema:
@@ -369,14 +369,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1000 # have enough history to find the merge-base between PR and master
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4
         with:
-          name: coverage-profraw
+          pattern: coverage-profraw-*
           path: coverage/profraw
+          merge-multiple: true
       - uses: taiki-e/install-action@9b5b983efc779f85e5e5d11539f005e85ccb27ff
         with:
           tool: cargo-llvm-cov
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: 3.11
           cache: pip
@@ -395,13 +396,13 @@ jobs:
       - run: cargo llvm-cov report --profile dev-release --html --hide-instantiations --output-dir coverage/html/${{matrix.type}}-full
       - run: git fetch origin master
       - run: diff-cover --compare-branch=origin/master --html-report coverage/html/${{matrix.type}}-diff.html coverage/lcov/${{matrix.type}}.lcov
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
-          name: coverage-lcov
+          name: coverage-lcov-${{ matrix.type }}
           path: coverage/lcov
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
-          name: coverage-html
+          name: coverage-html-${{ matrix.type }}
           path: coverage/html
 
   upload_coverage:
@@ -416,9 +417,10 @@ jobs:
       - py_upgradability
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4
         with:
-          name: coverage-codecov
+          pattern: coverage-codecov-*
+          merge-multiple: true
       # Keep the number of uploads here in sync with codecov.yml’s after_n_build value
       # codecov will send a comment only after having receidev this number of uploads.
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d

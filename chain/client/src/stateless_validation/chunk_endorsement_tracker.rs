@@ -1,6 +1,6 @@
 use near_cache::SyncLruCache;
 use near_chain::ChainStoreAccess;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use near_chain_primitives::Error;
@@ -172,6 +172,7 @@ impl ChunkEndorsementTracker {
     pub fn compute_chunk_endorsements(
         &self,
         chunk_header: &ShardChunkHeader,
+        chunk_producers_with_approvals: HashSet<AccountId>,
     ) -> Result<ChunkEndorsementsState, Error> {
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
@@ -186,19 +187,28 @@ impl ChunkEndorsementTracker {
             chunk_header.shard_id(),
             chunk_header.height_created(),
         )?;
+
+        let mut all_endorsers = chunk_producers_with_approvals;
+
         // Get the chunk_endorsements for the chunk from our cache.
         // Note that these chunk endorsements are already validated as part of process_chunk_endorsement.
         // We can safely rely on the following details
         //    1. The chunk endorsements are from valid chunk_validator for this chunk.
         //    2. The chunk endorsements signatures are valid.
-        let Some(chunk_endorsements) = self.chunk_endorsements.get(&chunk_header.chunk_hash())
-        else {
-            // Early return if no chunk_endorsements found in our cache.
-            return Ok(ChunkEndorsementsState::NotEnoughStake(None));
+
+        let chunk_endorsements = {
+            if let Some(chunk_endorsements) =
+                self.chunk_endorsements.get(&chunk_header.chunk_hash())
+            {
+                all_endorsers.extend(chunk_endorsements.keys().cloned());
+                chunk_endorsements
+            } else {
+                HashMap::new()
+            }
         };
 
-        let endorsement_stats = chunk_validator_assignments
-            .compute_endorsement_stats(&chunk_endorsements.keys().collect());
+        let endorsement_stats =
+            chunk_validator_assignments.compute_endorsement_stats(&all_endorsers);
 
         // Check whether the current set of chunk_validators have enough stake to include chunk in block.
         if !endorsement_stats.has_enough_stake() {

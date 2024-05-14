@@ -98,8 +98,8 @@ fn log_trie_item(key: Vec<u8>, value: Vec<u8>) {
             tracing::trace!(
                 target: "metrics",
                 "trie-stats - PostponedReceipt(predecessor_id: {:?}, receiver_id: {:?})",
-                receipt.predecessor_id,
-                receipt.receiver_id,
+                receipt.predecessor_id(),
+                receipt.receiver_id(),
             );
         }
         _ => {

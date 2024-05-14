@@ -27,4 +27,5 @@ mod simple_test_loop_example;
 mod stateless_validation;
 mod storage_proof_size_limit;
 mod wallet_contract;
+mod yield_timeouts;
 mod zero_balance_account;

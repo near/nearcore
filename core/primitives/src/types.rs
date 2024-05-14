@@ -795,6 +795,13 @@ pub mod chunk_extra {
         /// for resharding where we only need the state root. This should not be
         /// used as part of regular processing.
         pub fn new_with_only_state_root(state_root: &StateRoot) -> Self {
+            // TODO(congestion_control) - integration with resharding
+            let congestion_control = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION)
+            {
+                Some(CongestionInfo::default())
+            } else {
+                None
+            };
             Self::new(
                 PROTOCOL_VERSION,
                 state_root,
@@ -803,8 +810,7 @@ pub mod chunk_extra {
                 0,
                 0,
                 0,
-                // TODO(congestion_control) - integration with resharding
-                None,
+                congestion_control,
             )
         }
 

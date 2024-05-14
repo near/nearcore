@@ -45,14 +45,14 @@ impl TxSendInfo {
         target_height: BlockHeight,
         now: Instant,
     ) -> Self {
-        let target_signer_id = if &tx.source_signer_id != &tx.target_tx.transaction.signer_id {
-            Some(tx.target_tx.transaction.signer_id.clone())
+        let target_signer_id = if &tx.source_signer_id != tx.target_tx.transaction.signer_id() {
+            Some(tx.target_tx.transaction.signer_id().clone())
         } else {
             None
         };
-        let target_receiver_id = if &tx.source_receiver_id != &tx.target_tx.transaction.receiver_id
+        let target_receiver_id = if &tx.source_receiver_id != tx.target_tx.transaction.receiver_id()
         {
-            Some(tx.target_tx.transaction.receiver_id.clone())
+            Some(tx.target_tx.transaction.receiver_id().clone())
         } else {
             None
         };
@@ -68,7 +68,7 @@ impl TxSendInfo {
             actions: tx
                 .target_tx
                 .transaction
-                .actions
+                .actions()
                 .iter()
                 .map(|a| a.as_ref().to_string())
                 .collect::<Vec<_>>(),
@@ -421,8 +421,8 @@ impl TxTracker {
                         let info = self
                             .nonces
                             .get_mut(&(
-                                tx.target_tx.transaction.signer_id.clone(),
-                                tx.target_tx.transaction.public_key.clone(),
+                                tx.target_tx.transaction.signer_id().clone(),
+                                tx.target_tx.transaction.public_key().clone(),
                             ))
                             .unwrap();
                         info.queued_txs.insert(tx_ref.clone());
@@ -439,8 +439,8 @@ impl TxTracker {
                         let info = self
                             .nonces
                             .get_mut(&(
-                                tx.target_tx.signer_id.clone(),
-                                tx.target_tx.public_key.clone(),
+                                tx.target_tx.signer_id().clone(),
+                                tx.target_tx.public_key().clone(),
                             ))
                             .unwrap();
                         info.txs_awaiting_nonce.insert(tx_ref.clone());
@@ -481,8 +481,10 @@ impl TxTracker {
         for c in self.queued_blocks[0].chunks.iter_mut() {
             for tx in c.txs.iter_mut() {
                 if let TargetChainTx::AwaitingNonce(t) = tx {
-                    needed_access_keys
-                        .insert((t.target_tx.signer_id.clone(), t.target_tx.public_key.clone()));
+                    needed_access_keys.insert((
+                        t.target_tx.signer_id().clone(),
+                        t.target_tx.public_key().clone(),
+                    ));
                 }
             }
         }
@@ -505,12 +507,12 @@ impl TxTracker {
                             TargetChainTx::Ready(t) => {
                                 tracing::debug!(
                                     target: "mirror", "Prepared {} for ({}, {:?}) with nonce {} even though there are still pending outcomes that may affect the access key",
-                                    &t.provenance, &t.target_tx.transaction.signer_id, &t.target_tx.transaction.public_key, t.target_tx.transaction.nonce
+                                    &t.provenance, t.target_tx.transaction.signer_id(), t.target_tx.transaction.public_key(), t.target_tx.transaction.nonce()
                                 );
                                 self.nonces
                                     .get_mut(&(
-                                        t.target_tx.transaction.signer_id.clone(),
-                                        t.target_tx.transaction.public_key.clone(),
+                                        t.target_tx.transaction.signer_id().clone(),
+                                        t.target_tx.transaction.public_key().clone(),
                                     ))
                                     .unwrap()
                                     .txs_awaiting_nonce
@@ -519,12 +521,12 @@ impl TxTracker {
                             TargetChainTx::AwaitingNonce(t) => {
                                 tracing::warn!(
                                     target: "mirror", "Could not prepare {} for ({}, {:?}). Nonce unknown",
-                                    &t.provenance, &t.target_tx.signer_id, &t.target_tx.public_key,
+                                    &t.provenance, t.target_tx.signer_id(), t.target_tx.public_key(),
                                 );
                                 self.nonces
                                     .get_mut(&(
-                                        t.target_tx.signer_id.clone(),
-                                        t.target_tx.public_key.clone(),
+                                        t.target_tx.signer_id().clone(),
+                                        t.target_tx.public_key().clone(),
                                     ))
                                     .unwrap()
                                     .txs_awaiting_nonce
@@ -750,7 +752,7 @@ impl TxTracker {
                             tx.try_set_nonce(nonce);
                             match tx {
                                 TargetChainTx::Ready(t) => {
-                                    tracing::debug!(target: "mirror", "set nonce for {:?}'s {} to {}", access_key, r, t.target_tx.transaction.nonce);
+                                    tracing::debug!(target: "mirror", "set nonce for {:?}'s {} to {}", access_key, r, t.target_tx.transaction.nonce());
                                 }
                                 _ => {
                                     tracing::warn!(target: "mirror", "Couldn't set nonce for {:?}'s {}", access_key, r);
@@ -929,12 +931,12 @@ impl TxTracker {
         {
             tracing::debug!(
                 target: "mirror", "Successfully sent transaction {} for {}: {:?}",
-                &hash, &tx.provenance, &tx.target_tx.transaction.actions,
+                &hash, &tx.provenance, tx.target_tx.transaction.actions(),
             );
         }
         let access_key = (
-            tx.target_tx.transaction.signer_id.clone(),
-            tx.target_tx.transaction.public_key.clone(),
+            tx.target_tx.transaction.signer_id().clone(),
+            tx.target_tx.transaction.public_key().clone(),
         );
         let source_height = tx_ref.as_ref().map(|t| t.source_height);
         // TODO: don't keep adding txs if we're not ever finding them on chain, since we'll OOM eventually
@@ -943,14 +945,14 @@ impl TxTracker {
         let txs = self.txs_by_signer.entry(access_key.clone()).or_default();
 
         if let Some(highest_nonce) = txs.iter().next_back() {
-            if highest_nonce.nonce > tx.target_tx.transaction.nonce {
+            if highest_nonce.nonce > tx.target_tx.transaction.nonce() {
                 tracing::warn!(
                     target: "mirror", "transaction sent with out of order nonce: {}: {}. Sent so far: {:?}",
-                    &hash, tx.target_tx.transaction.nonce, txs
+                    &hash, tx.target_tx.transaction.nonce(), txs
                 );
             }
         }
-        if !txs.insert(TxId { hash, nonce: tx.target_tx.transaction.nonce }) {
+        if !txs.insert(TxId { hash, nonce: tx.target_tx.transaction.nonce() }) {
             tracing::warn!(target: "mirror", "inserted tx {} twice into txs_by_signer", &hash);
         }
 
@@ -999,15 +1001,15 @@ impl TxTracker {
 
         let mut t = crate::read_target_nonce(
             db,
-            &tx.target_tx.transaction.signer_id,
-            &tx.target_tx.transaction.public_key,
+            tx.target_tx.transaction.signer_id(),
+            tx.target_tx.transaction.public_key(),
         )?
         .unwrap();
-        t.nonce = std::cmp::max(t.nonce, Some(tx.target_tx.transaction.nonce));
+        t.nonce = std::cmp::max(t.nonce, Some(tx.target_tx.transaction.nonce()));
         crate::put_target_nonce(
             db,
-            &tx.target_tx.transaction.signer_id,
-            &tx.target_tx.transaction.public_key,
+            tx.target_tx.transaction.signer_id(),
+            tx.target_tx.transaction.public_key(),
             &t,
         )?;
         let info = self.nonces.get_mut(&access_key).unwrap();
@@ -1101,7 +1103,7 @@ impl TxTracker {
                                     target_tx.try_set_nonce(None);
                                     match target_tx {
                                         TargetChainTx::Ready(t) => {
-                                            tracing::debug!(target: "mirror", "After skipping {} setting nonce for {:?}'s {} to {}", tx_ref, &access_key, r, t.target_tx.transaction.nonce);
+                                            tracing::debug!(target: "mirror", "After skipping {} setting nonce for {:?}'s {} to {}", tx_ref, &access_key, r, t.target_tx.transaction.nonce());
                                         }
                                         _ => {
                                             tracing::warn!(target: "mirror", "After skipping {} could not set nonce for {:?}'s {}", tx_ref, &access_key, r);
@@ -1125,7 +1127,7 @@ impl TxTracker {
                 }
             }
         }
-        let access_key = (tx.signer_id.clone(), tx.public_key.clone());
+        let access_key = (tx.signer_id().clone(), tx.public_key().clone());
         let info = self.nonces.get_mut(&access_key).unwrap();
         if info.last_height <= Some(tx_ref.source_height) {
             access_keys_to_remove.insert(access_key);

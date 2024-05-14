@@ -92,8 +92,8 @@ impl TriePrefetcher {
         receipts: &[Receipt],
     ) -> Result<(), PrefetchError> {
         for receipt in receipts.iter() {
-            let is_refund = receipt.predecessor_id.is_system();
-            let action_receipt = match &receipt.receipt {
+            let is_refund = receipt.predecessor_id().is_system();
+            let action_receipt = match receipt.receipt() {
                 ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
                     action_receipt
                 }
@@ -101,7 +101,7 @@ impl TriePrefetcher {
                     continue;
                 }
             };
-            let account_id = receipt.receiver_id.clone();
+            let account_id = receipt.receiver_id().clone();
 
             // general-purpose account prefetching
             if self.prefetch_api.enable_receipt_prefetching {
@@ -154,7 +154,7 @@ impl TriePrefetcher {
                 }
 
                 if self.prefetch_api.sweat_prefetch_receivers.contains(&account_id)
-                    && self.prefetch_api.sweat_prefetch_senders.contains(&receipt.predecessor_id)
+                    && self.prefetch_api.sweat_prefetch_senders.contains(receipt.predecessor_id())
                 {
                     if fn_call.method_name == "record_batch" {
                         self.prefetch_sweat_record_batch(account_id.clone(), &fn_call.args)?;
@@ -166,7 +166,7 @@ impl TriePrefetcher {
                     let config = claim_sweat_cfg.iter().find(|cfg| {
                         cfg.receiver == account_id.as_str()
                             && cfg.method_name == fn_call.method_name
-                            && cfg.sender == receipt.predecessor_id.as_str()
+                            && cfg.sender == receipt.predecessor_id().as_str()
                     });
                     if config.is_some() {
                         self.prefetch_claim_sweat_record_batch_for_hold(
@@ -183,13 +183,13 @@ impl TriePrefetcher {
                     if config.is_some() {
                         self.prefetch_claim_sweat_claim(
                             account_id.clone(),
-                            receipt.predecessor_id.clone(),
+                            receipt.predecessor_id().clone(),
                         )?
                     }
                 }
 
                 if self.prefetch_api.kaiching_prefetch_config.iter().any(|cfg| {
-                    cfg.sender == receipt.predecessor_id.as_str()
+                    cfg.sender == receipt.predecessor_id().as_str()
                         && cfg.receiver == account_id.as_str()
                         && cfg.method_name == fn_call.method_name
                 }) {
@@ -211,13 +211,13 @@ impl TriePrefetcher {
     ) -> Result<(), PrefetchError> {
         if self.prefetch_api.enable_receipt_prefetching {
             for t in transactions {
-                let account_id = t.transaction.signer_id.clone();
+                let account_id = t.transaction.signer_id().clone();
                 let trie_key = TrieKey::Account { account_id };
                 self.prefetch_trie_key(trie_key)?;
 
                 let trie_key = TrieKey::AccessKey {
-                    account_id: t.transaction.signer_id.clone(),
-                    public_key: t.transaction.public_key.clone(),
+                    account_id: t.transaction.signer_id().clone(),
+                    public_key: t.transaction.public_key().clone(),
                 };
                 self.prefetch_trie_key(trie_key)?;
             }

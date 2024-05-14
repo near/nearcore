@@ -178,6 +178,8 @@ pub enum InvalidTxError {
     ActionsValidation(ActionsValidationError),
     /// The size of serialized transaction exceeded the limit.
     TransactionSizeExceeded { size: u64, limit: u64 },
+    /// Transaction version is invalid.
+    InvalidTransactionVersion,
 }
 
 impl std::error::Error for InvalidTxError {}
@@ -572,6 +574,9 @@ impl Display for InvalidTxError {
             }
             InvalidTxError::TransactionSizeExceeded { size, limit } => {
                 write!(f, "Size of serialized transaction {} exceeded the limit {}", size, limit)
+            }
+            InvalidTxError::InvalidTransactionVersion => {
+                write!(f, "Transaction version is invalid")
             }
         }
     }

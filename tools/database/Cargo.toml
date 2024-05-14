@@ -21,8 +21,11 @@ rayon.workspace = true
 rocksdb.workspace = true
 strum.workspace = true
 tempfile.workspace = true
+bytesize.workspace = true
+zstd.workspace = true
 
 nearcore.workspace = true
+near-o11y.workspace = true
 near-epoch-manager.workspace = true
 near-chain.workspace = true
 near-chain-configs.workspace = true
@@ -34,6 +37,7 @@ nightly = [
   "near-chain-configs/nightly",
   "near-chain/nightly",
   "near-epoch-manager/nightly",
+  "near-o11y/nightly",
   "near-primitives/nightly",
   "near-store/nightly",
   "nearcore/nightly",
@@ -43,6 +47,7 @@ nightly_protocol = [
   "near-chain-configs/nightly_protocol",
   "near-chain/nightly_protocol",
   "near-epoch-manager/nightly_protocol",
+  "near-o11y/nightly_protocol",
   "near-primitives/nightly_protocol",
   "near-store/nightly_protocol",
   "nearcore/nightly_protocol",
