@@ -4,6 +4,7 @@ use crate::flat::store_helper::{
     decode_flat_state_db_key, get_all_deltas_metadata, get_delta_changes, get_flat_storage_status,
 };
 use crate::flat::{FlatStorageError, FlatStorageStatus};
+use crate::trie::mem::arena::Arena;
 use crate::trie::mem::construction::TrieConstructor;
 use crate::trie::mem::node::MemTrieNodePtrMut;
 use crate::trie::mem::updating::apply_memtrie_changes;
@@ -15,7 +16,6 @@ use near_primitives::state::FlatStateValue;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, StateRoot};
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
-use crate::trie::mem::arena::Arena;
 use std::collections::BTreeSet;
 use std::thread;
 use std::time::Instant;
@@ -93,7 +93,7 @@ pub fn load_trie_from_flat_state_original(
 
 /// Loads a trie from the FlatState column. The returned `MemTries` contains
 /// exactly one trie root.
-pub fn load_trie_from_flat_state(
+pub fn load_trie_from_flat_state_parallel(
     store: &Store,
     shard_uid: ShardUId,
     state_root: CryptoHash,
@@ -106,7 +106,7 @@ pub fn load_trie_from_flat_state(
         let load_start = Instant::now();
         let mut num_keys_loaded: u64 = 0;
         let mut num_subtrees: u64 = 0;
-        
+
         let arena_mut = arena as *mut Arena;
         let mut recon = TrieConstructor::new(unsafe { &mut *arena_mut });
 
@@ -135,7 +135,7 @@ pub fn load_trie_from_flat_state(
                         }
                     }
                 }
-                
+
                 num_keys_loaded += 1;
                 if num_keys_loaded % 1000000 == 0 {
                     debug!(
@@ -228,7 +228,8 @@ pub fn load_trie_from_flat_state_and_delta(
     };
 
     let mut mem_tries =
-        load_trie_from_flat_state(&store, shard_uid, state_root, flat_head.height).unwrap();
+        load_trie_from_flat_state_parallel(&store, shard_uid, state_root, flat_head.height)
+            .unwrap();
 
     debug!(target: "memtrie", %shard_uid, "Loading flat state deltas...");
     // We load the deltas in order of height, so that we always have the previous state root
@@ -276,7 +277,7 @@ mod load_mem_trie_tests {
         create_test_store, simplify_changes, test_populate_flat_storage, test_populate_trie,
         TestTriesBuilder,
     };
-    use crate::trie::mem::loading::load_trie_from_flat_state;
+    use crate::trie::mem::loading::load_trie_from_flat_state_parallel;
     use crate::trie::mem::lookup::memtrie_lookup;
     use crate::{DBCol, KeyLookupMode, NibbleSlice, ShardTries, Store, Trie, TrieUpdate};
     use near_primitives::congestion_info::CongestionInfo;
@@ -305,9 +306,13 @@ mod load_mem_trie_tests {
         let state_root = test_populate_trie(&shard_tries, &Trie::EMPTY_ROOT, shard_uid, changes);
 
         eprintln!("Trie and flat storage populated");
-        let in_memory_trie =
-            load_trie_from_flat_state(&shard_tries.get_store(), shard_uid, state_root, 123)
-                .unwrap();
+        let in_memory_trie = load_trie_from_flat_state_parallel(
+            &shard_tries.get_store(),
+            shard_uid,
+            state_root,
+            123,
+        )
+        .unwrap();
         eprintln!("In memory trie loaded");
 
         if keys.is_empty() {
