@@ -4,9 +4,7 @@ use crate::flat::store_helper::{
     decode_flat_state_db_key, get_all_deltas_metadata, get_delta_changes, get_flat_storage_status,
 };
 use crate::flat::{FlatStorageError, FlatStorageStatus};
-use crate::trie::mem::arena::Arena;
 use crate::trie::mem::construction::TrieConstructor;
-use crate::trie::mem::node::MemTrieNodePtrMut;
 use crate::trie::mem::updating::apply_memtrie_changes;
 use crate::{DBCol, Store};
 use near_primitives::errors::StorageError;
@@ -17,15 +15,12 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, StateRoot};
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use std::collections::BTreeSet;
-use std::thread;
 use std::time::Instant;
 use tracing::{debug, info};
 
-const MEMORY_USAGE_THRESHOLD_FOR_PARALLEL_COMPUTE_HASH: u64 = 1024 * 1024;
-
 /// Loads a trie from the FlatState column. The returned `MemTries` contains
 /// exactly one trie root.
-pub fn load_trie_from_flat_state_original(
+pub fn load_trie_from_flat_state(
     store: &Store,
     shard_uid: ShardUId,
     state_root: CryptoHash,
@@ -75,97 +70,10 @@ pub fn load_trie_from_flat_state_original(
             num_keys_loaded
         );
         let mut subtrees = Vec::new();
-        root_id.as_ptr_mut(arena.memory_mut()).take_small_subtrees(MEMORY_USAGE_THRESHOLD_FOR_PARALLEL_COMPUTE_HASH, &mut subtrees);
+        root_id.as_ptr_mut(arena.memory_mut()).take_small_subtrees(1024 * 1024, &mut subtrees);
         subtrees.into_par_iter().for_each(|mut subtree| {
             subtree.compute_hash_recursively();
         });
-        root_id.as_ptr_mut(arena.memory_mut()).compute_hash_recursively();
-        info!(target: "memtrie", shard_uid=%shard_uid, "Done loading trie from flat state, took {:?}", load_start.elapsed());
-
-        let root = root_id.as_ptr(arena.memory());
-        assert_eq!(
-            root.view().node_hash(), state_root,
-            "In-memory trie for shard {} has incorrect state root", shard_uid);
-        Ok(Some(root.id()))
-    })?;
-    Ok(tries)
-}
-
-/// Loads a trie from the FlatState column. The returned `MemTries` contains
-/// exactly one trie root.
-pub fn load_trie_from_flat_state_parallel(
-    store: &Store,
-    shard_uid: ShardUId,
-    state_root: CryptoHash,
-    block_height: BlockHeight,
-) -> Result<MemTries, StorageError> {
-    let mut tries = MemTries::new(shard_uid);
-
-    tries.construct_root(block_height, |arena| -> Result<Option<MemTrieNodeId>, StorageError> {
-        info!(target: "memtrie", shard_uid=%shard_uid, "Loading trie from flat state...");
-        let load_start = Instant::now();
-        let mut num_keys_loaded: u64 = 0;
-        let mut num_subtrees: u64 = 0;
-
-        let arena_mut = arena as *mut Arena;
-        let mut recon = TrieConstructor::new(unsafe { &mut *arena_mut });
-
-        thread::scope(|scope| -> Result<(), StorageError> {
-
-            for item in store
-                .iter_prefix_ser::<FlatStateValue>(DBCol::FlatState, &borsh::to_vec(&shard_uid).unwrap())
-            {
-                let (key, value) = item.map_err(|err| {
-                    FlatStorageError::StorageInternalError(format!("Error iterating over FlatState: {err}"))
-                })?;
-                let (_, key) = decode_flat_state_db_key(&key).map_err(|err| {
-                    FlatStorageError::StorageInternalError(format!("invalid FlatState key format: {err}"))
-                })?;
-
-                let parents = recon.add_leaf(&key, value);
-                for parent in parents.into_iter() {
-                    let mut subtrees: Vec<MemTrieNodePtrMut> = Vec::new();
-                    parent.as_ptr_mut( unsafe { &mut *arena_mut }.memory_mut()).take_small_subtrees_v2(MEMORY_USAGE_THRESHOLD_FOR_PARALLEL_COMPUTE_HASH, &mut subtrees);
-                    if subtrees.len() > 0 {
-                        num_subtrees += subtrees.len() as u64;
-                        for mut subtree in subtrees.into_iter() {
-                            scope.spawn(move || {
-                                subtree.compute_hash_recursively();
-                            });
-                        }
-                    }
-                }
-
-                num_keys_loaded += 1;
-                if num_keys_loaded % 1000000 == 0 {
-                    debug!(
-                        target: "memtrie",
-                        %shard_uid,
-                        "Loaded {} keys, current key: {}",
-                        num_keys_loaded,
-                        hex::encode(&key)
-                    );
-                }
-            }
-
-            Ok(())
-
-        }).expect("Failed to construct memtrie from flat storage");
-
-        let root_id = match recon.finalize() {
-            Some(root_id) => root_id,
-            None => {
-                info!(target: "memtrie", shard_uid=%shard_uid, "No keys loaded, trie is empty");
-                return Ok(None);
-            }
-        };
-
-        debug!(
-            target: "memtrie",
-            %shard_uid,
-            "Loaded {} keys; computed hash for {} subtrees; finalizing hashes...",
-            num_keys_loaded, num_subtrees
-        );
         root_id.as_ptr_mut(arena.memory_mut()).compute_hash_recursively();
         info!(target: "memtrie", shard_uid=%shard_uid, "Done loading trie from flat state, took {:?}", load_start.elapsed());
 
@@ -228,8 +136,7 @@ pub fn load_trie_from_flat_state_and_delta(
     };
 
     let mut mem_tries =
-        load_trie_from_flat_state_parallel(&store, shard_uid, state_root, flat_head.height)
-            .unwrap();
+        load_trie_from_flat_state(&store, shard_uid, state_root, flat_head.height).unwrap();
 
     debug!(target: "memtrie", %shard_uid, "Loading flat state deltas...");
     // We load the deltas in order of height, so that we always have the previous state root
@@ -261,7 +168,7 @@ pub fn load_trie_from_flat_state_and_delta(
                 apply_memtrie_changes(&mut mem_tries, &mem_trie_changes, height);
             assert_eq!(new_root_after_apply, new_state_root);
         }
-        // DO NOT SUBMIT: debug!(target: "memtrie", %shard_uid, "Applied memtrie changes for height {}", height);
+        debug!(target: "memtrie", %shard_uid, "Applied memtrie changes for height {}", height);
     }
 
     debug!(target: "memtrie", %shard_uid, "Done loading memtries for shard");
@@ -269,7 +176,7 @@ pub fn load_trie_from_flat_state_and_delta(
 }
 
 #[cfg(test)]
-mod load_mem_trie_tests {
+mod tests {
     use super::load_trie_from_flat_state_and_delta;
     use crate::flat::test_utils::MockChain;
     use crate::flat::{store_helper, BlockInfo, FlatStorageReadyStatus, FlatStorageStatus};
@@ -277,7 +184,7 @@ mod load_mem_trie_tests {
         create_test_store, simplify_changes, test_populate_flat_storage, test_populate_trie,
         TestTriesBuilder,
     };
-    use crate::trie::mem::loading::load_trie_from_flat_state_parallel;
+    use crate::trie::mem::loading::load_trie_from_flat_state;
     use crate::trie::mem::lookup::memtrie_lookup;
     use crate::{DBCol, KeyLookupMode, NibbleSlice, ShardTries, Store, Trie, TrieUpdate};
     use near_primitives::congestion_info::CongestionInfo;
@@ -306,13 +213,9 @@ mod load_mem_trie_tests {
         let state_root = test_populate_trie(&shard_tries, &Trie::EMPTY_ROOT, shard_uid, changes);
 
         eprintln!("Trie and flat storage populated");
-        let in_memory_trie = load_trie_from_flat_state_parallel(
-            &shard_tries.get_store(),
-            shard_uid,
-            state_root,
-            123,
-        )
-        .unwrap();
+        let in_memory_trie =
+            load_trie_from_flat_state(&shard_tries.get_store(), shard_uid, state_root, 123)
+                .unwrap();
         eprintln!("In memory trie loaded");
 
         if keys.is_empty() {
