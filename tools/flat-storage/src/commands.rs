@@ -329,7 +329,7 @@ impl FlatStorageCommand {
         let flat_state_entries_iter =
             store_helper::iter_flat_state_entries(shard_uid, &hot_store, None, None);
 
-        let trie_iter = trie.iter()?;
+        let trie_iter = trie.disk_iter()?;
         let mut verified = 0;
         let mut success = true;
         for (item_trie, item_flat) in tqdm(std::iter::zip(trie_iter, flat_state_entries_iter)) {
@@ -433,7 +433,7 @@ impl FlatStorageCommand {
         let missing_keys_right_boundary =
             &[near_primitives::trie_key::col::DELAYED_RECEIPT_OR_INDICES + 1];
 
-        let mut prev_iter = trie.iter()?;
+        let mut prev_iter = trie.disk_iter()?;
         let nibbles_left_boundary: Vec<_> =
             near_store::NibbleSlice::new(missing_keys_left_boundary).iter().collect();
         let nibbles_right_boundary: Vec<_> =
