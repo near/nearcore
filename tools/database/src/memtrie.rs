@@ -51,13 +51,12 @@ impl LoadMemTrieCommand {
             Some(shard_ids) => all_shard_uids
                 .iter()
                 .filter(|uid| shard_ids.contains(&uid.shard_id()))
-                .map(|uid| uid.clone())
+                .map(|uid| *uid)
                 .collect(),
         };
 
-        let runtime =
-            NightshadeRuntime::from_config(home, store.clone(), &near_config, epoch_manager)
-                .context("could not create the transaction runtime")?;
+        let runtime = NightshadeRuntime::from_config(home, store, &near_config, epoch_manager)
+            .context("could not create the transaction runtime")?;
 
         println!("Loading memtries for shards {:?}...", selected_shard_uids);
         runtime.get_tries().load_mem_tries_for_enabled_shards(&selected_shard_uids)?;
