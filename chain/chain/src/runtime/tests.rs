@@ -11,6 +11,7 @@ use near_pool::{
 };
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::checked_feature;
+use near_primitives::congestion_info::ExtendedCongestionInfo;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::version::PROTOCOL_VERSION;
@@ -83,14 +84,14 @@ impl NightshadeRuntime {
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(block_hash).unwrap_or_default();
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
-        let congestion_info_map: HashMap<ShardId, CongestionInfo> =
+        let congestion_info_map: HashMap<ShardId, ExtendedCongestionInfo> =
             if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
                 HashMap::new()
             } else {
                 let shard_ids = self.epoch_manager.shard_ids(&epoch_id).unwrap();
                 shard_ids
                     .into_iter()
-                    .map(|shard_id| (shard_id, CongestionInfo::default()))
+                    .map(|shard_id| (shard_id, ExtendedCongestionInfo::default()))
                     .collect()
             };
         let mut result = self

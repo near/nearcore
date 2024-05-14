@@ -2,7 +2,7 @@ use near_chain_configs::{get_initial_supply, Genesis, GenesisConfig, GenesisReco
 use near_crypto::{InMemorySigner, KeyType};
 use near_parameters::ActionCosts;
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::congestion_info::CongestionInfo;
+use near_primitives::congestion_info::ExtendedCongestionInfo;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
@@ -93,7 +93,7 @@ impl StandaloneRuntime {
             .config
             .shard_layout
             .shard_ids()
-            .map(|shard_id| (shard_id, CongestionInfo::default()))
+            .map(|shard_id| (shard_id, ExtendedCongestionInfo::default()))
             .collect();
 
         let apply_state = ApplyState {
