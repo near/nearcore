@@ -15,6 +15,7 @@ use near_primitives::state::FlatStateValue;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, StateRoot};
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
+use crate::trie::mem::arena::Arena;
 use std::collections::BTreeSet;
 use std::thread;
 use std::time::Instant;
@@ -33,12 +34,12 @@ pub fn load_trie_from_flat_state(
     tries.construct_root(block_height, |arena| -> Result<Option<MemTrieNodeId>, StorageError> {
         info!(target: "memtrie", shard_uid=%shard_uid, "Loading trie from flat state...");
         let load_start = Instant::now();
-
         let mut num_keys_loaded = 0;
-        let mut recon = TrieConstructor::new(arena);
+        
+        let arena_mut = arena as *mut Arena;
+        let mut recon = TrieConstructor::new(unsafe { &mut *arena_mut });
 
         thread::scope(|scope| -> Result<(), StorageError> {
-
 
             for item in store
                 .iter_prefix_ser::<FlatStateValue>(DBCol::FlatState, &borsh::to_vec(&shard_uid).unwrap())
@@ -53,7 +54,7 @@ pub fn load_trie_from_flat_state(
                 let parents = recon.add_leaf(&key, value);
                 for parent in parents.into_iter() {
                     let mut subtrees: Vec<MemTrieNodePtrMut> = Vec::new();
-                    parent.as_ptr_mut(arena.memory_mut()).take_small_subtrees(1024 * 1024, &mut subtrees);
+                    parent.as_ptr_mut( unsafe { &mut *arena_mut }.memory_mut()).take_small_subtrees_v2(1024 * 1024, &mut subtrees);
                     for mut subtree in subtrees.into_iter() {
                         scope.spawn(move || {
                            subtree.compute_hash_recursively();
@@ -92,11 +93,11 @@ pub fn load_trie_from_flat_state(
             }
         };
 
-        let mut subtrees = Vec::new();
-        root_id.as_ptr_mut(arena.memory_mut()).take_small_subtrees(1024 * 1024, &mut subtrees);
-        subtrees.into_par_iter().for_each(|mut subtree| {
-            subtree.compute_hash_recursively();
-        });
+        // let mut subtrees = Vec::new();
+        // root_id.as_ptr_mut(arena.memory_mut()).take_small_subtrees(1024 * 1024, &mut subtrees);
+        // subtrees.into_par_iter().for_each(|mut subtree| {
+        //     subtree.compute_hash_recursively();
+        // });
         root_id.as_ptr_mut(arena.memory_mut()).compute_hash_recursively();
         info!(target: "memtrie", shard_uid=%shard_uid, "Done loading trie from flat state, took {:?}", load_start.elapsed());
 
