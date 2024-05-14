@@ -90,7 +90,7 @@ impl ChunkEndorsementTracker {
         tracing::debug!(target: "client", ?chunk_hash, "Processing pending chunk endorsements.");
         for endorsement in chunk_endorsements.values() {
             if let Err(error) = self.process_chunk_endorsement(chunk_header, endorsement.clone()) {
-                tracing::debug!(target: "client", ?endorsement, "Error processing pending chunk endorsement: {:?}", error);
+                tracing::debug!(target: "client", ?endorsement, ?error, "Error processing pending chunk endorsement");
             }
         }
     }

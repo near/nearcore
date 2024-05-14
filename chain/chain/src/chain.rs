@@ -1739,7 +1739,9 @@ impl Chain {
                             .add_block_with_missing_chunks(orphan, missing_chunk_hashes.clone());
                         debug!(
                             target: "chain",
-                            ?block_hash, chunk_hashes=missing_chunk_hashes.iter().map(|h| format!("{:?}", h)).join(","), "Process block: missing chunks"
+                            ?block_hash,
+                            chunk_hashes=missing_chunk_hashes.iter().map(|h| format!("{:?}", h)).join(","),
+                            "Process block: missing chunks"
                         );
                     }
                     Error::EpochOutOfBounds(epoch_id) => {
@@ -1752,7 +1754,8 @@ impl Chain {
                             target: "chain",
                             block_hash=?block.hash(),
                             height=block_height,
-                            error=?block_known_error, "Block known at this time");
+                            error=?block_known_error,
+                            "Block known at this time");
                     }
                     _ => {}
                 }
