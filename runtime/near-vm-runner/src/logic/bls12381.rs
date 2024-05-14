@@ -10,38 +10,30 @@ const BLS_FP2_SIZE: usize = 96;
 const BLS_P1_SIZE: usize = 96;
 const BLS_P2_SIZE: usize = 192;
 
-pub(super) fn p1_sum(
-    data: &[u8]
-) -> Result<(u64, Vec<u8>)> {
+pub(super) fn p1_sum(data: &[u8]) -> Result<(u64, Vec<u8>)> {
     const ITEM_SIZE: usize = BLS_BOOL_SIZE + BLS_P1_SIZE;
 
     if data.len() % ITEM_SIZE != 0 {
         return Err(HostError::BLS12381InvalidInput {
             msg: format!(
                 "Incorrect input length for bls12381_p1_sum: {} is not divisible by {}",
-                data.len(), ITEM_SIZE
+                data.len(),
+                ITEM_SIZE
             ),
         }
-            .into());
+        .into());
     }
 
     let mut res_pk = blst::blst_p1::default();
-    let elements_count = data.len() / ITEM_SIZE;
 
-    for i in 0..elements_count {
-        if data[i * ITEM_SIZE + BLS_BOOL_SIZE] & 0x80 != 0 {
+    for item_data in data.chunks_exact(ITEM_SIZE) {
+        if item_data[BLS_BOOL_SIZE] & 0x80 != 0 {
             return Ok((1, vec![]));
         }
 
         let mut pk_aff = blst::blst_p1_affine::default();
-        let error_code = unsafe {
-            blst::blst_p1_deserialize(
-                &mut pk_aff,
-                data[i * (BLS_BOOL_SIZE + BLS_P1_SIZE) + BLS_BOOL_SIZE
-                    ..(i + BLS_BOOL_SIZE) * ITEM_SIZE]
-                    .as_ptr(),
-            )
-        };
+        let error_code =
+            unsafe { blst::blst_p1_deserialize(&mut pk_aff, item_data[BLS_BOOL_SIZE..].as_ptr()) };
 
         if error_code != blst::BLST_ERROR::BLST_SUCCESS {
             return Ok((1, vec![]));
@@ -52,7 +44,7 @@ pub(super) fn p1_sum(
             blst::blst_p1_from_affine(&mut pk, &pk_aff);
         }
 
-        let sign = data[i * ITEM_SIZE];
+        let sign = item_data[0];
         if sign == 1 {
             unsafe {
                 blst::blst_p1_cneg(&mut pk, true);
@@ -80,36 +72,29 @@ pub(super) fn p1_sum(
     Ok((0, res.to_vec()))
 }
 
-pub(super) fn p2_sum(
-    data: &[u8]
-) -> Result<(u64, Vec<u8>)>  {
+pub(super) fn p2_sum(data: &[u8]) -> Result<(u64, Vec<u8>)> {
     const ITEM_SIZE: usize = BLS_BOOL_SIZE + BLS_P2_SIZE;
 
     if data.len() % ITEM_SIZE != 0 {
         return Err(HostError::BLS12381InvalidInput {
             msg: format!(
                 "Incorrect input length for bls12381_p2_sum: {} is not divisible by {}",
-                data.len(), ITEM_SIZE
+                data.len(),
+                ITEM_SIZE
             ),
         }
-            .into());
+        .into());
     }
     let mut res_pk = blst::blst_p2::default();
 
-    let elements_count = data.len() / ITEM_SIZE;
-
-    for i in 0..elements_count {
-        if data[i * ITEM_SIZE + BLS_BOOL_SIZE] & 0x80 != 0 {
+    for item_data in data.chunks_exact(ITEM_SIZE) {
+        if item_data[BLS_BOOL_SIZE] & 0x80 != 0 {
             return Ok((1, vec![]));
         }
 
         let mut pk_aff = blst::blst_p2_affine::default();
-        let error_code = unsafe {
-            blst::blst_p2_deserialize(
-                &mut pk_aff,
-                data[i * ITEM_SIZE + BLS_BOOL_SIZE..(i + 1) * ITEM_SIZE].as_ptr(),
-            )
-        };
+        let error_code =
+            unsafe { blst::blst_p2_deserialize(&mut pk_aff, item_data[BLS_BOOL_SIZE..].as_ptr()) };
 
         if error_code != blst::BLST_ERROR::BLST_SUCCESS {
             return Ok((1, vec![]));
@@ -120,7 +105,7 @@ pub(super) fn p2_sum(
             blst::blst_p2_from_affine(&mut pk, &pk_aff);
         }
 
-        let sign = data[i * ITEM_SIZE];
+        let sign = item_data[0];
         if sign == 1 {
             unsafe {
                 blst::blst_p2_cneg(&mut pk, true);
@@ -148,37 +133,30 @@ pub(super) fn p2_sum(
     Ok((0, res.to_vec()))
 }
 
-pub(super) fn p1_multiexp(
-    data: &[u8]
-) -> Result<(u64, Vec<u8>)>  {
+pub(super) fn p1_multiexp(data: &[u8]) -> Result<(u64, Vec<u8>)> {
     const ITEM_SIZE: usize = BLS_SCALAR_SIZE + BLS_P1_SIZE;
 
     if data.len() % ITEM_SIZE != 0 {
         return Err(HostError::BLS12381InvalidInput {
             msg: format!(
                 "Incorrect input length for bls12381_p1_multiexp: {} is not divisible by {}",
-                data.len(), ITEM_SIZE
+                data.len(),
+                ITEM_SIZE
             ),
         }
-            .into());
+        .into());
     }
-
-    let elements_count = data.len() / ((BLS_P1_SIZE + BLS_SCALAR_SIZE) as usize);
 
     let mut res_pk = blst::blst_p1::default();
 
-    for i in 0..elements_count {
-        if data[i * ITEM_SIZE] & 0x80 != 0 {
+    for item_data in data.chunks_exact(ITEM_SIZE) {
+        if item_data[0] & 0x80 != 0 {
             return Ok((1, vec![]));
         }
 
         let mut pk_aff = blst::blst_p1_affine::default();
-        let error_code = unsafe {
-            blst::blst_p1_deserialize(
-                &mut pk_aff,
-                data[i * ITEM_SIZE..(i * ITEM_SIZE + BLS_P1_SIZE)].as_ptr(),
-            )
-        };
+        let error_code =
+            unsafe { blst::blst_p1_deserialize(&mut pk_aff, item_data[..BLS_P1_SIZE].as_ptr()) };
 
         if error_code != blst::BLST_ERROR::BLST_SUCCESS {
             return Ok((1, vec![]));
@@ -194,7 +172,7 @@ pub(super) fn p1_multiexp(
             blst::blst_p1_unchecked_mult(
                 &mut pk_mul,
                 &pk,
-                data[(i * ITEM_SIZE + BLS_P1_SIZE)..((i + 1) * ITEM_SIZE)].as_ptr(),
+                item_data[BLS_P1_SIZE..].as_ptr(),
                 BLS_SCALAR_SIZE * 8,
             );
         }
@@ -218,36 +196,29 @@ pub(super) fn p1_multiexp(
     Ok((0, res.to_vec()))
 }
 
-pub(super) fn p2_multiexp(
-    data: &[u8]
-) -> Result<(u64, Vec<u8>)>  {
+pub(super) fn p2_multiexp(data: &[u8]) -> Result<(u64, Vec<u8>)> {
     const ITEM_SIZE: usize = BLS_SCALAR_SIZE + BLS_P2_SIZE;
 
     if data.len() % ITEM_SIZE != 0 {
         return Err(HostError::BLS12381InvalidInput {
             msg: format!(
                 "Incorrect input length for bls12381_p2_multiexp: {} is not divisible by {}",
-                data.len(), ITEM_SIZE
+                data.len(),
+                ITEM_SIZE
             ),
         }
-            .into());
+        .into());
     }
 
-    let elements_count = data.len() / ITEM_SIZE;
-
     let mut res_pk = blst::blst_p2::default();
-    for i in 0..elements_count {
-        if data[i * ITEM_SIZE] & 0x80 != 0 {
+    for item_data in data.chunks_exact(ITEM_SIZE) {
+        if item_data[0] & 0x80 != 0 {
             return Ok((1, vec![]));
         }
 
         let mut pk_aff = blst::blst_p2_affine::default();
-        let error_code = unsafe {
-            blst::blst_p2_deserialize(
-                &mut pk_aff,
-                data[i * ITEM_SIZE..(i * ITEM_SIZE + BLS_P2_SIZE)].as_ptr(),
-            )
-        };
+        let error_code =
+            unsafe { blst::blst_p2_deserialize(&mut pk_aff, item_data[0..BLS_P2_SIZE].as_ptr()) };
 
         if error_code != blst::BLST_ERROR::BLST_SUCCESS {
             return Ok((1, vec![]));
@@ -263,7 +234,7 @@ pub(super) fn p2_multiexp(
             blst::blst_p2_unchecked_mult(
                 &mut pk_mul,
                 &pk,
-                data[(i * ITEM_SIZE + BLS_P2_SIZE)..(i + 1) * ITEM_SIZE].as_ptr(),
+                item_data[BLS_P2_SIZE..].as_ptr(),
                 BLS_SCALAR_SIZE * 8,
             );
         }
@@ -287,19 +258,18 @@ pub(super) fn p2_multiexp(
     Ok((0, res.to_vec()))
 }
 
-pub(super) fn map_fp_to_g1(
-    data: &[u8]
-) -> Result<(u64, Vec<u8>)> {
+pub(super) fn map_fp_to_g1(data: &[u8]) -> Result<(u64, Vec<u8>)> {
     const ITEM_SIZE: usize = BLS_FP_SIZE;
 
     if data.len() % ITEM_SIZE != 0 {
         return Err(HostError::BLS12381InvalidInput {
             msg: format!(
                 "Incorrect input length for bls12381_map_fp_to_g1: {} is not divisible by {}",
-                data.len(), ITEM_SIZE
+                data.len(),
+                ITEM_SIZE
             ),
         }
-            .into());
+        .into());
     }
 
     let mut fp_point = blst::blst_fp::default();
@@ -308,12 +278,9 @@ pub(super) fn map_fp_to_g1(
 
     let mut res_concat: Vec<u8> = Vec::with_capacity(BLS_P1_SIZE * elements_count);
 
-    for i in 0..elements_count {
+    for item_data in data.chunks_exact(ITEM_SIZE) {
         unsafe {
-            blst::blst_fp_from_bendian(
-                &mut fp_point,
-                data[i * ITEM_SIZE..(i + 1) * ITEM_SIZE].as_ptr(),
-            );
+            blst::blst_fp_from_bendian(&mut fp_point, item_data.as_ptr());
         }
 
         let mut fp_row: [u8; BLS_FP_SIZE] = [0u8; BLS_FP_SIZE];
@@ -322,7 +289,7 @@ pub(super) fn map_fp_to_g1(
         }
 
         for j in 0..BLS_FP_SIZE {
-            if fp_row[j] != data[i * BLS_FP_SIZE + j] {
+            if fp_row[j] != item_data[j] {
                 return Ok((1, vec![]));
             }
         }
@@ -349,36 +316,30 @@ pub(super) fn map_fp_to_g1(
     Ok((0, res_concat))
 }
 
-pub(super) fn map_fp2_to_g2(
-    data: &[u8]
-) -> Result<(u64, Vec<u8>)> {
+pub(super) fn map_fp2_to_g2(data: &[u8]) -> Result<(u64, Vec<u8>)> {
     const ITEM_SIZE: usize = BLS_FP2_SIZE;
 
     if data.len() % ITEM_SIZE != 0 {
         return Err(HostError::BLS12381InvalidInput {
             msg: format!(
                 "Incorrect input length for bls12381_map_fp2_to_g2: {} is not divisible by {}",
-                data.len(), ITEM_SIZE
+                data.len(),
+                ITEM_SIZE
             ),
-        }.into());
+        }
+        .into());
     }
 
     let elements_count: usize = data.len() / ITEM_SIZE;
 
     let mut res_concat: Vec<u8> = Vec::with_capacity(BLS_P2_SIZE * elements_count);
 
-    for i in 0..elements_count {
+    for item_data in data.chunks_exact(ITEM_SIZE) {
         let mut c_fp1 = [blst::blst_fp::default(); 2];
 
         unsafe {
-            blst::blst_fp_from_bendian(
-                &mut c_fp1[1],
-                data[i * ITEM_SIZE..i * ITEM_SIZE + BLS_FP_SIZE].as_ptr(),
-            );
-            blst::blst_fp_from_bendian(
-                &mut c_fp1[0],
-                data[i * ITEM_SIZE + BLS_FP_SIZE..(i + 1) * ITEM_SIZE].as_ptr(),
-            );
+            blst::blst_fp_from_bendian(&mut c_fp1[1], item_data[..BLS_FP_SIZE].as_ptr());
+            blst::blst_fp_from_bendian(&mut c_fp1[0], item_data[BLS_FP_SIZE..].as_ptr());
         }
 
         let mut fp_row: [u8; BLS_FP_SIZE] = [0u8; BLS_FP_SIZE];
@@ -387,7 +348,7 @@ pub(super) fn map_fp2_to_g2(
         }
 
         for j in BLS_FP_SIZE..BLS_FP2_SIZE {
-            if fp_row[j - BLS_FP_SIZE] != data[BLS_FP2_SIZE * i + j] {
+            if fp_row[j - BLS_FP_SIZE] != item_data[j] {
                 return Ok((1, vec![]));
             }
         }
@@ -397,7 +358,7 @@ pub(super) fn map_fp2_to_g2(
         }
 
         for j in 0..BLS_FP_SIZE {
-            if fp_row[j] != data[BLS_FP2_SIZE * i + j] {
+            if fp_row[j] != item_data[j] {
                 return Ok((1, vec![]));
             }
         }
@@ -426,19 +387,18 @@ pub(super) fn map_fp2_to_g2(
     Ok((0, res_concat))
 }
 
-pub(super) fn pairing_check(
-    data: &[u8]
-) -> Result<u64> {
+pub(super) fn pairing_check(data: &[u8]) -> Result<u64> {
     const ITEM_SIZE: usize = BLS_P1_SIZE + BLS_P2_SIZE;
 
     if data.len() % ITEM_SIZE != 0 {
         return Err(HostError::BLS12381InvalidInput {
             msg: format!(
                 "Incorrect input length for bls12381_pairing_check: {} is not divisible by {}",
-                data.len(), ITEM_SIZE
+                data.len(),
+                ITEM_SIZE
             ),
         }
-            .into());
+        .into());
     }
 
     let elements_count = data.len() / ITEM_SIZE;
@@ -448,16 +408,13 @@ pub(super) fn pairing_check(
     let mut blst_g2_list: Vec<blst::blst_p2_affine> =
         vec![blst::blst_p2_affine::default(); elements_count];
 
-    for i in 0..elements_count {
-        if data[i * ITEM_SIZE] & 0x80 != 0 {
+    for (item_data, i) in data.chunks_exact(ITEM_SIZE).zip(0..elements_count) {
+        if item_data[0] & 0x80 != 0 {
             return Ok(1);
         }
 
         let error_code = unsafe {
-            blst::blst_p1_deserialize(
-                &mut blst_g1_list[i],
-                data[(i * ITEM_SIZE)..(i * ITEM_SIZE + BLS_P1_SIZE)].as_ptr(),
-            )
+            blst::blst_p1_deserialize(&mut blst_g1_list[i], item_data[..BLS_P1_SIZE].as_ptr())
         };
 
         if error_code != blst::BLST_ERROR::BLST_SUCCESS {
@@ -469,15 +426,12 @@ pub(super) fn pairing_check(
             return Ok(1);
         }
 
-        if data[i * ITEM_SIZE + BLS_P1_SIZE] & 0x80 != 0 {
+        if item_data[BLS_P1_SIZE] & 0x80 != 0 {
             return Ok(1);
         }
 
         let error_code = unsafe {
-            blst::blst_p2_deserialize(
-                &mut blst_g2_list[i],
-                data[(i * ITEM_SIZE + BLS_P1_SIZE)..((i + 1) * ITEM_SIZE)].as_ptr(),
-            )
+            blst::blst_p2_deserialize(&mut blst_g2_list[i], item_data[BLS_P1_SIZE..].as_ptr())
         };
         if error_code != blst::BLST_ERROR::BLST_SUCCESS {
             return Ok(1);
@@ -504,27 +458,25 @@ pub(super) fn pairing_check(
     }
 }
 
-pub(super) fn p1_decompress(
-    data: &[u8]
-) -> Result<(u64, Vec<u8>)> {
+pub(super) fn p1_decompress(data: &[u8]) -> Result<(u64, Vec<u8>)> {
     const ITEM_SIZE: usize = 48;
 
     if data.len() % ITEM_SIZE != 0 {
         return Err(HostError::BLS12381InvalidInput {
             msg: format!(
                 "Incorrect input length for bls12381_p1_decompress: {} is not divisible by {}",
-                data.len(), ITEM_SIZE
+                data.len(),
+                ITEM_SIZE
             ),
         }
-            .into());
+        .into());
     }
 
     let elements_count = data.len() / ITEM_SIZE;
     let mut res = Vec::<u8>::with_capacity(elements_count * BLS_P1_SIZE);
 
-    for i in 0..elements_count {
-        let pk_res =
-            blst::min_pk::PublicKey::uncompress(&data[i * ITEM_SIZE..(i + 1) * ITEM_SIZE]);
+    for item_data in data.chunks_exact(ITEM_SIZE) {
+        let pk_res = blst::min_pk::PublicKey::uncompress(item_data);
         let pk_ser = if let Ok(pk) = pk_res {
             pk.serialize()
         } else {
@@ -537,27 +489,25 @@ pub(super) fn p1_decompress(
     Ok((0, res))
 }
 
-pub(super) fn p2_decompress(
-    data: &[u8]
-) -> Result<(u64, Vec<u8>)> {
+pub(super) fn p2_decompress(data: &[u8]) -> Result<(u64, Vec<u8>)> {
     const ITEM_SIZE: usize = 96;
 
     if data.len() % ITEM_SIZE != 0 {
         return Err(HostError::BLS12381InvalidInput {
             msg: format!(
                 "Incorrect input length for bls12381_p2_decompress: {} is not divisible by {}",
-                data.len(), ITEM_SIZE
+                data.len(),
+                ITEM_SIZE
             ),
         }
-            .into());
+        .into());
     }
 
     let elements_count = data.len() / ITEM_SIZE;
     let mut res = Vec::<u8>::with_capacity(elements_count * BLS_P2_SIZE);
 
-    for i in 0..elements_count {
-        let sig_res =
-            blst::min_pk::Signature::uncompress(&data[i * ITEM_SIZE..(i + 1) * ITEM_SIZE]);
+    for item_data in data.chunks_exact(ITEM_SIZE) {
+        let sig_res = blst::min_pk::Signature::uncompress(item_data);
         let sig_ser = if let Ok(sig) = sig_res {
             sig.serialize()
         } else {
