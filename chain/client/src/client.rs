@@ -1655,13 +1655,19 @@ impl Client {
                 info!(target: "client", "not producing a chunk");
             }
         }
-        if let Err(err) = self.shadow_validate_block_chunks(&block) {
-            tracing::error!(
-                target: "client",
-                ?err,
-                block_hash = ?block.hash(),
-                "block chunks shadow validation failed"
-            );
+
+        // Run shadown chunk validation on the new block, unless it's coming from sync.
+        // Syncing has to be fast to catch up with the rest of the chain,
+        // applying the chunks would make the sync unworkably slow.
+        if provenance != Provenance::SYNC {
+            if let Err(err) = self.shadow_validate_block_chunks(&block) {
+                tracing::error!(
+                    target: "client",
+                    ?err,
+                    block_hash = ?block.hash(),
+                    "block chunks shadow validation failed"
+                );
+            }
         }
 
         self.shards_manager_adapter
