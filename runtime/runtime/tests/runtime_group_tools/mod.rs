@@ -268,7 +268,7 @@ impl RuntimeGroup {
                 .0
                 .lock()
                 .unwrap()
-                .get_mut(&transaction.transaction.signer_id)
+                .get_mut(transaction.transaction.signer_id())
                 .unwrap()
                 .incoming_transactions
                 .push(transaction);
@@ -334,7 +334,8 @@ impl RuntimeGroup {
                 mailbox.incoming_transactions.clear();
                 group.transaction_logs.lock().unwrap().extend(transaction_results);
                 for new_receipt in new_receipts {
-                    let locked_other_mailbox = mailboxes.get_mut(&new_receipt.receiver_id).unwrap();
+                    let locked_other_mailbox =
+                        mailboxes.get_mut(new_receipt.receiver_id()).unwrap();
                     locked_other_mailbox.incoming_receipts.push(new_receipt);
                 }
                 group.mailboxes.1.notify_all();
@@ -421,9 +422,9 @@ macro_rules! assert_receipts {
     $($action_name:ident, $action_pat:pat, $action_assert:block ),+
      => [ $($produced_receipt:ident),*] ) => {
         let r = $group.get_receipt($to, $receipt);
-        assert_eq!(r.predecessor_id, $from);
-        assert_eq!(r.receiver_id, $to);
-        match &r.receipt {
+        assert_eq!(r.predecessor_id().clone(), $from);
+        assert_eq!(r.receiver_id().clone(), $to);
+        match r.receipt() {
             $receipt_pat => {
                 $receipt_assert
                 tuplet!(( $($action_name),* ) = $actions_name, "Incorrect number of actions");

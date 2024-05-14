@@ -3011,7 +3011,7 @@ impl Chain {
                 self.chain_store()
                     .check_transaction_validity_period(
                         prev_block_header,
-                        &transaction.transaction.block_hash,
+                        transaction.transaction.block_hash(),
                         transaction_validity_period,
                     )
                     .map_err(|_| Error::from(Error::InvalidTransactions))?;
@@ -3029,7 +3029,7 @@ impl Chain {
             self.chain_store()
                 .check_transaction_validity_period(
                     &prev_block_header,
-                    &tx.transaction.block_hash,
+                    tx.transaction.block_hash(),
                     self.transaction_validity_period,
                 )
                 .is_ok()
@@ -4406,7 +4406,7 @@ impl Chain {
     ) -> HashMap<ShardId, Vec<Receipt>> {
         let mut result = HashMap::new();
         for receipt in receipts {
-            let shard_id = account_id_to_shard_id(&receipt.receiver_id, shard_layout);
+            let shard_id = account_id_to_shard_id(receipt.receiver_id(), shard_layout);
             let entry = result.entry(shard_id).or_insert_with(Vec::new);
             entry.push(receipt)
         }
@@ -4427,8 +4427,8 @@ impl Chain {
         let mut cache = HashMap::new();
         for receipt in receipts {
             let &mut shard_id = cache
-                .entry(&receipt.receiver_id)
-                .or_insert_with(|| account_id_to_shard_id(&receipt.receiver_id, shard_layout));
+                .entry(receipt.receiver_id())
+                .or_insert_with(|| account_id_to_shard_id(receipt.receiver_id(), shard_layout));
             // This unwrap should be safe as we pre-populated the map with all
             // valid shard ids.
             result.get_mut(&shard_id).unwrap().push(receipt);

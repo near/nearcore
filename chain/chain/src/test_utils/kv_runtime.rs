@@ -25,7 +25,7 @@ use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::epoch_manager::ValidatorSelectionConfig;
 use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
+use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::state_part::PartId;
@@ -1145,16 +1145,19 @@ impl RuntimeAdapter for KeyValueRuntime {
 
         for receipt in receipts.iter() {
             if let ReceiptEnum::Action(action) | ReceiptEnum::PromiseYield(action) =
-                &receipt.receipt
+                receipt.receipt()
             {
-                assert_eq!(account_id_to_shard_id(&receipt.receiver_id, self.num_shards), shard_id);
-                if !state.receipt_nonces.contains(&receipt.receipt_id) {
-                    state.receipt_nonces.insert(receipt.receipt_id);
+                assert_eq!(
+                    account_id_to_shard_id(receipt.receiver_id(), self.num_shards),
+                    shard_id
+                );
+                if !state.receipt_nonces.contains(receipt.receipt_id()) {
+                    state.receipt_nonces.insert(*receipt.receipt_id());
                     if let Action::Transfer(TransferAction { deposit }) = action.actions[0] {
                         balance_transfers.push((
                             receipt.get_hash(),
-                            receipt.predecessor_id.clone(),
-                            receipt.receiver_id.clone(),
+                            receipt.predecessor_id().clone(),
+                            receipt.receiver_id().clone(),
                             deposit,
                             0,
                         ));
@@ -1169,36 +1172,37 @@ impl RuntimeAdapter for KeyValueRuntime {
 
         for transaction in transactions {
             assert_eq!(
-                account_id_to_shard_id(&transaction.transaction.signer_id, self.num_shards),
+                account_id_to_shard_id(transaction.transaction.signer_id(), self.num_shards),
                 shard_id
             );
-            if transaction.transaction.actions.is_empty() {
+            if transaction.transaction.actions().is_empty() {
                 continue;
             }
-            if let Action::Transfer(TransferAction { deposit }) = transaction.transaction.actions[0]
+            if let Action::Transfer(TransferAction { deposit }) =
+                transaction.transaction.actions()[0]
             {
                 if !state.tx_nonces.contains(&AccountNonce(
-                    transaction.transaction.receiver_id.clone(),
-                    transaction.transaction.nonce,
+                    transaction.transaction.receiver_id().clone(),
+                    transaction.transaction.nonce(),
                 )) {
                     state.tx_nonces.insert(AccountNonce(
-                        transaction.transaction.receiver_id.clone(),
-                        transaction.transaction.nonce,
+                        transaction.transaction.receiver_id().clone(),
+                        transaction.transaction.nonce(),
                     ));
                     balance_transfers.push((
                         transaction.get_hash(),
-                        transaction.transaction.signer_id.clone(),
-                        transaction.transaction.receiver_id.clone(),
+                        transaction.transaction.signer_id().clone(),
+                        transaction.transaction.receiver_id().clone(),
                         deposit,
-                        transaction.transaction.nonce,
+                        transaction.transaction.nonce(),
                     ));
                 } else {
                     balance_transfers.push((
                         transaction.get_hash(),
-                        transaction.transaction.signer_id.clone(),
-                        transaction.transaction.receiver_id.clone(),
+                        transaction.transaction.signer_id().clone(),
+                        transaction.transaction.receiver_id().clone(),
                         0,
-                        transaction.transaction.nonce,
+                        transaction.transaction.nonce(),
                     ));
                 }
             } else {
@@ -1229,7 +1233,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                     vec![]
                 } else {
                     assert_ne!(nonce, 0);
-                    let receipt = Receipt {
+                    let receipt = Receipt::V0(ReceiptV0 {
                         predecessor_id: from.clone(),
                         receiver_id: to.clone(),
                         receipt_id: create_receipt_nonce(from.clone(), to.clone(), amount, nonce),
@@ -1241,7 +1245,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                             input_data_ids: vec![],
                             actions: vec![Action::Transfer(TransferAction { deposit: amount })],
                         }),
-                    };
+                    });
                     let receipt_hash = receipt.get_hash();
                     outgoing_receipts.push(receipt);
                     vec![receipt_hash]
