@@ -37,8 +37,8 @@ impl OrphanStateWitnessPool {
     /// Add an orphaned chunk state witness to the pool. The witness will be put in a cache and it'll
     /// wait there for the block that's required to process it.
     /// It's expected that this `ChunkStateWitness` has gone through basic validation - including signature,
-    /// shard_id, size and distance from the tip. The pool would still work without it, but without validation
-    /// it'd be possible to fill the whole cache with spam.
+    /// shard_id, size, epoch_id and distance from the tip. The pool would still work without it, but without
+    /// validation it'd be possible to fill the whole cache with spam.
     /// `witness_size` is only used for metrics, it's okay to pass 0 if you don't care about the metrics.
     pub fn add_orphan_state_witness(&mut self, witness: ChunkStateWitness, witness_size: usize) {
         // Insert the new ChunkStateWitness into the cache
