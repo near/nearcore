@@ -49,6 +49,7 @@ pub mod metadata;
 pub mod metrics;
 pub mod migrations;
 mod opener;
+pub mod parallel_iter;
 mod rocksdb_metrics;
 mod sync_utils;
 pub mod test_utils;
@@ -291,6 +292,15 @@ impl Store {
         self.get(column, key)?.as_deref().map(T::try_from_slice).transpose()
     }
 
+    /// Looks up the key in the database, returning the raw data. This ignores any refcount
+    /// logic, so for an rc column this would return the refcount-encoded value.
+    /// This method is a deliberate escape hatch, and shouldn't be used outside
+    /// of auxilary code like migrations which wants to hack on the database
+    /// directly.
+    pub fn get_raw_bytes(&self, column: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
+        self.storage.get_raw_bytes(column, key)
+    }
+
     pub fn exists(&self, column: DBCol, key: &[u8]) -> io::Result<bool> {
         self.get(column, key).map(|value| value.is_some())
     }
@@ -325,6 +335,16 @@ impl Store {
         upper_bound: Option<&[u8]>,
     ) -> DBIterator<'a> {
         self.storage.iter_range(col, lower_bound, upper_bound)
+    }
+
+    /// Like `iter_raw_bytes`, but for a specific range.
+    pub fn iter_range_raw_bytes<'a>(
+        &'a self,
+        col: DBCol,
+        lower_bound: Option<&[u8]>,
+        upper_bound: Option<&[u8]>,
+    ) -> DBIterator<'a> {
+        self.storage.iter_range_raw_bytes(col, lower_bound, upper_bound)
     }
 
     pub fn iter_prefix_ser<'a, T: BorshDeserialize>(

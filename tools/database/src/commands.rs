@@ -1,4 +1,5 @@
 use crate::adjust_database::ChangeDbKindCommand;
+use crate::aggressive_trimming::AggressiveTrimmingCommand;
 use crate::analyse_data_size_distribution::AnalyseDataSizeDistributionCommand;
 use crate::analyse_gas_usage::AnalyseGasUsageCommand;
 use crate::analyse_high_load::HighLoadStatsCommand;
@@ -55,10 +56,12 @@ enum SubCommand {
     /// Outputs stats that are needed to analise high load
     /// for a block range and account.
     HighLoadStats(HighLoadStatsCommand),
-    // Analyze congestion through delayed receipts
+    /// Analyze congestion through delayed receipts
     AnalyzeDelayedReceipt(AnalyzeDelayedReceiptCommand),
     /// Analyze size of contracts present in the current state
     AnalyzeContractSizes(AnalyzeContractSizesCommand),
+    /// For developers only. Aggressively trims the database for testing purposes.
+    AggressiveTrimming(AggressiveTrimmingCommand),
 }
 
 impl DatabaseCommand {
@@ -91,6 +94,7 @@ impl DatabaseCommand {
             SubCommand::HighLoadStats(cmd) => cmd.run(home),
             SubCommand::AnalyzeDelayedReceipt(cmd) => cmd.run(home),
             SubCommand::AnalyzeContractSizes(cmd) => cmd.run(home),
+            SubCommand::AggressiveTrimming(cmd) => cmd.run(home),
         }
     }
 }
