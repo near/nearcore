@@ -1,4 +1,5 @@
 use crate::shard_assignment::assign_shards;
+use itertools::Itertools;
 use near_primitives::checked_feature;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::{EpochConfig, RngSeed};
@@ -53,48 +54,44 @@ fn select_validators_from_proposals(
         Ratio::new(*rational.numer() as u128, *rational.denom() as u128)
     };
 
-    let mut chunk_producer_proposals = order_proposals(proposals.values().cloned());
-    let (chunk_producers, cp_stake_threshold) = select_chunk_producers(
-        &mut chunk_producer_proposals,
+    let chunk_producer_proposals = order_proposals(proposals.values().cloned());
+    let (chunk_producers, _, cp_stake_threshold) = select_chunk_producers(
+        chunk_producer_proposals,
         epoch_config.validator_selection_config.num_chunk_producer_seats as usize,
         min_stake_ratio,
         shard_ids.len() as NumShards,
         next_version,
     );
 
-    let mut block_producer_proposals = order_proposals(proposals.values().cloned());
-    let (block_producers, bp_stake_threshold) = select_block_producers(
-        &mut block_producer_proposals,
+    let block_producer_proposals = order_proposals(proposals.values().cloned());
+    let (block_producers, _, bp_stake_threshold) = select_block_producers(
+        block_producer_proposals,
         epoch_config.num_block_producer_seats as usize,
         min_stake_ratio,
         next_version,
     );
 
-    let mut chunk_validator_proposals = order_proposals(proposals.into_values());
-    let (chunk_validators, cv_stake_threshold) = select_validators(
-        &mut chunk_validator_proposals,
+    let chunk_validator_proposals = order_proposals(proposals.values().cloned());
+    let (chunk_validators, _, cv_stake_threshold) = select_validators(
+        chunk_validator_proposals,
         epoch_config.validator_selection_config.num_chunk_validator_seats as usize,
         min_stake_ratio,
         next_version,
     );
 
-    // Note that if there are too few validators and too many shards,
-    // assigning chunk producers to shards is more aggressive, so it
-    // is not enough to iterate over chunk validators.
-    // So unfortunately we have to look over all roles to get unselected
-    // proposals.
-    // TODO: getting unselected proposals must be simpler. For example,
-    // we can track all roles assign to each validator in some structure
-    // and then return all validators which don't have any role.
-    let max_validators_for_role =
-        chunk_producers.len().max(block_producers.len()).max(chunk_validators.len());
-    let unselected_proposals = if chunk_producers.len() == max_validators_for_role {
-        chunk_producer_proposals
-    } else if block_producers.len() == max_validators_for_role {
-        block_producer_proposals
-    } else {
-        chunk_validator_proposals
-    };
+    let mut unselected_proposals = BinaryHeap::new();
+    for proposal in order_proposals(proposals.into_values()) {
+        if chunk_producers.contains(&proposal.0) {
+            continue;
+        }
+        if block_producers.contains(&proposal.0) {
+            continue;
+        }
+        if chunk_validators.contains(&proposal.0) {
+            continue;
+        }
+        unselected_proposals.push(proposal);
+    }
     let threshold = bp_stake_threshold.min(cp_stake_threshold).min(cv_stake_threshold);
     ValidatorRoles {
         unselected_proposals,
@@ -328,21 +325,21 @@ fn order_proposals<I: IntoIterator<Item = ValidatorStake>>(
 }
 
 fn select_block_producers(
-    block_producer_proposals: &mut BinaryHeap<OrderedValidatorStake>,
+    block_producer_proposals: BinaryHeap<OrderedValidatorStake>,
     max_num_selected: usize,
     min_stake_ratio: Ratio<u128>,
     protocol_version: ProtocolVersion,
-) -> (Vec<ValidatorStake>, Balance) {
+) -> (Vec<ValidatorStake>, BinaryHeap<OrderedValidatorStake>, Balance) {
     select_validators(block_producer_proposals, max_num_selected, min_stake_ratio, protocol_version)
 }
 
 fn select_chunk_producers(
-    all_proposals: &mut BinaryHeap<OrderedValidatorStake>,
+    all_proposals: BinaryHeap<OrderedValidatorStake>,
     max_num_selected: usize,
     min_stake_ratio: Ratio<u128>,
     num_shards: u64,
     protocol_version: ProtocolVersion,
-) -> (Vec<ValidatorStake>, Balance) {
+) -> (Vec<ValidatorStake>, BinaryHeap<OrderedValidatorStake>, Balance) {
     select_validators(
         all_proposals,
         max_num_selected,
@@ -356,11 +353,11 @@ fn select_chunk_producers(
 // slots are filled, or the stake ratio falls too low, the threshold stake to be included
 // is also returned.
 fn select_validators(
-    proposals: &mut BinaryHeap<OrderedValidatorStake>,
+    mut proposals: BinaryHeap<OrderedValidatorStake>,
     max_number_selected: usize,
     min_stake_ratio: Ratio<u128>,
     protocol_version: ProtocolVersion,
-) -> (Vec<ValidatorStake>, Balance) {
+) -> (Vec<ValidatorStake>, BinaryHeap<OrderedValidatorStake>, Balance) {
     let mut total_stake = 0;
     let n = cmp::min(max_number_selected, proposals.len());
     let mut validators = Vec::with_capacity(n);
@@ -381,7 +378,7 @@ fn select_validators(
         // all slots were filled, so the threshold stake is 1 more than the current
         // smallest stake
         let threshold = validators.last().unwrap().stake() + 1;
-        (validators, threshold)
+        (validators, proposals, threshold)
     } else {
         // the stake ratio condition prevented all slots from being filled,
         // or there were fewer proposals than available slots,
@@ -398,7 +395,7 @@ fn select_validators(
         } else {
             (min_stake_ratio * Ratio::new(total_stake, 1)).ceil().to_integer()
         };
-        (validators, threshold)
+        (validators, proposals, threshold)
     }
 }
 
@@ -439,30 +436,31 @@ mod old_validator_selection {
             Ratio::new(*rational.numer() as u128, *rational.denom() as u128)
         };
 
-        let mut block_producer_proposals = order_proposals(proposals.values().cloned());
-        let (block_producers, bp_stake_threshold) = select_block_producers(
-            &mut block_producer_proposals,
+        let block_producer_proposals = order_proposals(proposals.values().cloned());
+        let (block_producers, not_block_producers, bp_stake_threshold) = select_block_producers(
+            block_producer_proposals,
             max_bp_selected,
             min_stake_ratio,
             next_version,
         );
         let (chunk_producer_proposals, chunk_producers, cp_stake_threshold) =
             if checked_feature!("stable", ChunkOnlyProducers, next_version) {
-                let mut chunk_producer_proposals = order_proposals(proposals.into_values());
+                let chunk_producer_proposals = order_proposals(proposals.into_values());
                 let max_cp_selected = max_bp_selected
                     + (epoch_config.validator_selection_config.num_chunk_only_producer_seats
                         as usize);
                 let num_shards = epoch_config.shard_layout.shard_ids().count() as NumShards;
-                let (chunk_producers, cp_stake_threshold) = select_chunk_producers(
-                    &mut chunk_producer_proposals,
-                    max_cp_selected,
-                    min_stake_ratio,
-                    num_shards,
-                    next_version,
-                );
-                (chunk_producer_proposals, chunk_producers, cp_stake_threshold)
+                let (chunk_producers, not_chunk_producers, cp_stake_threshold) =
+                    select_chunk_producers(
+                        chunk_producer_proposals,
+                        max_cp_selected,
+                        min_stake_ratio,
+                        num_shards,
+                        next_version,
+                    );
+                (not_chunk_producers, chunk_producers, cp_stake_threshold)
             } else {
-                (block_producer_proposals, block_producers.clone(), bp_stake_threshold)
+                (not_block_producers, block_producers.clone(), bp_stake_threshold)
             };
 
         // since block producer proposals could become chunk producers, their actual stake threshold
