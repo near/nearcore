@@ -1384,8 +1384,8 @@ impl Runtime {
         let mut congestion_control = if let Some(congestion_info) = &mut congestion_info {
             let congestion_control = CongestionControl::new(
                 apply_state.config.congestion_control_config.clone(),
-                congestion_info.congestion_info(),
-                congestion_info.missed_chunks_count(),
+                congestion_info.congestion_info,
+                congestion_info.missed_chunks_count,
             );
             Some(congestion_control)
         } else {
@@ -1411,7 +1411,7 @@ impl Runtime {
                 proof,
                 delayed_receipts_count: delayed_receipts.len(),
                 metrics: None,
-                congestion_info: congestion_info.map(ExtendedCongestionInfo::congestion_info),
+                congestion_info: congestion_info.map(|info| info.congestion_info),
             });
         }
 
@@ -1821,7 +1821,7 @@ impl Runtime {
             proof,
             delayed_receipts_count: delayed_receipts.len(),
             metrics: Some(metrics),
-            congestion_info: congestion_info.map(ExtendedCongestionInfo::congestion_info),
+            congestion_info: congestion_info.map(|info| info.congestion_info),
         })
     }
 

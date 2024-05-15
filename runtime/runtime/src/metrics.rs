@@ -635,7 +635,7 @@ fn report_congestion_indicators(congestion_control: &CongestionControl, shard_la
     let congestion_level = congestion_control.congestion_level(true);
     CONGESTION_LEVEL.with_label_values(&[shard_label]).set(congestion_level);
 
-    let CongestionInfo::V1(inner) = congestion_control.info;
+    let CongestionInfo::V1(inner) = congestion_control.congestion_info();
     CONGESTION_RECEIPT_BYTES
         .with_label_values(&[shard_label])
         .set(inner.receipt_bytes.try_into().unwrap_or(i64::MAX));

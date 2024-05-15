@@ -833,8 +833,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                         {
                             let congestion_control = CongestionControl::new(
                                 runtime_config.congestion_control_config,
-                                congestion_info.congestion_info(),
-                                congestion_info.missed_chunks_count(),
+                                congestion_info.congestion_info,
+                                congestion_info.missed_chunks_count,
                             );
                             if !congestion_control.shard_accepts_transactions() {
                                 tracing::trace!(target: "runtime", tx=?tx.get_hash(), "discarding transaction due to congestion");
@@ -1321,8 +1321,8 @@ fn chunk_tx_gas_limit(
         if let Some(own_congestion) = prev_block.congestion_info.get(&shard_id) {
             let congestion_control = CongestionControl::new(
                 runtime_config.congestion_control_config,
-                own_congestion.congestion_info(),
-                own_congestion.missed_chunks_count(),
+                own_congestion.congestion_info,
+                own_congestion.missed_chunks_count,
             );
             congestion_control.process_tx_limit()
         } else {

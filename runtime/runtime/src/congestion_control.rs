@@ -64,9 +64,9 @@ impl<'a> ReceiptSink<'a> {
                 .iter()
                 .map(|(&shard_id, congestion)| {
                     let other_congestion_control = CongestionControl::new(
-                        congestion_control.config,
-                        congestion.congestion_info(),
-                        congestion.missed_chunks_count(),
+                        congestion_control.config().to_owned(),
+                        congestion.congestion_info,
+                        congestion.missed_chunks_count,
                     );
 
                     (shard_id, other_congestion_control.outgoing_limit(apply_state.shard_id))
@@ -165,8 +165,8 @@ impl ReceiptSinkV2<'_> {
                 apply_state,
             )? {
                 ReceiptForwarding::Forwarded => {
-                    self.congestion_control.info.remove_receipt_bytes(bytes as u64)?;
-                    self.congestion_control.info.remove_buffered_receipt_gas(gas)?;
+                    self.congestion_control.remove_receipt_bytes(bytes as u64)?;
+                    self.congestion_control.remove_buffered_receipt_gas(gas)?;
                     // count how many to release later to avoid modifying
                     // `state_update` while iterating based on
                     // `state_update.trie`.
@@ -255,8 +255,8 @@ impl ReceiptSinkV2<'_> {
     ) -> Result<(), RuntimeError> {
         let bytes = receipt_size(&receipt)?;
         let gas = receipt_congestion_gas(&receipt, config)?;
-        self.congestion_control.info.add_receipt_bytes(bytes as u64)?;
-        self.congestion_control.info.add_buffered_receipt_gas(gas)?;
+        self.congestion_control.add_receipt_bytes(bytes as u64)?;
+        self.congestion_control.add_buffered_receipt_gas(gas)?;
         self.outgoing_buffers.to_shard(shard).push(state_update, &receipt)?;
         Ok(())
     }

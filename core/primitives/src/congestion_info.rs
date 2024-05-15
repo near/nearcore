@@ -3,12 +3,14 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_parameters::config::CongestionControlConfig;
 use near_primitives_core::types::{Gas, ShardId};
 
+/// This class combines the congestion control config, congestion info and
+/// missed chunks count. It contains the main congestion control logic and
+/// exposes methods that can be used for congestion control.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct CongestionControl {
-    // TODO(congestion_control) - see if those can be private
-    pub config: CongestionControlConfig,
-    pub info: CongestionInfo,
-    pub missed_chunks_count: u64,
+    config: CongestionControlConfig,
+    info: CongestionInfo,
+    missed_chunks_count: u64,
 }
 
 impl CongestionControl {
@@ -18,6 +20,14 @@ impl CongestionControl {
         missed_chunks_count: u64,
     ) -> Self {
         Self { config, info, missed_chunks_count }
+    }
+
+    pub fn config(&self) -> &CongestionControlConfig {
+        &self.config
+    }
+
+    pub fn congestion_info(&self) -> &CongestionInfo {
+        &self.info
     }
 
     pub fn congestion_level(&self, include_missed_chunks: bool) -> f64 {
@@ -135,6 +145,30 @@ impl CongestionControl {
         // checked_rem failed, hence other_shards.len() is 0
         // own_shard is the only choice.
         return own_shard;
+    }
+
+    pub fn add_receipt_bytes(&mut self, bytes: u64) -> Result<(), RuntimeError> {
+        self.info.add_receipt_bytes(bytes)
+    }
+
+    pub fn remove_receipt_bytes(&mut self, bytes: u64) -> Result<(), RuntimeError> {
+        self.info.remove_receipt_bytes(bytes)
+    }
+
+    pub fn add_delayed_receipt_gas(&mut self, gas: Gas) -> Result<(), RuntimeError> {
+        self.info.add_delayed_receipt_gas(gas)
+    }
+
+    pub fn remove_delayed_receipt_gas(&mut self, gas: Gas) -> Result<(), RuntimeError> {
+        self.info.remove_delayed_receipt_gas(gas)
+    }
+
+    pub fn add_buffered_receipt_gas(&mut self, gas: Gas) -> Result<(), RuntimeError> {
+        self.info.add_buffered_receipt_gas(gas)
+    }
+
+    pub fn remove_buffered_receipt_gas(&mut self, gas: Gas) -> Result<(), RuntimeError> {
+        self.info.remove_buffered_receipt_gas(gas)
     }
 }
 
@@ -281,58 +315,16 @@ impl CongestionInfo {
 
 /// The extended congestion info contains the congestion info and extra
 /// information extracted from the block that is needed for congestion control.
-///
-/// It has simpler interface and it should be used instead of using the
-/// [`CongestionInfo`] directly.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct ExtendedCongestionInfo {
-    congestion_info: CongestionInfo,
-    missed_chunks_count: u64,
+    pub congestion_info: CongestionInfo,
+    pub missed_chunks_count: u64,
 }
 
 impl ExtendedCongestionInfo {
     pub fn new(congestion_info: CongestionInfo, missed_chunks_count: u64) -> Self {
         Self { congestion_info, missed_chunks_count }
     }
-
-    pub fn congestion_info(self) -> CongestionInfo {
-        self.congestion_info
-    }
-
-    pub fn missed_chunks_count(self) -> u64 {
-        self.missed_chunks_count
-    }
-
-    pub fn add_receipt_bytes(&mut self, bytes: u64) -> Result<(), RuntimeError> {
-        self.congestion_info.add_receipt_bytes(bytes)
-    }
-
-    pub fn remove_receipt_bytes(&mut self, bytes: u64) -> Result<(), RuntimeError> {
-        self.congestion_info.remove_receipt_bytes(bytes)
-    }
-
-    pub fn add_delayed_receipt_gas(&mut self, gas: Gas) -> Result<(), RuntimeError> {
-        self.congestion_info.add_delayed_receipt_gas(gas)
-    }
-
-    pub fn remove_delayed_receipt_gas(&mut self, gas: Gas) -> Result<(), RuntimeError> {
-        self.congestion_info.remove_delayed_receipt_gas(gas)
-    }
-
-    pub fn add_buffered_receipt_gas(&mut self, gas: Gas) -> Result<(), RuntimeError> {
-        self.congestion_info.add_buffered_receipt_gas(gas)
-    }
-
-    pub fn remove_buffered_receipt_gas(&mut self, gas: Gas) -> Result<(), RuntimeError> {
-        self.congestion_info.remove_buffered_receipt_gas(gas)
-    }
-
-    // /// Congestion level in the range [0.0, 1.0].
-    // pub fn congestion_level(&self) -> f64 {
-    //     match self.congestion_info {
-    //         CongestionInfo::V1(inner) => inner.congestion_level(self.missed_chunks_count),
-    //     }
-    // }
 }
 
 /// Stores the congestion level of a shard.
@@ -359,8 +351,6 @@ pub struct CongestionInfoV1 {
     /// If fully congested, only this shard can forward receipts.
     pub allowed_shard: u16,
 }
-
-impl CongestionInfoV1 {}
 
 /// Returns `value / max` clamped to te range [0,1].
 #[inline]
@@ -398,263 +388,287 @@ fn mix(left: u64, right: u64, ratio: f64) -> u64 {
     return total.round() as u64;
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-//     #[test]
-//     fn test_mix() {
-//         assert_eq!(500, mix(0, 1000, 0.5));
-//         assert_eq!(0, mix(0, 0, 0.3));
-//         assert_eq!(1000, mix(1000, 1000, 0.1));
-//         assert_eq!(60, mix(50, 80, 0.33));
-//     }
+    #[test]
+    fn test_mix() {
+        assert_eq!(500, mix(0, 1000, 0.5));
+        assert_eq!(0, mix(0, 0, 0.3));
+        assert_eq!(1000, mix(1000, 1000, 0.1));
+        assert_eq!(60, mix(50, 80, 0.33));
+    }
 
-//     #[test]
-//     fn test_mix_edge_cases() {
-//         // at `u64::MAX` we should see no precision errors
-//         assert_eq!(u64::MAX, mix(u64::MAX, u64::MAX, 0.33));
-//         assert_eq!(u64::MAX, mix(u64::MAX, u64::MAX, 0.63));
-//         assert_eq!(u64::MAX, mix(u64::MAX, u64::MAX, 0.99));
+    #[test]
+    fn test_mix_edge_cases() {
+        // at `u64::MAX` we should see no precision errors
+        assert_eq!(u64::MAX, mix(u64::MAX, u64::MAX, 0.33));
+        assert_eq!(u64::MAX, mix(u64::MAX, u64::MAX, 0.63));
+        assert_eq!(u64::MAX, mix(u64::MAX, u64::MAX, 0.99));
 
-//         // precision errors must be consistent
-//         assert_eq!(u64::MAX, mix(u64::MAX - 1, u64::MAX, 0.25));
-//         assert_eq!(u64::MAX, mix(u64::MAX - 255, u64::MAX, 0.25));
-//         assert_eq!(u64::MAX, mix(u64::MAX - 1023, u64::MAX, 0.25));
+        // precision errors must be consistent
+        assert_eq!(u64::MAX, mix(u64::MAX - 1, u64::MAX, 0.25));
+        assert_eq!(u64::MAX, mix(u64::MAX - 255, u64::MAX, 0.25));
+        assert_eq!(u64::MAX, mix(u64::MAX - 1023, u64::MAX, 0.25));
 
-//         assert_eq!(u64::MAX - 2047, mix(u64::MAX - 1024, u64::MAX, 0.25));
-//         assert_eq!(u64::MAX - 2047, mix(u64::MAX - 1500, u64::MAX, 0.25));
-//         assert_eq!(u64::MAX - 2047, mix(u64::MAX - 2047, u64::MAX, 0.25));
-//         assert_eq!(u64::MAX - 2047, mix(u64::MAX - 2048, u64::MAX, 0.25));
-//         assert_eq!(u64::MAX - 2047, mix(u64::MAX - 2049, u64::MAX, 0.25));
-//         assert_eq!(u64::MAX - 2047, mix(u64::MAX - 3000, u64::MAX, 0.25));
+        assert_eq!(u64::MAX - 2047, mix(u64::MAX - 1024, u64::MAX, 0.25));
+        assert_eq!(u64::MAX - 2047, mix(u64::MAX - 1500, u64::MAX, 0.25));
+        assert_eq!(u64::MAX - 2047, mix(u64::MAX - 2047, u64::MAX, 0.25));
+        assert_eq!(u64::MAX - 2047, mix(u64::MAX - 2048, u64::MAX, 0.25));
+        assert_eq!(u64::MAX - 2047, mix(u64::MAX - 2049, u64::MAX, 0.25));
+        assert_eq!(u64::MAX - 2047, mix(u64::MAX - 3000, u64::MAX, 0.25));
 
-//         assert_eq!(u64::MAX - 4095, mix(u64::MAX - 4000, u64::MAX, 0.25));
-//     }
+        assert_eq!(u64::MAX - 4095, mix(u64::MAX - 4000, u64::MAX, 0.25));
+    }
 
-//     #[test]
-//     fn test_clamped_f64_fraction() {
-//         assert_eq!(0.0, clamped_f64_fraction(0, 10));
-//         assert_eq!(0.5, clamped_f64_fraction(5, 10));
-//         assert_eq!(1.0, clamped_f64_fraction(10, 10));
+    #[test]
+    fn test_clamped_f64_fraction() {
+        assert_eq!(0.0, clamped_f64_fraction(0, 10));
+        assert_eq!(0.5, clamped_f64_fraction(5, 10));
+        assert_eq!(1.0, clamped_f64_fraction(10, 10));
 
-//         assert_eq!(0.0, clamped_f64_fraction(0, 1));
-//         assert_eq!(0.0, clamped_f64_fraction(0, u64::MAX));
+        assert_eq!(0.0, clamped_f64_fraction(0, 1));
+        assert_eq!(0.0, clamped_f64_fraction(0, u64::MAX));
 
-//         assert_eq!(0.5, clamped_f64_fraction(1, 2));
-//         assert_eq!(0.5, clamped_f64_fraction(100, 200));
-//         assert_eq!(0.5, clamped_f64_fraction(u64::MAX as u128 / 2, u64::MAX));
+        assert_eq!(0.5, clamped_f64_fraction(1, 2));
+        assert_eq!(0.5, clamped_f64_fraction(100, 200));
+        assert_eq!(0.5, clamped_f64_fraction(u64::MAX as u128 / 2, u64::MAX));
 
-//         // test clamp
-//         assert_eq!(1.0, clamped_f64_fraction(11, 10));
-//         assert_eq!(1.0, clamped_f64_fraction(u128::MAX, 10));
-//         assert_eq!(1.0, clamped_f64_fraction(u128::MAX, u64::MAX));
-//     }
+        // test clamp
+        assert_eq!(1.0, clamped_f64_fraction(11, 10));
+        assert_eq!(1.0, clamped_f64_fraction(u128::MAX, 10));
+        assert_eq!(1.0, clamped_f64_fraction(u128::MAX, u64::MAX));
+    }
 
-//     /// Default congestion info should be no congestion => maximally permissive.
-//     #[test]
-//     fn test_default_congestion() {
-//         let inner_congestion_info = CongestionInfoV1::default();
-//         let config = CongestionControlConfig::default();
+    /// Default congestion info should be no congestion => maximally permissive.
+    #[test]
+    fn test_default_congestion() {
+        let config = CongestionControlConfig::default();
+        let info = CongestionInfo::default();
+        let congestion_control = CongestionControl::new(config, info, 0);
 
-//         assert_eq!(0.0, inner_congestion_info.memory_congestion());
-//         assert_eq!(0.0, inner_congestion_info.incoming_congestion());
-//         assert_eq!(0.0, inner_congestion_info.outgoing_congestion());
-//         assert_eq!(0.0, inner_congestion_info.congestion_level(true));
+        assert_eq!(0.0, congestion_control.memory_congestion());
+        assert_eq!(0.0, congestion_control.incoming_congestion());
+        assert_eq!(0.0, congestion_control.outgoing_congestion());
+        assert_eq!(0.0, congestion_control.congestion_level(true));
 
-//         let congestion_info = CongestionInfo::V1(inner_congestion_info);
-//         assert_eq!(MAX_OUTGOING_GAS, congestion_info.outgoing_limit(0, 0));
-//         assert_eq!(MAX_TX_GAS, congestion_info.process_tx_limit());
-//         assert!(congestion_info.shard_accepts_transactions(0));
-//     }
+        assert_eq!(config.max_outgoing_gas, congestion_control.outgoing_limit(0));
+        assert_eq!(config.max_tx_gas, congestion_control.process_tx_limit());
+        assert!(congestion_control.shard_accepts_transactions());
+    }
 
-//     #[test]
-//     fn test_memory_congestion() {
-//         let mut congestion_info = CongestionInfo::default();
+    #[test]
+    fn test_memory_congestion() {
+        let config = CongestionControlConfig::default();
+        let info = CongestionInfo::default();
+        let mut control = CongestionControl::new(config, info, 0);
 
-//         congestion_info.add_receipt_bytes(MAX_CONGESTION_MEMORY_CONSUMPTION).unwrap();
-//         congestion_info.add_receipt_bytes(500).unwrap();
-//         congestion_info.remove_receipt_bytes(500).unwrap();
+        control.add_receipt_bytes(config.max_congestion_memory_consumption).unwrap();
+        control.add_receipt_bytes(500).unwrap();
+        control.remove_receipt_bytes(500).unwrap();
 
-//         assert_eq!(1.0, congestion_info.congestion_level(0));
-//         // fully congested, no more forwarding allowed
-//         assert_eq!(0, congestion_info.outgoing_limit(1, 0));
-//         assert!(!congestion_info.shard_accepts_transactions(0));
-//         // processing to other shards is not restricted by memory congestion
-//         assert_eq!(MAX_TX_GAS, congestion_info.process_tx_limit());
+        assert_eq!(1.0, control.congestion_level(true));
+        // fully congested, no more forwarding allowed
+        assert_eq!(0, control.outgoing_limit(1));
+        assert!(!control.shard_accepts_transactions());
+        // processing to other shards is not restricted by memory congestion
+        assert_eq!(config.max_tx_gas, control.process_tx_limit());
 
-//         // remove half the congestion
-//         congestion_info.remove_receipt_bytes(MAX_CONGESTION_MEMORY_CONSUMPTION / 2).unwrap();
-//         assert_eq!(0.5, congestion_info.congestion_level(0));
-//         assert_eq!(
-//             (0.5 * MIN_OUTGOING_GAS as f64 + 0.5 * MAX_OUTGOING_GAS as f64) as u64,
-//             congestion_info.outgoing_limit(1, 0)
-//         );
-//         // at 50%, still no new transactions are allowed
-//         assert!(!congestion_info.shard_accepts_transactions(0));
+        // remove half the congestion
+        control.remove_receipt_bytes(config.max_congestion_memory_consumption / 2).unwrap();
+        assert_eq!(0.5, control.congestion_level(true));
+        assert_eq!(
+            (0.5 * config.min_outgoing_gas as f64 + 0.5 * config.max_outgoing_gas as f64) as u64,
+            control.outgoing_limit(1)
+        );
+        // at 50%, still no new transactions are allowed
+        assert!(!control.shard_accepts_transactions());
 
-//         // reduce congestion to 1/8
-//         congestion_info.remove_receipt_bytes(3 * MAX_CONGESTION_MEMORY_CONSUMPTION / 8).unwrap();
-//         assert_eq!(0.125, congestion_info.congestion_level(0));
-//         assert_eq!(
-//             (0.125 * MIN_OUTGOING_GAS as f64 + 0.875 * MAX_OUTGOING_GAS as f64) as u64,
-//             congestion_info.outgoing_limit(1, 0)
-//         );
-//         // at 12.5%, new transactions are allowed (threshold is 0.25)
-//         assert!(congestion_info.shard_accepts_transactions(0));
-//     }
+        // reduce congestion to 1/8
+        control.remove_receipt_bytes(3 * config.max_congestion_memory_consumption / 8).unwrap();
+        assert_eq!(0.125, control.congestion_level(true));
+        assert_eq!(
+            (0.125 * config.min_outgoing_gas as f64 + 0.875 * config.max_outgoing_gas as f64)
+                as u64,
+            control.outgoing_limit(1)
+        );
+        // at 12.5%, new transactions are allowed (threshold is 0.25)
+        assert!(control.shard_accepts_transactions());
+    }
 
-//     #[test]
-//     fn test_incoming_congestion() {
-//         let mut congestion_info = ExtendedCongestionInfo::default();
+    #[test]
+    fn test_incoming_congestion() {
+        let config = CongestionControlConfig::default();
+        let info = CongestionInfo::default();
+        let mut control: CongestionControl = CongestionControl::new(config, info, 0);
 
-//         congestion_info.add_delayed_receipt_gas(MAX_CONGESTION_INCOMING_GAS).unwrap();
-//         congestion_info.add_delayed_receipt_gas(500).unwrap();
-//         congestion_info.remove_delayed_receipt_gas(500).unwrap();
+        control.add_delayed_receipt_gas(config.max_congestion_incoming_gas).unwrap();
+        control.add_delayed_receipt_gas(500).unwrap();
+        control.remove_delayed_receipt_gas(500).unwrap();
 
-//         assert_eq!(1.0, congestion_info.congestion_level());
-//         // fully congested, no more forwarding allowed
-//         assert_eq!(0, congestion_info.outgoing_limit(1));
-//         assert!(!congestion_info.shard_accepts_transactions());
-//         // processing to other shards is restricted by own incoming congestion
-//         assert_eq!(MIN_TX_GAS, congestion_info.process_tx_limit());
+        assert_eq!(1.0, control.congestion_level(true));
+        // fully congested, no more forwarding allowed
+        assert_eq!(0, control.outgoing_limit(1));
+        assert!(!control.shard_accepts_transactions());
+        // processing to other shards is restricted by own incoming congestion
+        assert_eq!(config.min_tx_gas, control.process_tx_limit());
 
-//         // remove halve the congestion
-//         congestion_info.remove_delayed_receipt_gas(MAX_CONGESTION_INCOMING_GAS / 2).unwrap();
-//         assert_eq!(0.5, congestion_info.congestion_level());
-//         assert_eq!(
-//             (0.5 * MIN_OUTGOING_GAS as f64 + 0.5 * MAX_OUTGOING_GAS as f64) as u64,
-//             congestion_info.outgoing_limit(1)
-//         );
-//         // at 50%, still no new transactions to us are allowed
-//         assert!(!congestion_info.shard_accepts_transactions());
-//         // but we accept new transactions to other shards
-//         assert_eq!(
-//             (0.5 * MIN_TX_GAS as f64 + 0.5 * MAX_TX_GAS as f64) as u64,
-//             congestion_info.process_tx_limit()
-//         );
+        // remove halve the congestion
+        control.remove_delayed_receipt_gas(config.max_congestion_incoming_gas / 2).unwrap();
+        assert_eq!(0.5, control.congestion_level(true));
+        assert_eq!(
+            (0.5 * config.min_outgoing_gas as f64 + 0.5 * config.max_outgoing_gas as f64) as u64,
+            control.outgoing_limit(1)
+        );
+        // at 50%, still no new transactions to us are allowed
+        assert!(!control.shard_accepts_transactions());
+        // but we accept new transactions to other shards
+        assert_eq!(
+            (0.5 * config.min_tx_gas as f64 + 0.5 * config.max_tx_gas as f64) as u64,
+            control.process_tx_limit()
+        );
 
-//         // reduce congestion to 1/8
-//         congestion_info.remove_delayed_receipt_gas(3 * MAX_CONGESTION_INCOMING_GAS / 8).unwrap();
-//         assert_eq!(0.125, congestion_info.congestion_level());
-//         assert_eq!(
-//             (0.125 * MIN_OUTGOING_GAS as f64 + 0.875 * MAX_OUTGOING_GAS as f64) as u64,
-//             congestion_info.outgoing_limit(1)
-//         );
-//         // at 12.5%, new transactions are allowed (threshold is 0.25)
-//         assert!(congestion_info.shard_accepts_transactions());
-//         assert_eq!(
-//             (0.125 * MIN_TX_GAS as f64 + 0.875 * MAX_TX_GAS as f64) as u64,
-//             congestion_info.process_tx_limit()
-//         );
-//     }
+        // reduce congestion to 1/8
+        control.remove_delayed_receipt_gas(3 * config.max_congestion_incoming_gas / 8).unwrap();
+        assert_eq!(0.125, control.congestion_level(true));
+        assert_eq!(
+            (0.125 * config.min_outgoing_gas as f64 + 0.875 * config.max_outgoing_gas as f64)
+                as u64,
+            control.outgoing_limit(1)
+        );
+        // at 12.5%, new transactions are allowed (threshold is 0.25)
+        assert!(control.shard_accepts_transactions());
+        assert_eq!(
+            (0.125 * config.min_tx_gas as f64 + 0.875 * config.max_tx_gas as f64) as u64,
+            control.process_tx_limit()
+        );
+    }
 
-//     #[test]
-//     fn test_outgoing_congestion() {
-//         let mut congestion_info = ExtendedCongestionInfo::default();
+    #[test]
+    fn test_outgoing_congestion() {
+        let config = CongestionControlConfig::default();
+        let info = CongestionInfo::default();
+        let mut control: CongestionControl = CongestionControl::new(config, info, 0);
 
-//         congestion_info.add_buffered_receipt_gas(MAX_CONGESTION_OUTGOING_GAS).unwrap();
-//         congestion_info.add_buffered_receipt_gas(500).unwrap();
-//         congestion_info.remove_buffered_receipt_gas(500).unwrap();
+        control.add_buffered_receipt_gas(config.max_congestion_outgoing_gas).unwrap();
+        control.add_buffered_receipt_gas(500).unwrap();
+        control.remove_buffered_receipt_gas(500).unwrap();
 
-//         assert_eq!(1.0, congestion_info.congestion_level());
-//         // fully congested, no more forwarding allowed
-//         assert_eq!(0, congestion_info.outgoing_limit(1));
-//         assert!(!congestion_info.shard_accepts_transactions());
-//         // processing to other shards is not restricted by own outgoing congestion
-//         assert_eq!(MAX_TX_GAS, congestion_info.process_tx_limit());
+        assert_eq!(1.0, control.congestion_level(true));
+        // fully congested, no more forwarding allowed
+        assert_eq!(0, control.outgoing_limit(1));
+        assert!(!control.shard_accepts_transactions());
+        // processing to other shards is not restricted by own outgoing congestion
+        assert_eq!(config.max_tx_gas, control.process_tx_limit());
 
-//         // remove halve the congestion
-//         congestion_info.remove_buffered_receipt_gas(MAX_CONGESTION_OUTGOING_GAS / 2).unwrap();
-//         assert_eq!(0.5, congestion_info.congestion_level());
-//         assert_eq!(
-//             (0.5 * MIN_OUTGOING_GAS as f64 + 0.5 * MAX_OUTGOING_GAS as f64) as u64,
-//             congestion_info.outgoing_limit(1)
-//         );
-//         // at 50%, still no new transactions to us are allowed
-//         assert!(!congestion_info.shard_accepts_transactions());
+        // remove halve the congestion
+        control.remove_buffered_receipt_gas(config.max_congestion_outgoing_gas / 2).unwrap();
+        assert_eq!(0.5, control.congestion_level(true));
+        assert_eq!(
+            (0.5 * config.min_outgoing_gas as f64 + 0.5 * config.max_outgoing_gas as f64) as u64,
+            control.outgoing_limit(1)
+        );
+        // at 50%, still no new transactions to us are allowed
+        assert!(!control.shard_accepts_transactions());
 
-//         // reduce congestion to 1/8
-//         congestion_info.remove_buffered_receipt_gas(3 * MAX_CONGESTION_OUTGOING_GAS / 8).unwrap();
-//         assert_eq!(0.125, congestion_info.congestion_level());
-//         assert_eq!(
-//             (0.125 * MIN_OUTGOING_GAS as f64 + 0.875 * MAX_OUTGOING_GAS as f64) as u64,
-//             congestion_info.outgoing_limit(1)
-//         );
-//         // at 12.5%, new transactions are allowed (threshold is 0.25)
-//         assert!(congestion_info.shard_accepts_transactions());
-//     }
+        // reduce congestion to 1/8
+        control.remove_buffered_receipt_gas(3 * config.max_congestion_outgoing_gas / 8).unwrap();
+        assert_eq!(0.125, control.congestion_level(true));
+        assert_eq!(
+            (0.125 * config.min_outgoing_gas as f64 + 0.875 * config.max_outgoing_gas as f64)
+                as u64,
+            control.outgoing_limit(1)
+        );
+        // at 12.5%, new transactions are allowed (threshold is 0.25)
+        assert!(control.shard_accepts_transactions());
+    }
 
-//     #[test]
-//     fn test_missed_chunks_congestion() {
-//         // Test missed chunks congestion without any other congestion
-//         let make = |count| ExtendedCongestionInfo::new(CongestionInfo::default(), count);
+    #[test]
+    fn test_missed_chunks_congestion() {
+        let config = CongestionControlConfig::default();
+        let info = CongestionInfo::default();
 
-//         assert_eq!(make(0).congestion_level(), 0.0);
-//         assert_eq!(make(1).congestion_level(), 0.0);
-//         assert_eq!(make(2).congestion_level(), 0.2);
-//         assert_eq!(make(3).congestion_level(), 0.3);
-//         assert_eq!(make(10).congestion_level(), 1.0);
-//         assert_eq!(make(20).congestion_level(), 1.0);
+        // Test missed chunks congestion without any other congestion
+        let make = |count| CongestionControl::new(config, info, count);
 
-//         // Test missed chunks congestion with outgoing congestion
-//         let mut congestion_info = CongestionInfo::default();
-//         congestion_info.add_buffered_receipt_gas(MAX_CONGESTION_OUTGOING_GAS / 2).unwrap();
-//         let make = |count| ExtendedCongestionInfo::new(congestion_info, count);
+        assert_eq!(make(0).congestion_level(true), 0.0);
+        assert_eq!(make(1).congestion_level(true), 0.0);
+        assert_eq!(make(2).congestion_level(true), 0.2);
+        assert_eq!(make(3).congestion_level(true), 0.3);
+        assert_eq!(make(10).congestion_level(true), 1.0);
+        assert_eq!(make(20).congestion_level(true), 1.0);
 
-//         assert_eq!(make(0).congestion_level(), 0.5);
-//         assert_eq!(make(1).congestion_level(), 0.5);
-//         assert_eq!(make(2).congestion_level(), 0.5);
-//         assert_eq!(make(5).congestion_level(), 0.5);
-//         assert_eq!(make(6).congestion_level(), 0.6);
-//         assert_eq!(make(10).congestion_level(), 1.0);
-//         assert_eq!(make(20).congestion_level(), 1.0);
-//     }
+        // Test missed chunks congestion with outgoing congestion
+        let mut info = CongestionInfo::default();
+        info.add_buffered_receipt_gas(config.max_congestion_outgoing_gas / 2).unwrap();
+        let make = |count| CongestionControl::new(config, info, count);
 
-//     #[test]
-//     fn test_missed_chunks_finalize() {
-//         // Setup half congested congestion info.
-//         let mut congestion_info = CongestionInfo::default();
-//         congestion_info.add_buffered_receipt_gas(MAX_CONGESTION_OUTGOING_GAS / 2).unwrap();
-//         let shard = 2;
-//         let other_shards = [0, 1, 3, 4];
+        // include missing chunks congestion
+        assert_eq!(make(0).congestion_level(true), 0.5);
+        assert_eq!(make(1).congestion_level(true), 0.5);
+        assert_eq!(make(2).congestion_level(true), 0.5);
+        assert_eq!(make(5).congestion_level(true), 0.5);
+        assert_eq!(make(6).congestion_level(true), 0.6);
+        assert_eq!(make(10).congestion_level(true), 1.0);
+        assert_eq!(make(20).congestion_level(true), 1.0);
 
-//         // Test without missed chunks congestion.
+        // exclude missing chunks congestion
+        assert_eq!(make(0).congestion_level(false), 0.5);
+        assert_eq!(make(1).congestion_level(false), 0.5);
+        assert_eq!(make(2).congestion_level(false), 0.5);
+        assert_eq!(make(5).congestion_level(false), 0.5);
+        assert_eq!(make(6).congestion_level(false), 0.5);
+        assert_eq!(make(10).congestion_level(false), 0.5);
+        assert_eq!(make(20).congestion_level(false), 0.5);
+    }
 
-//         let missed_chunks_count = 0;
-//         let mut info = ExtendedCongestionInfo::new(congestion_info, missed_chunks_count);
-//         info.finalize_allowed_shard(shard, &other_shards, 3);
+    #[test]
+    fn test_missed_chunks_finalize() {
+        let config = CongestionControlConfig::default();
 
-//         let expected_outgoing_limit = 0.5 * MIN_OUTGOING_GAS as f64 + 0.5 * MAX_OUTGOING_GAS as f64;
-//         for other_shard in other_shards {
-//             assert_eq!(info.outgoing_limit(other_shard), expected_outgoing_limit as u64);
-//         }
+        // Setup half congested congestion info.
+        let mut info = CongestionInfo::default();
+        info.add_buffered_receipt_gas(config.max_congestion_outgoing_gas / 2).unwrap();
 
-//         // Test with some missed chunks congestion.
+        let shard = 2;
+        let other_shards = [0, 1, 3, 4];
 
-//         let missed_chunks_count = 8;
-//         let mut info = ExtendedCongestionInfo::new(congestion_info, missed_chunks_count);
-//         info.finalize_allowed_shard(shard, &other_shards, 3);
+        // Test without missed chunks congestion.
 
-//         let expected_outgoing_limit = mix(MAX_OUTGOING_GAS, MIN_OUTGOING_GAS, 0.8) as f64;
-//         for other_shard in other_shards {
-//             assert_eq!(info.outgoing_limit(other_shard), expected_outgoing_limit as u64);
-//         }
+        let missed_chunks_count = 0;
+        let mut control = CongestionControl::new(config, info, missed_chunks_count);
+        control.finalize_allowed_shard(shard, &other_shards, 3);
 
-//         // Test with full missed chunks congestion.
+        let expected_outgoing_limit =
+            0.5 * config.min_outgoing_gas as f64 + 0.5 * config.max_outgoing_gas as f64;
+        for other_shard in other_shards {
+            assert_eq!(control.outgoing_limit(other_shard), expected_outgoing_limit as u64);
+        }
 
-//        // The allowed shard should be set to own shard. None of the other
-//        // shards should be allowed to send anything.
+        // Test with some missed chunks congestion.
 
-//         let missed_chunks_count = MAX_CONGESTION_MISSED_CHUNKS;
-//         let mut info = ExtendedCongestionInfo::new(congestion_info, missed_chunks_count);
-//         info.finalize_allowed_shard(shard, &other_shards, 3);
+        let missed_chunks_count = 8;
+        let mut control = CongestionControl::new(config, info, missed_chunks_count);
+        control.finalize_allowed_shard(shard, &other_shards, 3);
 
-//         // The allowed shard should be set to own shard. None of the other
-//         // shards should be allowed to send anything.
-//         let expected_outgoing_limit = 0;
-//         for other_shard in other_shards {
-//             assert_eq!(info.outgoing_limit(other_shard), expected_outgoing_limit as u64);
-//         }
-//     }
-// }
+        let expected_outgoing_limit =
+            mix(config.max_outgoing_gas, config.min_outgoing_gas, 0.8) as f64;
+        for other_shard in other_shards {
+            assert_eq!(control.outgoing_limit(other_shard), expected_outgoing_limit as u64);
+        }
+
+        // Test with full missed chunks congestion.
+
+        let missed_chunks_count = config.max_congestion_missed_chunks;
+        let mut control = CongestionControl::new(config, info, missed_chunks_count);
+        control.finalize_allowed_shard(shard, &other_shards, 3);
+
+        // The allowed shard should be set to own shard. None of the other
+        // shards should be allowed to send anything.
+        let expected_outgoing_limit = 0;
+        for other_shard in other_shards {
+            assert_eq!(control.outgoing_limit(other_shard), expected_outgoing_limit as u64);
+        }
+    }
+}
