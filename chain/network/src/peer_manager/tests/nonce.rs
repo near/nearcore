@@ -28,7 +28,7 @@ async fn test_nonces() {
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
-    let mut clock = time::FakeClock::new(time::Utc::UNIX_EPOCH);
+    let mut clock = time::FakeClock::new(time::Utc::UNIX_EPOCH + time::Duration::days(2));
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     let test_cases = [
@@ -107,7 +107,7 @@ async fn test_nonce_refresh() {
     init_test_logger();
     let mut rng = make_rng(921853255);
     let rng = &mut rng;
-    let mut clock = time::FakeClock::new(time::Utc::UNIX_EPOCH);
+    let mut clock = time::FakeClock::new(time::Utc::UNIX_EPOCH + time::Duration::days(2));
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     // Start a PeerManager.

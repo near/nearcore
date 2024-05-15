@@ -100,7 +100,7 @@ fn to_active_nonce(t: time::Utc) -> u64 {
 async fn expired_edges() {
     init_test_logger();
     let clock = time::FakeClock::default();
-    clock.set_utc(time::Utc::UNIX_EPOCH);
+    clock.set_utc(time::Utc::UNIX_EPOCH + time::Duration::days(2));
     let mut rng = make_rng(87927345);
     let rng = &mut rng;
     let node_key = data::make_secret_key(rng);
