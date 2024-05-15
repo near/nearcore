@@ -29,7 +29,7 @@ pub struct RuntimeConfig {
     pub account_creation_config: AccountCreationConfig,
     /// The maximum size of the storage proof in state witness after which we defer execution of any new receipts.
     pub storage_proof_size_soft_limit: usize,
-
+    /// The configuration for congestion control.
     pub congestion_control_config: CongestionControlConfig,
 }
 
@@ -98,9 +98,6 @@ impl Default for AccountCreationConfig {
         }
     }
 }
-
-const PGAS: Gas = 10u64.pow(15);
-const TGAS: Gas = 10u64.pow(12);
 
 /// The configuration for congestion control.
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -188,6 +185,9 @@ pub struct CongestionControlConfig {
 
 impl Default for CongestionControlConfig {
     fn default() -> Self {
+        const PGAS: Gas = 10u64.pow(15);
+        const TGAS: Gas = 10u64.pow(12);
+
         Self {
             max_congestion_incoming_gas: 20 * PGAS,
             max_congestion_outgoing_gas: 2 * PGAS,
@@ -203,4 +203,6 @@ impl Default for CongestionControlConfig {
     }
 }
 
-impl Eq for CongestionControlConfig {}
+impl Eq for CongestionControlConfig {
+    // TODO(congestion_control) - implement Eq for CongestionControlConfig
+}
