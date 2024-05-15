@@ -187,7 +187,7 @@ def finish_upper(lower, upper, prefix, free_chars, free_length):
 # alphanumeric character or one of ['-', '.', '_'] followed by an alphanumeric character,
 # choosing one of the ones that keeps us between the bounds each time.
 # See https://github.com/near/nearcore/pull/9194#pullrequestreview-1488492798
-def random_prefix_between(lower, upper, free_length=6):
+def random_prefix_between(lower, upper):
     assert lower is None or upper is None or lower < upper, (lower, upper)
 
     # 1 shard case
@@ -256,7 +256,12 @@ def random_prefix_between(lower, upper, free_length=6):
     return prefix
 
 
-def random_account_between(base_name, suffix, lower, upper, free_length=6):
+# Maximum length of AccountIds (https://nomicon.io/DataStructures/Account).
+MAX_NEAR_ACCOUNT_ID_LENGTH = 64
+
+def random_account_between(base_name, suffix, lower, upper):
+    free_length = MAX_NEAR_ACCOUNT_ID_LENGTH - len(base_name) - len(suffix) - 1
+    assert free_length > 0, f"No space for prefix left in account id. Base name: {base_name}, suffix: {suffix}"
     prefix = random_prefix_between(lower, upper, free_length)
     return f'{prefix}{suffix}.{base_name}'
 
