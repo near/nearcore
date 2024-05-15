@@ -177,3 +177,7 @@ pytest --timeout=120 sanity/resharding_error_handling.py
 # pytest --timeout=120 sanity/resharding_rpc_tx.py --features nightly
 # pytest --timeout=120 sanity/resharding_restart.py --features nightly
 # pytest --timeout=120 sanity/resharding_error_handling.py --features nightly
+
+# Tests for slow chunks and extreme undercharding
+pytest sanity/slow_chunk.py
+pytest sanity/slow_chunk.py --features nightly

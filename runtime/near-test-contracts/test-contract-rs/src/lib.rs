@@ -190,6 +190,9 @@ extern "C" {
     fn alt_bn128_g1_sum(value_len: u64, value_ptr: u64, register_id: u64);
     #[cfg(feature = "latest_protocol")]
     fn alt_bn128_pairing_check(value_len: u64, value_ptr: u64) -> u64;
+
+    // TODO!!! Hide this behind a feature flag!
+    fn sleep_nanos(nanos: u64);
 }
 
 macro_rules! ext_test {
@@ -390,6 +393,23 @@ pub unsafe fn log_something() {
 #[no_mangle]
 pub unsafe fn loop_forever() {
     loop {}
+}
+
+// TODO!!! Hide this behind a feature flag!
+#[no_mangle]
+pub unsafe fn sleep() {
+    const U64_SIZE: usize = size_of::<u64>();
+    let data = [0u8; U64_SIZE];
+
+    input(0);
+    assert!(register_len(0) == U64_SIZE as u64);
+    read_register(0, data.as_ptr() as u64);
+    let nanos = u64::from_le_bytes(data);
+
+    let data = b"sleeping";
+    log_utf8(data.len() as u64, data.as_ptr() as _);
+
+    sleep_nanos(nanos);
 }
 
 #[no_mangle]
