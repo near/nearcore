@@ -495,6 +495,19 @@ mod tests {
         assert_eq!(ranges[5].to_string(), "04..05");
         assert_eq!(ranges[256].to_string(), "ff..");
 
+        let ranges = IterationRange::from_str("..04").unwrap().divide();
+        assert_eq!(ranges.len(), 5);
+        assert_eq!(ranges[0].to_string(), "..00");
+        assert_eq!(ranges[1].to_string(), "00..01");
+        assert_eq!(ranges[4].to_string(), "03..04");
+
+        let ranges = IterationRange::from_str("..0400").unwrap().divide();
+        assert_eq!(ranges.len(), 6);
+        assert_eq!(ranges[0].to_string(), "..00");
+        assert_eq!(ranges[1].to_string(), "00..01");
+        assert_eq!(ranges[4].to_string(), "03..04");
+        assert_eq!(ranges[5].to_string(), "04..0400");
+
         let ranges = IterationRange::from_str("00..").unwrap().divide();
         assert_eq!(ranges.len(), 256);
         assert_eq!(ranges[0].to_string(), "00..01");
