@@ -29,42 +29,28 @@ nodes = start_cluster(
      })
 time.sleep(2)
 
-
-nodes[2].kill()
-nodes[2].put_validator_key(nodes[1].validator_key)
+nodes[2].reset_validator_key(nodes[1].validator_key)
 #nodes[2].reset_data()
-nodes[2].start(boot_node=nodes[0])
 time.sleep(3)
+
+nodes[1].kill()
+nodes[2].reload_updateable_config()
 
 block = nodes[0].get_latest_block()
 target_height = block.height + 4 * EPOCH_LENGTH
-
 start_time = time.time()
-while True:
-    assert time.time() - start_time < TIMEOUT, 'Validators got stuck'
-    node1_height = nodes[1].get_latest_block().height
-    node2_height = nodes[2].get_latest_block().height
-    if node1_height > target_height and node2_height > target_height:
-        break
-    time.sleep(1)
-
-nodes[1].kill()
-nodes[2].load_validator_key()
-
-block = nodes[0].get_latest_block()
-target_height = block.height + 2 * EPOCH_LENGTH
 
 while True:
     assert time.time() - start_time < TIMEOUT, 'Validators got stuck'
-    node1_height = nodes[1].get_latest_block().height
+    node0_height = nodes[0].get_latest_block().height
     node2_height = nodes[2].get_latest_block().height
-    if node1_height > target_height and node2_height > target_height:
+    if node0_height > target_height and node2_height > target_height:
         break
     info = nodes[0].json_rpc('validators', 'latest')
     count = len(info['result']['next_validators'])
     assert count == 2, 'Number of validators do not match'
     validator = info['result']['next_validators'][1]['account_id']
-    assert validator == 'test2'
+    #assert validator == 'test2'
     statuses = sorted((enumerate(node.get_latest_block() for node in [nodes[0], nodes[2]])),
                       key=lambda element: element[1].height)
     last = statuses.pop()

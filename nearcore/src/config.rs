@@ -1218,6 +1218,23 @@ impl From<NodeKeyFile> for KeyFile {
     }
 }
 
+pub fn load_validator_key(validator_file: &Path) -> anyhow::Result<Option<Arc<dyn ValidatorSigner>>> {
+    if validator_file.exists() {
+        match InMemoryValidatorSigner::from_file(&validator_file) {
+            Ok(signer) => Ok(Some(Arc::new(signer) as Arc<dyn ValidatorSigner>)),
+            Err(_) => {
+                let error_message = format!(
+                    "Failed initializing validator signer from {}",
+                    validator_file.display()
+                );
+                Err(anyhow!(error_message))
+            }
+        }
+    } else {
+        Ok(None)
+    }
+}
+
 pub fn load_config(
     dir: &Path,
     genesis_validation: GenesisValidationMode,
@@ -1231,21 +1248,13 @@ pub fn load_config(
         validation_errors.push_errors(e)
     };
 
-    let validator_file = dir.join(&config.validator_key_file);
-    let validator_signer = if validator_file.exists() {
-        match InMemoryValidatorSigner::from_file(&validator_file) {
-            Ok(signer) => Some(Arc::new(signer.into())),
-            Err(_) => {
-                let error_message = format!(
-                    "Failed initializing validator signer from {}",
-                    validator_file.display()
-                );
-                validation_errors.push_validator_key_file_error(error_message);
-                None
-            }
+    let validator_file: PathBuf = dir.join(&config.validator_key_file);
+    let validator_signer = match load_validator_key(&validator_file) {
+        Ok(validator_signer) => validator_signer,
+        Err(e) => {
+            validation_errors.push_validator_key_file_error(e.to_string());
+            None
         }
-    } else {
-        None
     };
 
     let node_key_path = dir.join(&config.node_key_file);
