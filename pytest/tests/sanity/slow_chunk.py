@@ -27,25 +27,27 @@ class SlowChunkTest(unittest.TestCase):
         # The number of validators and the number of shards.
         n = 4
 
-        client_config_changes = {i: {'tracked_shards': [0]} for i in range(n)}
-        genesis_config_changes = [["epoch_length", 10]]
-        [node1, node2, node3, node4] = start_cluster(
+        # The validators are single shard tracking, the rpc tracks all shards.
+        client_config_changes = {n: {"tracked_shards": [0]}}
+        # Configure long epoch to not worry about full epoch without chunks.
+        genesis_config_changes = [["epoch_length", 100]]
+        [node1, node2, node3, node4, rpc] = start_cluster(
             n,
-            0,
+            1,
             n,
             None,
             genesis_config_changes,
             client_config_changes,
         )
 
-        self.__deploy_contract(node1)
+        self.__deploy_contract(rpc)
 
-        self.__call_contract(node1)
+        self.__call_contract(rpc)
 
+        # Wait until the chain recovers and all chunks are present.
         recovered = False
-
-        for height, hash in poll_blocks(node1, __target=20):
-            chunk_mask = self.__get_chunk_mask(node1, hash)
+        for height, hash in poll_blocks(rpc, __target=50):
+            chunk_mask = self.__get_chunk_mask(rpc, hash)
             logger.info(f"#{height} chunk mask: {chunk_mask}")
 
             if all(chunk_mask):
@@ -84,10 +86,13 @@ class SlowChunkTest(unittest.TestCase):
             20,
             block_hash,
         )
-        result = node.send_tx(tx)
-        self.assertIn('result', result, result)
+        result = node.send_tx_and_wait(tx, 10)
 
-        logger.info(json.dumps(result['result'], indent=2))
+        logger.debug(json.dumps(result, indent=2))
+
+        self.assertIn('result', result, result)
+        self.assertIn('status', result['result'])
+        self.assertIn('SuccessValue', result['result']['status'])
 
     def __get_chunk_mask(self, node, block_hash):
         block = node.json_rpc("block", {"block_id": block_hash})
