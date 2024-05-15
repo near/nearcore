@@ -75,6 +75,7 @@ json_rpc = ["nearcore/json_rpc"]
 protocol_feature_fix_staking_threshold = ["nearcore/protocol_feature_fix_staking_threshold"]
 protocol_feature_nonrefundable_transfer_nep491 = ["near-state-viewer/protocol_feature_nonrefundable_transfer_nep491"]
 new_epoch_sync = ["nearcore/new_epoch_sync", "dep:near-epoch-sync-tool"]
+yield_resume = ["nearcore/yield_resume"]
 
 nightly = [
   "near-chain-configs/nightly",
