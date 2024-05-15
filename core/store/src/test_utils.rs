@@ -11,7 +11,7 @@ use itertools::Itertools;
 use near_primitives::account::id::AccountId;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{DataReceipt, PromiseYieldTimeout, Receipt, ReceiptEnum};
+use near_primitives::receipt::{DataReceipt, PromiseYieldTimeout, Receipt, ReceiptEnum, ReceiptV1};
 use near_primitives::shard_layout::{get_block_shard_uid, ShardUId, ShardVersion};
 use near_primitives::state::FlatStateValue;
 use near_primitives::trie_key::TrieKey;
@@ -298,11 +298,17 @@ pub fn gen_receipts(rng: &mut impl Rng, max_size: usize) -> Vec<Receipt> {
     let accounts = gen_accounts_from_alphabet(rng, 1, max_size, &alphabet);
     accounts
         .iter()
-        .map(|account_id| Receipt {
-            predecessor_id: account_id.clone(),
-            receiver_id: account_id.clone(),
-            receipt_id: CryptoHash::default(),
-            receipt: ReceiptEnum::Data(DataReceipt { data_id: CryptoHash::default(), data: None }),
+        .map(|account_id| {
+            Receipt::V1(ReceiptV1 {
+                predecessor_id: account_id.clone(),
+                receiver_id: account_id.clone(),
+                receipt_id: CryptoHash::default(),
+                receipt: ReceiptEnum::Data(DataReceipt {
+                    data_id: CryptoHash::default(),
+                    data: None,
+                }),
+                priority: 0,
+            })
         })
         .collect()
 }

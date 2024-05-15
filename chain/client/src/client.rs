@@ -1013,6 +1013,7 @@ impl Client {
                     "other".parse().unwrap(),
                     3,
                     prev_block_hash,
+                    0,
                 ),
             ));
             if txs.storage_proof.is_none() {
@@ -1655,13 +1656,19 @@ impl Client {
                 info!(target: "client", "not producing a chunk");
             }
         }
-        if let Err(err) = self.shadow_validate_block_chunks(&block) {
-            tracing::error!(
-                target: "client",
-                ?err,
-                block_hash = ?block.hash(),
-                "block chunks shadow validation failed"
-            );
+
+        // Run shadown chunk validation on the new block, unless it's coming from sync.
+        // Syncing has to be fast to catch up with the rest of the chain,
+        // applying the chunks would make the sync unworkably slow.
+        if provenance != Provenance::SYNC {
+            if let Err(err) = self.shadow_validate_block_chunks(&block) {
+                tracing::error!(
+                    target: "client",
+                    ?err,
+                    block_hash = ?block.hash(),
+                    "block chunks shadow validation failed"
+                );
+            }
         }
 
         self.shards_manager_adapter
@@ -2112,7 +2119,7 @@ impl Client {
     /// Forwards given transaction to upcoming validators.
     fn forward_tx(&self, epoch_id: &EpochId, tx: &SignedTransaction) -> Result<(), Error> {
         let shard_id =
-            self.epoch_manager.account_id_to_shard_id(&tx.transaction.signer_id, epoch_id)?;
+            self.epoch_manager.account_id_to_shard_id(tx.transaction.signer_id(), epoch_id)?;
         // Use the header head to make sure the list of validators is as
         // up-to-date as possible.
         let head = self.chain.header_head()?;
@@ -2129,7 +2136,7 @@ impl Client {
             if let Some(next_epoch_id) = &maybe_next_epoch_id {
                 let next_shard_id = self
                     .epoch_manager
-                    .account_id_to_shard_id(&tx.transaction.signer_id, next_epoch_id)?;
+                    .account_id_to_shard_id(tx.transaction.signer_id(), next_epoch_id)?;
                 let validator = self.epoch_manager.get_chunk_producer(
                     next_epoch_id,
                     target_height,
@@ -2220,7 +2227,7 @@ impl Client {
         // `cur_block_header`.
         if let Err(e) = self.chain.chain_store().check_transaction_validity_period(
             &cur_block_header,
-            &tx.transaction.block_hash,
+            tx.transaction.block_hash(),
             transaction_validity_period,
         ) {
             debug!(target: "client", ?tx, "Invalid tx: expired or from a different fork");
@@ -2241,7 +2248,7 @@ impl Client {
         }
 
         let shard_id =
-            self.epoch_manager.account_id_to_shard_id(&tx.transaction.signer_id, &epoch_id)?;
+            self.epoch_manager.account_id_to_shard_id(tx.transaction.signer_id(), &epoch_id)?;
         let care_about_shard =
             self.shard_tracker.care_about_shard(me, &head.last_block_hash, shard_id, true);
         let will_care_about_shard =

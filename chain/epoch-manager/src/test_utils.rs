@@ -76,8 +76,8 @@ pub fn epoch_info_with_num_seats(
     mut accounts: Vec<(AccountId, Balance)>,
     block_producers_settlement: Vec<ValidatorId>,
     chunk_producers_settlement: Vec<Vec<ValidatorId>>,
-    hidden_validators_settlement: Vec<ValidatorWeight>,
-    fishermen: Vec<(AccountId, Balance)>,
+    _hidden_validators_settlement: Vec<ValidatorWeight>,
+    _fishermen: Vec<(AccountId, Balance)>,
     stake_change: BTreeMap<AccountId, Balance>,
     validator_kickout: Vec<(AccountId, ValidatorKickoutReason)>,
     validator_reward: HashMap<AccountId, Balance>,
@@ -91,8 +91,6 @@ pub fn epoch_info_with_num_seats(
         acc.insert(x.0.clone(), i as u64);
         acc
     });
-    let fishermen_to_index =
-        fishermen.iter().enumerate().map(|(i, (s, _))| (s.clone(), i as ValidatorId)).collect();
     let account_to_validators = |accounts: Vec<(AccountId, Balance)>| -> Vec<ValidatorStake> {
         accounts
             .into_iter()
@@ -121,9 +119,6 @@ pub fn epoch_info_with_num_seats(
         validator_to_index,
         block_producers_settlement,
         chunk_producers_settlement,
-        hidden_validators_settlement,
-        account_to_validators(fishermen),
-        fishermen_to_index,
         stake_change,
         validator_reward,
         validator_kickout.into_iter().collect(),

@@ -222,7 +222,7 @@ fn apply_block_from_range(
         if only_contracts {
             let mut has_contracts = false;
             for tx in chunk.transactions() {
-                for action in &tx.transaction.actions {
+                for action in tx.transaction.actions() {
                     has_contracts = has_contracts
                         || matches!(action, Action::FunctionCall(_) | Action::DeployContract(_));
                 }

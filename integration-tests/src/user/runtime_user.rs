@@ -6,7 +6,7 @@ use near_chain_configs::MIN_GAS_PRICE;
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_parameters::RuntimeConfig;
-use near_primitives::congestion_info::CongestionInfo;
+use near_primitives::congestion_info::ExtendedCongestionInfo;
 use near_primitives::errors::{RuntimeError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
@@ -145,7 +145,7 @@ impl RuntimeUser {
                 return Ok(());
             }
             for receipt in apply_result.outgoing_receipts.iter() {
-                self.receipts.borrow_mut().insert(receipt.receipt_id, receipt.clone());
+                self.receipts.borrow_mut().insert(*receipt.receipt_id(), receipt.clone());
             }
             receipts = apply_result.outgoing_receipts;
             txs = vec![];
@@ -178,7 +178,7 @@ impl RuntimeUser {
             migration_flags: MigrationFlags::default(),
             congestion_info: all_shard_ids
                 .into_iter()
-                .map(|id| (id, CongestionInfo::default()))
+                .map(|id| (id, ExtendedCongestionInfo::default()))
                 .collect(),
         }
     }

@@ -547,6 +547,11 @@
         "account_id": ""
       }
     },
+    "InvalidTransactionVersion": {
+      "name": "InvalidTransactionVersion",
+      "subtypes": [],
+      "props": {}
+    },
     "InvalidTxError": {
       "name": "InvalidTxError",
       "subtypes": [
@@ -563,7 +568,8 @@
         "InvalidChain",
         "Expired",
         "ActionsValidation",
-        "TransactionSizeExceeded"
+        "TransactionSizeExceeded",
+        "InvalidTransactionVersion"
       ],
       "props": {}
     },

@@ -69,5 +69,7 @@
   ],
   "shuffle_shard_assignment_for_chunk_producers": false,
   "use_production_config": false,
+  "num_chunk_producer_seats": 100,
+  "num_chunk_validator_seats": 300,
   "records": []
 }

@@ -13,20 +13,16 @@ workspace = true
 
 [dependencies]
 borsh.workspace = true
-hex.workspace = true
 num-bigint.workspace = true
-num-rational.workspace = true
 num-traits.workspace = true
 once_cell.workspace = true
 rand.workspace = true
 rayon.workspace = true
-serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
-near-chain-configs.workspace = true
 near-crypto.workspace = true
 near-o11y.workspace = true
 near-parameters.workspace = true
@@ -75,9 +71,7 @@ sandbox = ["near-vm-runner/sandbox"]
 [dev-dependencies]
 assert_matches.workspace = true
 enum-map.workspace = true
-indicatif.workspace = true
-rayon.workspace = true
-serde_json.workspace = true
+hex.workspace = true
 tempfile.workspace = true
 
 near-chain-configs.workspace = true

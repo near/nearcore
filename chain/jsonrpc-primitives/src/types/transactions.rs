@@ -81,7 +81,7 @@ impl TransactionInfo {
         match self {
             TransactionInfo::Transaction(tx) => match tx {
                 SignedTransaction::SignedTransaction(tx) => {
-                    (tx.get_hash(), &tx.transaction.signer_id)
+                    (tx.get_hash(), tx.transaction.signer_id())
                 }
             },
             TransactionInfo::TransactionId { tx_hash, sender_account_id } => {

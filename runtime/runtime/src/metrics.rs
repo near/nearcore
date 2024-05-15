@@ -5,7 +5,7 @@ use near_o11y::metrics::{
     try_create_int_counter_vec, try_create_int_gauge_vec, CounterVec, GaugeVec, Histogram,
     HistogramVec, IntCounter, IntCounterVec, IntGaugeVec,
 };
-use near_primitives::congestion_info::CongestionInfo;
+use near_primitives::congestion_info::{CongestionInfo, ExtendedCongestionInfo};
 use near_primitives::types::ShardId;
 use once_cell::sync::Lazy;
 use std::time::Duration;
@@ -631,11 +631,11 @@ pub fn report_congestion_metrics(receipt_sink: &ReceiptSink, sender_shard_id: Sh
 }
 
 /// Report key congestion indicator levels of a shard.
-fn report_congestion_indicators(congestion_info: &CongestionInfo, shard_label: &str) {
+fn report_congestion_indicators(congestion_info: &ExtendedCongestionInfo, shard_label: &str) {
     let congestion_level = congestion_info.congestion_level();
     CONGESTION_LEVEL.with_label_values(&[shard_label]).set(congestion_level);
 
-    let CongestionInfo::V1(inner) = congestion_info;
+    let CongestionInfo::V1(inner) = congestion_info.congestion_info();
     CONGESTION_RECEIPT_BYTES
         .with_label_values(&[shard_label])
         .set(inner.receipt_bytes.try_into().unwrap_or(i64::MAX));
