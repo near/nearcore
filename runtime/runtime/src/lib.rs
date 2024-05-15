@@ -1659,12 +1659,7 @@ impl Runtime {
                 // this yield if `yield_resume` was invoked by some receipt which was processed in
                 // the current chunk. The ordering will be maintained because the receipts are
                 // destined for the same shard; the timeout will be processed second and discarded.
-                receipt_sink.forward_or_buffer_receipt(
-                    resume_receipt.clone(),
-                    apply_state,
-                    &mut state_update,
-                    epoch_info_provider,
-                )?;
+                outgoing_receipts.push(resume_receipt.clone());
                 timeout_receipts.push(resume_receipt);
             }
 
