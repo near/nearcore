@@ -57,6 +57,7 @@ protocol_feature_fix_staking_threshold = ["near-primitives-core/protocol_feature
 protocol_feature_fix_contract_loading_cost = ["near-primitives-core/protocol_feature_fix_contract_loading_cost"]
 protocol_feature_reject_blocks_with_outdated_protocol_version = ["near-primitives-core/protocol_feature_reject_blocks_with_outdated_protocol_version"]
 protocol_feature_nonrefundable_transfer_nep491 = ["near-primitives-core/protocol_feature_nonrefundable_transfer_nep491"]
+yield_resume = ["near-primitives-core/yield_resume"]
 
 nightly = [
   "near-async/nightly",
@@ -69,6 +70,7 @@ nightly = [
   "protocol_feature_fix_staking_threshold",
   "protocol_feature_nonrefundable_transfer_nep491",
   "protocol_feature_reject_blocks_with_outdated_protocol_version",
+  "yield_resume",
 ]
 
 nightly_protocol = [

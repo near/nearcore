@@ -97,6 +97,7 @@ nightly = [
   "nightly_protocol",
   "protocol_feature_fix_staking_threshold",
   "protocol_feature_nonrefundable_transfer_nep491",
+  "yield_resume",
 ]
 nightly_protocol = [
   "near-chain-configs/nightly_protocol",
