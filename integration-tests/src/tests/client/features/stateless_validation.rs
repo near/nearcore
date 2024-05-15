@@ -1,4 +1,6 @@
+use near_client::ProcessTxResponse;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
+use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_primitives::block::{Approval, ApprovalType};
 use near_primitives::stateless_validation::{ChunkStateWitness, EncodedChunkStateWitness};
 use near_store::test_utils::create_test_store;
@@ -10,7 +12,7 @@ use near_chain::Provenance;
 use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords};
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
-use near_o11y::testonly::{init_integration_logger, init_test_logger};
+use near_o11y::testonly::init_integration_logger;
 use near_primitives::epoch_manager::AllEpochConfigTestOverrides;
 use near_primitives::num_rational::Rational32;
 use near_primitives::shard_layout::ShardLayout;
@@ -348,10 +350,12 @@ fn test_chunk_state_witness_bad_shard_id() {
     assert!(error_message.contains("shard"));
 }
 
-/// Test that block approvals can serve as chunk endorsements by not sending chunk endorsements from block producers
+/// Test two things:
+/// - Block approvals from chunk producers can act as chunk endorsements. No additional chunk endorsement is necessary.
+/// - If a chunk producer receives state witness for the shard they produce, they should not send chunk endorsements.
 #[test]
 fn test_implicit_chunk_endorsements() {
-    init_test_logger();
+    init_integration_logger();
 
     if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
         println!("Test not applicable without StatelessValidation enabled");
@@ -367,10 +371,28 @@ fn test_implicit_chunk_endorsements() {
     let genesis = Genesis::test(accounts.clone(), 2);
     let mut env = TestEnv::builder(&genesis.config)
         .validators(accounts.clone())
-        .clients(accounts)
+        .clients(accounts.clone())
         .nightshade_runtimes(&genesis)
         .build();
 
+    let sender_account_id = accounts[0].clone();
+    let receiver_account_id = accounts[1].clone();
+    let signer = InMemorySigner::from_seed(
+        sender_account_id.clone(),
+        KeyType::ED25519,
+        sender_account_id.as_ref(),
+    );
+    let tx = SignedTransaction::send_money(
+        1,
+        sender_account_id,
+        receiver_account_id,
+        &signer,
+        ONE_NEAR,
+        env.clients[0].chain.head().unwrap().last_block_hash,
+    );
+    let tx_hash = tx.get_hash();
+    let res = env.clients[0].process_tx(tx, false, false);
+    assert!(matches!(res, ProcessTxResponse::ValidTx));
     // Run the client for a few blocks
     let target_height = 6;
     for _ in 1..target_height {
@@ -405,12 +427,36 @@ fn test_implicit_chunk_endorsements() {
                 env.clients[i].collect_block_approval(approval, ApprovalType::SelfApproval);
             }
         }
+        let mut state_witnesses = vec![];
+        for adapter in env.partial_witness_adapters.iter() {
+            while let Some(witness) = adapter.pop_distribution_request() {
+                state_witnesses.push(witness);
+            }
+        }
 
         env.process_partial_encoded_chunks();
         for j in 0..env.clients.len() {
             env.process_shards_manager_responses_and_finish_processing_blocks(j);
         }
+
+        // If we pass in state witnesses, we should not see any chunk endorsements because it should be discarded
+        for state_witness in state_witnesses {
+            let encoded_witness =
+                EncodedChunkStateWitness::encode(&state_witness.state_witness).unwrap().0;
+            let res = env.clients[0].process_chunk_state_witness(encoded_witness, None);
+            assert!(res.is_ok());
+            for request in env.network_adapters[0].requests.read().unwrap().iter() {
+                assert!(!matches!(
+                    request,
+                    PeerManagerMessageRequest::NetworkRequests(NetworkRequests::ChunkEndorsement(
+                        ..
+                    ))
+                ));
+            }
+        }
         // Do not propagate chunk state witnesses and endorsements
         // Block producers should be able to endorse through approvals and process chunks without state witness
     }
+    let outcome = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
+    assert!(matches!(outcome.status, FinalExecutionStatus::SuccessValue(_)));
 }

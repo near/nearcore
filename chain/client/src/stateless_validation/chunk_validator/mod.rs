@@ -28,8 +28,8 @@ use near_primitives::merkle::merklize;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
 use near_primitives::stateless_validation::{
-    ChunkEndorsement, ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessSize,
-    EncodedChunkStateWitness, SignedEncodedChunkStateWitness,
+    ChunkEndorsement, ChunkStateWitness, ChunkStateWitnessAck, EncodedChunkStateWitness,
+    SignedEncodedChunkStateWitness, StateWitnessVerficationResult,
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -659,7 +659,10 @@ impl Client {
         processing_done_tracker: Option<ProcessingDoneTracker>,
     ) -> Result<(), Error> {
         let (witness, raw_witness_size) =
-            self.partially_validate_state_witness(&encoded_witness)?;
+            match self.partially_validate_state_witness(&encoded_witness)? {
+                StateWitnessVerficationResult::Verified { witness, size } => (witness, size),
+                StateWitnessVerficationResult::Skipping => return Ok(()),
+            };
 
         tracing::debug!(
             target: "stateless_validation",
@@ -743,13 +746,27 @@ impl Client {
     fn partially_validate_state_witness(
         &self,
         encoded_witness: &EncodedChunkStateWitness,
-    ) -> Result<(ChunkStateWitness, ChunkStateWitnessSize), Error> {
+    ) -> Result<StateWitnessVerficationResult, Error> {
         let decode_start = std::time::Instant::now();
         let (witness, raw_witness_size) = encoded_witness.decode()?;
         let decode_elapsed_seconds = decode_start.elapsed().as_secs_f64();
         let chunk_header = &witness.chunk_header;
         let witness_height = chunk_header.height_created();
         let witness_shard = chunk_header.shard_id();
+
+        // If the node is a chunk producer for the shard, skip validation because chunks will be applied in a stateful way.
+        let chunk_producer_assignments = self
+            .epoch_manager
+            .get_epoch_chunk_producers_for_shard(&witness.epoch_id, witness_shard)?;
+        if let Some(signer) = self.validator_signer.as_ref() {
+            if chunk_producer_assignments
+                .iter()
+                .map(|v| v.account_id())
+                .contains(signer.validator_id())
+            {
+                return Ok(StateWitnessVerficationResult::Skipping);
+            }
+        }
 
         if !self
             .epoch_manager
@@ -792,6 +809,6 @@ impl Client {
             .with_label_values(&[&witness_shard.to_string()])
             .observe(decode_elapsed_seconds);
 
-        Ok((witness, raw_witness_size))
+        Ok(StateWitnessVerficationResult::Verified { witness, size: raw_witness_size })
     }
 }

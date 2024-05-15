@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use near_async::messaging::{CanSend, IntoSender};
+use near_async::messaging::CanSend;
 use near_chain::{BlockHeader, Chain, ChainStoreAccess};
 use near_chain_primitives::Error;
 use near_o11y::log_assert_fail;
@@ -14,7 +14,6 @@ use near_primitives::stateless_validation::{
 };
 use near_primitives::types::{AccountId, EpochId};
 
-use crate::stateless_validation::chunk_validator::send_chunk_endorsement_to_block_producers;
 use crate::Client;
 
 use super::partial_witness::partial_witness_actor::DistributeStateWitnessRequest;
@@ -49,22 +48,6 @@ impl Client {
         }
 
         let chunk_header = chunk.cloned_header();
-        let shard_id = chunk_header.shard_id();
-        let height = chunk_header.height_created();
-        if self
-            .epoch_manager
-            .get_chunk_validator_assignments(epoch_id, shard_id, height)?
-            .contains(my_signer.validator_id())
-        {
-            // Bypass state witness validation if we created state witness. Endorse the chunk immediately.
-            send_chunk_endorsement_to_block_producers(
-                &chunk_header,
-                self.epoch_manager.as_ref(),
-                my_signer.as_ref(),
-                &self.network_adapter.clone().into_sender(),
-                self.chunk_endorsement_tracker.as_ref(),
-            );
-        }
 
         self.partial_witness_adapter.send(DistributeStateWitnessRequest {
             epoch_id: epoch_id.clone(),

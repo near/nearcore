@@ -528,6 +528,14 @@ impl ChunkValidatorAssignments {
     }
 }
 
+/// Result of initial state witness verification. There are two success cases:
+/// - `Validated` - the witness is valid and can be used for further processing.
+/// - `Skipping` - the node is a chunk producer and does not need to validate and apply the witness.
+pub enum StateWitnessVerficationResult {
+    Verified { witness: ChunkStateWitness, size: ChunkStateWitnessSize },
+    Skipping
+}
+
 #[cfg(test)]
 mod tests {
     use crate::stateless_validation::{ChunkStateWitness, EncodedChunkStateWitness};

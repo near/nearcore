@@ -20,4 +20,8 @@ impl MockPartialWitnessAdapter {
     pub fn pop_distribution_request(&self) -> Option<DistributeStateWitnessRequest> {
         self.distribution_request.write().unwrap().pop_front()
     }
+
+    pub fn len(&self) -> usize {
+        self.distribution_request.read().unwrap().len()
+    }
 }
