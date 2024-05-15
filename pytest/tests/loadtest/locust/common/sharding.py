@@ -370,6 +370,6 @@ class TestRandomAccount(unittest.TestCase):
 
     def test_random_account_for_long_base_name(self):
         account_id = random_account_between(
-            'mocknet-mainnet-114882710-forknet-old-12qj.near', '_user4321_run', None, None)
+            'mocknet-mainnet-123456789-forknet-abcdefgh.near', '_user4321_run', None, None)
         assert TestRandomAccount.ACCOUNT_REGEX.fullmatch(
             account_id) is not None
