@@ -35,8 +35,7 @@ pub(super) fn p1_sum(data: &[u8]) -> Result<(u64, Vec<u8>)> {
         }
 
         let mut pk_aff = blst::blst_p1_affine::default();
-        let error_code =
-            unsafe { blst::blst_p1_deserialize(&mut pk_aff, point_data.as_ptr()) };
+        let error_code = unsafe { blst::blst_p1_deserialize(&mut pk_aff, point_data.as_ptr()) };
 
         if error_code != blst::BLST_ERROR::BLST_SUCCESS {
             return Ok((1, vec![]));
@@ -47,9 +46,7 @@ pub(super) fn p1_sum(data: &[u8]) -> Result<(u64, Vec<u8>)> {
             blst::blst_p1_from_affine(&mut pk, &pk_aff);
         }
 
-        if unsafe {
-            blst::blst_p1_in_g1(&pk)
-        } != true {
+        if unsafe { blst::blst_p1_in_g1(&pk) } != true {
             return Ok((1, vec![]));
         }
 
@@ -105,8 +102,7 @@ pub(super) fn p2_sum(data: &[u8]) -> Result<(u64, Vec<u8>)> {
         }
 
         let mut pk_aff = blst::blst_p2_affine::default();
-        let error_code =
-            unsafe { blst::blst_p2_deserialize(&mut pk_aff, point_data.as_ptr()) };
+        let error_code = unsafe { blst::blst_p2_deserialize(&mut pk_aff, point_data.as_ptr()) };
 
         if error_code != blst::BLST_ERROR::BLST_SUCCESS {
             return Ok((1, vec![]));
@@ -117,9 +113,7 @@ pub(super) fn p2_sum(data: &[u8]) -> Result<(u64, Vec<u8>)> {
             blst::blst_p2_from_affine(&mut pk, &pk_aff);
         }
 
-        if unsafe {
-            blst::blst_p2_in_g2(&pk)
-        } != true {
+        if unsafe { blst::blst_p2_in_g2(&pk) } != true {
             return Ok((1, vec![]));
         }
 
@@ -176,8 +170,7 @@ pub(super) fn p1_multiexp(data: &[u8]) -> Result<(u64, Vec<u8>)> {
         }
 
         let mut pk_aff = blst::blst_p1_affine::default();
-        let error_code =
-            unsafe { blst::blst_p1_deserialize(&mut pk_aff, point_data.as_ptr()) };
+        let error_code = unsafe { blst::blst_p1_deserialize(&mut pk_aff, point_data.as_ptr()) };
 
         if error_code != blst::BLST_ERROR::BLST_SUCCESS {
             return Ok((1, vec![]));
@@ -188,9 +181,7 @@ pub(super) fn p1_multiexp(data: &[u8]) -> Result<(u64, Vec<u8>)> {
             blst::blst_p1_from_affine(&mut pk, &pk_aff);
         }
 
-        if unsafe {
-            blst::blst_p1_in_g1(&pk)
-        } != true {
+        if unsafe { blst::blst_p1_in_g1(&pk) } != true {
             return Ok((1, vec![]));
         }
 
@@ -247,8 +238,7 @@ pub(super) fn p2_multiexp(data: &[u8]) -> Result<(u64, Vec<u8>)> {
         }
 
         let mut pk_aff = blst::blst_p2_affine::default();
-        let error_code =
-            unsafe { blst::blst_p2_deserialize(&mut pk_aff, point_data.as_ptr()) };
+        let error_code = unsafe { blst::blst_p2_deserialize(&mut pk_aff, point_data.as_ptr()) };
 
         if error_code != blst::BLST_ERROR::BLST_SUCCESS {
             return Ok((1, vec![]));
@@ -259,9 +249,7 @@ pub(super) fn p2_multiexp(data: &[u8]) -> Result<(u64, Vec<u8>)> {
             blst::blst_p2_from_affine(&mut pk, &pk_aff);
         }
 
-        if unsafe {
-            blst::blst_p2_in_g2(&pk)
-        } != true {
+        if unsafe { blst::blst_p2_in_g2(&pk) } != true {
             return Ok((1, vec![]));
         }
 
@@ -452,9 +440,8 @@ pub(super) fn pairing_check(data: &[u8]) -> Result<u64> {
             return Ok(1);
         }
 
-        let error_code = unsafe {
-            blst::blst_p1_deserialize(&mut blst_g1_list[i], point1_data.as_ptr())
-        };
+        let error_code =
+            unsafe { blst::blst_p1_deserialize(&mut blst_g1_list[i], point1_data.as_ptr()) };
 
         if error_code != blst::BLST_ERROR::BLST_SUCCESS {
             return Ok(1);
@@ -469,9 +456,8 @@ pub(super) fn pairing_check(data: &[u8]) -> Result<u64> {
             return Ok(1);
         }
 
-        let error_code = unsafe {
-            blst::blst_p2_deserialize(&mut blst_g2_list[i], point2_data.as_ptr())
-        };
+        let error_code =
+            unsafe { blst::blst_p2_deserialize(&mut blst_g2_list[i], point2_data.as_ptr()) };
         if error_code != blst::BLST_ERROR::BLST_SUCCESS {
             return Ok(1);
         }
