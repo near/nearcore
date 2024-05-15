@@ -47,6 +47,12 @@ pub(super) fn p1_sum(data: &[u8]) -> Result<(u64, Vec<u8>)> {
             blst::blst_p1_from_affine(&mut pk, &pk_aff);
         }
 
+        if unsafe {
+            blst::blst_p1_in_g1(&pk)
+        } != true {
+            return Ok((1, vec![]));
+        }
+
         let sign = sign_data[0];
         if sign == 1 {
             unsafe {
@@ -109,6 +115,12 @@ pub(super) fn p2_sum(data: &[u8]) -> Result<(u64, Vec<u8>)> {
         let mut pk = blst::blst_p2::default();
         unsafe {
             blst::blst_p2_from_affine(&mut pk, &pk_aff);
+        }
+
+        if unsafe {
+            blst::blst_p2_in_g2(&pk)
+        } != true {
+            return Ok((1, vec![]));
         }
 
         let sign = sign_data[0];
@@ -176,6 +188,12 @@ pub(super) fn p1_multiexp(data: &[u8]) -> Result<(u64, Vec<u8>)> {
             blst::blst_p1_from_affine(&mut pk, &pk_aff);
         }
 
+        if unsafe {
+            blst::blst_p1_in_g1(&pk)
+        } != true {
+            return Ok((1, vec![]));
+        }
+
         let mut pk_mul = blst::blst_p1::default();
         unsafe {
             blst::blst_p1_unchecked_mult(
@@ -239,6 +257,12 @@ pub(super) fn p2_multiexp(data: &[u8]) -> Result<(u64, Vec<u8>)> {
         let mut pk = blst::blst_p2::default();
         unsafe {
             blst::blst_p2_from_affine(&mut pk, &pk_aff);
+        }
+
+        if unsafe {
+            blst::blst_p2_in_g2(&pk)
+        } != true {
+            return Ok((1, vec![]));
         }
 
         let mut pk_mul = blst::blst_p2::default();

@@ -123,7 +123,7 @@ mod tests {
 
                     let mut points: Vec<(u8, $GAffine)> = vec![];
                     for i in 0..n {
-                        points.push((rng.gen_range(0..=1), Self::get_random_curve_point(rng)));
+                        points.push((rng.gen_range(0..=1), Self::get_random_g_point(rng)));
 
                         let mut current_point = points[i].1.clone();
                         if points[i].0 == 1 {
@@ -389,7 +389,7 @@ mod tests {
                 // P + (-P) = (-P) + P =  0
                 // P + (-(P + P))
                 for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::get_random_curve_point(&mut rng);
+                    let p = $GOp::get_random_g_point(&mut rng);
                     let p_ser = $GOp::serialize_uncompressed_g(&p);
 
                     let pmul2 = p.mul(Fr::from(2));
@@ -417,6 +417,9 @@ mod tests {
                 let got2 = $GOp::get_sum(0, &q_ser, 0, &p_ser);
                 assert_eq!(got1, got2);
 
+                let result_point = $GOp::deserialize_g(got1.clone());
+                assert!(result_point.is_in_correct_subgroup_assuming_on_curve());
+
                 // compare with library results
                 let psum = p.add(&q);
                 let library_sum = $GOp::serialize_uncompressed_g(&psum.into_affine());
@@ -435,34 +438,8 @@ mod tests {
                 let mut rng = test_rng();
 
                 for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::get_random_curve_point(&mut rng);
-                    let q = $GOp::get_random_curve_point(&mut rng);
-
-                    $check_sum(p, q);
-                }
-
-                for _ in 0..TESTS_ITERATIONS {
                     let p = $GOp::get_random_g_point(&mut rng);
                     let q = $GOp::get_random_g_point(&mut rng);
-
-                    let p_ser = $GOp::serialize_uncompressed_g(&p);
-                    let q_ser = $GOp::serialize_uncompressed_g(&q);
-
-                    let got1 = $GOp::get_sum(0, &p_ser, 0, &q_ser);
-
-                    let result_point = $GOp::deserialize_g(got1);
-                    assert!(result_point.is_in_correct_subgroup_assuming_on_curve());
-                }
-            }
-
-            #[test]
-            fn $test_bls12381_sum_not_g_points() {
-                let mut rng = test_rng();
-
-                //points not from G
-                for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::get_random_not_g_curve_point(&mut rng);
-                    let q = $GOp::get_random_not_g_curve_point(&mut rng);
 
                     $check_sum(p, q);
                 }
@@ -474,7 +451,7 @@ mod tests {
 
                 let zero = get_zero($GOp::POINT_LEN);
                 for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::get_random_curve_point(&mut rng);
+                    let p = $GOp::get_random_g_point(&mut rng);
                     let p_ser = $GOp::serialize_uncompressed_g(&p);
 
                     // P - P = - P + P = 0
@@ -561,6 +538,16 @@ mod tests {
 
                 // Incorrect sign encoding
                 test_vecs.push(vec![vec![2u8], get_zero($GOp::POINT_LEN)]);
+
+                let mut rng = test_rng();
+
+                //points not from G
+                for _ in 0..TESTS_ITERATIONS {
+                    let p = $GOp::get_random_not_g_curve_point(&mut rng);
+                    let p_ser = $GOp::serialize_uncompressed_g(&p);
+
+                    test_vecs.push(vec![vec![0u8], p_ser]);
+                }
 
                 for i in 0..test_vecs.len() {
                     run_bls12381_fn!($bls12381_sum, test_vecs[i], 1);
@@ -662,7 +649,7 @@ mod tests {
                 let mut rng = test_rng();
 
                 for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::get_random_curve_point(&mut rng);
+                    let p = $GOp::get_random_g_point(&mut rng);
                     let n = rng.gen_range(0..200) as usize;
 
                     let points: Vec<(u8, $GAffine)> = vec![(0, p.clone()); n];
@@ -675,7 +662,7 @@ mod tests {
                 }
 
                 for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::get_random_curve_point(&mut rng);
+                    let p = $GOp::get_random_g_point(&mut rng);
                     let distr = ark_std::rand::distributions::Standard;
                     let n: Fr = distr.sample(&mut rng);
 
@@ -699,7 +686,7 @@ mod tests {
                         let distr = ark_std::rand::distributions::Standard;
                         let scalar: Fr = distr.sample(&mut rng);
 
-                        points.push((scalar, $GOp::get_random_curve_point(&mut rng)));
+                        points.push((scalar, $GOp::get_random_g_point(&mut rng)));
                         res2 = res2.add(&points[i].1.mul(&points[i].0)).into();
                     }
 
@@ -710,12 +697,21 @@ mod tests {
 
             #[test]
             fn $test_bls12381_multiexp_incorrect_input() {
+                let mut rng = test_rng();
                 let zero_scalar = vec![0u8; 32];
 
-                let test_vecs: Vec<Vec<Vec<u8>>> = $GOp::get_incorrect_points()
+                let mut test_vecs: Vec<Vec<Vec<u8>>> = $GOp::get_incorrect_points()
                     .into_iter()
                     .map(|test| vec![test, zero_scalar.clone()])
                     .collect();
+
+                //points not from G
+                for _ in 0..TESTS_ITERATIONS {
+                    let p = $GOp::get_random_not_g_curve_point(&mut rng);
+                    let p_ser = $GOp::serialize_uncompressed_g(&p);
+
+                    test_vecs.push(vec![p_ser, zero_scalar.clone()]);
+                }
 
                 for i in 0..test_vecs.len() {
                     run_bls12381_fn!($bls12381_multiexp, test_vecs[i], 1);
