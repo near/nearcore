@@ -2409,7 +2409,7 @@ mod tests {
         ));
         (0..n)
             .map(|i| {
-                let inner_actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
+                let inner_actions = [Action::FunctionCall(Box::new(FunctionCallAction {
                     method_name: "foo".to_string(),
                     args: b"arg".to_vec(),
                     gas: MAX_ATTACHED_GAS,
