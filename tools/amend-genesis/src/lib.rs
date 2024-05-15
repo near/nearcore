@@ -1,16 +1,15 @@
 use anyhow::Context;
 
-use near_chain_configs::{Genesis, GenesisValidationMode, NEAR_BASE};
+use near_chain_configs::{Genesis, GenesisValidationMode};
 use near_crypto::PublicKey;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
-use near_primitives::types::{AccountId, AccountInfo, StorageUsage};
+use near_primitives::types::{AccountId, AccountInfo};
 use near_primitives::utils;
 use near_primitives::version::ProtocolVersion;
 use near_primitives_core::account::{AccessKey, Account};
 use near_primitives_core::types::{Balance, BlockHeightDelta, NumBlocks, NumSeats, NumShards};
-use near_primitives_core::version::PROTOCOL_VERSION;
 use num_rational::Rational32;
 use serde::ser::{SerializeSeq, Serializer};
 use std::collections::{hash_map, HashMap};
@@ -48,40 +47,22 @@ fn set_total_balance(dst: &mut Account, src: &Account) {
 }
 
 impl AccountRecords {
-    fn new(
-        amount: Balance,
-        locked: Balance,
-        permanent_storage_bytes: StorageUsage,
-        num_bytes_account: u64,
-    ) -> Self {
+    fn new(amount: Balance, locked: Balance, num_bytes_account: u64) -> Self {
         let mut ret = Self::default();
-        ret.set_account(amount, locked, permanent_storage_bytes, num_bytes_account);
+        ret.set_account(amount, locked, num_bytes_account);
         ret
     }
 
     fn new_validator(stake: Balance, num_bytes_account: u64) -> Self {
         let mut ret = Self::default();
-        ret.set_account(0, stake, 0, num_bytes_account);
+        ret.set_account(0, stake, num_bytes_account);
         ret.amount_needed = true;
         ret
     }
 
-    fn set_account(
-        &mut self,
-        amount: Balance,
-        locked: Balance,
-        permanent_storage_bytes: StorageUsage,
-        num_bytes_account: u64,
-    ) {
+    fn set_account(&mut self, amount: Balance, locked: Balance, num_bytes_account: u64) {
         assert!(self.account.is_none());
-        let account = Account::new(
-            amount,
-            locked,
-            permanent_storage_bytes,
-            CryptoHash::default(),
-            num_bytes_account,
-            PROTOCOL_VERSION,
-        );
+        let account = Account::new(amount, locked, CryptoHash::default(), num_bytes_account);
         self.account = Some(account);
     }
 
@@ -137,7 +118,7 @@ impl AccountRecords {
                     })?;
                 }
                 if self.amount_needed {
-                    account.set_amount(10_000 * NEAR_BASE);
+                    account.set_amount(10_000 * nearcore::config::NEAR_BASE);
                 }
                 *total_supply += account.amount() + account.locked();
                 seq.serialize_element(&StateRecord::Account { account_id, account })?;
@@ -200,7 +181,6 @@ fn parse_extra_records(
                         let r = AccountRecords::new(
                             account.amount(),
                             account.locked(),
-                            account.permanent_storage_bytes(),
                             num_bytes_account,
                         );
                         e.insert(r);
@@ -214,12 +194,7 @@ fn parse_extra_records(
                                 &account_id
                             ));
                         }
-                        r.set_account(
-                            account.amount(),
-                            account.locked(),
-                            account.permanent_storage_bytes(),
-                            num_bytes_account,
-                        );
+                        r.set_account(account.amount(), account.locked(), num_bytes_account);
                     }
                 }
             }
@@ -367,25 +342,25 @@ pub fn amend_genesis(
     }
 
     genesis.config.total_supply = total_supply;
-    if let Some(n) = genesis_changes.num_seats {
-        genesis.config.num_block_producer_seats = n;
-    } else {
-        genesis.config.num_block_producer_seats = validators.len() as NumSeats;
-    }
+    // TODO: give an option to set this
+    genesis.config.num_block_producer_seats = validators.len() as NumSeats;
     // here we have already checked that there are no duplicate validators in wanted_records()
     genesis.config.validators = validators;
     if let Some(chain_id) = &genesis_changes.chain_id {
         genesis.config.chain_id = chain_id.clone();
     }
+    if let Some(n) = genesis_changes.num_seats {
+        genesis.config.num_block_producer_seats = n;
+    }
     if let Some(shard_layout) = shard_layout {
+        genesis.config.avg_hidden_validator_seats_per_shard =
+            shard_layout.shard_ids().into_iter().map(|_| 0).collect();
+        genesis.config.num_block_producer_seats_per_shard = utils::get_num_seats_per_shard(
+            shard_layout.shard_ids().count() as NumShards,
+            genesis.config.num_block_producer_seats,
+        );
         genesis.config.shard_layout = shard_layout;
     }
-    genesis.config.avg_hidden_validator_seats_per_shard =
-        genesis.config.shard_layout.shard_ids().into_iter().map(|_| 0).collect();
-    genesis.config.num_block_producer_seats_per_shard = utils::get_num_seats_per_shard(
-        genesis.config.shard_layout.shard_ids().count() as NumShards,
-        genesis.config.num_block_producer_seats,
-    );
     if let Some(v) = genesis_changes.protocol_version {
         genesis.config.protocol_version = v;
     }
@@ -418,13 +393,13 @@ pub fn amend_genesis(
 #[cfg(test)]
 mod test {
     use anyhow::Context;
-    use near_async::time::Clock;
-    use near_chain_configs::{get_initial_supply, Genesis, GenesisConfig, NEAR_BASE};
+    use near_chain_configs::{get_initial_supply, Genesis, GenesisConfig};
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::state_record::StateRecord;
+    use near_primitives::static_clock::StaticClock;
     use near_primitives::types::{AccountId, AccountInfo};
-    use near_primitives::utils::{self, from_timestamp};
+    use near_primitives::utils;
     use near_primitives::version::PROTOCOL_VERSION;
     use near_primitives_core::account::{AccessKey, Account};
     use near_primitives_core::types::{Balance, StorageUsage};
@@ -472,16 +447,8 @@ mod test {
         fn parse(&self) -> StateRecord {
             match &self {
                 Self::Account { account_id, amount, locked, storage_usage } => {
-                    // `permanent_storage_bytes` can be implemented if this is required in state records.
-                    let permanent_storage_bytes = 0;
-                    let account = Account::new(
-                        *amount,
-                        *locked,
-                        permanent_storage_bytes,
-                        CryptoHash::default(),
-                        *storage_usage,
-                        PROTOCOL_VERSION,
-                    );
+                    let account =
+                        Account::new(*amount, *locked, CryptoHash::default(), *storage_usage);
                     StateRecord::Account { account_id: account_id.parse().unwrap(), account }
                 }
                 Self::AccessKey { account_id, public_key } => StateRecord::AccessKey {
@@ -614,40 +581,40 @@ mod test {
 
             let genesis_config = GenesisConfig {
                 protocol_version: PROTOCOL_VERSION,
-                genesis_time: from_timestamp(Clock::real().now_utc().unix_timestamp_nanos() as u64),
+                genesis_time: StaticClock::utc(),
                 chain_id: "rusttestnet".to_string(),
                 genesis_height: 0,
-                num_block_producer_seats: near_chain_configs::NUM_BLOCK_PRODUCER_SEATS,
+                num_block_producer_seats: nearcore::config::NUM_BLOCK_PRODUCER_SEATS,
                 num_block_producer_seats_per_shard: utils::get_num_seats_per_shard(
                     num_shards,
-                    near_chain_configs::NUM_BLOCK_PRODUCER_SEATS,
+                    nearcore::config::NUM_BLOCK_PRODUCER_SEATS,
                 ),
                 avg_hidden_validator_seats_per_shard: (0..num_shards).map(|_| 0).collect(),
                 dynamic_resharding: false,
                 protocol_upgrade_stake_threshold:
-                    near_chain_configs::PROTOCOL_UPGRADE_STAKE_THRESHOLD,
+                    nearcore::config::PROTOCOL_UPGRADE_STAKE_THRESHOLD,
                 epoch_length: 1000,
-                gas_limit: near_chain_configs::INITIAL_GAS_LIMIT,
-                gas_price_adjustment_rate: near_chain_configs::GAS_PRICE_ADJUSTMENT_RATE,
+                gas_limit: nearcore::config::INITIAL_GAS_LIMIT,
+                gas_price_adjustment_rate: nearcore::config::GAS_PRICE_ADJUSTMENT_RATE,
                 block_producer_kickout_threshold:
-                    near_chain_configs::BLOCK_PRODUCER_KICKOUT_THRESHOLD,
+                    nearcore::config::BLOCK_PRODUCER_KICKOUT_THRESHOLD,
                 chunk_producer_kickout_threshold:
-                    near_chain_configs::CHUNK_PRODUCER_KICKOUT_THRESHOLD,
+                    nearcore::config::CHUNK_PRODUCER_KICKOUT_THRESHOLD,
                 online_max_threshold: Rational32::new(99, 100),
                 online_min_threshold: Rational32::new(
-                    near_chain_configs::BLOCK_PRODUCER_KICKOUT_THRESHOLD as i32,
+                    nearcore::config::BLOCK_PRODUCER_KICKOUT_THRESHOLD as i32,
                     100,
                 ),
                 validators: initial_validators,
-                transaction_validity_period: near_chain_configs::TRANSACTION_VALIDITY_PERIOD,
-                protocol_reward_rate: near_chain_configs::PROTOCOL_REWARD_RATE,
-                max_inflation_rate: near_chain_configs::MAX_INFLATION_RATE,
+                transaction_validity_period: nearcore::config::TRANSACTION_VALIDITY_PERIOD,
+                protocol_reward_rate: nearcore::config::PROTOCOL_REWARD_RATE,
+                max_inflation_rate: nearcore::config::MAX_INFLATION_RATE,
                 total_supply: get_initial_supply(&records_in),
-                num_blocks_per_year: near_chain_configs::NUM_BLOCKS_PER_YEAR,
+                num_blocks_per_year: nearcore::config::NUM_BLOCKS_PER_YEAR,
                 protocol_treasury_account: "treasury.near".parse().unwrap(),
-                fishermen_threshold: near_chain_configs::FISHERMEN_THRESHOLD,
+                fishermen_threshold: nearcore::config::FISHERMEN_THRESHOLD,
                 shard_layout: shards,
-                min_gas_price: near_chain_configs::MIN_GAS_PRICE,
+                min_gas_price: nearcore::config::MIN_GAS_PRICE,
                 ..Default::default()
             };
 
@@ -825,7 +792,7 @@ mod test {
                 },
                 TestStateRecord::Account {
                     account_id: "foo2",
-                    amount: 10_000 * NEAR_BASE,
+                    amount: 10_000 * nearcore::config::NEAR_BASE,
                     locked: 3_000_000,
                     storage_usage: 182,
                 },
@@ -986,7 +953,7 @@ mod test {
                 },
                 TestStateRecord::Account {
                     account_id: "foo3",
-                    amount: 10_000 * NEAR_BASE,
+                    amount: 10_000 * nearcore::config::NEAR_BASE,
                     locked: 2_000_000,
                     storage_usage: 182,
                 },
