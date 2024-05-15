@@ -295,6 +295,12 @@ impl AllEpochConfig {
 /// algorithm.  See <https://github.com/near/NEPs/pull/167> for details.
 #[derive(Debug, Clone, SmartDefault, PartialEq, Eq)]
 pub struct ValidatorSelectionConfig {
+    #[default(100)]
+    pub num_chunk_producer_seats: NumSeats,
+    #[default(300)]
+    pub num_chunk_validator_seats: NumSeats,
+    // TODO (#11267): deprecate after StatelessValidationV0 is in place.
+    // Use 300 for older protocol versions.
     #[default(300)]
     pub num_chunk_only_producer_seats: NumSeats,
     #[default(1)]
@@ -732,9 +738,12 @@ pub mod epoch_info {
         pub validator_to_index: HashMap<AccountId, ValidatorId>,
         pub block_producers_settlement: Vec<ValidatorId>,
         pub chunk_producers_settlement: Vec<Vec<ValidatorId>>,
-        pub hidden_validators_settlement: Vec<ValidatorWeight>,
-        pub fishermen: Vec<ValidatorStake>,
-        pub fishermen_to_index: HashMap<AccountId, ValidatorId>,
+        /// Deprecated.
+        pub _hidden_validators_settlement: Vec<ValidatorWeight>,
+        /// Deprecated.
+        pub _fishermen: Vec<ValidatorStake>,
+        /// Deprecated.
+        pub _fishermen_to_index: HashMap<AccountId, ValidatorId>,
         pub stake_change: BTreeMap<AccountId, Balance>,
         pub validator_reward: HashMap<AccountId, Balance>,
         pub validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
@@ -757,9 +766,6 @@ pub mod epoch_info {
             validator_to_index: HashMap<AccountId, ValidatorId>,
             block_producers_settlement: Vec<ValidatorId>,
             chunk_producers_settlement: Vec<Vec<ValidatorId>>,
-            hidden_validators_settlement: Vec<ValidatorWeight>,
-            fishermen: Vec<ValidatorStake>,
-            fishermen_to_index: HashMap<AccountId, ValidatorId>,
             stake_change: BTreeMap<AccountId, Balance>,
             validator_reward: HashMap<AccountId, Balance>,
             validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
@@ -785,15 +791,15 @@ pub mod epoch_info {
                     Self::V4(EpochInfoV4 {
                         epoch_height,
                         validators,
-                        fishermen,
+                        _fishermen: Default::default(),
                         validator_to_index,
                         block_producers_settlement,
                         chunk_producers_settlement,
-                        hidden_validators_settlement,
+                        _hidden_validators_settlement: Default::default(),
                         stake_change,
                         validator_reward,
                         validator_kickout,
-                        fishermen_to_index,
+                        _fishermen_to_index: Default::default(),
                         minted_amount,
                         seat_price,
                         protocol_version,
@@ -806,15 +812,15 @@ pub mod epoch_info {
                     Self::V3(EpochInfoV3 {
                         epoch_height,
                         validators,
-                        fishermen,
+                        fishermen: Default::default(),
                         validator_to_index,
                         block_producers_settlement,
                         chunk_producers_settlement,
-                        hidden_validators_settlement,
+                        hidden_validators_settlement: Default::default(),
                         stake_change,
                         validator_reward,
                         validator_kickout,
-                        fishermen_to_index,
+                        fishermen_to_index: Default::default(),
                         minted_amount,
                         seat_price,
                         protocol_version,
@@ -827,15 +833,15 @@ pub mod epoch_info {
                 Self::V2(EpochInfoV2 {
                     epoch_height,
                     validators,
-                    fishermen,
+                    fishermen: Default::default(),
                     validator_to_index,
                     block_producers_settlement,
                     chunk_producers_settlement,
-                    hidden_validators_settlement,
+                    hidden_validators_settlement: Default::default(),
                     stake_change,
                     validator_reward,
                     validator_kickout,
-                    fishermen_to_index,
+                    fishermen_to_index: Default::default(),
                     minted_amount,
                     seat_price,
                     protocol_version,
@@ -993,7 +999,7 @@ pub mod epoch_info {
                 Self::V1(v1) => ValidatorStakeIter::v1(&v1.fishermen),
                 Self::V2(v2) => ValidatorStakeIter::new(&v2.fishermen),
                 Self::V3(v3) => ValidatorStakeIter::new(&v3.fishermen),
-                Self::V4(v4) => ValidatorStakeIter::new(&v4.fishermen),
+                Self::V4(v4) => ValidatorStakeIter::new(&v4._fishermen),
             }
         }
 
@@ -1072,7 +1078,7 @@ pub mod epoch_info {
                 Self::V1(v1) => v1.fishermen_to_index.contains_key(account_id),
                 Self::V2(v2) => v2.fishermen_to_index.contains_key(account_id),
                 Self::V3(v3) => v3.fishermen_to_index.contains_key(account_id),
-                Self::V4(v4) => v4.fishermen_to_index.contains_key(account_id),
+                Self::V4(v4) => v4._fishermen_to_index.contains_key(account_id),
             }
         }
 
@@ -1090,9 +1096,9 @@ pub mod epoch_info {
                     .get(account_id)
                     .map(|validator_id| v3.fishermen[*validator_id as usize].clone()),
                 Self::V4(v4) => v4
-                    .fishermen_to_index
+                    ._fishermen_to_index
                     .get(account_id)
-                    .map(|validator_id| v4.fishermen[*validator_id as usize].clone()),
+                    .map(|validator_id| v4._fishermen[*validator_id as usize].clone()),
             }
         }
 
@@ -1102,7 +1108,7 @@ pub mod epoch_info {
                 Self::V1(v1) => ValidatorStake::V1(v1.fishermen[fisherman_id as usize].clone()),
                 Self::V2(v2) => v2.fishermen[fisherman_id as usize].clone(),
                 Self::V3(v3) => v3.fishermen[fisherman_id as usize].clone(),
-                Self::V4(v4) => v4.fishermen[fisherman_id as usize].clone(),
+                Self::V4(v4) => v4._fishermen[fisherman_id as usize].clone(),
             }
         }
 

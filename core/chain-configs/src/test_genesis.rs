@@ -57,6 +57,8 @@ enum ValidatorsSpec {
         validators: Vec<AccountInfo>,
         num_block_producer_seats: NumSeats,
         num_chunk_only_producer_seats: NumSeats,
+        num_chunk_producer_seats: NumSeats,
+        num_chunk_validator_seats: NumSeats,
     },
 }
 
@@ -188,6 +190,8 @@ impl TestGenesisBuilder {
             validators,
             num_block_producer_seats,
             num_chunk_only_producer_seats,
+            num_chunk_producer_seats: num_block_producer_seats,
+            num_chunk_validator_seats: num_block_producer_seats + num_chunk_only_producer_seats,
         });
         self
     }
@@ -474,6 +478,8 @@ impl TestGenesisBuilder {
             max_inflation_rate: Rational32::new(1, 1),
             protocol_upgrade_stake_threshold: Rational32::new(8, 10),
             use_production_config: false,
+            num_chunk_producer_seats: derived_validator_setup.num_chunk_producer_seats,
+            num_chunk_validator_seats: derived_validator_setup.num_chunk_validator_seats,
         };
 
         Genesis {
@@ -487,6 +493,8 @@ struct DerivedValidatorSetup {
     validators: Vec<AccountInfo>,
     num_block_producer_seats: NumSeats,
     num_chunk_only_producer_seats: NumSeats,
+    num_chunk_producer_seats: NumSeats,
+    num_chunk_validator_seats: NumSeats,
     minimum_stake_ratio: Rational32,
 }
 
@@ -523,6 +531,8 @@ fn derive_validator_setup(specs: ValidatorsSpec) -> DerivedValidatorSetup {
                 validators,
                 num_block_producer_seats,
                 num_chunk_only_producer_seats,
+                num_chunk_producer_seats: num_block_producer_seats,
+                num_chunk_validator_seats: num_block_producer_seats + num_chunk_only_producer_seats,
                 minimum_stake_ratio,
             }
         }
@@ -530,10 +540,14 @@ fn derive_validator_setup(specs: ValidatorsSpec) -> DerivedValidatorSetup {
             validators,
             num_block_producer_seats,
             num_chunk_only_producer_seats,
+            num_chunk_producer_seats,
+            num_chunk_validator_seats,
         } => DerivedValidatorSetup {
             validators,
             num_block_producer_seats,
             num_chunk_only_producer_seats,
+            num_chunk_producer_seats,
+            num_chunk_validator_seats,
             minimum_stake_ratio: Rational32::new(160, 1000000),
         },
     }
