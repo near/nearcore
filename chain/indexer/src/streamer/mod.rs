@@ -7,7 +7,7 @@ use lazy_static::lazy_static;
 use rocksdb::DB;
 use tokio::sync::mpsc;
 use tokio::time;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use near_indexer_primitives::{
     IndexerChunkView, IndexerExecutionOutcomeWithOptionalReceipt,
@@ -18,7 +18,6 @@ use near_parameters::RuntimeConfig;
 use near_primitives::hash::CryptoHash;
 use near_primitives::views;
 
-use self::errors::FailedToFetchData;
 use self::fetchers::{
     fetch_block, fetch_block_by_height, fetch_block_chunks, fetch_latest_block, fetch_outcomes,
     fetch_state_changes, fetch_status,
@@ -28,7 +27,7 @@ use crate::streamer::fetchers::fetch_protocol_config;
 use crate::INDEXER;
 use crate::{AwaitForNodeSyncedEnum, IndexerConfig};
 
-mod errors;
+pub mod errors;
 mod fetchers;
 mod metrics;
 mod utils;
@@ -76,7 +75,7 @@ fn test_problematic_blocks_hash() {
 pub async fn build_streamer_message(
     client: &Addr<near_client::ViewClientActor>,
     block: views::BlockView,
-) -> Result<StreamerMessage, FailedToFetchData> {
+) -> Result<StreamerMessage, errors::IndexerError> {
     let _timer = metrics::BUILD_STREAMER_MESSAGE_TIME.start_timer();
     let chunks = fetch_block_chunks(&client, &block).await?;
 
@@ -272,12 +271,12 @@ async fn lookup_delayed_local_receipt_in_previous_blocks(
     runtime_config: &RuntimeConfig,
     block: views::BlockView,
     receipt_id: CryptoHash,
-) -> Result<views::ReceiptView, FailedToFetchData> {
+) -> Result<views::ReceiptView, errors::IndexerError> {
     let mut prev_block_tried = 0u16;
     let mut prev_block_hash = block.header.prev_hash;
     'find_local_receipt: loop {
         if prev_block_tried > 1000 {
-            panic!("Failed to find local receipt in 1000 prev blocks");
+            return Err(errors::IndexerError::LocalDelayedReceiptNotFound { receipt_id });
         }
         // Log a warning every 100 blocks
         if prev_block_tried % 100 == 0 {
@@ -320,7 +319,7 @@ async fn find_local_receipt_by_id_in_block(
     runtime_config: &RuntimeConfig,
     block: views::BlockView,
     receipt_id: near_primitives::hash::CryptoHash,
-) -> Result<Option<views::ReceiptView>, FailedToFetchData> {
+) -> Result<Option<views::ReceiptView>, errors::IndexerError> {
     let chunks = fetch_block_chunks(&client, &block).await?;
 
     let protocol_config_view = fetch_protocol_config(&client, block.header.hash).await?;
@@ -371,17 +370,15 @@ pub(crate) async fn start(
     store_config: near_store::StoreConfig,
     archive: bool,
     blocks_sink: mpsc::Sender<StreamerMessage>,
-) {
+) -> Result<(), errors::IndexerError> {
     info!(target: INDEXER, "Starting Streamer...");
     let indexer_db_path =
         near_store::NodeStorage::opener(&indexer_config.home_dir, archive, &store_config, None)
             .path()
             .join("indexer");
 
-    let db = match DB::open_default(indexer_db_path) {
-        Ok(db) => db,
-        Err(err) => panic!("Unable to open indexer db: {:?}", err),
-    };
+    let db = DB::open_default(indexer_db_path)
+        .map_err(|err| errors::IndexerError::InternalError(format!("{:?}", err)))?;
 
     let mut last_synced_block_height: Option<near_primitives::types::BlockHeight> = None;
 
@@ -449,17 +446,47 @@ pub(crate) async fn start(
                             metrics::NUM_STREAMER_MESSAGES_SENT.inc();
                         }
                     }
-                    Err(err) => {
-                        debug!(
-                            target: INDEXER,
-                            "Missing data, skipping block #{}...", block_height
-                        );
-                        debug!(target: INDEXER, "{:#?}", err);
-                    }
+                    Err(err) => match err {
+                        errors::IndexerError::MailboxError(err) => {
+                            debug!(
+                                target: INDEXER,
+                                "Missing data, skipping block #{}...\n{:?}",
+                                block_height,
+                                err
+                            );
+                        }
+                        errors::IndexerError::FailedToFetchData(err) => {
+                            debug!(
+                                target: INDEXER,
+                                "Missing data, skipping block #{}...\n{:?}",
+                                block_height,
+                                err
+                            );
+                        }
+                        errors::IndexerError::LocalDelayedReceiptNotFound { receipt_id } => {
+                            if indexer_config.ignore_missing_local_delayed_receipt {
+                                warn!(
+                                    target: INDEXER,
+                                    "Local Delayed Receipt {} is not found when ExecutionOutcome was observed. Skipping the block #{} according to the IndexerConfig.ignore_missing_local_delayed_receipt = true",
+                                    receipt_id,
+                                    block_height,
+                                );
+                            } else {
+                                return Err(errors::IndexerError::LocalDelayedReceiptNotFound {
+                                    receipt_id,
+                                });
+                            }
+                        }
+                        errors::IndexerError::InternalError(err) => {
+                            return Err(errors::IndexerError::InternalError(err))
+                        }
+                    },
                 }
             }
             db.put(b"last_synced_block_height", &block_height.to_string()).unwrap();
             last_synced_block_height = Some(block_height);
         }
     }
+
+    Ok(())
 }

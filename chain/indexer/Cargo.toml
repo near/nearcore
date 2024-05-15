@@ -19,6 +19,7 @@ once_cell.workspace = true
 rocksdb.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 lazy_static.workspace = true

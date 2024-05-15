@@ -899,6 +899,7 @@ impl<T: ChainAccess> TxMirror<T> {
             sync_mode: near_indexer::SyncModeEnum::FromInterruption,
             await_for_node_synced: near_indexer::AwaitForNodeSyncedEnum::StreamWhileSyncing,
             validate_genesis: false,
+            ignore_missing_local_delayed_receipt: true,
         })
         .context("failed to start target chain indexer")?;
         let (target_view_client, target_client) = target_indexer.client_actors();

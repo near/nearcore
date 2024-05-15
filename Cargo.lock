@@ -4239,6 +4239,7 @@ dependencies = [
  "rocksdb",
  "serde",
  "serde_json",
+ "thiserror",
  "tokio",
  "tracing",
 ]

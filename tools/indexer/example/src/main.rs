@@ -1,9 +1,7 @@
 use actix;
 
-use anyhow::Result;
 use clap::Parser;
 use tokio::sync::mpsc;
-use tracing::info;
 
 use configs::{Opts, SubCommand};
 use near_indexer;
@@ -243,7 +241,7 @@ async fn listen_blocks(mut stream: mpsc::Receiver<near_indexer::StreamerMessage>
         //         },
         //     ],
         // }
-        info!(
+        tracing::info!(
             target: "indexer_example",
             "#{} {} Shards: {}, Transactions: {}, Receipts: {}, ExecutionOutcomes: {}",
             streamer_message.block.header.height,
@@ -256,7 +254,7 @@ async fn listen_blocks(mut stream: mpsc::Receiver<near_indexer::StreamerMessage>
     }
 }
 
-fn main() -> Result<()> {
+fn main() -> anyhow::Result<()> {
     // We use it to automatically search the for root certificates to perform HTTPS calls
     // (sending telemetry and downloading genesis)
     openssl_probe::init_ssl_cert_env_vars();
@@ -276,12 +274,24 @@ fn main() -> Result<()> {
                 sync_mode: near_indexer::SyncModeEnum::FromInterruption,
                 await_for_node_synced: near_indexer::AwaitForNodeSyncedEnum::WaitForFullSync,
                 validate_genesis: true,
+                ignore_missing_local_delayed_receipt: false,
             };
             let system = actix::System::new();
             system.block_on(async move {
                 let indexer = near_indexer::Indexer::new(indexer_config).expect("Indexer::new()");
-                let stream = indexer.streamer();
-                actix::spawn(listen_blocks(stream));
+                // Get the sender and receiver explicitly
+                let (sender, receiver) = indexer.streamer_channel();
+                // Spawning the job that will be listening to the blocks from the receiver
+                actix::spawn(listen_blocks(receiver));
+                // Start the streamer which will be pushing the StreamerMessage to the sender,
+                // and wait for it to finish (it's not going to happen though)
+                // but in might end up in an error, so we need to handle it
+                match indexer.start_streamer(sender).await {
+                    Ok(_) => tracing::info!(target: "indexer_example", "Streamer finished successfully"),
+                    Err(e) => {
+                        tracing::error!(target: "indexer_example", "Streamer finished with error: {}", e)
+                    }
+                };
             });
             system.run()?;
         }

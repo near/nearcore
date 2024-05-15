@@ -1,7 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 use anyhow::Context;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 use near_chain_configs::GenesisValidationMode;
 pub use near_primitives;
@@ -15,6 +15,7 @@ pub use near_indexer_primitives::{
 };
 
 pub use streamer::build_streamer_message;
+pub use streamer::errors::IndexerError;
 
 mod streamer;
 
@@ -83,6 +84,8 @@ pub struct IndexerConfig {
     pub await_for_node_synced: AwaitForNodeSyncedEnum,
     /// Tells whether to validate the genesis file before starting
     pub validate_genesis: bool,
+    /// Makes indexer to skip block if the local delayed receipt is not found when execution outcome is observed
+    pub ignore_missing_local_delayed_receipt: bool,
 }
 
 /// This is the core component, which handles `nearcore` and internal `streamer`.
@@ -124,17 +127,51 @@ impl Indexer {
         Ok(Self { view_client, client, near_config, indexer_config })
     }
 
-    /// Boots up `near_indexer::streamer`, so it monitors the new blocks with chunks, transactions, receipts, and execution outcomes inside. The returned stream handler should be drained and handled on the user side.
-    pub fn streamer(&self) -> mpsc::Receiver<StreamerMessage> {
-        let (sender, receiver) = mpsc::channel(100);
-        actix::spawn(streamer::start(
-            self.view_client.clone(),
-            self.client.clone(),
-            self.indexer_config.clone(),
-            self.near_config.config.store.clone(),
-            self.near_config.config.archive,
-            sender,
-        ));
+    /// Boots up `near_indexer::streamer`, so it monitors the new blocks with chunks, transactions,
+    /// receipts, and execution outcomes inside. The returned stream handler should be drained and handled on the user side.
+    pub fn streamer(self) -> mpsc::Receiver<StreamerMessage> {
+        let (sender, receiver) = self.streamer_channel();
+        let (result_sender, result_receiver) = oneshot::channel();
+
+        actix::spawn(async move {
+            let result = streamer::start(
+                self.view_client.clone(),
+                self.client.clone(),
+                self.indexer_config.clone(),
+                self.near_config.config.store.clone(),
+                self.near_config.config.archive,
+                sender,
+            )
+            .await;
+
+            // Send the result of the `streamer::start` to the oneshot channel
+            let _ = result_sender.send(result);
+        });
+
+        // Spawn a separate task to log the error from the oneshot receiver
+        // This is necessary because the `actix::spawn` will panic if the receiver is dropped
+        actix::spawn(async move {
+            match result_receiver.await {
+                Ok(Err(e)) => {
+                    tracing::error!(target: "INDEXER", "Indexer failed with error: {:?}", &e);
+                    panic!("Indexer failed with error: {:?}", &e);
+                }
+                Err(err) => {
+                    tracing::error!(target: "INDEXER", "Received unexpected error from oneshot channel: {:?}", err);
+                    panic!(
+                        "Indexer failed because of unexpected error from oneshot channel: {:?}",
+                        err
+                    );
+                }
+                Ok(Ok(_)) => {
+                    // This branch is theoretically unreachable, but we handle it just in case
+                    tracing::error!(target: "INDEXER", "Indexer stopped. Indexed blocks are not being streamed anymore.");
+                    panic!("Indexer stopped. Indexed blocks are not being streamed anymore.");
+                }
+            }
+        });
+
+        // Return the receiver immediately
         receiver
     }
 
@@ -148,6 +185,69 @@ impl Indexer {
         &self,
     ) -> (actix::Addr<near_client::ViewClientActor>, actix::Addr<near_client::ClientActor>) {
         (self.view_client.clone(), self.client.clone())
+    }
+
+    /// Creates a pair of sender and receiver for the streamer
+    pub fn streamer_channel(
+        &self,
+    ) -> (mpsc::Sender<StreamerMessage>, mpsc::Receiver<StreamerMessage>) {
+        mpsc::channel(100)
+    }
+
+    /// Starts the streamer with the provided sender
+    /// This function is useful when you want to control the streamer from the outside.
+    /// This allows to catch errors, handle them and restart the streamer if needed
+    ///
+    /// Example:
+    /// ```no_run
+    /// let system = actix::System::new();
+    ///     system.block_on(async move {
+    ///         let indexer = near_indexer::Indexer::new(indexer_config).expect("Indexer::new()");
+    ///         // Get the sender and receiver explicitly
+    ///         let (sender, receiver) = indexer.streamer_channel();
+    ///         // Spawning the job that will be listening to the blocks from the receiver
+    ///         actix::spawn(listen_blocks(receiver)); // The function where you listen the receiver
+    ///         // Start the streamer which will be pushing the StreamerMessage to the sender,
+    ///         // and wait for it to finish (it's not going to happen though)
+    ///         // but in might end up in an error, so we need to handle it
+    ///         match indexer.start_streamer(sender).await {
+    ///             Ok(_) => tracing::info!(target: "indexer_example", "Streamer finished successfully"),
+    ///             Err(e) => {
+    ///                 tracing::error!(target: "indexer_example", "Streamer finished with error: {}", e)
+    ///             }
+    ///         };
+    ///    });
+    /// system.run()?;
+    /// ```
+    ///
+    /// Alternatively, you can use now use it in the async main function:
+    /// ```no_run
+    /// #[actix::main]
+    /// async fn main() -> Result<(), anyhow::Error> {
+    ///    let indexer = near_indexer::Indexer::new(indexer_config)?;
+    ///    let (sender, receiver) = indexer.streamer_channel();
+    ///    actix::spawn(listen_blocks(receiver));
+    ///    match indexer.start_streamer(sender).await {
+    ///        Ok(_) => tracing::info!(target: "indexer_example", "Streamer finished successfully"),
+    ///        Err(e) => {
+    ///            tracing::error!(target: "indexer_example", "Streamer finished with error: {}", e)
+    ///        }
+    ///    };
+    ///    Ok(())
+    /// }
+    pub async fn start_streamer(
+        &self,
+        sender: mpsc::Sender<StreamerMessage>,
+    ) -> Result<(), IndexerError> {
+        streamer::start(
+            self.view_client.clone(),
+            self.client.clone(),
+            self.indexer_config.clone(),
+            self.near_config.config.store.clone(),
+            self.near_config.config.archive,
+            sender,
+        )
+        .await
     }
 }
 
