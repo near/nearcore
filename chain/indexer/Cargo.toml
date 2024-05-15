@@ -11,6 +11,9 @@ publish = false
 [lints]
 workspace = true
 
+[lib]
+doctest = false # Disable doctests since it's not feasible to run them in the workspace
+
 [dependencies]
 actix.workspace = true
 anyhow.workspace = true

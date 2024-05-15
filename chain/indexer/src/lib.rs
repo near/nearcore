@@ -199,7 +199,7 @@ impl Indexer {
     /// This allows to catch errors, handle them and restart the streamer if needed
     ///
     /// Example:
-    /// ```no_run
+    /// ```ignore
     /// let system = actix::System::new();
     ///     system.block_on(async move {
     ///         let indexer = near_indexer::Indexer::new(indexer_config).expect("Indexer::new()");
@@ -221,7 +221,7 @@ impl Indexer {
     /// ```
     ///
     /// Alternatively, you can use now use it in the async main function:
-    /// ```no_run
+    /// ```ignore
     /// #[actix::main]
     /// async fn main() -> Result<(), anyhow::Error> {
     ///    let indexer = near_indexer::Indexer::new(indexer_config)?;
