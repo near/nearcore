@@ -28,9 +28,11 @@ component_management:
     statuses:
       - type: project
         target: auto
-        threshold: 0.1%
+        threshold: 0.5%
+        only_pulls: true
       - type: patch
         target: auto
+        only_pulls: true
   individual_components:
     - component_id: unit-tests
       flag_regexes: ["unittests"]

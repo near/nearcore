@@ -103,7 +103,7 @@ impl ShardTries {
                         None => trie_update.remove(trie_key),
                     }
                 }
-                // TODO(congestion_control)
+                // TODO(congestion_control) - integration with resharding
                 TrieKey::BufferedReceiptIndices => todo!(),
                 TrieKey::BufferedReceipt { .. } => todo!(),
             }
@@ -266,11 +266,11 @@ fn apply_delayed_receipts_to_children_states_impl(
     }
 
     for receipt in insert_receipts {
-        let new_shard_uid: ShardUId = account_id_to_shard_uid(&receipt.receiver_id);
+        let new_shard_uid: ShardUId = account_id_to_shard_uid(receipt.receiver_id());
         if !trie_updates.contains_key(&new_shard_uid) {
             let err = format!(
                 "Account {} is in new shard {:?} but state_roots only contains {:?}",
-                receipt.receiver_id,
+                receipt.receiver_id(),
                 new_shard_uid,
                 trie_updates.keys(),
             );
@@ -295,11 +295,11 @@ fn apply_delayed_receipts_to_children_states_impl(
     }
 
     for receipt in delete_receipts {
-        let new_shard_uid: ShardUId = account_id_to_shard_uid(&receipt.receiver_id);
+        let new_shard_uid: ShardUId = account_id_to_shard_uid(receipt.receiver_id());
         if !trie_updates.contains_key(&new_shard_uid) {
             let err = format!(
                 "Account {} is in new shard {:?} but state_roots only contains {:?}",
-                receipt.receiver_id,
+                receipt.receiver_id(),
                 new_shard_uid,
                 trie_updates.keys(),
             );
@@ -706,7 +706,7 @@ mod tests {
         let mut expected_receipts_by_shard: HashMap<_, _> =
             state_roots.iter().map(|(shard_uid, _)| (shard_uid, vec![])).collect();
         for receipt in expected_all_receipts {
-            let shard_uid = account_id_to_shard_id(&receipt.receiver_id);
+            let shard_uid = account_id_to_shard_id(receipt.receiver_id());
             expected_receipts_by_shard.get_mut(&shard_uid).unwrap().push(receipt.clone());
         }
         assert_eq!(expected_receipts_by_shard, receipts_by_shard);
