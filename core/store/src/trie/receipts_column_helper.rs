@@ -70,7 +70,7 @@ pub trait TrieQueue {
     /// depending on impl.
     fn write_indices(&self, state_update: &mut TrieUpdate);
 
-    /// Construct the the trie key for a queue item depending on impl.
+    /// Construct the trie key for a queue item depending on impl.
     fn trie_key(&self, queue_index: u64) -> TrieKey;
 
     fn push(
@@ -255,6 +255,21 @@ impl<'a> Iterator for ReceiptIterator<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let index = self.indices.next()?;
+        let key = self.trie_queue.trie_key(index);
+        let result = match get(self.trie, &key) {
+            Err(e) => Err(e),
+            Ok(None) => Err(StorageError::StorageInconsistentState(
+                "Receipt referenced by index should be in the state".to_owned(),
+            )),
+            Ok(Some(receipt)) => Ok(receipt),
+        };
+        Some(result)
+    }
+}
+
+impl<'a> DoubleEndedIterator for ReceiptIterator<'a> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        let index = self.indices.next_back()?;
         let key = self.trie_queue.trie_key(index);
         let result = match get(self.trie, &key) {
             Err(e) => Err(e),

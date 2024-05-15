@@ -21,10 +21,9 @@ implementation, and you can always access it from the running node at
 ## Supported Features
 
 Our current goal is to have a minimal yet feature-complete implementation of
-Rosetta RPC serving
-[the main use-case Rosetta was designed for](https://community.rosetta-api.org/t/what-is-rosetta-main-use-case/92/2),
-that is exposing balance-changing operations in a consistent way enabling
-reconciliation through tracking individual blocks and transactions.
+Rosetta RPC serving the main use-case Rosetta was designed for, that is exposing
+balance-changing operations in a consistent way enabling reconciliation through
+tracking individual blocks and transactions.
 
 The Rosetta APIs are organized into two distinct categories, the Data API and
 the Construction API. Simply put, the Data API is for retrieving data from a
