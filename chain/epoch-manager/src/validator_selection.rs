@@ -1,5 +1,4 @@
 use crate::shard_assignment::assign_shards;
-use itertools::Itertools;
 use near_primitives::checked_feature;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::{EpochConfig, RngSeed};
