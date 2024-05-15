@@ -851,9 +851,6 @@ class NeardRunner:
                 str(n['epoch_length']), '--genesis-time',
                 str(n['genesis_time'])
             ]
-            if n['protocol_version'] is not None:
-                cmd.append('--protocol-version')
-                cmd.append(str(n['protocol_version']))
 
             self.run_neard(cmd)
             self.set_state(TestState.SET_VALIDATORS)
