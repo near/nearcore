@@ -757,4 +757,62 @@ mod tests {
         )
         .unwrap();
     }
+
+    /// Test a balance mismatch error is produced for buffered receipts.
+    #[test]
+    fn test_buffered_receipt_balance_error() {
+        let account_id = alice_account();
+        let deposit0 = 100;
+        let deposit1 = 105;
+        let gas_price = 10;
+
+        let tx = transfer_tx(account_id, bob_account(), deposit0);
+        let receipt0 = extract_transfer_receipt(&tx, gas_price, deposit0);
+        let receipt1 = extract_transfer_receipt(&tx, gas_price, deposit1);
+
+        let final_state = prepare_state_change(
+            |trie_update| {
+                // store receipt0 with balance in the receipt buffer
+                let mut indices = BufferedReceiptIndices::default();
+                indices
+                    .shard_buffers
+                    .insert(0, TrieQueueIndices { first_index: 0, next_available_index: 1 });
+
+                set(trie_update, TrieKey::BufferedReceiptIndices, &indices);
+                set(
+                    trie_update,
+                    TrieKey::BufferedReceipt { receiving_shard: 0, index: 0 },
+                    &receipt0,
+                );
+            },
+            |trie_update| {
+                // pop receipt0 and push receipt1 with a different balance
+                let mut indices = BufferedReceiptIndices::default();
+                indices
+                    .shard_buffers
+                    .insert(0, TrieQueueIndices { first_index: 1, next_available_index: 2 });
+
+                set(
+                    trie_update,
+                    TrieKey::BufferedReceipt { receiving_shard: 0, index: 1 },
+                    &receipt1,
+                );
+                set(trie_update, TrieKey::BufferedReceiptIndices, &indices);
+                trie_update.remove(TrieKey::BufferedReceipt { receiving_shard: 0, index: 0 });
+            },
+        );
+
+        let outgoing_receipts = [receipt0];
+        let result = check_balance(
+            &RuntimeConfig::test(),
+            &final_state,
+            &None,
+            &[],
+            &[],
+            &[],
+            &outgoing_receipts,
+            &ApplyStats::default(),
+        );
+        assert_matches!(result, Err(RuntimeError::BalanceMismatchError { .. }));
+    }
 }
