@@ -2432,7 +2432,7 @@ mod tests {
                     delegate_action,
                 }));
                 let receipt_id = hash(&i.to_le_bytes());
-                Receipt {
+                Receipt::V0(ReceiptV0 {
                     predecessor_id: relayer_id.clone(),
                     receiver_id: alice_account(),
                     receipt_id,
@@ -2444,7 +2444,7 @@ mod tests {
                         input_data_ids: vec![],
                         actions: vec![signed_delegate_action],
                     }),
-                }
+                })
             })
             .collect()
     }
@@ -3306,7 +3306,9 @@ mod tests {
                 )
                 .unwrap();
             if let Some(congestion_info) = apply_result.congestion_info {
-                apply_state.congestion_info.insert(local_shard, congestion_info);
+                apply_state
+                    .congestion_info
+                    .insert(local_shard, ExtendedCongestionInfo::new(congestion_info, 0));
             }
             let mut store_update = tries.store_update();
             root = tries.apply_all(&apply_result.trie_changes, local_shard_uid, &mut store_update);
@@ -3361,7 +3363,9 @@ mod tests {
                 )
                 .unwrap();
             if let Some(congestion_info) = apply_result.congestion_info {
-                apply_state.congestion_info.insert(local_shard, congestion_info);
+                apply_state
+                    .congestion_info
+                    .insert(local_shard, ExtendedCongestionInfo::new(congestion_info, 0));
             }
             let mut store_update = tries.store_update();
             root = tries.apply_all(&apply_result.trie_changes, local_shard_uid, &mut store_update);
