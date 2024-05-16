@@ -259,9 +259,13 @@ def random_prefix_between(lower, upper, free_length):
 # Maximum length of AccountIds (https://nomicon.io/DataStructures/Account).
 MAX_NEAR_ACCOUNT_ID_LENGTH = 64
 
+# Maximum length of the random prefix to be included in the account id.
+MAX_RANDOM_PREFIX_LENGTH = 6
+
 
 def random_account_between(base_name, suffix, lower, upper):
-    free_length = MAX_NEAR_ACCOUNT_ID_LENGTH - len(base_name) - len(suffix) - 1
+    free_length = min(MAX_RANDOM_PREFIX_LENGTH,
+                      MAX_NEAR_ACCOUNT_ID_LENGTH - len(base_name) - len(suffix) - 1)
     assert free_length > 0, f"""No space left for random prefix. Check base_name={
         base_name} and suffix={suffix}"""
     prefix = random_prefix_between(lower, upper, free_length)
@@ -358,18 +362,13 @@ class TestRandomAccount(unittest.TestCase):
                 assert TestRandomAccount.ACCOUNT_REGEX.fullmatch(
                     upper) is not None
 
-            for _ in range(10):
-                account_id = random_account_between('foo.near', '_ft', lower,
-                                                    upper)
-                assert TestRandomAccount.ACCOUNT_REGEX.fullmatch(account_id) is not None, (
-                    account_id, lower, upper)
-                if lower is not None:
-                    assert account_id >= lower, (account_id, lower, upper)
-                if upper is not None:
-                    assert account_id < upper, (account_id, lower, upper)
-
-    def test_random_account_for_long_base_name(self):
-        account_id = random_account_between(
-            'mocknet-mainnet-123456789-forknet-abcdefgh.near', '_user4321_run', None, None)
-        assert TestRandomAccount.ACCOUNT_REGEX.fullmatch(
-            account_id) is not None
+            for (base_name, suffix) in (('foo.near', '_ft'), ('mocknet-mainnet-123456789-forknet-abcdefgh.near', '_user4321_run')):
+                for _ in range(10):
+                    account_id = random_account_between(
+                        base_name, suffix, lower, upper)
+                    assert TestRandomAccount.ACCOUNT_REGEX.fullmatch(account_id) is not None, (
+                        account_id, lower, upper)
+                    if lower is not None:
+                        assert account_id >= lower, (account_id, lower, upper)
+                    if upper is not None:
+                        assert account_id < upper, (account_id, lower, upper)
