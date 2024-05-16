@@ -289,8 +289,7 @@ imports! {
     // undercharing function as it doesn't consume much gas but takes a lot of
     // time to execute. It must always be gated behind a feature flag and it
     // must never be released to production.
-    // TODO!!! Hide this behind a feature flag!
-    sleep_nanos<[duration: u64] -> []>,
+    ##["test_features"] sleep_nanos<[duration: u64] -> []>,
 }
 
 #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]

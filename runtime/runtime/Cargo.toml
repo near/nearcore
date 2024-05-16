@@ -33,6 +33,7 @@ near-vm-runner = { workspace = true, features = [ "wasmer0_vm", "wasmer2_vm", "n
 near-wallet-contract.workspace = true
 
 [features]
+default = []
 nightly = [
   "near-chain-configs/nightly",
   "near-o11y/nightly",
@@ -46,8 +47,6 @@ nightly = [
   "protocol_feature_nonrefundable_transfer_nep491",
   "testlib/nightly",
 ]
-default = []
-protocol_feature_nonrefundable_transfer_nep491 = []
 nightly_protocol = [
   "near-chain-configs/nightly_protocol",
   "near-o11y/nightly_protocol",
@@ -59,6 +58,7 @@ nightly_protocol = [
   "near-wallet-contract/nightly_protocol",
   "testlib/nightly_protocol",
 ]
+protocol_feature_nonrefundable_transfer_nep491 = []
 no_cpu_compatibility_checks = ["near-vm-runner/no_cpu_compatibility_checks"]
 
 no_cache = [
@@ -67,6 +67,10 @@ no_cache = [
 ]
 
 sandbox = ["near-vm-runner/sandbox"]
+test_features = [
+  "near-primitives/test_features",
+  "near-vm-runner/test_features",
+]
 
 [dev-dependencies]
 assert_matches.workspace = true
