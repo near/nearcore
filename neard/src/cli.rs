@@ -551,7 +551,6 @@ impl RunCmd {
             let mut updateable_config_loader =
                 UpdateableConfigLoader::new(updateable_configs.clone(), tx_config_update);
             let config_updater = ConfigUpdater::new(rx_config_update);
-            let validator_file: PathBuf = home_dir.join(&near_config.config.validator_key_file); 
 
             let nearcore::NearNode {
                 rpc_servers,
@@ -573,19 +572,7 @@ impl RunCmd {
                 if sig == "SIGHUP" {
                     let maybe_updateable_configs =
                         nearcore::dyn_config::read_updateable_configs(home_dir);
-                    updateable_config_loader.reload(maybe_updateable_configs);
-
-                    match nearcore::config::load_validator_key(&validator_file) {
-                        Ok(Some(_validator_signer)) => {
-                            // TODO update validator key in the client
-                        },
-                        Ok(None) => {
-                            info!(target: "neard", "Validator key does not exist at {}.", validator_file.display());
-                        }
-                        Err(e) => {
-                            error!(target: "neard", "Error hot loading validator key: {}", e);
-                        }
-                    }
+                    updateable_config_loader.reload(maybe_updateable_configs);    
                 } else {
                     break sig;
                 }
