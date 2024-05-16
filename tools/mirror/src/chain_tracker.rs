@@ -1,6 +1,6 @@
 use crate::{
     ChainAccess, ChainError, LatestTargetNonce, MappedBlock, MappedTx, MappedTxProvenance,
-    NonceUpdater, TargetChainTx, TargetNonce, TxRef,
+    NonceUpdater, TargetChainTx, TargetNonce, TxBatch, TxRef,
 };
 use actix::Addr;
 use anyhow::Context;
@@ -120,7 +120,7 @@ struct NonceInfo {
 }
 
 pub(crate) enum SentBatch {
-    MappedBlock(MappedBlock),
+    MappedBlock(TxBatch),
     ExtraTxs(Vec<TargetChainTx>),
 }
 
@@ -538,7 +538,7 @@ impl TxTracker {
         &mut self,
         target_view_client: &Addr<ViewClientActor>,
         db: &DB,
-    ) -> anyhow::Result<MappedBlock> {
+    ) -> anyhow::Result<TxBatch> {
         // sleep until 20 milliseconds before we want to send transactions before we check for nonces
         // in the target chain. In the second or so between now and then, we might process another block
         // that will set the nonces.
@@ -548,7 +548,28 @@ impl TxTracker {
         .await;
         self.try_set_batch_nonces(target_view_client, db).await?;
         (&mut self.send_time).await;
-        Ok(self.queued_blocks.pop_front().unwrap())
+        let block = self.queued_blocks.pop_front().unwrap();
+        let b = TxBatch {
+            source_height: block.source_height,
+            source_hash: block.source_hash,
+            txs: block
+                .chunks
+                .into_iter()
+                .flat_map(|c| {
+                    c.txs.into_iter().enumerate().map(move |(tx_idx, tx)| {
+                        (
+                            TxRef {
+                                source_height: block.source_height,
+                                shard_id: c.shard_id,
+                                tx_idx,
+                            },
+                            tx,
+                        )
+                    })
+                })
+                .collect(),
+        };
+        Ok(b)
     }
 
     fn remove_tx(&mut self, tx: &IndexerTransactionWithOutcome) {
@@ -1164,22 +1185,8 @@ impl TxTracker {
                 });
                 self.send_time.as_mut().reset(tokio::time::Instant::now() + block_delay);
                 crate::set_last_source_height(db, b.source_height)?;
-                let txs = b
-                    .chunks
-                    .into_iter()
-                    .flat_map(|c| {
-                        c.txs.into_iter().enumerate().map(move |(tx_idx, tx)| {
-                            (
-                                Some(TxRef {
-                                    source_height: b.source_height,
-                                    shard_id: c.shard_id,
-                                    tx_idx,
-                                }),
-                                tx,
-                            )
-                        })
-                    })
-                    .collect::<Vec<_>>();
+                let txs =
+                    b.txs.into_iter().map(|(tx_ref, tx)| (Some(tx_ref), tx)).collect::<Vec<_>>();
                 (txs, format!("source #{}", b.source_height))
             }
             SentBatch::ExtraTxs(txs) => (

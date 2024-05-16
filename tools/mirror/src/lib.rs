@@ -801,11 +801,19 @@ struct MappedChunk {
     shard_id: ShardId,
 }
 
+// TODO: get rid of this struct and just store the transactions more simply in TxTracker
 #[derive(Debug)]
 struct MappedBlock {
     source_height: BlockHeight,
     source_hash: CryptoHash,
     chunks: Vec<MappedChunk>,
+}
+
+#[derive(Debug)]
+struct TxBatch {
+    source_height: BlockHeight,
+    source_hash: CryptoHash,
+    txs: Vec<(TxRef, TargetChainTx)>,
 }
 
 async fn account_exists(
@@ -1690,11 +1698,11 @@ impl<T: ChainAccess> TxMirror<T> {
         loop {
             tokio::select! {
                 // time to send a batch of transactions
-                mapped_block = tracker.next_batch(&self.target_view_client, &self.db), if tracker.num_blocks_queued() > 0 => {
-                    let mut mapped_block = mapped_block?;
-                    source_hash = mapped_block.source_hash;
-                    self.send_transactions(mapped_block.chunks.iter_mut().flat_map(|c| c.txs.iter_mut())).await?;
-                    tracker.on_txs_sent(&self.db, crate::chain_tracker::SentBatch::MappedBlock(mapped_block), target_height).await?;
+                tx_batch = tracker.next_batch(&self.target_view_client, &self.db), if tracker.num_blocks_queued() > 0 => {
+                    let mut tx_batch = tx_batch?;
+                    source_hash = tx_batch.source_hash;
+                    self.send_transactions(tx_batch.txs.iter_mut().map(|(_tx_ref, tx)| tx)).await?;
+                    tracker.on_txs_sent(&self.db, crate::chain_tracker::SentBatch::MappedBlock(tx_batch), target_height).await?;
 
                     // now we have one second left until we need to send more transactions. In the
                     // meantime, we might as well prepare some more batches of transactions.
