@@ -7,7 +7,7 @@ use near_primitives::block_body::ChunkEndorsementSignatures;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::{AccountId, EpochId, ShardId};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use crate::metrics;
 use crate::stateless_validation::chunk_endorsement_tracker::{
@@ -106,18 +106,15 @@ impl ChunkInclusionTracker {
         &mut self,
         prev_block_hash: &CryptoHash,
         endorsement_tracker: &ChunkEndorsementTracker,
-        mut chunk_producers_with_approvals: HashMap<ShardId, HashSet<AccountId>>,
     ) -> Result<(), Error> {
         let Some(entry) = self.prev_block_to_chunk_hash_ready.get(prev_block_hash) else {
             return Ok(());
         };
 
-        for (shard_id, chunk_hash) in entry.iter() {
+        for chunk_hash in entry.values() {
             let chunk_info = self.chunk_hash_to_chunk_info.get_mut(chunk_hash).unwrap();
-            chunk_info.endorsements = endorsement_tracker.compute_chunk_endorsements(
-                &chunk_info.chunk_header,
-                chunk_producers_with_approvals.remove(shard_id).unwrap_or_default(),
-            )?;
+            chunk_info.endorsements =
+                endorsement_tracker.compute_chunk_endorsements(&chunk_info.chunk_header)?;
         }
         Ok(())
     }
