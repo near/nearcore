@@ -465,18 +465,11 @@ impl TxTracker {
         self.send_time.as_ref().deadline().into_std()
     }
 
-    pub(crate) async fn next_batch(
+    async fn try_set_batch_nonces(
         &mut self,
         target_view_client: &Addr<ViewClientActor>,
         db: &DB,
-    ) -> anyhow::Result<MappedBlock> {
-        // sleep until 20 milliseconds before we want to send transactions before we check for nonces
-        // in the target chain. In the second or so between now and then, we might process another block
-        // that will set the nonces.
-        tokio::time::sleep_until(
-            self.send_time.as_ref().deadline() - std::time::Duration::from_millis(20),
-        )
-        .await;
+    ) -> anyhow::Result<()> {
         let mut needed_access_keys = HashSet::new();
         for c in self.queued_blocks[0].chunks.iter_mut() {
             for tx in c.txs.iter_mut() {
@@ -538,6 +531,22 @@ impl TxTracker {
                 };
             }
         }
+        Ok(())
+    }
+
+    pub(crate) async fn next_batch(
+        &mut self,
+        target_view_client: &Addr<ViewClientActor>,
+        db: &DB,
+    ) -> anyhow::Result<MappedBlock> {
+        // sleep until 20 milliseconds before we want to send transactions before we check for nonces
+        // in the target chain. In the second or so between now and then, we might process another block
+        // that will set the nonces.
+        tokio::time::sleep_until(
+            self.send_time.as_ref().deadline() - std::time::Duration::from_millis(20),
+        )
+        .await;
+        self.try_set_batch_nonces(target_view_client, db).await?;
         (&mut self.send_time).await;
         Ok(self.queued_blocks.pop_front().unwrap())
     }
