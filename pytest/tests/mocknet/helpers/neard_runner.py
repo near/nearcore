@@ -743,9 +743,9 @@ class NeardRunner:
         assert (self.data['neard_process'] is None)
         home_path = os.path.expanduser('~')
         env = {
-            **dotenv.dotenv_values(self.home_path('.env')),  # load neard variables
-            **dotenv.dotenv_values(self.home_path(home_path, '.env.secrets')),  # load sensitive variables
             **os.environ,  # override loaded values with environment variables
+            **dotenv.dotenv_values(self.home_path(home_path, '.secrets')),  # load sensitive variables
+            **dotenv.dotenv_values(self.home_path('.env')),  # load neard variables
         }
         if 'RUST_LOG' not in env:
             env['RUST_LOG'] = 'actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn,indexer=info,debug'
