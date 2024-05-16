@@ -41,7 +41,6 @@
 //! in the prefetcher. Implementation details for most limits are in
 //! `core/store/src/trie/prefetching_trie_storage.rs`
 
-use borsh::BorshSerialize as _;
 use near_o11y::metrics::prometheus;
 use near_o11y::metrics::prometheus::core::GenericCounter;
 use near_primitives::receipt::{Receipt, ReceiptEnum};
@@ -172,18 +171,6 @@ impl TriePrefetcher {
                         self.prefetch_claim_sweat_record_batch_for_hold(
                             account_id.clone(),
                             &fn_call.args,
-                        )?
-                    }
-                }
-                if fn_call.method_name == "claim" {
-                    let config = claim_sweat_cfg.iter().find(|cfg| {
-                        cfg.receiver == account_id.as_str()
-                            && cfg.method_name == fn_call.method_name
-                    });
-                    if config.is_some() {
-                        self.prefetch_claim_sweat_claim(
-                            account_id.clone(),
-                            receipt.predecessor_id().clone(),
                         )?
                     }
                 }
@@ -332,73 +319,6 @@ impl TriePrefetcher {
             near_o11y::io_trace!(count: "prefetch");
             self.prefetch_trie_key(trie_key)?;
         }
-        Ok(())
-    }
-
-    /// Prefetcher tuned for claim.sweat::claim contract calls.
-    ///
-    /// Remove after #10965 reaches mainnet.
-    fn prefetch_claim_sweat_claim(
-        &self,
-        account_id: AccountId,
-        predecessor: AccountId,
-    ) -> Result<(), PrefetchError> {
-        let Self { prefetch_api, trie_root, .. } = self;
-        let trie_root = *trie_root;
-        let prefetch_api = prefetch_api.clone();
-        rayon::spawn(move || {
-            let mut account_data_key = Vec::with_capacity(4 + 8 + predecessor.len());
-            let Ok(()) = 0u8.serialize(&mut account_data_key) else { return };
-            let Ok(()) = predecessor.serialize(&mut account_data_key) else { return };
-            let trie_key =
-                TrieKey::ContractData { account_id: account_id.clone(), key: account_data_key };
-            // Just read this directly for now since this is temporary anyway
-            let prefetcher_storage = prefetch_api.make_storage();
-            let trie = Trie::new(prefetcher_storage, trie_root, None);
-            let Ok(Some(account_record)) = trie.get(&trie_key.to_vec()) else {
-                tracing::debug!(
-                    target: "runtime::prefetch",
-                    message = "could not load AccountRecord",
-                    key = ?trie_key,
-                );
-                return;
-            };
-            #[derive(borsh::BorshDeserialize)]
-            #[allow(dead_code)]
-            struct AccountRecord {
-                accruals: Vec<(u32, u32)>,
-                is_enabled: bool,
-                claim_period_refreshed_at: u32,
-                is_locked: bool,
-            }
-            let Ok(account_record) = borsh::from_slice::<AccountRecord>(&account_record) else {
-                tracing::debug!(
-                    target: "runtime::prefetch",
-                    message = "could not decode AccountRecord",
-                );
-                return;
-            };
-
-            for (dt, idx) in account_record.accruals {
-                let mut accruals_key = Vec::with_capacity(4 + 8);
-                // StorageKey::Accruals
-                let Ok(()) = 1u8.serialize(&mut accruals_key) else { continue };
-                let Ok(()) = dt.serialize(&mut accruals_key) else { continue };
-                let accruals_key = sha2::Sha256::digest(&accruals_key).to_vec();
-                let _ = prefetch_api.prefetch_trie_key(
-                    trie_root,
-                    TrieKey::ContractData { account_id: account_id.clone(), key: accruals_key },
-                );
-                let mut amount_key = Vec::with_capacity(4 + 8 + 8);
-                let Ok(()) = 2u8.serialize(&mut amount_key) else { continue };
-                let Ok(()) = dt.serialize(&mut amount_key) else { continue };
-                amount_key.extend(&idx.to_le_bytes()); // index into Vector
-                let _ = prefetch_api.prefetch_trie_key(
-                    trie_root,
-                    TrieKey::ContractData { account_id: account_id.clone(), key: amount_key },
-                );
-            }
-        });
         Ok(())
     }
 
