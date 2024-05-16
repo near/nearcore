@@ -7,7 +7,7 @@ use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::hash::CryptoHash;
-use near_primitives::transaction::{Action, FunctionCallAction, Transaction};
+use near_primitives::transaction::{Action, FunctionCallAction, Transaction, TransactionV0};
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 #[cfg_attr(all(target_arch = "aarch64", target_vendor = "apple"), ignore)]
@@ -43,7 +43,7 @@ fn test_nearvm_upgrade() {
     };
 
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-    let tx = Transaction {
+    let tx = TransactionV0 {
         signer_id: "test0".parse().unwrap(),
         receiver_id: "test0".parse().unwrap(),
         public_key: signer.public_key(),
@@ -61,8 +61,12 @@ fn test_nearvm_upgrade() {
     // Run the transaction & collect the logs.
     let logs_at_old_version = {
         let tip = env.clients[0].chain.head().unwrap();
-        let signed_transaction =
-            Transaction { nonce: 10, block_hash: tip.last_block_hash, ..tx.clone() }.sign(&signer);
+        let signed_transaction = Transaction::V0(TransactionV0 {
+            nonce: 10,
+            block_hash: tip.last_block_hash,
+            ..tx.clone()
+        })
+        .sign(&signer);
         assert_eq!(
             env.clients[0].process_tx(signed_transaction, false, false),
             ProcessTxResponse::ValidTx
@@ -79,7 +83,8 @@ fn test_nearvm_upgrade() {
     let logs_at_new_version = {
         let tip = env.clients[0].chain.head().unwrap();
         let signed_transaction =
-            Transaction { nonce: 11, block_hash: tip.last_block_hash, ..tx }.sign(&signer);
+            Transaction::V0(TransactionV0 { nonce: 11, block_hash: tip.last_block_hash, ..tx })
+                .sign(&signer);
         assert_eq!(
             env.clients[0].process_tx(signed_transaction, false, false),
             ProcessTxResponse::ValidTx

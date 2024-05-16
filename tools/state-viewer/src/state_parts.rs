@@ -523,7 +523,7 @@ fn get_first_state_record(state_root: &StateRoot, data: &[u8]) -> Option<StateRe
     let trie =
         Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, *state_root, false);
 
-    for (key, value) in trie.iter().unwrap().flatten() {
+    for (key, value) in trie.disk_iter().unwrap().flatten() {
         if let Some(sr) = StateRecord::from_raw_key_value(key, value) {
             return Some(sr);
         }

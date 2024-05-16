@@ -48,6 +48,7 @@ fn generate_transactions(last_hash: &CryptoHash, h: BlockHeight) -> Vec<SignedTr
                 code: near_test_contracts::rs_contract().to_vec(),
             })],
             *last_hash,
+            0,
         ));
     }
 
@@ -64,6 +65,7 @@ fn generate_transactions(last_hash: &CryptoHash, h: BlockHeight) -> Vec<SignedTr
                 deposit: 0,
             }))],
             *last_hash,
+            0,
         ));
     }
 

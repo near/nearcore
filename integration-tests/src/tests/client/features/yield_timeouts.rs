@@ -41,10 +41,10 @@ fn find_yield_data_ids_from_latest_block(env: &TestEnv) -> Vec<CryptoHash> {
         .get_outgoing_receipts_for_shard(last_block_hash, shard_id, last_block_height)
         .unwrap()
     {
-        if let PromiseYield(ref action_receipt) = receipt.receipt {
+        if let PromiseYield(ref action_receipt) = receipt.receipt() {
             result.push(action_receipt.input_data_ids[0]);
         }
-        if let PromiseResume(ref data_receipt) = receipt.receipt {
+        if let PromiseResume(ref data_receipt) = receipt.receipt() {
             result.push(data_receipt.data_id);
         }
     }
@@ -77,6 +77,7 @@ fn prepare_env_with_yield(
             code: near_test_contracts::nightly_rs_contract().to_vec(),
         })],
         *genesis_block.hash(),
+        0,
     );
     let tx_hash = tx.get_hash();
     assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -103,6 +104,7 @@ fn prepare_env_with_yield(
             deposit: 0,
         }))],
         *genesis_block.hash(),
+        0,
     );
     let yield_tx_hash = yield_transaction.get_hash();
     assert_eq!(
@@ -145,6 +147,7 @@ fn invoke_yield_resume(
             deposit: 0,
         }))],
         *genesis_block.hash(),
+        0,
     );
     let tx_hash = resume_transaction.get_hash();
     assert_eq!(
@@ -177,6 +180,7 @@ fn create_congestion(env: &mut TestEnv) {
                 deposit: 0,
             }))],
             *genesis_block.hash(),
+            0,
         );
         tx_hashes.push(signed_transaction.get_hash());
         assert_eq!(

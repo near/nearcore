@@ -142,7 +142,7 @@ impl TrieViewer {
         let mut values = vec![];
         let query = trie_key_parsers::get_raw_prefix_for_contract_data(account_id, prefix);
         let acc_sep_len = query.len() - prefix.len();
-        let mut iter = state_update.trie().iter()?;
+        let mut iter = state_update.trie().disk_iter()?;
         iter.remember_visited_nodes(include_proof);
         iter.seek_prefix(&query)?;
         for item in &mut iter {

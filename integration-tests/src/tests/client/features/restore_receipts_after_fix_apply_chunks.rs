@@ -41,7 +41,7 @@ fn run_test(
                 .cloned()
                 .unwrap_or_default()
                 .iter()
-                .map(|receipt| receipt.receipt_id),
+                .map(|receipt| *receipt.receipt_id()),
         )
     };
 

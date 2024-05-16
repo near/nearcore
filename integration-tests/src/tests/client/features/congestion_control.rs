@@ -53,8 +53,8 @@ fn test_protocol_upgrade() {
         let congestion_info = chunk_header
             .congestion_info()
             .expect("chunk header must have congestion info after upgrade");
-        assert_eq!(congestion_info.congestion_level(), 0.0);
-        assert!(congestion_info.shard_accepts_transactions());
+        assert_eq!(congestion_info.congestion_level(0), 0.0);
+        assert!(congestion_info.shard_accepts_transactions(0));
     }
 }
 
