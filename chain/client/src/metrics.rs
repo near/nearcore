@@ -828,3 +828,11 @@ pub(crate) static PARTIAL_WITNESS_PARTS_RECEIVED_RATIO: Lazy<HistogramVec> = Laz
     )
     .unwrap()
 });
+
+pub(crate) static PARTIAL_WITNESS_CACHE_SIZE: Lazy<Gauge> = Lazy::new(|| {
+    try_create_gauge(
+        "near_partial_witness_cache_size",
+        "Total size in bytes of all currently cached witness parts",
+    )
+    .unwrap()
+});

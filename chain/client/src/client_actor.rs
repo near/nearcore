@@ -1106,8 +1106,10 @@ impl ClientActorInner {
                 self.client.epoch_manager.get_block_producer(&epoch_id, height)?;
 
             if me == next_block_producer_account {
-                self.client
-                    .prepare_chunk_headers_ready_for_inclusion(&head.last_block_hash, height)?;
+                self.client.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
+                    &head.last_block_hash,
+                    self.client.chunk_endorsement_tracker.as_ref(),
+                )?;
                 let num_chunks = self
                     .client
                     .chunk_inclusion_tracker

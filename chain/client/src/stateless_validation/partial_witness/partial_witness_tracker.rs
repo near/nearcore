@@ -60,6 +60,7 @@ struct CacheEntry {
     pub data_parts_required: usize,
     pub parts: Vec<Option<Box<[u8]>>>,
     pub rs: Arc<Option<ReedSolomon>>,
+    pub total_parts_size: usize,
 }
 
 impl CacheEntry {
@@ -76,6 +77,7 @@ impl CacheEntry {
             data_parts_present: 0,
             data_parts_required: data_parts,
             parts: vec![None; total_parts],
+            total_parts_size: 0,
             rs,
         }
     }
@@ -105,6 +107,7 @@ impl CacheEntry {
         // Increment the count of data parts present even if the part has been decoded before.
         // We use this in metrics to track the number of parts received. Insert the part into the cache entry.
         self.data_parts_present += 1;
+        self.total_parts_size += part.len();
         self.parts[part_ord] = Some(part);
         self.shard_id = shard_id;
         self.duration_to_last_part = self.timer.elapsed();
@@ -196,6 +199,7 @@ impl PartialEncodedStateWitnessTracker {
 
             self.client_sender.send(ProcessChunkStateWitnessMessage(encoded_witness));
         }
+        self.record_total_parts_cache_size_metric();
         Ok(())
     }
 
@@ -251,5 +255,11 @@ impl PartialEncodedStateWitnessTracker {
             }
         }
         Ok(())
+    }
+
+    fn record_total_parts_cache_size_metric(&self) {
+        let total_size: usize =
+            self.parts_cache.iter().map(|(_, entry)| entry.total_parts_size).sum();
+        metrics::PARTIAL_WITNESS_CACHE_SIZE.set(total_size as f64);
     }
 }
