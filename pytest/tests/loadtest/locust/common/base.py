@@ -276,10 +276,15 @@ class NearNodeProxy:
         try:
             try:
                 # To get proper errors on invalid transaction, we need to use sync api first
-                result = self.post_json(
-                    "broadcast_tx_commit",
-                    [base64.b64encode(signed_tx).decode('utf8')])
-                evaluate_rpc_result(result.json())
+                if locust_name=='FT transfer':
+                    result = self.post_json(
+                        "broadcast_tx_commit_fast",
+                        [base64.b64encode(signed_tx).decode('utf8')])
+                else:
+                    result = self.post_json(
+                        "broadcast_tx_commit",
+                        [base64.b64encode(signed_tx).decode('utf8')])
+                    evaluate_rpc_result(result.json())
             except TxUnknownError as err:
                 # This means we time out in one way or another.
                 # In that case, the stateless transaction validation was
