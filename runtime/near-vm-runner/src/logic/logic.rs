@@ -1226,9 +1226,7 @@ impl<'a> VMLogic<'a> {
     #[cfg(feature = "test_features")]
     pub fn sleep_nanos(&mut self, nanos: u64) -> Result<()> {
         let duration = std::time::Duration::from_nanos(nanos);
-        eprintln!("boom sleeping for {duration:?}!");
         std::thread::sleep(duration);
-        eprintln!("boom sleeping done!");
         Ok(())
     }
 
