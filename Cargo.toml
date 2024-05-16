@@ -12,7 +12,7 @@ license = "MIT OR Apache-2.0"
 # Most crates are not stable on purpose, as maintaining API compatibility is a
 # significant developer time expense. Please think thoroughly before adding
 # anything to the list of stable crates.
-version = "0.21.1"
+version = "0.22.0"
 exclude = ["neard"]
 
 [workspace]
