@@ -211,13 +211,16 @@ def _apply_config_changes(node, state_sync_location):
     else:
         changes = {
             'state_sync.sync': {
-                "ExternalStorage": {
-                    "location": state_sync_location
+                'ExternalStorage': {
+                    'location': state_sync_location
                 }
             }
         }
     if node.want_state_dump:
         changes['state_sync.dump.location'] = state_sync_location
+        changes[
+            'store.state_snapshot_config.state_snapshot_type'] = 'EveryEpoch'
+        changes['store.state_snapshot_enabled'] = True
     for key, change in changes.items():
         do_update_config(node, f'{key}={json.dumps(change)}')
 
@@ -519,7 +522,7 @@ if __name__ == '__main__':
         help=
         '''Interval in millis between sending each mainnet block\'s worth of transactions.
         Without this flag, the traffic generator will try to match the per-block load on mainnet.
-        So, transactions from consecutive mainnet blocks will be be sent with delays
+        So, transactions from consecutive mainnet blocks will be sent with delays
         between them such that they will probably appear in consecutive mocknet blocks.
         ''')
     start_traffic_parser.set_defaults(func=start_traffic_cmd)

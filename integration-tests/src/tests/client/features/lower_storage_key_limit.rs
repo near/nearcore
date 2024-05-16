@@ -8,7 +8,7 @@ use near_o11y::testonly::init_test_logger;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::errors::TxExecutionError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::transaction::{Action, FunctionCallAction, Transaction};
+use near_primitives::transaction::{Action, FunctionCallAction, Transaction, TransactionV0};
 use near_primitives::types::BlockHeight;
 use near_primitives::views::FinalExecutionStatus;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
@@ -61,7 +61,7 @@ fn protocol_upgrade() {
     };
 
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-    let tx = Transaction {
+    let tx = TransactionV0 {
         signer_id: "test0".parse().unwrap(),
         receiver_id: "test0".parse().unwrap(),
         public_key: signer.public_key(),
@@ -79,9 +79,12 @@ fn protocol_upgrade() {
     // Run transaction writing storage key exceeding the limit. Check that execution succeeds.
     {
         let tip = env.clients[0].chain.head().unwrap();
-        let signed_tx =
-            Transaction { nonce: tip.height + 1, block_hash: tip.last_block_hash, ..tx.clone() }
-                .sign(&signer);
+        let signed_tx = Transaction::V0(TransactionV0 {
+            nonce: tip.height + 1,
+            block_hash: tip.last_block_hash,
+            ..tx.clone()
+        })
+        .sign(&signer);
         let tx_hash = signed_tx.get_hash();
         assert_eq!(env.clients[0].process_tx(signed_tx, false, false), ProcessTxResponse::ValidTx);
         produce_blocks_from_height_with_protocol_version(
@@ -99,9 +102,12 @@ fn protocol_upgrade() {
     // Re-run the transaction, check that execution fails.
     {
         let tip = env.clients[0].chain.head().unwrap();
-        let signed_tx =
-            Transaction { nonce: tip.height + 1, block_hash: tip.last_block_hash, ..tx }
-                .sign(&signer);
+        let signed_tx = Transaction::V0(TransactionV0 {
+            nonce: tip.height + 1,
+            block_hash: tip.last_block_hash,
+            ..tx
+        })
+        .sign(&signer);
         let tx_hash = signed_tx.get_hash();
         assert_eq!(env.clients[0].process_tx(signed_tx, false, false), ProcessTxResponse::ValidTx);
         for i in 0..epoch_length {
@@ -121,7 +127,7 @@ fn protocol_upgrade() {
             .into_iter()
             .chain(near_primitives::test_utils::encode(&[20u64]).into_iter())
             .collect();
-        let tx = Transaction {
+        let tx = TransactionV0 {
             signer_id: "test0".parse().unwrap(),
             receiver_id: "test0".parse().unwrap(),
             public_key: signer.public_key(),
@@ -136,9 +142,12 @@ fn protocol_upgrade() {
             block_hash: CryptoHash::default(),
         };
         let tip = env.clients[0].chain.head().unwrap();
-        let signed_tx =
-            Transaction { nonce: tip.height + 1, block_hash: tip.last_block_hash, ..tx }
-                .sign(&signer);
+        let signed_tx = Transaction::V0(TransactionV0 {
+            nonce: tip.height + 1,
+            block_hash: tip.last_block_hash,
+            ..tx
+        })
+        .sign(&signer);
         let tx_hash = signed_tx.get_hash();
         assert_eq!(env.clients[0].process_tx(signed_tx, false, false), ProcessTxResponse::ValidTx);
         for i in 0..epoch_length {

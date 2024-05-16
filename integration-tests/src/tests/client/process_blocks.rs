@@ -53,7 +53,7 @@ use near_primitives::test_utils::create_test_signer;
 use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::transaction::{
     Action, DeployContractAction, ExecutionStatus, FunctionCallAction, SignedTransaction,
-    Transaction,
+    Transaction, TransactionV0,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
@@ -163,6 +163,7 @@ pub(crate) fn deploy_test_contract_with_protocol_version(
         &signer,
         vec![Action::DeployContract(DeployContractAction { code: wasm_code.to_vec() })],
         *block.hash(),
+        0,
     );
     assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     produce_blocks_from_height_with_protocol_version(env, epoch_length, height, protocol_version)
@@ -214,6 +215,7 @@ pub(crate) fn prepare_env_with_congestion(
             code: near_test_contracts::backwards_compatible_rs_contract().to_vec(),
         })],
         *genesis_block.hash(),
+        0,
     );
     assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     for i in 1..3 {
@@ -248,6 +250,7 @@ pub(crate) fn prepare_env_with_congestion(
                 deposit: 0,
             }))],
             *genesis_block.hash(),
+            0,
         );
         tx_hashes.push(signed_transaction.get_hash());
         assert_eq!(
@@ -1025,14 +1028,14 @@ fn test_process_invalid_tx() {
     let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test0");
     let tx = SignedTransaction::new(
         Signature::empty(KeyType::ED25519),
-        Transaction {
+        Transaction::V0(TransactionV0 {
             signer_id: "test".parse().unwrap(),
             public_key: signer.public_key(),
             nonce: 0,
             receiver_id: "test".parse().unwrap(),
             block_hash: *env.clients[0].chain.genesis().hash(),
             actions: vec![],
-        },
+        }),
     );
     for i in 1..12 {
         env.produce_block(0, i);
@@ -1043,14 +1046,14 @@ fn test_process_invalid_tx() {
     );
     let tx2 = SignedTransaction::new(
         Signature::empty(KeyType::ED25519),
-        Transaction {
+        Transaction::V0(TransactionV0 {
             signer_id: "test".parse().unwrap(),
             public_key: signer.public_key(),
             nonce: 0,
             receiver_id: "test".parse().unwrap(),
             block_hash: hash(&[1]),
             actions: vec![],
-        },
+        }),
     );
     assert_eq!(
         env.clients[0].process_tx(tx2, false, false),
@@ -2193,6 +2196,7 @@ fn test_validate_chunk_extra() {
             code: near_test_contracts::rs_contract().to_vec(),
         })],
         *genesis_block.hash(),
+        0,
     );
     assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     let mut last_block = genesis_block;
@@ -2215,6 +2219,7 @@ fn test_validate_chunk_extra() {
             deposit: 0,
         }))],
         *last_block.hash(),
+        0,
     );
     assert_eq!(
         env.clients[0].process_tx(function_call_tx, false, false),
@@ -2296,9 +2301,14 @@ fn test_validate_chunk_extra() {
 
     // Produce a block on top of block1.
     // Validate that result of chunk execution in `block1` is legit.
-    let height = next_height + 2;
-    client.prepare_chunk_headers_ready_for_inclusion(block1.hash(), height).unwrap();
-    let block = client.produce_block_on(height, *block1.hash()).unwrap().unwrap();
+    client
+        .chunk_inclusion_tracker
+        .prepare_chunk_headers_ready_for_inclusion(
+            block1.hash(),
+            client.chunk_endorsement_tracker.as_ref(),
+        )
+        .unwrap();
+    let block = client.produce_block_on(next_height + 2, *block1.hash()).unwrap().unwrap();
     client.process_block_test(block.into(), Provenance::PRODUCED).unwrap();
     let chunks = client
         .chunk_inclusion_tracker
@@ -2543,7 +2553,7 @@ fn test_refund_receipts_processing() {
     }
 
     // Make sure all transactions are processed.
-    for i in 3..16 {
+    for i in 1..16 {
         env.produce_block(0, i);
     }
 
@@ -2616,6 +2626,7 @@ fn test_delayed_receipt_count_limit() {
             &signer,
             vec![Action::DeployContract(DeployContractAction { code: vec![92; 10000] })],
             *genesis_block.hash(),
+            0,
         );
         assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     }
@@ -3293,6 +3304,7 @@ fn test_validator_stake_host_function() {
             deposit: 0,
         }))],
         *genesis_block.hash(),
+        0,
     );
     assert_eq!(
         env.clients[0].process_tx(signed_transaction, false, false),

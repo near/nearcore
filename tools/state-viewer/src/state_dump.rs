@@ -146,7 +146,7 @@ pub fn state_dump_redis(
         let trie = runtime
             .get_trie_for_shard(shard_id as u64, last_block_header.prev_hash(), *state_root, false)
             .unwrap();
-        for item in trie.iter().unwrap() {
+        for item in trie.disk_iter().unwrap() {
             let (key, value) = item.unwrap();
             if let Some(sr) = StateRecord::from_raw_key_value(key, value) {
                 if let StateRecord::Account { account_id, account } = &sr {
@@ -236,7 +236,7 @@ fn iterate_over_records(
         let trie = runtime
             .get_trie_for_shard(shard_id as u64, last_block_header.prev_hash(), *state_root, false)
             .unwrap();
-        for item in trie.iter().unwrap() {
+        for item in trie.disk_iter().unwrap() {
             let (key, value) = item.unwrap();
             if let Some(mut sr) = StateRecord::from_raw_key_value(key, value) {
                 if !should_include_record(&sr, &account_allowlist) {
@@ -458,6 +458,7 @@ mod test {
                 code: near_test_contracts::backwards_compatible_rs_contract().to_vec(),
             })],
             genesis_hash,
+            0,
         );
         let tx01 = SignedTransaction::stake(
             1,

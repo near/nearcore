@@ -650,7 +650,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         if let Some(state_root) = state_root {
             let shard_uid =
-                self.account_id_to_shard_uid(&transaction.transaction.signer_id, epoch_id)?;
+                self.account_id_to_shard_uid(transaction.transaction.signer_id(), epoch_id)?;
             let mut state_update = self.tries.new_trie_update(shard_uid, state_root);
 
             match verify_and_charge_transaction(
@@ -836,13 +836,13 @@ impl RuntimeAdapter for NightshadeRuntime {
                     if ProtocolFeature::CongestionControl.enabled(protocol_version) {
                         let receiving_shard = EpochManagerAdapter::account_id_to_shard_id(
                             self.epoch_manager.as_ref(),
-                            &tx.transaction.receiver_id,
+                            tx.transaction.receiver_id(),
                             &epoch_id,
                         )?;
-                        if let Some(shard_congestion) =
+                        if let Some(congestion_info) =
                             prev_block.congestion_info.get(&receiving_shard)
                         {
-                            if !shard_congestion.shard_accepts_transactions() {
+                            if !congestion_info.shard_accepts_transactions() {
                                 tracing::trace!(target: "runtime", tx=?tx.get_hash(), "discarding transaction due to congestion");
                                 continue;
                             }

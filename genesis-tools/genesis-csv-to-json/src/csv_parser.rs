@@ -6,6 +6,7 @@ use near_crypto::{KeyType, PublicKey};
 use near_network::types::PeerInfo;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::receipt::ReceiptV0;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{Action, FunctionCallAction};
@@ -253,7 +254,7 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
             }
             _ => unimplemented!(),
         };
-        let receipt = Receipt {
+        let receipt = Receipt::V0(ReceiptV0 {
             predecessor_id: row.account_id.clone(),
             receiver_id: row.account_id.clone(),
             // `receipt_id` can be anything as long as it is unique.
@@ -273,7 +274,7 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
                     deposit: 0,
                 }))],
             }),
-        };
+        });
         res.push(StateRecord::PostponedReceipt(Box::new(receipt)));
     }
     res

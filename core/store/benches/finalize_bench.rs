@@ -22,7 +22,7 @@ use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePathItem};
-use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum};
+use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart,
@@ -142,7 +142,7 @@ fn create_action_receipt(
     actions: Vec<Action>,
     input_data_ids: Vec<CryptoHash>,
 ) -> Receipt {
-    Receipt {
+    Receipt::V0(ReceiptV0 {
         predecessor_id: account_id.clone(),
         receiver_id: account_id.clone(),
         receipt_id: CryptoHash::hash_borsh(actions.clone()),
@@ -154,16 +154,16 @@ fn create_action_receipt(
             input_data_ids,
             actions,
         }),
-    }
+    })
 }
 
 fn create_data_receipt(account_id: &AccountId, data_id: CryptoHash, data_size: usize) -> Receipt {
-    Receipt {
+    Receipt::V0(ReceiptV0 {
         predecessor_id: account_id.clone(),
         receiver_id: account_id.clone(),
         receipt_id: CryptoHash::hash_borsh(data_id),
         receipt: ReceiptEnum::Data(DataReceipt { data_id, data: Some(vec![77u8; data_size]) }),
-    }
+    })
 }
 
 fn create_shard_chunk(

@@ -57,7 +57,6 @@ pub fn proposals_to_epoch_info(
             validator_kickout,
             validator_reward,
             minted_amount,
-            current_version,
             next_version,
         );
     } else {
@@ -237,12 +236,6 @@ mod old_validator_selection {
             chunk_producers_settlement.push(shard_settlement);
         }
 
-        let fishermen_to_index = fishermen
-            .iter()
-            .enumerate()
-            .map(|(index, s)| (s.account_id().clone(), index as ValidatorId))
-            .collect::<HashMap<_, _>>();
-
         let validator_to_index = final_proposals
             .iter()
             .enumerate()
@@ -258,9 +251,6 @@ mod old_validator_selection {
             validator_to_index,
             block_producers_settlement,
             chunk_producers_settlement,
-            vec![],
-            fishermen,
-            fishermen_to_index,
             stake_change,
             validator_reward,
             validator_kickout,

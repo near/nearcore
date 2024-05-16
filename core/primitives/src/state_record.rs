@@ -179,7 +179,7 @@ pub fn state_record_to_account_id(state_record: &StateRecord) -> &AccountId {
         | StateRecord::ReceivedData { account_id, .. }
         | StateRecord::Data { account_id, .. } => account_id,
         StateRecord::PostponedReceipt(receipt) | StateRecord::DelayedReceipt(receipt) => {
-            &receipt.receiver_id
+            receipt.receiver_id()
         }
     }
 }

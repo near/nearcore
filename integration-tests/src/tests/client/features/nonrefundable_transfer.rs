@@ -136,6 +136,7 @@ fn execute_transaction_from_actions(
         signer,
         actions,
         tip.last_block_hash,
+        0,
     );
     let tx_result = env.execute_tx(tx);
     let height = env.clients[0].chain.head().unwrap().height;
