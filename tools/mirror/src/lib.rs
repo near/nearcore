@@ -1807,24 +1807,17 @@ impl<T: ChainAccess> TxMirror<T> {
             // send any extra function call-initiated create accounts for the first few blocks right now
             // we set source_hash to 0 because we don't actually care about it here, and it doesn't even exist since these are
             // not transactions corresponding to some actual block, but just extra txs create account actions in the first few blocks.
-            let mut block = MappedBlock {
-                source_hash: CryptoHash::default(),
-                source_height: last_height,
-                chunks: vec![MappedChunk { shard_id: 0, txs: Vec::new() }],
-            };
+            let mut txs = Vec::new();
             for h in next_heights {
-                self.add_create_account_txs(h, target_head, &mut tracker, &mut block.chunks[0].txs)
-                    .await?;
+                self.add_create_account_txs(h, target_head, &mut tracker, &mut txs).await?;
             }
-            if block.chunks.iter().any(|c| !c.txs.is_empty()) {
+            if !txs.is_empty() {
                 tracing::debug!(target: "mirror", "sending extra create account transactions for the first {} blocks", CREATE_ACCOUNT_DELTA);
-                tracker.queue_block(block, &self.target_view_client, &self.db).await?;
-                let mut b = tracker.next_batch(&self.target_view_client, &self.db).await?;
-                self.send_transactions(b.chunks.iter_mut().flat_map(|c| c.txs.iter_mut())).await?;
+                self.send_transactions(txs.iter_mut()).await?;
                 tracker
                     .on_txs_sent(
                         &self.db,
-                        crate::chain_tracker::SentBatch::MappedBlock(b),
+                        crate::chain_tracker::SentBatch::ExtraTxs(txs),
                         target_height,
                     )
                     .await?;
