@@ -286,9 +286,9 @@ imports! {
     ##["sandbox"] sandbox_debug_log<[len: u64, ptr: u64] -> []>,
 
     // Sleep for the given number of nanoseconds. This is the ultimate
-    // undercharing function as it doesn't consume much gas but takes a lot of
-    // time to execute. It must always be gated behind a feature flag and it
-    // must never be released to production.
+    // undercharging function as it doesn't consume much gas or computes but
+    // takes a lot of time to execute. It must always be gated behind a feature
+    // flag and it must never be released to production.
     ##["test_features"] sleep_nanos<[duration: u64] -> []>,
 }
 
