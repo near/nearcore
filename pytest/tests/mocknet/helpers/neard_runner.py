@@ -692,12 +692,9 @@ class NeardRunner:
 
     def do_clear_env(self):
         with self.lock:
-            try:
-                env_file_path = self.home_path('.env')
-                open(env_file_path, 'w').close()
-                print(f'File {env_file_path} has been successfully cleared.')
-            except Exception as e:
-                print(f'An error occurred while clearing the env: {e}')
+            env_file_path = self.home_path('.env')
+            open(env_file_path, 'w').close()
+            print(f'File {env_file_path} has been successfully cleared.')
 
     def do_add_env(self, key_values):
         with self.lock:
