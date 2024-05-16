@@ -191,7 +191,7 @@ extern "C" {
     #[cfg(feature = "latest_protocol")]
     fn alt_bn128_pairing_check(value_len: u64, value_ptr: u64) -> u64;
 
-    // TODO!!! Hide this behind a feature flag!
+    #[cfg(feature = "test_features")]
     fn sleep_nanos(nanos: u64);
 }
 
@@ -395,7 +395,7 @@ pub unsafe fn loop_forever() {
     loop {}
 }
 
-// TODO!!! Hide this behind a feature flag!
+#[cfg(feature = "test_features")]
 #[no_mangle]
 pub unsafe fn sleep() {
     const U64_SIZE: usize = size_of::<u64>();
