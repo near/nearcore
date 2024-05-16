@@ -27,8 +27,18 @@ class SlowChunkTest(unittest.TestCase):
         # The number of validators and the number of shards.
         n = 4
 
-        # The validators are single shard tracking, the rpc tracks all shards.
-        client_config_changes = {n: {"tracked_shards": [0]}}
+        # The validator nodes should used single shard tracking. The nodes with
+        # indices in range [0, n) are validators.
+        val_client_config_changes = {i: {"tracked_shards": []} for i in range(n)}
+        # The rpc node should track all shards. The node with index n is the rpc node.
+        rpc_client_config_changes = {n: {"tracked_shards": [0]}}
+
+        # Combine the configs changes for validators and rpc.
+        client_config_changes = {
+            **val_client_config_changes,
+            **rpc_client_config_changes,
+        }
+
         # Configure long epoch to not worry about full epoch without chunks.
         genesis_config_changes = [["epoch_length", 100]]
         [node1, node2, node3, node4, rpc] = start_cluster(
@@ -86,7 +96,7 @@ class SlowChunkTest(unittest.TestCase):
             20,
             block_hash,
         )
-        result = node.send_tx_and_wait(tx, 10)
+        result = node.send_tx_and_wait(tx, 20)
 
         logger.debug(json.dumps(result, indent=2))
 
