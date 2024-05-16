@@ -22,3 +22,4 @@ arbitrary.workspace = true
 
 [features]
 nightly = []
+test_features = []

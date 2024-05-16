@@ -1223,6 +1223,13 @@ impl<'a> VMLogic<'a> {
         self.gas_opcodes(gas)
     }
 
+    #[cfg(feature = "test_features")]
+    pub fn sleep_nanos(&mut self, nanos: u64) -> Result<()> {
+        let duration = std::time::Duration::from_nanos(nanos);
+        std::thread::sleep(duration);
+        Ok(())
+    }
+
     // ################
     // # Promises API #
     // ################

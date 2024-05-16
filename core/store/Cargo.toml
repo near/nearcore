@@ -76,7 +76,7 @@ default = []
 io_trace = []
 no_cache = []
 single_thread_rocksdb = [] # Deactivate RocksDB IO background threads
-test_features = []
+test_features = ["near-vm-runner/test_features"]
 new_epoch_sync = []
 
 nightly_protocol = [

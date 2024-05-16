@@ -42,3 +42,6 @@ nightly = [
   "nightly_protocol",
 ]
 sandbox = []
+test_features = [
+  "near-primitives/test_features",
+]
