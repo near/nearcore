@@ -132,8 +132,7 @@ impl AllEpochConfig {
     pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> EpochConfig {
         let mut config = self.genesis_epoch_config.clone();
 
-        // DO NOT MERGE to master: This is currently force-disabled and will be re-enabled later.
-        // Self::config_mocknet(&mut config, &self.chain_id);
+        Self::config_mocknet(&mut config, &self.chain_id);
 
         Self::config_stateless_net(&mut config, &self.chain_id, protocol_version);
 
