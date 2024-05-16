@@ -155,7 +155,7 @@ class NodeHandle:
         return self.neard_runner_jsonrpc(
             'add_env',
             params={
-                "key_value": key_value,
+                "key_values": key_value,
             },
         )
 

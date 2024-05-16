@@ -600,7 +600,7 @@ if __name__ == '__main__':
     env_cmd_parser = subparsers.add_parser(
         'env', help='''Update the environment variable on the hosts.''')
     env_cmd_parser.add_argument('--clear-all', action='store_true')
-    env_cmd_parser.add_argument('--key-value', type=str)
+    env_cmd_parser.add_argument('--key-value', type=str, nargs='+')
     env_cmd_parser.set_defaults(func=run_env_cmd)
 
     args = parser.parse_args()

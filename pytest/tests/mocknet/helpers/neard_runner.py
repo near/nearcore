@@ -699,14 +699,15 @@ class NeardRunner:
             except Exception as e:
                 print(f'An error occurred while clearing the env: {e}')
 
-    def do_add_env(self, key_value):
+    def do_add_env(self, key_values):
         with self.lock:
             env_file_path = self.home_path('.env')
             # Create the file if it does not exit
             open(env_file_path, 'a').close()
-            logging.info(f'Updating env with {key_value}')
-            [key, value] = key_value.split("=", 1)
-            dotenv.set_key(env_file_path, key, value)
+            for key_value in key_values:
+                logging.info(f'Updating env with {key_value}')
+                [key, value] = key_value.split("=", 1)
+                dotenv.set_key(env_file_path, key, value)
 
     # check the current epoch height, and return the binary path that we should
     # be running given the epoch heights specified in config.json
