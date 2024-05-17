@@ -597,13 +597,12 @@ impl TxAwaitingNonce {
         provenance: MappedTxProvenance,
         nonce_updates: HashSet<(AccountId, PublicKey)>,
     ) -> Self {
-        let mut target_tx = Transaction::new(
+        let mut target_tx = Transaction::new_v0(
             target_signer_id,
             target_public_key,
             target_receiver_id,
             0,
             *ref_hash,
-            0,
         );
         *target_tx.actions_mut() = actions;
         Self {
@@ -645,13 +644,12 @@ impl MappedTx {
         provenance: MappedTxProvenance,
         nonce_updates: HashSet<(AccountId, PublicKey)>,
     ) -> Self {
-        let mut target_tx = Transaction::new(
+        let mut target_tx = Transaction::new_v0(
             target_signer_id,
             target_public_key,
             target_receiver_id,
             nonce,
             *ref_hash,
-            0,
         );
         *target_tx.actions_mut() = actions;
         let target_tx = SignedTransaction::new(
@@ -801,11 +799,19 @@ struct MappedChunk {
     shard_id: ShardId,
 }
 
+// TODO: get rid of this struct and just store the transactions more simply in TxTracker
 #[derive(Debug)]
 struct MappedBlock {
     source_height: BlockHeight,
     source_hash: CryptoHash,
     chunks: Vec<MappedChunk>,
+}
+
+#[derive(Debug)]
+struct TxBatch {
+    source_height: BlockHeight,
+    source_hash: CryptoHash,
+    txs: Vec<(TxRef, TargetChainTx)>,
 }
 
 async fn account_exists(
@@ -1690,11 +1696,11 @@ impl<T: ChainAccess> TxMirror<T> {
         loop {
             tokio::select! {
                 // time to send a batch of transactions
-                mapped_block = tracker.next_batch(&self.target_view_client, &self.db), if tracker.num_blocks_queued() > 0 => {
-                    let mut mapped_block = mapped_block?;
-                    source_hash = mapped_block.source_hash;
-                    self.send_transactions(mapped_block.chunks.iter_mut().flat_map(|c| c.txs.iter_mut())).await?;
-                    tracker.on_txs_sent(&self.db, crate::chain_tracker::SentBatch::MappedBlock(mapped_block), target_height).await?;
+                tx_batch = tracker.next_batch(&self.target_view_client, &self.db), if tracker.num_blocks_queued() > 0 => {
+                    let mut tx_batch = tx_batch?;
+                    source_hash = tx_batch.source_hash;
+                    self.send_transactions(tx_batch.txs.iter_mut().map(|(_tx_ref, tx)| tx)).await?;
+                    tracker.on_txs_sent(&self.db, crate::chain_tracker::SentBatch::MappedBlock(tx_batch), target_height).await?;
 
                     // now we have one second left until we need to send more transactions. In the
                     // meantime, we might as well prepare some more batches of transactions.
@@ -1807,24 +1813,17 @@ impl<T: ChainAccess> TxMirror<T> {
             // send any extra function call-initiated create accounts for the first few blocks right now
             // we set source_hash to 0 because we don't actually care about it here, and it doesn't even exist since these are
             // not transactions corresponding to some actual block, but just extra txs create account actions in the first few blocks.
-            let mut block = MappedBlock {
-                source_hash: CryptoHash::default(),
-                source_height: last_height,
-                chunks: vec![MappedChunk { shard_id: 0, txs: Vec::new() }],
-            };
+            let mut txs = Vec::new();
             for h in next_heights {
-                self.add_create_account_txs(h, target_head, &mut tracker, &mut block.chunks[0].txs)
-                    .await?;
+                self.add_create_account_txs(h, target_head, &mut tracker, &mut txs).await?;
             }
-            if block.chunks.iter().any(|c| !c.txs.is_empty()) {
+            if !txs.is_empty() {
                 tracing::debug!(target: "mirror", "sending extra create account transactions for the first {} blocks", CREATE_ACCOUNT_DELTA);
-                tracker.queue_block(block, &self.target_view_client, &self.db).await?;
-                let mut b = tracker.next_batch(&self.target_view_client, &self.db).await?;
-                self.send_transactions(b.chunks.iter_mut().flat_map(|c| c.txs.iter_mut())).await?;
+                self.send_transactions(txs.iter_mut()).await?;
                 tracker
                     .on_txs_sent(
                         &self.db,
-                        crate::chain_tracker::SentBatch::MappedBlock(b),
+                        crate::chain_tracker::SentBatch::ExtraTxs(txs),
                         target_height,
                     )
                     .await?;

@@ -437,6 +437,14 @@ def run_remote_cmd(args, traffic_generator, nodes):
          on_exception="")
 
 
+def run_env_cmd(args, traffic_generator, nodes):
+    if args.clear_all:
+        func = lambda node: node.neard_clear_env()
+    else:
+        func = lambda node: node.neard_update_env(args.key_value)
+    pmap(func, nodes + [traffic_generator])
+
+
 if __name__ == '__main__':
     parser = ArgumentParser(description='Control a mocknet instance')
     parser.add_argument('--chain-id', type=str)
@@ -588,6 +596,12 @@ if __name__ == '__main__':
         type=str,
         help='Filter through the selected nodes using regex.')
     run_cmd_parser.set_defaults(func=run_remote_cmd)
+
+    env_cmd_parser = subparsers.add_parser(
+        'env', help='''Update the environment variable on the hosts.''')
+    env_cmd_parser.add_argument('--clear-all', action='store_true')
+    env_cmd_parser.add_argument('--key-value', type=str, nargs='+')
+    env_cmd_parser.set_defaults(func=run_env_cmd)
 
     args = parser.parse_args()
 

@@ -31,6 +31,7 @@ async fn test_raw_conn_pings() {
     .await;
 
     let mut conn = raw::Connection::connect(
+        &clock.clock(),
         addr,
         peer_id.clone(),
         None,
@@ -91,6 +92,7 @@ async fn test_raw_conn_state_parts() {
     .await;
 
     let mut conn = raw::Connection::connect(
+        &clock.clock(),
         addr,
         peer_id.clone(),
         None,
