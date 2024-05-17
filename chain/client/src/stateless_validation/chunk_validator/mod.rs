@@ -148,7 +148,10 @@ impl ChunkValidator {
                     return Ok(());
                 }
                 Err(err) => {
-                    tracing::error!("Failed to validate chunk using existing chunk extra: {:?}", err);
+                    tracing::error!(
+                        "Failed to validate chunk using existing chunk extra: {:?}",
+                        err
+                    );
                     return Err(err);
                 }
             }
