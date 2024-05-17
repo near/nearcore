@@ -169,6 +169,19 @@ pub enum Parameter {
     VmKind,
     EthImplicitAccounts,
     YieldResume,
+
+    // Congestion Control
+    MaxCongestionIncomingGas,
+    MaxCongestionOutgoingGas,
+    MaxCongestionMemoryConsumption,
+    MaxCongestionMissedChunks,
+
+    MaxOutgoingGas,
+    MinOutgoingGas,
+    AllowedShardOutgoingGas,
+    MaxTxGas,
+    MinTxGas,
+    RejectTxCongestionThreshold,
 }
 
 #[derive(

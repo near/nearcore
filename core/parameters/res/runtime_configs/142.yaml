@@ -1,0 +1,62 @@
+# i64::MAX == 9_223_372_036_854_775_807
+# PGAS     ==     1_000_000_000_000_000 GAS
+# TGAS     ==         1_000_000_000_000 GAS
+# MB       ==                 1_000_000 B
+
+# The following default constants have been defined in
+# [NEP-539](https://github.com/near/NEPs/pull/539) after extensive fine-tuning
+# and discussions.
+
+# 20 PGAS
+max_congestion_incoming_gas: { 
+  old : 9_223_372_036_854_775_807,
+  new : 20_000_000_000_000_000,
+}
+# 2 PGAS
+max_congestion_outgoing_gas: { 
+  old : 9_223_372_036_854_775_807,
+  new : 2_000_000_000_000_000,
+}
+# 1000 MB
+max_congestion_memory_consumption: { 
+  old : 9_223_372_036_854_775_807,
+  new : 1_000_000_000,
+}
+# 10 missed chunks
+max_congestion_missed_chunks: { 
+  old : 9_223_372_036_854_775_807,
+  new : 10,
+}
+
+# 300 PGAS
+max_outgoing_gas: { 
+  old: 9_223_372_036_854_775_807,
+  new: 300_000_000_000_000_000,
+}
+# 1 PGAS
+min_outgoing_gas: { 
+  old: 9_223_372_036_854_775_807,
+  new: 1_000_000_000_000_000
+}
+# 1 PGAS
+allowed_shard_outgoing_gas: { 
+  old: 9_223_372_036_854_775_807,
+  new: 1_000_000_000_000_000
+}
+
+# 500 TGAS
+max_tx_gas: { 
+  old: 9_223_372_036_854_775_807,
+  new: 500_000_000_000_000
+}
+# 20 TGAS
+min_tx_gas: { 
+  old: 9_223_372_036_854_775_807,
+  new: 20_000_000_000_000
+}
+
+# 0.25
+reject_tx_congestion_threshold: { 
+  old : { numerator: 1, denominator: 1 },
+  new : { numerator: 25, denominator: 100 }
+}
