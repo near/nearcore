@@ -1,5 +1,4 @@
 use crate::network_protocol::{Edge, InvalidNonceError};
-use crate::stats::metrics;
 use near_async::time;
 
 // Don't accept nonces (edges) that are more than this delta from current time.
@@ -22,19 +21,13 @@ pub(crate) fn verify_nonce(clock: &time::Clock, nonce: u64) -> Result<(), Verify
     }
     match Edge::nonce_to_utc(nonce) {
         Err(err) => Err(VerifyNonceError::InvalidNonce(err)),
-        Ok(Some(nonce)) => {
+        Ok(nonce) => {
             let now = clock.now_utc();
             if (now - nonce).abs() >= EDGE_NONCE_MAX_TIME_DELTA {
-                metrics::EDGE_NONCE.with_label_values(&["error_timestamp_too_distant"]).inc();
                 Err(VerifyNonceError::NonceTimestampTooDistant { got: nonce, now })
             } else {
-                metrics::EDGE_NONCE.with_label_values(&["new_style"]).inc();
                 Ok(())
             }
-        }
-        Ok(None) => {
-            metrics::EDGE_NONCE.with_label_values(&["old_style"]).inc();
-            Ok(())
         }
     }
 }
