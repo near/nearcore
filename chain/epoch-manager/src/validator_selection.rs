@@ -1,4 +1,4 @@
-use crate::shard_assignment::assign_shards;
+use crate::shard_assignment::assign_chunk_producers_to_shards;
 use near_primitives::checked_feature;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::{EpochConfig, RngSeed};
@@ -101,6 +101,77 @@ fn select_validators_from_proposals(
     }
 }
 
+fn get_chunk_producers_assignment(
+    epoch_config: &EpochConfig,
+    rng_seed: RngSeed,
+    prev_epoch_info: &EpochInfo,
+    validator_roles: &ValidatorRoles,
+    use_stable_shard_assignment: bool,
+) -> Result<ChunkProducersAssignment, EpochError> {
+    let ValidatorRoles { chunk_producers, block_producers, chunk_validators, .. } = validator_roles;
+
+    // Construct local validator indices.
+    // Note that if there are too few validators and too many shards,
+    // assigning chunk producers to shards is more aggressive, so it
+    // is not enough to iterate over chunk validators.
+    // We assign local indices in the order of roles priority and then
+    // in decreasing order of stake.
+    let max_validators_for_role =
+        cmp::max(chunk_producers.len(), cmp::max(block_producers.len(), chunk_validators.len()));
+    let mut all_validators: Vec<ValidatorStake> = Vec::with_capacity(max_validators_for_role);
+    let mut validator_to_index = HashMap::new();
+    for validators_for_role in [&chunk_producers, &block_producers, &chunk_validators].iter() {
+        for validator in validators_for_role.iter() {
+            let account_id = validator.account_id().clone();
+            if validator_to_index.contains_key(&account_id) {
+                continue;
+            }
+            let id = all_validators.len() as ValidatorId;
+            validator_to_index.insert(account_id, id);
+            all_validators.push(validator.clone());
+        }
+    }
+
+    // Assign chunk producers to shards.
+    let num_chunk_producers = chunk_producers.len();
+    let minimum_validators_per_shard =
+        epoch_config.validator_selection_config.minimum_validators_per_shard as usize;
+    let prev_chunk_producers_assignment = if use_stable_shard_assignment {
+        Some(
+            prev_epoch_info
+                .chunk_producers_settlement()
+                .iter()
+                .map(|vs| {
+                    vs.into_iter().map(|v| prev_epoch_info.get_validator(*v)).collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>(),
+        )
+    } else {
+        None
+    };
+
+    let shard_ids: Vec<_> = epoch_config.shard_layout.shard_ids().collect();
+    let shard_assignment = assign_chunk_producers_to_shards(
+        chunk_producers.clone(),
+        shard_ids.len() as NumShards,
+        minimum_validators_per_shard,
+        epoch_config.validator_selection_config.chunk_producer_assignment_changes_limit as usize,
+        rng_seed,
+        prev_chunk_producers_assignment,
+    )
+    .map_err(|_| EpochError::NotEnoughValidators {
+        num_validators: num_chunk_producers as u64,
+        num_shards: shard_ids.len() as NumShards,
+    })?;
+
+    let chunk_producers_settlement = shard_assignment
+        .into_iter()
+        .map(|vs| vs.into_iter().map(|v| validator_to_index[v.account_id()]).collect())
+        .collect();
+
+    Ok(ChunkProducersAssignment { all_validators, validator_to_index, chunk_producers_settlement })
+}
+
 /// Select validators for next epoch and generate epoch info
 pub fn proposals_to_epoch_info(
     epoch_config: &EpochConfig,
@@ -111,6 +182,7 @@ pub fn proposals_to_epoch_info(
     validator_reward: HashMap<AccountId, Balance>,
     minted_amount: Balance,
     next_version: ProtocolVersion,
+    use_stable_shard_assignment: bool,
 ) -> Result<EpochInfo, EpochError> {
     debug_assert!(
         proposals.iter().map(|stake| stake.account_id()).collect::<HashSet<_>>().len()
@@ -131,13 +203,7 @@ pub fn proposals_to_epoch_info(
     // Select validators for the next epoch.
     // Returns unselected proposals, validator lists for all roles and stake
     // threshold to become a validator.
-    let ValidatorRoles {
-        unselected_proposals,
-        chunk_producers,
-        block_producers,
-        chunk_validators,
-        threshold,
-    } = if checked_feature!("stable", StatelessValidationV0, next_version) {
+    let validator_roles = if checked_feature!("stable", StatelessValidationV0, next_version) {
         select_validators_from_proposals(epoch_config, proposals, next_version)
     } else {
         old_validator_selection::select_validators_from_proposals(
@@ -149,15 +215,17 @@ pub fn proposals_to_epoch_info(
 
     // Add kickouts for validators which fell out of validator set.
     // Used for querying epoch info by RPC.
-    for OrderedValidatorStake(p) in unselected_proposals {
+    let threshold = validator_roles.threshold;
+    for OrderedValidatorStake(p) in validator_roles.unselected_proposals.iter() {
         let stake = p.stake();
         let account_id = p.account_id();
         *stake_change.get_mut(account_id).unwrap() = 0;
         if prev_epoch_info.account_is_validator(account_id) {
             debug_assert!(stake < threshold);
-            let account_id = p.take_account_id();
-            validator_kickout
-                .insert(account_id, ValidatorKickoutReason::NotEnoughStake { stake, threshold });
+            validator_kickout.insert(
+                account_id.clone(),
+                ValidatorKickoutReason::NotEnoughStake { stake, threshold },
+            );
         }
     }
 
@@ -172,72 +240,37 @@ pub fn proposals_to_epoch_info(
         validator_to_index,
         mut chunk_producers_settlement,
     } = if checked_feature!("stable", StatelessValidationV0, next_version) {
-        // Construct local validator indices.
-        // Note that if there are too few validators and too many shards,
-        // assigning chunk producers to shards is more aggressive, so it
-        // is not enough to iterate over chunk validators.
-        // We assign local indices in the order of roles priority and then
-        // in decreasing order of stake.
-        let max_validators_for_role = cmp::max(
-            chunk_producers.len(),
-            cmp::max(block_producers.len(), chunk_validators.len()),
-        );
-        let mut all_validators: Vec<ValidatorStake> = Vec::with_capacity(max_validators_for_role);
-        let mut validator_to_index = HashMap::new();
-        for validators_for_role in [&chunk_producers, &block_producers, &chunk_validators].iter() {
-            for validator in validators_for_role.iter() {
-                let account_id = validator.account_id().clone();
-                if validator_to_index.contains_key(&account_id) {
-                    continue;
-                }
-                let id = all_validators.len() as ValidatorId;
-                validator_to_index.insert(account_id, id);
-                all_validators.push(validator.clone());
-            }
-        }
-
-        // Assign chunk producers to shards.
-        let num_chunk_producers = chunk_producers.len();
-        let minimum_validators_per_shard =
-            epoch_config.validator_selection_config.minimum_validators_per_shard as usize;
-        let shard_assignment = assign_shards(
-            chunk_producers,
-            shard_ids.len() as NumShards,
-            minimum_validators_per_shard,
-        )
-        .map_err(|_| EpochError::NotEnoughValidators {
-            num_validators: num_chunk_producers as u64,
-            num_shards: shard_ids.len() as NumShards,
-        })?;
-
-        let chunk_producers_settlement = shard_assignment
-            .into_iter()
-            .map(|vs| vs.into_iter().map(|v| validator_to_index[v.account_id()]).collect())
-            .collect();
-
-        ChunkProducersAssignment { all_validators, validator_to_index, chunk_producers_settlement }
+        get_chunk_producers_assignment(
+            epoch_config,
+            rng_seed,
+            prev_epoch_info,
+            &validator_roles,
+            use_stable_shard_assignment,
+        )?
     } else if checked_feature!("stable", ChunkOnlyProducers, next_version) {
         old_validator_selection::assign_chunk_producers_to_shards_chunk_only(
             epoch_config,
-            chunk_producers,
-            &block_producers,
+            validator_roles.chunk_producers,
+            &validator_roles.block_producers,
         )?
     } else {
         old_validator_selection::assign_chunk_producers_to_shards(
             epoch_config,
-            chunk_producers,
-            &block_producers,
+            validator_roles.chunk_producers,
+            &validator_roles.block_producers,
         )?
     };
 
     if epoch_config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers {
-        chunk_producers_settlement
-            .shuffle(&mut EpochInfo::shard_assignment_shuffling_rng(&rng_seed));
+        chunk_producers_settlement.shuffle(&mut EpochInfo::shard_assignment_rng(&rng_seed));
     }
 
     // Get local indices for block producers.
-    let block_producers_settlement =
-        block_producers.into_iter().map(|bp| validator_to_index[bp.account_id()]).collect();
+    let block_producers_settlement = validator_roles
+        .block_producers
+        .into_iter()
+        .map(|bp| validator_to_index[bp.account_id()])
+        .collect();
 
     // Assign chunk validators to shards using validator mandates abstraction.
     let validator_mandates = if checked_feature!("stable", StatelessValidationV0, next_version) {
@@ -422,6 +455,7 @@ impl Ord for OrderedValidatorStake {
 /// Helpers to generate new epoch info for older protocol versions.
 mod old_validator_selection {
     use super::*;
+    use crate::shard_assignment;
 
     /// Selects validator roles for the given proposals.
     pub(crate) fn select_validators_from_proposals(
@@ -494,7 +528,7 @@ mod old_validator_selection {
         let shard_ids: Vec<_> = epoch_config.shard_layout.shard_ids().collect();
         let minimum_validators_per_shard =
             epoch_config.validator_selection_config.minimum_validators_per_shard as usize;
-        let shard_assignment = assign_shards(
+        let shard_assignment = shard_assignment::old_validator_selection::assign_shards(
             chunk_producers,
             shard_ids.len() as NumShards,
             minimum_validators_per_shard,
@@ -622,6 +656,7 @@ mod tests {
             Default::default(),
             0,
             PROTOCOL_VERSION,
+            false,
         )
         .unwrap();
 
@@ -637,9 +672,15 @@ mod tests {
         assert_eq!(epoch_info.block_producers_settlement(), &[0, 1, 2]);
         assert_eq!(epoch_info.fishermen_iter().len(), 0);
 
-        // Validators are split between chunks to make roughly equal stakes
-        // (in this case shard 0 has 2000, while shard 1 has 1300).
-        assert_eq!(epoch_info.chunk_producers_settlement(), &[vec![0], vec![1, 2]]);
+        if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+            // Validators are split between shards to balance number of validators.
+            // Stakes don't matter for chunk producers.
+            assert_eq!(epoch_info.chunk_producers_settlement(), &[vec![0, 2], vec![1]]);
+        } else {
+            // Validators are split between chunks to make roughly equal stakes
+            // (in this case shard 0 has 2000, while shard 1 has 1300).
+            assert_eq!(epoch_info.chunk_producers_settlement(), &[vec![0], vec![1, 2]]);
+        }
     }
 
     #[test]
@@ -655,9 +696,7 @@ mod tests {
                 num_chunk_producer_seats: num_bp_seats + num_cp_seats,
                 num_chunk_validator_seats: num_bp_seats + num_cp_seats,
                 num_chunk_only_producer_seats: num_cp_seats,
-                minimum_validators_per_shard: 1,
-                minimum_stake_ratio: Ratio::new(160, 1_000_000),
-                shuffle_shard_assignment_for_chunk_producers: false,
+                ..Default::default()
             },
         );
         let prev_epoch_height = 3;
@@ -694,6 +733,7 @@ mod tests {
             Default::default(),
             0,
             PROTOCOL_VERSION,
+            false,
         )
         .unwrap();
 
@@ -706,12 +746,6 @@ mod tests {
             .block_producers_settlement()
             .into_iter()
             .map(|id| epoch_info.get_validator(*id))));
-
-        // stakes are evenly distributed between shards
-        assert_eq!(
-            stake_sum(&epoch_info, epoch_info.chunk_producers_settlement()[0].iter()),
-            stake_sum(&epoch_info, epoch_info.chunk_producers_settlement()[1].iter()),
-        );
 
         // The top proposals are all chunk producers
         let mut chosen_chunk_producers: Vec<ValidatorStake> = epoch_info
@@ -758,9 +792,7 @@ mod tests {
                 num_chunk_producer_seats: num_bp_seats + num_cp_seats,
                 num_chunk_validator_seats: num_bp_seats + num_cp_seats,
                 num_chunk_only_producer_seats: num_cp_seats,
-                minimum_validators_per_shard: 1,
-                minimum_stake_ratio: Ratio::new(160, 1_000_000),
-                shuffle_shard_assignment_for_chunk_producers: false,
+                ..Default::default()
             },
         );
         let prev_epoch_height = 3;
@@ -785,6 +817,7 @@ mod tests {
             Default::default(),
             0,
             PROTOCOL_VERSION,
+            false,
         )
         .unwrap();
         let epoch_info_no_shuffling_different_seed = proposals_to_epoch_info(
@@ -796,6 +829,7 @@ mod tests {
             Default::default(),
             0,
             PROTOCOL_VERSION,
+            false,
         )
         .unwrap();
 
@@ -809,6 +843,7 @@ mod tests {
             Default::default(),
             0,
             PROTOCOL_VERSION,
+            false,
         )
         .unwrap();
         let epoch_info_with_shuffling_different_seed = proposals_to_epoch_info(
@@ -820,16 +855,17 @@ mod tests {
             Default::default(),
             0,
             PROTOCOL_VERSION,
+            false,
         )
         .unwrap();
 
         let target_settlement = vec![
-            vec![0, 11, 12, 23, 24, 35, 36],
-            vec![1, 10, 13, 22, 25, 34, 37],
-            vec![2, 9, 14, 21, 26, 33, 38],
-            vec![3, 8, 15, 20, 27, 32, 39],
-            vec![4, 7, 16, 19, 28, 31],
-            vec![5, 6, 17, 18, 29, 30],
+            vec![0, 6, 12, 18, 24, 30, 36],
+            vec![1, 7, 13, 19, 25, 31, 37],
+            vec![2, 8, 14, 20, 26, 32, 38],
+            vec![3, 9, 15, 21, 27, 33, 39],
+            vec![4, 10, 16, 22, 28, 34],
+            vec![5, 11, 17, 23, 29, 35],
         ];
         assert_eq!(epoch_info_no_shuffling.chunk_producers_settlement(), target_settlement,);
 
@@ -864,9 +900,7 @@ mod tests {
                 num_chunk_producer_seats: 2,
                 num_chunk_validator_seats: 2,
                 num_chunk_only_producer_seats: 0,
-                minimum_validators_per_shard: 1,
-                minimum_stake_ratio: Ratio::new(160, 1_000_000),
-                shuffle_shard_assignment_for_chunk_producers: false,
+                ..Default::default()
             },
         );
         let prev_epoch_height = 7;
@@ -882,6 +916,7 @@ mod tests {
             Default::default(),
             0,
             PROTOCOL_VERSION,
+            false,
         )
         .unwrap();
 
@@ -906,9 +941,7 @@ mod tests {
                 num_chunk_producer_seats: 2 * num_shards,
                 num_chunk_validator_seats: 2 * num_shards,
                 num_chunk_only_producer_seats: 0,
-                minimum_validators_per_shard: 1,
-                minimum_stake_ratio: Ratio::new(160, 1_000_000),
-                shuffle_shard_assignment_for_chunk_producers: false,
+                ..Default::default()
             },
         );
         let prev_epoch_height = 7;
@@ -925,6 +958,7 @@ mod tests {
             Default::default(),
             0,
             PROTOCOL_VERSION,
+            false,
         )
         .unwrap();
 
@@ -952,6 +986,7 @@ mod tests {
             Default::default(),
             0,
             PROTOCOL_VERSION,
+            false,
         )
         .unwrap();
 
@@ -978,10 +1013,9 @@ mod tests {
                 num_chunk_producer_seats: 2 * num_shards,
                 num_chunk_validator_seats: 2 * num_shards,
                 num_chunk_only_producer_seats: 0,
-                minimum_validators_per_shard: 1,
                 // for example purposes, we choose a higher ratio than in production
                 minimum_stake_ratio: Ratio::new(1, 10),
-                shuffle_shard_assignment_for_chunk_producers: false,
+                ..Default::default()
             },
         );
         let prev_epoch_height = 7;
@@ -1011,6 +1045,7 @@ mod tests {
             Default::default(),
             0,
             PROTOCOL_VERSION,
+            false,
         )
         .unwrap();
 
@@ -1065,10 +1100,9 @@ mod tests {
                 num_chunk_producer_seats: 300,
                 num_chunk_validator_seats: 300,
                 num_chunk_only_producer_seats: 300,
-                minimum_validators_per_shard: 1,
                 // for example purposes, we choose a higher ratio than in production
                 minimum_stake_ratio: Ratio::new(1, 10),
-                shuffle_shard_assignment_for_chunk_producers: false,
+                ..Default::default()
             },
         );
         let prev_epoch_height = 7;
@@ -1091,6 +1125,7 @@ mod tests {
             Default::default(),
             0,
             PROTOCOL_VERSION,
+            false,
         )
         .unwrap();
 
@@ -1134,6 +1169,7 @@ mod tests {
             Default::default(),
             0,
             PROTOCOL_VERSION,
+            false,
         )
         .unwrap();
         #[cfg(feature = "protocol_feature_fix_staking_threshold")]
@@ -1157,6 +1193,7 @@ mod tests {
             Default::default(),
             0,
             PROTOCOL_VERSION,
+            false,
         )
         .unwrap();
         assert_eq!(num_validators, epoch_info.validators_iter().len());
@@ -1184,6 +1221,7 @@ mod tests {
             Default::default(),
             0,
             PROTOCOL_VERSION,
+            false,
         )
         .unwrap();
 
@@ -1213,6 +1251,7 @@ mod tests {
             rewards_map,
             0,
             PROTOCOL_VERSION,
+            false,
         )
         .unwrap();
 
@@ -1223,6 +1262,7 @@ mod tests {
         }
     }
 
+    #[allow(unused)]
     fn stake_sum<'a, I: IntoIterator<Item = &'a u64>>(
         epoch_info: &EpochInfo,
         validator_ids: I,
