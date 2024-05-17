@@ -4515,7 +4515,6 @@ version = "0.0.0"
 dependencies = [
  "assert_matches",
  "borsh 1.0.0",
- "bytesize",
  "clap",
  "enum-map",
  "insta",
