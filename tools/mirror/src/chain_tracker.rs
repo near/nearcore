@@ -121,7 +121,7 @@ struct NonceInfo {
 
 pub(crate) enum SentBatch {
     MappedBlock(TxBatch),
-    ExtraTxs(Vec<TargetChainTx>),
+    ExtraTxs(VecDeque<TargetChainTx>),
 }
 
 // Keeps the queue of upcoming transactions and provides them in regular intervals via next_batch()

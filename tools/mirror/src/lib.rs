@@ -32,7 +32,7 @@ use near_primitives_core::types::{Nonce, ShardId};
 use nearcore::config::NearConfig;
 use rocksdb::DB;
 use std::borrow::Cow;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -794,7 +794,7 @@ impl TargetChainTx {
 struct MappedBlock {
     source_height: BlockHeight,
     source_hash: CryptoHash,
-    txs: Vec<TargetChainTx>,
+    txs: VecDeque<TargetChainTx>,
 }
 
 #[derive(Debug)]
@@ -1145,7 +1145,7 @@ impl<T: ChainAccess> TxMirror<T> {
         &self,
         tracker: &mut crate::chain_tracker::TxTracker,
         block_hash: CryptoHash,
-        txs: &mut Vec<TargetChainTx>,
+        txs: &mut VecDeque<TargetChainTx>,
         predecessor_id: AccountId,
         receiver_id: AccountId,
         actions: &[Action],
@@ -1276,14 +1276,14 @@ impl<T: ChainAccess> TxMirror<T> {
                 nonce_updates,
             )
             .await?;
-        txs.push(target_tx);
+        txs.push_back(target_tx);
         Ok(())
     }
 
     async fn add_function_call_keys(
         &self,
         tracker: &mut crate::chain_tracker::TxTracker,
-        txs: &mut Vec<TargetChainTx>,
+        txs: &mut VecDeque<TargetChainTx>,
         receipt_id: &CryptoHash,
         receiver_id: &AccountId,
         ref_hash: &CryptoHash,
@@ -1388,7 +1388,7 @@ impl<T: ChainAccess> TxMirror<T> {
         source_height: BlockHeight,
         ref_hash: &CryptoHash,
         tracker: &mut crate::chain_tracker::TxTracker,
-        txs: &mut Vec<TargetChainTx>,
+        txs: &mut VecDeque<TargetChainTx>,
     ) -> anyhow::Result<()> {
         // if signer and receiver are the same then the resulting local receipt
         // is only logically included, and we won't see it in the receipts in any chunk,
@@ -1428,7 +1428,7 @@ impl<T: ChainAccess> TxMirror<T> {
         source_height: BlockHeight,
         ref_hash: &CryptoHash,
         tracker: &mut crate::chain_tracker::TxTracker,
-        txs: &mut Vec<TargetChainTx>,
+        txs: &mut VecDeque<TargetChainTx>,
     ) -> anyhow::Result<()> {
         if let ReceiptEnum::Action(r) | ReceiptEnum::PromiseYield(r) = receipt.receipt() {
             if r.actions.iter().any(|a| matches!(a, Action::FunctionCall(_))) {
@@ -1455,7 +1455,7 @@ impl<T: ChainAccess> TxMirror<T> {
         create_account_height: BlockHeight,
         ref_hash: CryptoHash,
         tracker: &mut crate::chain_tracker::TxTracker,
-        txs: &mut Vec<TargetChainTx>,
+        txs: &mut VecDeque<TargetChainTx>,
     ) -> anyhow::Result<()> {
         let source_block =
             self.source_chain_access.get_txs(create_account_height).await.with_context(|| {
@@ -1509,7 +1509,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 format!("Failed fetching chunks for source chain #{}", source_height)
             })?;
 
-        let mut txs = Vec::new();
+        let mut txs = VecDeque::new();
         for ch in source_block.chunks {
             for (idx, source_tx) in ch.transactions.into_iter().enumerate() {
                 let (actions, nonce_updates) = self.map_actions(&source_tx).await?;
@@ -1540,7 +1540,7 @@ impl<T: ChainAccess> TxMirror<T> {
                         nonce_updates,
                     )
                     .await?;
-                txs.push(target_tx);
+                txs.push_back(target_tx);
                 self.add_tx_function_call_keys(
                     &source_tx,
                     MappedTxProvenance::TxAddKey(source_height, ch.shard_id, idx),
@@ -1632,7 +1632,7 @@ impl<T: ChainAccess> TxMirror<T> {
         target_hash: &CryptoHash,
         target_height: BlockHeight,
     ) -> anyhow::Result<()> {
-        let mut txs = Vec::new();
+        let mut txs = VecDeque::new();
         for ((receiver_id, public_key), predecessor_id) in stakes {
             self.push_extra_tx(
                 tracker,
@@ -1790,7 +1790,7 @@ impl<T: ChainAccess> TxMirror<T> {
             let mut block = MappedBlock {
                 source_hash: CryptoHash::default(),
                 source_height: last_height,
-                txs: Vec::new(),
+                txs: VecDeque::new(),
             };
             for h in next_heights {
                 self.add_create_account_txs(h, target_head, &mut tracker, &mut block.txs)
