@@ -1093,8 +1093,7 @@ impl actix::Handler<WithSpanContext<PeerManagerMessageRequest>> for PeerManagerA
         msg: WithSpanContext<PeerManagerMessageRequest>,
         ctx: &mut Self::Context,
     ) -> Self::Result {
-        let msg_type: &str = (&msg.msg).into();
-        let (_span, msg) = handler_debug_span!(target: "network", msg, msg_type);
+        let (_span, msg) = handler_debug_span!(target: "network", msg);
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
         self.handle_peer_manager_message(msg, ctx)

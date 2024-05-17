@@ -95,7 +95,7 @@ impl CacheEntry {
         // Check if the part is already present.
         if self.parts[part_ord].is_some() {
             tracing::warn!(
-                target: "stateless_validation",
+                target: "client",
                 ?shard_id,
                 ?height_created,
                 ?part_ord,
@@ -139,7 +139,7 @@ impl CacheEntry {
                 // We ideally never expect the decoding to fail. In case it does, we received a bad part
                 // from the chunk producer.
                 tracing::error!(
-                    target: "stateless_validation",
+                    target: "client",
                     ?err,
                     ?shard_id,
                     ?height_created,
@@ -182,7 +182,7 @@ impl PartialEncodedStateWitnessTracker {
         &mut self,
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
-        tracing::debug!(target: "stateless_validation", ?partial_witness, "store_partial_encoded_state_witness");
+        tracing::debug!(target: "client", ?partial_witness, "store_partial_encoded_state_witness");
 
         self.maybe_insert_new_entry_in_parts_cache(&partial_witness)?;
 
@@ -190,7 +190,7 @@ impl PartialEncodedStateWitnessTracker {
         let entry = self.parts_cache.get_mut(&key).unwrap();
 
         if let Some(encoded_witness) = entry.insert_in_cache_entry(partial_witness) {
-            tracing::debug!(target: "stateless_validation", ?key, "Sending encoded witness to client.");
+            tracing::debug!(target: "client", ?key, "Sending encoded witness to client.");
 
             // Record the time taken from receiving first part to decoding partial witness.
             metrics::PARTIAL_WITNESS_DECODE_TIME
@@ -246,7 +246,7 @@ impl PartialEncodedStateWitnessTracker {
             // Check if the evicted entry has been fully decoded and processed.
             if !evicted_entry.is_decoded {
                 tracing::warn!(
-                    target: "stateless_validation",
+                    target: "client",
                     ?evicted_chunk_hash,
                     data_parts_present = ?evicted_entry.data_parts_present,
                     data_parts_required = ?evicted_entry.data_parts_required,

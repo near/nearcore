@@ -98,7 +98,8 @@ impl HeaderSync {
         highest_height: BlockHeight,
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<(), near_chain::Error> {
-        let _span = tracing::debug_span!(target: "sync", "run", sync = "HeaderSync").entered();
+        let _span =
+            tracing::debug_span!(target: "sync", "run_sync", sync_type = "HeaderSync").entered();
         let head = chain.head()?;
         let header_head = chain.header_head()?;
 
