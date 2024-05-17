@@ -6,7 +6,7 @@ use near_primitives_core::types::{Gas, ShardId};
 /// This class combines the congestion control config, congestion info and
 /// missed chunks count. It contains the main congestion control logic and
 /// exposes methods that can be used for congestion control.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CongestionControl {
     config: CongestionControlConfig,
     info: CongestionInfo,
@@ -84,7 +84,7 @@ impl CongestionControl {
         if congestion == 1.0 {
             // Red traffic light: reduce to minimum speed
             if sender_shard == self.info.allowed_shard() as u64 {
-                self.config.red_gas
+                self.config.allowed_shard_outgoing_gas
             } else {
                 0
             }
@@ -390,7 +390,16 @@ fn mix(left: u64, right: u64, ratio: f64) -> u64 {
 
 #[cfg(test)]
 mod tests {
+    use near_parameters::RuntimeConfigStore;
+    use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
+
     use super::*;
+
+    fn get_config() -> CongestionControlConfig {
+        let runtime_config_store = RuntimeConfigStore::new(None);
+        let runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
+        runtime_config.congestion_control_config
+    }
 
     #[test]
     fn test_mix() {
@@ -444,7 +453,7 @@ mod tests {
     /// Default congestion info should be no congestion => maximally permissive.
     #[test]
     fn test_default_congestion() {
-        let config = CongestionControlConfig::default();
+        let config = get_config();
         let info = CongestionInfo::default();
         let congestion_control = CongestionControl::new(config, info, 0);
 
@@ -452,6 +461,7 @@ mod tests {
         assert_eq!(0.0, congestion_control.incoming_congestion());
         assert_eq!(0.0, congestion_control.outgoing_congestion());
         assert_eq!(0.0, congestion_control.congestion_level(true));
+        assert_eq!(0.0, congestion_control.congestion_level(false));
 
         assert_eq!(config.max_outgoing_gas, congestion_control.outgoing_limit(0));
         assert_eq!(config.max_tx_gas, congestion_control.process_tx_limit());
@@ -460,7 +470,11 @@ mod tests {
 
     #[test]
     fn test_memory_congestion() {
-        let config = CongestionControlConfig::default();
+        if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
+            return;
+        }
+
+        let config = get_config();
         let info = CongestionInfo::default();
         let mut control = CongestionControl::new(config, info, 0);
 
@@ -499,7 +513,11 @@ mod tests {
 
     #[test]
     fn test_incoming_congestion() {
-        let config = CongestionControlConfig::default();
+        if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
+            return;
+        }
+
+        let config = get_config();
         let info = CongestionInfo::default();
         let mut control: CongestionControl = CongestionControl::new(config, info, 0);
 
@@ -547,7 +565,11 @@ mod tests {
 
     #[test]
     fn test_outgoing_congestion() {
-        let config = CongestionControlConfig::default();
+        if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
+            return;
+        }
+
+        let config = get_config();
         let info = CongestionInfo::default();
         let mut control: CongestionControl = CongestionControl::new(config, info, 0);
 
@@ -586,7 +608,11 @@ mod tests {
 
     #[test]
     fn test_missed_chunks_congestion() {
-        let config = CongestionControlConfig::default();
+        if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
+            return;
+        }
+
+        let config = get_config();
         let info = CongestionInfo::default();
 
         // Test missed chunks congestion without any other congestion
@@ -625,7 +651,11 @@ mod tests {
 
     #[test]
     fn test_missed_chunks_finalize() {
-        let config = CongestionControlConfig::default();
+        if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
+            return;
+        }
+
+        let config = get_config();
 
         // Setup half congested congestion info.
         let mut info = CongestionInfo::default();

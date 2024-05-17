@@ -47,8 +47,9 @@ impl RuntimeConfig {
 
     pub fn test() -> Self {
         let config_store = super::config_store::RuntimeConfigStore::new(None);
-        let mut wasm_config =
-            crate::vm::Config::clone(&config_store.get_config(PROTOCOL_VERSION).wasm_config);
+        let runtime_config = config_store.get_config(PROTOCOL_VERSION);
+
+        let mut wasm_config = crate::vm::Config::clone(&runtime_config.wasm_config);
         // Lower the yield timeout length so that we can observe timeouts in integration tests.
         wasm_config.limit_config.yield_timeout_length_in_blocks = TEST_CONFIG_YIELD_TIMEOUT_LENGTH;
 
@@ -57,21 +58,23 @@ impl RuntimeConfig {
             wasm_config,
             account_creation_config: AccountCreationConfig::default(),
             storage_proof_size_soft_limit: usize::MAX,
-            congestion_control_config: CongestionControlConfig::default(),
+            congestion_control_config: runtime_config.congestion_control_config,
         }
     }
 
     pub fn free() -> Self {
         let config_store = super::config_store::RuntimeConfigStore::new(None);
-        let mut wasm_config =
-            crate::vm::Config::clone(&config_store.get_config(PROTOCOL_VERSION).wasm_config);
+        let runtime_config = config_store.get_config(PROTOCOL_VERSION);
+
+        let mut wasm_config = crate::vm::Config::clone(&runtime_config.wasm_config);
         wasm_config.make_free();
+
         Self {
             fees: RuntimeFeesConfig::free(),
             wasm_config,
             account_creation_config: AccountCreationConfig::default(),
             storage_proof_size_soft_limit: usize::MAX,
-            congestion_control_config: CongestionControlConfig::default(),
+            congestion_control_config: runtime_config.congestion_control_config,
         }
     }
 
@@ -152,7 +155,7 @@ pub struct CongestionControlConfig {
     /// ideal conditions, the gradual reduction of new workload entering the system
     /// combined with gradually limited forwarding to congested shards should
     /// prevent shards from becoming 100% congested in the first place.
-    pub red_gas: Gas,
+    pub allowed_shard_outgoing_gas: Gas,
 
     /// The maximum amount of gas in a chunk spent on converting new transactions to
     /// receipts.
@@ -179,30 +182,8 @@ pub struct CongestionControlConfig {
     pub reject_tx_congestion_threshold: f64,
 }
 
-// The following default constants have been defined in
-// [NEP-539](https://github.com/near/NEPs/pull/539) after extensive fine-tuning
-// and discussions.
-
-impl Default for CongestionControlConfig {
-    fn default() -> Self {
-        const PGAS: Gas = 10u64.pow(15);
-        const TGAS: Gas = 10u64.pow(12);
-
-        Self {
-            max_congestion_incoming_gas: 20 * PGAS,
-            max_congestion_outgoing_gas: 2 * PGAS,
-            max_congestion_memory_consumption: bytesize::ByteSize::mb(1000u64).0,
-            max_congestion_missed_chunks: 10,
-            max_outgoing_gas: 300 * PGAS,
-            min_outgoing_gas: 1 * PGAS,
-            red_gas: 1 * PGAS,
-            max_tx_gas: 500 * TGAS,
-            min_tx_gas: 20 * TGAS,
-            reject_tx_congestion_threshold: 0.25,
-        }
-    }
-}
-
-impl Eq for CongestionControlConfig {
-    // TODO(congestion_control) - implement Eq for CongestionControlConfig
-}
+// The Eq cannot be automatically derived for this class because it contains a
+// f64 field. The f64 type does not implement the Eq trait because it's possible
+// that NaN != NaN. In the CongestionControlConfig the field should never be NaN
+// so it is okay for us to add the Eq trait to it manually.
+impl Eq for CongestionControlConfig {}

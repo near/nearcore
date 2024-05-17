@@ -3180,12 +3180,14 @@ pub mod estimator {
     use super::{ReceiptSink, Runtime};
     use crate::congestion_control::ReceiptSinkV2;
     use crate::{ApplyState, ApplyStats};
-    use near_primitives::congestion_info::CongestionControl;
+    use near_parameters::RuntimeConfigStore;
+    use near_primitives::congestion_info::{CongestionControl, CongestionInfo};
     use near_primitives::errors::RuntimeError;
     use near_primitives::receipt::Receipt;
     use near_primitives::transaction::ExecutionOutcomeWithId;
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::types::EpochInfoProvider;
+    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
     use near_store::TrieUpdate;
     use std::collections::HashMap;
@@ -3202,7 +3204,14 @@ pub mod estimator {
         // For the estimator, create a limitless receipt sink that always
         // forwards. This captures congestion accounting overhead but does not
         // create unexpected congestion in estimations.
-        let mut congestion_control = CongestionControl::default();
+        let config_store = RuntimeConfigStore::new(None);
+        let runtime_config = config_store.get_config(PROTOCOL_VERSION);
+
+        let mut congestion_control = CongestionControl::new(
+            runtime_config.congestion_control_config,
+            CongestionInfo::default(),
+            0,
+        );
         // no limits set for any shards => limitless
         let outgoing_limit = HashMap::new();
 

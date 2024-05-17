@@ -335,7 +335,23 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
             },
             storage_proof_size_soft_limit: params.get(Parameter::StorageProofSizeSoftLimit)?,
             // TODO(congestion_control) - Implement congestion control config in runtime.
-            congestion_control_config: CongestionControlConfig::default(),
+            congestion_control_config: CongestionControlConfig {
+                max_congestion_incoming_gas: params.get(Parameter::MaxCongestionIncomingGas)?,
+                max_congestion_outgoing_gas: params.get(Parameter::MaxCongestionOutgoingGas)?,
+                max_congestion_memory_consumption: params
+                    .get(Parameter::MaxCongestionMemoryConsumption)?,
+                max_congestion_missed_chunks: params.get(Parameter::MaxCongestionMissedChunks)?,
+                max_outgoing_gas: params.get(Parameter::MaxOutgoingGas)?,
+                min_outgoing_gas: params.get(Parameter::MinOutgoingGas)?,
+                allowed_shard_outgoing_gas: params.get(Parameter::AllowedShardOutgoingGas)?,
+                max_tx_gas: params.get(Parameter::MaxTxGas)?,
+                min_tx_gas: params.get(Parameter::MinTxGas)?,
+                reject_tx_congestion_threshold: {
+                    let rational: Rational32 =
+                        params.get(Parameter::RejectTxCongestionThreshold)?;
+                    *rational.numer() as f64 / *rational.denom() as f64
+                },
+            },
         })
     }
 }

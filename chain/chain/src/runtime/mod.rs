@@ -17,7 +17,7 @@ use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::checked_feature;
-use near_primitives::congestion_info::CongestionControl;
+use near_primitives::congestion_info::{CongestionControl, ExtendedCongestionInfo};
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
@@ -1328,7 +1328,13 @@ fn chunk_tx_gas_limit(
         } else {
             // When a new shard is created, or when the feature is just being enabled.
             // Using the default (no congestion) is a reasonable choice in this case.
-            CongestionControl::default().process_tx_limit()
+            let own_congestion = ExtendedCongestionInfo::default();
+            let congestion_control = CongestionControl::new(
+                runtime_config.congestion_control_config,
+                own_congestion.congestion_info,
+                own_congestion.missed_chunks_count,
+            );
+            congestion_control.process_tx_limit()
         }
     } else {
         gas_limit / 2
