@@ -7,6 +7,7 @@ use crate::{metrics, Client};
 use itertools::Itertools;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{CanSend, Sender};
+use near_cache::SyncLruCache;
 use near_chain::chain::{
     apply_new_chunk, apply_old_chunk, NewChunkData, NewChunkResult, OldChunkData, OldChunkResult,
     ShardContext, StorageContext,
@@ -50,6 +51,12 @@ use std::sync::Arc;
 // Keeping a threshold of 5 block producers should be sufficient for most scenarios.
 const NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT: u64 = 5;
 
+#[derive(Clone)]
+pub struct ChunkStateWitnessValidationResult {
+    pub chunk_extra: ChunkExtra,
+    pub outgoing_receipts: Vec<Receipt>,
+}
+
 /// A module that handles chunk validation logic. Chunk validation refers to a
 /// critical process of stateless validation, where chunk validators (certain
 /// validators selected to validate the chunk) verify that the chunk's state
@@ -64,6 +71,8 @@ pub struct ChunkValidator {
     chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
     orphan_witness_pool: OrphanStateWitnessPool,
     validation_spawner: Arc<dyn AsyncComputationSpawner>,
+    validation_result_cache:
+        Arc<SyncLruCache<ChunkHash, ChunkStateWitnessValidationResult>>,
 }
 
 impl ChunkValidator {
@@ -84,6 +93,7 @@ impl ChunkValidator {
             chunk_endorsement_tracker,
             orphan_witness_pool: OrphanStateWitnessPool::new(orphan_witness_pool_size),
             validation_spawner,
+            validation_result_cache: Arc::new(SyncLruCache::new(1000)),
         }
     }
 
@@ -120,15 +130,58 @@ impl ChunkValidator {
         let chunk_endorsement_tracker = self.chunk_endorsement_tracker.clone();
         let epoch_manager = self.epoch_manager.clone();
         // If we have the chunk extra for the previous block, we can validate the chunk without state witness.
-        // This usually happens when we are a chunk producer
+        // There are two cases here:
+        // 1. We have chunk extra and outgoing receipts cached in `validation_result_cache`. This happens because
+        // we now apply another chunk with the same prev_chunk. This means that at least one chunk produced before
+        // did not get included. Since we have the chunk extra and outgoing receipts, we don't need to validate the
+        // previous state transition again.
+        // 2. We are a chunk producer and therefore have the chunk extra for the previous block saved on disk. We
+        // can also skip validating the chunk state witness in this case.
+        let prev_block = chain.get_block(prev_block_hash)?;
+        let last_header = Chain::get_prev_chunk_header(
+            epoch_manager.as_ref(),
+            &prev_block,
+            chunk_header.shard_id(),
+        )?;
+        let prev_chunk_hash = last_header.chunk_hash();
+        // Case 1: We have the chunk extra and outgoing receipts cached.
+        if let Some(ChunkStateWitnessValidationResult { chunk_extra, outgoing_receipts }) =
+            self.validation_result_cache.get(&prev_chunk_hash)
+        {
+            let outgoing_receipts_hashes = {
+                let shard_layout = epoch_manager.get_shard_layout_from_prev_block(
+                    state_witness.chunk_header.prev_block_hash(),
+                )?;
+                Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout)
+            };
+            let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
+            match validate_chunk_with_chunk_extra_and_receipts_root(
+                &chunk_extra,
+                &state_witness.chunk_header,
+                &outgoing_receipts_root,
+            ) {
+                Ok(()) => {
+                    send_chunk_endorsement_to_block_producers(
+                        &chunk_header,
+                        epoch_manager.as_ref(),
+                        signer.as_ref(),
+                        &network_sender,
+                        chunk_endorsement_tracker.as_ref(),
+                    );
+                    return Ok(());
+                }
+                Err(err) => {
+                    tracing::error!(
+                        "Failed to validate chunk using existing chunk extra: {:?}",
+                        err
+                    );
+                    return Err(err);
+                }
+            }
+        }
+        // Case 2: We are a chunk producer and have the chunk extra for the previous block saved on disk.
         let shard_uid = epoch_manager.shard_id_to_uid(chunk_header.shard_id(), &epoch_id)?;
         if let Ok(prev_chunk_extra) = chain.get_chunk_extra(prev_block_hash, &shard_uid) {
-            let prev_block = chain.get_block(prev_block_hash)?;
-            let last_header = Chain::get_prev_chunk_header(
-                epoch_manager.as_ref(),
-                &prev_block,
-                chunk_header.shard_id(),
-            )?;
             match validate_chunk_with_chunk_extra(
                 chain.chain_store(),
                 self.epoch_manager.as_ref(),
@@ -158,9 +211,11 @@ impl ChunkValidator {
         }
 
         let runtime_adapter = self.runtime_adapter.clone();
+        let cache = self.validation_result_cache.clone();
         self.validation_spawner.spawn("stateless_validation", move || {
             // processing_done_tracker must survive until the processing is finished.
-            let _processing_done_tracker_capture = processing_done_tracker;
+            let _processing_done_tracker_capture: Option<ProcessingDoneTracker> =
+                processing_done_tracker;
 
             match validate_chunk_state_witness(
                 state_witness,
@@ -168,7 +223,8 @@ impl ChunkValidator {
                 epoch_manager.as_ref(),
                 runtime_adapter.as_ref(),
             ) {
-                Ok(()) => {
+                Ok(validation_result) => {
+                    cache.put(prev_chunk_hash, validation_result);
                     send_chunk_endorsement_to_block_producers(
                         &chunk_header,
                         epoch_manager.as_ref(),
@@ -503,7 +559,7 @@ pub(crate) fn validate_chunk_state_witness(
     pre_validation_output: PreValidationOutput,
     epoch_manager: &dyn EpochManagerAdapter,
     runtime_adapter: &dyn RuntimeAdapter,
-) -> Result<(), Error> {
+) -> Result<ChunkStateWitnessValidationResult, Error> {
     let _timer = metrics::CHUNK_STATE_WITNESS_VALIDATION_TIME
         .with_label_values(&[&state_witness.chunk_header.shard_id().to_string()])
         .start_timer();
@@ -605,7 +661,7 @@ pub(crate) fn validate_chunk_state_witness(
         &outgoing_receipts_root,
     )?;
 
-    Ok(())
+    Ok(ChunkStateWitnessValidationResult { chunk_extra, outgoing_receipts })
 }
 
 fn apply_result_to_chunk_extra(

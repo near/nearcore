@@ -127,7 +127,7 @@ impl Client {
                 epoch_manager.as_ref(),
                 runtime_adapter.as_ref(),
             ) {
-                Ok(()) => {
+                Ok(_) => {
                     tracing::debug!(
                         target: "client",
                         shard_id,
