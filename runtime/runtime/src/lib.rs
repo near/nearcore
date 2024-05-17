@@ -1383,7 +1383,7 @@ impl Runtime {
         let mut congestion_info = apply_state.own_congestion_info(protocol_version)?;
         let mut congestion_control = if let Some(congestion_info) = &mut congestion_info {
             let congestion_control = CongestionControl::new(
-                apply_state.config.congestion_control_config.clone(),
+                apply_state.config.congestion_control_config,
                 congestion_info.congestion_info,
                 congestion_info.missed_chunks_count,
             );
