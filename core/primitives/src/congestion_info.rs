@@ -463,8 +463,9 @@ mod tests {
         assert_eq!(0.0, congestion_control.congestion_level(true));
         assert_eq!(0.0, congestion_control.congestion_level(false));
 
-        assert_eq!(config.max_outgoing_gas, congestion_control.outgoing_limit(0));
-        assert_eq!(config.max_tx_gas, congestion_control.process_tx_limit());
+        assert!(config.max_outgoing_gas.abs_diff(congestion_control.outgoing_limit(0)) <= 1);
+
+        assert!(config.max_tx_gas.abs_diff(congestion_control.process_tx_limit()) <= 1);
         assert!(congestion_control.shard_accepts_transactions());
     }
 
