@@ -30,33 +30,21 @@ pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
 }
 
 impl Transaction {
-    pub fn new(
+    pub fn new_v0(
         signer_id: AccountId,
         public_key: PublicKey,
         receiver_id: AccountId,
         nonce: Nonce,
         block_hash: CryptoHash,
-        priority_fee: Option<u64>,
     ) -> Self {
-        match priority_fee {
-            Some(priority_fee) => Transaction::V1(TransactionV1 {
-                signer_id,
-                public_key,
-                nonce,
-                receiver_id,
-                block_hash,
-                actions: vec![],
-                priority_fee,
-            }),
-            None => Transaction::V0(TransactionV0 {
-                signer_id,
-                public_key,
-                nonce,
-                receiver_id,
-                block_hash,
-                actions: vec![],
-            }),
-        }
+        Transaction::V0(TransactionV0 {
+            signer_id,
+            public_key,
+            nonce,
+            receiver_id,
+            block_hash,
+            actions: vec![],
+        })
     }
 
     pub fn actions_mut(&mut self) -> &mut Vec<Action> {

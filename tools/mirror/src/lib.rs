@@ -597,13 +597,12 @@ impl TxAwaitingNonce {
         provenance: MappedTxProvenance,
         nonce_updates: HashSet<(AccountId, PublicKey)>,
     ) -> Self {
-        let mut target_tx = Transaction::new(
+        let mut target_tx = Transaction::new_v0(
             target_signer_id,
             target_public_key,
             target_receiver_id,
             0,
             *ref_hash,
-            None,
         );
         *target_tx.actions_mut() = actions;
         Self {
@@ -645,13 +644,12 @@ impl MappedTx {
         provenance: MappedTxProvenance,
         nonce_updates: HashSet<(AccountId, PublicKey)>,
     ) -> Self {
-        let mut target_tx = Transaction::new(
+        let mut target_tx = Transaction::new_v0(
             target_signer_id,
             target_public_key,
             target_receiver_id,
             nonce,
             *ref_hash,
-            None,
         );
         *target_tx.actions_mut() = actions;
         let target_tx = SignedTransaction::new(
