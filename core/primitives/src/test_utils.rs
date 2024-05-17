@@ -36,17 +36,27 @@ impl Transaction {
         receiver_id: AccountId,
         nonce: Nonce,
         block_hash: CryptoHash,
-        priority_fee: u64,
+        priority_fee: Option<u64>,
     ) -> Self {
-        Transaction::V1(TransactionV1 {
-            signer_id,
-            public_key,
-            nonce,
-            receiver_id,
-            block_hash,
-            actions: vec![],
-            priority_fee,
-        })
+        match priority_fee {
+            Some(priority_fee) => Transaction::V1(TransactionV1 {
+                signer_id,
+                public_key,
+                nonce,
+                receiver_id,
+                block_hash,
+                actions: vec![],
+                priority_fee,
+            }),
+            None => Transaction::V0(TransactionV0 {
+                signer_id,
+                public_key,
+                nonce,
+                receiver_id,
+                block_hash,
+                actions: vec![],
+            }),
+        }
     }
 
     pub fn actions_mut(&mut self) -> &mut Vec<Action> {

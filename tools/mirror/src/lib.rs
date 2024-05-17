@@ -603,7 +603,7 @@ impl TxAwaitingNonce {
             target_receiver_id,
             0,
             *ref_hash,
-            0,
+            None,
         );
         *target_tx.actions_mut() = actions;
         Self {
@@ -651,7 +651,7 @@ impl MappedTx {
             target_receiver_id,
             nonce,
             *ref_hash,
-            0,
+            None,
         );
         *target_tx.actions_mut() = actions;
         let target_tx = SignedTransaction::new(
