@@ -77,6 +77,8 @@ test_features = [
   "near-network/test_features",
   "near-chain/test_features",
   "near-chunks/test_features",
+  "near-primitives/test_features",
+  "near-vm-runner/test_features",
 ]
 nightly_protocol = [
   "near-actix-test-utils/nightly_protocol",

@@ -219,3 +219,25 @@ function_call_weight: false
 vm_kind: Wasmer0
 eth_implicit_accounts: false
 yield_resume: false
+
+
+# Congestion Control configuration
+
+# The configs are u64 but yaml only supports i64.
+# i64::MAX == 9_223_372_036_854_775_807i64
+
+max_congestion_incoming_gas: 9_223_372_036_854_775_807
+max_congestion_outgoing_gas: 9_223_372_036_854_775_807
+max_congestion_memory_consumption: 9_223_372_036_854_775_807
+max_congestion_missed_chunks: 9_223_372_036_854_775_807
+
+max_outgoing_gas: 9_223_372_036_854_775_807
+min_outgoing_gas: 9_223_372_036_854_775_807
+allowed_shard_outgoing_gas: 9_223_372_036_854_775_807
+max_tx_gas: 9_223_372_036_854_775_807
+min_tx_gas: 9_223_372_036_854_775_807
+
+reject_tx_congestion_threshold: {
+  numerator: 1,
+  denominator: 1,
+}

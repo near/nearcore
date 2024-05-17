@@ -2,7 +2,9 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
+use near_parameters::RuntimeConfigStore;
 use near_primitives::account::id::AccountId;
+use near_primitives::congestion_info::CongestionControl;
 use near_primitives::errors::{ActionErrorKind, FunctionCallError, TxExecutionError};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::transaction::SignedTransaction;
@@ -49,12 +51,21 @@ fn test_protocol_upgrade() {
     // check congestion info is available and represents "no congestion"
     let chunks = block.chunks();
     assert!(chunks.len() > 0);
+
+    let config_store = RuntimeConfigStore::new(None);
+    let epoch_id = block.header().epoch_id();
+    let protocol_version =
+        env.clients[0].epoch_manager.get_epoch_protocol_version(epoch_id).unwrap();
+    let runtime_config = config_store.get_config(protocol_version);
+
     for chunk_header in chunks.iter() {
         let congestion_info = chunk_header
             .congestion_info()
             .expect("chunk header must have congestion info after upgrade");
-        assert_eq!(congestion_info.congestion_level(0), 0.0);
-        assert!(congestion_info.shard_accepts_transactions(0));
+        let congestion_control =
+            CongestionControl::new(runtime_config.congestion_control_config, congestion_info, 0);
+        assert_eq!(congestion_control.congestion_level(true), 0.0);
+        assert!(congestion_control.shard_accepts_transactions());
     }
 }
 

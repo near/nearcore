@@ -167,7 +167,7 @@ fn get_postponed_receipt_count_for_shard(
 }
 
 fn get_postponed_receipt_count_for_trie(trie: Trie) -> Result<i64, anyhow::Error> {
-    let mut iter = trie.iter()?;
+    let mut iter = trie.disk_iter()?;
     iter.seek_prefix([trie_key::col::POSTPONED_RECEIPT])?;
     let mut count = 0;
     for item in iter {
