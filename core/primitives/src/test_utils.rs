@@ -47,6 +47,25 @@ impl Transaction {
         })
     }
 
+    pub fn new_v1(
+        signer_id: AccountId,
+        public_key: PublicKey,
+        receiver_id: AccountId,
+        nonce: Nonce,
+        block_hash: CryptoHash,
+        priority_fee: u64,
+    ) -> Self {
+        Transaction::V1(TransactionV1 {
+            signer_id,
+            public_key,
+            nonce,
+            receiver_id,
+            block_hash,
+            actions: vec![],
+            priority_fee,
+        })
+    }
+
     pub fn actions_mut(&mut self) -> &mut Vec<Action> {
         match self {
             Transaction::V0(tx) => &mut tx.actions,

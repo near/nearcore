@@ -978,7 +978,7 @@ impl Client {
         if insert {
             txs.transactions.push(SignedTransaction::new(
                 near_crypto::Signature::empty(near_crypto::KeyType::ED25519),
-                near_primitives::transaction::Transaction::new(
+                near_primitives::transaction::Transaction::new_v1(
                     "test".parse().unwrap(),
                     near_crypto::PublicKey::empty(near_crypto::KeyType::SECP256K1),
                     "other".parse().unwrap(),
