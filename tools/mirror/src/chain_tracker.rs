@@ -369,8 +369,7 @@ impl TxTracker {
             .binary_search_by(|b| b.source_height.cmp(&tx_ref.source_height))
             .unwrap();
         let block = &mut self.queued_blocks[block_idx];
-        let chunk = block.chunks.iter_mut().find(|c| c.shard_id == tx_ref.shard_id).unwrap();
-        &mut chunk.txs[tx_ref.tx_idx]
+        &mut block.txs[tx_ref.idx]
     }
 
     async fn insert_access_key_updates(
@@ -409,53 +408,50 @@ impl TxTracker {
         self.height_queued = Some(block.source_height);
         self.next_heights.pop_front().unwrap();
 
-        for c in block.chunks.iter() {
-            if !c.txs.is_empty() {
-                self.nonempty_height_queued = Some(block.source_height);
-            }
-            for (tx_idx, tx) in c.txs.iter().enumerate() {
-                let tx_ref =
-                    TxRef { source_height: block.source_height, shard_id: c.shard_id, tx_idx };
-                match tx {
-                    crate::TargetChainTx::Ready(tx) => {
-                        let info = self
-                            .nonces
-                            .get_mut(&(
-                                tx.target_tx.transaction.signer_id().clone(),
-                                tx.target_tx.transaction.public_key().clone(),
-                            ))
-                            .unwrap();
-                        info.queued_txs.insert(tx_ref.clone());
-                        self.insert_access_key_updates(
-                            target_view_client,
-                            db,
-                            &tx_ref,
-                            &tx.nonce_updates,
-                            block.source_height,
-                        )
-                        .await?;
-                    }
-                    crate::TargetChainTx::AwaitingNonce(tx) => {
-                        let info = self
-                            .nonces
-                            .get_mut(&(
-                                tx.target_tx.signer_id().clone(),
-                                tx.target_tx.public_key().clone(),
-                            ))
-                            .unwrap();
-                        info.txs_awaiting_nonce.insert(tx_ref.clone());
-                        info.queued_txs.insert(tx_ref.clone());
-                        self.insert_access_key_updates(
-                            target_view_client,
-                            db,
-                            &tx_ref,
-                            &tx.nonce_updates,
-                            block.source_height,
-                        )
-                        .await?;
-                    }
-                };
-            }
+        if !block.txs.is_empty() {
+            self.nonempty_height_queued = Some(block.source_height);
+        }
+        for (idx, tx) in block.txs.iter().enumerate() {
+            let tx_ref = TxRef { source_height: block.source_height, idx };
+            match tx {
+                crate::TargetChainTx::Ready(tx) => {
+                    let info = self
+                        .nonces
+                        .get_mut(&(
+                            tx.target_tx.transaction.signer_id().clone(),
+                            tx.target_tx.transaction.public_key().clone(),
+                        ))
+                        .unwrap();
+                    info.queued_txs.insert(tx_ref.clone());
+                    self.insert_access_key_updates(
+                        target_view_client,
+                        db,
+                        &tx_ref,
+                        &tx.nonce_updates,
+                        block.source_height,
+                    )
+                    .await?;
+                }
+                crate::TargetChainTx::AwaitingNonce(tx) => {
+                    let info = self
+                        .nonces
+                        .get_mut(&(
+                            tx.target_tx.signer_id().clone(),
+                            tx.target_tx.public_key().clone(),
+                        ))
+                        .unwrap();
+                    info.txs_awaiting_nonce.insert(tx_ref.clone());
+                    info.queued_txs.insert(tx_ref.clone());
+                    self.insert_access_key_updates(
+                        target_view_client,
+                        db,
+                        &tx_ref,
+                        &tx.nonce_updates,
+                        block.source_height,
+                    )
+                    .await?;
+                }
+            };
         }
         self.queued_blocks.push_back(block);
         Ok(())
@@ -471,14 +467,10 @@ impl TxTracker {
         db: &DB,
     ) -> anyhow::Result<()> {
         let mut needed_access_keys = HashSet::new();
-        for c in self.queued_blocks[0].chunks.iter_mut() {
-            for tx in c.txs.iter_mut() {
-                if let TargetChainTx::AwaitingNonce(t) = tx {
-                    needed_access_keys.insert((
-                        t.target_tx.signer_id().clone(),
-                        t.target_tx.public_key().clone(),
-                    ));
-                }
+        for tx in self.queued_blocks[0].txs.iter() {
+            if let TargetChainTx::AwaitingNonce(t) = tx {
+                needed_access_keys
+                    .insert((t.target_tx.signer_id().clone(), t.target_tx.public_key().clone()));
             }
         }
         for access_key in needed_access_keys.iter() {
@@ -486,50 +478,44 @@ impl TxTracker {
         }
         let block = &mut self.queued_blocks[0];
         self.height_popped = Some(block.source_height);
-        for c in block.chunks.iter_mut() {
-            for (tx_idx, tx) in c.txs.iter_mut().enumerate() {
-                match tx {
-                    TargetChainTx::AwaitingNonce(_) => {
-                        let tx_ref = TxRef {
-                            source_height: block.source_height,
-                            shard_id: c.shard_id,
-                            tx_idx,
-                        };
-                        tx.try_set_nonce(None);
-                        match tx {
-                            TargetChainTx::Ready(t) => {
-                                tracing::debug!(
-                                    target: "mirror", "Prepared {} for ({}, {:?}) with nonce {} even though there are still pending outcomes that may affect the access key",
-                                    &t.provenance, t.target_tx.transaction.signer_id(), t.target_tx.transaction.public_key(), t.target_tx.transaction.nonce()
-                                );
-                                self.nonces
-                                    .get_mut(&(
-                                        t.target_tx.transaction.signer_id().clone(),
-                                        t.target_tx.transaction.public_key().clone(),
-                                    ))
-                                    .unwrap()
-                                    .txs_awaiting_nonce
-                                    .remove(&tx_ref);
-                            }
-                            TargetChainTx::AwaitingNonce(t) => {
-                                tracing::warn!(
-                                    target: "mirror", "Could not prepare {} for ({}, {:?}). Nonce unknown",
-                                    &t.provenance, t.target_tx.signer_id(), t.target_tx.public_key(),
-                                );
-                                self.nonces
-                                    .get_mut(&(
-                                        t.target_tx.signer_id().clone(),
-                                        t.target_tx.public_key().clone(),
-                                    ))
-                                    .unwrap()
-                                    .txs_awaiting_nonce
-                                    .remove(&tx_ref);
-                            }
-                        };
-                    }
-                    TargetChainTx::Ready(_) => {}
-                };
-            }
+        for (idx, tx) in block.txs.iter_mut().enumerate() {
+            match tx {
+                TargetChainTx::AwaitingNonce(_) => {
+                    let tx_ref = TxRef { source_height: block.source_height, idx };
+                    tx.try_set_nonce(None);
+                    match tx {
+                        TargetChainTx::Ready(t) => {
+                            tracing::debug!(
+                                target: "mirror", "Prepared {} for ({}, {:?}) with nonce {} even though there are still pending outcomes that may affect the access key",
+                                &t.provenance, t.target_tx.transaction.signer_id(), t.target_tx.transaction.public_key(), t.target_tx.transaction.nonce()
+                            );
+                            self.nonces
+                                .get_mut(&(
+                                    t.target_tx.transaction.signer_id().clone(),
+                                    t.target_tx.transaction.public_key().clone(),
+                                ))
+                                .unwrap()
+                                .txs_awaiting_nonce
+                                .remove(&tx_ref);
+                        }
+                        TargetChainTx::AwaitingNonce(t) => {
+                            tracing::warn!(
+                                target: "mirror", "Could not prepare {} for ({}, {:?}). Nonce unknown",
+                                &t.provenance, t.target_tx.signer_id(), t.target_tx.public_key(),
+                            );
+                            self.nonces
+                                .get_mut(&(
+                                    t.target_tx.signer_id().clone(),
+                                    t.target_tx.public_key().clone(),
+                                ))
+                                .unwrap()
+                                .txs_awaiting_nonce
+                                .remove(&tx_ref);
+                        }
+                    };
+                }
+                TargetChainTx::Ready(_) => {}
+            };
         }
         Ok(())
     }
@@ -553,20 +539,10 @@ impl TxTracker {
             source_height: block.source_height,
             source_hash: block.source_hash,
             txs: block
-                .chunks
+                .txs
                 .into_iter()
-                .flat_map(|c| {
-                    c.txs.into_iter().enumerate().map(move |(tx_idx, tx)| {
-                        (
-                            TxRef {
-                                source_height: block.source_height,
-                                shard_id: c.shard_id,
-                                tx_idx,
-                            },
-                            tx,
-                        )
-                    })
-                })
+                .enumerate()
+                .map(move |(idx, tx)| (TxRef { source_height: block.source_height, idx }, tx))
                 .collect(),
         };
         Ok(b)

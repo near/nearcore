@@ -80,13 +80,12 @@ impl DBCol {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct TxRef {
     source_height: BlockHeight,
-    shard_id: ShardId,
-    tx_idx: usize,
+    idx: usize,
 }
 
 impl std::fmt::Display for TxRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "source #{} shard {} tx {}", self.source_height, self.shard_id, self.tx_idx)
+        write!(f, "source #{} tx {}", self.source_height, self.idx)
     }
 }
 
@@ -98,10 +97,7 @@ impl PartialOrd for TxRef {
 
 impl Ord for TxRef {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.source_height
-            .cmp(&other.source_height)
-            .then_with(|| self.tx_idx.cmp(&other.tx_idx))
-            .then_with(|| self.shard_id.cmp(&other.shard_id))
+        self.source_height.cmp(&other.source_height).then_with(|| self.idx.cmp(&other.idx))
     }
 }
 
@@ -793,18 +789,12 @@ impl TargetChainTx {
     }
 }
 
-#[derive(Debug)]
-struct MappedChunk {
-    txs: Vec<TargetChainTx>,
-    shard_id: ShardId,
-}
-
 // TODO: get rid of this struct and just store the transactions more simply in TxTracker
 #[derive(Debug)]
 struct MappedBlock {
     source_height: BlockHeight,
     source_hash: CryptoHash,
-    chunks: Vec<MappedChunk>,
+    txs: Vec<TargetChainTx>,
 }
 
 #[derive(Debug)]
@@ -1519,10 +1509,8 @@ impl<T: ChainAccess> TxMirror<T> {
                 format!("Failed fetching chunks for source chain #{}", source_height)
             })?;
 
-        let mut chunks = Vec::new();
+        let mut txs = Vec::new();
         for ch in source_block.chunks {
-            let mut txs = Vec::new();
-
             for (idx, source_tx) in ch.transactions.into_iter().enumerate() {
                 let (actions, nonce_updates) = self.map_actions(&source_tx).await?;
                 if actions.is_empty() {
@@ -1574,29 +1562,15 @@ impl<T: ChainAccess> TxMirror<T> {
                 )
                 .await?;
             }
-            tracing::debug!(
-                target: "mirror", "prepared {} transacations for source chain #{} shard {}",
-                txs.len(), source_height, ch.shard_id
-            );
-            chunks.push(MappedChunk { txs, shard_id: ch.shard_id });
         }
+        tracing::debug!(
+            target: "mirror", "prepared {} transacations for source chain #{}",
+            txs.len(), source_height,
+        );
         if let Some(create_account_height) = create_account_height {
-            if !chunks.is_empty() {
-                // just add them to shard 0's transactions instead of caring about which one to put it in. Doesn't really
-                // matter since in the end we're just sending all of them
-                self.add_create_account_txs(
-                    create_account_height,
-                    ref_hash,
-                    tracker,
-                    &mut chunks[0].txs,
-                )
-                .await?;
-            } else {
-                // shouldn't happen
-                tracing::warn!("something is wrong as there are no chunks to send transactions for at height {}", source_height);
-            }
+            self.add_create_account_txs(create_account_height, ref_hash, tracker, &mut txs).await?;
         }
-        Ok(MappedBlock { source_height, source_hash: source_block.hash, chunks })
+        Ok(MappedBlock { source_height, source_hash: source_block.hash, txs })
     }
 
     // Up to a certain capacity, prepare and queue up batches of
@@ -1816,13 +1790,13 @@ impl<T: ChainAccess> TxMirror<T> {
             let mut block = MappedBlock {
                 source_hash: CryptoHash::default(),
                 source_height: last_height,
-                chunks: vec![MappedChunk { shard_id: 0, txs: Vec::new() }],
+                txs: Vec::new(),
             };
             for h in next_heights {
-                self.add_create_account_txs(h, target_head, &mut tracker, &mut block.chunks[0].txs)
+                self.add_create_account_txs(h, target_head, &mut tracker, &mut block.txs)
                     .await?;
             }
-            if block.chunks.iter().any(|c| !c.txs.is_empty()) {
+            if !block.txs.is_empty() {
                 tracing::debug!(target: "mirror", "sending extra create account transactions for the first {} blocks", CREATE_ACCOUNT_DELTA);
                 tracker.queue_block(block, &self.target_view_client, &self.db).await?;
                 let mut b = tracker.next_batch(&self.target_view_client, &self.db).await?;
