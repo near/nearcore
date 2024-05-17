@@ -8,8 +8,10 @@ use near_chain::chain::ProcessChunkStateWitnessMessage;
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::reed_solomon::reed_solomon_decode;
-use near_primitives::stateless_validation::{EncodedChunkStateWitness, PartialEncodedStateWitness};
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::stateless_validation::{
+    ChunkProductionKey, EncodedChunkStateWitness, PartialEncodedStateWitness,
+};
+use near_primitives::types::ShardId;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 
 use crate::client_actor::ClientSenderForPartialWitness;
@@ -160,7 +162,7 @@ pub struct PartialEncodedStateWitnessTracker {
     /// Epoch manager to get the set of chunk validators
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     /// Keeps track of state witness parts received from chunk producers.
-    parts_cache: LruCache<(ShardId, BlockHeight), CacheEntry>,
+    parts_cache: LruCache<ChunkProductionKey, CacheEntry>,
     /// Reed Solomon encoder for decoding state witness parts.
     rs_map: RsMap,
 }
@@ -186,7 +188,7 @@ impl PartialEncodedStateWitnessTracker {
 
         self.maybe_insert_new_entry_in_parts_cache(&partial_witness)?;
 
-        let key = (partial_witness.shard_id(), partial_witness.height_created());
+        let key = partial_witness.chunk_production_key();
         let entry = self.parts_cache.get_mut(&key).unwrap();
 
         if let Some(encoded_witness) = entry.insert_in_cache_entry(partial_witness) {
@@ -222,7 +224,7 @@ impl PartialEncodedStateWitnessTracker {
         partial_witness: &PartialEncodedStateWitness,
     ) -> Result<(), Error> {
         // Insert a new entry into the cache for the chunk hash.
-        let key = (partial_witness.shard_id(), partial_witness.height_created());
+        let key = partial_witness.chunk_production_key();
         if self.parts_cache.contains(&key) {
             return Ok(());
         }
