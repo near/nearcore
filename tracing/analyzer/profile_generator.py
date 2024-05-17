@@ -11,7 +11,6 @@ def generate(trace_input: TraceInput):
         subcategories=[],
     )
     profile = Profile(
-        libs=[],
         meta=ProfileMeta(
             version=29,
             preprocessed_profile_version=48,
@@ -23,7 +22,6 @@ def generate(trace_input: TraceInput):
             categories=[category],
             marker_schema=[],
         ),
-        threads=[]
     )
     thread = Thread(
         name="spans",
@@ -49,17 +47,16 @@ def generate(trace_input: TraceInput):
                                                data={
                                                    "name": span.name,
                                                    "type": "span",
-                                               })
+                                               }.update(span.fields.payload()))
             for event in span.events:
                 thread.markers.add_instant_marker(strings_builder=strings_builder,
-                                                  name=f"{
-                                                      node_id} ({thread_id})",
+                                                  name=f"{node_id} ({thread_id})",
                                                   time=event.timestamp - global_start_time,
                                                   category=0,
                                                   data={
                                                       "name": event.name,
                                                       "type": "event",
-                                                  })
+                                                  }.update(event.fields.payload()))
     thread.string_array = strings_builder.strings
     profile.threads.append(thread)
     return profile
