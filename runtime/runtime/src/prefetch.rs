@@ -310,16 +310,14 @@ impl TriePrefetcher {
             return Ok(());
         };
         for tuple in list.iter() {
-            let Some(tuple) = tuple.as_array() else {
-                continue;
-            };
-            let Some(user_account) = tuple.first().and_then(|a| a.as_str()) else {
-                continue;
-            };
-            // Unique prefix of underlying data structure.
-            let mut key = vec![0, 64, 0, 0, 0];
-            key.extend(user_account.as_bytes());
-            let trie_key = TrieKey::ContractData { account_id: account_id.clone(), key };
+            let Some(tuple) = tuple.as_array() else { continue };
+            let Some(user_account) = tuple.first().and_then(|a| a.as_str()) else { continue };
+            let mut account_data_key = Vec::with_capacity(4 + 8 + user_account.len());
+            // (branch v2) StorageKey::Accounts = 4u8
+            let Ok(()) = 4u8.serialize(&mut account_data_key) else { continue };
+            let Ok(()) = user_account.serialize(&mut account_data_key) else { continue };
+            let trie_key =
+                TrieKey::ContractData { account_id: account_id.clone(), key: account_data_key };
             near_o11y::io_trace!(count: "prefetch");
             self.prefetch_trie_key(trie_key)?;
         }
