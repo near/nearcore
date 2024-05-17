@@ -145,9 +145,11 @@ impl ChunkValidator {
                         &network_sender,
                         chunk_endorsement_tracker.as_ref(),
                     );
+                    return Ok(());
                 }
                 Err(err) => {
-                    tracing::error!("Failed to validate chunk: {:?}", err);
+                    tracing::error!("Failed to validate chunk using existing chunk extra: {:?}", err);
+                    return Err(err);
                 }
             }
         }
