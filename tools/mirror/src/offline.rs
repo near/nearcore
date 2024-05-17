@@ -57,13 +57,13 @@ impl ChainAccess {
 impl crate::ChainAccess for ChainAccess {
     async fn init(
         &self,
-        last_height: BlockHeight,
+        next_height: BlockHeight,
         num_initial_blocks: usize,
     ) -> anyhow::Result<Vec<BlockHeight>> {
         let mut block_heights = Vec::with_capacity(num_initial_blocks);
         let head = self.head_height().await?;
 
-        let mut height = last_height + 1;
+        let mut height = next_height;
         loop {
             if height > head {
                 return Ok(block_heights);

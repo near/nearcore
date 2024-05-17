@@ -208,18 +208,74 @@ fn delete_pending_outcome(db: &DB, id: &CryptoHash) -> anyhow::Result<()> {
     )?)
 }
 
-fn set_last_source_height(db: &DB, height: BlockHeight) -> anyhow::Result<()> {
-    // TODO: we should instead save something like the
-    // (block_height, shard_id, idx_in_chunk) of the last
-    // transaction sent. Currently we set last_source_height after
-    // sending all of the transactions in that chunk, so if we get
+#[derive(Debug, BorshDeserialize, BorshSerialize)]
+enum TxBookmark {
+    StartBlock,
+    MidBlock { tx_idx: usize },
+    BlockFinished,
+}
+
+#[derive(Debug, BorshDeserialize, BorshSerialize)]
+struct TrafficCheckpoint {
+    height: BlockHeight,
+    bookmark: TxBookmark,
+}
+
+impl TrafficCheckpoint {
+    fn new(height: BlockHeight) -> Self {
+        Self { height, bookmark: TxBookmark::StartBlock }
+    }
+
+    fn next_needed_height(&self) -> BlockHeight {
+        match &self.bookmark {
+            TxBookmark::BlockFinished => self.height + 1,
+            _ => self.height,
+        }
+    }
+}
+
+fn migrate_db(db: &DB) -> anyhow::Result<()> {
+    let h = get_last_source_height(db)?;
+    match h {
+        Some(height) => {
+            let c = get_traffic_checkpoint(db)?;
+            match c {
+                Some(c) => {
+                    tracing::warn!(
+                        target: "mirror", last_source_height=height, existing_checkpoint=?c,
+                        "found both last_source_height and traffic_checkpoint keys in Misc column"
+                    );
+                }
+                None => {
+                    set_first_accounts_created(db)?;
+                    set_traffic_checkpoint(
+                        db,
+                        &TrafficCheckpoint { height, bookmark: TxBookmark::BlockFinished },
+                    )?;
+                }
+            };
+            db.delete_cf(db.cf_handle(DBCol::Misc.name()).unwrap(), "last_source_height")?;
+            Ok(())
+        }
+        None => Ok(()),
+    }
+}
+
+fn get_traffic_checkpoint(db: &DB) -> anyhow::Result<Option<TrafficCheckpoint>> {
+    Ok(db
+        .get_cf(db.cf_handle(DBCol::Misc.name()).unwrap(), "traffic_checkpoint")?
+        .map(|v| TrafficCheckpoint::try_from_slice(&v).unwrap()))
+}
+
+fn set_traffic_checkpoint(db: &DB, c: &TrafficCheckpoint) -> anyhow::Result<()> {
+    // TODO: consider saving this after sending each transaction, otherwise if we get
     // SIGTERM or something in the middle of sending a batch of
     // txs, we'll send some that we already sent next time we
     // start. Not a giant problem but kind of unclean.
     db.put_cf(
         db.cf_handle(DBCol::Misc.name()).unwrap(),
-        "last_source_height",
-        borsh::to_vec(&height).unwrap(),
+        "traffic_checkpoint",
+        borsh::to_vec(c).unwrap(),
     )?;
     Ok(())
 }
@@ -228,6 +284,22 @@ fn get_last_source_height(db: &DB) -> anyhow::Result<Option<BlockHeight>> {
     Ok(db
         .get_cf(db.cf_handle(DBCol::Misc.name()).unwrap(), "last_source_height")?
         .map(|v| BlockHeight::try_from_slice(&v).unwrap()))
+}
+
+fn get_first_accounts_created(db: &DB) -> anyhow::Result<bool> {
+    Ok(db
+        .get_cf(db.cf_handle(DBCol::Misc.name()).unwrap(), "first_accounts_created")?
+        .map(|v| bool::try_from_slice(&v).unwrap())
+        .unwrap_or(false))
+}
+
+fn set_first_accounts_created(db: &DB) -> anyhow::Result<()> {
+    db.put_cf(
+        db.cf_handle(DBCol::Misc.name()).unwrap(),
+        "first_accounts_created",
+        borsh::to_vec(&true).unwrap(),
+    )?;
+    Ok(())
 }
 
 enum SourceTransaction {
@@ -462,6 +534,17 @@ struct MirrorConfig {
     /// wait this long before sending each mainnet block's worth of transactions.
     /// TODO: add an option to target a specific number of transactions per second
     tx_batch_interval: Option<Duration>,
+    tps: Option<u32>,
+}
+
+impl MirrorConfig {
+    fn validate(&self) -> anyhow::Result<()> {
+        if self.tx_batch_interval.is_some() && self.tps.is_some() {
+            Err(anyhow::anyhow!("cannot give both tps and tx_batch_interval in config"))
+        } else {
+            Ok(())
+        }
+    }
 }
 
 const CREATE_ACCOUNT_DELTA: usize = 5;
@@ -499,7 +582,9 @@ fn open_db<P: AsRef<Path>>(home: P, config: &NearConfig) -> anyhow::Result<DB> {
     let cf_descriptors = DBCol::iter()
         .map(|col| rocksdb::ColumnFamilyDescriptor::new(col.name(), options.clone()))
         .collect::<Vec<_>>();
-    Ok(DB::open_cf_descriptors(&options, db_path, cf_descriptors)?)
+    let db = DB::open_cf_descriptors(&options, db_path, cf_descriptors)?;
+    migrate_db(&db)?;
+    Ok(db)
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -795,11 +880,13 @@ struct MappedBlock {
     source_height: BlockHeight,
     source_hash: CryptoHash,
     txs: VecDeque<TargetChainTx>,
+    txs_popped: usize,
 }
 
 #[derive(Debug)]
 struct TxBatch {
-    source_height: BlockHeight,
+    start_source_height: BlockHeight,
+    end_source_height: BlockHeight,
     source_hash: CryptoHash,
     txs: Vec<(TxRef, TargetChainTx)>,
 }
@@ -1570,7 +1657,7 @@ impl<T: ChainAccess> TxMirror<T> {
         if let Some(create_account_height) = create_account_height {
             self.add_create_account_txs(create_account_height, ref_hash, tracker, &mut txs).await?;
         }
-        Ok(MappedBlock { source_height, source_hash: source_block.hash, txs })
+        Ok(MappedBlock { source_height, source_hash: source_block.hash, txs, txs_popped: 0 })
     }
 
     // Up to a certain capacity, prepare and queue up batches of
@@ -1750,14 +1837,15 @@ impl<T: ChainAccess> TxMirror<T> {
     }
 
     async fn run(mut self, stop_height: Option<BlockHeight>) -> anyhow::Result<()> {
-        let last_stored_height = get_last_source_height(&self.db)?;
-        let last_height = last_stored_height.unwrap_or(self.target_genesis_height - 1);
+        let checkpoint = get_traffic_checkpoint(&self.db)?
+            .unwrap_or_else(|| TrafficCheckpoint::new(self.target_genesis_height));
+        let next_height = checkpoint.next_needed_height();
 
         let next_heights =
-            self.source_chain_access.init(last_height, CREATE_ACCOUNT_DELTA + 1).await?;
+            self.source_chain_access.init(next_height, CREATE_ACCOUNT_DELTA + 1).await?;
 
         if next_heights.is_empty() {
-            anyhow::bail!("no new blocks after #{}", last_height);
+            anyhow::bail!("no new blocks from #{}", next_height);
         }
         if let Some(stop_height) = stop_height {
             if next_heights[0] > stop_height {
@@ -1779,22 +1867,24 @@ impl<T: ChainAccess> TxMirror<T> {
         let mut tracker = crate::chain_tracker::TxTracker::new(
             self.target_min_block_production_delay,
             self.config.tx_batch_interval,
+            self.config.tps,
+            checkpoint,
             next_heights.iter(),
             stop_height,
         );
         let (target_height, target_head) = self.index_target_chain(&mut tracker).await?;
-        if last_stored_height.is_none() {
+        if !get_first_accounts_created(&self.db)? {
             // send any extra function call-initiated create accounts for the first few blocks right now
             // we set source_hash to 0 because we don't actually care about it here, and it doesn't even exist since these are
             // not transactions corresponding to some actual block, but just extra txs create account actions in the first few blocks.
             let mut block = MappedBlock {
                 source_hash: CryptoHash::default(),
-                source_height: last_height,
+                source_height: next_height - 1,
                 txs: VecDeque::new(),
+                txs_popped: 0,
             };
             for h in next_heights {
-                self.add_create_account_txs(h, target_head, &mut tracker, &mut block.txs)
-                    .await?;
+                self.add_create_account_txs(h, target_head, &mut tracker, &mut block.txs).await?;
             }
             if !block.txs.is_empty() {
                 tracing::debug!(target: "mirror", "sending extra create account transactions for the first {} blocks", CREATE_ACCOUNT_DELTA);
@@ -1825,12 +1915,14 @@ async fn run<P: AsRef<Path>>(
     online_source: bool,
     config_path: Option<P>,
 ) -> anyhow::Result<()> {
-    let config: MirrorConfig = match config_path {
+    let config = match config_path {
         Some(p) => {
             let c = std::fs::read_to_string(p.as_ref())
                 .with_context(|| format!("Could not read config from {}", p.as_ref().display()))?;
-            serde_json::from_str(&c)
-                .with_context(|| format!("Could not parse config from {}", p.as_ref().display()))?
+            let c: MirrorConfig = serde_json::from_str(&c)
+                .with_context(|| format!("Could not parse config from {}", p.as_ref().display()))?;
+            c.validate()?;
+            c
         }
         None => Default::default(),
     };

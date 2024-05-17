@@ -42,7 +42,7 @@ impl ChainAccess {
 impl crate::ChainAccess for ChainAccess {
     async fn init(
         &self,
-        last_height: BlockHeight,
+        next_height: BlockHeight,
         num_initial_blocks: usize,
     ) -> anyhow::Result<Vec<BlockHeight>> {
         // first wait until HEAD moves. We don't really need it to be fully synced.
@@ -67,7 +67,7 @@ impl crate::ChainAccess for ChainAccess {
         }
 
         let mut block_heights = Vec::with_capacity(num_initial_blocks);
-        let mut height = last_height;
+        let mut height = next_height - 1;
 
         loop {
             // note that here we are using the fact that get_next_block_height() for this struct
