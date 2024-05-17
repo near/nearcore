@@ -1478,7 +1478,6 @@ impl Runtime {
                 receipt_id = %receipt.receipt_id(),
                 predecessor = %receipt.predecessor_id(),
                 receiver = %receipt.receiver_id(),
-                id = %receipt.receipt_id(),
                 gas_burnt = tracing::field::Empty,
                 compute_usage = tracing::field::Empty,
             )
