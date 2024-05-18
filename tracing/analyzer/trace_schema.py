@@ -4,8 +4,6 @@ import datetime
 import json
 import re
 import sys
-import time
-import pathlib
 
 from typing import ClassVar
 from dataclasses import dataclass, field
@@ -23,6 +21,18 @@ class AccountId:
         if m:
             self.account_id = m.group(1)
 
+    def __eq__(self, other):
+        if not isinstance(other, AccountId):
+            return False
+        return self.account_id == other.account_id
+    
+    def __hash__(self) -> int:
+        return hash(self.account_id)
+
+@dataclass
+class NodeId:
+    node_id: str = field(default_factory=str)
+
 
 @dataclass
 class ShardId:
@@ -36,6 +46,14 @@ class ShardId:
                 self.shard_id = int(m.group(1))
             else:
                 self.shard_id = int(self.shard_id)
+    
+    def __eq__(self, other):
+        if not isinstance(other, ShardId):
+            return False
+        return self.shard_id == other.shard_id
+    
+    def __hash__(self) -> int:
+        return hash(self.shard_id)
 
 
 SKIP_FIELDS = {"code.filepath", "code.namespace", "code.lineno", "level",
@@ -50,7 +68,7 @@ SKIP_FIELDS = {"code.filepath", "code.namespace", "code.lineno", "level",
 
 @dataclass
 class Fields:
-    node_id: str | None = None
+    node_id: NodeId | None = None
     account_id: str | None = None
     chain_id: str | None = None
     servie_name: str | None = None
@@ -74,7 +92,7 @@ class Fields:
             if attribute['key'] in SKIP_FIELDS:
                 continue
             if attribute['key'] == 'node_id':
-                fields.node_id = attribute['value']['stringValue']
+                fields.node_id = NodeId(node_id=attribute['value']['stringValue'])
             elif attribute['key'] in {'account_id', 'validator_id'}:
                 fields.account_id = AccountId(
                     account_id=attribute['value']['stringValue'])
@@ -102,14 +120,14 @@ class Fields:
 
 
 @dataclass
-class Event:
+class TraceEvent:
     fields: Fields
     name: str = field(default_factory=str)
     timestamp: datetime = field(default_factory=datetime)
 
 
 @dataclass
-class Span:
+class TraceSpan:
     trace_id: str
     span_id: str
     parent_id: str
@@ -117,18 +135,18 @@ class Span:
     start_time: datetime
     end_time: datetime
     fields: Fields
-    events: list[Event]
+    events: list[TraceEvent]
 
 
 @dataclass
 class ScopeSpan:
-    spans: list[Span]
+    spans: list[TraceSpan]
 
 
 @dataclass
 class ResourceSpan:
     fields: Fields
-    spans: list[Span]
+    spans: list[TraceSpan]
 
 
 @dataclass
@@ -166,10 +184,10 @@ class TraceInput:
                     for span_json in scope_span_json['spans']:
                         events = []
                         for event_json in span_json["events"]:
-                            events.append(Event(fields=Fields.load(event_json['attributes']), name=event_json['name'],
+                            events.append(TraceEvent(fields=Fields.load(event_json['attributes']), name=event_json['name'],
                                                 timestamp=record_timestamp(event_json['timeUnixNano']),))
                         num_events += len(events)
-                        spans.append(Span(fields=Fields.load(span_json['attributes']),
+                        spans.append(TraceSpan(fields=Fields.load(span_json['attributes']),
                                           events=events,
                                           trace_id=span_json['traceId'],
                                           span_id=span_json['spanId'],
