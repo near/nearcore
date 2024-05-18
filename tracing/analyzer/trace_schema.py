@@ -9,72 +9,29 @@ from typing import ClassVar
 from dataclasses import dataclass, field
 
 
-@dataclass
-class AccountId:
-    regex: ClassVar[re.Pattern] = re.compile(r'^AccountId\("(.+)"\)$')
-    account_id: str = field(default_factory=str)
-
-    def __post_init__(self):
-        assert type(self.account_id) is str
-        self.account_id = self.account_id.lower()
-        m = AccountId.regex.match(self.account_id)
-        if m:
-            self.account_id = m.group(1)
-
-    def __eq__(self, other):
-        if not isinstance(other, AccountId):
-            return False
-        return self.account_id == other.account_id
-    
-    def __hash__(self) -> int:
-        return hash(self.account_id)
-
-@dataclass
-class NodeId:
-    node_id: str = field(default_factory=str)
-
-
-@dataclass
-class ShardId:
-    regex: ClassVar[re.Pattern] = re.compile(r'^([^.]+).[^.]+$')
-    shard_id: int = field(default_factory=int)
-
-    def __post_init__(self):
-        if type(self.shard_id) is str:
-            m = ShardId.regex.match(self.shard_id)
-            if m:
-                self.shard_id = int(m.group(1))
-            else:
-                self.shard_id = int(self.shard_id)
-    
-    def __eq__(self, other):
-        if not isinstance(other, ShardId):
-            return False
-        return self.shard_id == other.shard_id
-    
-    def __hash__(self) -> int:
-        return hash(self.shard_id)
-
-
 SKIP_FIELDS = {"code.filepath", "code.namespace", "code.lineno", "level",
-               'was_requested', 'target_height', 'hash', 'prev_height',
+               'was_requested', 'hash',
                'block_producers', 'approval_inner', 'sync_status',
                'new_chunks_count', 'blocks_missing_chunks', 'me',
                'endorsement', 'num_outgoing_receipts',
-               'num_filtered_transactions', 'service.name',
+               'num_filtered_transactions',
                'should_produce_chunk', 'peer_id', 'orphans_missing_chunks',
-               'err', 'provenance', 'busy_ns', 'num_blocks', 'validator', 'next_height', 'new_chunks', 'skip_produce_chunk', 'epoch_id', 'next_bp', 'pool_size', 'is_syncing', 'prev_block_hash', 'status', 'thread.name', 'idle_ns', 'header_head_height'}
+               'err', 'provenance', 'busy_ns', 'num_blocks', 'validator', 
+               'new_chunks', 'skip_produce_chunk', 'next_bp', 
+               'pool_size', 'is_syncing', 'prev_block_hash', 'status', 'thread.name', 
+               'idle_ns', 'header_head_height'}
 
 
 @dataclass
 class Fields:
-    node_id: NodeId | None = None
+    node_id: str | None = None
     account_id: str | None = None
     chain_id: str | None = None
-    servie_name: str | None = None
+    service_name: str | None = None
     target: str | None = None
     thread_id: int | None = None
     shard_id: int | None = None
+    epoch_id: str | None = None
     height: int | None = None
     block_hash: str | None = None
     prev_hash: str | None = None
@@ -92,21 +49,22 @@ class Fields:
             if attribute['key'] in SKIP_FIELDS:
                 continue
             if attribute['key'] == 'node_id':
-                fields.node_id = NodeId(node_id=attribute['value']['stringValue'])
+                fields.node_id = attribute['value']['stringValue']
             elif attribute['key'] in {'account_id', 'validator_id'}:
-                fields.account_id = AccountId(
-                    account_id=attribute['value']['stringValue'])
+                fields.account_id = attribute['value']['stringValue']
             elif attribute['key'] == 'chain_id':
                 fields.chain_id = attribute['value']['stringValue']
             elif attribute['key'] in {'service_name', 'service.name'}:
-                fields.servie_name = attribute['value']['stringValue']
+                fields.service_name = attribute['value']['stringValue']
             elif attribute['key'] == 'target':
                 fields.target = attribute['value']['stringValue']
             elif attribute['key'] in {'thread_id', 'thread.id'}:
                 fields.thread_id = attribute['value']['intValue']
             elif attribute['key'] == 'shard_id':
-                fields.shard_id = ShardId(attribute['value']['stringValue'])
-            elif attribute['key'] in {'height', 'block_height'}:
+                fields.shard_id = int(attribute['value']['stringValue'])
+            elif attribute['key'] == 'epoch_id':
+                fields.epoch_id = attribute['value']['stringValue']
+            elif attribute['key'] in {'height', 'block_height', 'next_height', 'prev_height', 'target_height'}:
                 fields.height = int(attribute['value']['stringValue'])
             elif attribute['key'] == 'block_hash':
                 fields.block_hash = attribute['value']['stringValue']
