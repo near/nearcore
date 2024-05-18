@@ -152,10 +152,7 @@ impl ChunkValidator {
         // Case 1: We have the chunk extra and outgoing receipts cached.
         let cached_result = {
             let mut shard_cache = self.validation_result_cache.write().unwrap();
-            let cache = shard_cache
-                .entry(shard_uid)
-                .or_insert_with(|| LruCache::new(NUM_WITNESS_RESULT_CACHE_ENTRIES));
-            cache.get(&prev_chunk_hash).cloned()
+            shard_cache.get_mut(&shard_uid).and_then(|cache| cache.get(&prev_chunk_hash)).cloned()
         };
 
         if let Some(ChunkStateWitnessValidationResult { chunk_extra, outgoing_receipts }) =
