@@ -5,9 +5,9 @@ use super::processing_tracker::ProcessingDoneTracker;
 use crate::stateless_validation::chunk_endorsement_tracker::ChunkEndorsementTracker;
 use crate::{metrics, Client};
 use itertools::Itertools;
+use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{CanSend, Sender};
-use near_cache::SyncLruCache;
 use near_chain::chain::{
     apply_new_chunk, apply_old_chunk, NewChunkData, NewChunkResult, OldChunkData, OldChunkResult,
     ShardContext, StorageContext,
@@ -38,11 +38,11 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::ShardId;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_store::PartialStorage;
+use near_store::{PartialStorage, ShardUId};
 use near_vm_runner::logic::ProtocolVersion;
 use orphan_witness_pool::OrphanStateWitnessPool;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 // After validating a chunk state witness, we ideally need to send the chunk endorsement
 // to just the next block producer at height h. However, it's possible that blocks at height
@@ -50,6 +50,10 @@ use std::sync::Arc;
 // that these later block producers also receive the chunk endorsement.
 // Keeping a threshold of 5 block producers should be sufficient for most scenarios.
 const NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT: u64 = 5;
+
+/// The number of state witness validation results to cache per shard.
+/// This number needs to be small because result contains outgoing receipts, which can be large.
+const NUM_WITNESS_RESULT_CACHE_ENTRIES: usize = 10;
 
 #[derive(Clone)]
 pub struct ChunkStateWitnessValidationResult {
@@ -72,7 +76,7 @@ pub struct ChunkValidator {
     orphan_witness_pool: OrphanStateWitnessPool,
     validation_spawner: Arc<dyn AsyncComputationSpawner>,
     validation_result_cache:
-        Arc<SyncLruCache<ChunkHash, ChunkStateWitnessValidationResult>>,
+        Arc<RwLock<HashMap<ShardUId, LruCache<ChunkHash, ChunkStateWitnessValidationResult>>>>,
 }
 
 impl ChunkValidator {
@@ -93,7 +97,7 @@ impl ChunkValidator {
             chunk_endorsement_tracker,
             orphan_witness_pool: OrphanStateWitnessPool::new(orphan_witness_pool_size),
             validation_spawner,
-            validation_result_cache: Arc::new(SyncLruCache::new(1000)),
+            validation_result_cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -144,9 +148,18 @@ impl ChunkValidator {
             chunk_header.shard_id(),
         )?;
         let prev_chunk_hash = last_header.chunk_hash();
+        let shard_uid = epoch_manager.shard_id_to_uid(last_header.shard_id(), &epoch_id)?;
         // Case 1: We have the chunk extra and outgoing receipts cached.
+        let cached_result = {
+            let mut shard_cache = self.validation_result_cache.write().unwrap();
+            let cache = shard_cache
+                .entry(shard_uid)
+                .or_insert_with(|| LruCache::new(NUM_WITNESS_RESULT_CACHE_ENTRIES));
+            cache.get(&prev_chunk_hash).cloned()
+        };
+
         if let Some(ChunkStateWitnessValidationResult { chunk_extra, outgoing_receipts }) =
-            self.validation_result_cache.get(&prev_chunk_hash)
+            cached_result
         {
             let outgoing_receipts_hashes = {
                 let shard_layout = epoch_manager.get_shard_layout_from_prev_block(
@@ -180,7 +193,6 @@ impl ChunkValidator {
             }
         }
         // Case 2: We are a chunk producer and have the chunk extra for the previous block saved on disk.
-        let shard_uid = epoch_manager.shard_id_to_uid(chunk_header.shard_id(), &epoch_id)?;
         if let Ok(prev_chunk_extra) = chain.get_chunk_extra(prev_block_hash, &shard_uid) {
             match validate_chunk_with_chunk_extra(
                 chain.chain_store(),
@@ -224,6 +236,10 @@ impl ChunkValidator {
                 runtime_adapter.as_ref(),
             ) {
                 Ok(validation_result) => {
+                    let mut shard_cache = cache.write().unwrap();
+                    let cache = shard_cache
+                        .entry(shard_uid)
+                        .or_insert_with(|| LruCache::new(NUM_WITNESS_RESULT_CACHE_ENTRIES));
                     cache.put(prev_chunk_hash, validation_result);
                     send_chunk_endorsement_to_block_producers(
                         &chunk_header,
