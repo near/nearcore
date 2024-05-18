@@ -36,7 +36,7 @@ use near_primitives::stateless_validation::{
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::ShardId;
+use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::{PartialStorage, ShardUId};
 use near_vm_runner::logic::ProtocolVersion;
@@ -53,7 +53,7 @@ const NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT: u64 = 5;
 
 /// The number of state witness validation results to cache per shard.
 /// This number needs to be small because result contains outgoing receipts, which can be large.
-const NUM_WITNESS_RESULT_CACHE_ENTRIES: usize = 10;
+const NUM_WITNESS_RESULT_CACHE_ENTRIES: usize = 20;
 
 #[derive(Clone)]
 pub struct ChunkStateWitnessValidationResult {
@@ -76,7 +76,7 @@ pub struct ChunkValidator {
     orphan_witness_pool: OrphanStateWitnessPool,
     validation_spawner: Arc<dyn AsyncComputationSpawner>,
     validation_result_cache:
-        Arc<RwLock<HashMap<ShardUId, LruCache<ChunkHash, ChunkStateWitnessValidationResult>>>>,
+        Arc<RwLock<HashMap<ShardUId, LruCache<BlockHeight, ChunkStateWitnessValidationResult>>>>,
 }
 
 impl ChunkValidator {
@@ -147,12 +147,15 @@ impl ChunkValidator {
             &prev_block,
             chunk_header.shard_id(),
         )?;
-        let prev_chunk_hash = last_header.chunk_hash();
+        let last_header_height_included = last_header.height_included();
         let shard_uid = epoch_manager.shard_id_to_uid(last_header.shard_id(), &epoch_id)?;
         // Case 1: We have the chunk extra and outgoing receipts cached.
         let cached_result = {
             let mut shard_cache = self.validation_result_cache.write().unwrap();
-            shard_cache.get_mut(&shard_uid).and_then(|cache| cache.get(&prev_chunk_hash)).cloned()
+            shard_cache
+                .get_mut(&shard_uid)
+                .and_then(|cache| cache.get(&last_header_height_included))
+                .cloned()
         };
 
         if let Some(ChunkStateWitnessValidationResult { chunk_extra, outgoing_receipts }) =
@@ -181,10 +184,7 @@ impl ChunkValidator {
                     return Ok(());
                 }
                 Err(err) => {
-                    tracing::error!(
-                        "Failed to validate chunk using existing chunk extra: {:?}",
-                        err
-                    );
+                    tracing::error!("Failed to validate chunk using cached chunk extra: {:?}", err);
                     return Err(err);
                 }
             }
@@ -237,7 +237,21 @@ impl ChunkValidator {
                     let cache = shard_cache
                         .entry(shard_uid)
                         .or_insert_with(|| LruCache::new(NUM_WITNESS_RESULT_CACHE_ENTRIES));
-                    cache.put(prev_chunk_hash, validation_result);
+                    // We cache the validation result using `height_included` of the last header as the key.
+                    // This is very important because the same chunk can be included in multiple blocks on different forks.
+                    // If we simply use chunk hash as the key, then there will be mismatch of execution outcomes and outgoing receipts
+                    // when there is a fork because while the state transition is the same,
+                    // the receipt ids depend on which block the chunk is included in.
+                    // Consider the following example:
+                    //      / --- H+2
+                    // H --
+                    //   \ --- H+1
+                    // where H+1 and H+2 contains the same chunk C. When a new chunk is built on top of H+1,
+                    // C will be applied using context from H+1 (including block_hash), which generates receipts ids based on the block hash
+                    // of H+1. On the other hand, if a new chunk is built on top of H+2, the receipts ids will be different.
+                    // Therefore, we need to cache the validation result using the height_included of the last header instead of chunk hash
+                    // to avoid mismatch of execution outcomes and outgoing receipts.
+                    cache.put(last_header_height_included, validation_result);
                     send_chunk_endorsement_to_block_producers(
                         &chunk_header,
                         epoch_manager.as_ref(),
