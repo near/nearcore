@@ -36,7 +36,7 @@ use near_primitives::stateless_validation::{
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::{PartialStorage, ShardUId};
 use near_vm_runner::logic::ProtocolVersion;
@@ -76,7 +76,7 @@ pub struct ChunkValidator {
     orphan_witness_pool: OrphanStateWitnessPool,
     validation_spawner: Arc<dyn AsyncComputationSpawner>,
     validation_result_cache:
-        Arc<RwLock<HashMap<ShardUId, LruCache<BlockHeight, ChunkStateWitnessValidationResult>>>>,
+        Arc<RwLock<HashMap<ShardUId, LruCache<(EpochId, BlockHeight), ChunkStateWitnessValidationResult>>>>,
 }
 
 impl ChunkValidator {
@@ -149,12 +149,13 @@ impl ChunkValidator {
         )?;
         let last_header_height_included = last_header.height_included();
         let shard_uid = epoch_manager.shard_id_to_uid(last_header.shard_id(), &epoch_id)?;
+
         // Case 1: We have the chunk extra and outgoing receipts cached.
         let cached_result = {
             let mut shard_cache = self.validation_result_cache.write().unwrap();
             shard_cache
                 .get_mut(&shard_uid)
-                .and_then(|cache| cache.get(&last_header_height_included))
+                .and_then(|cache| cache.get(&(prev_block.header().epoch_id().clone(), last_header_height_included)))
                 .cloned()
         };
 
@@ -185,6 +186,11 @@ impl ChunkValidator {
                 }
                 Err(err) => {
                     tracing::error!("Failed to validate chunk using cached chunk extra: {:?}", err);
+                    debug_assert!(
+                        false,
+                        "Failed to validate chunk using cached chunk extra: {:?}",
+                        err
+                    );
                     return Err(err);
                 }
             }
@@ -237,8 +243,9 @@ impl ChunkValidator {
                     let cache = shard_cache
                         .entry(shard_uid)
                         .or_insert_with(|| LruCache::new(NUM_WITNESS_RESULT_CACHE_ENTRIES));
-                    // We cache the validation result using `height_included` of the last header as the key.
-                    // This is very important because the same chunk can be included in multiple blocks on different forks.
+                    // We cache the validation result using (prev_block.epoch_id, last_chunk.height_included) as the key. It is not
+                    // very intuitive and the reasons are as follows:
+                    // - `last_chunk.height_included`: This is very important because the same chunk can be included in multiple blocks on different forks.
                     // If we simply use chunk hash as the key, then there will be mismatch of execution outcomes and outgoing receipts
                     // when there is a fork because while the state transition is the same,
                     // the receipt ids depend on which block the chunk is included in.
@@ -251,7 +258,14 @@ impl ChunkValidator {
                     // of H+1. On the other hand, if a new chunk is built on top of H+2, the receipts ids will be different.
                     // Therefore, we need to cache the validation result using the height_included of the last header instead of chunk hash
                     // to avoid mismatch of execution outcomes and outgoing receipts.
-                    cache.put(last_header_height_included, validation_result);
+                    // - `prev_block.epoch_id`: we need to account for the case where there is a missing chunk at the epoch boundary and the
+                    // implicit transition is accidentally ignored due to caching. Consider the case where H, H+1, H+2 are produced and H+1 is
+                    // the first block of a new epoch. H+1 also happens to not have a new chunk for shard X. In this case, the implicit transition
+                    // is applied when a validator process state witness for H+1. However, there is no new chunk for shard X in H+1, so it would use the
+                    // cached result from applying state witness for H, which results in an incorrect state transition.
+                    // NOTE: we rely on the assumption that the last chunk included is in the same epoch as the previous block, i.e., there is at least one
+                    // chunk in every epoch.
+                    cache.put((prev_block.header().epoch_id().clone(), last_header_height_included), validation_result);
                     send_chunk_endorsement_to_block_producers(
                         &chunk_header,
                         epoch_manager.as_ref(),
