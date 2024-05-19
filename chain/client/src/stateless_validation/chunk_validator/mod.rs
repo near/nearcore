@@ -75,8 +75,11 @@ pub struct ChunkValidator {
     chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
     orphan_witness_pool: OrphanStateWitnessPool,
     validation_spawner: Arc<dyn AsyncComputationSpawner>,
-    validation_result_cache:
-        Arc<RwLock<HashMap<ShardUId, LruCache<(EpochId, BlockHeight), ChunkStateWitnessValidationResult>>>>,
+    validation_result_cache: Arc<
+        RwLock<
+            HashMap<ShardUId, LruCache<(EpochId, BlockHeight), ChunkStateWitnessValidationResult>>,
+        >,
+    >,
 }
 
 impl ChunkValidator {
@@ -155,7 +158,10 @@ impl ChunkValidator {
             let mut shard_cache = self.validation_result_cache.write().unwrap();
             shard_cache
                 .get_mut(&shard_uid)
-                .and_then(|cache| cache.get(&(prev_block.header().epoch_id().clone(), last_header_height_included)))
+                .and_then(|cache| {
+                    cache
+                        .get(&(prev_block.header().epoch_id().clone(), last_header_height_included))
+                })
                 .cloned()
         };
 
@@ -265,7 +271,10 @@ impl ChunkValidator {
                     // cached result from applying state witness for H, which results in an incorrect state transition.
                     // NOTE: we rely on the assumption that the last chunk included is in the same epoch as the previous block, i.e., there is at least one
                     // chunk in every epoch.
-                    cache.put((prev_block.header().epoch_id().clone(), last_header_height_included), validation_result);
+                    cache.put(
+                        (prev_block.header().epoch_id().clone(), last_header_height_included),
+                        validation_result,
+                    );
                     send_chunk_endorsement_to_block_producers(
                         &chunk_header,
                         epoch_manager.as_ref(),
