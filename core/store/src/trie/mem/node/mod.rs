@@ -1,15 +1,16 @@
+use super::arena::{Arena, ArenaMemory, ArenaPos, ArenaPtr, ArenaPtrMut};
+use super::flexible_data::children::ChildrenView;
+use super::flexible_data::value::ValueView;
+use derive_where::derive_where;
+use near_primitives::hash::CryptoHash;
+use near_primitives::state::FlatStateValue;
+use std::fmt::{Debug, Formatter};
+
 mod encoding;
 mod mutation;
 #[cfg(test)]
 mod tests;
 mod view;
-
-use super::arena::{Arena, ArenaMemory, ArenaPos, ArenaPtr, ArenaPtrMut, ArenaSlice};
-use super::flexible_data::children::ChildrenView;
-use super::flexible_data::value::ValueView;
-use near_primitives::hash::CryptoHash;
-use near_primitives::state::FlatStateValue;
-use std::fmt::{Debug, Formatter};
 
 /// The memory position of an encoded in-memory trie node.
 /// With an `ArenaMemory`, this can be turned into a `MemTrieNodePtr`
@@ -26,19 +27,26 @@ pub struct MemTrieNodeId {
 }
 
 impl MemTrieNodeId {
-    pub fn new(arena: &mut Arena, input: InputMemTrieNode) -> Self {
+    pub fn new(arena: &mut impl Arena, input: InputMemTrieNode) -> Self {
         Self::new_impl(arena, input, None)
     }
 
-    pub fn new_with_hash(arena: &mut Arena, input: InputMemTrieNode, hash: CryptoHash) -> Self {
+    pub fn new_with_hash(
+        arena: &mut impl Arena,
+        input: InputMemTrieNode,
+        hash: CryptoHash,
+    ) -> Self {
         Self::new_impl(arena, input, Some(hash))
     }
 
-    pub fn as_ptr<'a>(&self, arena: &'a ArenaMemory) -> MemTrieNodePtr<'a> {
+    pub fn as_ptr<'a, M: ArenaMemory>(&self, arena: &'a M) -> MemTrieNodePtr<'a, M> {
         MemTrieNodePtr { ptr: arena.ptr(self.pos) }
     }
 
-    pub(crate) fn as_ptr_mut<'a>(&self, arena: &'a mut ArenaMemory) -> MemTrieNodePtrMut<'a> {
+    pub(crate) fn as_ptr_mut<'a, M: ArenaMemory>(
+        &self,
+        arena: &'a mut M,
+    ) -> MemTrieNodePtrMut<'a, M> {
         MemTrieNodePtrMut { ptr: arena.ptr_mut(self.pos) }
     }
 }
@@ -53,30 +61,30 @@ impl Default for MemTrieNodeId {
 
 /// Pointer to an in-memory trie node that allows read-only access to the node
 /// and all its descendants.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub struct MemTrieNodePtr<'a> {
-    ptr: ArenaPtr<'a>,
+#[derive_where(Clone, Copy, PartialEq, Eq)]
+pub struct MemTrieNodePtr<'a, M: ArenaMemory> {
+    ptr: ArenaPtr<'a, M>,
 }
 
 /// Pointer to an in-memory trie node that allows mutable access to the node
 /// and all its descendants. This is only for computing hashes, and internal
 /// reference counting.
-pub struct MemTrieNodePtrMut<'a> {
-    ptr: ArenaPtrMut<'a>,
+pub struct MemTrieNodePtrMut<'a, M: ArenaMemory> {
+    ptr: ArenaPtrMut<'a, M>,
 }
 
-impl<'a> Debug for MemTrieNodePtr<'a> {
+impl<'a, M: ArenaMemory> Debug for MemTrieNodePtr<'a, M> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.id().fmt(f)
     }
 }
 
-impl<'a> MemTrieNodePtr<'a> {
-    pub fn from(ptr: ArenaPtr<'a>) -> Self {
+impl<'a, M: ArenaMemory> MemTrieNodePtr<'a, M> {
+    pub fn from(ptr: ArenaPtr<'a, M>) -> Self {
         Self { ptr }
     }
 
-    pub fn view(&self) -> MemTrieNodeView<'a> {
+    pub fn view(&self) -> MemTrieNodeView<'a, M> {
         self.view_impl()
     }
 
@@ -96,27 +104,27 @@ pub enum InputMemTrieNode<'a> {
 
 /// A view of the encoded data of `MemTrieNode`, obtainable via
 /// `MemTrieNode::view()`.
-#[derive(Debug, Clone)]
-pub enum MemTrieNodeView<'a> {
+#[derive_where(Debug, Clone)]
+pub enum MemTrieNodeView<'a, M: ArenaMemory> {
     Leaf {
-        extension: ArenaSlice<'a>,
+        extension: &'a [u8],
         value: ValueView<'a>,
     },
     Extension {
         hash: CryptoHash,
         memory_usage: u64,
-        extension: ArenaSlice<'a>,
-        child: MemTrieNodePtr<'a>,
+        extension: &'a [u8],
+        child: MemTrieNodePtr<'a, M>,
     },
     Branch {
         hash: CryptoHash,
         memory_usage: u64,
-        children: ChildrenView<'a>,
+        children: ChildrenView<'a, M>,
     },
     BranchWithValue {
         hash: CryptoHash,
         memory_usage: u64,
-        children: ChildrenView<'a>,
+        children: ChildrenView<'a, M>,
         value: ValueView<'a>,
     },
 }

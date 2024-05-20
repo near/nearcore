@@ -3,13 +3,14 @@
 //! This is essentially a copy of the `DiskTrieIterator`, with the following notable differences:
 //!  - It doesn't support extra options like remembering nodes or puning;
 //!  - It uses None to represent an "empty" placeholder node rather than `TrieNode::Empty`;
-//!  - MemTrieNodeView splits Branch and BranchWithValue into separate variants, whereas TrieNode
+//!  - MemTrieNodeViewGeneric splits Branch and BranchWithValue into separate variants, whereas TrieNode
 //!    handles them in a single variant with an optional value field, but the iteration logic
 //!    remains the same.
 //!  - Memtrie code paths don't return any errors, except when looking up the value from the State
 //!    column.
 //!
 //! Testing of the `MemTrieIterator` is done together by tests of `DiskTrieIterator`.
+use super::arena::STArenaMemory;
 use super::node::{MemTrieNodePtr, MemTrieNodeView};
 use crate::{
     trie::{iterator::TrieItem, OptimizedValueRef},
@@ -20,7 +21,7 @@ use near_primitives::errors::StorageError;
 /// Crumb is a piece of trie iteration state. It describes a node on the trail and processing status of that node.
 #[derive(Debug)]
 struct Crumb<'a> {
-    node: Option<MemTrieNodeView<'a>>,
+    node: Option<MemTrieNodeView<'a, STArenaMemory>>,
     status: CrumbStatus,
     prefix_boundary: bool,
 }
@@ -70,7 +71,7 @@ impl<'a> Crumb<'a> {
 /// will add only a single item to the trail but may add multiple nibbles to the key_nibbles.
 
 pub struct MemTrieIterator<'a> {
-    root: Option<MemTrieNodePtr<'a>>,
+    root: Option<MemTrieNodePtr<'a, STArenaMemory>>,
     trail: Vec<Crumb<'a>>,
     key_nibbles: Vec<u8>,
 
@@ -82,7 +83,7 @@ pub struct MemTrieIterator<'a> {
 impl<'a> MemTrieIterator<'a> {
     /// Create a new iterator.
     pub fn new(
-        root: Option<MemTrieNodePtr<'a>>,
+        root: Option<MemTrieNodePtr<'a, STArenaMemory>>,
         value_getter: Box<dyn Fn(OptimizedValueRef) -> Result<Vec<u8>, StorageError> + 'a>,
     ) -> Self {
         let mut r =
@@ -101,7 +102,7 @@ impl<'a> MemTrieIterator<'a> {
         &mut self,
         mut key: NibbleSlice<'_>,
         is_prefix_seek: bool,
-    ) -> Option<MemTrieNodePtr<'a>> {
+    ) -> Option<MemTrieNodePtr<'a, STArenaMemory>> {
         self.trail.clear();
         self.key_nibbles.clear();
         // Checks if a key in an extension or leaf matches our search query.
@@ -128,7 +129,7 @@ impl<'a> MemTrieIterator<'a> {
             match &node {
                 None => break,
                 Some(MemTrieNodeView::Leaf { extension, .. }) => {
-                    let existing_key = NibbleSlice::from_encoded(extension.raw_slice()).0;
+                    let existing_key = NibbleSlice::from_encoded(extension).0;
                     if !check_ext_key(&key, &existing_key) {
                         self.key_nibbles.extend(existing_key.iter());
                         *status = CrumbStatus::Exiting;
@@ -152,7 +153,7 @@ impl<'a> MemTrieIterator<'a> {
                     }
                 }
                 Some(MemTrieNodeView::Extension { extension, child, .. }) => {
-                    let existing_key = NibbleSlice::from_encoded(extension.raw_slice()).0;
+                    let existing_key = NibbleSlice::from_encoded(extension).0;
                     if key.starts_with(&existing_key) {
                         key = key.mid(existing_key.len());
                         ptr = Some(*child);
@@ -174,7 +175,7 @@ impl<'a> MemTrieIterator<'a> {
     /// Fetches node by its ptr and adds it to the trail.
     ///
     /// The node is stored as the last [`Crumb`] in the trail.
-    fn descend_into_node(&mut self, ptr: Option<MemTrieNodePtr<'a>>) {
+    fn descend_into_node(&mut self, ptr: Option<MemTrieNodePtr<'a, STArenaMemory>>) {
         let node = ptr.map(|ptr| ptr.view());
         self.trail.push(Crumb { status: CrumbStatus::Entering, node, prefix_boundary: false });
     }
@@ -196,7 +197,7 @@ impl<'a> MemTrieIterator<'a> {
                 match n {
                     Some(MemTrieNodeView::Leaf { extension, .. })
                     | Some(MemTrieNodeView::Extension { extension, .. }) => {
-                        let existing_key = NibbleSlice::from_encoded(extension.raw_slice()).0;
+                        let existing_key = NibbleSlice::from_encoded(extension).0;
                         let l = self.key_nibbles.len();
                         self.key_nibbles.truncate(l - existing_key.len());
                     }
@@ -213,12 +214,12 @@ impl<'a> MemTrieIterator<'a> {
             }
             (CrumbStatus::At, Some(MemTrieNodeView::Branch { .. })) => IterStep::Continue,
             (CrumbStatus::At, Some(MemTrieNodeView::Leaf { extension, value })) => {
-                let key = NibbleSlice::from_encoded(extension.raw_slice()).0;
+                let key = NibbleSlice::from_encoded(extension).0;
                 self.key_nibbles.extend(key.iter());
                 IterStep::Value(value.to_optimized_value_ref())
             }
             (CrumbStatus::At, Some(MemTrieNodeView::Extension { extension, child, .. })) => {
-                let key = NibbleSlice::from_encoded(extension.raw_slice()).0;
+                let key = NibbleSlice::from_encoded(extension).0;
                 self.key_nibbles.extend(key.iter());
                 IterStep::Descend(*child)
             }
@@ -245,7 +246,7 @@ impl<'a> MemTrieIterator<'a> {
 enum IterStep<'a> {
     Continue,
     PopTrail,
-    Descend(MemTrieNodePtr<'a>),
+    Descend(MemTrieNodePtr<'a, STArenaMemory>),
     Value(OptimizedValueRef),
 }
 

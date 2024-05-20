@@ -4,6 +4,7 @@ use crate::flat::store_helper::{
     decode_flat_state_db_key, get_all_deltas_metadata, get_delta_changes, get_flat_storage_status,
 };
 use crate::flat::{FlatStorageError, FlatStorageStatus};
+use crate::trie::mem::arena::Arena;
 use crate::trie::mem::construction::TrieConstructor;
 use crate::trie::mem::updating::apply_memtrie_changes;
 use crate::{DBCol, Store};
