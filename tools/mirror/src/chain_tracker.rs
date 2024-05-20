@@ -1286,6 +1286,7 @@ impl TxTracker {
             }
         }
         assert!(info.queued_txs.remove(tx_ref));
+        info.txs_awaiting_nonce.remove(tx_ref);
         Ok(())
     }
 
