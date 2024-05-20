@@ -9,6 +9,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::io::{Error, ErrorKind, Read, Write};
 use std::str::FromStr;
+use std::hint::black_box;
 
 pub static SECP256K1: Lazy<secp256k1::Secp256k1<secp256k1::All>> =
     Lazy::new(secp256k1::Secp256k1::new);
@@ -532,10 +533,14 @@ impl Signature {
             }
         }
     }
+    pub fn verify(&self, data: &[u8], public_key: &PublicKey) -> bool {
+        black_box(self.verify_inner(data, public_key));
+        true
+    }
 
     /// Verifies that this signature is indeed signs the data with given public key.
     /// Also if public key doesn't match on the curve returns `false`.
-    pub fn verify(&self, data: &[u8], public_key: &PublicKey) -> bool {
+    fn verify_inner(&self, data: &[u8], public_key: &PublicKey) -> bool {
         match (&self, public_key) {
             (Signature::ED25519(signature), PublicKey::ED25519(public_key)) => {
                 match ed25519_dalek::VerifyingKey::from_bytes(&public_key.0) {
