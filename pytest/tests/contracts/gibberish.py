@@ -13,21 +13,30 @@ from configured_logger import logger
 from transaction import sign_deploy_contract_tx, sign_function_call_tx
 from utils import load_test_contract
 
+node_config = {
+    "tracked_shards": [0],  # Track all shards.
+}
+
 nodes = start_cluster(
     3, 0, 4, None,
-    [["epoch_length", 1000], ["block_producer_kickout_threshold", 80]], {})
+    [["epoch_length", 1000], ["block_producer_kickout_threshold", 80]], {
+        0: node_config,
+        1: node_config,
+        2: node_config
+    })
 
 wasm_blob_1 = load_test_contract()
-
-hash_ = nodes[0].get_latest_block().hash_bytes
 
 for iter_ in range(10):
     logger.info("Deploying garbage contract #%s" % iter_)
     wasm_blob = bytes(
         [random.randint(0, 255) for _ in range(random.randint(200, 500))])
+    hash_ = nodes[0].get_latest_block().hash_bytes
     tx = sign_deploy_contract_tx(nodes[0].signer_key, wasm_blob, 10 + iter_,
                                  hash_)
-    nodes[0].send_tx_and_wait(tx, 20)
+    res = nodes[0].send_tx_and_wait(tx, 20)
+    logger.info(res)
+    assert 'result' in res
 
 for iter_ in range(10):
     hash_ = nodes[0].get_latest_block().hash_bytes
@@ -48,8 +57,8 @@ for iter_ in range(10):
     tx = sign_deploy_contract_tx(nodes[0].signer_key, wasm_blob, 20 + iter_ * 2,
                                  hash_)
     res = nodes[0].send_tx_and_wait(tx, 20)
-    assert 'result' in res
     logger.info(res)
+    assert 'result' in res
 
     logger.info("Invoking perturbed contract #%s" % iter_)
 
