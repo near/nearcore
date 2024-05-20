@@ -29,17 +29,19 @@ def compute_tx_hash(receiverId, nonce, actions, blockHash, accountId, pk):
 
 def sign_and_serialize_transaction(receiverId, nonce, actions, blockHash,
                                    accountId, pk, sk):
-    tx, hash_ = compute_tx_hash(receiverId, nonce, actions, blockHash,
-                                accountId, pk)
-
+    tx = Transaction()
+    tx.signerId = accountId
+    tx.publicKey = PublicKey()
+    tx.publicKey.keyType = 0
+    tx.publicKey.data = pk
+    tx.nonce = nonce
+    tx.receiverId = receiverId
+    tx.actions = actions
+    tx.blockHash = blockHash
     signature = Signature()
-    signature.keyType = 0
-    signature.data = SigningKey(sk).sign(hash_)
-
     signedTx = SignedTransaction()
     signedTx.transaction = tx
     signedTx.signature = signature
-
     return BinarySerializer(schema).serialize(signedTx)
 
 
