@@ -1,7 +1,6 @@
 use super::{Graph, GraphConfig};
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::Edge;
-use crate::network_protocol::EDGE_MIN_TIMESTAMP_NONCE;
 use crate::testonly::make_rng;
 use near_async::time;
 use near_crypto::SecretKey;
@@ -101,7 +100,7 @@ fn to_active_nonce(t: time::Utc) -> u64 {
 async fn expired_edges() {
     init_test_logger();
     let clock = time::FakeClock::default();
-    clock.set_utc(*EDGE_MIN_TIMESTAMP_NONCE + time::Duration::days(2));
+    clock.set_utc(time::Utc::UNIX_EPOCH + time::Duration::days(2));
     let mut rng = make_rng(87927345);
     let rng = &mut rng;
     let node_key = data::make_secret_key(rng);

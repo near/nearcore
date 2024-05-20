@@ -87,7 +87,7 @@ use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::RwLock;
-use tracing::{debug, debug_span, error, info, trace, warn};
+use tracing::{debug, debug_span, error, info, instrument, trace, warn};
 
 #[cfg(feature = "test_features")]
 use crate::client_actor::AdvProduceChunksMode;
@@ -820,7 +820,7 @@ impl Client {
         Ok(Some(block))
     }
 
-    pub fn produce_chunk(
+    pub fn try_produce_chunk(
         &mut self,
         prev_block: &Block,
         epoch_id: &EpochId,
@@ -828,13 +828,6 @@ impl Client {
         next_height: BlockHeight,
         shard_id: ShardId,
     ) -> Result<Option<ProduceChunkResult>, Error> {
-        let timer = Instant::now();
-        let _timer =
-            metrics::PRODUCE_CHUNK_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
-        let _span = tracing::debug_span!(target: "client", "produce_chunk", next_height, shard_id, ?epoch_id).entered();
-
-        let prev_block_hash = *prev_block.hash();
-
         let validator_signer = self
             .validator_signer
             .as_ref()
@@ -852,6 +845,37 @@ impl Client {
                 "Not producing chunk. Not chunk producer for next chunk.");
             return Ok(None);
         }
+
+        self.produce_chunk(
+            prev_block,
+            epoch_id,
+            last_header,
+            next_height,
+            shard_id,
+            validator_signer,
+        )
+    }
+
+    #[instrument(target = "client", level = "debug", "produce_chunk", skip_all, fields(
+        height = next_height,
+        shard_id,
+        ?epoch_id,
+        chunk_hash = tracing::field::Empty,
+    ))]
+    pub fn produce_chunk(
+        &mut self,
+        prev_block: &Block,
+        epoch_id: &EpochId,
+        last_header: ShardChunkHeader,
+        next_height: BlockHeight,
+        shard_id: ShardId,
+        validator_signer: Arc<dyn ValidatorSigner>,
+    ) -> Result<Option<ProduceChunkResult>, Error> {
+        let span = tracing::Span::current();
+        let timer = Instant::now();
+        let _timer =
+            metrics::PRODUCE_CHUNK_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
+        let prev_block_hash = *prev_block.hash();
         if self.epoch_manager.is_next_block_epoch_start(&prev_block_hash)? {
             let prev_prev_hash = *self.chain.get_block_header(&prev_block_hash)?.prev_hash();
             if !self.chain.prev_block_is_caught_up(&prev_prev_hash, &prev_block_hash)? {
@@ -914,6 +938,7 @@ impl Client {
             protocol_version,
         )?;
 
+        span.record("chunk_hash", tracing::field::debug(encoded_chunk.chunk_hash()));
         debug!(target: "client",
             me = %validator_signer.validator_id(),
             chunk_hash = ?encoded_chunk.chunk_hash(),
@@ -978,7 +1003,7 @@ impl Client {
         if insert {
             txs.transactions.push(SignedTransaction::new(
                 near_crypto::Signature::empty(near_crypto::KeyType::ED25519),
-                near_primitives::transaction::Transaction::new(
+                near_primitives::transaction::Transaction::new_v1(
                     "test".parse().unwrap(),
                     near_crypto::PublicKey::empty(near_crypto::KeyType::SECP256K1),
                     "other".parse().unwrap(),
@@ -1759,7 +1784,13 @@ impl Client {
                 .with_label_values(&[&shard_id.to_string()])
                 .start_timer();
             let last_header = Chain::get_prev_chunk_header(epoch_manager, block, shard_id).unwrap();
-            match self.produce_chunk(block, &epoch_id, last_header.clone(), next_height, shard_id) {
+            match self.try_produce_chunk(
+                block,
+                &epoch_id,
+                last_header.clone(),
+                next_height,
+                shard_id,
+            ) {
                 Ok(Some(result)) => {
                     let shard_chunk = self
                         .persist_and_distribute_encoded_chunk(

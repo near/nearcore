@@ -12,12 +12,12 @@ use near_chain_configs::{
 };
 use near_crypto::PublicKey;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
-use near_parameters::{ActionCosts, ExtCosts, RuntimeConfigStore};
+use near_parameters::{ActionCosts, ExtCosts, RuntimeConfig, RuntimeConfigStore};
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::checked_feature;
-use near_primitives::congestion_info::CongestionInfo;
+use near_primitives::congestion_info::{CongestionControl, ExtendedCongestionInfo};
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
@@ -743,8 +743,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut total_gas_burnt = 0;
         let mut total_size = 0u64;
 
+        let runtime_config = self.runtime_config_store.get_config(protocol_version);
+
         let transactions_gas_limit =
-            chunk_tx_gas_limit(protocol_version, &prev_block, shard_id, gas_limit);
+            chunk_tx_gas_limit(protocol_version, runtime_config, &prev_block, shard_id, gas_limit);
 
         let mut result = PreparedTransactions {
             transactions: Vec::new(),
@@ -752,8 +754,6 @@ impl RuntimeAdapter for NightshadeRuntime {
             storage_proof: None,
         };
         let mut num_checked_transactions = 0;
-
-        let runtime_config = self.runtime_config_store.get_config(protocol_version);
 
         // To avoid limiting the throughput of the network, we want to include enough receipts to
         // saturate the capacity of the chunk even in case when all of these receipts end up using
@@ -842,7 +842,12 @@ impl RuntimeAdapter for NightshadeRuntime {
                         if let Some(congestion_info) =
                             prev_block.congestion_info.get(&receiving_shard)
                         {
-                            if !congestion_info.shard_accepts_transactions() {
+                            let congestion_control = CongestionControl::new(
+                                runtime_config.congestion_control_config,
+                                congestion_info.congestion_info,
+                                congestion_info.missed_chunks_count,
+                            );
+                            if !congestion_control.shard_accepts_transactions() {
                                 tracing::trace!(target: "runtime", tx=?tx.get_hash(), "discarding transaction due to congestion");
                                 continue;
                             }
@@ -1318,17 +1323,29 @@ impl RuntimeAdapter for NightshadeRuntime {
 /// transactions to receipts.
 fn chunk_tx_gas_limit(
     protocol_version: u32,
+    runtime_config: &RuntimeConfig,
     prev_block: &PrepareTransactionsBlockContext,
     shard_id: u64,
     gas_limit: u64,
 ) -> u64 {
     if ProtocolFeature::CongestionControl.enabled(protocol_version) {
         if let Some(own_congestion) = prev_block.congestion_info.get(&shard_id) {
-            own_congestion.process_tx_limit()
+            let congestion_control = CongestionControl::new(
+                runtime_config.congestion_control_config,
+                own_congestion.congestion_info,
+                own_congestion.missed_chunks_count,
+            );
+            congestion_control.process_tx_limit()
         } else {
             // When a new shard is created, or when the feature is just being enabled.
             // Using the default (no congestion) is a reasonable choice in this case.
-            CongestionInfo::default().process_tx_limit()
+            let own_congestion = ExtendedCongestionInfo::default();
+            let congestion_control = CongestionControl::new(
+                runtime_config.congestion_control_config,
+                own_congestion.congestion_info,
+                own_congestion.missed_chunks_count,
+            );
+            congestion_control.process_tx_limit()
         }
     } else {
         gas_limit / 2

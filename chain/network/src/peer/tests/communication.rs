@@ -8,7 +8,7 @@ use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::tcp;
 use crate::testonly::make_rng;
 use crate::testonly::stream::Stream;
-use crate::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
+use crate::types::{Edge, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
 use anyhow::Context as _;
 use assert_matches::assert_matches;
 use near_async::time;
@@ -208,7 +208,8 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
         target_peer_id: inbound.cfg.id(),
         sender_listen_port: Some(outbound_port),
         sender_chain_info: outbound_cfg.chain.get_peer_chain_info(),
-        partial_edge_info: outbound_cfg.partial_edge_info(&inbound.cfg.id(), 1),
+        partial_edge_info: outbound_cfg
+            .partial_edge_info(&inbound.cfg.id(), Edge::create_fresh_nonce(&clock.clock())),
         owned_account: None,
     };
     // We will also introduce chain_id mismatch, but ProtocolVersionMismatch is expected to take priority.
