@@ -182,3 +182,13 @@ function_call_weight                    true
 vm_kind                                 NearVm
 eth_implicit_accounts                   false
 yield_resume                            true
+max_congestion_incoming_gas             9_223_372_036_854_775_807
+max_congestion_outgoing_gas             9_223_372_036_854_775_807
+max_congestion_memory_consumption       9_223_372_036_854_775_807
+max_congestion_missed_chunks            9_223_372_036_854_775_807
+max_outgoing_gas                        9_223_372_036_854_775_807
+min_outgoing_gas                        9_223_372_036_854_775_807
+allowed_shard_outgoing_gas              9_223_372_036_854_775_807
+max_tx_gas                              9_223_372_036_854_775_807
+min_tx_gas                              9_223_372_036_854_775_807
+reject_tx_congestion_threshold          1 / 1

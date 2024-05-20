@@ -221,7 +221,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
 
         let mut state_root2 = state_roots2[simple_chain.from as usize];
         let state_root1 = states1[simple_chain.from as usize].1[shard_to_check_trie as usize];
-        tries1.get_trie_for_shard(shard_uid, state_root1).iter().unwrap();
+        tries1.get_trie_for_shard(shard_uid, state_root1).disk_iter().unwrap();
         assert_eq!(state_root1, state_root2);
 
         for i in start_index..start_index + simple_chain.length {
@@ -277,13 +277,13 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
                 );
                 let a = tries1
                     .get_trie_for_shard(shard_uid, state_root1)
-                    .iter()
+                    .disk_iter()
                     .unwrap()
                     .map(|item| item.unwrap().0)
                     .collect::<Vec<_>>();
                 let b = tries2
                     .get_trie_for_shard(shard_uid, state_root1)
-                    .iter()
+                    .disk_iter()
                     .unwrap()
                     .map(|item| item.unwrap().0)
                     .collect::<Vec<_>>();

@@ -65,6 +65,14 @@ impl PartialEncodedStateWitness {
         Self { inner, signature }
     }
 
+    pub fn chunk_production_key(&self) -> ChunkProductionKey {
+        ChunkProductionKey {
+            shard_id: self.shard_id(),
+            epoch_id: self.epoch_id().clone(),
+            height_created: self.height_created(),
+        }
+    }
+
     pub fn verify(&self, public_key: &PublicKey) -> bool {
         let data = borsh::to_vec(&self.inner).unwrap();
         self.signature.verify(&data, public_key)
@@ -342,6 +350,14 @@ impl ChunkStateWitness {
         }
     }
 
+    pub fn chunk_production_key(&self) -> ChunkProductionKey {
+        ChunkProductionKey {
+            shard_id: self.chunk_header.shard_id(),
+            epoch_id: self.epoch_id.clone(),
+            height_created: self.chunk_header.height_created(),
+        }
+    }
+
     pub fn new_dummy(height: BlockHeight, shard_id: ShardId, prev_block_hash: CryptoHash) -> Self {
         let header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
             PROTOCOL_VERSION,
@@ -477,6 +493,15 @@ impl EndorsementStats {
     }
 }
 
+/// This struct contains combination of fields that uniquely identify chunk production.
+/// It means that for a given instance only one chunk could be produced.
+#[derive(Debug, Hash, PartialEq, Eq, Clone)]
+pub struct ChunkProductionKey {
+    pub shard_id: ShardId,
+    pub epoch_id: EpochId,
+    pub height_created: BlockHeight,
+}
+
 #[derive(Debug, Default)]
 pub struct ChunkValidatorAssignments {
     assignments: Vec<(AccountId, Balance)>,
@@ -507,7 +532,7 @@ impl ChunkValidatorAssignments {
 
     pub fn compute_endorsement_stats(
         &self,
-        endorsed_chunk_validators: &HashSet<AccountId>,
+        endorsed_chunk_validators: &HashSet<&AccountId>,
     ) -> EndorsementStats {
         let mut total_stake = 0;
         let mut endorsed_stake = 0;

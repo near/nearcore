@@ -3,15 +3,7 @@ use near_async::time;
 use near_crypto::{KeyType, SecretKey, Signature};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use once_cell::sync::Lazy;
 use std::sync::Arc;
-
-// We'd treat all nonces that are below this values as 'old style' (without any expiration time).
-// And all nonces above this value as new style (that would expire after some time).
-// This value is set to August 8, 2022.
-// TODO: Remove this in Dec 2022 - once we finish migration to new nonces.
-pub const EDGE_MIN_TIMESTAMP_NONCE: Lazy<time::Utc> =
-    Lazy::new(|| time::Utc::from_unix_timestamp(1660000000).unwrap());
 
 /// Information that will be ultimately used to create a new edge.
 /// It contains nonce proposed for the edge with signature from peer.
@@ -234,24 +226,13 @@ impl Edge {
 
     // Checks if edge was created before a given timestamp.
     pub fn is_edge_older_than(&self, utc_timestamp: time::Utc) -> bool {
-        Edge::nonce_to_utc(self.nonce()).is_ok_and(|maybe_timestamp| {
-            // Old-style nonce - for now, assume that they are always fresh.
-            maybe_timestamp.map_or(false, |nonce_timestamp| nonce_timestamp < utc_timestamp)
-        })
+        Edge::nonce_to_utc(self.nonce())
+            .is_ok_and(|nonce_timestamp| nonce_timestamp < utc_timestamp)
     }
 
-    pub fn nonce_to_utc(nonce: u64) -> Result<Option<time::Utc>, InvalidNonceError> {
+    pub fn nonce_to_utc(nonce: u64) -> Result<time::Utc, InvalidNonceError> {
         if let Ok(nonce_as_i64) = i64::try_from(nonce) {
             time::Utc::from_unix_timestamp(nonce_as_i64)
-                .map(
-                    |nonce_ts| {
-                        if nonce_ts > *EDGE_MIN_TIMESTAMP_NONCE {
-                            Some(nonce_ts)
-                        } else {
-                            None
-                        }
-                    },
-                )
                 .map_err(|_| InvalidNonceError::NonceOutOfBoundsError { nonce })
         } else {
             Err(InvalidNonceError::NonceOutOfBoundsError { nonce })

@@ -83,7 +83,11 @@ performance_stats = [
   "near-network/performance_stats",
 ]
 expensive_tests = []
-test_features = ["nearcore/test_features", "near-store/test_features"]
+test_features = [
+  "nearcore/test_features",
+  "near-store/test_features",
+  "near-vm-runner/test_features",
+]
 protocol_feature_fix_contract_loading_cost = [
   "nearcore/protocol_feature_fix_contract_loading_cost",
 ]

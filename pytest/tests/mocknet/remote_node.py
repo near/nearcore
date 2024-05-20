@@ -63,6 +63,10 @@ class RemoteNeardRunner:
         ' && ./venv/bin/pip install -r requirements.txt'
         cmd_utils.run_cmd(self.node, cmd)
 
+    def update_python(self):
+        cmd = f'cd {self.neard_runner_home} && ./venv/bin/pip install -r requirements.txt'
+        cmd_utils.run_cmd(self.node, cmd)
+
     def stop_neard_runner(self):
         # this looks for python processes with neard_runner.py in the command line. the first word will
         # be the pid, which we extract with the last awk command
