@@ -1380,17 +1380,17 @@ impl Runtime {
         };
 
         let mut delayed_receipts = DelayedReceiptQueue::load(&state_update)?;
-        let mut congestion_info = apply_state.own_congestion_info(protocol_version)?;
-        let mut congestion_control = if let Some(congestion_info) = &mut congestion_info {
-            let congestion_control = CongestionControl::new(
-                apply_state.config.congestion_control_config,
-                congestion_info.congestion_info,
-                congestion_info.missed_chunks_count,
-            );
-            Some(congestion_control)
-        } else {
-            None
-        };
+        let mut congestion_control =
+            if let Some(congestion_info) = apply_state.own_congestion_info(protocol_version)? {
+                let congestion_control = CongestionControl::new(
+                    apply_state.config.congestion_control_config,
+                    congestion_info.congestion_info,
+                    congestion_info.missed_chunks_count,
+                );
+                Some(congestion_control)
+            } else {
+                None
+            };
 
         if !apply_state.is_new_chunk
             && protocol_version >= ProtocolFeature::FixApplyChunks.protocol_version()
@@ -1411,7 +1411,7 @@ impl Runtime {
                 proof,
                 delayed_receipts_count: delayed_receipts.len(),
                 metrics: None,
-                congestion_info: congestion_info.map(|info| info.congestion_info),
+                congestion_info: congestion_control.map(|c| *c.congestion_info()),
             });
         }
 
@@ -1429,6 +1429,8 @@ impl Runtime {
             &mut congestion_control,
             &mut outgoing_receipts,
         )?;
+        let mut new_delayed_gas = 0;
+        let mut removed_delayed_gas = 0;
 
         // Forward buffered receipts from previous chunks.
         receipt_sink.forward_from_buffer(&mut state_update, apply_state)?;
@@ -1820,7 +1822,7 @@ impl Runtime {
             proof,
             delayed_receipts_count: delayed_receipts.len(),
             metrics: Some(metrics),
-            congestion_info: congestion_info.map(|info| info.congestion_info),
+            congestion_info: congestion_control.map(|c| *c.congestion_info()),
         })
     }
 
@@ -3259,10 +3261,6 @@ mod tests {
     /// necessary changes to the balance checker.
     #[test]
     fn test_congestion_buffering() {
-        // copied from [`near_primitives::congestion_info`] just for this test
-        const MAX_CONGESTION_INCOMING_GAS: Gas = 20 * 10u64.pow(15);
-        const MIN_OUTGOING_GAS: Gas = 1 * 10u64.pow(15);
-
         // In the test setup with he MockEpochInfoProvider, all accounts are on
         // shard 0. Hence all receipts will be forwarded to shard 0. We don't
         // want local forwarding in the test, hence we need to use a different
@@ -3285,14 +3283,17 @@ mod tests {
         // test only checks that receipt buffering works. Unit tests
         // congestion_info.rs test that the congestion level is picked up for
         // all possible congestion conditions.
+        let max_congestion_incoming_gas: Gas =
+            apply_state.config.congestion_control_config.max_congestion_incoming_gas;
         apply_state
             .congestion_info
             .get_mut(&0)
             .unwrap()
-            .add_delayed_receipt_gas(MAX_CONGESTION_INCOMING_GAS)
+            .congestion_info
+            .add_delayed_receipt_gas(max_congestion_incoming_gas)
             .unwrap();
         // set allowed shard of shard 0 to 0 to prevent shard 1 from forwarding
-        apply_state.congestion_info.get_mut(&0).unwrap().finalize_allowed_shard(0, &[], 0);
+        apply_state.congestion_info.get_mut(&0).unwrap().congestion_info.set_allowed_shard(0);
         apply_state.congestion_info.insert(1, Default::default());
 
         // We need receipts that produce an outgoing receipt. Function calls and
@@ -3331,6 +3332,9 @@ mod tests {
                 let capped_i = std::cmp::min(i, n);
                 assert_eq!(0, apply_result.outgoing_receipts.len());
                 assert_eq!(capped_i, buffers.buffer_len(receiver_shard).unwrap());
+                let congestion = apply_result.congestion_info.unwrap();
+                assert!(congestion.buffered_receipts_gas() > 0);
+                assert!(congestion.receipt_bytes() > 0);
             } else {
                 // without congestion control, we always forward
                 if i <= n {
@@ -3343,22 +3347,38 @@ mod tests {
             }
         }
 
+        {
+            // Check congestion is 1.0
+            let congestion = apply_state.congestion_control(receiver_shard, 0);
+            assert_eq!(congestion.congestion_level(true), 1.0);
+            assert_eq!(congestion.outgoing_limit(local_shard), 0);
+        }
+
         // release congestion to just below 1.0, which should allow one receipt
         // to be forwarded per round
-        assert_eq!(apply_state.congestion_info[&0].congestion_level(), 1.0);
-        assert_eq!(apply_state.congestion_info[&0].outgoing_limit(1), 0);
-        apply_state.congestion_info.get_mut(&0).unwrap().remove_delayed_receipt_gas(10).unwrap();
-        assert!(apply_state.congestion_info[&0].congestion_level() < 1.0);
-        // this exact number does not matter but if it changes the test setup
-        // needs to adapt to ensure the number of forwarded receipts is as expected
-        assert!(
-            apply_state.congestion_info[&0].outgoing_limit(1) - MIN_OUTGOING_GAS
-                < 100 * 10u64.pow(9),
-            "allowed forwarding must be less than 100 GGas away from MIN_OUTGOING_GAS"
-        );
-        let forwarded_per_chunk = MIN_OUTGOING_GAS / MAX_ATTACHED_GAS;
+        apply_state
+            .congestion_info
+            .get_mut(&0)
+            .unwrap()
+            .congestion_info
+            .remove_delayed_receipt_gas(10)
+            .unwrap();
+
+        let min_outgoing_gas: Gas = apply_state.config.congestion_control_config.min_outgoing_gas;
+        {
+            // Check congestion is less than 1.0
+            let congestion = apply_state.congestion_control(receiver_shard, 0);
+            assert!(congestion.congestion_level(true) < 1.0);
+            // this exact number does not matter but if it changes the test setup
+            // needs to adapt to ensure the number of forwarded receipts is as expected
+            assert!(
+                congestion.outgoing_limit(local_shard) - min_outgoing_gas < 100 * 10u64.pow(9),
+                "allowed forwarding must be less than 100 GGas away from MIN_OUTGOING_GAS"
+            );
+        }
 
         // Checking n receipts delayed by 1 + 3 extra
+        let forwarded_per_chunk = min_outgoing_gas / MAX_ATTACHED_GAS;
         for i in 1..=n + 3 {
             let prev_receipts = &[];
             let apply_result = runtime
@@ -3404,6 +3424,16 @@ mod tests {
                 // (c) check the right number of receipts are forwarded
                 assert_eq!(expected_forwarded as usize, apply_result.outgoing_receipts.len());
             }
+        }
+    }
+
+    impl ApplyState {
+        fn congestion_control(&self, shard_id: ShardId, missed_chunks: u64) -> CongestionControl {
+            CongestionControl::new(
+                self.config.congestion_control_config,
+                self.congestion_info[&shard_id].congestion_info,
+                missed_chunks,
+            )
         }
     }
 }
