@@ -51,6 +51,14 @@ enum ReceiptForwarding {
     NotForwarded(Receipt),
 }
 
+pub(crate) struct DelayedReceiptQueueWrapper {
+    queue: DelayedReceiptQueue,
+    new_delayed_gas: Gas,
+    new_delayed_bytes: u64,
+    removed_delayed_gas: Gas,
+    removed_delayed_bytes: u64,
+}
+
 impl<'a> ReceiptSink<'a> {
     pub(crate) fn new(
         protocol_version: ProtocolVersion,
@@ -266,7 +274,7 @@ impl ReceiptSinkV2<'_> {
     }
 }
 
-fn receipt_congestion_gas(
+pub(crate) fn receipt_congestion_gas(
     receipt: &Receipt,
     config: &RuntimeConfig,
 ) -> Result<Gas, IntegerOverflowError> {
@@ -368,7 +376,63 @@ pub fn bootstrap_congestion_info(
     }))
 }
 
-fn receipt_size(receipt: &Receipt) -> Result<usize, IntegerOverflowError> {
+impl DelayedReceiptQueueWrapper {
+    pub fn new(queue: DelayedReceiptQueue) -> Self {
+        Self {
+            queue,
+            new_delayed_gas: 0,
+            new_delayed_bytes: 0,
+            removed_delayed_gas: 0,
+            removed_delayed_bytes: 0,
+        }
+    }
+
+    pub(crate) fn push(
+        &mut self,
+        trie_update: &mut TrieUpdate,
+        receipt: &Receipt,
+        config: &RuntimeConfig,
+    ) -> Result<(), RuntimeError> {
+        let delayed_gas = receipt_congestion_gas(receipt, &config)?;
+        let delayed_bytes = receipt_size(receipt)? as u64;
+        self.new_delayed_gas = safe_add_gas(self.new_delayed_gas, delayed_gas)?;
+        self.new_delayed_bytes = safe_add_gas(self.new_delayed_bytes, delayed_bytes)?;
+        self.queue.push(trie_update, receipt)?;
+        Ok(())
+    }
+
+    pub(crate) fn pop(
+        &mut self,
+        trie_update: &mut TrieUpdate,
+        config: &RuntimeConfig,
+    ) -> Result<Option<Receipt>, RuntimeError> {
+        let receipt = self.queue.pop(trie_update)?;
+        if let Some(receipt) = &receipt {
+            let delayed_gas = receipt_congestion_gas(receipt, &config)?;
+            let delayed_bytes = receipt_size(receipt)? as u64;
+            self.removed_delayed_gas = safe_add_gas(self.removed_delayed_gas, delayed_gas)?;
+            self.removed_delayed_bytes = safe_add_gas(self.removed_delayed_bytes, delayed_bytes)?;
+        }
+        Ok(receipt)
+    }
+
+    pub(crate) fn len(&self) -> u64 {
+        self.queue.len()
+    }
+
+    pub(crate) fn apply_congestion_changes(
+        self,
+        congestion: &mut CongestionInfo,
+    ) -> Result<(), RuntimeError> {
+        congestion.add_delayed_receipt_gas(self.new_delayed_gas)?;
+        congestion.remove_delayed_receipt_gas(self.removed_delayed_gas)?;
+        congestion.add_receipt_bytes(self.new_delayed_bytes)?;
+        congestion.remove_receipt_bytes(self.removed_delayed_bytes)?;
+        Ok(())
+    }
+}
+
+pub(crate) fn receipt_size(receipt: &Receipt) -> Result<usize, IntegerOverflowError> {
     // `borsh::object_length` may only fail when the total size overflows u32
     borsh::object_length(&receipt).map_err(|_| IntegerOverflowError)
 }
