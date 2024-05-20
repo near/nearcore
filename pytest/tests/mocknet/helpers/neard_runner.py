@@ -875,7 +875,9 @@ class NeardRunner:
             # Save logs config file to control the level of rust and opentelemetry logs.
             # Default config sets level to DEBUG for "client" and "chain" logs, WARN for tokio+actix, and INFO for everything else.
             default_log_filter = 'client=debug,chain=debug,actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn,info'
-            log_config_file_path = self.target_near_home_path('log_config.json') if self.is_traffic_generator() else self.home_path('log_config.json')
+            log_config_file_path = self.target_near_home_path(
+                'log_config.json') if self.is_traffic_generator(
+                ) else self.home_path('log_config.json')
             with open(log_config_file_path, 'w') as log_config_file:
                 json.dump(
                     {
@@ -884,7 +886,7 @@ class NeardRunner:
                     },
                     log_config_file,
                     indent=2)
-            
+
             self.run_neard(
                 cmd,
                 out_file=out,
