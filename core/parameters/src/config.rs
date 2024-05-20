@@ -187,3 +187,24 @@ pub struct CongestionControlConfig {
 // that NaN != NaN. In the CongestionControlConfig the field should never be NaN
 // so it is okay for us to add the Eq trait to it manually.
 impl Eq for CongestionControlConfig {}
+
+impl CongestionControlConfig {
+    /// Creates a config where congestion control is disabled. This config can
+    /// be used for tests. It can be useful e.g. in tests with missing chunks
+    /// where we still want to process all transactions.
+    pub fn test_disabled() -> Self {
+        let max_value = u64::MAX;
+        Self {
+            max_congestion_incoming_gas: max_value,
+            max_congestion_outgoing_gas: max_value,
+            max_congestion_memory_consumption: max_value,
+            max_congestion_missed_chunks: max_value,
+            max_outgoing_gas: max_value,
+            min_outgoing_gas: max_value,
+            allowed_shard_outgoing_gas: max_value,
+            max_tx_gas: max_value,
+            min_tx_gas: max_value,
+            reject_tx_congestion_threshold: 1.0,
+        }
+    }
+}
