@@ -1429,8 +1429,6 @@ impl Runtime {
             &mut congestion_control,
             &mut outgoing_receipts,
         )?;
-        let mut new_delayed_gas = 0;
-        let mut removed_delayed_gas = 0;
 
         // Forward buffered receipts from previous chunks.
         receipt_sink.forward_from_buffer(&mut state_update, apply_state)?;
