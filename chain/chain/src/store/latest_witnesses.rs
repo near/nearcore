@@ -12,6 +12,7 @@ use near_primitives::stateless_validation::ChunkStateWitness;
 use near_primitives::types::EpochId;
 use near_store::DBCol;
 
+use crate::metrics;
 use crate::ChainStoreAccess;
 
 use super::ChainStore;
@@ -99,6 +100,15 @@ impl ChainStore {
         &mut self,
         witness: &ChunkStateWitness,
     ) -> Result<(), std::io::Error> {
+        let start_time = std::time::Instant::now();
+        let _span = tracing::info_span!(
+            target: "client",
+            "save_latest_chunk_state_witness",
+            witness_height = witness.chunk_header.height_created(),
+            witness_shard = witness.chunk_header.shard_id(),
+        )
+        .entered();
+
         let serialized_witness = borsh::to_vec(witness)?;
         let serialized_witness_size: u64 =
             serialized_witness.len().try_into().expect("Cannot convert usize to u64");
@@ -151,8 +161,30 @@ impl ChainStore {
         // Update LatestWitnessesInfo
         store_update.set(DBCol::Misc, &LATEST_WITNESSES_INFO, &borsh::to_vec(&info)?);
 
+        let store_update_time = start_time.elapsed();
+
         // Commit the transaction
         store_update.commit()?;
+
+        let store_commit_time = start_time.elapsed().saturating_sub(store_update_time);
+
+        let shard_id_str = witness.chunk_header.shard_id().to_string();
+        metrics::SAVE_LATEST_WITNESS_GENERATE_UPDATE_TIME
+            .with_label_values(&[shard_id_str.as_str()])
+            .observe(store_update_time.as_secs_f64());
+        metrics::SAVE_LATEST_WITNESS_COMMIT_UPDATE_TIME
+            .with_label_values(&[shard_id_str.as_str()])
+            .observe(store_commit_time.as_secs_f64());
+        metrics::SAVED_LATEST_WITNESSES_COUNT.set(info.count as i64);
+        metrics::SAVED_LATEST_WITNESSES_SIZE.set(info.total_size as i64);
+
+        tracing::debug!(
+            ?store_update_time,
+            ?store_commit_time,
+            total_count = info.count,
+            total_size = info.total_size,
+            "Saved latest witness",
+        );
 
         Ok(())
     }
