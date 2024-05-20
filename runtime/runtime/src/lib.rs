@@ -3345,8 +3345,8 @@ mod tests {
             }
         }
 
-        {
-            // Check congestion is 1.0
+        // Check congestion is 1.0
+        if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
             let congestion = apply_state.congestion_control(receiver_shard, 0);
             assert_eq!(congestion.congestion_level(true), 1.0);
             assert_eq!(congestion.outgoing_limit(local_shard), 0);
@@ -3363,8 +3363,8 @@ mod tests {
             .unwrap();
 
         let min_outgoing_gas: Gas = apply_state.config.congestion_control_config.min_outgoing_gas;
-        {
-            // Check congestion is less than 1.0
+        // Check congestion is less than 1.0
+        if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
             let congestion = apply_state.congestion_control(receiver_shard, 0);
             assert!(congestion.congestion_level(true) < 1.0);
             // this exact number does not matter but if it changes the test setup
