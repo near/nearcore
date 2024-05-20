@@ -39,6 +39,8 @@ def sign_and_serialize_transaction(receiverId, nonce, actions, blockHash,
     tx.actions = actions
     tx.blockHash = blockHash
     signature = Signature()
+    signature.keyType = 0
+    signature.data = "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b"
     signedTx = SignedTransaction()
     signedTx.transaction = tx
     signedTx.signature = signature
