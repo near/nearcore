@@ -100,6 +100,9 @@ class LocalTestNeardRunner:
     def init_python(self):
         return
 
+    def update_python(self):
+        return
+
     def _pid_path(self):
         return self.home / 'pid.txt'
 

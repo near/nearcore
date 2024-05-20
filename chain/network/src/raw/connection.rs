@@ -4,11 +4,12 @@ use crate::network_protocol::{
 };
 use crate::tcp;
 use crate::types::{
-    PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerInfo, StateResponseInfo,
+    Edge, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerInfo,
+    StateResponseInfo,
 };
 use bytes::buf::{Buf, BufMut};
 use bytes::BytesMut;
-use near_async::time::{Duration, Instant, Utc};
+use near_async::time::{Clock, Duration, Instant, Utc};
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::block::{Block, BlockHeader, GenesisId};
 use near_primitives::hash::CryptoHash;
@@ -221,6 +222,7 @@ impl Connection {
     /// Connect to the NEAR node at `peer_id`@`addr`. The inputs are used to build out handshake,
     /// and this function will return a `Peer` when a handshake has been received successfully.
     pub async fn connect(
+        clock: &Clock,
         addr: SocketAddr,
         peer_id: PeerId,
         my_protocol_version: Option<ProtocolVersion>,
@@ -250,6 +252,7 @@ impl Connection {
             borsh_message_expected: false,
         };
         peer.do_handshake(
+            &clock,
             my_protocol_version.unwrap_or(PROTOCOL_VERSION),
             chain_id,
             genesis_hash,
@@ -321,6 +324,7 @@ impl Connection {
 
     async fn do_handshake(
         &mut self,
+        clock: &Clock,
         protocol_version: ProtocolVersion,
         chain_id: &str,
         genesis_hash: CryptoHash,
@@ -332,7 +336,7 @@ impl Connection {
             &self.my_peer_id,
             &self.peer_id,
             self.stream.stream.local_addr.port(),
-            1,
+            Edge::create_fresh_nonce(&clock),
             protocol_version,
             chain_id,
             genesis_hash,

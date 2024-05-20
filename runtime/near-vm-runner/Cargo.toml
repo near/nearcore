@@ -126,6 +126,7 @@ nightly = [
 ]
 sandbox = []
 io_trace = []
+test_features = []
 
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = []

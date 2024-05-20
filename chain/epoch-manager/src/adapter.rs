@@ -191,12 +191,6 @@ pub trait EpochManagerAdapter: Send + Sync {
         epoch_id: &EpochId,
     ) -> Result<Vec<ValidatorStake>, EpochError>;
 
-    fn get_epoch_chunk_producers_for_shard(
-        &self,
-        epoch_id: &EpochId,
-        shard_id: ShardId,
-    ) -> Result<Vec<ValidatorStake>, EpochError>;
-
     /// Block producers for given height for the main block. Return EpochError if outside of known boundaries.
     fn get_block_producer(
         &self,
@@ -718,15 +712,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
     ) -> Result<Vec<ValidatorStake>, EpochError> {
         let epoch_manager = self.read();
         Ok(epoch_manager.get_all_chunk_producers(epoch_id)?.to_vec())
-    }
-
-    fn get_epoch_chunk_producers_for_shard(
-        &self,
-        epoch_id: &EpochId,
-        shard_id: ShardId,
-    ) -> Result<Vec<ValidatorStake>, EpochError> {
-        let epoch_manager = self.read();
-        Ok(epoch_manager.get_chunk_producers_for_shard(epoch_id, shard_id)?)
     }
 
     fn get_block_producer(

@@ -1,3 +1,4 @@
+use std::env;
 use std::process::Command;
 
 type Error = Box<dyn std::error::Error>;
@@ -10,10 +11,23 @@ fn main() {
 }
 
 fn try_main() -> Result<(), Error> {
-    build_contract("./test-contract-rs", &["--features", "latest_protocol"], "test_contract_rs")?;
+    let mut test_contract_features = vec!["latest_protocol"];
+    if env::var("CARGO_FEATURE_TEST_FEATURES").is_ok() {
+        test_contract_features.push("test_features");
+    }
+
+    let test_contract_features_string = test_contract_features.join(",");
     build_contract(
         "./test-contract-rs",
-        &["--features", "latest_protocol,nightly"],
+        &["--features", &test_contract_features_string],
+        "test_contract_rs",
+    )?;
+
+    test_contract_features.push("nightly");
+    let test_contract_features_string = test_contract_features.join(",");
+    build_contract(
+        "./test-contract-rs",
+        &["--features", &test_contract_features_string],
         "nightly_test_contract_rs",
     )?;
     build_contract("./contract-for-fuzzing-rs", &[], "contract_for_fuzzing_rs")?;

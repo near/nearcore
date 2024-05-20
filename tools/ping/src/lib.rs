@@ -390,7 +390,10 @@ async fn ping_via_node(
 
     app_info.add_peer(peer_id.clone(), None);
 
+    let clock = time::Clock::real();
+
     let mut peer = match Connection::connect(
+        &clock,
         peer_addr,
         peer_id,
         protocol_version,
