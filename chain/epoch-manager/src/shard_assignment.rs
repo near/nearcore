@@ -116,31 +116,35 @@ fn get_initial_chunk_producer_assignment(
     num_shards: NumShards,
     prev_chunk_producers_assignment: Option<Vec<Vec<ValidatorStake>>>,
 ) -> Vec<Vec<usize>> {
-    if let Some(prev_assignment) = prev_chunk_producers_assignment {
-        assert_eq!(prev_assignment.len(), num_shards as usize);
-        let chunk_producer_indices = chunk_producers
-            .iter()
-            .enumerate()
-            .map(|(i, vs)| (vs.account_id().clone(), i))
-            .collect::<HashMap<_, _>>();
-        prev_assignment
-            .into_iter()
-            .map(|vs| {
-                vs.into_iter()
-                    .map(|v| chunk_producer_indices.get(v.account_id()).copied())
-                    .flatten()
-                    .collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>()
-    } else {
-        vec![vec![]; num_shards as usize]
+    let Some(prev_assignment) = prev_chunk_producers_assignment else {
+        return vec![vec![]; num_shards as usize];
+    };
+
+    assert_eq!(prev_assignment.len(), num_shards as usize);
+    let chunk_producer_indices = chunk_producers
+        .iter()
+        .enumerate()
+        .map(|(i, vs)| (vs.account_id().clone(), i))
+        .collect::<HashMap<_, _>>();
+
+    let mut assignment = vec![];
+    for validator_stakes in prev_assignment {
+        let mut chunk_producers = vec![];
+        for validator_stake in validator_stakes {
+            let chunk_producer_index = chunk_producer_indices.get(validator_stake.account_id());
+            if let Some(&index) = chunk_producer_index {
+                chunk_producers.push(index);
+            }
+        }
+        assignment.push(chunk_producers);
     }
+    assignment
 }
 
 #[derive(Eq, PartialEq, Ord, PartialOrd)]
 /// Helper struct to maintain set of shards sorted by number of chunk producers.
 struct ShardSetItem {
-    shard_validators_num: usize,
+    shard_chunk_producer_num: usize,
     shard_index: usize,
 }
 
@@ -149,6 +153,7 @@ struct ShardSetItem {
 ///
 /// Caller must guarantee that `min_validators_per_shard` is achievable and
 /// `prev_chunk_producers_assignment` corresponds to the same number of shards.
+/// TODO(resharding) - implement shard assignment
 fn assign_to_balance_shards(
     chunk_producers: Vec<ValidatorStake>,
     num_shards: NumShards,
@@ -170,7 +175,7 @@ fn assign_to_balance_shards(
         (0..num_chunk_producers).filter(|i| !old_validators.contains(i)).collect::<Vec<_>>();
     let mut shard_set: BTreeSet<ShardSetItem> = (0..num_shards)
         .map(|s| ShardSetItem {
-            shard_validators_num: chunk_producer_assignment[s as usize].len(),
+            shard_chunk_producer_num: chunk_producer_assignment[s as usize].len(),
             shard_index: s as usize,
         })
         .collect();
@@ -179,7 +184,7 @@ fn assign_to_balance_shards(
         let ShardSetItem { shard_index, .. } = shard_set.pop_first().unwrap();
         chunk_producer_assignment[shard_index].push(validator_index);
         shard_set.insert(ShardSetItem {
-            shard_validators_num: chunk_producer_assignment[shard_index].len(),
+            shard_chunk_producer_num: chunk_producer_assignment[shard_index].len(),
             shard_index,
         });
     }
@@ -189,11 +194,11 @@ fn assign_to_balance_shards(
     let new_assignments_hard_limit = chunk_producers.len().max(shard_assignment_changes_limit);
     loop {
         let ShardSetItem {
-            shard_validators_num: minimal_shard_validators_num,
+            shard_chunk_producer_num: minimal_shard_validators_num,
             shard_index: minimal_shard,
         } = *shard_set.first().unwrap();
         let ShardSetItem {
-            shard_validators_num: maximal_shard_validators_num,
+            shard_chunk_producer_num: maximal_shard_validators_num,
             shard_index: maximal_shard,
         } = *shard_set.last().unwrap();
         let is_minimal_num_satisfied = minimal_shard_validators_num >= min_validators_per_shard;
@@ -227,11 +232,11 @@ fn assign_to_balance_shards(
         let validator_index = chunk_producer_assignment[maximal_shard].swap_remove(validator_pos);
         chunk_producer_assignment[minimal_shard].push(validator_index);
         shard_set.insert(ShardSetItem {
-            shard_validators_num: chunk_producer_assignment[minimal_shard].len(),
+            shard_chunk_producer_num: chunk_producer_assignment[minimal_shard].len(),
             shard_index: minimal_shard,
         });
         shard_set.insert(ShardSetItem {
-            shard_validators_num: chunk_producer_assignment[maximal_shard].len(),
+            shard_chunk_producer_num: chunk_producer_assignment[maximal_shard].len(),
             shard_index: maximal_shard,
         });
         new_assignments += 1;
@@ -250,7 +255,7 @@ fn assign_to_balance_shards(
 ///
 /// This function guarantees that, in order of priority:
 /// * every shard has at least `min_validators_per_shard` assigned to it;
-/// * chunk producer repeats are completely avoided is possible;
+/// * chunk producer repeats are completely avoided if possible;
 /// * if `prev_chunk_producers_assignment` is provided, it minimizes the need
 /// for chunk producers there to change shards;
 /// * finally, attempts to balance number of chunk producers at shards, while

@@ -13,6 +13,7 @@ use rand::seq::SliceRandom;
 use std::cmp::{self, Ordering};
 use std::collections::hash_map;
 use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
+use std::ops::Deref;
 
 /// Helper struct which is a result of proposals processing.
 struct ValidatorRoles {
@@ -120,16 +121,16 @@ fn get_chunk_producers_assignment(
         cmp::max(chunk_producers.len(), cmp::max(block_producers.len(), chunk_validators.len()));
     let mut all_validators: Vec<ValidatorStake> = Vec::with_capacity(max_validators_for_role);
     let mut validator_to_index = HashMap::new();
-    for validators_for_role in [&chunk_producers, &block_producers, &chunk_validators].iter() {
-        for validator in validators_for_role.iter() {
-            let account_id = validator.account_id().clone();
-            if validator_to_index.contains_key(&account_id) {
-                continue;
-            }
-            let id = all_validators.len() as ValidatorId;
-            validator_to_index.insert(account_id, id);
-            all_validators.push(validator.clone());
+    for validator in
+        chunk_producers.iter().chain(block_producers.iter()).chain(chunk_validators.iter())
+    {
+        let account_id = validator.account_id().clone();
+        if validator_to_index.contains_key(&account_id) {
+            continue;
         }
+        let id = all_validators.len() as ValidatorId;
+        validator_to_index.insert(account_id, id);
+        all_validators.push(validator.clone());
     }
 
     // Assign chunk producers to shards.
@@ -137,15 +138,15 @@ fn get_chunk_producers_assignment(
     let minimum_validators_per_shard =
         epoch_config.validator_selection_config.minimum_validators_per_shard as usize;
     let prev_chunk_producers_assignment = if use_stable_shard_assignment {
-        Some(
-            prev_epoch_info
-                .chunk_producers_settlement()
-                .iter()
-                .map(|vs| {
-                    vs.into_iter().map(|v| prev_epoch_info.get_validator(*v)).collect::<Vec<_>>()
-                })
-                .collect::<Vec<_>>(),
-        )
+        let mut assignment = vec![];
+        for validator_ids in prev_epoch_info.chunk_producers_settlement().iter() {
+            let mut validator_stakes = vec![];
+            for validator_id in validator_ids.iter() {
+                validator_stakes.push(prev_epoch_info.get_validator(*validator_id));
+            }
+            assignment.push(validator_stakes);
+        }
+        Some(assignment)
     } else {
         None
     };
@@ -1260,14 +1261,6 @@ mod tests {
         {
             assert_eq!(v.stake(), stake + reward);
         }
-    }
-
-    #[allow(unused)]
-    fn stake_sum<'a, I: IntoIterator<Item = &'a u64>>(
-        epoch_info: &EpochInfo,
-        validator_ids: I,
-    ) -> u128 {
-        validator_ids.into_iter().map(|id| epoch_info.get_validator(*id).stake()).sum()
     }
 
     /// Create EpochConfig, only filling in the fields important for validator selection.
