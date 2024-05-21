@@ -472,6 +472,17 @@ impl Chain {
                     .save_block_extra(genesis.hash(), BlockExtra { challenges_result: vec![] });
 
                 for (chunk_header, state_root) in genesis.chunks().iter().zip(state_roots.iter()) {
+                    let congestion_info = if ProtocolFeature::CongestionControl
+                        .enabled(chain_genesis.protocol_version)
+                    {
+                        genesis
+                            .shards_congestion_info()
+                            .get(&chunk_header.shard_id())
+                            .map(|info| info.congestion_info)
+                    } else {
+                        None
+                    };
+
                     store_update.save_chunk_extra(
                         genesis.hash(),
                         &epoch_manager
@@ -480,6 +491,7 @@ impl Chain {
                             state_root,
                             chain_genesis.gas_limit,
                             chain_genesis.protocol_version,
+                            congestion_info,
                         ),
                     );
                 }
@@ -610,6 +622,7 @@ impl Chain {
         state_root: &StateRoot,
         gas_limit: Gas,
         genesis_protocol_version: ProtocolVersion,
+        congestion_info: Option<CongestionInfo>,
     ) -> ChunkExtra {
         ChunkExtra::new(
             genesis_protocol_version,
@@ -619,23 +632,15 @@ impl Chain {
             0,
             gas_limit,
             0,
-            Self::get_genesis_congestion_info(genesis_protocol_version),
+            congestion_info,
         )
-    }
-
-    fn get_genesis_congestion_info(protocol_version: ProtocolVersion) -> Option<CongestionInfo> {
-        if ProtocolFeature::CongestionControl.enabled(protocol_version) {
-            // TODO(congestion_control) - properly initialize
-            Some(CongestionInfo::default())
-        } else {
-            None
-        }
     }
 
     pub fn genesis_chunk_extra(
         &self,
         shard_id: ShardId,
         genesis_protocol_version: ProtocolVersion,
+        congestion_info: Option<CongestionInfo>,
     ) -> Result<ChunkExtra, Error> {
         let shard_index = shard_id as usize;
         let state_root = *get_genesis_state_roots(self.chain_store.store())?
@@ -652,7 +657,12 @@ impl Chain {
                 Error::Other(format!("genesis chunk does not exist for shard {shard_index}"))
             })?
             .gas_limit();
-        Ok(Self::create_genesis_chunk_extra(&state_root, gas_limit, genesis_protocol_version))
+        Ok(Self::create_genesis_chunk_extra(
+            &state_root,
+            gas_limit,
+            genesis_protocol_version,
+            congestion_info,
+        ))
     }
 
     /// Creates a light client block for the last final block from perspective of some other block
