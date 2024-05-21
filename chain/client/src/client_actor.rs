@@ -549,7 +549,6 @@ impl Handler<BlockHeadersResponse> for ClientActorInner {
 impl Handler<BlockApproval> for ClientActorInner {
     fn handle(&mut self, msg: BlockApproval) {
         let BlockApproval(approval, peer_id) = msg;
-        debug!(target: "client", "Receive approval {:?} from peer {:?}", approval, peer_id);
         self.client.collect_block_approval(&approval, ApprovalType::PeerApproval(peer_id));
     }
 }
@@ -1278,8 +1277,9 @@ impl ClientActorInner {
                     || self.client.is_validator(&head.next_epoch_id, &head.last_block_hash)
                 {
                     for approval in approvals {
-                        if let Err(e) =
-                            self.client.send_approval(&self.client.doomslug.get_tip().0, approval)
+                        if let Err(e) = self
+                            .client
+                            .send_block_approval(&self.client.doomslug.get_tip().0, approval)
                         {
                             error!("Error while sending an approval {:?}", e);
                         }
@@ -1292,9 +1292,15 @@ impl ClientActorInner {
 
     /// Produce block if we are block producer for given `next_height` height.
     /// Can return error, should be called with `produce_block` to handle errors and reschedule.
+    #[instrument(target = "client", level = "debug", "produce_block", skip_all, fields(
+        height = next_height,
+        block_hash = tracing::field::Empty,
+    ))]
+
     fn produce_block(&mut self, next_height: BlockHeight) -> Result<(), Error> {
-        let _span = tracing::debug_span!(target: "client", "produce_block", next_height).entered();
+        let span = tracing::Span::current();
         if let Some(block) = self.client.produce_block_on_head(next_height, false)? {
+            span.record("block_hash", tracing::field::debug(block.hash()));
             // If we produced the block, send it out before we apply the block.
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::Block { block: block.clone() },
@@ -1381,13 +1387,9 @@ impl ClientActorInner {
 
     /// Process all blocks that were accepted by calling other relevant services.
     fn process_accepted_blocks(&mut self, accepted_blocks: Vec<CryptoHash>) {
-        let _span = tracing::debug_span!(
-            target: "client",
-            "process_accepted_blocks",
-            num_blocks = accepted_blocks.len())
-        .entered();
         for accepted_block in accepted_blocks {
-            let block = self.client.chain.get_block(&accepted_block).unwrap().clone();
+            let block: Block = self.client.chain.get_block(&accepted_block).unwrap().clone();
+            debug!(target: "client", height=block.header().height(), "process_accepted_block");
             self.send_chunks_metrics(&block);
             self.send_block_metrics(&block);
             self.check_send_announce_account(*block.header().last_final_block());

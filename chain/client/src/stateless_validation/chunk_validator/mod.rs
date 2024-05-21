@@ -509,7 +509,7 @@ pub(crate) fn validate_chunk_state_witness(
     let _timer = metrics::CHUNK_STATE_WITNESS_VALIDATION_TIME
         .with_label_values(&[&state_witness.chunk_header.shard_id().to_string()])
         .start_timer();
-    let span = tracing::debug_span!(target: "client", "validate_chunk_state_witness").entered();
+    let span = tracing::debug_span!(target: "client", shard_id=?pre_validation_output.main_transition_params.shard_id(), "validate_chunk_state_witness").entered();
     let block_hash = pre_validation_output.main_transition_params.block_hash();
     let epoch_id = epoch_manager.get_epoch_id(&block_hash)?;
     let shard_uid = epoch_manager
