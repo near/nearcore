@@ -12,7 +12,7 @@ use near_primitives::state::FlatStateValue;
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::flat::{
     store_helper, BlockInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorage,
     FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus,
@@ -166,7 +166,11 @@ impl<'c> EstimatorContext<'c> {
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
-            congestion_info: HashMap::from([(shard_id, ExtendedCongestionInfo::default())]),
+            congestion_info: if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
+                HashMap::from([(shard_id, ExtendedCongestionInfo::default())])
+            } else {
+                HashMap::new()
+            },
         }
     }
 

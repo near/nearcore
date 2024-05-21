@@ -13,7 +13,7 @@ use near_primitives::views::FinalExecutionStatus;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 fn setup_runtime(sender_id: AccountId) -> TestEnv {
-    let epoch_length = 10;
+    let epoch_length = 5;
     let mut genesis = Genesis::test_sharded_new_version(vec![sender_id], 1, vec![1, 1, 1, 1]);
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = ProtocolFeature::CongestionControl.protocol_version() - 1;
@@ -64,7 +64,7 @@ fn test_protocol_upgrade() {
             .expect("chunk header must have congestion info after upgrade");
         let congestion_control =
             CongestionControl::new(runtime_config.congestion_control_config, congestion_info, 0);
-        assert_eq!(congestion_control.congestion_level(true), 0.0);
+        assert_eq!(congestion_control.congestion_level(), 0.0);
         assert!(congestion_control.shard_accepts_transactions());
     }
 }
@@ -127,7 +127,7 @@ fn test_protocol_upgrade_under_congestion() {
 
     // Allow transactions to enter the chain
     let tip = env.clients[0].chain.head().unwrap();
-    for i in 1..6 {
+    for i in 1..3 {
         env.produce_block(0, tip.height + i);
     }
 
@@ -174,7 +174,7 @@ fn test_protocol_upgrade_under_congestion() {
     let contract_shard_chunk_header =
         &chunks.get(contract_shard_id as usize).expect("chunk must be available");
     let _congestion_info = contract_shard_chunk_header.congestion_info().unwrap();
-    // TODO(congestion_control) - properly initialize
+    // TODO(congestion_control) - delayed receipts accounting
     // assert_eq!(
     //     congestion_info.congestion_level(),
     //     1.0,

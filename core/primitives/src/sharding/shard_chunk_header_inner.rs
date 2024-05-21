@@ -130,12 +130,13 @@ impl ShardChunkHeaderInner {
         }
     }
 
+    /// Congestion info, if the feature is enabled on the chunk, `None`` otherwise.
     #[inline]
     pub fn congestion_info(&self) -> Option<CongestionInfo> {
         match self {
             Self::V1(_) => None,
             Self::V2(_) => None,
-            Self::V3(v3) => v3.congestion_info.into(),
+            Self::V3(v3) => Some(v3.congestion_info),
         }
     }
 }
@@ -218,6 +219,6 @@ pub struct ShardChunkHeaderInnerV3 {
     pub tx_root: CryptoHash,
     /// Validator proposals from the previous chunk.
     pub prev_validator_proposals: Vec<ValidatorStake>,
-    /// Congestion info.
+    /// Congestion info about this shard after the previous chunk was applied.
     pub congestion_info: CongestionInfo,
 }

@@ -5,7 +5,8 @@ use near_o11y::metrics::{
     try_create_int_counter_vec, try_create_int_gauge_vec, CounterVec, GaugeVec, Histogram,
     HistogramVec, IntCounter, IntCounterVec, IntGaugeVec,
 };
-use near_primitives::congestion_info::{CongestionControl, CongestionInfo};
+use near_parameters::config::CongestionControlConfig;
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::types::ShardId;
 use once_cell::sync::Lazy;
 use std::time::Duration;
@@ -617,25 +618,33 @@ impl ApplyMetrics {
     }
 }
 
-pub fn report_congestion_metrics(receipt_sink: &ReceiptSink, sender_shard_id: ShardId) {
+pub fn report_congestion_metrics(
+    receipt_sink: &ReceiptSink,
+    sender_shard_id: ShardId,
+    config: &CongestionControlConfig,
+) {
     match receipt_sink {
         ReceiptSink::V1(_) => {
             // no metrics to report
         }
         ReceiptSink::V2(inner) => {
             let sender_shard_label = sender_shard_id.to_string();
-            report_congestion_indicators(&inner.congestion_control, &sender_shard_label);
+            report_congestion_indicators(&inner.own_congestion_info, &sender_shard_label, &config);
             report_outgoing_buffers(inner, sender_shard_label);
         }
     }
 }
 
 /// Report key congestion indicator levels of a shard.
-fn report_congestion_indicators(congestion_control: &CongestionControl, shard_label: &str) {
-    let congestion_level = congestion_control.congestion_level(true);
+fn report_congestion_indicators(
+    congestion_info: &CongestionInfo,
+    shard_label: &str,
+    config: &CongestionControlConfig,
+) {
+    let congestion_level = congestion_info.localized_congestion_level(config);
     CONGESTION_LEVEL.with_label_values(&[shard_label]).set(congestion_level);
 
-    let CongestionInfo::V1(inner) = congestion_control.congestion_info();
+    let CongestionInfo::V1(inner) = congestion_info;
     CONGESTION_RECEIPT_BYTES
         .with_label_values(&[shard_label])
         .set(inner.receipt_bytes.try_into().unwrap_or(i64::MAX));

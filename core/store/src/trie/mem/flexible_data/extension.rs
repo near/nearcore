@@ -16,9 +16,9 @@ impl BorshFixedSize for EncodedExtensionHeader {
 }
 
 impl FlexibleDataHeader for EncodedExtensionHeader {
-    type InputData = Box<[u8]>;
+    type InputData = [u8];
     type View<'a> = ArenaSlice<'a>;
-    fn from_input(extension: &Box<[u8]>) -> EncodedExtensionHeader {
+    fn from_input(extension: &[u8]) -> EncodedExtensionHeader {
         EncodedExtensionHeader { length: extension.len() as u16 }
     }
 
@@ -26,7 +26,7 @@ impl FlexibleDataHeader for EncodedExtensionHeader {
         self.length as usize
     }
 
-    fn encode_flexible_data(&self, extension: Box<[u8]>, target: &mut ArenaSliceMut<'_>) {
+    fn encode_flexible_data(&self, extension: &[u8], target: &mut ArenaSliceMut<'_>) {
         target.raw_slice_mut().copy_from_slice(&extension);
     }
 

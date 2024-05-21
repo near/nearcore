@@ -66,8 +66,6 @@ pub enum RuntimeError {
     ReceiptValidationError(ReceiptValidationError),
     /// Error when accessing validator information. Happens inside epoch manager.
     ValidatorError(EpochError),
-    /// The context provided  to the runtime is inconsistent.
-    ContextError(ContextError),
 }
 
 impl std::fmt::Display for RuntimeError {
@@ -982,19 +980,6 @@ impl Debug for EpochError {
 impl From<std::io::Error> for EpochError {
     fn from(error: std::io::Error) -> Self {
         EpochError::IOErr(error.to_string())
-    }
-}
-
-#[derive(Eq, PartialEq, Clone, thiserror::Error, Debug)]
-
-pub enum ContextError {
-    #[error("No congestion info for shard {shard_id} in the runtime context")]
-    MissingCongestionInfo { shard_id: u64 },
-}
-
-impl From<ContextError> for RuntimeError {
-    fn from(other: ContextError) -> Self {
-        RuntimeError::ContextError(other)
     }
 }
 

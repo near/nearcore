@@ -10,17 +10,16 @@ pub use crate::verifier::{
     validate_transaction, verify_and_charge_transaction, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT,
 };
 use config::total_prepaid_send_fees;
-pub use congestion_control::compute_congestion_info;
+pub use congestion_control::bootstrap_congestion_info;
 use congestion_control::ReceiptSink;
 pub use near_crypto;
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
 use near_primitives::account::Account;
 use near_primitives::checked_feature;
-use near_primitives::congestion_info::{CongestionControl, CongestionInfo, ExtendedCongestionInfo};
+use near_primitives::congestion_info::{CongestionInfo, ExtendedCongestionInfo};
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, ContextError, IntegerOverflowError, RuntimeError,
-    TxExecutionError,
+    ActionError, ActionErrorKind, IntegerOverflowError, RuntimeError, TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
@@ -53,7 +52,7 @@ use near_store::{
     get, get_account, get_postponed_receipt, get_promise_yield_receipt, get_received_data,
     has_received_data, remove_postponed_receipt, remove_promise_yield_receipt, set, set_access_key,
     set_account, set_code, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
-    PartialStorage, StorageError, Trie, TrieChanges, TrieUpdate,
+    PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate,
 };
 use near_vm_runner::logic::types::PromiseResult;
 use near_vm_runner::logic::ReturnData;
@@ -121,6 +120,11 @@ pub struct ApplyState {
     /// Flags for migrations indicating whether they can be applied at this block
     pub migration_flags: MigrationFlags,
     /// Congestion level on each shard based on the latest known chunk header of each shard.
+    ///
+    /// The map must be empty if congestion control is disabled in the previous
+    /// chunk. If the next chunks is the first with congestion control enabled,
+    /// the congestion info needs to be computed while applying receipts.
+    /// TODO(congestion_info) - verify performance of initialization when congested
     pub congestion_info: HashMap<ShardId, ExtendedCongestionInfo>,
 }
 
@@ -1380,17 +1384,8 @@ impl Runtime {
         };
 
         let mut delayed_receipts = DelayedReceiptQueue::load(&state_update)?;
-        let mut congestion_control =
-            if let Some(congestion_info) = apply_state.own_congestion_info(protocol_version)? {
-                let congestion_control = CongestionControl::new(
-                    apply_state.config.congestion_control_config,
-                    congestion_info.congestion_info,
-                    congestion_info.missed_chunks_count,
-                );
-                Some(congestion_control)
-            } else {
-                None
-            };
+        let mut own_congestion_info =
+            apply_state.own_congestion_info(protocol_version, &state_update)?;
 
         if !apply_state.is_new_chunk
             && protocol_version >= ProtocolFeature::FixApplyChunks.protocol_version()
@@ -1411,7 +1406,7 @@ impl Runtime {
                 proof,
                 delayed_receipts_count: delayed_receipts.len(),
                 metrics: None,
-                congestion_info: congestion_control.map(|c| *c.congestion_info()),
+                congestion_info: own_congestion_info,
             });
         }
 
@@ -1426,7 +1421,7 @@ impl Runtime {
             protocol_version,
             &state_update.trie,
             apply_state,
-            &mut congestion_control,
+            &mut own_congestion_info,
             &mut outgoing_receipts,
         )?;
 
@@ -1733,7 +1728,11 @@ impl Runtime {
         );
         // After receipt processing is done, report metrics on outgoing buffers
         // and on congestion indicators.
-        metrics::report_congestion_metrics(&receipt_sink, apply_state.shard_id);
+        metrics::report_congestion_metrics(
+            &receipt_sink,
+            apply_state.shard_id,
+            &apply_state.config.congestion_control_config,
+        );
 
         let _span = tracing::debug_span!(target: "runtime", "apply_commit").entered();
 
@@ -1743,17 +1742,20 @@ impl Runtime {
 
         // Congestion info needs a final touch to select an allowed shard if
         // this shard is fully congested.
-        if let Some(congestion_control) = &mut congestion_control {
+        if let Some(congestion_info) = &mut own_congestion_info {
             let other_shards = apply_state
                 .congestion_info
                 .keys()
                 .filter(|&&id| id != apply_state.shard_id)
                 .copied()
                 .collect::<Vec<_>>();
-            congestion_control.finalize_allowed_shard(
+
+            let congestion_seed = apply_state.block_height;
+            congestion_info.finalize_allowed_shard(
                 apply_state.shard_id,
                 &other_shards,
-                apply_state.block_height,
+                congestion_seed,
+                &apply_state.config.congestion_control_config,
             );
         }
 
@@ -1820,7 +1822,7 @@ impl Runtime {
             proof,
             delayed_receipts_count: delayed_receipts.len(),
             metrics: Some(metrics),
-            congestion_info: congestion_control.map(|c| *c.congestion_info()),
+            congestion_info: own_congestion_info,
         })
     }
 
@@ -1857,16 +1859,24 @@ impl ApplyState {
     fn own_congestion_info(
         &self,
         protocol_version: ProtocolVersion,
-    ) -> Result<Option<ExtendedCongestionInfo>, RuntimeError> {
-        if ProtocolFeature::CongestionControl.enabled(protocol_version) {
-            let congestion_info = self
-                .congestion_info
-                .get(&self.shard_id)
-                .ok_or(ContextError::MissingCongestionInfo { shard_id: self.shard_id })?;
-            Ok(Some(*congestion_info))
-        } else {
-            Ok(None)
+        trie: &dyn TrieAccess,
+    ) -> Result<Option<CongestionInfo>, RuntimeError> {
+        if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
+            debug_assert!(self.congestion_info.is_empty());
+            return Ok(None);
         }
+
+        if let Some(congestion_info) = self.congestion_info.get(&self.shard_id) {
+            return Ok(Some(congestion_info.congestion_info));
+        }
+
+        tracing::warn!(target: "runtime", "starting to bootstrap congestion info, this might take a while");
+        let start = std::time::Instant::now();
+        let result = bootstrap_congestion_info(trie, &self.config, self.shard_id);
+        let time = start.elapsed();
+        tracing::warn!(target: "runtime","bootstrapping congestion info done after {time:#.1?}");
+        let computed = result?;
+        Ok(Some(computed))
     }
 }
 
@@ -1953,6 +1963,7 @@ mod tests {
     use near_primitives::action::delegate::{
         DelegateAction, NonDelegateAction, SignedDelegateAction,
     };
+    use near_primitives::congestion_info::CongestionControl;
     use near_primitives::hash::hash;
     use near_primitives::receipt::ReceiptPriority;
     use near_primitives::shard_layout::ShardUId;
@@ -2081,7 +2092,11 @@ mod tests {
         store_update.commit().unwrap();
         let contract_cache = FilesystemContractRuntimeCache::test().unwrap();
         let congestion_info: HashMap<ShardId, ExtendedCongestionInfo> =
-            [(0, ExtendedCongestionInfo::default())].into();
+            if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
+                [(0, ExtendedCongestionInfo::default())].into()
+            } else {
+                [].into()
+            };
         let apply_state = ApplyState {
             apply_reason: None,
             block_height: 1,
@@ -3259,6 +3274,9 @@ mod tests {
     /// necessary changes to the balance checker.
     #[test]
     fn test_congestion_buffering() {
+        if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
+            return;
+        }
         // In the test setup with he MockEpochInfoProvider, all accounts are on
         // shard 0. Hence all receipts will be forwarded to shard 0. We don't
         // want local forwarding in the test, hence we need to use a different
@@ -3326,31 +3344,18 @@ mod tests {
             // (a) check receipts are held back in buffer
             let state = tries.get_trie_for_shard(local_shard_uid, root);
             let buffers = ShardsOutgoingReceiptBuffer::load(&state).unwrap();
-            if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-                let capped_i = std::cmp::min(i, n);
-                assert_eq!(0, apply_result.outgoing_receipts.len());
-                assert_eq!(capped_i, buffers.buffer_len(receiver_shard).unwrap());
-                let congestion = apply_result.congestion_info.unwrap();
-                assert!(congestion.buffered_receipts_gas() > 0);
-                assert!(congestion.receipt_bytes() > 0);
-            } else {
-                // without congestion control, we always forward
-                if i <= n {
-                    assert_eq!(1, apply_result.outgoing_receipts.len());
-                } else {
-                    assert_eq!(0, apply_result.outgoing_receipts.len());
-                }
-                // buffer should not exist
-                assert_eq!(buffers.buffer_len(receiver_shard), None);
-            }
+            let capped_i = std::cmp::min(i, n);
+            assert_eq!(0, apply_result.outgoing_receipts.len());
+            assert_eq!(capped_i, buffers.buffer_len(receiver_shard).unwrap());
+            let congestion = apply_result.congestion_info.unwrap();
+            assert!(congestion.buffered_receipts_gas() > 0);
+            assert!(congestion.receipt_bytes() > 0);
         }
 
         // Check congestion is 1.0
-        if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-            let congestion = apply_state.congestion_control(receiver_shard, 0);
-            assert_eq!(congestion.congestion_level(true), 1.0);
-            assert_eq!(congestion.outgoing_limit(local_shard), 0);
-        }
+        let congestion = apply_state.congestion_control(receiver_shard, 0);
+        assert_eq!(congestion.congestion_level(), 1.0);
+        assert_eq!(congestion.outgoing_limit(local_shard), 0);
 
         // release congestion to just below 1.0, which should allow one receipt
         // to be forwarded per round
@@ -3364,16 +3369,14 @@ mod tests {
 
         let min_outgoing_gas: Gas = apply_state.config.congestion_control_config.min_outgoing_gas;
         // Check congestion is less than 1.0
-        if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-            let congestion = apply_state.congestion_control(receiver_shard, 0);
-            assert!(congestion.congestion_level(true) < 1.0);
-            // this exact number does not matter but if it changes the test setup
-            // needs to adapt to ensure the number of forwarded receipts is as expected
-            assert!(
-                congestion.outgoing_limit(local_shard) - min_outgoing_gas < 100 * 10u64.pow(9),
-                "allowed forwarding must be less than 100 GGas away from MIN_OUTGOING_GAS"
-            );
-        }
+        let congestion = apply_state.congestion_control(receiver_shard, 0);
+        assert!(congestion.congestion_level() < 1.0);
+        // this exact number does not matter but if it changes the test setup
+        // needs to adapt to ensure the number of forwarded receipts is as expected
+        assert!(
+            congestion.outgoing_limit(local_shard) - min_outgoing_gas < 100 * 10u64.pow(9),
+            "allowed forwarding must be less than 100 GGas away from MIN_OUTGOING_GAS"
+        );
 
         // Checking n receipts delayed by 1 + 3 extra
         let forwarded_per_chunk = min_outgoing_gas / MAX_ATTACHED_GAS;
@@ -3401,11 +3404,6 @@ mod tests {
 
             let state = tries.get_trie_for_shard(local_shard_uid, root);
             let buffers = ShardsOutgoingReceiptBuffer::load(&state).unwrap();
-
-            if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-                assert_eq!(0, apply_result.outgoing_receipts.len());
-                continue;
-            }
 
             // (b) check receipts are removed from the buffer
             let max_forwarded = i * forwarded_per_chunk;
@@ -3441,14 +3439,12 @@ pub mod estimator {
     use super::{ReceiptSink, Runtime};
     use crate::congestion_control::ReceiptSinkV2;
     use crate::{ApplyState, ApplyStats};
-    use near_parameters::RuntimeConfigStore;
-    use near_primitives::congestion_info::{CongestionControl, CongestionInfo};
+    use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::errors::RuntimeError;
     use near_primitives::receipt::Receipt;
     use near_primitives::transaction::ExecutionOutcomeWithId;
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::types::EpochInfoProvider;
-    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
     use near_store::TrieUpdate;
     use std::collections::HashMap;
@@ -3462,22 +3458,13 @@ pub mod estimator {
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
-        // For the estimator, create a limitless receipt sink that always
-        // forwards. This captures congestion accounting overhead but does not
-        // create unexpected congestion in estimations.
-        let config_store = RuntimeConfigStore::new(None);
-        let runtime_config = config_store.get_config(PROTOCOL_VERSION);
-
-        let mut congestion_control = CongestionControl::new(
-            runtime_config.congestion_control_config,
-            CongestionInfo::default(),
-            0,
-        );
+        // TODO(congestion_control - edit runtime config parameters for limitless estimator runs
+        let mut congestion_info = CongestionInfo::default();
         // no limits set for any shards => limitless
         let outgoing_limit = HashMap::new();
 
         let mut receipt_sink = ReceiptSink::V2(ReceiptSinkV2 {
-            congestion_control: &mut congestion_control,
+            own_congestion_info: &mut congestion_info,
             outgoing_limit: outgoing_limit,
             outgoing_buffers: ShardsOutgoingReceiptBuffer::load(&state_update.trie)?,
             outgoing_receipts,
