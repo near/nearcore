@@ -11,8 +11,8 @@ fn test_basic_leaf_node_inlined() {
     let node = MemTrieNodeId::new(
         &mut arena,
         InputMemTrieNode::Leaf {
-            extension: vec![0, 1, 2, 3, 4].into_boxed_slice(),
-            value: FlatStateValue::Inlined(vec![5, 6, 7, 8, 9]),
+            extension: &[0, 1, 2, 3, 4],
+            value: &FlatStateValue::Inlined(vec![5, 6, 7, 8, 9]),
         },
     );
     let view = node.as_ptr(arena.memory()).view();
@@ -44,8 +44,8 @@ fn test_basic_leaf_node_ref() {
     let node = MemTrieNodeId::new(
         &mut arena,
         InputMemTrieNode::Leaf {
-            extension: vec![0, 1, 2, 3, 4].into_boxed_slice(),
-            value: FlatStateValue::Ref(ValueRef { hash: test_hash, length: 5 }),
+            extension: &[0, 1, 2, 3, 4],
+            value: &FlatStateValue::Ref(ValueRef { hash: test_hash, length: 5 }),
         },
     );
     let view = node.as_ptr(arena.memory()).view();
@@ -75,10 +75,7 @@ fn test_basic_leaf_node_empty_extension_empty_value() {
     let mut arena = Arena::new("".to_owned());
     let node = MemTrieNodeId::new(
         &mut arena,
-        InputMemTrieNode::Leaf {
-            extension: vec![].into_boxed_slice(),
-            value: FlatStateValue::Inlined(vec![]),
-        },
+        InputMemTrieNode::Leaf { extension: &[], value: &FlatStateValue::Inlined(vec![]) },
     );
     let view = node.as_ptr(arena.memory()).view();
     assert_eq!(
@@ -105,13 +102,13 @@ fn test_basic_extension_node() {
     let child = MemTrieNodeId::new(
         &mut arena,
         InputMemTrieNode::Leaf {
-            extension: vec![0, 1, 2, 3, 4].into_boxed_slice(),
-            value: FlatStateValue::Inlined(vec![5, 6, 7, 8, 9]),
+            extension: &[0, 1, 2, 3, 4],
+            value: &FlatStateValue::Inlined(vec![5, 6, 7, 8, 9]),
         },
     );
     let node = MemTrieNodeId::new(
         &mut arena,
-        InputMemTrieNode::Extension { extension: vec![5, 6, 7, 8, 9].into_boxed_slice(), child },
+        InputMemTrieNode::Extension { extension: &[5, 6, 7, 8, 9], child },
     );
     node.as_ptr_mut(arena.memory_mut()).compute_hash_recursively();
     let child_ptr = child.as_ptr(arena.memory());
@@ -152,17 +149,11 @@ fn test_basic_branch_node() {
     let mut arena = Arena::new("".to_owned());
     let child1 = MemTrieNodeId::new(
         &mut arena,
-        InputMemTrieNode::Leaf {
-            extension: vec![].into_boxed_slice(),
-            value: FlatStateValue::Inlined(vec![1]),
-        },
+        InputMemTrieNode::Leaf { extension: &[], value: &FlatStateValue::Inlined(vec![1]) },
     );
     let child2 = MemTrieNodeId::new(
         &mut arena,
-        InputMemTrieNode::Leaf {
-            extension: vec![1].into_boxed_slice(),
-            value: FlatStateValue::Inlined(vec![2]),
-        },
+        InputMemTrieNode::Leaf { extension: &[1], value: &FlatStateValue::Inlined(vec![2]) },
     );
     let node = MemTrieNodeId::new(
         &mut arena,
@@ -222,23 +213,17 @@ fn test_basic_branch_with_value_node() {
     let mut arena = Arena::new("".to_owned());
     let child1 = MemTrieNodeId::new(
         &mut arena,
-        InputMemTrieNode::Leaf {
-            extension: vec![].into_boxed_slice(),
-            value: FlatStateValue::Inlined(vec![1]),
-        },
+        InputMemTrieNode::Leaf { extension: &[], value: &FlatStateValue::Inlined(vec![1]) },
     );
     let child2 = MemTrieNodeId::new(
         &mut arena,
-        InputMemTrieNode::Leaf {
-            extension: vec![1].into_boxed_slice(),
-            value: FlatStateValue::Inlined(vec![2]),
-        },
+        InputMemTrieNode::Leaf { extension: &[1], value: &FlatStateValue::Inlined(vec![2]) },
     );
     let node = MemTrieNodeId::new(
         &mut arena,
         InputMemTrieNode::BranchWithValue {
             children: branch_array(vec![(0, child1), (15, child2)]),
-            value: FlatStateValue::Inlined(vec![3, 4, 5]),
+            value: &FlatStateValue::Inlined(vec![3, 4, 5]),
         },
     );
 
