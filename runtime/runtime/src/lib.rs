@@ -10,17 +10,16 @@ pub use crate::verifier::{
     validate_transaction, verify_and_charge_transaction, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT,
 };
 use config::total_prepaid_send_fees;
-pub use congestion_control::compute_congestion_info;
+pub use congestion_control::bootstrap_congestion_info;
 use congestion_control::ReceiptSink;
 pub use near_crypto;
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
 use near_primitives::account::Account;
 use near_primitives::checked_feature;
-use near_primitives::congestion_info::{CongestionControl, CongestionInfo, ExtendedCongestionInfo};
+use near_primitives::congestion_info::{CongestionInfo, ExtendedCongestionInfo};
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, ContextError, IntegerOverflowError, RuntimeError,
-    TxExecutionError,
+    ActionError, ActionErrorKind, IntegerOverflowError, RuntimeError, TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
@@ -53,7 +52,7 @@ use near_store::{
     get, get_account, get_postponed_receipt, get_promise_yield_receipt, get_received_data,
     has_received_data, remove_postponed_receipt, remove_promise_yield_receipt, set, set_access_key,
     set_account, set_code, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
-    PartialStorage, StorageError, Trie, TrieChanges, TrieUpdate,
+    PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate,
 };
 use near_vm_runner::logic::types::PromiseResult;
 use near_vm_runner::logic::ReturnData;
@@ -121,6 +120,11 @@ pub struct ApplyState {
     /// Flags for migrations indicating whether they can be applied at this block
     pub migration_flags: MigrationFlags,
     /// Congestion level on each shard based on the latest known chunk header of each shard.
+    ///
+    /// The map must be empty if congestion control is disabled in the previous
+    /// chunk. If the next chunks is the first with congestion control enabled,
+    /// the congestion info needs to be computed while applying receipts.
+    /// TODO(congestion_info) - verify performance of initialization when congested
     pub congestion_info: HashMap<ShardId, ExtendedCongestionInfo>,
 }
 
@@ -1380,17 +1384,8 @@ impl Runtime {
         };
 
         let mut delayed_receipts = DelayedReceiptQueue::load(&state_update)?;
-        let mut congestion_control =
-            if let Some(congestion_info) = apply_state.own_congestion_info(protocol_version)? {
-                let congestion_control = CongestionControl::new(
-                    apply_state.config.congestion_control_config,
-                    congestion_info.congestion_info,
-                    congestion_info.missed_chunks_count,
-                );
-                Some(congestion_control)
-            } else {
-                None
-            };
+        let mut own_congestion_info =
+            apply_state.own_congestion_info(protocol_version, &state_update)?;
 
         if !apply_state.is_new_chunk
             && protocol_version >= ProtocolFeature::FixApplyChunks.protocol_version()
@@ -1411,7 +1406,7 @@ impl Runtime {
                 proof,
                 delayed_receipts_count: delayed_receipts.len(),
                 metrics: None,
-                congestion_info: congestion_control.map(|c| *c.congestion_info()),
+                congestion_info: own_congestion_info,
             });
         }
 
@@ -1426,7 +1421,7 @@ impl Runtime {
             protocol_version,
             &state_update.trie,
             apply_state,
-            &mut congestion_control,
+            &mut own_congestion_info,
             &mut outgoing_receipts,
         )?;
 
@@ -1733,7 +1728,11 @@ impl Runtime {
         );
         // After receipt processing is done, report metrics on outgoing buffers
         // and on congestion indicators.
-        metrics::report_congestion_metrics(&receipt_sink, apply_state.shard_id);
+        metrics::report_congestion_metrics(
+            &receipt_sink,
+            apply_state.shard_id,
+            &apply_state.config.congestion_control_config,
+        );
 
         let _span = tracing::debug_span!(target: "runtime", "apply_commit").entered();
 
@@ -1743,17 +1742,20 @@ impl Runtime {
 
         // Congestion info needs a final touch to select an allowed shard if
         // this shard is fully congested.
-        if let Some(congestion_control) = &mut congestion_control {
+        if let Some(congestion_info) = &mut own_congestion_info {
             let other_shards = apply_state
                 .congestion_info
                 .keys()
                 .filter(|&&id| id != apply_state.shard_id)
                 .copied()
                 .collect::<Vec<_>>();
-            congestion_control.finalize_allowed_shard(
+
+            let congestion_seed = apply_state.block_height;
+            congestion_info.finalize_allowed_shard(
                 apply_state.shard_id,
                 &other_shards,
-                apply_state.block_height,
+                congestion_seed,
+                &apply_state.config.congestion_control_config,
             );
         }
 
@@ -1820,7 +1822,7 @@ impl Runtime {
             proof,
             delayed_receipts_count: delayed_receipts.len(),
             metrics: Some(metrics),
-            congestion_info: congestion_control.map(|c| *c.congestion_info()),
+            congestion_info: own_congestion_info,
         })
     }
 
@@ -1857,14 +1859,22 @@ impl ApplyState {
     fn own_congestion_info(
         &self,
         protocol_version: ProtocolVersion,
-    ) -> Result<Option<ExtendedCongestionInfo>, RuntimeError> {
+        trie: &dyn TrieAccess,
+    ) -> Result<Option<CongestionInfo>, RuntimeError> {
         if ProtocolFeature::CongestionControl.enabled(protocol_version) {
-            let congestion_info = self
-                .congestion_info
-                .get(&self.shard_id)
-                .ok_or(ContextError::MissingCongestionInfo { shard_id: self.shard_id })?;
-            Ok(Some(*congestion_info))
+            if let Some(congestion_info) = self.congestion_info.get(&self.shard_id) {
+                Ok(Some(congestion_info.congestion_info))
+            } else {
+                tracing::warn!(target: "runtime","starting to bootstrap congestion info, this might take a while");
+                let start = std::time::Instant::now();
+                let result = bootstrap_congestion_info(trie, &self.config, self.shard_id);
+                let time = start.elapsed();
+                tracing::warn!(target: "runtime","bootstrapping congestion info done after {time:#.1?}");
+                let computed = result?;
+                Ok(Some(computed))
+            }
         } else {
+            debug_assert!(self.congestion_info.is_empty());
             Ok(None)
         }
     }
@@ -3441,14 +3451,12 @@ pub mod estimator {
     use super::{ReceiptSink, Runtime};
     use crate::congestion_control::ReceiptSinkV2;
     use crate::{ApplyState, ApplyStats};
-    use near_parameters::RuntimeConfigStore;
-    use near_primitives::congestion_info::{CongestionControl, CongestionInfo};
+    use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::errors::RuntimeError;
     use near_primitives::receipt::Receipt;
     use near_primitives::transaction::ExecutionOutcomeWithId;
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::types::EpochInfoProvider;
-    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
     use near_store::TrieUpdate;
     use std::collections::HashMap;
@@ -3465,19 +3473,12 @@ pub mod estimator {
         // For the estimator, create a limitless receipt sink that always
         // forwards. This captures congestion accounting overhead but does not
         // create unexpected congestion in estimations.
-        let config_store = RuntimeConfigStore::new(None);
-        let runtime_config = config_store.get_config(PROTOCOL_VERSION);
-
-        let mut congestion_control = CongestionControl::new(
-            runtime_config.congestion_control_config,
-            CongestionInfo::default(),
-            0,
-        );
+        let mut congestion_info = CongestionInfo::default();
         // no limits set for any shards => limitless
         let outgoing_limit = HashMap::new();
 
         let mut receipt_sink = ReceiptSink::V2(ReceiptSinkV2 {
-            congestion_control: &mut congestion_control,
+            own_congestion_info: &mut congestion_info,
             outgoing_limit: outgoing_limit,
             outgoing_buffers: ShardsOutgoingReceiptBuffer::load(&state_update.trie)?,
             outgoing_receipts,

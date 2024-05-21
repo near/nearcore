@@ -36,7 +36,11 @@ pub(crate) struct ReceiptSinkV1<'a> {
 /// receiving shard and stopping us from sending more receipts to it than its
 /// nodes can keep in memory.
 pub(crate) struct ReceiptSinkV2<'a> {
-    pub(crate) congestion_control: &'a mut CongestionControl,
+    /// Keeps track of the local shard's congestion info while adding and
+    /// removing buffered or delayed receipts. At the end of applying receipts,
+    /// it will be a field in the [`ApplyResult`]. For this chunk, it is not
+    /// used to make forwarding decisions.
+    pub(crate) own_congestion_info: &'a mut CongestionInfo,
     pub(crate) outgoing_receipts: &'a mut Vec<Receipt>,
     pub(crate) outgoing_limit: HashMap<ShardId, Gas>,
     pub(crate) outgoing_buffers: ShardsOutgoingReceiptBuffer,
@@ -52,10 +56,10 @@ impl<'a> ReceiptSink<'a> {
         protocol_version: ProtocolVersion,
         trie: &dyn TrieAccess,
         apply_state: &ApplyState,
-        congestion_control: &'a mut Option<CongestionControl>,
+        prev_own_congestion_info: &'a mut Option<CongestionInfo>,
         outgoing_receipts: &'a mut Vec<Receipt>,
     ) -> Result<Self, StorageError> {
-        if let Some(ref mut congestion_control) = congestion_control {
+        if let Some(own_congestion_info) = prev_own_congestion_info {
             debug_assert!(ProtocolFeature::CongestionControl.enabled(protocol_version));
             let outgoing_buffers = ShardsOutgoingReceiptBuffer::load(trie)?;
 
@@ -64,7 +68,7 @@ impl<'a> ReceiptSink<'a> {
                 .iter()
                 .map(|(&shard_id, congestion)| {
                     let other_congestion_control = CongestionControl::new(
-                        congestion_control.config().to_owned(),
+                        apply_state.config.congestion_control_config,
                         congestion.congestion_info,
                         congestion.missed_chunks_count,
                     );
@@ -74,7 +78,7 @@ impl<'a> ReceiptSink<'a> {
                 .collect();
 
             Ok(ReceiptSink::V2(ReceiptSinkV2 {
-                congestion_control: congestion_control,
+                own_congestion_info,
                 outgoing_receipts: outgoing_receipts,
                 outgoing_limit,
                 outgoing_buffers,
@@ -165,8 +169,8 @@ impl ReceiptSinkV2<'_> {
                 apply_state,
             )? {
                 ReceiptForwarding::Forwarded => {
-                    self.congestion_control.remove_receipt_bytes(bytes as u64)?;
-                    self.congestion_control.remove_buffered_receipt_gas(gas)?;
+                    self.own_congestion_info.remove_receipt_bytes(bytes as u64)?;
+                    self.own_congestion_info.remove_buffered_receipt_gas(gas)?;
                     // count how many to release later to avoid modifying
                     // `state_update` while iterating based on
                     // `state_update.trie`.
@@ -255,8 +259,8 @@ impl ReceiptSinkV2<'_> {
     ) -> Result<(), RuntimeError> {
         let bytes = receipt_size(&receipt)?;
         let gas = receipt_congestion_gas(&receipt, config)?;
-        self.congestion_control.add_receipt_bytes(bytes as u64)?;
-        self.congestion_control.add_buffered_receipt_gas(gas)?;
+        self.own_congestion_info.add_receipt_bytes(bytes as u64)?;
+        self.own_congestion_info.add_buffered_receipt_gas(gas)?;
         self.outgoing_buffers.to_shard(shard).push(state_update, &receipt)?;
         Ok(())
     }
@@ -318,12 +322,10 @@ fn receipt_congestion_gas(
 /// This is an IO intensive operation! Only do it to bootstrap the
 /// `CongestionInfo`. In normal operation, this information is kept up
 /// to date and passed from chunk to chunk through chunk header fields.
-pub fn compute_congestion_info(
+pub fn bootstrap_congestion_info(
     trie: &dyn near_store::TrieAccess,
     config: &RuntimeConfig,
     shard_id: ShardId,
-    other_shard_ids: &[ShardId],
-    congestion_seed: u64,
 ) -> Result<CongestionInfo, StorageError> {
     let mut receipt_bytes: u64 = 0;
     let mut delayed_receipts_gas: u128 = 0;
@@ -353,20 +355,17 @@ pub fn compute_congestion_info(
         }
     }
 
-    let congestion_info = CongestionInfo::V1(CongestionInfoV1 {
+    Ok(CongestionInfo::V1(CongestionInfoV1 {
         delayed_receipts_gas: delayed_receipts_gas as u128,
         buffered_receipts_gas: buffered_receipts_gas as u128,
         receipt_bytes,
-        // will be overwritten in a moment
-        allowed_shard: 0,
-    });
-    // For the purpose of calculating the allowed shard set the missed chunks
-    // count to zero. It is ignored anyway.
-    let mut congestion_control =
-        CongestionControl::new(config.congestion_control_config, congestion_info, 0);
-    congestion_control.finalize_allowed_shard(shard_id, other_shard_ids, congestion_seed);
-
-    Ok(congestion_info)
+        // For the first chunk, set this to the own id.
+        // This allows bootstrapping without knowing all other shards.
+        // It is also irrelevant, since the bootstrapped value is only used at
+        // the start of applying a chunk on this shard. Other shards will only
+        // see and act on the first congestion info after that.
+        allowed_shard: shard_id as u16,
+    }))
 }
 
 fn receipt_size(receipt: &Receipt) -> Result<usize, IntegerOverflowError> {
