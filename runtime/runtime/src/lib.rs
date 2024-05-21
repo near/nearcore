@@ -1963,6 +1963,7 @@ mod tests {
     use near_primitives::action::delegate::{
         DelegateAction, NonDelegateAction, SignedDelegateAction,
     };
+    use near_primitives::congestion_info::CongestionControl;
     use near_primitives::hash::hash;
     use near_primitives::receipt::ReceiptPriority;
     use near_primitives::shard_layout::ShardUId;
@@ -3358,7 +3359,7 @@ mod tests {
         // Check congestion is 1.0
         if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
             let congestion = apply_state.congestion_control(receiver_shard, 0);
-            assert_eq!(congestion.congestion_level(true), 1.0);
+            assert_eq!(congestion.congestion_level(), 1.0);
             assert_eq!(congestion.outgoing_limit(local_shard), 0);
         }
 
@@ -3376,7 +3377,7 @@ mod tests {
         // Check congestion is less than 1.0
         if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
             let congestion = apply_state.congestion_control(receiver_shard, 0);
-            assert!(congestion.congestion_level(true) < 1.0);
+            assert!(congestion.congestion_level() < 1.0);
             // this exact number does not matter but if it changes the test setup
             // needs to adapt to ensure the number of forwarded receipts is as expected
             assert!(
