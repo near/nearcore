@@ -83,7 +83,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, RwLock};
 use tokio::sync::broadcast;
-use tracing::{debug, debug_span, error, info, trace, warn};
+use tracing::{debug, debug_span, error, info, instrument, trace, warn};
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: i32 = 10;

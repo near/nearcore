@@ -14,7 +14,7 @@ use near_primitives::{
     types::{EpochId, ShardId},
 };
 use std::fmt;
-use tracing::error;
+use tracing::{debug, error};
 
 /// Basic interface for the chunk distribution network.
 pub trait ChunkDistributionClient {

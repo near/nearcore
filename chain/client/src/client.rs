@@ -2010,7 +2010,7 @@ impl Client {
         debug!(target: "client",
             approval_inner=?inner,
             account_id=?account_id,
-            target_height=target_height, 
+            target_height=target_height,
             approval_type=?approval_type,
             "collect_block_approval");
 
