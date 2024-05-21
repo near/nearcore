@@ -124,6 +124,8 @@ pub(crate) enum SentBatch {
     ExtraTxs(VecDeque<TargetChainTx>),
 }
 
+// We don't want to divide up a second into intervals that add up to us sending `tps` per second,
+// because the intervals will get too small. So sleep for at least 10 millis, and send possibly many per batch
 const MAX_BATCHES_PER_SEC: u32 = 100;
 
 struct TxBatchConfig {
@@ -133,6 +135,7 @@ struct TxBatchConfig {
     size_increase_index: u32,
 }
 
+// corresponds to the cadence set in the config, and dictates how we send transactions and how long we sleep for
 enum TrafficCadence {
     MatchBlocks,
     BlockInterval(Duration),
@@ -584,6 +587,8 @@ impl TxTracker {
         Ok(())
     }
 
+    // set the number of transactions we want in the next batch to send, either taking the whole
+    // block or just some of them, depending on whether we're targeting a specific tps number
     fn fill_tx_batch(
         &mut self,
         batch: &mut TxBatch,

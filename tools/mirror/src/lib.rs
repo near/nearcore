@@ -534,6 +534,7 @@ struct MirrorConfig {
     /// wait this long before sending each mainnet block's worth of transactions.
     /// TODO: add an option to target a specific number of transactions per second
     tx_batch_interval: Option<Duration>,
+    /// Number of transactions per second to send.
     tps: Option<u32>,
 }
 
