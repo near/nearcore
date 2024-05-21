@@ -518,13 +518,13 @@ fn out_of_gas_function_call_byte() {
     check_action_gas_exceeds_attached(
         ActionCosts::function_call_byte,
         40,
-        expect!["2444873079439 burnt 10000000000000 used"],
+        expect!["325011579439 burnt 10000000000000 used"],
         cross_contract_call,
     );
     check_action_gas_exceeds_attached(
         ActionCosts::function_call_byte,
         40,
-        expect!["2444873079439 burnt 10000000000000 used"],
+        expect!["325011579439 burnt 10000000000000 used"],
         cross_contract_call_gas_weight,
     );
 }
