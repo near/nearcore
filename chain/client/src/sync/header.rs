@@ -61,8 +61,8 @@ pub struct HeaderSync {
     expected_height_per_second: u64,
 
     /// Not for production use.
-    /// Expected height when node will be shut down, so header sync can be
-    /// stopped.
+    /// Expected height when node will be automatically shut down, so header
+    /// sync can be stopped.
     shutdown_height: near_chain_configs::MutableConfigValue<Option<BlockHeight>>,
 }
 
