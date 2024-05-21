@@ -785,8 +785,7 @@ pub mod chunk_extra {
         pub gas_limit: Gas,
         /// Total balance burnt after processing the current chunk.
         pub balance_burnt: Balance,
-        /// Congestion info. This field should be set to None for chunks before
-        /// the congestion control protocol version and Some otherwise.
+        /// Congestion info about this shard after the chunk was applied.
         congestion_info: CongestionInfo,
     }
 
