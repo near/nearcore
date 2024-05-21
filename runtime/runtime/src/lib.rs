@@ -1861,22 +1861,22 @@ impl ApplyState {
         protocol_version: ProtocolVersion,
         trie: &dyn TrieAccess,
     ) -> Result<Option<CongestionInfo>, RuntimeError> {
-        if ProtocolFeature::CongestionControl.enabled(protocol_version) {
-            if let Some(congestion_info) = self.congestion_info.get(&self.shard_id) {
-                Ok(Some(congestion_info.congestion_info))
-            } else {
-                tracing::warn!(target: "runtime","starting to bootstrap congestion info, this might take a while");
-                let start = std::time::Instant::now();
-                let result = bootstrap_congestion_info(trie, &self.config, self.shard_id);
-                let time = start.elapsed();
-                tracing::warn!(target: "runtime","bootstrapping congestion info done after {time:#.1?}");
-                let computed = result?;
-                Ok(Some(computed))
-            }
-        } else {
+        if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
             debug_assert!(self.congestion_info.is_empty());
-            Ok(None)
+            return Ok(None);
         }
+
+        if let Some(congestion_info) = self.congestion_info.get(&self.shard_id) {
+            return Ok(Some(congestion_info.congestion_info));
+        }
+
+        tracing::warn!(target: "runtime", "starting to bootstrap congestion info, this might take a while");
+        let start = std::time::Instant::now();
+        let result = bootstrap_congestion_info(trie, &self.config, self.shard_id);
+        let time = start.elapsed();
+        tracing::warn!(target: "runtime","bootstrapping congestion info done after {time:#.1?}");
+        let computed = result?;
+        Ok(Some(computed))
     }
 }
 
@@ -3458,9 +3458,7 @@ pub mod estimator {
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
-        // For the estimator, create a limitless receipt sink that always
-        // forwards. This captures congestion accounting overhead but does not
-        // create unexpected congestion in estimations.
+        // TODO(congestion_control - edit runtime config parameters for limitless estimator runs
         let mut congestion_info = CongestionInfo::default();
         // no limits set for any shards => limitless
         let outgoing_limit = HashMap::new();

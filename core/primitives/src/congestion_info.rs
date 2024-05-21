@@ -258,8 +258,8 @@ impl CongestionInfo {
     /// If in a fully congested state, decide which shard of `other_shards` is
     /// allowed to forward to `own_shard` this round. In this case, we stop all
     /// of `other_shards` from sending anything to `own_shard`. But to guarantee
-    /// progress, we allow one shard of `other_shards` to send `RED_GAS` in the
-    /// next chunk.
+    /// progress, we allow one shard of `other_shards` to send
+    /// `allowed_shard_outgoing_gas` in the next chunk.
     ///
     /// Otherwise, when the congestion level is < 1.0, set `allowed_shard` to
     /// `own_shard`. The field is ignored in this case but we still want a
