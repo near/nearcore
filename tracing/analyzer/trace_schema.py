@@ -33,6 +33,8 @@ class Fields:
     shard_id: int | None = None
     epoch_id: str | None = None
     height: int | None = None
+    height_included: int | None = None
+    height_created: int | None = None
     block_hash: str | None = None
     prev_hash: str | None = None
     chunk_hash: str | None = None
@@ -72,6 +74,10 @@ class Fields:
                 fields.epoch_id = attribute['value']['stringValue']
             elif attribute['key'] in {'height', 'block_height', 'next_height', 'prev_height', 'target_height'}:
                 fields.height = int(attribute['value']['stringValue'])
+            elif attribute['key'] == 'height_included':
+                fields.height_included = int(attribute['value']['stringValue'])
+            elif attribute['key'] == 'height_created':
+                fields.height_created = int(attribute['value']['stringValue'])
             elif attribute['key'] == 'block_hash':
                 fields.block_hash = attribute['value']['stringValue']
             elif attribute['key'] == 'prev_hash':
