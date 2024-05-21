@@ -125,7 +125,7 @@ pub fn genesis_chunks(
                 &[],
                 CryptoHash::default(),
                 CongestionInfo::default(),
-                &EmptyValidatorSigner::default(),
+                &ValidatorSigner::EmptyValidatorSigner(EmptyValidatorSigner::default()),
                 genesis_protocol_version,
             )
             .expect("Failed to decode genesis chunk");
@@ -262,7 +262,7 @@ impl Block {
         minted_amount: Option<Balance>,
         challenges_result: ChallengesResult,
         challenges: Challenges,
-        signer: &dyn ValidatorSigner,
+        signer: &ValidatorSigner,
         next_bp_hash: CryptoHash,
         block_merkle_root: CryptoHash,
         timestamp: Utc,

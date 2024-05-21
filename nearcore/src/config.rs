@@ -28,7 +28,7 @@ use near_chain_configs::{
     TRANSACTION_VALIDITY_PERIOD,
 };
 use near_config_utils::{ValidationError, ValidationErrors};
-use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
+use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey};
 use near_epoch_manager::EpochManagerHandle;
 #[cfg(feature = "json_rpc")]
 use near_jsonrpc::RpcConfig;
@@ -503,7 +503,7 @@ pub struct NearConfig {
     pub rosetta_rpc_config: Option<RosettaRpcConfig>,
     pub telemetry_config: TelemetryConfig,
     pub genesis: Genesis,
-    pub validator_signer: Option<Arc<dyn ValidatorSigner>>,
+    pub validator_signer: Option<Arc<ValidatorSigner>>,
 }
 
 impl NearConfig {
@@ -511,7 +511,7 @@ impl NearConfig {
         config: Config,
         genesis: Genesis,
         network_key_pair: KeyFile,
-        validator_signer: Option<Arc<dyn ValidatorSigner>>,
+        validator_signer: Option<Arc<ValidatorSigner>>,
     ) -> anyhow::Result<Self> {
         Ok(NearConfig {
             config: config.clone(),
@@ -1013,7 +1013,7 @@ pub fn create_testnet_configs_from_seeds(
     local_ports: bool,
     archive: bool,
     tracked_shards: Vec<u64>,
-) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, Genesis) {
+) -> (Vec<Config>, Vec<ValidatorSigner>, Vec<InMemorySigner>, Genesis) {
     let num_validator_seats = (seeds.len() - num_non_validator_seats as usize) as NumSeats;
     let validator_signers =
         seeds.iter().map(|seed| create_test_signer(seed.as_str())).collect::<Vec<_>>();
@@ -1073,7 +1073,7 @@ pub fn create_testnet_configs(
     local_ports: bool,
     archive: bool,
     tracked_shards: Vec<u64>,
-) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, Genesis, Vec<InMemorySigner>)
+) -> (Vec<Config>, Vec<ValidatorSigner>, Vec<InMemorySigner>, Genesis, Vec<InMemorySigner>)
 {
     let shard_keys = vec![];
     let (configs, validator_signers, network_signers, genesis) = create_testnet_configs_from_seeds(
@@ -1235,7 +1235,7 @@ pub fn load_config(
     let validator_file = dir.join(&config.validator_key_file);
     let validator_signer = if validator_file.exists() {
         match InMemoryValidatorSigner::from_file(&validator_file) {
-            Ok(signer) => Some(Arc::new(signer) as Arc<dyn ValidatorSigner>),
+            Ok(signer) => Some(Arc::new(ValidatorSigner::InMemoryValidatorSigner(signer))),
             Err(_) => {
                 let error_message = format!(
                     "Failed initializing validator signer from {}",
@@ -1327,7 +1327,7 @@ pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -
     } else {
         let signer =
             Arc::new(InMemorySigner::from_seed(seed.parse().unwrap(), KeyType::ED25519, seed));
-        let validator_signer = Arc::new(create_test_signer(seed)) as Arc<dyn ValidatorSigner>;
+        let validator_signer = Arc::new(create_test_signer(seed)) as Arc<ValidatorSigner>;
         (signer, Some(validator_signer))
     };
     NearConfig::new(config, genesis, signer.into(), validator_signer).unwrap()

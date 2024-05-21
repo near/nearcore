@@ -171,7 +171,7 @@ impl VersionedAccountData {
     /// due to account_id mismatch. Then instead of panicking we could return an error
     /// and the caller (who constructs the arguments) would do an unwrap(). This would
     /// consistute a cleaner never-panicking interface.
-    pub fn sign(self, signer: &dyn ValidatorSigner) -> anyhow::Result<SignedAccountData> {
+    pub fn sign(self, signer: &ValidatorSigner) -> anyhow::Result<SignedAccountData> {
         assert_eq!(
             self.account_key,
             signer.public_key(),
@@ -257,7 +257,7 @@ impl OwnedAccount {
     /// Serializes OwnedAccount to proto and signs it using `signer`.
     /// Panics if OwnedAccount.account_key doesn't match signer.public_key(),
     /// as this would likely be a bug.
-    pub fn sign(self, signer: &dyn ValidatorSigner) -> SignedOwnedAccount {
+    pub fn sign(self, signer: &ValidatorSigner) -> SignedOwnedAccount {
         assert_eq!(
             self.account_key,
             signer.public_key(),

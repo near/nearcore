@@ -13,8 +13,9 @@ use crate::user::{RuntimeUser, User};
 
 pub struct RuntimeNode {
     pub client: Arc<RwLock<MockClient>>,
-    pub signer: Arc<InMemorySigner>,
+    pub signer: Arc<Signer>,
     pub genesis: Genesis,
+    account_id: AccountId,
 }
 
 impl RuntimeNode {
@@ -31,11 +32,12 @@ impl RuntimeNode {
         genesis: Genesis,
         runtime_config: RuntimeConfig,
     ) -> Self {
-        let signer = Arc::new(InMemorySigner::from_seed(
+        let in_memory_signer = InMemorySigner::from_seed(
             account_id.clone(),
             KeyType::ED25519,
             account_id.as_ref(),
-        ));
+        );
+        let signer = Arc::new(Signer::InMemorySigner(in_memory_signer));
         let (runtime, tries, root) = get_runtime_and_trie_from_genesis(&genesis);
         let client = Arc::new(RwLock::new(MockClient {
             runtime,
@@ -44,7 +46,7 @@ impl RuntimeNode {
             epoch_length: genesis.config.epoch_length,
             runtime_config,
         }));
-        RuntimeNode { signer, client, genesis }
+        RuntimeNode { signer, client, genesis, account_id: account_id.clone() }
     }
 
     pub fn new_from_genesis(account_id: &AccountId, genesis: Genesis) -> Self {
@@ -65,18 +67,18 @@ impl Node for RuntimeNode {
     }
 
     fn account_id(&self) -> Option<AccountId> {
-        Some(self.signer.account_id.clone())
+        Some(self.account_id.clone())
     }
 
     fn start(&mut self) {}
 
     fn kill(&mut self) {}
 
-    fn signer(&self) -> Arc<dyn Signer> {
+    fn signer(&self) -> Arc<Signer> {
         self.signer.clone()
     }
 
-    fn block_signer(&self) -> Arc<dyn Signer> {
+    fn block_signer(&self) -> Arc<Signer> {
         self.signer.clone()
     }
 
@@ -86,7 +88,7 @@ impl Node for RuntimeNode {
 
     fn user(&self) -> Box<dyn User> {
         Box::new(RuntimeUser::new(
-            self.signer.account_id.clone(),
+            self.account_id.clone(),
             self.signer.clone(),
             self.client.clone(),
         ))

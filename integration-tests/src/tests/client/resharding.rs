@@ -341,7 +341,7 @@ impl TestReshardingEnv {
             let _span = tracing::debug_span!(target: "test", "process block", client=j).entered();
 
             let shard_ids = chunk_producer_to_shard_id
-                .get(client.validator_signer.as_ref().unwrap().validator_id())
+                .get(client.validator_signer.get().unwrap().validator_id())
                 .cloned()
                 .unwrap_or_default();
             let should_produce_chunk =

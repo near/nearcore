@@ -1,6 +1,6 @@
 use clap::{Arg, Command};
 use near_chain_configs::BLOCK_PRODUCER_KICKOUT_THRESHOLD;
-use near_crypto::{InMemorySigner, KeyFile};
+use near_crypto::{InMemorySigner, KeyFile, Signer};
 use near_o11y::tracing::{error, info};
 use near_primitives::views::CurrentEpochValidatorInfo;
 use nearcore::config::{Config, CONFIG_FILENAME};
@@ -76,18 +76,19 @@ fn main() {
     let key_file = KeyFile::from_file(&key_path)
         .unwrap_or_else(|e| panic!("Failed to open key file at {:?}: {:#}", &key_path, e));
     // Support configuring if there is another key.
-    let signer = InMemorySigner::from_file(&key_path).unwrap_or_else(|e| {
+    let in_memory_signer = InMemorySigner::from_file(&key_path).unwrap_or_else(|e| {
         panic!("Failed to initialize signer from key file at {:?}: {:#}", key_path, e)
     });
-    let account_id = signer.account_id.clone();
+    let account_id = in_memory_signer.account_id.clone();
     let mut last_stake_amount = stake_amount;
 
     assert_eq!(
-        signer.account_id, key_file.account_id,
+        in_memory_signer.account_id, key_file.account_id,
         "Only can stake for the same account as given signer key"
     );
+    let signer = Arc::new(Signer::InMemorySigner(in_memory_signer));
 
-    let user = RpcUser::new(rpc_url, account_id.clone(), Arc::new(signer));
+    let user = RpcUser::new(rpc_url, account_id.clone(), signer);
     loop {
         let validators = user.validators(None).unwrap();
         // Check:

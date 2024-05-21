@@ -38,7 +38,7 @@ impl Client {
         let shard_id = chunk_header.shard_id();
         let _span = tracing::debug_span!(target: "client", "send_chunk_state_witness", chunk_hash=?chunk_header.chunk_hash(), ?shard_id).entered();
 
-        let my_signer = self.validator_signer.as_ref().ok_or(Error::NotAValidator)?.clone();
+        let my_signer = self.validator_signer.get().ok_or(Error::NotAValidator)?.clone();
         let state_witness = self.create_state_witness(
             my_signer.validator_id().clone(),
             prev_block_header,

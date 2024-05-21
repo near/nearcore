@@ -19,8 +19,9 @@ pub enum ThreadNodeState {
 pub struct ThreadNode {
     pub config: NearConfig,
     pub state: ThreadNodeState,
-    pub signer: Arc<InMemorySigner>,
+    pub signer: Arc<Signer>,
     pub dir: tempfile::TempDir,
+    account_id: AccountId,
 }
 
 fn start_thread(config: NearConfig, path: PathBuf) -> ShutdownableThread {
@@ -54,7 +55,7 @@ impl Node for ThreadNode {
         }
     }
 
-    fn signer(&self) -> Arc<dyn Signer> {
+    fn signer(&self) -> Arc<Signer> {
         self.signer.clone()
     }
 
@@ -66,8 +67,7 @@ impl Node for ThreadNode {
     }
 
     fn user(&self) -> Box<dyn User> {
-        let account_id = self.signer.account_id.clone();
-        Box::new(RpcUser::new(&self.config.rpc_addr().unwrap(), account_id, self.signer.clone()))
+        Box::new(RpcUser::new(&self.config.rpc_addr().unwrap(), self.account_id.clone(), self.signer.clone()))
     }
 
     fn as_thread_ref(&self) -> &ThreadNode {
@@ -82,16 +82,18 @@ impl Node for ThreadNode {
 impl ThreadNode {
     /// Side effects: create storage, open database, lock database
     pub fn new(config: NearConfig) -> ThreadNode {
-        let signer = Arc::new(InMemorySigner::from_seed(
-            config.validator_signer.as_ref().unwrap().validator_id().clone(),
+        let account_id = config.validator_signer.as_ref().unwrap().validator_id().clone();
+        let in_memory_signer = InMemorySigner::from_seed(
+            account_id.clone(),
             KeyType::ED25519,
-            config.validator_signer.as_ref().unwrap().validator_id().as_ref(),
-        ));
+            account_id.as_ref(),
+        );
         ThreadNode {
             config,
             state: ThreadNodeState::Stopped,
-            signer,
+            signer: Arc::new(Signer::InMemorySigner(in_memory_signer)),
             dir: tempfile::Builder::new().prefix("thread_node").tempdir().unwrap(),
+            account_id,
         }
     }
 }

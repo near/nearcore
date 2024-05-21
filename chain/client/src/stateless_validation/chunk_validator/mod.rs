@@ -71,7 +71,7 @@ pub type MainStateTransitionCache =
 /// so that the chunk can be included in the block.
 pub struct ChunkValidator {
     /// The signer for our own node, if we are a validator. If not, this is None.
-    my_signer: Option<Arc<dyn ValidatorSigner>>,
+    my_signer: Option<Arc<ValidatorSigner>>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     network_sender: Sender<PeerManagerMessageRequest>,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
@@ -83,7 +83,7 @@ pub struct ChunkValidator {
 
 impl ChunkValidator {
     pub fn new(
-        my_signer: Option<Arc<dyn ValidatorSigner>>,
+        my_signer: Option<Arc<ValidatorSigner>>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         network_sender: Sender<PeerManagerMessageRequest>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
@@ -677,7 +677,7 @@ fn apply_result_to_chunk_extra(
 pub(crate) fn send_chunk_endorsement_to_block_producers(
     chunk_header: &ShardChunkHeader,
     epoch_manager: &dyn EpochManagerAdapter,
-    signer: &dyn ValidatorSigner,
+    signer: &ValidatorSigner,
     network_sender: &Sender<PeerManagerMessageRequest>,
     chunk_endorsement_tracker: &ChunkEndorsementTracker,
 ) {

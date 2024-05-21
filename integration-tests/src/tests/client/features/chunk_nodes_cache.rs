@@ -19,7 +19,7 @@ use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 fn process_transaction(
     env: &mut TestEnv,
-    signer: &dyn Signer,
+    signer: &Signer,
     num_blocks: BlockHeightDelta,
     protocol_version: ProtocolVersion,
 ) -> CryptoHash {

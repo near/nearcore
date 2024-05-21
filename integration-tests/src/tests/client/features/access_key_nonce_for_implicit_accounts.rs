@@ -252,7 +252,7 @@ fn test_chunk_transaction_validity() {
         ProduceChunkResult { chunk, encoded_chunk_parts_paths: merkle_paths, receipts, .. },
         block,
     ) = create_chunk_with_transactions(&mut env.clients[0], vec![tx]);
-    let validator_id = env.clients[0].validator_signer.as_ref().unwrap().validator_id().clone();
+    let validator_id = env.clients[0].validator_signer.get().unwrap().validator_id().clone();
     env.clients[0]
         .persist_and_distribute_encoded_chunk(chunk, merkle_paths, receipts, validator_id)
         .unwrap();

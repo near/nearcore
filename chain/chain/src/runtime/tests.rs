@@ -48,8 +48,8 @@ use primitive_types::U256;
 
 fn stake(
     nonce: Nonce,
-    signer: &dyn Signer,
-    sender: &dyn ValidatorSigner,
+    signer: &Signer,
+    sender: &ValidatorSigner,
     stake: Balance,
 ) -> SignedTransaction {
     SignedTransaction::from_actions(
@@ -1385,7 +1385,7 @@ fn test_delete_account_after_unstake() {
         4,
         signers[1].account_id.clone(),
         signers[1].account_id.clone(),
-        &signers[1] as &dyn Signer,
+        &signers[1] as &Signer,
         vec![Action::DeleteAccount(DeleteAccountAction {
             beneficiary_id: signers[0].account_id.clone(),
         })],
@@ -1479,7 +1479,7 @@ fn test_trie_and_flat_state_equality() {
         4,
         signers[0].account_id.clone(),
         validators[1].clone(),
-        &signers[0] as &dyn Signer,
+        &signers[0] as &Signer,
         vec![Action::Transfer(TransferAction { deposit: 10 })],
         // runtime does not validate block history
         CryptoHash::default(),
@@ -1567,7 +1567,7 @@ fn generate_transaction_pool(
                 round.try_into().unwrap(),
                 signers[i].account_id.clone(),
                 signers[(i + round) % signer_count].account_id.clone(),
-                &signers[i] as &dyn Signer,
+                &signers[i] as &Signer,
                 round.try_into().unwrap(),
                 block_hash,
             );

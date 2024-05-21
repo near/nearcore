@@ -42,7 +42,7 @@ pub fn make_genesis_block(clock: &time::Clock, chunks: Vec<ShardChunk>) -> Block
 
 pub fn make_block(
     clock: &time::Clock,
-    signer: &dyn ValidatorSigner,
+    signer: &ValidatorSigner,
     prev: &Block,
     chunks: Vec<ShardChunk>,
 ) -> Block {

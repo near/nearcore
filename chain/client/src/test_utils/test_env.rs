@@ -467,8 +467,9 @@ impl TestEnv {
 
     pub fn send_money(&mut self, id: usize) -> ProcessTxResponse {
         let account_id = self.get_client_id(0);
-        let signer =
-            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
+        let signer = Signer::InMemorySigner(
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref())
+        );
         let tx = SignedTransaction::send_money(
             1,
             account_id.clone(),
@@ -633,14 +634,15 @@ impl TestEnv {
             self.save_trie_changes,
             None,
             self.clients[idx].partial_witness_adapter.clone(),
-            self.clients[idx].validator_signer.clone().unwrap(),
+            self.clients[idx].validator_signer.get().unwrap(),
         )
     }
 
     /// Returns an [`AccountId`] used by a client at given index.  More
     /// specifically, returns validator id of the client’s validator signer.
-    pub fn get_client_id(&self, idx: usize) -> &AccountId {
-        self.clients[idx].validator_signer.as_ref().unwrap().validator_id()
+    pub fn get_client_id(&self, idx: usize) -> AccountId {
+        let validator_signer = self.clients[idx].validator_signer.get();
+        validator_signer.unwrap().validator_id().clone()
     }
 
     /// Returns the index of client with the given [`AccoountId`].
@@ -695,7 +697,7 @@ impl TestEnv {
             tip.height + 1,
             signer.account_id.clone(),
             receiver,
-            signer,
+            &Signer::InMemorySigner(signer.clone()),
             actions,
             tip.last_block_hash,
             0,
@@ -712,8 +714,9 @@ impl TestEnv {
     ) -> SignedTransaction {
         let inner_signer =
             InMemorySigner::from_seed(sender.clone(), KeyType::ED25519, sender.as_str());
-        let relayer_signer =
-            InMemorySigner::from_seed(relayer.clone(), KeyType::ED25519, relayer.as_str());
+        let relayer_signer = Signer::InMemorySigner(
+            InMemorySigner::from_seed(relayer.clone(), KeyType::ED25519, relayer.as_str())
+        );
         let tip = self.clients[0].chain.head().unwrap();
         let user_nonce = tip.height + 1;
         let relayer_nonce = tip.height + 1;

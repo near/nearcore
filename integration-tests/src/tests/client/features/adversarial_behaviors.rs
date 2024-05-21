@@ -221,7 +221,7 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
         checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION);
     let epoch_manager = test.env.clients[0].epoch_manager.clone();
     let bad_chunk_producer =
-        test.env.clients[7].validator_signer.as_ref().unwrap().validator_id().clone();
+        test.env.clients[7].validator_signer.get().unwrap().validator_id().clone();
     let mut epochs_seen_invalid_chunk: HashSet<EpochId> = HashSet::new();
     let mut last_block_skipped = false;
     for height in 1..=EPOCH_LENGTH * 4 + 5 {

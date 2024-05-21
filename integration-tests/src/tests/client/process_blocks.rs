@@ -1067,7 +1067,7 @@ fn test_time_attack() {
     init_test_logger();
     let mut env = TestEnv::default_builder().clients_count(1).mock_epoch_managers().build();
     let client = &mut env.clients[0];
-    let signer = client.validator_signer.as_ref().unwrap();
+    let signer = client.validator_signer.get().unwrap();
     let genesis = client.chain.get_block_by_height(0).unwrap();
     let mut b1 = TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build();
     b1.mut_header().get_mut().inner_lite.timestamp =
@@ -1095,7 +1095,7 @@ fn test_invalid_gas_price() {
     genesis_config.min_gas_price = 100;
     let mut env = TestEnv::builder(&genesis_config).clients_count(1).mock_epoch_managers().build();
     let client = &mut env.clients[0];
-    let signer = client.validator_signer.as_ref().unwrap();
+    let signer = client.validator_signer.get().unwrap();
 
     let genesis = client.chain.get_block_by_height(0).unwrap();
     let mut b1 = TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build();
@@ -1139,7 +1139,7 @@ fn test_bad_orphan() {
         env.produce_block(0, i);
     }
     let block = env.clients[0].produce_block(5).unwrap().unwrap();
-    let signer = env.clients[0].validator_signer.as_ref().unwrap().clone();
+    let signer = env.clients[0].validator_signer.get().unwrap().clone();
     {
         // Orphan block with unknown epoch
         let mut block = env.clients[0].produce_block(6).unwrap().unwrap();
@@ -1283,7 +1283,7 @@ fn test_bad_chunk_mask() {
             }
             block
                 .mut_header()
-                .resign(&*env.client(&block_producer).validator_signer.as_ref().unwrap().clone());
+                .resign(&*env.client(&block_producer).validator_signer.get().unwrap().clone());
 
             for client in env.clients.iter_mut() {
                 let res = client
@@ -2285,7 +2285,7 @@ fn test_validate_chunk_extra() {
     let mut chain_store =
         ChainStore::new(env.clients[0].chain.chain_store().store().clone(), genesis_height, true);
     let chunk_header = encoded_chunk.cloned_header();
-    let validator_id = env.clients[0].validator_signer.as_ref().unwrap().validator_id().clone();
+    let validator_id = env.clients[0].validator_signer.get().unwrap().validator_id().clone();
     env.clients[0]
         .persist_and_distribute_encoded_chunk(encoded_chunk, merkle_paths, receipts, validator_id)
         .unwrap();
@@ -2770,7 +2770,7 @@ fn test_epoch_protocol_version_change() {
 
         for j in 0..2 {
             let validator_id =
-                env.clients[j].validator_signer.as_ref().unwrap().validator_id().clone();
+                env.clients[j].validator_signer.get().unwrap().validator_id().clone();
             env.clients[j]
                 .persist_and_distribute_encoded_chunk(
                     encoded_chunk.clone(),

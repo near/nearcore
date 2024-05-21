@@ -37,7 +37,7 @@ fn test_block_with_challenges() {
     let genesis = env.clients[0].chain.get_block_by_height(0).unwrap();
 
     let mut block = env.clients[0].produce_block(1).unwrap().unwrap();
-    let signer = env.clients[0].validator_signer.as_ref().unwrap().clone();
+    let signer = env.clients[0].validator_signer.get().unwrap().clone();
 
     {
         let challenge_body = ChallengeBody::BlockDoubleSign(BlockDoubleSign {
@@ -318,7 +318,7 @@ fn challenge(
             chunk,
             merkle_proof: merkle_paths[shard_id].clone(),
         }),
-        &*env.clients[0].validator_signer.as_ref().unwrap().clone(),
+        &*env.clients[0].validator_signer.get().unwrap().clone(),
     );
     validate_challenge(
         env.clients[0].chain.epoch_manager.as_ref(),
@@ -408,7 +408,7 @@ fn test_verify_chunk_invalid_state_challenge() {
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
     block_merkle_tree.insert(*last_block.hash());
 
-    let signer = client.validator_signer.as_ref().unwrap().clone();
+    let signer = client.validator_signer.get().unwrap().clone();
     let endorsement =
         ChunkEndorsement::new(invalid_chunk.cloned_header().chunk_hash(), signer.as_ref());
     let block = Block::produce(

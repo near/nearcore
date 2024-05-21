@@ -180,7 +180,7 @@ fn sync_state_stake_change() {
                 "test1".parse().unwrap(),
                 &*signer,
                 TESTING_INIT_STAKE / 2,
-                near1.validator_signer.as_ref().unwrap().public_key(),
+                near1.validator_signer.get().unwrap().public_key(),
                 genesis_hash,
             );
             actix::spawn(

@@ -37,12 +37,12 @@ impl<T: Serialize> Serialize for MutableConfigValue<T> {
     }
 }
 
-impl<T: Copy + PartialEq + Debug> MutableConfigValue<T> {
+impl<T: Clone + PartialEq + Debug> MutableConfigValue<T> {
     /// Initializes a value.
     /// `field_name` is needed to export the config value as a prometheus metric.
     pub fn new(val: T, field_name: &str) -> Self {
         let res = Self {
-            value: Arc::new(Mutex::new(val)),
+            value: Arc::new(Mutex::new(val.clone())),
             field_name: field_name.to_string(),
             #[cfg(feature = "metrics")]
             last_update: Clock::real().now_utc(),
@@ -52,15 +52,15 @@ impl<T: Copy + PartialEq + Debug> MutableConfigValue<T> {
     }
 
     pub fn get(&self) -> T {
-        *self.value.lock().unwrap()
+        self.value.lock().unwrap().clone()
     }
 
     pub fn update(&self, val: T) {
         let mut lock = self.value.lock().unwrap();
         if *lock != val {
             tracing::info!(target: "config", "Updated config field '{}' from {:?} to {:?}", self.field_name, *lock, val);
-            self.set_metric_value(*lock, 0);
-            *lock = val;
+            self.set_metric_value(lock.clone(), 0);
+            *lock = val.clone();
             self.set_metric_value(val, 1);
         } else {
             tracing::info!(target: "config", "Mutable config field '{}' remains the same: {:?}", self.field_name, val);
