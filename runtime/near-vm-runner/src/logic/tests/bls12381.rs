@@ -304,8 +304,8 @@ mod tests {
         G1Affine,
         add_p_y,
         bls12381_p1_decompress,
-        bls12381_p1_sum,
-        bls12381_p1_multiexp,
+        bls12381_g1_sum,
+        bls12381_g1_multiexp,
         bls12381_map_fp_to_g1
     );
     impl_goperations!(
@@ -315,8 +315,8 @@ mod tests {
         G2Affine,
         add2_p_y,
         bls12381_p2_decompress,
-        bls12381_p2_sum,
-        bls12381_p2_multiexp,
+        bls12381_g2_sum,
+        bls12381_g2_multiexp,
         bls12381_map_fp2_to_g2
     );
 
@@ -559,28 +559,28 @@ mod tests {
     test_bls12381_sum!(
         G1Operations,
         G1Affine,
-        bls12381_p1_sum,
+        bls12381_g1_sum,
         check_sum_p1,
-        test_bls12381_p1_sum_edge_cases,
-        test_bls12381_p1_sum,
-        test_bls12381_p1_sum_not_g1_points,
-        test_bls12381_p1_sum_inverse,
-        test_bls12381_p1_sum_many_points,
+        test_bls12381_g1_sum_edge_cases,
+        test_bls12381_g1_sum,
+        test_bls12381_g1_sum_not_g1_points,
+        test_bls12381_g1_sum_inverse,
+        test_bls12381_g1_sum_many_points,
         test_bls12381_p1_crosscheck_sum_and_multiexp,
-        test_bls12381_p1_sum_incorrect_input
+        test_bls12381_g1_sum_incorrect_input
     );
     test_bls12381_sum!(
         G2Operations,
         G2Affine,
-        bls12381_p2_sum,
+        bls12381_g2_sum,
         check_sum_p2,
-        test_bls12381_p2_sum_edge_cases,
-        test_bls12381_p2_sum,
-        test_bls12381_p2_sum_not_g2_points,
-        test_bls12381_p2_sum_inverse,
-        test_bls12381_p2_sum_many_points,
+        test_bls12381_g2_sum_edge_cases,
+        test_bls12381_g2_sum,
+        test_bls12381_g2_sum_not_g2_points,
+        test_bls12381_g2_sum_inverse,
+        test_bls12381_g2_sum_many_points,
         test_bls12381_p2_crosscheck_sum_and_multiexp,
-        test_bls12381_p2_sum_incorrect_input
+        test_bls12381_g2_sum_incorrect_input
     );
 
     macro_rules! test_bls12381_memory_limit {
@@ -762,23 +762,23 @@ mod tests {
     test_bls12381_multiexp!(
         G1Operations,
         G1Affine,
-        bls12381_p1_multiexp,
-        bls12381_p1_sum,
-        test_bls12381_p1_multiexp_mul,
-        test_bls12381_p1_multiexp_many_points,
-        test_bls12381_p1_multiexp_incorrect_input,
-        test_bls12381_p1_multiexp_invariants_checks,
+        bls12381_g1_multiexp,
+        bls12381_g1_sum,
+        test_bls12381_g1_multiexp_mul,
+        test_bls12381_g1_multiexp_many_points,
+        test_bls12381_g1_multiexp_incorrect_input,
+        test_bls12381_g1_multiexp_invariants_checks,
         test_bls12381_error_g1_encoding
     );
     test_bls12381_multiexp!(
         G2Operations,
         G2Affine,
-        bls12381_p2_multiexp,
-        bls12381_p2_sum,
-        test_bls12381_p2_multiexp_mul,
-        test_bls12381_p2_multiexp_many_points,
-        test_bls12381_p2_multiexp_incorrect_input,
-        test_bls12381_p2_multiexp_invariants_checks,
+        bls12381_g2_multiexp,
+        bls12381_g2_sum,
+        test_bls12381_g2_multiexp_mul,
+        test_bls12381_g2_multiexp_many_points,
+        test_bls12381_g2_multiexp_incorrect_input,
+        test_bls12381_g2_multiexp_invariants_checks,
         test_bls12381_error_g2_encoding
     );
 
@@ -1339,10 +1339,10 @@ mod tests {
 
     run_bls12381_fn_raw!(run_map_fp_to_g1, map_fp_to_g1_return_value, bls12381_map_fp_to_g1);
     run_bls12381_fn_raw!(run_map_fp2_to_g2, map_fp2tog2_return_value, bls12381_map_fp2_to_g2);
-    run_bls12381_fn_raw!(run_sum_g1, sum_g1_return_value, bls12381_p1_sum);
-    run_bls12381_fn_raw!(run_sum_g2, sum_g2_return_value, bls12381_p2_sum);
-    run_bls12381_fn_raw!(run_multiexp_g1, multiexp_g1_return_value, bls12381_p1_multiexp);
-    run_bls12381_fn_raw!(run_multiexp_g2, multiexp_g2_return_value, bls12381_p2_multiexp);
+    run_bls12381_fn_raw!(run_sum_g1, sum_g1_return_value, bls12381_g1_sum);
+    run_bls12381_fn_raw!(run_sum_g2, sum_g2_return_value, bls12381_g2_sum);
+    run_bls12381_fn_raw!(run_multiexp_g1, multiexp_g1_return_value, bls12381_g1_multiexp);
+    run_bls12381_fn_raw!(run_multiexp_g2, multiexp_g2_return_value, bls12381_g2_multiexp);
     run_bls12381_fn_raw!(decompress_g1, decompress_g1_return_value, bls12381_p1_decompress);
     run_bls12381_fn_raw!(decompress_g2, decompress_g2_return_value, bls12381_p2_decompress);
     fn run_pairing_check_raw(input: MemSlice, logic: &mut TestVMLogic) -> u64 {

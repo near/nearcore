@@ -606,21 +606,21 @@ pub enum Cost {
     AltBn128G1SumBase,
     AltBn128G1SumElement,
     #[cfg(feature = "protocol_feature_bls12381")]
-    Bls12381P1SumBase,
+    Bls12381G1SumBase,
     #[cfg(feature = "protocol_feature_bls12381")]
-    Bls12381P1SumElement,
+    Bls12381G1SumElement,
     #[cfg(feature = "protocol_feature_bls12381")]
-    Bls12381P2SumBase,
+    Bls12381G2SumBase,
     #[cfg(feature = "protocol_feature_bls12381")]
-    Bls12381P2SumElement,
+    Bls12381G2SumElement,
     #[cfg(feature = "protocol_feature_bls12381")]
-    Bls12381P1MultiexpBase,
+    Bls12381G1MultiexpBase,
     #[cfg(feature = "protocol_feature_bls12381")]
-    Bls12381P1MultiexpElement,
+    Bls12381G1MultiexpElement,
     #[cfg(feature = "protocol_feature_bls12381")]
-    Bls12381P2MultiexpBase,
+    Bls12381G2MultiexpBase,
     #[cfg(feature = "protocol_feature_bls12381")]
-    Bls12381P2MultiexpElement,
+    Bls12381G2MultiexpElement,
     #[cfg(feature = "protocol_feature_bls12381")]
     Bls12381MapFpToG1Base,
     #[cfg(feature = "protocol_feature_bls12381")]

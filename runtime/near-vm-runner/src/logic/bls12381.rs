@@ -16,7 +16,7 @@ pub(super) fn p1_sum(data: &[u8]) -> Result<(u64, Vec<u8>)> {
     if data.len() % ITEM_SIZE != 0 {
         return Err(HostError::BLS12381InvalidInput {
             msg: format!(
-                "Incorrect input length for bls12381_p1_sum: {} is not divisible by {}",
+                "Incorrect input length for bls12381_g1_sum: {} is not divisible by {}",
                 data.len(),
                 ITEM_SIZE
             ),
@@ -84,7 +84,7 @@ pub(super) fn p2_sum(data: &[u8]) -> Result<(u64, Vec<u8>)> {
     if data.len() % ITEM_SIZE != 0 {
         return Err(HostError::BLS12381InvalidInput {
             msg: format!(
-                "Incorrect input length for bls12381_p2_sum: {} is not divisible by {}",
+                "Incorrect input length for bls12381_g2_sum: {} is not divisible by {}",
                 data.len(),
                 ITEM_SIZE
             ),
@@ -151,7 +151,7 @@ pub(super) fn p1_multiexp(data: &[u8]) -> Result<(u64, Vec<u8>)> {
     if data.len() % ITEM_SIZE != 0 {
         return Err(HostError::BLS12381InvalidInput {
             msg: format!(
-                "Incorrect input length for bls12381_p1_multiexp: {} is not divisible by {}",
+                "Incorrect input length for bls12381_g1_multiexp: {} is not divisible by {}",
                 data.len(),
                 ITEM_SIZE
             ),
@@ -187,7 +187,7 @@ pub(super) fn p1_multiexp(data: &[u8]) -> Result<(u64, Vec<u8>)> {
 
         let mut pk_mul = blst::blst_p1::default();
         unsafe {
-            blst::blst_p1_unchecked_mult(
+            blst::blst_p1_mult(
                 &mut pk_mul,
                 &pk,
                 scalar_data.as_ptr(),
@@ -220,7 +220,7 @@ pub(super) fn p2_multiexp(data: &[u8]) -> Result<(u64, Vec<u8>)> {
     if data.len() % ITEM_SIZE != 0 {
         return Err(HostError::BLS12381InvalidInput {
             msg: format!(
-                "Incorrect input length for bls12381_p2_multiexp: {} is not divisible by {}",
+                "Incorrect input length for bls12381_g2_multiexp: {} is not divisible by {}",
                 data.len(),
                 ITEM_SIZE
             ),
@@ -255,7 +255,7 @@ pub(super) fn p2_multiexp(data: &[u8]) -> Result<(u64, Vec<u8>)> {
 
         let mut pk_mul = blst::blst_p2::default();
         unsafe {
-            blst::blst_p2_unchecked_mult(
+            blst::blst_p2_mult(
                 &mut pk_mul,
                 &pk,
                 scalar_data.as_ptr(),

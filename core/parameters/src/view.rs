@@ -455,21 +455,21 @@ pub struct ExtCostsConfigView {
     /// Per byte cost of resume payload.
     pub yield_resume_byte: Gas,
     #[cfg(feature = "protocol_feature_bls12381")]
-    pub bls12381_p1_sum_base: Gas,
+    pub bls12381_g1_sum_base: Gas,
     #[cfg(feature = "protocol_feature_bls12381")]
-    pub bls12381_p1_sum_element: Gas,
+    pub bls12381_g1_sum_element: Gas,
     #[cfg(feature = "protocol_feature_bls12381")]
-    pub bls12381_p2_sum_base: Gas,
+    pub bls12381_g2_sum_base: Gas,
     #[cfg(feature = "protocol_feature_bls12381")]
-    pub bls12381_p2_sum_element: Gas,
+    pub bls12381_g2_sum_element: Gas,
     #[cfg(feature = "protocol_feature_bls12381")]
-    pub bls12381_p1_multiexp_base: Gas,
+    pub bls12381_g1_multiexp_base: Gas,
     #[cfg(feature = "protocol_feature_bls12381")]
-    pub bls12381_p1_multiexp_element: Gas,
+    pub bls12381_g1_multiexp_element: Gas,
     #[cfg(feature = "protocol_feature_bls12381")]
-    pub bls12381_p2_multiexp_base: Gas,
+    pub bls12381_g2_multiexp_base: Gas,
     #[cfg(feature = "protocol_feature_bls12381")]
-    pub bls12381_p2_multiexp_element: Gas,
+    pub bls12381_g2_multiexp_element: Gas,
     #[cfg(feature = "protocol_feature_bls12381")]
     pub bls12381_map_fp_to_g1_base: Gas,
     #[cfg(feature = "protocol_feature_bls12381")]
@@ -565,21 +565,21 @@ impl From<crate::ExtCostsConfig> for ExtCostsConfigView {
             yield_resume_base: config.gas_cost(ExtCosts::yield_resume_base),
             yield_resume_byte: config.gas_cost(ExtCosts::yield_resume_byte),
             #[cfg(feature = "protocol_feature_bls12381")]
-            bls12381_p1_sum_base: config.gas_cost(ExtCosts::bls12381_p1_sum_base),
+            bls12381_g1_sum_base: config.gas_cost(ExtCosts::bls12381_g1_sum_base),
             #[cfg(feature = "protocol_feature_bls12381")]
-            bls12381_p1_sum_element: config.gas_cost(ExtCosts::bls12381_p1_sum_element),
+            bls12381_g1_sum_element: config.gas_cost(ExtCosts::bls12381_g1_sum_element),
             #[cfg(feature = "protocol_feature_bls12381")]
-            bls12381_p2_sum_base: config.gas_cost(ExtCosts::bls12381_p2_sum_base),
+            bls12381_g2_sum_base: config.gas_cost(ExtCosts::bls12381_g2_sum_base),
             #[cfg(feature = "protocol_feature_bls12381")]
-            bls12381_p2_sum_element: config.gas_cost(ExtCosts::bls12381_p2_sum_element),
+            bls12381_g2_sum_element: config.gas_cost(ExtCosts::bls12381_g2_sum_element),
             #[cfg(feature = "protocol_feature_bls12381")]
-            bls12381_p1_multiexp_base: config.gas_cost(ExtCosts::bls12381_p1_multiexp_base),
+            bls12381_g1_multiexp_base: config.gas_cost(ExtCosts::bls12381_g1_multiexp_base),
             #[cfg(feature = "protocol_feature_bls12381")]
-            bls12381_p1_multiexp_element: config.gas_cost(ExtCosts::bls12381_p1_multiexp_element),
+            bls12381_g1_multiexp_element: config.gas_cost(ExtCosts::bls12381_g1_multiexp_element),
             #[cfg(feature = "protocol_feature_bls12381")]
-            bls12381_p2_multiexp_base: config.gas_cost(ExtCosts::bls12381_p2_multiexp_base),
+            bls12381_g2_multiexp_base: config.gas_cost(ExtCosts::bls12381_g2_multiexp_base),
             #[cfg(feature = "protocol_feature_bls12381")]
-            bls12381_p2_multiexp_element: config.gas_cost(ExtCosts::bls12381_p2_multiexp_element),
+            bls12381_g2_multiexp_element: config.gas_cost(ExtCosts::bls12381_g2_multiexp_element),
             #[cfg(feature = "protocol_feature_bls12381")]
             bls12381_map_fp_to_g1_base: config.gas_cost(ExtCosts::bls12381_map_fp_to_g1_base),
             #[cfg(feature = "protocol_feature_bls12381")]
@@ -679,21 +679,21 @@ impl From<ExtCostsConfigView> for crate::ExtCostsConfig {
                 ExtCosts::yield_resume_base => view.yield_resume_base,
                 ExtCosts::yield_resume_byte => view.yield_resume_byte,
                 #[cfg(feature = "protocol_feature_bls12381")]
-                ExtCosts::bls12381_p1_sum_base => view.bls12381_p1_sum_base,
+                ExtCosts::bls12381_g1_sum_base => view.bls12381_g1_sum_base,
                 #[cfg(feature = "protocol_feature_bls12381")]
-                ExtCosts::bls12381_p1_sum_element => view.bls12381_p1_sum_element,
+                ExtCosts::bls12381_g1_sum_element => view.bls12381_g1_sum_element,
                 #[cfg(feature = "protocol_feature_bls12381")]
-                ExtCosts::bls12381_p2_sum_base => view.bls12381_p2_sum_base,
+                ExtCosts::bls12381_g2_sum_base => view.bls12381_g2_sum_base,
                 #[cfg(feature = "protocol_feature_bls12381")]
-                ExtCosts::bls12381_p2_sum_element => view.bls12381_p2_sum_element,
+                ExtCosts::bls12381_g2_sum_element => view.bls12381_g2_sum_element,
                 #[cfg(feature = "protocol_feature_bls12381")]
-                ExtCosts::bls12381_p1_multiexp_base => view.bls12381_p1_multiexp_base,
+                ExtCosts::bls12381_g1_multiexp_base => view.bls12381_g1_multiexp_base,
                 #[cfg(feature = "protocol_feature_bls12381")]
-                ExtCosts::bls12381_p1_multiexp_element => view.bls12381_p1_multiexp_element,
+                ExtCosts::bls12381_g1_multiexp_element => view.bls12381_g1_multiexp_element,
                 #[cfg(feature = "protocol_feature_bls12381")]
-                ExtCosts::bls12381_p2_multiexp_base => view.bls12381_p2_multiexp_base,
+                ExtCosts::bls12381_g2_multiexp_base => view.bls12381_g2_multiexp_base,
                 #[cfg(feature = "protocol_feature_bls12381")]
-                ExtCosts::bls12381_p2_multiexp_element => view.bls12381_p2_multiexp_element,
+                ExtCosts::bls12381_g2_multiexp_element => view.bls12381_g2_multiexp_element,
                 #[cfg(feature = "protocol_feature_bls12381")]
                 ExtCosts::bls12381_map_fp_to_g1_base => view.bls12381_map_fp_to_g1_base,
                 #[cfg(feature = "protocol_feature_bls12381")]
