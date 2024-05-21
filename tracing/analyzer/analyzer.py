@@ -15,7 +15,11 @@ def main():
     chain_history = chain_schema.generate(trace_input)
     print(chain_schema)
 
-    profile: profile_schema.Profile = profile_generator.generate(trace_input)
+    profile: profile_schema.Profile = profile_generator.generate_from_trace_schema(trace_input)
+    with open(sys.argv[2], "w") as profile_file:
+        profile_file.write(json.dumps(profile.json()))
+
+    profile: profile_schema.Profile = profile_generator.generate_from_chain_schema(chain_history)
     with open(sys.argv[2], "w") as profile_file:
         profile_file.write(json.dumps(profile.json()))
 
