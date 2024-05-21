@@ -12,20 +12,16 @@ pub enum ProtocolUpgradeVotingScheduleError {
     InvalidProtocolVersionOrder,
 }
 
-/// Defines the point in time after which validators are expected to vote on the
-/// new protocol version.
-#[derive(Clone, Debug, PartialEq)]
+/// Defines a schedule for validators to vote for the protocol version upgrades.
+/// Multiple protocol version upgrades can be scheduled. The default schedule is
+/// empty and in that case the node will always vote for the client protocol
+/// version.
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ProtocolUpgradeVotingSchedule {
     /// The schedule is a sorted list of (datetime, version) tuples. The node
     /// should vote for the highest version that is less than or equal to the
     /// current time.
     schedule: Vec<(chrono::DateTime<Utc>, ProtocolVersion)>,
-}
-
-impl Default for ProtocolUpgradeVotingSchedule {
-    fn default() -> Self {
-        Self { schedule: vec![] }
-    }
 }
 
 impl ProtocolUpgradeVotingSchedule {
@@ -80,12 +76,7 @@ impl ProtocolUpgradeVotingSchedule {
         Ok(Self { schedule })
     }
 
-    pub fn parse_datetime(s: &str) -> Result<DateTime<Utc>, ParseError> {
-        let datetime = NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S")?;
-        let datetime = DateTime::<Utc>::from_naive_utc_and_offset(datetime, Utc);
-        Ok(datetime)
-    }
-
+    /// This method returns the protocol version that the node should vote for.
     pub(crate) fn get_protocol_version(
         &self,
         now: DateTime<Utc>,
@@ -113,6 +104,18 @@ impl ProtocolUpgradeVotingSchedule {
         }
 
         result
+    }
+
+    /// Returns the schedule. Should only be used for exporting metrics.
+    pub fn schedule(&self) -> &Vec<(chrono::DateTime<Utc>, ProtocolVersion)> {
+        &self.schedule
+    }
+
+    /// A helper method to parse the datetime string.
+    pub fn parse_datetime(s: &str) -> Result<DateTime<Utc>, ParseError> {
+        let datetime = NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S")?;
+        let datetime = DateTime::<Utc>::from_naive_utc_and_offset(datetime, Utc);
+        Ok(datetime)
     }
 }
 
