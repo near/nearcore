@@ -13,7 +13,8 @@ class AccountId:
     account_id: str = field(default_factory=str)
 
     def __post_init__(self):
-        assert type(self.account_id) is str, f"Account id must be a string, found {type(self.account_id)}"
+        assert type(self.account_id) is str, "Account id must be a string, found %s" % str(
+            type(self.account_id))
         self.account_id = self.account_id.lower()
         m = AccountId.regex.match(self.account_id)
         if m:
@@ -89,7 +90,9 @@ class BlockId:
 
     @staticmethod
     def extract(fields: Fields):
-        return BlockId(height=fields.height)
+        if fields.height is not None:
+            return BlockId(height=fields.height)
+        return None
 
 
 @dataclass
@@ -106,7 +109,9 @@ class ChunkId:
 
     @staticmethod
     def extract(fields: Fields):
-        return ChunkId(shard_id=fields.shard_id)
+        if fields.shard_id is not None:
+            return ChunkId(shard_id=fields.shard_id)
+        return None
 
 ################################
 
@@ -138,7 +143,8 @@ class BlockEvent(ChainEvent):
         return BlockEvent(
             name=event.name,
             time=event.timestamp,
-            block_id=block_id if block_id is not None else BlockId.extract(event.fields),
+            block_id=block_id if block_id is not None else BlockId.extract(
+                event.fields),
             fields=event.fields,
         )
 
@@ -152,7 +158,8 @@ class ChunkEvent(ChainEvent):
         return ChunkEvent(
             name=event.name,
             time=event.timestamp,
-            chunk_id=chunk_id if chunk_id is not None else ChunkId.extract(event.fields),
+            chunk_id=chunk_id if chunk_id is not None else ChunkId.extract(
+                event.fields),
             fields=event.fields,
         )
 
@@ -167,15 +174,17 @@ class BlockSpan(ChainSpan):
     def extract(span: TraceSpan, events: list[BlockEvent] = []):
         # If no events are given, use all the events in the span.
         # Otherwise, check if the ids are consistent.
-        block_id = None
+        block_id = BlockId.extract(span.fields)
         if len(events) == 0:
-            block_id = BlockId.extract(span.fields)
+            assert block_id is not None, "Failed to extract block id from span fields: %s" % str(
+                span)
             events = [BlockEvent.extract(e, block_id) for e in span.events]
         else:
-            block_id = events[0].block_id
+            block_id = block_id if block_id is not None else events[0].block_id
             for event in events:
-                assert event.block_id == block_id, "Span has events with different block ids: %s" % str(span)
-        
+                assert event.block_id == block_id, "Span has events with different block ids: %s" % str(
+                    span)
+
         return BlockSpan(
             block_id=block_id,
             name=span.name,
@@ -194,14 +203,16 @@ class ChunkSpan(ChainSpan):
     def extract(span: TraceSpan, events: list[ChunkEvent] = []):
         # If no events are given, use all the events in the span.
         # Otherwise, check if the ids are consistent.
-        chunk_id = None
+        chunk_id = ChunkId.extract(span.fields)
         if len(events) == 0:
-            chunk_id = ChunkId.extract(span.fields)
+            assert chunk_id is not None, "Failed to extract chunk id from span fields: %s" % str(
+                span)
             events = [ChunkEvent.extract(e, chunk_id) for e in span.events]
         else:
-            chunk_id = events[0].chunk_id
+            chunk_id = chunk_id if chunk_id is not None else events[0].chunk_id
             for event in events:
-                assert event.chunk_id == chunk_id, "Span has events with different block ids: %s" % str(span)
+                assert event.chunk_id == chunk_id, "Span has events with different block ids: %s" % str(
+                    span)
 
         return ChunkSpan(
             chunk_id=chunk_id,
@@ -250,45 +261,50 @@ class ChainHistory:
             self.chunk_histories[chunk_id] = ChunkHistory(chunk_id, [span])
 
 
+BLOCK_SPAN_OR_EVENT_NAMES = {"send_block_approval", "collect_block_approval",
+                             "produce_block", "postprocess_block"}
+
+CHUNK_SPAN_OR_EVENT_NAMES = {"produced_chunk", "produce_chunk", "request_missing_chunk",
+                             "send_chunk_state_witness", "validate_chunk_state_witness",
+                             "apply_new_chunk", "apply_old_chunk"}
+
+
 def check_block_event(event: TraceEvent) -> BlockEvent | None:
-    BLOCK_EVENTS = {"Sending an approval"}
-    if event.name in BLOCK_EVENTS:
+    if event.name in BLOCK_SPAN_OR_EVENT_NAMES:
         return BlockEvent.extract(event)
     return None
 
 
 def check_chunk_event(event: TraceEvent) -> ChunkEvent | None:
-    CHUNK_EVENTS = {}
-    if event.name in CHUNK_EVENTS:
+    if event.name in CHUNK_SPAN_OR_EVENT_NAMES:
         return ChunkEvent.extract(event)
     return None
 
-def check_block_span(span: TraceSpan) -> BlockSpan | None:
-    BLOCK_SPANS = {"produce_block"}
 
+def check_block_span(span: TraceSpan) -> BlockSpan | None:
     block_events = []
     for event in span.events:
         block_event = check_block_event(event)
         if block_event is not None:
-            assert block_event.block_id is not None, f"Failed to extract block id from event: {event}"
+            assert block_event.block_id is not None, "Failed to extract block id from event: %s" % str(
+                event)
             block_events.append(block_event)
 
-    if len(block_events) > 0 or span.name in BLOCK_SPANS:
+    if len(block_events) > 0 or span.name in BLOCK_SPAN_OR_EVENT_NAMES:
         return BlockSpan.extract(span, block_events)
     return None
 
 
 def check_chunk_span(span: TraceSpan) -> ChunkSpan | None:
-    CHUNK_SPANS = {}
-
     chunk_events = []
     for event in span.events:
         chunk_event = check_chunk_event(event)
         if chunk_event is not None:
-            assert chunk_event.chunk_id is not None, f"Failed to extract chunk id from event: {event}"
+            assert chunk_event.chunk_id is not None, "Failed to extract chunk id from event: %s" % str(
+                event)
             chunk_events.append(chunk_event)
 
-    if len(chunk_events) > 0 or span.name in CHUNK_SPANS:
+    if len(chunk_events) > 0 or span.name in CHUNK_SPAN_OR_EVENT_NAMES:
         return ChunkSpan.extract(span, chunk_events)
     return None
 
@@ -301,12 +317,14 @@ def generate(trace_input: TraceInput) -> ChainHistory:
         for span in resource_span.spans:
             block_span = check_block_span(span)
             if block_span is not None:
-                assert block_span.block_id is not None, f"Failed to extract block id from span: {span}"
+                assert block_span.block_id is not None, "Failed to extract block id from span: %s" % str(
+                    span)
                 chain_history.add_block_span(block_span.block_id, block_span)
 
             chunk_span = check_chunk_span(span)
             if chunk_span is not None:
-                assert chunk_span.chunk_id is not None, f"Failed to extract chunk id from span: {span}"
+                assert chunk_span.chunk_id is not None, "Failed to extract chunk id from span: %s" % str(
+                    span)
                 chain_history.add_chunk_span(chunk_span.chunk_id, chunk_span)
 
     return chain_history

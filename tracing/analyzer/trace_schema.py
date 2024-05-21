@@ -16,13 +16,13 @@ SKIP_FIELDS = {"code.filepath", "code.namespace", "code.lineno", "level",
                'endorsement', 'num_outgoing_receipts',
                'num_filtered_transactions',
                'should_produce_chunk', 'peer_id', 'orphans_missing_chunks',
-               'err', 'provenance', 'busy_ns', 'num_blocks', 'validator', 
-               'new_chunks', 'skip_produce_chunk', 'next_bp', 
-               'pool_size', 'is_syncing', 'prev_block_hash', 'status', 'thread.name', 
+               'err', 'provenance', 'busy_ns', 'num_blocks', 'validator',
+               'new_chunks', 'skip_produce_chunk', 'next_bp',
+               'pool_size', 'is_syncing', 'prev_block_hash', 'status', 'thread.name',
                'idle_ns', 'header_head_height'}
 
 
-@dataclass
+@dataclass(repr=False)
 class Fields:
     node_id: str | None = None
     account_id: str | None = None
@@ -41,6 +41,12 @@ class Fields:
 
     def payload(self):
         return {k: v for k, v in self.__dict__.items() if v is not None}
+
+    def __str__(self) -> str:
+        return str(self.payload())
+    
+    def __repr__(self) -> str:
+        return str(self)
 
     @staticmethod
     def load(attributes: dict):
@@ -143,20 +149,20 @@ class TraceInput:
                         events = []
                         for event_json in span_json["events"]:
                             events.append(TraceEvent(fields=Fields.load(event_json['attributes']), name=event_json['name'],
-                                                timestamp=record_timestamp(event_json['timeUnixNano']),))
+                                                     timestamp=record_timestamp(event_json['timeUnixNano']),))
                         num_events += len(events)
                         spans.append(TraceSpan(fields=Fields.load(span_json['attributes']),
-                                          events=events,
-                                          trace_id=span_json['traceId'],
-                                          span_id=span_json['spanId'],
-                                          parent_id=span_json['parentSpanId'], name=span_json['name'],
-                                          start_time=record_timestamp(
+                                               events=events,
+                                               trace_id=span_json['traceId'],
+                                               span_id=span_json['spanId'],
+                                               parent_id=span_json['parentSpanId'], name=span_json['name'],
+                                               start_time=record_timestamp(
                             span_json['startTimeUnixNano']),
                             end_time=record_timestamp(span_json['endTimeUnixNano'])))
                     num_spans += len(spans)
                 resource_spans.append(ResourceSpan(fields=Fields.load(resource_span_json['resource']['attributes']),
                                                    spans=spans))
-        print(f"Processed {num_spans} spans and {num_events} events")
-        print(f"Unknown fields: {Fields.unknown_fields}")
+        print("Processed %d spans and %s events" % (num_spans, num_events))
+        print("Unknown fields: %s" % str(Fields.unknown_fields))
 
         return TraceInput(start_time=datetime.datetime.fromtimestamp(min_timestamp), end_time=datetime.datetime.fromtimestamp(max_timestamp), resource_spans=resource_spans)

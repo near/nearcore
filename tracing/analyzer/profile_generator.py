@@ -7,15 +7,17 @@ from trace_schema import *
 @dataclass
 class BlockInfo:
     category_id: int
-    
+
 
 @dataclass
 class ChunkInfo:
     category_id: int
 
+
 categories = []
 block_infos: dict[BlockId, BlockInfo] = {}
 chunk_infos: dict[ChunkInfo, ChunkInfo] = {}
+
 
 def category_generator() -> int:
     index = len(categories)
@@ -27,17 +29,16 @@ def category_generator() -> int:
     yield index
 
 
-
 def generate_from_chain_schema(chain_history: ChainHistory):
     global_start_time = chain_history.start_time
     global_start_time_ms = global_start_time.timestamp() * 1000
-    
+
     threads = []
     for block_id, block_history in chain_history.block_histories.items():
         category_id = next(category_generator())
-        block_info  =BlockInfo(category_id=category_id)
+        block_info = BlockInfo(category_id=category_id)
         block_infos[block_id] = block_info
-    
+
         thread = Thread(
             name=str(block_id),
             process_name="block trace",
@@ -50,26 +51,27 @@ def generate_from_chain_schema(chain_history: ChainHistory):
         strings_builder = StringTableBuilder()
         for span in block_history.spans:
             thread.markers.add_interval_marker(strings_builder=strings_builder,
-                                            name=f"{span.name} ({span.fields.node_id})",
-                                            start_time=span.start_time - global_start_time,
-                                            end_time=span.end_time - global_start_time,
-                                            category=category_id,
-                                            data={
-                                                "name": span.name,
-                                                "type": "span",
-                                            }.update(span.fields.payload()))
+                                               name="%s (%s)" % (
+                                                   span.name, span.fields.node_id),
+                                               start_time=span.start_time - global_start_time,
+                                               end_time=span.end_time - global_start_time,
+                                               category=category_id,
+                                               data={
+                                                   "name": span.name,
+                                                   "type": "span",
+                                               }.update(span.fields.payload()))
             for event in span.events:
                 thread.markers.add_instant_marker(strings_builder=strings_builder,
-                                                name=event.name,
-                                                time=event.time - global_start_time,
-                                                category=category_id,
-                                                data={
-                                                    "name": event.name,
-                                                    "type": "event",
-                                                }.update(event.fields.payload()))
+                                                  name=event.name,
+                                                  time=event.time - global_start_time,
+                                                  category=category_id,
+                                                  data={
+                                                      "name": event.name,
+                                                      "type": "event",
+                                                  }.update(event.fields.payload()))
         thread.string_array = strings_builder.strings
         threads.append(thread)
-    
+
     profile = Profile(
         meta=ProfileMeta(
             version=29,
@@ -85,7 +87,6 @@ def generate_from_chain_schema(chain_history: ChainHistory):
         threads=threads,
     )
 
-    
     return profile
 
 
@@ -127,7 +128,8 @@ def generate_from_trace_schema(trace_input: TraceInput):
         thread_id = resource_span.fields.thread_id
         for span in resource_span.spans:
             thread.markers.add_interval_marker(strings_builder=strings_builder,
-                                               name=f"{node_id} ({thread_id})",
+                                               name="%s (%s)" % (
+                                                   node_id, thread_id),
                                                start_time=span.start_time - global_start_time,
                                                end_time=span.end_time - global_start_time,
                                                category=0,
@@ -137,7 +139,8 @@ def generate_from_trace_schema(trace_input: TraceInput):
                                                }.update(span.fields.payload()))
             for event in span.events:
                 thread.markers.add_instant_marker(strings_builder=strings_builder,
-                                                  name=f"{node_id} ({thread_id})",
+                                                  name="%s (%s)" % (
+                                                      node_id, thread_id),
                                                   time=event.timestamp - global_start_time,
                                                   category=0,
                                                   data={
