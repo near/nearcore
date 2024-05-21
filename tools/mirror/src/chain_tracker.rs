@@ -827,7 +827,7 @@ impl TxTracker {
                     if let Some(tx) = self.get_tx(r) {
                         match tx {
                             TargetChainTx::AwaitingNonce(t) => {
-                                assert!(t.target_nonce.pending_outcomes.remove(&updater));
+                                t.target_nonce.pending_outcomes.remove(&updater);
                                 t.target_nonce.pending_outcomes.insert(new_updater.clone());
                             }
                             TargetChainTx::Ready(_) => unreachable!(),
@@ -1127,7 +1127,7 @@ impl TxTracker {
 
                         match t {
                             TargetChainTx::AwaitingNonce(t) => {
-                                assert!(t.target_nonce.pending_outcomes.remove(&updater));
+                                t.target_nonce.pending_outcomes.remove(&updater);
                                 t.target_nonce.pending_outcomes.insert(new_updater.clone());
                             }
                             TargetChainTx::Ready(_) => unreachable!(),
@@ -1248,7 +1248,7 @@ impl TxTracker {
                         };
                         match target_tx {
                             TargetChainTx::AwaitingNonce(tx) => {
-                                assert!(tx.target_nonce.pending_outcomes.remove(&updater));
+                                tx.target_nonce.pending_outcomes.remove(&updater);
                                 if tx.target_nonce.pending_outcomes.is_empty() {
                                     target_tx.try_set_nonce(None);
                                     match target_tx {
