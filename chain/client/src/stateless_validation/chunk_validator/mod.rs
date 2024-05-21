@@ -16,7 +16,9 @@ use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, PreparedTransactions, RuntimeAdapter,
     RuntimeStorageConfig, StorageDataSource,
 };
-use near_chain::validate::validate_chunk_with_chunk_extra_and_receipts_root;
+use near_chain::validate::{
+    validate_chunk_with_chunk_extra, validate_chunk_with_chunk_extra_and_receipts_root,
+};
 use near_chain::{Block, Chain, ChainStoreAccess};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
@@ -115,9 +117,47 @@ impl ChunkValidator {
         let chunk_header = state_witness.chunk_header.clone();
         let network_sender = self.network_sender.clone();
         let signer = self.my_signer.as_ref().ok_or(Error::NotAValidator)?.clone();
-        let epoch_manager = self.epoch_manager.clone();
-        let runtime_adapter = self.runtime_adapter.clone();
         let chunk_endorsement_tracker = self.chunk_endorsement_tracker.clone();
+        let epoch_manager = self.epoch_manager.clone();
+        // If we have the chunk extra for the previous block, we can validate the chunk without state witness.
+        // This usually happens when we are a chunk producer
+        let shard_uid = epoch_manager.shard_id_to_uid(chunk_header.shard_id(), &epoch_id)?;
+        if let Ok(prev_chunk_extra) = chain.get_chunk_extra(prev_block_hash, &shard_uid) {
+            let prev_block = chain.get_block(prev_block_hash)?;
+            let last_header = Chain::get_prev_chunk_header(
+                epoch_manager.as_ref(),
+                &prev_block,
+                chunk_header.shard_id(),
+            )?;
+            match validate_chunk_with_chunk_extra(
+                chain.chain_store(),
+                self.epoch_manager.as_ref(),
+                prev_block_hash,
+                &prev_chunk_extra,
+                last_header.height_included(),
+                &chunk_header,
+            ) {
+                Ok(()) => {
+                    send_chunk_endorsement_to_block_producers(
+                        &chunk_header,
+                        epoch_manager.as_ref(),
+                        signer.as_ref(),
+                        &network_sender,
+                        chunk_endorsement_tracker.as_ref(),
+                    );
+                    return Ok(());
+                }
+                Err(err) => {
+                    tracing::error!(
+                        "Failed to validate chunk using existing chunk extra: {:?}",
+                        err
+                    );
+                    return Err(err);
+                }
+            }
+        }
+
+        let runtime_adapter = self.runtime_adapter.clone();
         self.validation_spawner.spawn("stateless_validation", move || {
             // processing_done_tracker must survive until the processing is finished.
             let _processing_done_tracker_capture = processing_done_tracker;
@@ -280,12 +320,14 @@ pub(crate) fn pre_validate_chunk_state_witness(
 
     let main_transition_params = if last_chunk_block.header().is_genesis() {
         let epoch_id = last_chunk_block.header().epoch_id();
+        let congestion_info = last_chunk_block
+            .shards_congestion_info()
+            .get(&shard_id)
+            .map(|info| info.congestion_info);
         let genesis_protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        MainTransition::Genesis {
-            chunk_extra: chain.genesis_chunk_extra(shard_id, genesis_protocol_version)?,
-            block_hash: *last_chunk_block.hash(),
-            shard_id,
-        }
+        let chunk_extra =
+            chain.genesis_chunk_extra(shard_id, genesis_protocol_version, congestion_info)?;
+        MainTransition::Genesis { chunk_extra, block_hash: *last_chunk_block.hash(), shard_id }
     } else {
         MainTransition::NewChunk(NewChunkData {
             chunk_header: last_chunk_block.chunks().get(shard_id as usize).unwrap().clone(),
@@ -467,7 +509,7 @@ pub(crate) fn validate_chunk_state_witness(
     let _timer = metrics::CHUNK_STATE_WITNESS_VALIDATION_TIME
         .with_label_values(&[&state_witness.chunk_header.shard_id().to_string()])
         .start_timer();
-    let span = tracing::debug_span!(target: "chain", "validate_chunk_state_witness").entered();
+    let span = tracing::debug_span!(target: "client", "validate_chunk_state_witness").entered();
     let block_hash = pre_validation_output.main_transition_params.block_hash();
     let epoch_id = epoch_manager.get_epoch_id(&block_hash)?;
     let shard_uid = epoch_manager
@@ -606,10 +648,10 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
 
     let chunk_hash = chunk_header.chunk_hash();
     tracing::debug!(
-        target: "stateless_validation",
+        target: "client",
         chunk_hash=?chunk_hash,
         ?block_producers,
-        "Chunk validated successfully, sending endorsement",
+        "send_chunk_endorsement",
     );
 
     let endorsement = ChunkEndorsement::new(chunk_header.chunk_hash(), signer);
@@ -662,7 +704,7 @@ impl Client {
             self.partially_validate_state_witness(&encoded_witness)?;
 
         tracing::debug!(
-            target: "stateless_validation",
+            target: "client",
             chunk_hash=?witness.chunk_header.chunk_hash(),
             shard_id=witness.chunk_header.shard_id(),
             "process_chunk_state_witness",
@@ -685,7 +727,7 @@ impl Client {
         if let Ok(final_head) = self.chain.final_head() {
             if witness.chunk_header.height_created() <= final_head.height {
                 tracing::warn!(
-                    target: "stateless_validation",
+                    target: "client",
                     chunk_hash=?witness.chunk_header.chunk_hash(),
                     shard_id=witness.chunk_header.shard_id(),
                     witness_height=witness.chunk_header.height_created(),

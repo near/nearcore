@@ -52,6 +52,7 @@ near-parameters.workspace = true
 
 [features]
 sandbox = []
+test_features = ["near-vm-runner/test_features"]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
 protocol_feature_fix_staking_threshold = ["near-primitives-core/protocol_feature_fix_staking_threshold"]
 protocol_feature_fix_contract_loading_cost = ["near-primitives-core/protocol_feature_fix_contract_loading_cost"]

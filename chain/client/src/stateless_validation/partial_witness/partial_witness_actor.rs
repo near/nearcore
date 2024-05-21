@@ -64,7 +64,7 @@ impl Handler<DistributeStateWitnessRequest> for PartialWitnessActor {
     #[perf]
     fn handle(&mut self, msg: DistributeStateWitnessRequest) {
         if let Err(err) = self.handle_distribute_state_witness_request(msg) {
-            tracing::error!(target: "stateless_validation", ?err, "Failed to handle distribute chunk state witness request");
+            tracing::error!(target: "client", ?err, "Failed to handle distribute chunk state witness request");
         }
     }
 }
@@ -78,7 +78,7 @@ impl Handler<ChunkStateWitnessAckMessage> for PartialWitnessActor {
 impl Handler<PartialEncodedStateWitnessMessage> for PartialWitnessActor {
     fn handle(&mut self, msg: PartialEncodedStateWitnessMessage) {
         if let Err(err) = self.handle_partial_encoded_state_witness(msg.0) {
-            tracing::error!(target: "stateless_validation", ?err, "Failed to handle PartialEncodedStateWitnessMessage");
+            tracing::error!(target: "client", ?err, "Failed to handle PartialEncodedStateWitnessMessage");
         }
     }
 }
@@ -86,7 +86,7 @@ impl Handler<PartialEncodedStateWitnessMessage> for PartialWitnessActor {
 impl Handler<PartialEncodedStateWitnessForwardMessage> for PartialWitnessActor {
     fn handle(&mut self, msg: PartialEncodedStateWitnessForwardMessage) {
         if let Err(err) = self.handle_partial_encoded_state_witness_forward(msg.0) {
-            tracing::error!(target: "stateless_validation", ?err, "Failed to handle PartialEncodedStateWitnessForwardMessage");
+            tracing::error!(target: "client", ?err, "Failed to handle PartialEncodedStateWitnessForwardMessage");
         }
     }
 }
@@ -127,10 +127,10 @@ impl PartialWitnessActor {
             .ordered_chunk_validators();
 
         tracing::debug!(
-            target: "stateless_validation",
-            "Sending chunk state witness for chunk {:?} to chunk validators {:?}",
-            chunk_header.chunk_hash(),
-            chunk_validators,
+            target: "client",
+            chunk_hash=?chunk_header.chunk_hash(),
+            ?chunk_validators,
+            "distribute_chunk_state_witness",
         );
 
         let witness_bytes = compress_witness(&state_witness)?;
@@ -272,7 +272,7 @@ impl PartialWitnessActor {
         &mut self,
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
-        tracing::debug!(target: "stateless_validation", ?partial_witness, "Receive PartialEncodedStateWitnessMessage");
+        tracing::debug!(target: "client", ?partial_witness, "Receive PartialEncodedStateWitnessMessage");
 
         // Validate the partial encoded state witness.
         self.validate_partial_encoded_state_witness(&partial_witness)?;

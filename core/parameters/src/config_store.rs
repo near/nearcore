@@ -1,4 +1,4 @@
-use crate::config::RuntimeConfig;
+use crate::config::{CongestionControlConfig, RuntimeConfig};
 use crate::parameter_table::{ParameterTable, ParameterTableDiff};
 use near_primitives_core::types::ProtocolVersion;
 use std::collections::BTreeMap;
@@ -44,6 +44,8 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (129, include_config!("129.yaml")),
     // Introduce ETH-implicit accounts.
     (138, include_config!("138.yaml")),
+    // Congestion Control
+    (142, include_config!("142.yaml")),
 ];
 
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters
@@ -135,6 +137,14 @@ impl RuntimeConfigStore {
     /// Constructs test store.
     pub fn test() -> Self {
         Self::with_one_config(RuntimeConfig::test())
+    }
+
+    /// Constructs test store.
+    pub fn test_congestion_control_disabled() -> Self {
+        let mut config = RuntimeConfig::test();
+        config.congestion_control_config = CongestionControlConfig::test_disabled();
+
+        Self::with_one_config(config)
     }
 
     /// Constructs store with a single config with zero costs.

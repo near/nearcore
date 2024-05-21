@@ -764,7 +764,8 @@ impl StateSync {
         use_colour: bool,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
     ) -> Result<StateSyncResult, near_chain::Error> {
-        let _span = tracing::debug_span!(target: "sync", "run", sync = "StateSync").entered();
+        let _span =
+            tracing::debug_span!(target: "sync", "run_sync", sync_type = "StateSync").entered();
         tracing::trace!(target: "sync", %sync_hash, ?tracking_shards, "syncing state");
         let now = self.clock.now_utc();
 

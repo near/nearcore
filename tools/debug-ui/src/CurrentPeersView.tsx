@@ -272,9 +272,9 @@ export const CurrentPeersView = ({ addr }: NetworkInfoViewProps) => {
                                 <td>
                                     {peer.nonce}
                                     <br />
-                                    {peer.nonce > 1660000000
-                                        ? formatDurationInMillis(Date.now() - peer.nonce * 1000)
-                                        : 'old style nonce'}
+                                    {formatDurationInMillis(
+                                        Date.now() - peer.nonce * 1000
+                                    )}
                                 </td>
                                 <td>
                                     {formatDurationInMillis(

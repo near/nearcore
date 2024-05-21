@@ -88,7 +88,10 @@ async fn state_parts_from_node(
     assert!(start_part_id < num_parts && num_parts > 0, "{}/{}", start_part_id, num_parts);
     let mut app_info = AppInfo::new();
 
+    let clock = time::Clock::real();
+
     let mut peer = match Connection::connect(
+        &clock,
         peer_addr,
         peer_id.clone(),
         protocol_version,

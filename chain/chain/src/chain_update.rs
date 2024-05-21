@@ -152,7 +152,7 @@ impl<'a> ChainUpdate<'a> {
         apply_results: Vec<ShardUpdateResult>,
         should_save_state_transition_data: bool,
     ) -> Result<(), Error> {
-        let _span = tracing::debug_span!(target: "chain", "apply_chunk_postprocessing").entered();
+        let _span = tracing::debug_span!(target: "chain", "apply_chunk_postprocessing", height=block.header().height()).entered();
         for result in apply_results {
             self.process_apply_chunk_result(block, result, should_save_state_transition_data)?;
         }
@@ -725,7 +725,7 @@ impl<'a> ChainUpdate<'a> {
         shard_state_header: ShardStateSyncResponseHeader,
     ) -> Result<ShardUId, Error> {
         let _span =
-            tracing::debug_span!(target: "sync", "chain_update_set_state_finalize").entered();
+            tracing::debug_span!(target: "sync", "chain_update_set_state_finalize", shard_id, ?sync_hash).entered();
         let (chunk, incoming_receipts_proofs) = match shard_state_header {
             ShardStateSyncResponseHeader::V1(shard_state_header) => (
                 ShardChunk::V1(shard_state_header.chunk),
@@ -855,7 +855,9 @@ impl<'a> ChainUpdate<'a> {
         shard_id: ShardId,
         sync_hash: CryptoHash,
     ) -> Result<bool, Error> {
-        let _span = tracing::debug_span!(target: "sync", "set_state_finalize_on_height").entered();
+        let _span =
+            tracing::debug_span!(target: "sync", "set_state_finalize_on_height", height, shard_id)
+                .entered();
         let block_header_result =
             self.chain_store_update.get_block_header_on_chain_by_height(&sync_hash, height);
         if let Err(_) = block_header_result {
