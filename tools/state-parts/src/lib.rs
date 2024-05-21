@@ -1,5 +1,6 @@
+use ::time::ext::InstantExt as _;
 use anyhow::Context;
-use near_async::time;
+use near_async::time::{self, Instant};
 use near_network::raw::{ConnectError, Connection, DirectMessage, Message};
 use near_network::types::HandshakeFailureReason;
 use near_primitives::hash::CryptoHash;
@@ -36,11 +37,12 @@ fn handle_message(
             let state_response = response.clone().take_state_response();
             let cached_parts = state_response.cached_parts();
             let part_id = state_response.part_id();
+            let now = Instant::now();
             let duration = if let Some(part_id) = part_id {
-                let duration = app_info
-                    .requests_sent
-                    .get(&part_id)
-                    .map(|sent| (sent.elapsed() - received_at.elapsed()).as_seconds_f64());
+                let duration = app_info.requests_sent.get(&part_id).map(|sent| {
+                    (now.signed_duration_since(*sent) - now.signed_duration_since(received_at))
+                        .as_seconds_f64()
+                });
                 app_info.requests_sent.remove(&part_id);
                 duration
             } else {

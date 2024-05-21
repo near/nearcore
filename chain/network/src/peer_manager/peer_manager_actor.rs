@@ -842,7 +842,7 @@ impl PeerManagerActor {
             }
             NetworkRequests::PartialEncodedChunkRequest { target, request, create_time } => {
                 metrics::PARTIAL_ENCODED_CHUNK_REQUEST_DELAY
-                    .observe((self.clock.now() - create_time.0).as_seconds_f64());
+                    .observe((self.clock.now() - create_time).as_secs_f64());
                 let mut success = false;
 
                 // Make two attempts to send the message. First following the preference of `prefer_peer`,
