@@ -1,9 +1,97 @@
+from dataclasses import dataclass, field
+from chain_schema import *
 from profile_schema import *
 from trace_schema import *
 
 
-def generate(trace_input: TraceInput):
-    start_time_ms = trace_input.start_time.timestamp() * 1000
+@dataclass
+class BlockInfo:
+    category_id: int
+    
+
+@dataclass
+class ChunkInfo:
+    category_id: int
+
+categories = []
+block_infos: dict[BlockId, BlockInfo] = {}
+chunk_infos: dict[ChunkInfo, ChunkInfo] = {}
+
+def category_generator() -> int:
+    index = len(categories)
+    categories.append(Category(
+        name="Span",
+        color="blue",
+        subcategories=[],
+    ))
+    yield index
+
+
+
+def generate_from_chain_schema(chain_history: ChainHistory):
+    global_start_time = chain_history.start_time
+    global_start_time_ms = global_start_time.timestamp() * 1000
+    
+    threads = []
+    for block_id, block_history in chain_history.block_histories.items():
+        category_id = next(category_generator())
+        block_info  =BlockInfo(category_id=category_id)
+        block_infos[block_id] = block_info
+    
+        thread = Thread(
+            name=str(block_id),
+            process_name="block trace",
+            process_type="default",
+            is_main_thread=True,
+            process_startup_time=global_start_time_ms,
+            show_markers_in_timeline=True
+        )
+
+        strings_builder = StringTableBuilder()
+        for span in block_history.spans:
+            thread.markers.add_interval_marker(strings_builder=strings_builder,
+                                            name=f"{span.name} ({span.fields.node_id})",
+                                            start_time=span.start_time - global_start_time,
+                                            end_time=span.end_time - global_start_time,
+                                            category=category_id,
+                                            data={
+                                                "name": span.name,
+                                                "type": "span",
+                                            }.update(span.fields.payload()))
+            for event in span.events:
+                thread.markers.add_instant_marker(strings_builder=strings_builder,
+                                                name=event.name,
+                                                time=event.time - global_start_time,
+                                                category=category_id,
+                                                data={
+                                                    "name": event.name,
+                                                    "type": "event",
+                                                }.update(event.fields.payload()))
+        thread.string_array = strings_builder.strings
+        threads.append(thread)
+    
+    profile = Profile(
+        meta=ProfileMeta(
+            version=29,
+            preprocessed_profile_version=48,
+            interval=1,
+            start_time=global_start_time_ms,
+            process_type=0,
+            product="near-tracing",
+            stackwalk=0,
+            categories=categories,
+            marker_schema=[],
+        ),
+        threads=threads,
+    )
+
+    
+    return profile
+
+
+def generate_from_trace_schema(trace_input: TraceInput):
+    global_start_time = trace_input.start_time
+    global_start_time_ms = global_start_time.timestamp() * 1000
 
     category = Category(
         name="Span",
@@ -15,7 +103,7 @@ def generate(trace_input: TraceInput):
             version=29,
             preprocessed_profile_version=48,
             interval=1,
-            start_time=start_time_ms,
+            start_time=global_start_time_ms,
             process_type=0,
             product="near-tracing",
             stackwalk=0,
@@ -28,11 +116,10 @@ def generate(trace_input: TraceInput):
         process_name="trace",
         process_type="default",
         is_main_thread=True,
-        process_startup_time=start_time_ms,
+        process_startup_time=global_start_time_ms,
         show_markers_in_timeline=True
     )
 
-    global_start_time = trace_input.start_time
     strings_builder = StringTableBuilder()
 
     for resource_span in trace_input.resource_spans:
