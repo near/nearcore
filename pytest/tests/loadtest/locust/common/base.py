@@ -279,27 +279,36 @@ class NearNodeProxy:
 
         try:
             try:
-                # To get proper errors on invalid transaction, we need to use sync api first
+                # To get proper errors on invalid transaction, we need to wait at least for
+                # optimistic execution
                 result = self.post_json(
-                    "broadcast_tx_commit",
-                    [base64.b64encode(serialized_tx).decode('utf8')])
+                    "send_tx", {
+                        "signed_tx_base64":
+                            base64.b64encode(serialized_tx).decode('utf8'),
+                        "wait_until":
+                            "EXECUTED_OPTIMISTIC"
+                    })
                 evaluate_rpc_result(result.json())
             except TxUnknownError as err:
                 # This means we time out in one way or another.
                 # In that case, the stateless transaction validation was
                 # successful, we can now use async API without missing errors.
                 submit_raw_response = self.post_json(
-                    "broadcast_tx_async",
-                    [base64.b64encode(serialized_tx).decode('utf8')])
+                    "send_tx", {
+                        "signed_tx_base64":
+                            base64.b64encode(serialized_tx).decode('utf8'),
+                        "wait_until":
+                            "NONE"
+                    })
                 meta["response_length"] = len(submit_raw_response.text)
                 submit_response = submit_raw_response.json()
-                # extract transaction ID from response, it should be "{ "result": "id...." }"
                 if not "result" in submit_response:
-                    meta["exception"] = RpcError(message="Didn't get a TX ID",
-                                                 details=submit_response)
+                    meta["exception"] = RpcError(
+                        message="Failed to submit transaction",
+                        details=submit_response)
                     meta["response"] = submit_response.content
                 else:
-                    tx.transaction_id = submit_response["result"]
+                    tx.transaction_id = signed_tx.id
                     # using retrying lib here to poll until a response is ready
                     self.poll_tx_result(meta, tx)
         except NearError as err:
@@ -329,7 +338,7 @@ class NearNodeProxy:
             "exception": None,  # maybe overwritten later
         }
 
-    def post_json(self, method: str, params: typing.List[str]):
+    def post_json(self, method: str, params: typing.Dict[str, str]):
         j = {
             "method": method,
             "params": params,
@@ -343,7 +352,10 @@ class NearNodeProxy:
            stop_max_delay=DEFAULT_TRANSACTION_TTL / timedelta(milliseconds=1),
            retry_on_exception=is_tx_unknown_error)
     def poll_tx_result(self, meta: dict, tx: Transaction):
-        params = [tx.transaction_id, tx.sender_account().key.account_id]
+        params = {
+            "tx_hash": tx.transaction_id,
+            "sender_account_id": tx.sender_account().key.account_id
+        }
         # poll for tx result, using "EXPERIMENTAL_tx_status" which waits for
         # all receipts to finish rather than just the first one, as "tx" would do
         result_response = self.post_json("EXPERIMENTAL_tx_status", params)
@@ -432,8 +444,12 @@ class NearNodeProxy:
                 signed_tx = tx.sign(block_hash)
                 serialized_tx = transaction.serialize_transaction(signed_tx)
                 submit_raw_response = self.post_json(
-                    "broadcast_tx_async",
-                    [base64.b64encode(serialized_tx).decode('utf8')])
+                    "send_tx", {
+                        "signed_tx_base64":
+                            base64.b64encode(serialized_tx).decode('utf8'),
+                        "wait_until":
+                            "NONE"
+                    })
                 meta["response_length"] = len(submit_raw_response.text)
                 submit_response = submit_raw_response.json()
                 if not "result" in submit_response:
@@ -443,7 +459,7 @@ class NearNodeProxy:
                     )
                     try_again.append(account)
                 else:
-                    tx.transaction_id = submit_response["result"]
+                    tx.transaction_id = signed_tx.id
                     inflight.append((tx, meta, account))
             to_create = try_again
 
