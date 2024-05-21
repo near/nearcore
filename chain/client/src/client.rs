@@ -311,6 +311,7 @@ impl Client {
             config.header_sync_progress_timeout,
             config.header_sync_stall_ban_timeout,
             config.header_sync_expected_height_per_second,
+            config.expected_shutdown,
         );
         let block_sync = BlockSync::new(
             clock.clone(),
