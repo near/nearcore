@@ -15,6 +15,7 @@ import threading
 import time
 import typing
 import unittest
+from cachetools import cached, TTLCache, LRUCache
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / 'lib'))
 
@@ -232,6 +233,11 @@ class AddFullAccessKey(Transaction):
         return self.sender
 
 
+@cached(cache=LRUCache(maxsize=100))
+def get_near_node_proxy(environment):
+    return NearNodeProxy(environment)
+
+
 class NearNodeProxy:
     """
     Wrapper around a RPC node connection that tracks requests on locust.
@@ -367,6 +373,9 @@ class NearNodeProxy:
         self.request_event.fire(**meta)
         return meta
 
+    # It's ok to use a slightly out-of-date block hash and this avoids one additional RPC request on
+    # every transaction.
+    @cached(cache=TTLCache(maxsize=1, ttl=1))
     def final_block_hash(self):
         return base58.b58decode(
             self.node.get_final_block()['result']['header']['hash'])
@@ -557,7 +566,7 @@ class NearUser(User):
     def __init__(self, environment):
         super().__init__(environment)
         assert self.host is not None, "Near user requires the RPC node address"
-        self.node = NearNodeProxy(environment)
+        self.node = get_near_node_proxy(environment)
         self.id = NearUser.get_next_id()
         self.user_suffix = f"{self.id}_run{environment.parsed_options.run_id}"
         self.account_generator = environment.account_generator
@@ -833,7 +842,7 @@ def init_account_generator(parsed_options):
 
 # called once per process before user initialization
 def do_on_locust_init(environment):
-    node = NearNodeProxy(environment)
+    node = get_near_node_proxy(environment)
 
     master_funding_key = key.Key.from_json_file(
         environment.parsed_options.funding_key)
