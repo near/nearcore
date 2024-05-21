@@ -2,160 +2,210 @@ use chrono::{DateTime, NaiveDateTime, ParseError, Utc};
 use near_primitives_core::types::ProtocolVersion;
 use std::env;
 
+#[derive(thiserror::Error, Debug)]
+pub enum ProtocolUpgradeVotingScheduleError {
+    #[error("The final upgrade must be the client protocol version! final version: {0}, client version: {1}")]
+    InvalidFinalUpgrade(ProtocolVersion, ProtocolVersion),
+    #[error("The upgrades must be sorted by datetime!")]
+    InvalidDateTimeOrder,
+    #[error("The upgrades must be sorted and increasing by one!")]
+    InvalidProtocolVersionOrder,
+}
+
 /// Defines the point in time after which validators are expected to vote on the
 /// new protocol version.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ProtocolUpgradeVotingSchedule {
-    timestamp: chrono::DateTime<Utc>,
+    /// The schedule is a sorted list of (datetime, version) tuples. The node
+    /// should vote for the highest version that is less than or equal to the
+    /// current time.
+    schedule: Vec<(chrono::DateTime<Utc>, ProtocolVersion)>,
 }
 
 impl Default for ProtocolUpgradeVotingSchedule {
     fn default() -> Self {
-        Self { timestamp: DateTime::<Utc>::from_naive_utc_and_offset(Default::default(), Utc) }
+        Self { schedule: vec![] }
     }
 }
 
 impl ProtocolUpgradeVotingSchedule {
-    pub fn is_in_future(&self) -> bool {
-        chrono::Utc::now() < self.timestamp
-    }
-
-    pub fn timestamp(&self) -> i64 {
-        self.timestamp.timestamp()
-    }
-
     /// This method creates an instance of the ProtocolUpgradeVotingSchedule.
     ///
-    /// It will first check if the NEAR_TESTS_IMMEDIATE_PROTOCOL_UPGRADE is
-    /// set in the environment and if so return the immediate upgrade schedule.
-    /// This should only be used in tests, in particular in tests the in some
-    /// way test neard upgrades.
+    /// It will first check if the NEAR_TESTS_IMMEDIATE_PROTOCOL_UPGRADE is set
+    /// in the environment and if so return the immediate upgrade schedule. This
+    /// should only be used in tests, in particular in tests that in some way
+    /// test neard upgrades.
     ///
-    /// Otherwise it will parse the given string and return the corresponding
-    /// upgrade schedule.
-    pub fn from_env_or_str(s: &str) -> Result<Self, ParseError> {
+    /// Otherwise it will use the provided schedule.
+    pub fn new_from_env_or_schedule(
+        client_protocol_version: ProtocolVersion,
+        schedule: Vec<(chrono::DateTime<Utc>, ProtocolVersion)>,
+    ) -> Result<Self, ProtocolUpgradeVotingScheduleError> {
         let immediate_upgrade = env::var("NEAR_TESTS_IMMEDIATE_PROTOCOL_UPGRADE");
         if let Ok(_) = immediate_upgrade {
             tracing::warn!("Setting immediate protocol upgrade. This is fine in tests but should be avoided otherwise");
             return Ok(Self::default());
         }
 
-        Ok(Self {
-            timestamp: DateTime::<Utc>::from_naive_utc_and_offset(
-                NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S")?,
-                Utc,
-            ),
-        })
-    }
-}
+        // Sanity and invariant checks.
 
-pub(crate) fn get_protocol_version_internal(
-    // Protocol version that will be used in the next epoch.
-    next_epoch_protocol_version: ProtocolVersion,
-    // Latest protocol version supported by this client.
-    client_protocol_version: ProtocolVersion,
-    // Point in time when voting for client_protocol_version version is expected
-    // to start.  Use `Default::default()` to start voting immediately.
-    voting_start: ProtocolUpgradeVotingSchedule,
-) -> ProtocolVersion {
-    if next_epoch_protocol_version >= client_protocol_version {
-        client_protocol_version
-    } else if voting_start.is_in_future() {
-        // Don't announce support for the latest protocol version yet.
-        next_epoch_protocol_version
-    } else {
-        // The time has passed, announce the latest supported protocol version.
-        client_protocol_version
+        // The final upgrade must be the client protocol version.
+        if let Some((_, version)) = schedule.last() {
+            if *version != client_protocol_version {
+                return Err(ProtocolUpgradeVotingScheduleError::InvalidFinalUpgrade(
+                    *version,
+                    client_protocol_version,
+                ));
+            }
+        }
+
+        // The upgrades must be sorted by datetime.
+        for i in 1..schedule.len() {
+            let prev_time = schedule[i - 1].0;
+            let this_time = schedule[i].0;
+            if !(prev_time < this_time) {
+                return Err(ProtocolUpgradeVotingScheduleError::InvalidDateTimeOrder);
+            }
+        }
+
+        // The upgrades must be increasing by 1.
+        for i in 1..schedule.len() {
+            let prev_protocol_version = schedule[i - 1].1;
+            let this_protocol_version = schedule[i].1;
+            if prev_protocol_version + 1 != this_protocol_version {
+                return Err(ProtocolUpgradeVotingScheduleError::InvalidProtocolVersionOrder);
+            }
+        }
+
+        Ok(Self { schedule })
+    }
+
+    pub fn parse_datetime(s: &str) -> Result<DateTime<Utc>, ParseError> {
+        let datetime = NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S")?;
+        let datetime = DateTime::<Utc>::from_naive_utc_and_offset(datetime, Utc);
+        Ok(datetime)
+    }
+
+    pub(crate) fn get_protocol_version(
+        &self,
+        now: DateTime<Utc>,
+        // Protocol version that will be used in the next epoch.
+        next_epoch_protocol_version: ProtocolVersion,
+        // Latest protocol version supported by this client.
+        client_protocol_version: ProtocolVersion,
+    ) -> ProtocolVersion {
+        if next_epoch_protocol_version >= client_protocol_version {
+            return client_protocol_version;
+        }
+
+        if self.schedule.is_empty() {
+            return client_protocol_version;
+        }
+
+        // The datetime values in the schedule are sorted in ascending order.
+        // Find the last datetime value that is less than the current time.
+        let mut result = next_epoch_protocol_version;
+        for (time, version) in &self.schedule {
+            if now < *time {
+                break;
+            }
+            result = *version;
+        }
+
+        result
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::vec;
+
     use super::*;
 
-    // The tests call `get_protocol_version_internal()` with the following parameters:
+    /// Make a simple schedule with a single protocol version upgrade.
+    fn make_simple_voting_schedule(
+        client_protocol_version: u32,
+        datetime_str: &str,
+    ) -> ProtocolUpgradeVotingSchedule {
+        make_voting_schedule(client_protocol_version, vec![(datetime_str, client_protocol_version)])
+    }
+
+    fn make_voting_schedule(
+        client_protocol_version: ProtocolVersion,
+        schedule: Vec<(&str, u32)>,
+    ) -> ProtocolUpgradeVotingSchedule {
+        make_voting_schedule_impl(schedule, client_protocol_version).unwrap()
+    }
+
+    /// Make a schedule with a given list of protocol version upgardes.
+    fn make_voting_schedule_impl(
+        schedule: Vec<(&str, u32)>,
+        client_protocol_version: ProtocolVersion,
+    ) -> Result<ProtocolUpgradeVotingSchedule, ProtocolUpgradeVotingScheduleError> {
+        let parse = |(datetime_str, version)| {
+            let datetime = ProtocolUpgradeVotingSchedule::parse_datetime(datetime_str);
+            let datetime = datetime.unwrap();
+            (datetime, version)
+        };
+        let schedule = schedule.into_iter().map(parse).collect::<Vec<_>>();
+        let schedule = ProtocolUpgradeVotingSchedule::new_from_env_or_schedule(
+            client_protocol_version,
+            schedule,
+        );
+        schedule
+    }
+
+    // The tests call `get_protocol_version()` with the following parameters:
     // No schedule:                  (X-2,X), (X,X), (X+2,X)
     // Before the scheduled upgrade: (X-2,X), (X,X), (X+2,X)
     // After the scheduled upgrade:  (X-2,X), (X,X), (X+2,X)
 
     #[test]
-    fn test_no_upgrade_schedule() {
+    fn test_default_upgrade_schedule() {
         // As no protocol upgrade voting schedule is set, always return the version supported by the client.
+
+        let now = chrono::Utc::now();
+        let schedule = ProtocolUpgradeVotingSchedule::default();
 
         let client_protocol_version = 100;
         assert_eq!(
             client_protocol_version,
-            get_protocol_version_internal(
+            schedule.get_protocol_version(
+                now,
                 client_protocol_version - 2,
-                client_protocol_version,
-                Default::default(),
+                client_protocol_version
             )
         );
         assert_eq!(
             client_protocol_version,
-            get_protocol_version_internal(
-                client_protocol_version,
-                client_protocol_version,
-                Default::default()
-            )
+            schedule.get_protocol_version(now, client_protocol_version, client_protocol_version)
         );
         assert_eq!(
             client_protocol_version,
-            get_protocol_version_internal(
+            schedule.get_protocol_version(
+                now,
                 client_protocol_version + 2,
-                client_protocol_version,
-                Default::default(),
-            )
-        );
-    }
-
-    #[test]
-    fn test_none_upgrade_schedule() {
-        // As no protocol upgrade voting schedule is set, always return the version supported by the client.
-
-        let client_protocol_version = 100;
-
-        assert_eq!(
-            client_protocol_version,
-            get_protocol_version_internal(
-                client_protocol_version - 2,
-                client_protocol_version,
-                Default::default(),
-            )
-        );
-        assert_eq!(
-            client_protocol_version,
-            get_protocol_version_internal(
-                client_protocol_version,
-                client_protocol_version,
-                Default::default(),
-            )
-        );
-        assert_eq!(
-            client_protocol_version,
-            get_protocol_version_internal(
-                client_protocol_version + 2,
-                client_protocol_version,
-                Default::default(),
+                client_protocol_version
             )
         );
     }
 
     #[test]
     fn test_before_scheduled_time() {
+        let now = chrono::Utc::now();
+
         let client_protocol_version = 100;
-        let schedule =
-            ProtocolUpgradeVotingSchedule::from_env_or_str("2050-01-01 00:00:00").unwrap();
+        let schedule = make_simple_voting_schedule(client_protocol_version, "2050-01-01 00:00:00");
 
         // The client supports a newer version than the version of the next epoch.
         // Upgrade voting will start in the far future, therefore don't announce the newest supported version.
         let next_epoch_protocol_version = client_protocol_version - 2;
         assert_eq!(
             next_epoch_protocol_version,
-            get_protocol_version_internal(
+            schedule.get_protocol_version(
+                now,
                 next_epoch_protocol_version,
-                client_protocol_version,
-                schedule,
+                client_protocol_version
             )
         );
 
@@ -163,10 +213,10 @@ mod tests {
         let next_epoch_protocol_version = client_protocol_version;
         assert_eq!(
             next_epoch_protocol_version,
-            get_protocol_version_internal(
+            schedule.get_protocol_version(
+                now,
                 next_epoch_protocol_version,
-                client_protocol_version,
-                schedule,
+                client_protocol_version
             )
         );
 
@@ -174,61 +224,116 @@ mod tests {
         let next_epoch_protocol_version = client_protocol_version + 2;
         assert_eq!(
             client_protocol_version,
-            get_protocol_version_internal(
+            schedule.get_protocol_version(
+                now,
                 next_epoch_protocol_version,
-                client_protocol_version,
-                schedule,
+                client_protocol_version
             )
         );
     }
 
     #[test]
     fn test_after_scheduled_time() {
+        let now = chrono::Utc::now();
+
         let client_protocol_version = 100;
-        let schedule =
-            ProtocolUpgradeVotingSchedule::from_env_or_str("1900-01-01 00:00:00").unwrap();
+        let schedule = make_simple_voting_schedule(client_protocol_version, "1900-01-01 00:00:00");
 
         // Regardless of the protocol version of the next epoch, return the version supported by the client.
         assert_eq!(
             client_protocol_version,
-            get_protocol_version_internal(
+            schedule.get_protocol_version(
+                now,
                 client_protocol_version - 2,
                 client_protocol_version,
-                schedule,
             )
         );
         assert_eq!(
             client_protocol_version,
-            get_protocol_version_internal(
-                client_protocol_version,
-                client_protocol_version,
-                schedule,
-            )
+            schedule.get_protocol_version(now, client_protocol_version, client_protocol_version,)
         );
         assert_eq!(
             client_protocol_version,
-            get_protocol_version_internal(
+            schedule.get_protocol_version(
+                now,
                 client_protocol_version + 2,
                 client_protocol_version,
-                schedule,
             )
         );
+    }
+
+    #[test]
+    fn test_double_upgrade_schedule() {
+        let current_protocol_version = 100;
+        let client_protocol_version = 102;
+        let schedule = vec![
+            ("2000-01-10 00:00:00", current_protocol_version + 1),
+            ("2000-01-15 00:00:00", current_protocol_version + 2),
+        ];
+
+        let schedule = make_voting_schedule(client_protocol_version, schedule);
+
+        // Test that the current version is returned before the first upgrade.
+        let now = ProtocolUpgradeVotingSchedule::parse_datetime("2000-01-05 00:00:00").unwrap();
+        assert_eq!(
+            current_protocol_version,
+            schedule.get_protocol_version(now, current_protocol_version, client_protocol_version)
+        );
+
+        // Test the first upgrade.
+        let now = ProtocolUpgradeVotingSchedule::parse_datetime("2000-01-10 00:00:00").unwrap();
+        assert_eq!(
+            current_protocol_version + 1,
+            schedule.get_protocol_version(now, current_protocol_version, client_protocol_version)
+        );
+        let now = ProtocolUpgradeVotingSchedule::parse_datetime("2000-01-12 00:00:00").unwrap();
+        assert_eq!(
+            current_protocol_version + 1,
+            schedule.get_protocol_version(now, current_protocol_version, client_protocol_version)
+        );
+
+        // Test the final upgrade.
+        let now = ProtocolUpgradeVotingSchedule::parse_datetime("2000-01-15 00:00:00").unwrap();
+        assert_eq!(
+            current_protocol_version + 2,
+            schedule.get_protocol_version(now, current_protocol_version, client_protocol_version,)
+        );
+        let now = ProtocolUpgradeVotingSchedule::parse_datetime("2000-01-20 00:00:00").unwrap();
+        assert_eq!(
+            current_protocol_version + 2,
+            schedule.get_protocol_version(now, current_protocol_version, client_protocol_version,)
+        );
+    }
+
+    #[test]
+    fn test_errors() {
+        let client_protocol_version = 110;
+
+        // invalid last upgrade
+        let schedule = vec![("2000-01-10 00:00:00", 108), ("2000-01-15 00:00:00", 109)];
+        let schedule = make_voting_schedule_impl(schedule, client_protocol_version);
+        assert!(schedule.is_err());
+
+        // invalid protocol version order - decreasing versions
+        let schedule = vec![("2000-01-10 00:00:00", 111), ("2000-01-15 00:00:00", 110)];
+        let schedule = make_voting_schedule_impl(schedule, client_protocol_version);
+        assert!(schedule.is_err());
+
+        // invalid protocol version order - skip version
+        let schedule = vec![("2000-01-10 00:00:00", 108), ("2000-01-15 00:00:00", 110)];
+        let schedule = make_voting_schedule_impl(schedule, client_protocol_version);
+        assert!(schedule.is_err());
+
+        // invalid datetime order
+        let schedule = vec![("2000-01-15 00:00:00", 109), ("2000-01-10 00:00:00", 110)];
+        let schedule = make_voting_schedule_impl(schedule, client_protocol_version);
+        assert!(schedule.is_err());
     }
 
     #[test]
     fn test_parse() {
-        assert!(ProtocolUpgradeVotingSchedule::from_env_or_str("2001-02-03 23:59:59").is_ok());
-        assert!(ProtocolUpgradeVotingSchedule::from_env_or_str("123").is_err());
-    }
-
-    #[test]
-    fn test_is_in_future() {
-        assert!(ProtocolUpgradeVotingSchedule::from_env_or_str("2999-02-03 23:59:59")
-            .unwrap()
-            .is_in_future());
-        assert!(!ProtocolUpgradeVotingSchedule::from_env_or_str("1999-02-03 23:59:59")
-            .unwrap()
-            .is_in_future());
+        assert!(ProtocolUpgradeVotingSchedule::parse_datetime("2001-02-03 23:59:59").is_ok());
+        assert!(ProtocolUpgradeVotingSchedule::parse_datetime("123").is_err());
     }
 
     #[test]
@@ -237,9 +342,8 @@ mod tests {
         // the release branch where the protocol upgrade date is set.
         std::env::set_var("NEAR_TESTS_IMMEDIATE_PROTOCOL_UPGRADE", "1");
 
-        assert_eq!(
-            ProtocolUpgradeVotingSchedule::from_env_or_str("2999-02-03 23:59:59").unwrap(),
-            ProtocolUpgradeVotingSchedule::default()
-        );
+        let schedule = make_simple_voting_schedule(100, "2999-02-03 23:59:59");
+
+        assert_eq!(schedule, ProtocolUpgradeVotingSchedule::default());
     }
 }

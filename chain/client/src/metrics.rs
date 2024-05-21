@@ -361,12 +361,12 @@ pub(crate) static CURRENT_PROTOCOL_VERSION: Lazy<IntGauge> = Lazy::new(|| {
         .unwrap()
 });
 
-pub(crate) static NODE_PROTOCOL_UPGRADE_VOTING_START: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge(
-        "near_node_protocol_upgrade_voting_start",
-        "Time in seconds since Unix epoch determining when node will start voting for the protocol upgrade; zero if there is no schedule for the voting")
-        .unwrap()
-});
+// pub(crate) static NODE_PROTOCOL_UPGRADE_VOTING_START: Lazy<IntGauge> = Lazy::new(|| {
+//     try_create_int_gauge(
+//         "near_node_protocol_upgrade_voting_start",
+//         "Time in seconds since Unix epoch determining when node will start voting for the protocol upgrade; zero if there is no schedule for the voting")
+//         .unwrap()
+// });
 
 pub(crate) static PRODUCE_CHUNK_TIME: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
@@ -404,8 +404,9 @@ pub(crate) static PRODUCE_AND_DISTRIBUTE_CHUNK_TIME: Lazy<HistogramVec> = Lazy::
 /// `neard_version` argument.
 pub(crate) fn export_version(neard_version: &near_primitives::version::Version) {
     NODE_PROTOCOL_VERSION.set(near_primitives::version::PROTOCOL_VERSION.into());
-    NODE_PROTOCOL_UPGRADE_VOTING_START
-        .set(near_primitives::version::PROTOCOL_UPGRADE_SCHEDULE.timestamp());
+    // TODO(wacban)
+    // NODE_PROTOCOL_UPGRADE_VOTING_START
+    //     .set(near_primitives::version::PROTOCOL_UPGRADE_SCHEDULE.timestamp());
     NODE_DB_VERSION.set(near_store::metadata::DB_VERSION.into());
     NODE_BUILD_INFO.reset();
     NODE_BUILD_INFO
