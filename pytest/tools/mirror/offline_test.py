@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import argparse
 import sys
 import time
 import pathlib
@@ -19,6 +20,14 @@ import mirror_utils
 
 def main():
     config = load_config()
+
+    parser = argparse.ArgumentParser(description='run mirror integration test')
+    parser.add_argument('--tps', type=int)
+    parser.add_argument('--batch-interval-millis', type=int)
+    args = parser.parse_args()
+
+    if args.tps is not None and args.batch_interval_millis is not None:
+        sys.exit('cannot give both --tps and --batch-interval-millis')
 
     near_root, source_nodes, target_node_dirs, traffic_data = mirror_utils.start_source_chain(
         config)
@@ -40,10 +49,14 @@ def main():
     for node in source_nodes[1:]:
         node.kill()
 
-    mirror = mirror_utils.MirrorProcess(near_root,
-                                        source_nodes[1].node_dir,
-                                        online_source=False)
+    mirror = mirror_utils.MirrorProcess(
+        near_root,
+        source_nodes[1].node_dir,
+        online_source=False,
+        tps=args.tps,
+        batch_interval_millis=args.batch_interval_millis)
 
+    # TODO: figure out what to do here for different tps /  batch interval options
     total_time_allowed = mirror_utils.allowed_run_time(target_node_dirs[0],
                                                        mirror.start_time,
                                                        end_source_height)
@@ -57,6 +70,11 @@ def main():
         # transactions in its source chain (~/.near/test1/)
         if not mirror.restart_once():
             break
+        code = mirror.process.poll()
+        if code is not None:
+            assert code == 0
+            logger.info('done')
+            return False
         elapsed = time.time() - mirror.start_time
         if elapsed > total_time_allowed:
             logger.warn(
