@@ -1442,7 +1442,9 @@ impl ClientActorInner {
         };
 
         let peer_id = peer_info.peer_info.id.clone();
-        let highest_height = peer_info.highest_block_height;
+        let shutdown_height = self.client.config.expected_shutdown.get();
+        let highest_height =
+            peer_info.highest_block_height.min(shutdown_height.unwrap_or(u64::MAX) as u64);
 
         if is_syncing {
             if highest_height <= head.height {
