@@ -3048,14 +3048,15 @@ impl Chain {
         }
     }
 
-    /// For a given previous block and current block header, return information
+    /// For a given previous block header and current block, return information
     /// about block necessary for processing shard update.
     pub fn get_apply_chunk_block_context(
         epoch_manager: &dyn EpochManagerAdapter,
-        block_header: &BlockHeader,
-        prev_block: &Block,
+        block: &Block,
+        prev_block_header: &BlockHeader,
         is_new_chunk: bool,
     ) -> Result<ApplyChunkBlockContext, Error> {
+        let block_header = &block.header();
         let epoch_id = block_header.epoch_id();
         let protocol_version = epoch_manager.get_epoch_protocol_version(epoch_id)?;
         // Before `FixApplyChunks` feature, gas price was taken from current
@@ -3065,9 +3066,9 @@ impl Chain {
         {
             block_header.next_gas_price()
         } else {
-            prev_block.header().next_gas_price()
+            prev_block_header.next_gas_price()
         };
-        let congestion_info = prev_block.shards_congestion_info();
+        let congestion_info = block.shards_congestion_info();
 
         Ok(ApplyChunkBlockContext::from_header(block_header, gas_price, congestion_info))
     }
@@ -3617,8 +3618,8 @@ impl Chain {
         let shard_update_reason = if shard_context.should_apply_chunk {
             let block_context = Self::get_apply_chunk_block_context(
                 self.epoch_manager.as_ref(),
-                block.header(),
-                &prev_block,
+                &block,
+                prev_block.header(),
                 is_new_chunk,
             )?;
             if is_new_chunk {
