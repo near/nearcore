@@ -876,7 +876,7 @@ pub fn apply_memtrie_changes(
             let node_ids_with_hashes = &changes.node_ids_with_hashes;
             for (node_id, node_hash) in node_ids_with_hashes.iter() {
                 let node = updated_nodes.get(*node_id).unwrap().clone().unwrap();
-                let node = match node {
+                let node = match &node {
                     UpdatedMemTrieNode::Empty => unreachable!(),
                     UpdatedMemTrieNode::Branch { children, value } => {
                         let mut new_children = [None; 16];
@@ -896,7 +896,7 @@ pub fn apply_memtrie_changes(
                     UpdatedMemTrieNode::Extension { extension, child } => {
                         InputMemTrieNode::Extension {
                             extension,
-                            child: map_to_new_node_id(child, &updated_to_new_map),
+                            child: map_to_new_node_id(*child, &updated_to_new_map),
                         }
                     }
                     UpdatedMemTrieNode::Leaf { extension, value } => {

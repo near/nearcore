@@ -19,6 +19,7 @@ use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use std::fmt;
 use std::io;
 use std::net::SocketAddr;
+use time::ext::InstantExt as _;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// Represents a connection to a peer, and provides only minimal functionality.
@@ -240,8 +241,8 @@ impl Connection {
             .await
             .map_err(ConnectError::TcpConnect)?;
         tracing::info!(
-            target: "network", "Connection to {}@{:?} established. latency: {}",
-            &peer_id, &addr, start.elapsed(),
+            target: "network",
+            %peer_id, ?addr, latency=?start.elapsed(), "Connection established",
         );
         let mut peer = Self {
             stream: PeerStream::new(stream, recv_timeout),
@@ -354,7 +355,10 @@ impl Connection {
         match message {
             // TODO: maybe check the handshake for sanity
             PeerMessage::Tier2Handshake(_) => {
-                tracing::info!(target: "network", "handshake latency: {}", timestamp - start);
+                tracing::info!(
+                    target: "network",
+                    handshake_latency=%timestamp.signed_duration_since(start)
+                );
             }
             PeerMessage::HandshakeFailure(_peer_info, reason) => {
                 return Err(ConnectError::HandshakeFailure(reason))

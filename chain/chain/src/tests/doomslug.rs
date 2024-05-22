@@ -8,6 +8,7 @@ use near_primitives::types::{ApprovalStake, BlockHeight};
 use rand::{thread_rng, Rng};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use time::ext::InstantExt as _;
 
 fn block_hash(height: BlockHeight, ord: usize) -> CryptoHash {
     hash(([height.to_le_bytes(), ord.to_le_bytes()].concat()).as_ref())
@@ -281,7 +282,7 @@ fn one_iter(
         }
     }
 
-    (clock.now() - started, largest_produced_height)
+    (clock.now().signed_duration_since(started), largest_produced_height)
 }
 
 #[test]

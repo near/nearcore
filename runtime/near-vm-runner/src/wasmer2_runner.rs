@@ -397,7 +397,7 @@ impl Wasmer2VM {
         &self,
         artifact: &VMArtifact,
         mut import: Wasmer2Imports<'_, '_, '_>,
-        method_name: &str,
+        entrypoint: FunctionIndex,
     ) -> Result<Result<(), FunctionCallError>, VMRunnerError> {
         let _span = tracing::debug_span!(target: "vm", "run_method").entered();
 
@@ -416,10 +416,6 @@ impl Wasmer2VM {
             offset_of!(wasmer_types::FastGasCounter, opcode_cost)
         );
         let gas = import.vmlogic.gas_counter_pointer() as *mut wasmer_types::FastGasCounter;
-        let entrypoint = match get_entrypoint_index(&*artifact, method_name) {
-            Ok(index) => index,
-            Err(abort) => return Ok(Err(abort)),
-        };
         unsafe {
             let instance = {
                 let _span = tracing::debug_span!(target: "vm", "run_method/instantiate").entered();
@@ -613,10 +609,11 @@ impl crate::runner::VM for Wasmer2VM {
             return Ok(VMOutcome::abort(logic, e));
         }
         let import = imports::wasmer2::build(vmmemory, &mut logic, artifact.engine());
-        if let Err(e) = get_entrypoint_index(&*artifact, method_name) {
-            return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(logic, e));
-        }
-        match self.run_method(&artifact, import, method_name)? {
+        let entrypoint = match get_entrypoint_index(&*artifact, method_name) {
+            Ok(index) => index,
+            Err(e) => return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(logic, e)),
+        };
+        match self.run_method(&artifact, import, entrypoint)? {
             Ok(()) => Ok(VMOutcome::ok(logic)),
             Err(err) => Ok(VMOutcome::abort(logic, err)),
         }

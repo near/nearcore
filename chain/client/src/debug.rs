@@ -3,7 +3,7 @@
 use crate::chunk_inclusion_tracker::ChunkInclusionTracker;
 use crate::client_actor::ClientActorInner;
 use near_async::messaging::Handler;
-use near_async::time::Clock;
+use near_async::time::{Clock, Instant};
 use near_chain::crypto_hash_timer::CryptoHashTimer;
 use near_chain::{near_chain_primitives, Chain, ChainStoreAccess};
 use near_client_primitives::debug::{
@@ -29,6 +29,7 @@ use near_primitives::{
 use near_store::DBCol;
 use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
+use time::ext::InstantExt as _;
 
 use near_client_primitives::debug::{DebugBlockStatus, DebugChunkStatus};
 use near_network::types::{ConnectedPeerInfo, NetworkInfo, PeerType};
@@ -594,8 +595,9 @@ impl ClientActorInner {
                 .validator_signer
                 .as_ref()
                 .map(|signer| signer.validator_id().clone()),
-            // TODO: this might not work correctly when we're at the epoch boundary (as it will just return the validators for the current epoch).
-            // We can fix it in the future, if we see that this debug page is useful.
+            // TODO: this might not work correctly when we're at the epoch boundary (as it will
+            // just return the validators for the current epoch). We can fix it in the future, if
+            // we see that this debug page is useful.
             validators: self
                 .client
                 .epoch_manager
@@ -626,6 +628,7 @@ impl ClientActorInner {
 }
 fn new_peer_info_view(chain: &Chain, connected_peer_info: &ConnectedPeerInfo) -> PeerInfoView {
     let full_peer_info = &connected_peer_info.full_peer_info;
+    let now = Instant::now();
     PeerInfoView {
         addr: match full_peer_info.peer_info.addr {
             Some(socket_addr) => socket_addr.to_string(),
@@ -644,17 +647,14 @@ fn new_peer_info_view(chain: &Chain, connected_peer_info: &ConnectedPeerInfo) ->
         peer_id: full_peer_info.peer_info.id.public_key().clone(),
         received_bytes_per_sec: connected_peer_info.received_bytes_per_sec,
         sent_bytes_per_sec: connected_peer_info.sent_bytes_per_sec,
-        last_time_peer_requested_millis: connected_peer_info
-            .last_time_peer_requested
-            .elapsed()
+        last_time_peer_requested_millis: now
+            .signed_duration_since(connected_peer_info.last_time_peer_requested)
             .whole_milliseconds() as u64,
-        last_time_received_message_millis: connected_peer_info
-            .last_time_received_message
-            .elapsed()
+        last_time_received_message_millis: now
+            .signed_duration_since(connected_peer_info.last_time_received_message)
             .whole_milliseconds() as u64,
-        connection_established_time_millis: connected_peer_info
-            .connection_established_time
-            .elapsed()
+        connection_established_time_millis: now
+            .signed_duration_since(connected_peer_info.connection_established_time)
             .whole_milliseconds() as u64,
         is_outbound_peer: connected_peer_info.peer_type == PeerType::Outbound,
         nonce: connected_peer_info.nonce,

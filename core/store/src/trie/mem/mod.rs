@@ -11,6 +11,7 @@ use std::collections::{BTreeMap, HashMap};
 mod arena;
 mod construction;
 pub(crate) mod flexible_data;
+mod freelist;
 pub mod iter;
 pub mod loading;
 pub mod lookup;
@@ -224,13 +225,10 @@ mod tests {
                                 let root = MemTrieNodeId::new(
                                     arena,
                                     InputMemTrieNode::Leaf {
-                                        value: FlatStateValue::Inlined(
+                                        value: &FlatStateValue::Inlined(
                                             format!("{}", height).into_bytes(),
                                         ),
-                                        extension: NibbleSlice::new(&[])
-                                            .encoded(true)
-                                            .to_vec()
-                                            .into_boxed_slice(),
+                                        extension: &NibbleSlice::new(&[]).encoded(true),
                                     },
                                 );
                                 root.as_ptr_mut(arena.memory_mut()).compute_hash_recursively();

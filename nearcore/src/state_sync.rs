@@ -442,7 +442,7 @@ async fn state_sync_dump(
                                 // Stop if the node is stopped.
                                 // Note that without this check the state dumping thread is unstoppable, i.e. non-interruptable.
                                 while keep_running.load(std::sync::atomic::Ordering::Relaxed)
-                                    && timer.elapsed().whole_seconds()
+                                    && timer.elapsed().as_secs()
                                         <= STATE_DUMP_ITERATION_TIME_LIMIT_SECS
                                     && !parts_to_dump.is_empty()
                                     && failures_cnt < FAILURES_ALLOWED_PER_ITERATION

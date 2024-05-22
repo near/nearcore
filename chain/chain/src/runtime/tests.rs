@@ -1634,26 +1634,28 @@ fn prepare_transactions(
     transaction_groups: &mut dyn TransactionGroupIterator,
     storage_config: RuntimeStorageConfig,
 ) -> Result<PreparedTransactions, Error> {
-    // TODO(congestion_info)
-    let congestion_info_map = HashMap::new();
+    let shard_id = 0;
+    let block = chain.get_block(&env.head.prev_block_hash).unwrap();
+    let congestion_info = block.shards_congestion_info();
+
     env.runtime.prepare_transactions(
         storage_config,
         PrepareTransactionsChunkContext {
-            shard_id: 0,
+            shard_id,
             gas_limit: env.runtime.genesis_config.gas_limit,
         },
         PrepareTransactionsBlockContext {
             next_gas_price: env.runtime.genesis_config.min_gas_price,
             height: env.head.height,
             block_hash: env.head.last_block_hash,
-            congestion_info: congestion_info_map,
+            congestion_info,
         },
         transaction_groups,
         &mut |tx: &SignedTransaction| -> bool {
             chain
                 .chain_store()
                 .check_transaction_validity_period(
-                    &chain.get_block_header(&env.head.prev_block_hash).unwrap(),
+                    &block.header(),
                     tx.transaction.block_hash(),
                     chain.transaction_validity_period,
                 )
