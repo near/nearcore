@@ -1,4 +1,4 @@
-use super::arena::ArenaMemory;
+use super::arena::STArenaMemory;
 use super::flexible_data::children::ChildrenView;
 use super::metrics::MEM_TRIE_NUM_NODES_CREATED_FROM_UPDATES;
 use super::node::{InputMemTrieNode, MemTrieNodeId, MemTrieNodeView};
@@ -70,7 +70,7 @@ struct TrieChangesTracker {
 pub struct MemTrieUpdate<'a> {
     /// The original root before updates. It is None iff the original trie had no keys.
     root: Option<MemTrieNodeId>,
-    arena: &'a ArenaMemory,
+    arena: &'a STArenaMemory,
     shard_uid: String, // for metrics only
     /// All the new nodes that are to be constructed. A node may be None if
     /// (1) temporarily we take out the node from the slot to process it and put it back
@@ -84,10 +84,10 @@ pub struct MemTrieUpdate<'a> {
 impl UpdatedMemTrieNode {
     /// Converts an existing in-memory trie node into an updated one that is
     /// equivalent.
-    pub fn from_existing_node_view(view: MemTrieNodeView<'_>) -> Self {
+    pub fn from_existing_node_view(view: MemTrieNodeView<STArenaMemory>) -> Self {
         match view {
             MemTrieNodeView::Leaf { extension, value } => Self::Leaf {
-                extension: extension.raw_slice().to_vec().into_boxed_slice(),
+                extension: extension.to_vec().into_boxed_slice(),
                 value: value.to_flat_value(),
             },
             MemTrieNodeView::Branch { children, .. } => Self::Branch {
@@ -99,13 +99,15 @@ impl UpdatedMemTrieNode {
                 value: Some(value.to_flat_value()),
             },
             MemTrieNodeView::Extension { extension, child, .. } => Self::Extension {
-                extension: extension.raw_slice().to_vec().into_boxed_slice(),
+                extension: extension.to_vec().into_boxed_slice(),
                 child: OldOrUpdatedNodeId::Old(child.id()),
             },
         }
     }
 
-    fn convert_children_to_updated(view: ChildrenView) -> [Option<OldOrUpdatedNodeId>; 16] {
+    fn convert_children_to_updated(
+        view: ChildrenView<STArenaMemory>,
+    ) -> [Option<OldOrUpdatedNodeId>; 16] {
         let mut children = [None; 16];
         for i in 0..16 {
             if let Some(child) = view.get(i) {
@@ -119,7 +121,7 @@ impl UpdatedMemTrieNode {
 impl<'a> MemTrieUpdate<'a> {
     pub fn new(
         root: Option<MemTrieNodeId>,
-        arena: &'a ArenaMemory,
+        arena: &'a STArenaMemory,
         shard_uid: String,
         track_trie_changes: bool,
     ) -> Self {
@@ -694,7 +696,7 @@ impl<'a> MemTrieUpdate<'a> {
     fn compute_hashes_and_serialized_nodes(
         ordered_nodes: &Vec<UpdatedMemTrieNodeId>,
         updated_nodes: &Vec<Option<UpdatedMemTrieNode>>,
-        arena: &ArenaMemory,
+        arena: &STArenaMemory,
     ) -> Vec<(UpdatedMemTrieNodeId, CryptoHash, Vec<u8>)> {
         let mut result = Vec::<(CryptoHash, u64, Vec<u8>)>::new();
         for _ in 0..updated_nodes.len() {
@@ -782,7 +784,7 @@ impl<'a> MemTrieUpdate<'a> {
     /// in hash and serialized form.
     fn to_mem_trie_changes_internal(
         shard_uid: String,
-        arena: &ArenaMemory,
+        arena: &STArenaMemory,
         updated_nodes: Vec<Option<UpdatedMemTrieNode>>,
     ) -> (MemTrieChanges, Vec<(CryptoHash, Vec<u8>)>) {
         MEM_TRIE_NUM_NODES_CREATED_FROM_UPDATES
