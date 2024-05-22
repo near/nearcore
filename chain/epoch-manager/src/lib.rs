@@ -275,6 +275,7 @@ impl EpochManager {
                 0,
                 genesis_protocol_version,
                 genesis_protocol_version,
+                false,
             )?;
             // Dummy block info.
             // Artificial block we add to simplify implementation: dummy block is the
@@ -734,6 +735,9 @@ impl EpochManager {
             )
         };
         let next_next_epoch_config = self.config.for_protocol_version(next_version);
+        let next_shard_layout =
+            self.config.for_protocol_version(epoch_protocol_version).shard_layout;
+        let has_same_shard_layout = next_shard_layout == next_next_epoch_config.shard_layout;
         let next_next_epoch_info = match proposals_to_epoch_info(
             &next_next_epoch_config,
             rng_seed,
@@ -744,6 +748,7 @@ impl EpochManager {
             minted_amount,
             epoch_protocol_version,
             next_version,
+            has_same_shard_layout,
         ) {
             Ok(next_next_epoch_info) => next_next_epoch_info,
             Err(EpochError::ThresholdError { stake_sum, num_seats }) => {

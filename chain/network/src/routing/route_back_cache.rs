@@ -1,3 +1,4 @@
+use ::time::ext::InstantExt as _;
 use near_async::time;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -142,7 +143,7 @@ impl RouteBackCache {
             self.remove_frequent();
 
             let now = clock.now();
-            let remove_until = match now.checked_sub(self.evict_timeout) {
+            let remove_until = match now.checked_sub_signed(self.evict_timeout) {
                 Some(t) => t,
                 None => return,
             };

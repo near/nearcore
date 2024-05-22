@@ -371,6 +371,11 @@ impl Runtime {
         actions: &[Action],
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ActionResult, RuntimeError> {
+        let _span = tracing::debug_span!(
+            target: "runtime",
+            "apply_action",
+        )
+        .entered();
         let exec_fees = exec_fee(&apply_state.config, action, receipt.receiver_id());
         let mut result = ActionResult::default();
         result.gas_used = exec_fees;
@@ -541,6 +546,11 @@ impl Runtime {
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
+        let _span = tracing::debug_span!(
+            target: "runtime",
+            "apply_action_receipt",
+        )
+        .entered();
         let action_receipt = match receipt.receipt() {
             ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
                 action_receipt

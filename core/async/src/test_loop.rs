@@ -71,6 +71,7 @@ use self::{
 };
 use crate::time;
 use crate::time::{Clock, Duration};
+use ::time::ext::InstantExt as _;
 use near_o11y::{testonly::init_test_logger, tracing::info};
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -331,7 +332,7 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
                 let next_future_waiter_timestamp = self
                     .clock
                     .first_waiter()
-                    .map(|time| time - (self.clock.now() - self.current_time));
+                    .map(|time| time.signed_duration_since(self.clock.now() - self.current_time));
                 next_event_timestamp
                     .map(|t1| next_future_waiter_timestamp.map(|t2| t2.min(t1)).unwrap_or(t1))
                     .or(next_future_waiter_timestamp)

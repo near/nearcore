@@ -13,6 +13,7 @@ use near_primitives::stateless_validation::{
 };
 use near_primitives::types::ShardId;
 use reed_solomon_erasure::galois_8::ReedSolomon;
+use time::ext::InstantExt as _;
 
 use crate::client_actor::ClientSenderForPartialWitness;
 use crate::metrics;
@@ -112,7 +113,7 @@ impl CacheEntry {
         self.total_parts_size += part.len();
         self.parts[part_ord] = Some(part);
         self.shard_id = shard_id;
-        self.duration_to_last_part = self.timer.elapsed();
+        self.duration_to_last_part = Instant::now().signed_duration_since(self.timer);
 
         // Check if we have already decoded the state witness.
         if self.is_decoded {
