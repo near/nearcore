@@ -307,6 +307,11 @@ pub struct ValidatorSelectionConfig {
     pub minimum_validators_per_shard: NumSeats,
     #[default(Rational32::new(160, 1_000_000))]
     pub minimum_stake_ratio: Rational32,
+    #[default(5)]
+    /// Limits the number of shard changes in chunk producer assignments,
+    /// if algorithm is able to choose assignment with better balance of
+    /// number of chunk producers for shards.
+    pub chunk_producer_assignment_changes_limit: NumSeats,
     #[default(false)]
     pub shuffle_shard_assignment_for_chunk_producers: bool,
 }
@@ -1242,8 +1247,9 @@ pub mod epoch_info {
             SeedableRng::from_seed(seed.0)
         }
 
-        /// Returns a new RNG used for shuffling chunk producer shard assignments.
-        pub fn shard_assignment_shuffling_rng(seed: &RngSeed) -> ChaCha20Rng {
+        /// Returns a new RNG used for random chunk producer modifications
+        /// during shard assignments.
+        pub fn shard_assignment_rng(seed: &RngSeed) -> ChaCha20Rng {
             let mut buffer = [0u8; 62];
             buffer[0..32].copy_from_slice(seed);
             // Do this to avoid any possibility of colliding with any other rng.

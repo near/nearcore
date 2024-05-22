@@ -824,6 +824,8 @@ impl ForkNetworkCommand {
             use_production_config: original_config.use_production_config,
             num_chunk_producer_seats: original_config.num_chunk_producer_seats,
             num_chunk_validator_seats: original_config.num_chunk_validator_seats,
+            chunk_producer_assignment_changes_limit: original_config
+                .chunk_producer_assignment_changes_limit,
         };
 
         let genesis = Genesis::new_from_state_roots(new_config, new_state_roots);

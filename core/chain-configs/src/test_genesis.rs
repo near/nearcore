@@ -480,6 +480,7 @@ impl TestGenesisBuilder {
             use_production_config: false,
             num_chunk_producer_seats: derived_validator_setup.num_chunk_producer_seats,
             num_chunk_validator_seats: derived_validator_setup.num_chunk_validator_seats,
+            chunk_producer_assignment_changes_limit: 5,
         };
 
         Genesis {

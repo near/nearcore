@@ -522,7 +522,7 @@ pub struct ApprovalStake {
 pub mod validator_stake {
     use crate::types::ApprovalStake;
     use borsh::{BorshDeserialize, BorshSerialize};
-    use near_crypto::PublicKey;
+    use near_crypto::{KeyType, PublicKey};
     use near_primitives_core::types::{AccountId, Balance};
     use serde::Serialize;
 
@@ -598,6 +598,10 @@ pub mod validator_stake {
 
         pub fn new(account_id: AccountId, public_key: PublicKey, stake: Balance) -> Self {
             Self::new_v1(account_id, public_key, stake)
+        }
+
+        pub fn test(account_id: AccountId) -> Self {
+            Self::new_v1(account_id, PublicKey::empty(KeyType::ED25519), 0)
         }
 
         pub fn into_v1(self) -> ValidatorStakeV1 {
