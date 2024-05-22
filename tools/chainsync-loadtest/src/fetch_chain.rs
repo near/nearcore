@@ -1,4 +1,5 @@
 use crate::network;
+use ::time::ext::InstantExt;
 use anyhow::Context;
 use log::info;
 use near_async::time;
@@ -64,7 +65,7 @@ pub async fn run(
         anyhow::Ok(())
     });
     let stop_time = ctx::time::now();
-    let total_time = stop_time - start_time;
+    let total_time = stop_time.signed_duration_since(start_time);
     let t = total_time.as_seconds_f64();
     let sent = network.stats.msgs_sent.load(Ordering::Relaxed);
     let headers = network.stats.header_done.load(Ordering::Relaxed);
