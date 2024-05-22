@@ -619,7 +619,7 @@ impl EpochManager {
         let config = self.config.for_protocol_version(protocol_version);
         // Note: non-deterministic iteration is fine here, there can be only one
         // version with large enough stake.
-        let next_next_version = if let Some((version, stake)) =
+        let next_next_epoch_version = if let Some((version, stake)) =
             versions.into_iter().max_by_key(|&(_version, stake)| stake)
         {
             let numer = *config.protocol_upgrade_stake_threshold.numer() as u128;
@@ -634,8 +634,8 @@ impl EpochManager {
             protocol_version
         };
 
-        PROTOCOL_VERSION_NEXT.set(next_next_version as i64);
-        tracing::info!(target: "epoch_manager", ?next_next_version, "Protocol version voting.");
+        PROTOCOL_VERSION_NEXT.set(next_next_epoch_version as i64);
+        tracing::info!(target: "epoch_manager", ?next_next_epoch_version, "Protocol version voting.");
 
         // Gather slashed validators and add them to kick out first.
         let slashed_validators = last_block_info.slashed();
@@ -680,7 +680,7 @@ impl EpochManager {
             all_proposals: proposals,
             validator_kickout,
             validator_block_chunk_stats,
-            next_next_epoch_version: next_next_version,
+            next_next_epoch_version,
         })
     }
 
