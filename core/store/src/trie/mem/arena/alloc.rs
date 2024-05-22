@@ -90,17 +90,17 @@ impl Allocator {
 
     /// Adds a new chunk to the arena, and updates the next_alloc_pos to the beginning of
     /// the new chunk.
-    fn new_chunk(&mut self, arena: &mut STArenaMemory) {
-        arena.chunks.push(vec![0; CHUNK_SIZE]);
+    fn new_chunk(&mut self, memory: &mut STArenaMemory) {
+        memory.chunks.push(vec![0; CHUNK_SIZE]);
         self.next_alloc_pos =
-            ArenaPos { chunk: u32::try_from(arena.chunks.len() - 1).unwrap(), pos: 0 };
-        self.memory_usage_gauge.set(arena.chunks.len() as i64 * CHUNK_SIZE as i64);
+            ArenaPos { chunk: u32::try_from(memory.chunks.len() - 1).unwrap(), pos: 0 };
+        self.memory_usage_gauge.set(memory.chunks.len() as i64 * CHUNK_SIZE as i64);
     }
 
     /// Allocates a slice of the given size in the arena.
     pub fn allocate<'a>(
         &mut self,
-        arena: &'a mut STArenaMemory,
+        memory: &'a mut STArenaMemory,
         size: usize,
     ) -> ArenaSliceMut<'a, STArenaMemory> {
         assert!(size <= MAX_ALLOC_SIZE, "Cannot allocate {} bytes", size);
@@ -112,30 +112,32 @@ impl Allocator {
         let allocation_size = allocation_size(size_class);
         if self.freelists[size_class].is_invalid() {
             if self.next_alloc_pos.is_invalid()
-                || arena.chunks[self.next_alloc_pos.chunk()].len()
+                || memory.chunks[self.next_alloc_pos.chunk()].len()
                     <= self.next_alloc_pos.pos() + allocation_size
             {
-                self.new_chunk(arena);
+                self.new_chunk(memory);
             }
             let ptr = self.next_alloc_pos;
             self.next_alloc_pos = self.next_alloc_pos.offset_by(allocation_size);
-            arena.slice_mut(ptr, size)
+            memory.slice_mut(ptr, size)
         } else {
             let pos = self.freelists[size_class];
-            self.freelists[size_class] = arena.ptr(pos).read_pos();
-            arena.slice_mut(pos, size)
+            self.freelists[size_class] = memory.ptr(pos).read_pos();
+            memory.slice_mut(pos, size)
         }
     }
 
     /// Deallocates the given slice from the arena; the slice's `pos` and `len`
     /// must be the same as an allocation that was returned earlier.
-    pub fn deallocate(&mut self, arena: &mut STArenaMemory, pos: ArenaPos, len: usize) {
+    pub fn deallocate(&mut self, memory: &mut STArenaMemory, pos: ArenaPos, len: usize) {
         self.active_allocs_bytes -= len;
         self.active_allocs_count -= 1;
         self.active_allocs_bytes_gauge.set(self.active_allocs_bytes as i64);
         self.active_allocs_count_gauge.set(self.active_allocs_count as i64);
         let size_class = allocation_class(len);
-        arena.slice_mut(pos, ArenaPos::SERIALIZED_SIZE).write_pos_at(0, self.freelists[size_class]);
+        memory
+            .slice_mut(pos, ArenaPos::SERIALIZED_SIZE)
+            .write_pos_at(0, self.freelists[size_class]);
         self.freelists[size_class] = pos;
     }
 

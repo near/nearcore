@@ -20,7 +20,7 @@ pub struct STArena {
 }
 
 /// An abstraction of an arena that also allows being implemented differently,
-/// specifically in the case of a multi-threaded arena where each thread
+/// specifically in the case of a multi-threaded arena where each arena instance
 /// behaves like an `STArena` but they share memory chunk allocations.
 pub trait Arena: Sized + 'static {
     type Memory: ArenaMemory;
@@ -71,8 +71,8 @@ pub trait ArenaMemory: Sized + 'static {
     }
 }
 
-/// `ArenaMemory` implementation for `STArena`. Stores the in-memory trie data
-/// as large byte arrays called "chunks".
+/// `ArenaMemory` implementation for `STArena` (single-threaded arena). Stores the in-memory trie
+/// data as large byte arrays called "chunks".
 pub struct STArenaMemory {
     chunks: Vec<Vec<u8>>,
 }

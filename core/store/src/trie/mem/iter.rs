@@ -3,7 +3,7 @@
 //! This is essentially a copy of the `DiskTrieIterator`, with the following notable differences:
 //!  - It doesn't support extra options like remembering nodes or puning;
 //!  - It uses None to represent an "empty" placeholder node rather than `TrieNode::Empty`;
-//!  - MemTrieNodeViewGeneric splits Branch and BranchWithValue into separate variants, whereas TrieNode
+//!  - MemTrieNodeView splits Branch and BranchWithValue into separate variants, whereas TrieNode
 //!    handles them in a single variant with an optional value field, but the iteration logic
 //!    remains the same.
 //!  - Memtrie code paths don't return any errors, except when looking up the value from the State

@@ -236,8 +236,8 @@ impl MemTrieNodeId {
     }
 
     /// Increments the refcount, returning the new refcount.
-    pub(crate) fn add_ref(&self, arena: &mut impl ArenaMemory) -> u32 {
-        let mut ptr = self.as_ptr_mut(arena);
+    pub(crate) fn add_ref(&self, memory: &mut impl ArenaMemory) -> u32 {
+        let mut ptr = self.as_ptr_mut(memory);
         let mut decoder = ptr.decoder_mut();
         let mut header = decoder.peek::<CommonHeader>();
         let new_refcount = header.refcount + 1;
