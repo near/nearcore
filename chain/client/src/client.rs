@@ -87,6 +87,7 @@ use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::RwLock;
+use time::ext::InstantExt as _;
 use tracing::{debug, debug_span, error, info, instrument, trace, warn};
 
 #[cfg(feature = "test_features")]
@@ -311,6 +312,7 @@ impl Client {
             config.header_sync_progress_timeout,
             config.header_sync_stall_ban_timeout,
             config.header_sync_expected_height_per_second,
+            config.expected_shutdown.clone(),
         );
         let block_sync = BlockSync::new(
             clock.clone(),
@@ -954,7 +956,8 @@ impl Client {
             ChunkProduction {
                 chunk_production_time: Some(self.clock.now_utc()),
                 chunk_production_duration_millis: Some(
-                    (self.clock.now() - timer).whole_milliseconds().max(0) as u64,
+                    (self.clock.now().signed_duration_since(timer)).whole_milliseconds().max(0)
+                        as u64,
                 ),
             },
         );

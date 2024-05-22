@@ -8,12 +8,11 @@ use crate::lightclient::get_epoch_block_producers_view;
 use crate::migrations::check_if_block_is_first_with_chunk_of_version;
 use crate::missing_chunks::MissingChunksPool;
 use crate::orphan::{Orphan, OrphanBlockPool};
+use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::sharding::shuffle_receipt_proofs;
 use crate::state_request_tracker::StateRequestTracker;
 use crate::state_snapshot_actor::SnapshotCallbacks;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
-
-use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::types::{
     AcceptedBlock, ApplyChunkBlockContext, BlockEconomicsConfig, ChainConfig, RuntimeAdapter,
     StorageDataSource,
@@ -103,6 +102,7 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
+use time::ext::InstantExt as _;
 use tracing::{debug, debug_span, error, info, warn, Span};
 
 /// The size of the invalid_blocks in-memory pool
@@ -1965,8 +1965,11 @@ impl Chain {
         };
 
         metrics::BLOCK_PROCESSED_TOTAL.inc();
-        metrics::BLOCK_PROCESSING_TIME
-            .observe((self.clock.now() - block_start_processing_time).as_seconds_f64().max(0.0));
+        metrics::BLOCK_PROCESSING_TIME.observe(
+            (self.clock.now().signed_duration_since(block_start_processing_time))
+                .as_seconds_f64()
+                .max(0.0),
+        );
         self.blocks_delay_tracker.finish_block_processing(&block_hash, new_head.clone());
 
         timer.observe_duration();
@@ -2579,7 +2582,9 @@ impl Chain {
             )
             .log_storage_error("obtain_state_part fail")?;
 
-        let elapsed_ms = (self.clock.now() - current_time).whole_milliseconds().max(0) as u128;
+        let elapsed_ms = (self.clock.now().signed_duration_since(current_time))
+            .whole_milliseconds()
+            .max(0) as u128;
         self.requested_state_parts
             .save_state_part_elapsed(&sync_hash, &shard_id, &part_id, elapsed_ms);
 

@@ -5,6 +5,7 @@ use super::processing_tracker::ProcessingDoneTracker;
 use crate::stateless_validation::chunk_endorsement_tracker::ChunkEndorsementTracker;
 use crate::{metrics, Client};
 use itertools::Itertools;
+use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{CanSend, Sender};
 use near_chain::chain::{
@@ -37,11 +38,11 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::ShardId;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_store::PartialStorage;
+use near_store::{PartialStorage, ShardUId};
 use near_vm_runner::logic::ProtocolVersion;
 use orphan_witness_pool::OrphanStateWitnessPool;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 // After validating a chunk state witness, we ideally need to send the chunk endorsement
 // to just the next block producer at height h. However, it's possible that blocks at height
@@ -49,6 +50,19 @@ use std::sync::Arc;
 // that these later block producers also receive the chunk endorsement.
 // Keeping a threshold of 5 block producers should be sufficient for most scenarios.
 const NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT: u64 = 5;
+
+/// The number of state witness validation results to cache per shard.
+/// This number needs to be small because result contains outgoing receipts, which can be large.
+const NUM_WITNESS_RESULT_CACHE_ENTRIES: usize = 20;
+
+#[derive(Clone)]
+pub struct ChunkStateWitnessValidationResult {
+    pub chunk_extra: ChunkExtra,
+    pub outgoing_receipts: Vec<Receipt>,
+}
+
+pub type MainStateTransitionCache =
+    Arc<Mutex<HashMap<ShardUId, LruCache<CryptoHash, ChunkStateWitnessValidationResult>>>>;
 
 /// A module that handles chunk validation logic. Chunk validation refers to a
 /// critical process of stateless validation, where chunk validators (certain
@@ -64,6 +78,7 @@ pub struct ChunkValidator {
     chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
     orphan_witness_pool: OrphanStateWitnessPool,
     validation_spawner: Arc<dyn AsyncComputationSpawner>,
+    main_state_transition_result_cache: MainStateTransitionCache,
 }
 
 impl ChunkValidator {
@@ -84,6 +99,7 @@ impl ChunkValidator {
             chunk_endorsement_tracker,
             orphan_witness_pool: OrphanStateWitnessPool::new(orphan_witness_pool_size),
             validation_spawner,
+            main_state_transition_result_cache: MainStateTransitionCache::default(),
         }
     }
 
@@ -120,15 +136,18 @@ impl ChunkValidator {
         let chunk_endorsement_tracker = self.chunk_endorsement_tracker.clone();
         let epoch_manager = self.epoch_manager.clone();
         // If we have the chunk extra for the previous block, we can validate the chunk without state witness.
-        // This usually happens when we are a chunk producer
-        let shard_uid = epoch_manager.shard_id_to_uid(chunk_header.shard_id(), &epoch_id)?;
+        // This usually happens because we are a chunk producer and
+        // therefore have the chunk extra for the previous block saved on disk.
+        // We can also skip validating the chunk state witness in this case.
+        let prev_block = chain.get_block(prev_block_hash)?;
+        let last_header = Chain::get_prev_chunk_header(
+            epoch_manager.as_ref(),
+            &prev_block,
+            chunk_header.shard_id(),
+        )?;
+        let shard_uid = epoch_manager.shard_id_to_uid(last_header.shard_id(), &epoch_id)?;
+
         if let Ok(prev_chunk_extra) = chain.get_chunk_extra(prev_block_hash, &shard_uid) {
-            let prev_block = chain.get_block(prev_block_hash)?;
-            let last_header = Chain::get_prev_chunk_header(
-                epoch_manager.as_ref(),
-                &prev_block,
-                chunk_header.shard_id(),
-            )?;
             match validate_chunk_with_chunk_extra(
                 chain.chain_store(),
                 self.epoch_manager.as_ref(),
@@ -158,15 +177,18 @@ impl ChunkValidator {
         }
 
         let runtime_adapter = self.runtime_adapter.clone();
+        let cache = self.main_state_transition_result_cache.clone();
         self.validation_spawner.spawn("stateless_validation", move || {
             // processing_done_tracker must survive until the processing is finished.
-            let _processing_done_tracker_capture = processing_done_tracker;
+            let _processing_done_tracker_capture: Option<ProcessingDoneTracker> =
+                processing_done_tracker;
 
             match validate_chunk_state_witness(
                 state_witness,
                 pre_validation_result,
                 epoch_manager.as_ref(),
                 runtime_adapter.as_ref(),
+                &cache,
             ) {
                 Ok(()) => {
                     send_chunk_endorsement_to_block_producers(
@@ -505,6 +527,7 @@ pub(crate) fn validate_chunk_state_witness(
     pre_validation_output: PreValidationOutput,
     epoch_manager: &dyn EpochManagerAdapter,
     runtime_adapter: &dyn RuntimeAdapter,
+    main_state_transition_cache: &MainStateTransitionCache,
 ) -> Result<(), Error> {
     let _timer = metrics::CHUNK_STATE_WITNESS_VALIDATION_TIME
         .with_label_values(&[&state_witness.chunk_header.shard_id().to_string()])
@@ -515,30 +538,37 @@ pub(crate) fn validate_chunk_state_witness(
     let shard_uid = epoch_manager
         .shard_id_to_uid(pre_validation_output.main_transition_params.shard_id(), &epoch_id)?;
     let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-    let (mut chunk_extra, outgoing_receipts) = match pre_validation_output.main_transition_params {
-        MainTransition::Genesis { chunk_extra, .. } => (chunk_extra, vec![]),
-        MainTransition::NewChunk(new_chunk_data) => {
-            let chunk_header = new_chunk_data.chunk_header.clone();
-            let NewChunkResult { apply_result: mut main_apply_result, .. } = apply_new_chunk(
-                ApplyChunkReason::ValidateChunkStateWitness,
-                &span,
-                new_chunk_data,
-                ShardContext {
-                    shard_uid,
-                    cares_about_shard_this_epoch: true,
-                    will_shard_layout_change: false,
-                    should_apply_chunk: true,
-                    need_to_reshard: false,
-                },
-                runtime_adapter,
-                epoch_manager,
-            )?;
-            let outgoing_receipts = std::mem::take(&mut main_apply_result.outgoing_receipts);
-            let chunk_extra =
-                apply_result_to_chunk_extra(protocol_version, main_apply_result, &chunk_header);
-            (chunk_extra, outgoing_receipts)
-        }
+    let cache_result = {
+        let mut shard_cache = main_state_transition_cache.lock().unwrap();
+        shard_cache.get_mut(&shard_uid).and_then(|cache| cache.get(&block_hash).cloned())
     };
+    let (mut chunk_extra, outgoing_receipts) =
+        match (pre_validation_output.main_transition_params, cache_result) {
+            (MainTransition::Genesis { chunk_extra, .. }, _) => (chunk_extra, vec![]),
+            (MainTransition::NewChunk(new_chunk_data), None) => {
+                let chunk_header = new_chunk_data.chunk_header.clone();
+                let NewChunkResult { apply_result: mut main_apply_result, .. } = apply_new_chunk(
+                    ApplyChunkReason::ValidateChunkStateWitness,
+                    &span,
+                    new_chunk_data,
+                    ShardContext {
+                        shard_uid,
+                        cares_about_shard_this_epoch: true,
+                        will_shard_layout_change: false,
+                        should_apply_chunk: true,
+                        need_to_reshard: false,
+                    },
+                    runtime_adapter,
+                    epoch_manager,
+                )?;
+                let outgoing_receipts = std::mem::take(&mut main_apply_result.outgoing_receipts);
+                let chunk_extra =
+                    apply_result_to_chunk_extra(protocol_version, main_apply_result, &chunk_header);
+
+                (chunk_extra, outgoing_receipts)
+            }
+            (_, Some(result)) => (result.chunk_extra, result.outgoing_receipts),
+        };
     if chunk_extra.state_root() != &state_witness.main_state_transition.post_state_root {
         // This is an early check, it's not for correctness, only for better
         // error reporting in case of an invalid state witness due to a bug.
@@ -548,6 +578,27 @@ pub(crate) fn validate_chunk_state_witness(
             chunk_extra.state_root(),
             state_witness.main_state_transition.post_state_root,
         )));
+    }
+
+    // Compute receipt hashes here to avoid copying receipts
+    let outgoing_receipts_hashes = {
+        let shard_layout = epoch_manager
+            .get_shard_layout_from_prev_block(state_witness.chunk_header.prev_block_hash())?;
+        Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout)
+    };
+    // Save main state transition result to cache.
+    {
+        let mut shard_cache = main_state_transition_cache.lock().unwrap();
+        let cache = shard_cache
+            .entry(shard_uid)
+            .or_insert_with(|| LruCache::new(NUM_WITNESS_RESULT_CACHE_ENTRIES));
+        cache.put(
+            block_hash,
+            ChunkStateWitnessValidationResult {
+                chunk_extra: chunk_extra.clone(),
+                outgoing_receipts: outgoing_receipts,
+            },
+        );
     }
 
     for (block, transition) in pre_validation_output
@@ -595,11 +646,6 @@ pub(crate) fn validate_chunk_state_witness(
     }
 
     // Finally, verify that the newly proposed chunk matches everything we have computed.
-    let outgoing_receipts_hashes = {
-        let shard_layout = epoch_manager
-            .get_shard_layout_from_prev_block(state_witness.chunk_header.prev_block_hash())?;
-        Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout)
-    };
     let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
     validate_chunk_with_chunk_extra_and_receipts_root(
         &chunk_extra,

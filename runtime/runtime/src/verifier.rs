@@ -147,6 +147,7 @@ pub fn verify_and_charge_transaction(
     block_height: Option<BlockHeight>,
     current_protocol_version: ProtocolVersion,
 ) -> Result<VerificationResult, RuntimeError> {
+    let _span = tracing::debug_span!(target: "runtime", "verify_and_charge_transaction").entered();
     let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
         validate_transaction(
             config,
