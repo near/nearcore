@@ -72,7 +72,7 @@ pub struct AmendGenesisCommand {
     #[clap(long)]
     num_extra_bytes_record: Option<u64>,
     /// initial gas limit to set in the output genesis file
-    #[clap[(long)]]
+    #[clap(long)]
     gas_limit: Option<u64>,
     /// min_gas_price to set in the output genesis file
     #[clap(long)]
