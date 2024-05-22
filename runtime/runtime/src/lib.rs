@@ -1530,6 +1530,8 @@ impl Runtime {
                     .compute_usage
                     .expect("`process_receipt` must populate compute usage");
                 total.add(gas_burnt, compute_usage)?;
+                span.record("gas_burnt", gas_burnt);
+                span.record("compute_usage", compute_usage);
 
                 if !checked_feature!("stable", ComputeCosts, protocol_version) {
                     assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
