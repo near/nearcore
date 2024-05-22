@@ -16,7 +16,7 @@
 
 //! Nibble-orientated view onto byte-slice, allowing nibble-precision offsets.
 
-use elastic_array::ElasticArray36;
+use smallvec::SmallVec;
 use std::cmp::*;
 use std::fmt;
 
@@ -129,9 +129,9 @@ impl<'a> NibbleSlice<'a> {
 
     /// Encode while nibble slice in prefixed hex notation, noting whether it `is_leaf`.
     #[inline]
-    pub fn encode_nibbles(nibbles: &[u8], is_leaf: bool) -> ElasticArray36<u8> {
+    pub fn encode_nibbles(nibbles: &[u8], is_leaf: bool) -> SmallVec<[u8; 36]> {
         let l = nibbles.len();
-        let mut r = ElasticArray36::new();
+        let mut r: SmallVec<[u8; 36]> = SmallVec::new();
         let mut i = l % 2;
         r.push(if i == 1 { 0x10 + nibbles[0] } else { 0 } + if is_leaf { 0x20 } else { 0 });
         while i < l {
@@ -143,8 +143,8 @@ impl<'a> NibbleSlice<'a> {
 
     /// Encode while nibble slice in prefixed hex notation, noting whether it `is_leaf`.
     #[inline]
-    pub fn encoded(&self, is_leaf: bool) -> ElasticArray36<u8> {
-        let mut to = ElasticArray36::new();
+    pub fn encoded(&self, is_leaf: bool) -> SmallVec<[u8; 36]> {
+        let mut to: SmallVec<[u8; 36]> = SmallVec::new();
         let l = self.len();
         let parity = l % 2;
         let mut first_byte: u8 = 0;
@@ -156,7 +156,7 @@ impl<'a> NibbleSlice<'a> {
         }
         to.push(first_byte);
         let from_byte = (self.offset + parity) / 2;
-        to.append_slice(&self.data[from_byte..]);
+        to.extend_from_slice(&self.data[from_byte..]);
         to
     }
 
@@ -178,9 +178,9 @@ impl<'a> NibbleSlice<'a> {
         to.extend_from_slice(&self.data[from_byte..]);
     }
 
-    pub fn merge_encoded(&self, other: &Self, is_leaf: bool) -> ElasticArray36<u8> {
+    pub fn merge_encoded(&self, other: &Self, is_leaf: bool) -> SmallVec<[u8; 36]> {
         let l = self.len() + other.len();
-        let mut r = ElasticArray36::new();
+        let mut r: SmallVec<[u8; 36]> = SmallVec::new();
         let mut i = l % 2;
         r.push(if i == 1 { 0x10 + self.at(0) } else { 0 } + if is_leaf { 0x20 } else { 0 });
         while i < l {
@@ -203,9 +203,9 @@ impl<'a> NibbleSlice<'a> {
 
     /// Encode only the leftmost `n` bytes of the nibble slice in prefixed hex notation,
     /// noting whether it `is_leaf`.
-    pub fn encoded_leftmost(&self, n: usize, is_leaf: bool) -> ElasticArray36<u8> {
+    pub fn encoded_leftmost(&self, n: usize, is_leaf: bool) -> SmallVec<[u8; 36]> {
         let l = min(self.len(), n);
-        let mut r = ElasticArray36::new();
+        let mut r: SmallVec<[u8; 36]> = SmallVec::new();
         let mut i = l % 2;
         r.push(if i == 1 { 0x10 + self.at(0) } else { 0 } + if is_leaf { 0x20 } else { 0 });
         while i < l {
@@ -230,7 +230,7 @@ impl<'a> NibbleSlice<'a> {
     // Helper to convert nibbles to bytes.
     pub fn nibbles_to_bytes(nibbles: &[u8]) -> Vec<u8> {
         assert_eq!(nibbles.len() % 2, 0);
-        let encoded = NibbleSlice::encode_nibbles(&nibbles, false);
+        let encoded: SmallVec<[u8; 36]> = NibbleSlice::encode_nibbles(&nibbles, false);
         // Ignore first element returned by `encode_nibbles` because it contains only
         // `is_leaf` info for even length.
         encoded[1..].to_vec()
@@ -279,8 +279,8 @@ impl fmt::Debug for NibbleSlice<'_> {
 #[cfg(test)]
 mod tests {
     use super::NibbleSlice;
-    use elastic_array::ElasticArray36;
     use rand::{thread_rng, Rng};
+    use smallvec::SmallVec;
 
     static D: &[u8; 3] = &[0x01u8, 0x23, 0x45];
 
@@ -324,15 +324,15 @@ mod tests {
     #[test]
     fn encoded() {
         let n = NibbleSlice::new(D);
-        assert_eq!(n.encoded(false), ElasticArray36::from_slice(&[0x00, 0x01, 0x23, 0x45]));
-        assert_eq!(n.encoded(true), ElasticArray36::from_slice(&[0x20, 0x01, 0x23, 0x45]));
+        assert_eq!(n.encoded(false), SmallVec::<[u8; 36]>::from_slice(&[0x00, 0x01, 0x23, 0x45]));
+        assert_eq!(n.encoded(true), SmallVec::<[u8; 36]>::from_slice(&[0x20, 0x01, 0x23, 0x45]));
         let mut v = vec![];
         n.encode_to(false, &mut v);
         assert_eq!(v, vec![0x00, 0x01, 0x23, 0x45]);
         n.encode_to(true, &mut v);
         assert_eq!(v, vec![0x20, 0x01, 0x23, 0x45]);
-        assert_eq!(n.mid(1).encoded(false), ElasticArray36::from_slice(&[0x11, 0x23, 0x45]));
-        assert_eq!(n.mid(1).encoded(true), ElasticArray36::from_slice(&[0x31, 0x23, 0x45]));
+        assert_eq!(n.mid(1).encoded(false), SmallVec::<[u8; 36]>::from_slice(&[0x11, 0x23, 0x45]));
+        assert_eq!(n.mid(1).encoded(true), SmallVec::<[u8; 36]>::from_slice(&[0x31, 0x23, 0x45]));
     }
 
     #[test]
