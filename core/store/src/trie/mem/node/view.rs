@@ -1,10 +1,10 @@
 use super::{MemTrieNodePtr, MemTrieNodeView};
+use crate::trie::mem::arena::ArenaMemory;
 use crate::trie::TRIE_COSTS;
 use crate::{RawTrieNode, RawTrieNodeWithSize};
-
 use near_primitives::hash::{hash, CryptoHash};
 
-impl<'a> MemTrieNodeView<'a> {
+impl<'a, M: ArenaMemory> MemTrieNodeView<'a, M> {
     /// Returns the node's hash. Requires that the hash is already computed.
     pub fn node_hash(&self) -> CryptoHash {
         match self {
@@ -43,14 +43,14 @@ impl<'a> MemTrieNodeView<'a> {
         match self {
             Self::Leaf { value, extension } => {
                 let node = RawTrieNode::Leaf(
-                    extension.raw_slice().to_vec(),
+                    extension.to_vec(),
                     value.clone().to_flat_value().to_value_ref(),
                 );
                 RawTrieNodeWithSize { node, memory_usage: self.memory_usage() }
             }
             Self::Extension { extension, child, .. } => {
                 let view = child.view();
-                let node = RawTrieNode::Extension(extension.raw_slice().to_vec(), view.node_hash());
+                let node = RawTrieNode::Extension(extension.to_vec(), view.node_hash());
                 RawTrieNodeWithSize { node, memory_usage: self.memory_usage() }
             }
             Self::Branch { children, .. } => {
@@ -67,12 +67,15 @@ impl<'a> MemTrieNodeView<'a> {
         }
     }
 
-    pub(crate) fn iter_children<'b>(&'b self) -> Box<dyn Iterator<Item = MemTrieNodePtr<'a>> + 'b> {
+    pub(crate) fn iter_children<'b>(
+        &'b self,
+    ) -> Box<dyn Iterator<Item = MemTrieNodePtr<'a, M>> + 'b> {
         match self {
-            MemTrieNodeView::Leaf { .. } => Box::new(std::iter::empty()),
-            MemTrieNodeView::Extension { child, .. } => Box::new(std::iter::once(*child)),
-            MemTrieNodeView::Branch { children, .. }
-            | MemTrieNodeView::BranchWithValue { children, .. } => Box::new(children.iter()),
+            Self::Leaf { .. } => Box::new(std::iter::empty()),
+            Self::Extension { child, .. } => Box::new(std::iter::once(*child)),
+            Self::Branch { children, .. } | Self::BranchWithValue { children, .. } => {
+                Box::new(children.iter())
+            }
         }
     }
 }

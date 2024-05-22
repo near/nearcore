@@ -1,34 +1,83 @@
 mod alloc;
 mod metrics;
+
 use self::alloc::Allocator;
+use super::flexible_data::encoding::BorshFixedSize;
 use borsh::{BorshDeserialize, BorshSerialize};
+use derive_where::derive_where;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::mem::size_of;
 
-use super::flexible_data::encoding::BorshFixedSize;
-
-/// Arena to store in-memory trie nodes.
+/// Single-threaded `Arena` to store in-memory trie nodes.
 /// Includes a bump allocator that can free nodes.
 ///
 /// To allocate, deallocate, or mutate any allocated memory, a mutable
-/// reference to the `Arena` is needed.
-pub struct Arena {
-    memory: ArenaMemory,
+/// reference to the `STArena` is needed.
+pub struct STArena {
+    memory: STArenaMemory,
     allocator: Allocator,
 }
 
-/// Mmap-ed memory to host the in-memory trie nodes.
+/// An abstraction of an arena that also allows being implemented differently,
+/// specifically in the case of a multi-threaded arena where each arena instance
+/// behaves like an `STArena` but they share memory chunk allocations.
+pub trait Arena: Sized + 'static {
+    type Memory: ArenaMemory;
+    fn memory(&self) -> &Self::Memory;
+    fn memory_mut(&mut self) -> &mut Self::Memory;
+    /// Allocates a slice of the given size in the arena.
+    fn alloc(&mut self, size: usize) -> ArenaSliceMut<Self::Memory>;
+}
+
+/// The deallocation part of the arena interface; separated from the `Arena`
+/// trait because the multi-threaded implementation does not support deallocation.
+pub trait ArenaWithDealloc: Arena {
+    /// Deallocates the given slice from the arena; the slice's `pos` and `len`
+    /// must be the same as an allocation that was returned earlier.
+    fn dealloc(&mut self, pos: ArenaPos, len: usize);
+}
+
+/// Represents the entire memory used to host in-memory trie nodes.
+///
 /// A mutable reference to `ArenaMemory` can be used to mutate allocated
 /// memory, but not to allocate or deallocate memory.
 ///
 /// From an `ArenaMemory` one can obtain an `ArenaPtr` (single location)
 /// or `ArenaSlice` (range of bytes) to read the actual memory, and the
 /// mutable versions `ArenaPtrMut` and `ArenaSliceMut` to write memory.
-pub struct ArenaMemory {
+pub trait ArenaMemory: Sized + 'static {
+    fn raw_slice(&self, pos: ArenaPos, len: usize) -> &[u8];
+    fn raw_slice_mut(&mut self, pos: ArenaPos, len: usize) -> &mut [u8];
+
+    /// Provides read access to a region of memory in the arena.
+    fn slice(&self, pos: ArenaPos, len: usize) -> ArenaSlice<Self> {
+        ArenaSlice { arena: self, pos, len }
+    }
+
+    /// Provides write access to a region of memory in the arena.
+    fn slice_mut(&mut self, pos: ArenaPos, len: usize) -> ArenaSliceMut<Self> {
+        ArenaSliceMut { arena: self, pos, len }
+    }
+
+    /// Represents some position in the arena but without a known length.
+    fn ptr(self: &Self, pos: ArenaPos) -> ArenaPtr<Self> {
+        ArenaPtr { arena: self, pos }
+    }
+
+    /// Like `ptr` but with write access.
+    fn ptr_mut(self: &mut Self, pos: ArenaPos) -> ArenaPtrMut<Self> {
+        ArenaPtrMut { arena: self, pos }
+    }
+}
+
+/// `ArenaMemory` implementation for `STArena` (single-threaded arena). Stores the in-memory trie
+/// data as large byte arrays called "chunks".
+pub struct STArenaMemory {
     chunks: Vec<Vec<u8>>,
 }
 
+/// A position of memory in an `ArenaMemory`.
 #[derive(
     Copy,
     Clone,
@@ -79,11 +128,13 @@ impl ArenaPos {
     }
 }
 
-impl ArenaMemory {
+impl STArenaMemory {
     fn new() -> Self {
         Self { chunks: Vec::new() }
     }
+}
 
+impl ArenaMemory for STArenaMemory {
     fn raw_slice(&self, pos: ArenaPos, len: usize) -> &[u8] {
         &self.chunks[pos.chunk()][pos.pos()..pos.pos() + len]
     }
@@ -91,46 +142,15 @@ impl ArenaMemory {
     fn raw_slice_mut(&mut self, pos: ArenaPos, len: usize) -> &mut [u8] {
         &mut self.chunks[pos.chunk()][pos.pos()..pos.pos() + len]
     }
-
-    /// Provides read access to a region of memory in the arena.
-    pub fn slice<'a>(&'a self, pos: ArenaPos, len: usize) -> ArenaSlice<'a> {
-        ArenaSlice { arena: self, pos, len }
-    }
-
-    /// Provides write access to a region of memory in the arena.
-    pub fn slice_mut<'a>(&'a mut self, pos: ArenaPos, len: usize) -> ArenaSliceMut<'a> {
-        ArenaSliceMut { arena: self, pos, len }
-    }
-
-    /// Represents some position in the arena but without a known length.
-    pub fn ptr<'a>(self: &'a Self, pos: ArenaPos) -> ArenaPtr<'a> {
-        ArenaPtr { arena: self, pos }
-    }
-
-    /// Like `ptr` but with write access.
-    pub fn ptr_mut<'a>(self: &'a mut Self, pos: ArenaPos) -> ArenaPtrMut<'a> {
-        ArenaPtrMut { arena: self, pos }
-    }
 }
 
-impl Arena {
+impl STArena {
     /// Creates a new memory region of the given size to store trie nodes.
     /// The `max_size_in_bytes` can be conservatively large as long as it
     /// can fit into virtual memory (which there are terabytes of). The actual
     /// memory usage will only be as much as is needed.
     pub fn new(name: String) -> Self {
-        Self { memory: ArenaMemory::new(), allocator: Allocator::new(name) }
-    }
-
-    /// Allocates a slice of the given size in the arena.
-    pub fn alloc<'a>(&'a mut self, size: usize) -> ArenaSliceMut<'a> {
-        self.allocator.allocate(&mut self.memory, size)
-    }
-
-    /// Deallocates the given slice from the arena; the slice's `pos` and `len`
-    /// must be the same as an allocation that was returned earlier.
-    pub fn dealloc(&mut self, pos: ArenaPos, len: usize) {
-        self.allocator.deallocate(&mut self.memory, pos, len);
+        Self { memory: STArenaMemory::new(), allocator: Allocator::new(name) }
     }
 
     /// Number of active allocations (alloc calls minus dealloc calls).
@@ -138,47 +158,60 @@ impl Arena {
     pub fn num_active_allocs(&self) -> usize {
         self.allocator.num_active_allocs()
     }
+}
 
-    pub fn memory(&self) -> &ArenaMemory {
+impl Arena for STArena {
+    type Memory = STArenaMemory;
+
+    fn memory(&self) -> &STArenaMemory {
         &self.memory
     }
 
-    pub fn memory_mut(&mut self) -> &mut ArenaMemory {
+    fn memory_mut(&mut self) -> &mut STArenaMemory {
         &mut self.memory
+    }
+
+    fn alloc(&mut self, size: usize) -> ArenaSliceMut<Self::Memory> {
+        self.allocator.allocate(&mut self.memory, size)
+    }
+}
+
+impl ArenaWithDealloc for STArena {
+    fn dealloc(&mut self, pos: ArenaPos, len: usize) {
+        self.allocator.deallocate(&mut self.memory, pos, len);
     }
 }
 
 /// Represents some position in the arena but without a known length.
-#[derive(Clone, Copy)]
-pub struct ArenaPtr<'a> {
-    arena: &'a ArenaMemory,
+#[derive_where(Clone, Copy)]
+pub struct ArenaPtr<'a, Memory: ArenaMemory> {
+    arena: &'a Memory,
     pos: ArenaPos,
 }
 
-impl<'a> Debug for ArenaPtr<'a> {
+impl<'a, Memory: ArenaMemory> Debug for ArenaPtr<'a, Memory> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "arena[{}]", self.pos)
     }
 }
 
-impl<'a> Hash for ArenaPtr<'a> {
+impl<'a, Memory: ArenaMemory> Hash for ArenaPtr<'a, Memory> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.pos.hash(state);
     }
 }
 
-impl<'a> PartialEq for ArenaPtr<'a> {
+impl<'a, Memory: ArenaMemory> PartialEq for ArenaPtr<'a, Memory> {
     fn eq(&self, other: &Self) -> bool {
-        self.arena as *const ArenaMemory == other.arena as *const ArenaMemory
-            && self.pos == other.pos
+        self.arena as *const Memory == other.arena as *const Memory && self.pos == other.pos
     }
 }
 
-impl<'a> Eq for ArenaPtr<'a> {}
+impl<'a, Memory: ArenaMemory> Eq for ArenaPtr<'a, Memory> {}
 
-impl<'a> ArenaPtr<'a> {
+impl<'a, Memory: ArenaMemory> ArenaPtr<'a, Memory> {
     /// Returns a slice relative to this pointer.
-    pub fn slice(&self, offset: usize, len: usize) -> ArenaSlice<'a> {
+    pub fn slice(&self, offset: usize, len: usize) -> ArenaSlice<'a, Memory> {
         ArenaSlice { arena: self.arena, pos: self.pos.offset_by(offset), len }
     }
 
@@ -187,7 +220,7 @@ impl<'a> ArenaPtr<'a> {
         self.pos
     }
 
-    pub fn arena(&self) -> &'a ArenaMemory {
+    pub fn arena(&self) -> &'a Memory {
         self.arena
     }
 
@@ -198,93 +231,97 @@ impl<'a> ArenaPtr<'a> {
 }
 
 /// Represents a slice of memory in the arena.
-#[derive(Clone)]
-pub struct ArenaSlice<'a> {
-    arena: &'a ArenaMemory,
+#[derive_where(Clone)]
+pub struct ArenaSlice<'a, Memory: ArenaMemory> {
+    arena: &'a Memory,
     pos: ArenaPos,
     len: usize,
 }
 
-impl<'a> Debug for ArenaSlice<'a> {
+impl<'a, Memory: ArenaMemory> Debug for ArenaSlice<'a, Memory> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "arena[{}..{:x}]", self.pos, self.pos.pos() + self.len)
     }
 }
 
-impl<'a> ArenaSlice<'a> {
+impl<'a, Memory: ArenaMemory> ArenaSlice<'a, Memory> {
     pub fn len(&self) -> usize {
         self.len
     }
 
     /// Returns the pointer pointing to the beginning of this slice.
-    pub fn ptr(&self) -> ArenaPtr<'a> {
+    pub fn ptr(&self) -> ArenaPtr<'a, Memory> {
         ArenaPtr { arena: self.arena, pos: self.pos }
     }
 
     /// Provides direct access to the memory.
-    pub fn raw_slice(&self) -> &[u8] {
+    pub fn raw_slice(&self) -> &'a [u8] {
         &self.arena.raw_slice(self.pos, self.len)
     }
 
-    /// Reads a usize at the given offset in the slice (bounds checked),
+    /// Reads an usize at the given offset in the slice (bounds checked),
     /// and returns it as a pointer.
-    pub fn read_ptr_at(&self, pos: usize) -> ArenaPtr<'a> {
+    pub fn read_ptr_at(&self, pos: usize) -> ArenaPtr<'a, Memory> {
         let pos = ArenaPos::try_from_slice(&self.raw_slice()[pos..][..size_of::<usize>()]).unwrap();
         ArenaPtr { arena: self.arena, pos }
     }
 
     /// Returns a slice within this slice. This checks bounds.
-    pub fn subslice(&self, start: usize, len: usize) -> ArenaSlice<'a> {
+    pub fn subslice(&self, start: usize, len: usize) -> ArenaSlice<'a, Memory> {
         assert!(start + len <= self.len);
         ArenaSlice { arena: self.arena, pos: self.pos.offset_by(start), len }
     }
 }
 
 /// Like `ArenaPtr` but allows writing to the memory.
-pub struct ArenaPtrMut<'a> {
-    arena: &'a mut ArenaMemory,
+pub struct ArenaPtrMut<'a, Memory: ArenaMemory> {
+    arena: &'a mut Memory,
     pos: ArenaPos,
 }
 
-impl<'a> ArenaPtrMut<'a> {
+impl<'a, Memory: ArenaMemory> ArenaPtrMut<'a, Memory> {
     /// Makes a const copy of the pointer, which can only be used while also
     /// holding a reference to the original pointer.
-    pub fn ptr<'b>(&'b self) -> ArenaPtr<'b> {
+    pub fn ptr(&self) -> ArenaPtr<Memory> {
         ArenaPtr { arena: self.arena, pos: self.pos }
     }
 
     /// Makes a mutable copy of the pointer, which can only be used while also
     /// holding a mutable reference to the original pointer.
-    pub fn ptr_mut<'b>(&'b mut self) -> ArenaPtrMut<'b> {
+    pub fn ptr_mut(&mut self) -> ArenaPtrMut<Memory> {
         ArenaPtrMut { arena: self.arena, pos: self.pos }
     }
 
     /// Makes a slice relative to the pointer, which can only be used while
     /// also holding a mutable reference to the original pointer.
-    pub fn slice<'b>(&'b self, offset: usize, len: usize) -> ArenaSlice<'b> {
+    pub fn slice(&self, offset: usize, len: usize) -> ArenaSlice<Memory> {
         ArenaSlice { arena: self.arena, pos: self.pos.offset_by(offset), len }
     }
 
     /// Like `slice` but makes a mutable slice.
-    pub fn slice_mut<'b>(&'b mut self, offset: usize, len: usize) -> ArenaSliceMut<'b> {
+    pub fn slice_mut(&mut self, offset: usize, len: usize) -> ArenaSliceMut<Memory> {
         ArenaSliceMut { arena: self.arena, pos: self.pos.offset_by(offset), len }
     }
 
     /// Provides mutable access to the whole memory, while holding a mutable
     /// reference to the pointer.
-    pub fn arena_mut<'b>(&'b mut self) -> &'b mut ArenaMemory {
+    pub fn arena_mut(&mut self) -> &mut Memory {
         &mut self.arena
     }
 }
 
 /// Represents a mutable slice of memory in the arena.
-pub struct ArenaSliceMut<'a> {
-    arena: &'a mut ArenaMemory,
+pub struct ArenaSliceMut<'a, Memory: ArenaMemory> {
+    arena: &'a mut Memory,
     pos: ArenaPos,
     len: usize,
 }
 
-impl<'a> ArenaSliceMut<'a> {
+impl<'a, Memory: ArenaMemory> ArenaSliceMut<'a, Memory> {
+    pub fn new(arena: &'a mut Memory, pos: ArenaPos, len: usize) -> Self {
+        Self { arena, pos, len }
+    }
+
     pub fn raw_pos(&self) -> ArenaPos {
         self.pos
     }
@@ -312,7 +349,7 @@ impl<'a> ArenaSliceMut<'a> {
 
     /// Provides a subslice that is also mutable, which is only possible while
     /// holding a mutable reference to the original slice.
-    pub fn subslice_mut<'b>(&'b mut self, start: usize, len: usize) -> ArenaSliceMut<'b> {
+    pub fn subslice_mut(&mut self, start: usize, len: usize) -> ArenaSliceMut<Memory> {
         assert!(start + len <= self.len);
         ArenaSliceMut { arena: self.arena, pos: self.pos.offset_by(start), len }
     }
@@ -320,11 +357,11 @@ impl<'a> ArenaSliceMut<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::trie::mem::arena::ArenaPos;
+    use crate::trie::mem::arena::{ArenaMemory, ArenaPos};
 
     #[test]
     fn test_arena_ptr_and_slice() {
-        let mut arena = super::ArenaMemory::new();
+        let mut arena = super::STArenaMemory::new();
         arena.chunks.push(vec![0; 1000]);
         arena.chunks.push(vec![0; 1000]);
 
