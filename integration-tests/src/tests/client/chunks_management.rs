@@ -43,18 +43,10 @@ struct Test {
 
 impl Test {
     fn run(self) {
-        // TODO(#10506): Fix test to handle stateless validation
-        if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
-            return;
-        }
         heavy_test(move || run_actix(async move { self.run_impl(None) }))
     }
 
     fn run_with_chunk_distribution_network(self, config: ChunkDistributionNetworkConfig) {
-        // TODO(#10506): Fix test to handle stateless validation
-        if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
-            return;
-        }
         heavy_test(move || run_actix(async move { self.run_impl(Some(config)) }))
     }
 
@@ -312,6 +304,7 @@ impl Test {
                     }
                 }
 
+                // Main test assertion: all chunks are included in the block.
                 for shard_id in 0..4 {
                     assert_eq!(
                         h, block.chunks[shard_id].height_created,
