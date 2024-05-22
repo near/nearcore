@@ -45,7 +45,7 @@ mod tests {
     impl G1Operations {
         const POINT_LEN: usize = 96;
         const MAX_N_SUM: usize = 675;
-        const MAX_N_MULTIEXP: usize = 125;
+        const MAX_N_MULTIEXP: usize = 100;
         const MAX_N_MAP: usize = 150;
         const MAX_N_DECOMPRESS: usize = 500;
 
@@ -66,7 +66,7 @@ mod tests {
     impl G2Operations {
         const POINT_LEN: usize = 192;
         const MAX_N_SUM: usize = 338;
-        const MAX_N_MULTIEXP: usize = 75;
+        const MAX_N_MULTIEXP: usize = 50;
         const MAX_N_MAP: usize = 75;
         const MAX_N_DECOMPRESS: usize = 250;
 
@@ -123,7 +123,7 @@ mod tests {
 
                     let mut points: Vec<(u8, $GAffine)> = vec![];
                     for i in 0..n {
-                        points.push((rng.gen_range(0..=1), Self::get_random_g_point(rng)));
+                        points.push((rng.gen_range(0..=1), Self::get_random_curve_point(rng)));
 
                         let mut current_point = points[i].1.clone();
                         if points[i].0 == 1 {
@@ -304,7 +304,7 @@ mod tests {
         G1Affine,
         add_p_y,
         bls12381_p1_decompress,
-        bls12381_g1_sum,
+        bls12381_p1_sum,
         bls12381_g1_multiexp,
         bls12381_map_fp_to_g1
     );
@@ -315,7 +315,7 @@ mod tests {
         G2Affine,
         add2_p_y,
         bls12381_p2_decompress,
-        bls12381_g2_sum,
+        bls12381_p2_sum,
         bls12381_g2_multiexp,
         bls12381_map_fp2_to_g2
     );
@@ -389,7 +389,7 @@ mod tests {
                 // P + (-P) = (-P) + P =  0
                 // P + (-(P + P))
                 for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::get_random_g_point(&mut rng);
+                    let p = $GOp::get_random_curve_point(&mut rng);
                     let p_ser = $GOp::serialize_uncompressed_g(&p);
 
                     let pmul2 = p.mul(Fr::from(2));
@@ -417,9 +417,6 @@ mod tests {
                 let got2 = $GOp::get_sum(0, &q_ser, 0, &p_ser);
                 assert_eq!(got1, got2);
 
-                let result_point = $GOp::deserialize_g(got1.clone());
-                assert!(result_point.is_in_correct_subgroup_assuming_on_curve());
-
                 // compare with library results
                 let psum = p.add(&q);
                 let library_sum = $GOp::serialize_uncompressed_g(&psum.into_affine());
@@ -438,8 +435,35 @@ mod tests {
                 let mut rng = test_rng();
 
                 for _ in 0..TESTS_ITERATIONS {
+                    let p = $GOp::get_random_curve_point(&mut rng);
+                    let q = $GOp::get_random_curve_point(&mut rng);
+
+                    $check_sum(p, q);
+                }
+
+
+                for _ in 0..TESTS_ITERATIONS {
                     let p = $GOp::get_random_g_point(&mut rng);
                     let q = $GOp::get_random_g_point(&mut rng);
+
+                    let p_ser = $GOp::serialize_uncompressed_g(&p);
+                    let q_ser = $GOp::serialize_uncompressed_g(&q);
+
+                    let got1 = $GOp::get_sum(0, &p_ser, 0, &q_ser);
+
+                    let result_point = $GOp::deserialize_g(got1);
+                    assert!(result_point.is_in_correct_subgroup_assuming_on_curve());
+                }
+            }
+
+            #[test]
+            fn $test_bls12381_sum_not_g_points() {
+                let mut rng = test_rng();
+
+                //points not from G
+                for _ in 0..TESTS_ITERATIONS {
+                    let p = $GOp::get_random_not_g_curve_point(&mut rng);
+                    let q = $GOp::get_random_not_g_curve_point(&mut rng);
 
                     $check_sum(p, q);
                 }
@@ -451,7 +475,7 @@ mod tests {
 
                 let zero = get_zero($GOp::POINT_LEN);
                 for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::get_random_g_point(&mut rng);
+                    let p = $GOp::get_random_curve_point(&mut rng);
                     let p_ser = $GOp::serialize_uncompressed_g(&p);
 
                     // P - P = - P + P = 0
@@ -539,16 +563,6 @@ mod tests {
                 // Incorrect sign encoding
                 test_vecs.push(vec![vec![2u8], get_zero($GOp::POINT_LEN)]);
 
-                let mut rng = test_rng();
-
-                //points not from G
-                for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::get_random_not_g_curve_point(&mut rng);
-                    let p_ser = $GOp::serialize_uncompressed_g(&p);
-
-                    test_vecs.push(vec![vec![0u8], p_ser]);
-                }
-
                 for i in 0..test_vecs.len() {
                     run_bls12381_fn!($bls12381_sum, test_vecs[i], 1);
                 }
@@ -559,28 +573,28 @@ mod tests {
     test_bls12381_sum!(
         G1Operations,
         G1Affine,
-        bls12381_g1_sum,
+        bls12381_p1_sum,
         check_sum_p1,
-        test_bls12381_g1_sum_edge_cases,
-        test_bls12381_g1_sum,
-        test_bls12381_g1_sum_not_g1_points,
-        test_bls12381_g1_sum_inverse,
-        test_bls12381_g1_sum_many_points,
+        test_bls12381_p1_sum_edge_cases,
+        test_bls12381_p1_sum,
+        test_bls12381_p1_sum_not_g1_points,
+        test_bls12381_p1_sum_inverse,
+        test_bls12381_p1_sum_many_points,
         test_bls12381_p1_crosscheck_sum_and_multiexp,
-        test_bls12381_g1_sum_incorrect_input
+        test_bls12381_p1_sum_incorrect_input
     );
     test_bls12381_sum!(
         G2Operations,
         G2Affine,
-        bls12381_g2_sum,
+        bls12381_p2_sum,
         check_sum_p2,
-        test_bls12381_g2_sum_edge_cases,
-        test_bls12381_g2_sum,
-        test_bls12381_g2_sum_not_g2_points,
-        test_bls12381_g2_sum_inverse,
-        test_bls12381_g2_sum_many_points,
+        test_bls12381_p2_sum_edge_cases,
+        test_bls12381_p2_sum,
+        test_bls12381_p2_sum_not_g2_points,
+        test_bls12381_p2_sum_inverse,
+        test_bls12381_p2_sum_many_points,
         test_bls12381_p2_crosscheck_sum_and_multiexp,
-        test_bls12381_g2_sum_incorrect_input
+        test_bls12381_p2_sum_incorrect_input
     );
 
     macro_rules! test_bls12381_memory_limit {
@@ -763,7 +777,7 @@ mod tests {
         G1Operations,
         G1Affine,
         bls12381_g1_multiexp,
-        bls12381_g1_sum,
+        bls12381_p1_sum,
         test_bls12381_g1_multiexp_mul,
         test_bls12381_g1_multiexp_many_points,
         test_bls12381_g1_multiexp_incorrect_input,
@@ -774,7 +788,7 @@ mod tests {
         G2Operations,
         G2Affine,
         bls12381_g2_multiexp,
-        bls12381_g2_sum,
+        bls12381_p2_sum,
         test_bls12381_g2_multiexp_mul,
         test_bls12381_g2_multiexp_many_points,
         test_bls12381_g2_multiexp_incorrect_input,
@@ -1339,8 +1353,8 @@ mod tests {
 
     run_bls12381_fn_raw!(run_map_fp_to_g1, map_fp_to_g1_return_value, bls12381_map_fp_to_g1);
     run_bls12381_fn_raw!(run_map_fp2_to_g2, map_fp2tog2_return_value, bls12381_map_fp2_to_g2);
-    run_bls12381_fn_raw!(run_sum_g1, sum_g1_return_value, bls12381_g1_sum);
-    run_bls12381_fn_raw!(run_sum_g2, sum_g2_return_value, bls12381_g2_sum);
+    run_bls12381_fn_raw!(run_sum_g1, sum_g1_return_value, bls12381_p1_sum);
+    run_bls12381_fn_raw!(run_sum_g2, sum_g2_return_value, bls12381_p2_sum);
     run_bls12381_fn_raw!(run_multiexp_g1, multiexp_g1_return_value, bls12381_g1_multiexp);
     run_bls12381_fn_raw!(run_multiexp_g2, multiexp_g2_return_value, bls12381_g2_multiexp);
     run_bls12381_fn_raw!(decompress_g1, decompress_g1_return_value, bls12381_p1_decompress);

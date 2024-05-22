@@ -155,13 +155,13 @@ fn estimation(cost: ExtCosts) -> Option<Cost> {
         ExtCosts::yield_create_base => Cost::YieldCreateBase,
         ExtCosts::yield_create_byte => Cost::YieldCreateByte,
         #[cfg(feature = "protocol_feature_bls12381")]
-        ExtCosts::bls12381_g1_sum_base => Cost::Bls12381G1SumBase,
+        ExtCosts::bls12381_p1_sum_base => Cost::Bls12381P1SumBase,
         #[cfg(feature = "protocol_feature_bls12381")]
-        ExtCosts::bls12381_g1_sum_element => Cost::Bls12381G1SumElement,
+        ExtCosts::bls12381_p1_sum_element => Cost::Bls12381P1SumElement,
         #[cfg(feature = "protocol_feature_bls12381")]
-        ExtCosts::bls12381_g2_sum_base => Cost::Bls12381G2SumBase,
+        ExtCosts::bls12381_p2_sum_base => Cost::Bls12381P2SumBase,
         #[cfg(feature = "protocol_feature_bls12381")]
-        ExtCosts::bls12381_g2_sum_element => Cost::Bls12381G2SumElement,
+        ExtCosts::bls12381_p2_sum_element => Cost::Bls12381P2SumElement,
         #[cfg(feature = "protocol_feature_bls12381")]
         ExtCosts::bls12381_g1_multiexp_base => Cost::Bls12381G1MultiexpBase,
         #[cfg(feature = "protocol_feature_bls12381")]

@@ -893,7 +893,7 @@ impl<'a> VMLogic<'a> {
 
     /// Calculates the sum of signed elements on the BLS12-381 curve.
     /// It accepts an arbitrary number of pairs (sign_i, p_i),
-    /// where p_i from G1 and sign_i is 0 or 1.
+    /// where p_i from E(Fp) and sign_i is 0 or 1.
     /// It calculates sum_i (-1)^{sign_i} * p_i
     ///
     /// # Arguments
@@ -909,10 +909,10 @@ impl<'a> VMLogic<'a> {
     /// # Output
     ///
     /// If the input data is correct returns 0 and the 96 bytes represent
-    /// the resulting points from G1 which will be written to the register with
+    /// the resulting points from E(Fp) which will be written to the register with
     /// the register_id identifier
     ///
-    /// If one of the points not from the G1 subgroup,
+    /// If one of the points not on the curve,
     /// the sign or points are incorrectly encoded then 1 will be returned
     /// and nothing will be written to the register.
     ///
@@ -925,22 +925,22 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Cost
     /// `base + write_register_base + write_register_byte * num_bytes +
-    ///   bls12381_g1_sum_base + bls12381_g1_sum_element * num_elements`
+    ///   bls12381_p1_sum_base + bls12381_p1_sum_element * num_elements`
     #[cfg(feature = "protocol_feature_bls12381")]
-    pub fn bls12381_g1_sum(
+    pub fn bls12381_p1_sum(
         &mut self,
         value_len: u64,
         value_ptr: u64,
         register_id: u64,
     ) -> Result<u64> {
-        self.gas_counter.pay_base(bls12381_g1_sum_base)?;
+        self.gas_counter.pay_base(bls12381_p1_sum_base)?;
 
         const BLS_BOOL_SIZE: u64 = 1;
         const BLS_P1_SIZE: u64 = 96;
         const ITEM_SIZE: u64 = BLS_BOOL_SIZE + BLS_P1_SIZE;
 
         let elements_count = value_len / ITEM_SIZE;
-        self.gas_counter.pay_per(bls12381_g1_sum_element, elements_count as u64)?;
+        self.gas_counter.pay_per(bls12381_p1_sum_element, elements_count as u64)?;
 
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
 
@@ -962,7 +962,7 @@ impl<'a> VMLogic<'a> {
 
     /// Calculates the sum of signed elements on the twisted BLS12-381 curve.
     /// It accepts an arbitrary number of pairs (sign_i, p_i),
-    /// where p_i from G2 and sign_i is 0 or 1.
+    /// where p_i from E'(Fp^2) and sign_i is 0 or 1.
     /// It calculates sum_i (-1)^{sign_i} * p_i
     ///
     /// # Arguments
@@ -979,10 +979,10 @@ impl<'a> VMLogic<'a> {
     /// # Output
     ///
     /// If the input data is correct returns 0 and the 192 bytes represent
-    /// the resulting points from G2 which will be written to the register with
+    /// the resulting points from E'(Fp^2) which will be written to the register with
     /// the register_id identifier
     ///
-    /// If one of the points not from G2 subgroup,
+    /// If one of the points not on the curve,
     /// the sign or points are incorrectly encoded then 1 will be returned
     /// and nothing will be written to the register.
     ///
@@ -995,22 +995,22 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Cost
     /// `base + write_register_base + write_register_byte * num_bytes +
-    ///   bls12381_g2_sum_base + bls12381_g2_sum_element * num_elements`
+    ///   bls12381_p2_sum_base + bls12381_p2_sum_element * num_elements`
     #[cfg(feature = "protocol_feature_bls12381")]
-    pub fn bls12381_g2_sum(
+    pub fn bls12381_p2_sum(
         &mut self,
         value_len: u64,
         value_ptr: u64,
         register_id: u64,
     ) -> Result<u64> {
-        self.gas_counter.pay_base(bls12381_g2_sum_base)?;
+        self.gas_counter.pay_base(bls12381_p2_sum_base)?;
 
         const BLS_BOOL_SIZE: u64 = 1;
         const BLS_P2_SIZE: u64 = 192;
         const ITEM_SIZE: u64 = BLS_BOOL_SIZE + BLS_P2_SIZE;
 
         let elements_count = value_len / ITEM_SIZE;
-        self.gas_counter.pay_per(bls12381_g2_sum_element, elements_count as u64)?;
+        self.gas_counter.pay_per(bls12381_p2_sum_element, elements_count as u64)?;
 
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
 
@@ -1082,7 +1082,7 @@ impl<'a> VMLogic<'a> {
         let elements_count = data.len() / ITEM_SIZE;
         self.gas_counter.pay_per(bls12381_g1_multiexp_element, elements_count as u64)?;
 
-        let (status, res) = super::bls12381::p1_multiexp(&data)?;
+        let (status, res) = super::bls12381::g1_multiexp(&data)?;
 
         if status != 0 {
             return Ok(status);
@@ -1151,7 +1151,7 @@ impl<'a> VMLogic<'a> {
         let elements_count = data.len() / (ITEM_SIZE as usize);
         self.gas_counter.pay_per(bls12381_g2_multiexp_element, elements_count as u64)?;
 
-        let (status, res) = super::bls12381::p2_multiexp(&data)?;
+        let (status, res) = super::bls12381::g2_multiexp(&data)?;
 
         if status != 0 {
             return Ok(status);

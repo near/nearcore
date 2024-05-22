@@ -606,13 +606,13 @@ pub enum Cost {
     AltBn128G1SumBase,
     AltBn128G1SumElement,
     #[cfg(feature = "protocol_feature_bls12381")]
-    Bls12381G1SumBase,
+    Bls12381P1SumBase,
     #[cfg(feature = "protocol_feature_bls12381")]
-    Bls12381G1SumElement,
+    Bls12381P1SumElement,
     #[cfg(feature = "protocol_feature_bls12381")]
-    Bls12381G2SumBase,
+    Bls12381P2SumBase,
     #[cfg(feature = "protocol_feature_bls12381")]
-    Bls12381G2SumElement,
+    Bls12381P2SumElement,
     #[cfg(feature = "protocol_feature_bls12381")]
     Bls12381G1MultiexpBase,
     #[cfg(feature = "protocol_feature_bls12381")]

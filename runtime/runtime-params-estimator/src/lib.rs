@@ -136,13 +136,13 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     #[cfg(feature = "protocol_feature_bls12381")]
     (Cost::Bls12381PairingElement, bls12381_pairing_element),
     #[cfg(feature = "protocol_feature_bls12381")]
-    (Cost::Bls12381G1SumBase, bls12381_g1_sum_base),
+    (Cost::Bls12381P1SumBase, bls12381_p1_sum_base),
     #[cfg(feature = "protocol_feature_bls12381")]
-    (Cost::Bls12381G1SumElement, bls12381_g1_sum_element),
+    (Cost::Bls12381P1SumElement, bls12381_p1_sum_element),
     #[cfg(feature = "protocol_feature_bls12381")]
-    (Cost::Bls12381G2SumBase, bls12381_g2_sum_base),
+    (Cost::Bls12381P2SumBase, bls12381_p2_sum_base),
     #[cfg(feature = "protocol_feature_bls12381")]
-    (Cost::Bls12381G2SumElement, bls12381_g2_sum_element),
+    (Cost::Bls12381P2SumElement, bls12381_p2_sum_element),
     #[cfg(feature = "protocol_feature_bls12381")]
     (Cost::Bls12381G1MultiexpBase, bls12381_g1_multiexp_base),
     #[cfg(feature = "protocol_feature_bls12381")]
@@ -1107,23 +1107,23 @@ fn alt_bn128_pairing_check_element(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 #[cfg(feature = "protocol_feature_bls12381")]
-fn bls12381_g1_sum_base(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "bls12381_g1_sum_0_100", ExtCosts::bls12381_g1_sum_base, 100)
+fn bls12381_p1_sum_base(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "bls12381_p1_sum_0_100", ExtCosts::bls12381_p1_sum_base, 100)
 }
 
 #[cfg(feature = "protocol_feature_bls12381")]
-fn bls12381_g1_sum_element(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "bls12381_g1_sum_50_100", ExtCosts::bls12381_g1_sum_element, 5000)
+fn bls12381_p1_sum_element(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "bls12381_p1_sum_50_100", ExtCosts::bls12381_p1_sum_element, 5000)
 }
 
 #[cfg(feature = "protocol_feature_bls12381")]
-fn bls12381_g2_sum_base(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "bls12381_g2_sum_0_100", ExtCosts::bls12381_g2_sum_base, 100)
+fn bls12381_p2_sum_base(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "bls12381_p2_sum_0_100", ExtCosts::bls12381_p2_sum_base, 100)
 }
 
 #[cfg(feature = "protocol_feature_bls12381")]
-fn bls12381_g2_sum_element(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "bls12381_g2_sum_50_100", ExtCosts::bls12381_g2_sum_element, 5000)
+fn bls12381_p2_sum_element(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "bls12381_p2_sum_50_100", ExtCosts::bls12381_p2_sum_element, 5000)
 }
 
 #[cfg(feature = "protocol_feature_bls12381")]

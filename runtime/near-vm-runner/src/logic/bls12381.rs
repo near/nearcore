@@ -16,7 +16,7 @@ pub(super) fn p1_sum(data: &[u8]) -> Result<(u64, Vec<u8>)> {
     if data.len() % ITEM_SIZE != 0 {
         return Err(HostError::BLS12381InvalidInput {
             msg: format!(
-                "Incorrect input length for bls12381_g1_sum: {} is not divisible by {}",
+                "Incorrect input length for bls12381_p1_sum: {} is not divisible by {}",
                 data.len(),
                 ITEM_SIZE
             ),
@@ -44,10 +44,6 @@ pub(super) fn p1_sum(data: &[u8]) -> Result<(u64, Vec<u8>)> {
         let mut pk = blst::blst_p1::default();
         unsafe {
             blst::blst_p1_from_affine(&mut pk, &pk_aff);
-        }
-
-        if unsafe { blst::blst_p1_in_g1(&pk) } != true {
-            return Ok((1, vec![]));
         }
 
         let sign = sign_data[0];
@@ -84,7 +80,7 @@ pub(super) fn p2_sum(data: &[u8]) -> Result<(u64, Vec<u8>)> {
     if data.len() % ITEM_SIZE != 0 {
         return Err(HostError::BLS12381InvalidInput {
             msg: format!(
-                "Incorrect input length for bls12381_g2_sum: {} is not divisible by {}",
+                "Incorrect input length for bls12381_p2_sum: {} is not divisible by {}",
                 data.len(),
                 ITEM_SIZE
             ),
@@ -111,10 +107,6 @@ pub(super) fn p2_sum(data: &[u8]) -> Result<(u64, Vec<u8>)> {
         let mut pk = blst::blst_p2::default();
         unsafe {
             blst::blst_p2_from_affine(&mut pk, &pk_aff);
-        }
-
-        if unsafe { blst::blst_p2_in_g2(&pk) } != true {
-            return Ok((1, vec![]));
         }
 
         let sign = sign_data[0];
@@ -145,7 +137,7 @@ pub(super) fn p2_sum(data: &[u8]) -> Result<(u64, Vec<u8>)> {
     Ok((0, res.to_vec()))
 }
 
-pub(super) fn p1_multiexp(data: &[u8]) -> Result<(u64, Vec<u8>)> {
+pub(super) fn g1_multiexp(data: &[u8]) -> Result<(u64, Vec<u8>)> {
     const ITEM_SIZE: usize = BLS_SCALAR_SIZE + BLS_P1_SIZE;
 
     if data.len() % ITEM_SIZE != 0 {
@@ -214,7 +206,7 @@ pub(super) fn p1_multiexp(data: &[u8]) -> Result<(u64, Vec<u8>)> {
     Ok((0, res.to_vec()))
 }
 
-pub(super) fn p2_multiexp(data: &[u8]) -> Result<(u64, Vec<u8>)> {
+pub(super) fn g2_multiexp(data: &[u8]) -> Result<(u64, Vec<u8>)> {
     const ITEM_SIZE: usize = BLS_SCALAR_SIZE + BLS_P2_SIZE;
 
     if data.len() % ITEM_SIZE != 0 {
