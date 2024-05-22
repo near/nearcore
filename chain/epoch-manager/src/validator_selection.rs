@@ -13,7 +13,6 @@ use rand::seq::SliceRandom;
 use std::cmp::{self, Ordering};
 use std::collections::hash_map;
 use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
-use std::ops::Deref;
 
 /// Helper struct which is a result of proposals processing.
 struct ValidatorRoles {
