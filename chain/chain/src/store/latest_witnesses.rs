@@ -146,7 +146,7 @@ impl ChainStore {
         while !info.is_within_limits() && info.lowest_index < info.next_witness_index {
             let key_to_delete = self
                 .store()
-                .get(DBCol::LatesWitnessesByIndex, &info.lowest_index.to_be_bytes())?
+                .get(DBCol::LatestWitnessesByIndex, &info.lowest_index.to_be_bytes())?
                 .ok_or_else(|| {
                     std::io::Error::new(
                         ErrorKind::NotFound,
@@ -159,7 +159,7 @@ impl ChainStore {
             let key_deser = LatestWitnessesKey::deserialize(&key_to_delete)?;
 
             store_update.delete(DBCol::LatestChunkStateWitnesses, &key_to_delete);
-            store_update.delete(DBCol::LatesWitnessesByIndex, &info.lowest_index.to_be_bytes());
+            store_update.delete(DBCol::LatestWitnessesByIndex, &info.lowest_index.to_be_bytes());
             info.lowest_index += 1;
             info.count -= 1;
             info.total_size -= key_deser.witness_size;
@@ -177,7 +177,7 @@ impl ChainStore {
         };
         store_update.set(DBCol::LatestChunkStateWitnesses, &key.serialized(), &serialized_witness);
         store_update.set(
-            DBCol::LatesWitnessesByIndex,
+            DBCol::LatestWitnessesByIndex,
             &new_witness_index.to_be_bytes(),
             &key.serialized(),
         );

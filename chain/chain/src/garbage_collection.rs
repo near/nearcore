@@ -1040,7 +1040,7 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::LatestChunkStateWitnesses => {
                 store_update.delete(col, key);
             }
-            DBCol::LatesWitnessesByIndex => {
+            DBCol::LatestWitnessesByIndex => {
                 store_update.delete(col, key);
             }
             DBCol::DbVersion

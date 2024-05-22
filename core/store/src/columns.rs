@@ -293,7 +293,7 @@ pub enum DBCol {
     /// Each observed LatestChunkStateWitness gets an index, in increasing order.
     /// Witnesses with the lowest index are garbage collected first.
     /// u64 -> LatestWitnessesKey
-    LatesWitnessesByIndex,
+    LatestWitnessesByIndex,
     /// Column to store data for Epoch Sync.
     /// Does not contain data for genesis epoch.
     /// - *Rows*: `epoch_id`
@@ -472,7 +472,7 @@ impl DBCol {
             DBCol::StateTransitionData => false,
             // LatestChunkStateWitnesses stores the last N observed witnesses, used only for debugging.
             DBCol::LatestChunkStateWitnesses => false,
-            DBCol::LatesWitnessesByIndex => false,
+            DBCol::LatestWitnessesByIndex => false,
 
             // Columns that are not GC-ed need not be copied to the cold storage.
             DBCol::BlockHeader
@@ -573,7 +573,7 @@ impl DBCol {
             DBCol::FlatStorageStatus => &[DBKeyType::ShardUId],
             DBCol::StateTransitionData => &[DBKeyType::BlockHash, DBKeyType::ShardId],
             DBCol::LatestChunkStateWitnesses => &[DBKeyType::LatestWitnessesKey],
-            DBCol::LatesWitnessesByIndex => &[DBKeyType::LatestWitnessIndex],
+            DBCol::LatestWitnessesByIndex => &[DBKeyType::LatestWitnessIndex],
             #[cfg(feature = "new_epoch_sync")]
             DBCol::EpochSyncInfo => &[DBKeyType::EpochId],
         }
