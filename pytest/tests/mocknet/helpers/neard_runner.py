@@ -745,8 +745,6 @@ class NeardRunner:
             **dotenv.dotenv_values(self.home_path(home_path, '.secrets')),  # load sensitive variables
             **dotenv.dotenv_values(self.home_path('.env')),  # load neard variables
         }
-        if 'RUST_LOG' not in env:
-            env['RUST_LOG'] = 'actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn,indexer=info,debug'
         logging.info(f'running {" ".join(cmd)}')
         self.neard = subprocess.Popen(
             cmd,
@@ -877,6 +875,20 @@ class NeardRunner:
                     self.data['current_neard_path'], '--log-span-events',
                     '--home', self.neard_home, '--unsafe-fast-startup', 'run'
                 ]
+
+            # Save logs config file to control the level of rust and opentelemetry logs.
+            # Default config sets level to DEBUG for "client" and "chain" logs, WARN for tokio+actix, and INFO for everything else.
+            default_log_filter = 'client=debug,chain=debug,actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn,info'
+            with open(self.target_near_home_path('log_config.json'),
+                      'w') as log_config_file:
+                json.dump(
+                    {
+                        'opentelemetry': default_log_filter,
+                        'rust_log': default_log_filter,
+                    },
+                    log_config_file,
+                    indent=2)
+
             self.run_neard(
                 cmd,
                 out_file=out,
