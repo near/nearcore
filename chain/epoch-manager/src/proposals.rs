@@ -45,13 +45,17 @@ pub fn proposals_to_epoch_info(
     validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
     validator_reward: HashMap<AccountId, Balance>,
     minted_amount: Balance,
-    prev_prev_protocol_version: ProtocolVersion,
+    prev_prev_epoch_protocol_version: ProtocolVersion,
     protocol_version: ProtocolVersion,
     use_stable_shard_assignment: bool,
 ) -> Result<EpochInfo, EpochError> {
     // For this protocol feature, switch happened two epochs after protocol upgrade.
     // Keeping it this way for replayability.
-    if checked_feature!("stable", AliasValidatorSelectionAlgorithm, prev_prev_protocol_version) {
+    if checked_feature!(
+        "stable",
+        AliasValidatorSelectionAlgorithm,
+        prev_prev_epoch_protocol_version
+    ) {
         return crate::validator_selection::proposals_to_epoch_info(
             epoch_config,
             rng_seed,
