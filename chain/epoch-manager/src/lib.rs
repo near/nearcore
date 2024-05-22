@@ -680,7 +680,7 @@ impl EpochManager {
             all_proposals: proposals,
             validator_kickout,
             validator_block_chunk_stats,
-            next_version,
+            next_next_version: next_version,
         })
     }
 
@@ -705,7 +705,7 @@ impl EpochManager {
             all_proposals,
             validator_kickout,
             mut validator_block_chunk_stats,
-            next_version,
+            next_next_version,
             ..
         } = epoch_summary;
 
@@ -734,9 +734,9 @@ impl EpochManager {
                 epoch_duration,
             )
         };
-        let next_next_epoch_config = self.config.for_protocol_version(next_version);
-        let next_shard_layout =
-            self.config.for_protocol_version(epoch_protocol_version).shard_layout;
+        let next_next_epoch_config = self.config.for_protocol_version(next_next_version);
+        let next_version = next_epoch_info.protocol_version();
+        let next_shard_layout = self.config.for_protocol_version(next_version).shard_layout;
         let has_same_shard_layout = next_shard_layout == next_next_epoch_config.shard_layout;
         let next_next_epoch_info = match proposals_to_epoch_info(
             &next_next_epoch_config,
@@ -747,7 +747,7 @@ impl EpochManager {
             validator_reward,
             minted_amount,
             epoch_protocol_version,
-            next_version,
+            next_next_version,
             has_same_shard_layout,
         ) {
             Ok(next_next_epoch_info) => next_next_epoch_info,

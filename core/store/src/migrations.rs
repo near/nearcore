@@ -338,7 +338,7 @@ pub fn migrate_38_to_39(store: &Store) -> anyhow::Result<()> {
                     (account_id, new_stats)
                 })
                 .collect(),
-            next_version: legacy_summary.next_version,
+            next_next_version: legacy_summary.next_version,
         };
         update.set(DBCol::EpochValidatorInfo, &key, &borsh::to_vec(&new_value)?);
     }
