@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from trace_schema import *
-from enum import Enum
+from typing import Optional
 
 
 BlockHash = str
@@ -139,7 +139,7 @@ class BlockEvent(ChainEvent):
     block_id: BlockId
 
     @staticmethod
-    def extract(event: TraceEvent, block_id=None):
+    def extract(event: TraceEvent, block_id: Optional[BlockId]=None):
         return BlockEvent(
             name=event.name,
             time=event.timestamp,
@@ -154,7 +154,7 @@ class ChunkEvent(ChainEvent):
     chunk_id: ChunkId
 
     @staticmethod
-    def extract(event: TraceEvent, chunk_id: ChunkId):
+    def extract(event: TraceEvent, chunk_id: Optional[ChunkId]=None):
         return ChunkEvent(
             name=event.name,
             time=event.timestamp,
@@ -270,19 +270,19 @@ CHUNK_SPAN_OR_EVENT_NAMES = {"produced_chunk", "produce_chunk", "request_missing
                              "apply_new_chunk", "apply_old_chunk"}
 
 
-def check_block_event(event: TraceEvent) -> BlockEvent | None:
+def check_block_event(event: TraceEvent) -> Optional[BlockEvent]:
     if event.name in BLOCK_SPAN_OR_EVENT_NAMES:
         return BlockEvent.extract(event)
     return None
 
 
-def check_chunk_event(event: TraceEvent) -> ChunkEvent | None:
+def check_chunk_event(event: TraceEvent) -> Optional[ChunkEvent]:
     if event.name in CHUNK_SPAN_OR_EVENT_NAMES:
         return ChunkEvent.extract(event)
     return None
 
 
-def check_block_span(span: TraceSpan) -> BlockSpan | None:
+def check_block_span(span: TraceSpan) -> Optional[BlockSpan]:
     block_events = []
     for event in span.events:
         block_event = check_block_event(event)
@@ -296,7 +296,7 @@ def check_block_span(span: TraceSpan) -> BlockSpan | None:
     return None
 
 
-def check_chunk_span(span: TraceSpan) -> ChunkSpan | None:
+def check_chunk_span(span: TraceSpan) -> Optional[ChunkSpan]:
     chunk_events = []
     for event in span.events:
         chunk_event = check_chunk_event(event)

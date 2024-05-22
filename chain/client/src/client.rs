@@ -940,6 +940,7 @@ impl Client {
 
         span.record("chunk_hash", tracing::field::debug(encoded_chunk.chunk_hash()));
         debug!(target: "client",
+            shard_id,
             me = %validator_signer.validator_id(),
             chunk_hash = ?encoded_chunk.chunk_hash(),
             %prev_block_hash,
