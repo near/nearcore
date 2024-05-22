@@ -8,6 +8,7 @@ use near_primitives::stateless_validation::EncodedChunkStateWitness;
 
 use crate::stateless_validation::chunk_validator::{
     pre_validate_chunk_state_witness, validate_chunk_state_witness, validate_prepared_transactions,
+    MainStateTransitionCache,
 };
 use crate::{metrics, Client};
 
@@ -82,6 +83,9 @@ impl Client {
             chunk,
             validated_transactions.storage_proof,
         )?;
+        if self.config.save_latest_witnesses {
+            self.chain.chain_store.save_latest_chunk_state_witness(&witness)?;
+        }
         let (encoded_witness, raw_witness_size) = {
             let shard_id_label = shard_id.to_string();
             let encode_timer = metrics::CHUNK_STATE_WITNESS_ENCODE_TIME
@@ -126,6 +130,7 @@ impl Client {
                 pre_validation_result,
                 epoch_manager.as_ref(),
                 runtime_adapter.as_ref(),
+                &MainStateTransitionCache::default(),
             ) {
                 Ok(()) => {
                     tracing::debug!(

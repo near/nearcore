@@ -87,6 +87,7 @@ use crate::logic::{
     make_partial_encoded_chunk_from_owned_parts_and_needed_receipts, need_part, need_receipt,
 };
 use crate::metrics;
+use ::time::ext::InstantExt as _;
 use actix::Actor;
 use near_async::actix_wrapper::ActixWrapper;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
@@ -874,7 +875,7 @@ impl ShardsManagerActor {
 
         let started = self.clock.now();
         let (source, response) = self.prepare_partial_encoded_chunk_response(request);
-        let elapsed = (self.clock.now() - started).as_seconds_f64();
+        let elapsed = (self.clock.now().signed_duration_since(started)).as_seconds_f64();
         let labels = [
             source.name_for_metrics(),
             if response.parts.is_empty() && response.receipts.is_empty() { "failed" } else { "ok" },
@@ -2172,8 +2173,9 @@ impl ShardsManagerActor {
                 partial_encoded_chunk_response,
                 received_time,
             } => {
-                metrics::PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY
-                    .observe((self.clock.now() - received_time).as_seconds_f64());
+                metrics::PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY.observe(
+                    (self.clock.now().signed_duration_since(received_time)).as_seconds_f64(),
+                );
                 if let Err(e) =
                     self.process_partial_encoded_chunk_response(partial_encoded_chunk_response)
                 {

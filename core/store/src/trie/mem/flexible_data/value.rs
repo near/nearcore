@@ -60,7 +60,7 @@ impl FlexibleDataHeader for EncodedValueHeader {
         }
     }
 
-    fn encode_flexible_data(&self, value: FlatStateValue, target: &mut ArenaSliceMut<'_>) {
+    fn encode_flexible_data(&self, value: &FlatStateValue, target: &mut ArenaSliceMut<'_>) {
         let (length, inlined) = self.decode();
         match value {
             FlatStateValue::Ref(value_ref) => {
@@ -71,7 +71,7 @@ impl FlexibleDataHeader for EncodedValueHeader {
             FlatStateValue::Inlined(v) => {
                 assert!(inlined);
                 assert_eq!(length, v.len() as u32);
-                target.raw_slice_mut().copy_from_slice(&v);
+                target.raw_slice_mut().copy_from_slice(v);
             }
         }
     }

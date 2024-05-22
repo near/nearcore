@@ -14,7 +14,7 @@ use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeightDelta, MerkleHash};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ContractCodeView,
     ExecutionOutcomeView, ExecutionOutcomeWithIdView, ExecutionStatusView,
@@ -122,7 +122,6 @@ impl RuntimeUser {
                     }
                     RuntimeError::ReceiptValidationError(e) => panic!("{}", e),
                     RuntimeError::ValidatorError(e) => panic!("{}", e),
-                    RuntimeError::ContextError(e) => panic!("{}", e),
                 })?;
             for outcome_with_id in apply_result.outcomes {
                 self.transaction_results
@@ -157,6 +156,11 @@ impl RuntimeUser {
         let shard_id = 0;
         // TODO(congestion_control) - Set other shard ids somehow.
         let all_shard_ids = [0, 1, 2, 3, 4, 5];
+        let congestion_info = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
+            all_shard_ids.into_iter().map(|id| (id, ExtendedCongestionInfo::default())).collect()
+        } else {
+            HashMap::new()
+        };
 
         ApplyState {
             apply_reason: None,
@@ -176,10 +180,7 @@ impl RuntimeUser {
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
-            congestion_info: all_shard_ids
-                .into_iter()
-                .map(|id| (id, ExtendedCongestionInfo::default()))
-                .collect(),
+            congestion_info,
         }
     }
 

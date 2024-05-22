@@ -172,7 +172,6 @@ ed25519-dalek = { version = "2.1.0", default-features = false, features = [
     "hazmat",
     "rand_core",
 ] }
-elastic-array = "0.11"
 enum-map = "2.1.0"
 enumset = "1.0"
 ethabi = "18"
