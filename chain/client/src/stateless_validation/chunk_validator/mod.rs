@@ -42,7 +42,7 @@ use near_store::{PartialStorage, ShardUId};
 use near_vm_runner::logic::ProtocolVersion;
 use orphan_witness_pool::OrphanStateWitnessPool;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex};
 
 // After validating a chunk state witness, we ideally need to send the chunk endorsement
 // to just the next block producer at height h. However, it's possible that blocks at height
@@ -62,7 +62,7 @@ pub struct ChunkStateWitnessValidationResult {
 }
 
 pub type MainStateTransitionCache =
-    Arc<RwLock<HashMap<ShardUId, LruCache<CryptoHash, ChunkStateWitnessValidationResult>>>>;
+    Arc<Mutex<HashMap<ShardUId, LruCache<CryptoHash, ChunkStateWitnessValidationResult>>>>;
 
 /// A module that handles chunk validation logic. Chunk validation refers to a
 /// critical process of stateless validation, where chunk validators (certain
@@ -537,7 +537,7 @@ pub(crate) fn validate_chunk_state_witness(
         .shard_id_to_uid(pre_validation_output.main_transition_params.shard_id(), &epoch_id)?;
     let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
     let cache_result = {
-        let mut shard_cache = main_state_transition_cache.write().unwrap();
+        let mut shard_cache = main_state_transition_cache.lock().unwrap();
         shard_cache.get_mut(&shard_uid).and_then(|cache| cache.get(&block_hash).cloned())
     };
     let (mut chunk_extra, outgoing_receipts) =
@@ -586,7 +586,7 @@ pub(crate) fn validate_chunk_state_witness(
     };
     // Save main state transition result to cache.
     {
-        let mut shard_cache = main_state_transition_cache.write().unwrap();
+        let mut shard_cache = main_state_transition_cache.lock().unwrap();
         let cache = shard_cache
             .entry(shard_uid)
             .or_insert_with(|| LruCache::new(NUM_WITNESS_RESULT_CACHE_ENTRIES));
