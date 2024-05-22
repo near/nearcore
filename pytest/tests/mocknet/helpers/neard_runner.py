@@ -848,8 +848,12 @@ class NeardRunner:
                     self.source_near_home_path(),
                     '--target-home',
                     self.target_near_home_path(),
-                    '--no-secret',
                 ]
+                if os.path.exists(self.setup_path('mirror-secret.json')):
+                    cmd.append('--secret-file')
+                    cmd.append(self.setup_path('mirror-secret.json'))
+                else:
+                    cmd.append('--no-secret')
                 if batch_interval_millis is not None:
                     with open(self.target_near_home_path('mirror-config.json'),
                               'w') as f:

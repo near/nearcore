@@ -7,9 +7,10 @@ use crate::trie::mem::flexible_data::value::EncodedValueHeader;
 use crate::trie::mem::flexible_data::FlexibleDataHeader;
 use crate::trie::TRIE_COSTS;
 use borsh::{BorshDeserialize, BorshSerialize};
-use elastic_array::ElasticArray16;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state::FlatStateValue;
+
+use smallvec::SmallVec;
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug, BorshSerialize, BorshDeserialize)]
 pub(crate) enum NodeKind {
@@ -256,7 +257,7 @@ impl MemTrieNodeId {
         header.refcount = new_refcount;
         decoder.overwrite(header);
         if new_refcount == 0 {
-            let mut children_to_unref = ElasticArray16::new();
+            let mut children_to_unref: SmallVec<[ArenaPos; 16]> = SmallVec::new();
             let node_ptr = self.as_ptr(arena.memory());
             for child in node_ptr.view().iter_children() {
                 children_to_unref.push(child.id().pos);
