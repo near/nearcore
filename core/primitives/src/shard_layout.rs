@@ -185,6 +185,27 @@ impl ShardLayout {
         )
     }
 
+    /// This layout is used only in resharding tests. It allows testing of any features which were
+    /// introduced after the last layout upgrade in production. Currently it is built on top of V3.
+    #[cfg(feature = "nightly")]
+    pub fn get_simple_nightshade_layout_testonly() -> ShardLayout {
+        ShardLayout::v1(
+            vec![
+                "aurora",
+                "aurora-0",
+                "game.hot.tg",
+                "kkuuue2akv_1630967379.near",
+                "nightly",
+                "tge-lockup.sweat",
+            ]
+            .into_iter()
+            .map(|s| s.parse().unwrap())
+            .collect(),
+            Some(vec![vec![0], vec![1], vec![2], vec![3], vec![4, 5], vec![6]]),
+            4,
+        )
+    }
+
     /// Given a parent shard id, return the shard uids for the shards in the current shard layout that
     /// are split from this parent shard. If this shard layout has no parent shard layout, return None
     pub fn get_children_shards_uids(&self, parent_shard_id: ShardId) -> Option<Vec<ShardUId>> {
@@ -429,7 +450,7 @@ impl<'de> serde::de::Visitor<'de> for ShardUIdVisitor {
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         write!(
             formatter,
-            "either string format of `ShardUId` like s0v1 for shard 0 version 1, or a map"
+            "either string format of `ShardUId` like 's0.v3' for shard 0 version 3, or a map"
         )
     }
 
@@ -468,8 +489,11 @@ impl<'de> serde::de::Visitor<'de> for ShardUIdVisitor {
 
 #[cfg(test)]
 mod tests {
+    use crate::epoch_manager::{AllEpochConfig, EpochConfig, ValidatorSelectionConfig};
     use crate::shard_layout::{account_id_to_shard_id, ShardLayout, ShardLayoutV1, ShardUId};
     use near_primitives_core::types::{AccountId, ShardId};
+    use near_primitives_core::version::ProtocolFeature;
+    use near_vm_runner::logic::ProtocolVersion;
     use rand::distributions::Alphanumeric;
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
@@ -494,6 +518,34 @@ mod tests {
         to_parent_shard_map: Option<Vec<ShardId>>,
         /// Version of the shard layout, this is useful for uniquely identify the shard layout
         version: ShardVersion,
+    }
+
+    impl ShardLayout {
+        /// Constructor for tests that need a shard layout for a specific protocol version.
+        pub fn for_protocol_version(protocol_version: ProtocolVersion) -> Self {
+            // none of the epoch config fields matter, we only need the shard layout
+            // constructed through [`AllEpochConfig::for_protocol_version()`].
+            let genesis_epoch_config = EpochConfig {
+                epoch_length: 0,
+                num_block_producer_seats: 0,
+                num_block_producer_seats_per_shard: vec![],
+                avg_hidden_validator_seats_per_shard: vec![],
+                block_producer_kickout_threshold: 0,
+                chunk_producer_kickout_threshold: 0,
+                validator_max_kickout_stake_perc: 0,
+                online_min_threshold: 0.into(),
+                online_max_threshold: 0.into(),
+                fishermen_threshold: 0,
+                minimum_stake_divisor: 0,
+                protocol_upgrade_stake_threshold: 0.into(),
+                shard_layout: ShardLayout::get_simple_nightshade_layout(),
+                validator_selection_config: ValidatorSelectionConfig::default(),
+            };
+
+            let all_epoch_config = AllEpochConfig::new(true, genesis_epoch_config, "test-chain");
+            let latest_epoch_config = all_epoch_config.for_protocol_version(protocol_version);
+            latest_epoch_config.shard_layout
+        }
     }
 
     #[test]
@@ -697,5 +749,25 @@ mod tests {
           }
         }
         "###);
+    }
+
+    #[test]
+    fn test_shard_layout_for_protocol_version() {
+        assert_eq!(
+            ShardLayout::get_simple_nightshade_layout(),
+            ShardLayout::for_protocol_version(ProtocolFeature::SimpleNightshade.protocol_version())
+        );
+        assert_eq!(
+            ShardLayout::get_simple_nightshade_layout_v2(),
+            ShardLayout::for_protocol_version(
+                ProtocolFeature::SimpleNightshadeV2.protocol_version()
+            )
+        );
+        assert_eq!(
+            ShardLayout::get_simple_nightshade_layout_v3(),
+            ShardLayout::for_protocol_version(
+                ProtocolFeature::SimpleNightshadeV3.protocol_version()
+            )
+        );
     }
 }

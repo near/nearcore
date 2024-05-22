@@ -8,6 +8,7 @@ use near_primitives::types::{ApprovalStake, BlockHeight};
 use rand::{thread_rng, Rng};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use time::ext::InstantExt as _;
 
 fn block_hash(height: BlockHeight, ord: usize) -> CryptoHash {
     hash(([height.to_le_bytes(), ord.to_le_bytes()].concat()).as_ref())
@@ -209,7 +210,7 @@ fn one_iter(
                             .insert(block_hash, (target_height, last_final_height, block_hash));
                         hash_to_prev_hash.insert(block_hash, parent_hash);
 
-                        assert!(chain_lengths.get(&block_hash).is_none());
+                        assert!(!chain_lengths.contains_key(&block_hash));
                         let prev_length = *chain_lengths.get(&ds.get_tip().0).unwrap();
                         chain_lengths.insert(block_hash, prev_length + 1);
 
@@ -281,7 +282,7 @@ fn one_iter(
         }
     }
 
-    (clock.now() - started, largest_produced_height)
+    (clock.now().signed_duration_since(started), largest_produced_height)
 }
 
 #[test]

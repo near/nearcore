@@ -1,5 +1,5 @@
 import { MouseEvent, useCallback, useMemo, useState } from 'react';
-import { useQuery } from 'react-query';
+import { useQuery } from '@tanstack/react-query';
 import { PeerInfoView, fetchEpochInfo, fetchFullStatus } from './api';
 import { addDebugPortLink, formatDurationInMillis, formatTraffic } from './utils';
 import './CurrentPeersView.scss';
@@ -272,9 +272,9 @@ export const CurrentPeersView = ({ addr }: NetworkInfoViewProps) => {
                                 <td>
                                     {peer.nonce}
                                     <br />
-                                    {peer.nonce > 1660000000
-                                        ? formatDurationInMillis(Date.now() - peer.nonce * 1000)
-                                        : 'old style nonce'}
+                                    {formatDurationInMillis(
+                                        Date.now() - peer.nonce * 1000
+                                    )}
                                 </td>
                                 <td>
                                     {formatDurationInMillis(

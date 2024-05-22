@@ -1,8 +1,8 @@
-use near_async::messaging::{CanSend, IntoSender};
+use std::collections::HashMap;
 
+use near_async::messaging::{CanSend, IntoSender};
 use near_chain::{BlockHeader, Chain, ChainStoreAccess};
 use near_chain_primitives::Error;
-use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::log_assert_fail;
 use near_primitives::challenge::PartialState;
 use near_primitives::checked_feature;
@@ -10,13 +10,14 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::stateless_validation::{
-    ChunkStateTransition, ChunkStateWitness, ChunkStateWitnessInner, StoredChunkStateTransitionData,
+    ChunkStateTransition, ChunkStateWitness, StoredChunkStateTransitionData,
 };
-use near_primitives::types::EpochId;
-use std::collections::HashMap;
+use near_primitives::types::{AccountId, EpochId};
 
 use crate::stateless_validation::chunk_validator::send_chunk_endorsement_to_block_producers;
-use crate::{metrics, Client};
+use crate::Client;
+
+use super::partial_witness::partial_witness_actor::DistributeStateWitnessRequest;
 
 impl Client {
     /// Distributes the chunk state witness to chunk validators that are
@@ -33,34 +34,31 @@ impl Client {
         if !checked_feature!("stable", StatelessValidationV0, protocol_version) {
             return Ok(());
         }
-
         let chunk_header = chunk.cloned_header();
-        let mut chunk_validators = self
-            .epoch_manager
-            .get_chunk_validator_assignments(
-                epoch_id,
-                chunk_header.shard_id(),
-                chunk_header.height_created(),
-            )?
-            .ordered_chunk_validators();
+        let shard_id = chunk_header.shard_id();
+        let _span = tracing::debug_span!(target: "client", "send_chunk_state_witness", chunk_hash=?chunk_header.chunk_hash(), ?shard_id).entered();
 
         let my_signer = self.validator_signer.as_ref().ok_or(Error::NotAValidator)?.clone();
-        let witness = {
-            let witness_inner = self.create_state_witness_inner(
-                prev_block_header,
-                prev_chunk_header,
-                chunk,
-                transactions_storage_proof,
-            )?;
-            let (signature, witness_size) = my_signer.sign_chunk_state_witness(&witness_inner);
-            metrics::CHUNK_STATE_WITNESS_TOTAL_SIZE
-                .with_label_values(&[&chunk_header.shard_id().to_string()])
-                .observe(witness_size as f64);
-            ChunkStateWitness { inner: witness_inner, signature }
-        };
+        let state_witness = self.create_state_witness(
+            my_signer.validator_id().clone(),
+            prev_block_header,
+            prev_chunk_header,
+            chunk,
+            transactions_storage_proof,
+        )?;
 
-        if chunk_validators.contains(my_signer.validator_id()) {
+        if self.config.save_latest_witnesses {
+            self.chain.chain_store.save_latest_chunk_state_witness(&state_witness)?;
+        }
+
+        let height = chunk_header.height_created();
+        if self
+            .epoch_manager
+            .get_chunk_validator_assignments(epoch_id, shard_id, height)?
+            .contains(my_signer.validator_id())
+        {
             // Bypass state witness validation if we created state witness. Endorse the chunk immediately.
+            tracing::debug!(target: "client", chunk_hash=?chunk_header.chunk_hash(), "send_chunk_endorsement_from_chunk_producer");
             send_chunk_endorsement_to_block_producers(
                 &chunk_header,
                 self.epoch_manager.as_ref(),
@@ -69,29 +67,26 @@ impl Client {
                 self.chunk_endorsement_tracker.as_ref(),
             );
         }
-        // Remove ourselves from the list of chunk validators. Network can't send messages to ourselves.
-        chunk_validators.retain(|validator| validator != my_signer.validator_id());
 
-        tracing::debug!(
-            target: "stateless_validation",
-            "Sending chunk state witness for chunk {:?} to chunk validators {:?}",
-            chunk.chunk_hash(),
-            chunk_validators,
-        );
-        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::ChunkStateWitness(chunk_validators, witness),
-        ));
+        self.partial_witness_adapter.send(DistributeStateWitnessRequest {
+            epoch_id: epoch_id.clone(),
+            chunk_header,
+            state_witness,
+        });
         Ok(())
     }
 
-    pub(crate) fn create_state_witness_inner(
+    pub(crate) fn create_state_witness(
         &mut self,
+        chunk_producer: AccountId,
         prev_block_header: &BlockHeader,
         prev_chunk_header: &ShardChunkHeader,
         chunk: &ShardChunk,
         transactions_storage_proof: Option<PartialState>,
-    ) -> Result<ChunkStateWitnessInner, Error> {
+    ) -> Result<ChunkStateWitness, Error> {
         let chunk_header = chunk.cloned_header();
+        let epoch_id =
+            self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
         let prev_chunk = self.chain.get_chunk(&prev_chunk_header.chunk_hash())?;
         let (main_state_transition, implicit_transitions, applied_receipts_hash) =
             self.collect_state_transition_data(&chunk_header, prev_chunk_header)?;
@@ -112,8 +107,10 @@ impl Client {
         let source_receipt_proofs =
             self.collect_source_receipt_proofs(prev_block_header, prev_chunk_header)?;
 
-        let witness_inner = ChunkStateWitnessInner::new(
-            chunk_header.clone(),
+        let witness = ChunkStateWitness::new(
+            chunk_producer,
+            epoch_id,
+            chunk_header,
             main_state_transition,
             source_receipt_proofs,
             // (Could also be derived from iterating through the receipts, but
@@ -125,7 +122,7 @@ impl Client {
             new_transactions,
             new_transactions_validation_state,
         );
-        Ok(witness_inner)
+        Ok(witness)
     }
 
     /// Collect state transition data necessary to produce state witness for

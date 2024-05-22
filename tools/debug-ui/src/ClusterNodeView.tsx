@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useQuery } from 'react-query';
+import { useQuery } from '@tanstack/react-query';
 import {
     SyncStatusResponse,
     TrackedShardsResponse,
@@ -116,7 +116,7 @@ function syncStatusToText(syncStatus: SyncStatusResponse): string {
     if ('StateSync' in status) {
         return 'State sync';
     }
-    return `Body sync ${status.BodySync.start_height} -> ${status.BodySync.highest_height}`;
+    return `Block sync ${status.BlockSync.start_height} -> ${status.BlockSync.highest_height}`;
 }
 
 function booleanArrayToIndexList(array: boolean[]): number[] {

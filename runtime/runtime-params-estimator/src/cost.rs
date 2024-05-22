@@ -5,6 +5,7 @@ use std::str::FromStr;
 ///
 /// TODO: Deduplicate this enum with `ExtCosts` and `ActionCosts`.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, PartialOrd, Ord, clap::ValueEnum)]
+#[clap(rename_all = "PascalCase")]
 #[repr(u8)]
 pub enum Cost {
     // Every set of actions in a transaction needs to be transformed into a
@@ -702,7 +703,6 @@ pub enum Cost {
     ///
     /// Estimation: We run a very tight loop of 1000 calls to this host function. Then we subtract
     /// all other known costs from the estimated number.
-    ///
     YieldCreateBase,
     /// Estimates `yield_create_byte`, the cost charged per method and argument byte in calls to the
     /// `promise_yield_create` host function.
@@ -711,6 +711,19 @@ pub enum Cost {
     /// with additional method bytes, and another time with some significant number of bytes in
     /// arguments.
     YieldCreateByte,
+
+    /// Estimates `yield_resume_base`, which covers the base cost of the host function
+    /// `promise_yield_resume`.
+    ///
+    /// Estimation: Execution of this host function depends on a prior successful call to the
+    /// `promise_yield_create`. Furthermore, we want `promise_yield_resume` to be invoked in a
+    /// separate block, so we prepare the state and write the data IDs into the storage. Then
+    /// measure a contract that reads the 255 data IDs from the storage and resumes them.
+    YieldResumeBase,
+
+    /// Estimates `yield_resume_byte`, which covers the per-byte cost of the parameters of the
+    /// `promise_yield_resume` host function.
+    YieldResumeByte,
 
     __Count,
 }

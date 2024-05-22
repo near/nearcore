@@ -29,6 +29,7 @@ num_cpus.workspace = true
 once_cell.workspace = true
 rand.workspace = true
 rayon.workspace = true
+reed-solomon-erasure.workspace = true
 rlimit.workspace = true
 rocksdb.workspace = true
 serde.workspace = true
@@ -75,10 +76,8 @@ default = []
 io_trace = []
 no_cache = []
 single_thread_rocksdb = [] # Deactivate RocksDB IO background threads
-test_features = []
-serialize_all_state_changes = []
+test_features = ["near-vm-runner/test_features"]
 new_epoch_sync = []
-yield_resume = []
 
 nightly_protocol = [
   "near-async/nightly_protocol",
@@ -102,5 +101,4 @@ nightly = [
   "near-primitives/nightly",
   "near-vm-runner/nightly",
   "nightly_protocol",
-  "yield_resume",
 ]

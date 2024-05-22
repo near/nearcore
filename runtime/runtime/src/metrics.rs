@@ -1,8 +1,15 @@
+use crate::congestion_control::ReceiptSink;
 use near_o11y::metrics::{
-    try_create_histogram_vec, try_create_int_counter, try_create_int_counter_vec, HistogramVec,
-    IntCounter, IntCounterVec,
+    exponential_buckets, linear_buckets, try_create_counter_vec, try_create_gauge_vec,
+    try_create_histogram_vec, try_create_histogram_with_buckets, try_create_int_counter,
+    try_create_int_counter_vec, try_create_int_gauge_vec, CounterVec, GaugeVec, Histogram,
+    HistogramVec, IntCounter, IntCounterVec, IntGaugeVec,
 };
+use near_parameters::config::CongestionControlConfig;
+use near_primitives::congestion_info::CongestionInfo;
+use near_primitives::types::ShardId;
 use once_cell::sync::Lazy;
+use std::time::Duration;
 
 pub static ACTION_CALLED_COUNT: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
@@ -20,6 +27,79 @@ pub static TRANSACTION_PROCESSED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
     )
     .unwrap()
 });
+
+pub static INCOMING_RECEIPT_PROCESSED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_incoming_receipt_processed_total",
+        "The number of incoming receipts processed since starting this node",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub static INCOMING_RECEIPT_PROCESSING_SECONDS_TOTAL: Lazy<CounterVec> = Lazy::new(|| {
+    try_create_counter_vec(
+        "near_incoming_receipt_processing_seconds_total",
+        "The time spent on processing incoming receipts since starting this node",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub static DELAYED_RECEIPT_PROCESSED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_delayed_receipt_processed_total",
+        "The number of delayed receipts processed since starting this node",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub static DELAYED_RECEIPT_PROCESSING_SECONDS_TOTAL: Lazy<CounterVec> = Lazy::new(|| {
+    try_create_counter_vec(
+        "near_delayed_receipt_processing_seconds_total",
+        "The time spent on processing delayed receipts since starting this node",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub static LOCAL_RECEIPT_PROCESSED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_local_receipt_processed_total",
+        "The number of local receipts processed since starting this node",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub static LOCAL_RECEIPT_PROCESSING_SECONDS_TOTAL: Lazy<CounterVec> = Lazy::new(|| {
+    try_create_counter_vec(
+        "near_local_receipt_processing_seconds_total",
+        "The time spent on processing local receipts since starting this node",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub static YIELD_TIMEOUTS_PROCESSED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_yield_timeouts_processed_total",
+        "The number of yield timeouts processed since starting this node",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub static YIELD_TIMEOUTS_PROCESSING_SECONDS_TOTAL: Lazy<CounterVec> = Lazy::new(|| {
+    try_create_counter_vec(
+        "near_yield_timeouts_processing_seconds_total",
+        "The time spent on processing yield timeouts since starting this node",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
 pub static TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
     try_create_int_counter(
         "near_transaction_processed_successfully_total",
@@ -27,6 +107,7 @@ pub static TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL: Lazy<IntCounter> = Lazy::ne
     )
     .unwrap()
 });
+
 pub static TRANSACTION_PROCESSED_FAILED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
     try_create_int_counter(
         "near_transaction_processed_failed_total",
@@ -214,6 +295,108 @@ static CHUNK_TX_TGAS: Lazy<HistogramVec> = Lazy::new(|| {
     )
     .unwrap()
 });
+pub static RECEIPT_RECORDED_SIZE: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram_with_buckets(
+        "near_receipt_recorded_size",
+        "Size of storage proof recorded when executing a receipt",
+        buckets_for_receipt_storage_proof_size(),
+    )
+    .unwrap()
+});
+pub static RECEIPT_RECORDED_SIZE_UPPER_BOUND: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram_with_buckets(
+        "near_receipt_recorded_size_upper_bound",
+        "Upper bound estimation (e.g with extra size added for deletes) of storage proof size recorded when executing a receipt",
+        buckets_for_receipt_storage_proof_size(),
+    )
+    .unwrap()
+});
+pub static RECEIPT_RECORDED_SIZE_UPPER_BOUND_RATIO: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram_with_buckets(
+        "near_receipt_recorded_size_upper_bound_ratio",
+        "Ratio of upper bound to true recorded size, calculated only for sizes larger than 100KB, equal to (near_receipt_recorded_size_upper_bound / near_receipt_recorded_size)",
+        buckets_for_storage_proof_size_ratio(),
+    )
+    .unwrap()
+});
+pub static CHUNK_RECORDED_SIZE: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram_with_buckets(
+        "near_chunk_recorded_size",
+        "Total size of storage proof (recorded trie nodes for state witness, post-finalization) for a single chunk",
+        buckets_for_chunk_storage_proof_size(),
+    )
+    .unwrap()
+});
+pub static CHUNK_RECORDED_SIZE_UPPER_BOUND: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram_with_buckets(
+        "near_chunk_recorded_size_upper_bound",
+        "Upper bound of storage proof size (recorded trie nodes size + estimated charges, pre-finalization) for a single chunk",
+        buckets_for_chunk_storage_proof_size(),
+    )
+    .unwrap()
+});
+pub static CHUNK_RECORDED_SIZE_UPPER_BOUND_RATIO: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram_with_buckets(
+        "near_chunk_recorded_size_upper_bound_ratio",
+        "Ratio of upper bound to true storage proof size, equal to (near_chunk_recorded_size_upper_bound / near_chunk_recorded_size)",
+        buckets_for_storage_proof_size_ratio(),
+    )
+    .unwrap()
+});
+
+static CONGESTION_RECEIPT_FORWARDING_UNUSED_CAPACITY_GAS: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_congestion_receipt_forwarding_unused_capacity_gas",
+        "How much additional gas could have been forwarded in the same chunk from one shard to another. An indicator for congestion backpressure.",
+        &["sender_shard_id", "receiver_shard_id"],
+    )
+    .unwrap()
+});
+
+static CONGESTION_OUTGOING_RECEIPT_BUFFER_LEN: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_congestion_outgoing_receipt_buffer_len",
+        "Number of receipts currently stored in the outgoing receipt buffer which were held back because the receiver is congested.",
+        &["sender_shard_id", "receiver_shard_id"],
+    )
+    .unwrap()
+});
+
+static CONGESTION_LEVEL: Lazy<GaugeVec> = Lazy::new(|| {
+    try_create_gauge_vec(
+        "near_congestion_level",
+        "Summary of congestion per shard, between 0.0 and 1.0.",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+static CONGESTION_RECEIPT_BYTES: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_congestion_receipt_bytes",
+        "Size of all receipts currently delayed or buffered due to congestion.",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+static CONGESTION_INCOMING_GAS: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_congestion_incoming_gas",
+        "Gas of all receipts currently delayed due to congestion.",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+static CONGESTION_OUTGOING_GAS: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_congestion_outgoing_gas",
+        "Gas of all receipts in the outgoing receipts buffer due to congestion on other shards.",
+        &["shard_id"],
+    )
+    .unwrap()
+});
 
 /// Buckets used for burned gas in receipts.
 ///
@@ -238,6 +421,27 @@ fn buckets_for_compute() -> Option<Vec<f64>> {
     ])
 }
 
+/// Buckets from 0 to 10MB
+fn buckets_for_receipt_storage_proof_size() -> Vec<f64> {
+    // Precise buckets for the smaller, common values
+    let mut buckets = vec![50_000., 100_000., 200_000., 300_000.];
+
+    // Coarse buckets for the larger values
+    buckets.extend(linear_buckets(500_000., 500_000., 20).unwrap());
+    buckets
+}
+
+/// Buckets from 0 to 15.2MB
+fn buckets_for_chunk_storage_proof_size() -> Vec<f64> {
+    linear_buckets(0., 800_000., 20).unwrap()
+}
+
+/// Buckets from 1 to 12.84
+fn buckets_for_storage_proof_size_ratio() -> Vec<f64> {
+    // 1.2 ** 14 = 12.84
+    exponential_buckets(1., 1.2, 15).unwrap()
+}
+
 /// Helper struct to collect partial costs of `Runtime::apply` and reporting it
 /// atomically.
 #[derive(Debug, Default)]
@@ -248,12 +452,20 @@ pub struct ApplyMetrics {
     tx_gas: u64,
     local_receipts_compute_usage: u64,
     local_receipts_gas: u64,
+    local_receipts_processed_total: u64,
+    local_receipts_processing_seconds_total: f64,
     delayed_receipts_compute_usage: u64,
     delayed_receipts_gas: u64,
+    delayed_receipts_processed_total: u64,
+    delayed_receipts_processing_seconds_total: f64,
     incoming_receipts_compute_usage: u64,
     incoming_receipts_gas: u64,
+    incoming_receipts_processed_total: u64,
+    incoming_receipts_processing_seconds_total: f64,
     yield_timeouts_compute_usage: u64,
     yield_timeouts_gas: u64,
+    yield_timeouts_processed_total: u64,
+    yield_timeouts_processing_seconds_total: f64,
 }
 
 impl ApplyMetrics {
@@ -275,29 +487,96 @@ impl ApplyMetrics {
             self.update_accumulated(accumulated_gas, accumulated_compute);
     }
 
-    pub fn local_receipts_done(&mut self, accumulated_gas: u64, accumulated_compute: u64) {
+    pub fn local_receipts_done(
+        &mut self,
+        count: u64,
+        time: Duration,
+        accumulated_gas: u64,
+        accumulated_compute: u64,
+    ) {
         (self.local_receipts_gas, self.local_receipts_compute_usage) =
             self.update_accumulated(accumulated_gas, accumulated_compute);
+        self.local_receipts_processed_total += count;
+        self.local_receipts_processing_seconds_total += time.as_secs_f64();
     }
 
-    pub fn delayed_receipts_done(&mut self, accumulated_gas: u64, accumulated_compute: u64) {
+    pub fn delayed_receipts_done(
+        &mut self,
+        count: u64,
+        time: Duration,
+        accumulated_gas: u64,
+        accumulated_compute: u64,
+    ) {
         (self.delayed_receipts_gas, self.delayed_receipts_compute_usage) =
             self.update_accumulated(accumulated_gas, accumulated_compute);
+        self.delayed_receipts_processed_total += count;
+        self.delayed_receipts_processing_seconds_total += time.as_secs_f64();
     }
 
-    pub fn incoming_receipts_done(&mut self, accumulated_gas: u64, accumulated_compute: u64) {
+    pub fn incoming_receipts_done(
+        &mut self,
+        count: u64,
+        time: Duration,
+        accumulated_gas: u64,
+        accumulated_compute: u64,
+    ) {
         (self.incoming_receipts_gas, self.incoming_receipts_compute_usage) =
             self.update_accumulated(accumulated_gas, accumulated_compute);
+        self.incoming_receipts_processed_total += count;
+        self.incoming_receipts_processing_seconds_total += time.as_secs_f64();
     }
 
-    pub fn yield_timeouts_done(&mut self, accumulated_gas: u64, accumulated_compute: u64) {
+    pub fn yield_timeouts_done(
+        &mut self,
+
+        count: u64,
+        time: Duration,
+        accumulated_gas: u64,
+        accumulated_compute: u64,
+    ) {
         (self.yield_timeouts_gas, self.yield_timeouts_compute_usage) =
             self.update_accumulated(accumulated_gas, accumulated_compute);
+        self.yield_timeouts_processed_total += count;
+        self.yield_timeouts_processing_seconds_total += time.as_secs_f64();
     }
 
     /// Report statistics
-    pub fn report(&self, shard_id: &str) {
+    pub fn report(&mut self, shard_id: &str) {
         const TERA: f64 = 1_000_000_000_000_f64;
+
+        LOCAL_RECEIPT_PROCESSED_TOTAL
+            .with_label_values(&[shard_id])
+            .inc_by(self.local_receipts_processed_total);
+        self.local_receipts_processed_total = 0;
+        DELAYED_RECEIPT_PROCESSED_TOTAL
+            .with_label_values(&[shard_id])
+            .inc_by(self.delayed_receipts_processed_total);
+        self.delayed_receipts_processed_total = 0;
+        INCOMING_RECEIPT_PROCESSED_TOTAL
+            .with_label_values(&[shard_id])
+            .inc_by(self.incoming_receipts_processed_total);
+        self.incoming_receipts_processed_total = 0;
+        YIELD_TIMEOUTS_PROCESSED_TOTAL
+            .with_label_values(&[shard_id])
+            .inc_by(self.yield_timeouts_processed_total);
+        self.yield_timeouts_processed_total = 0;
+
+        LOCAL_RECEIPT_PROCESSING_SECONDS_TOTAL
+            .with_label_values(&[shard_id])
+            .inc_by(self.local_receipts_processing_seconds_total);
+        self.local_receipts_processing_seconds_total = 0.0;
+        DELAYED_RECEIPT_PROCESSING_SECONDS_TOTAL
+            .with_label_values(&[shard_id])
+            .inc_by(self.delayed_receipts_processing_seconds_total);
+        self.delayed_receipts_processing_seconds_total = 0.0;
+        INCOMING_RECEIPT_PROCESSING_SECONDS_TOTAL
+            .with_label_values(&[shard_id])
+            .inc_by(self.incoming_receipts_processing_seconds_total);
+        self.incoming_receipts_processing_seconds_total = 0.0;
+        YIELD_TIMEOUTS_PROCESSING_SECONDS_TOTAL
+            .with_label_values(&[shard_id])
+            .inc_by(self.yield_timeouts_processing_seconds_total);
+        self.yield_timeouts_processing_seconds_total = 0.0;
 
         CHUNK_TX_TGAS.with_label_values(&[shard_id]).observe(self.tx_gas as f64 / TERA);
         CHUNK_TX_COMPUTE
@@ -336,5 +615,64 @@ impl ApplyMetrics {
         CHUNK_COMPUTE
             .with_label_values(&[shard_id])
             .observe(self.accumulated_compute as f64 / TERA);
+    }
+}
+
+pub fn report_congestion_metrics(
+    receipt_sink: &ReceiptSink,
+    sender_shard_id: ShardId,
+    config: &CongestionControlConfig,
+) {
+    match receipt_sink {
+        ReceiptSink::V1(_) => {
+            // no metrics to report
+        }
+        ReceiptSink::V2(inner) => {
+            let sender_shard_label = sender_shard_id.to_string();
+            report_congestion_indicators(&inner.own_congestion_info, &sender_shard_label, &config);
+            report_outgoing_buffers(inner, sender_shard_label);
+        }
+    }
+}
+
+/// Report key congestion indicator levels of a shard.
+fn report_congestion_indicators(
+    congestion_info: &CongestionInfo,
+    shard_label: &str,
+    config: &CongestionControlConfig,
+) {
+    let congestion_level = congestion_info.localized_congestion_level(config);
+    CONGESTION_LEVEL.with_label_values(&[shard_label]).set(congestion_level);
+
+    let CongestionInfo::V1(inner) = congestion_info;
+    CONGESTION_RECEIPT_BYTES
+        .with_label_values(&[shard_label])
+        .set(inner.receipt_bytes.try_into().unwrap_or(i64::MAX));
+    CONGESTION_INCOMING_GAS
+        .with_label_values(&[shard_label])
+        .set(inner.delayed_receipts_gas.try_into().unwrap_or(i64::MAX));
+    CONGESTION_OUTGOING_GAS
+        .with_label_values(&[shard_label])
+        .set(inner.buffered_receipts_gas.try_into().unwrap_or(i64::MAX));
+}
+
+/// From `sender_shard` to all other shards, reports how many receipts are
+/// currently buffered and how much forwarding capacity was left.
+fn report_outgoing_buffers(
+    inner: &crate::congestion_control::ReceiptSinkV2,
+    sender_shard_label: String,
+) {
+    for (&receiver_shard_id, &unused_capacity) in inner.outgoing_limit.iter() {
+        let receiver_shard_label = receiver_shard_id.to_string();
+
+        CONGESTION_RECEIPT_FORWARDING_UNUSED_CAPACITY_GAS
+            .with_label_values(&[&sender_shard_label, &receiver_shard_label])
+            .set(i64::try_from(unused_capacity).unwrap_or(i64::MAX));
+
+        if let Some(len) = inner.outgoing_buffers.buffer_len(receiver_shard_id) {
+            CONGESTION_OUTGOING_RECEIPT_BUFFER_LEN
+                .with_label_values(&[&sender_shard_label, &receiver_shard_label])
+                .set(i64::try_from(len).unwrap_or(i64::MAX));
+        }
     }
 }

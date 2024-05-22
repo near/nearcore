@@ -8,7 +8,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::version::PROTOCOL_VERSION;
 use num_rational::Ratio;
-use std::sync::Arc;
 
 #[test]
 fn build_chain() {
@@ -33,9 +32,9 @@ fn build_chain() {
     //     cargo insta test --accept -p near-chain --features nightly -- tests::simple_chain::build_chain
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
-        insta::assert_display_snapshot!(hash, @"9JRdRkSfVRwYBVFNzfKwuhuUabMkQN14b1Ge7z1FRnMF");
+        insta::assert_snapshot!(hash, @"C3zeKRZubVungxfrSdq379TSCYnuz2YzjEkcJTdm3pU4");
     } else {
-        insta::assert_display_snapshot!(hash, @"387773cK74c4cHxNWnrTgoZ2dkEhVjtFjJNpSxeWohPx");
+        insta::assert_snapshot!(hash, @"2WHohfYksQnwKwSEoTKpkseu2RWthbGf9kmGetgHgfQQ");
     }
 
     for i in 1..5 {
@@ -51,9 +50,9 @@ fn build_chain() {
 
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
-        insta::assert_display_snapshot!(hash, @"HkPEDHWJHuW8Yzw9FonrJarVAHi51mQt7A4DQUtBagko");
+        insta::assert_snapshot!(hash, @"EjLaoHRiAdRp2NcDqwbMcAYYxGfcv5R7GuYUNfRpaJvB");
     } else {
-        insta::assert_display_snapshot!(hash, @"6QpFm2bFYyfBjrk1KACMLr4dsezfZNYWGFnsbuD7gssH");
+        insta::assert_snapshot!(hash, @"HJuuENeSwwikoR9BZA7cSonxAPZgY5mKQWL2pSXwjAwZ");
     }
 }
 
@@ -101,11 +100,7 @@ fn build_chain_with_orphans() {
     );
     chain.process_block_test(&None, blocks.pop().unwrap()).unwrap();
     while wait_for_all_blocks_in_processing(&mut chain) {
-        chain.postprocess_ready_blocks(
-            &None,
-            &mut BlockProcessingArtifact::default(),
-            Arc::new(|_| {}),
-        );
+        chain.postprocess_ready_blocks(&None, &mut BlockProcessingArtifact::default(), None);
     }
     assert_eq!(chain.head().unwrap().height, 10);
     assert_matches!(

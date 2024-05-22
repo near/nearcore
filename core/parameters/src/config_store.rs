@@ -1,4 +1,4 @@
-use crate::config::RuntimeConfig;
+use crate::config::{CongestionControlConfig, RuntimeConfig};
 use crate::parameter_table::{ParameterTable, ParameterTableDiff};
 use near_primitives_core::types::ProtocolVersion;
 use std::collections::BTreeMap;
@@ -37,11 +37,15 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (62, include_config!("62.yaml")),
     (63, include_config!("63.yaml")),
     (64, include_config!("64.yaml")),
+    (66, include_config!("66.yaml")),
+    (67, include_config!("67.yaml")),
     (83, include_config!("83.yaml")),
+    (85, include_config!("85.yaml")),
     (129, include_config!("129.yaml")),
     // Introduce ETH-implicit accounts.
     (138, include_config!("138.yaml")),
-    (139, include_config!("139.yaml")),
+    // Congestion Control
+    (142, include_config!("142.yaml")),
 ];
 
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters
@@ -135,6 +139,14 @@ impl RuntimeConfigStore {
         Self::with_one_config(RuntimeConfig::test())
     }
 
+    /// Constructs test store.
+    pub fn test_congestion_control_disabled() -> Self {
+        let mut config = RuntimeConfig::test();
+        config.congestion_control_config = CongestionControlConfig::test_disabled();
+
+        Self::with_one_config(config)
+    }
+
     /// Constructs store with a single config with zero costs.
     pub fn free() -> Self {
         Self::with_one_config(RuntimeConfig::free())
@@ -157,7 +169,8 @@ mod tests {
     use super::*;
     use crate::cost::{ActionCosts, ExtCosts};
     use near_primitives_core::version::ProtocolFeature::{
-        LowerDataReceiptAndEcrecoverBaseCost, LowerStorageCost, LowerStorageKeyLimit,
+        DecreaseFunctionCallBaseCost, LowerDataReceiptAndEcrecoverBaseCost, LowerStorageCost,
+        LowerStorageKeyLimit,
     };
     use std::collections::HashSet;
 
@@ -196,6 +209,11 @@ mod tests {
     fn test_max_prepaid_gas() {
         let store = RuntimeConfigStore::new(None);
         for (protocol_version, config) in store.store.iter() {
+            if *protocol_version >= DecreaseFunctionCallBaseCost.protocol_version() {
+                continue;
+            }
+
+            // TODO(#10955): Enforce the depth limit directly, regardless of the gas costs.
             assert!(
                 config.wasm_config.limit_config.max_total_prepaid_gas
                     / config.fees.min_receipt_with_function_call_gas()
@@ -351,7 +369,7 @@ mod tests {
                 omit_expression => true,
             }, {
                 any_failure |= std::panic::catch_unwind(|| {
-                    insta::assert_display_snapshot!("parameters", params);
+                    insta::assert_snapshot!("parameters", params);
                 }).is_err();
             });
         }

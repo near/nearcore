@@ -45,10 +45,11 @@ pub fn proposals_to_epoch_info(
     validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
     validator_reward: HashMap<AccountId, Balance>,
     minted_amount: Balance,
+    current_version: ProtocolVersion,
     next_version: ProtocolVersion,
-    last_epoch_version: ProtocolVersion,
+    use_stable_shard_assignment: bool,
 ) -> Result<EpochInfo, EpochError> {
-    if checked_feature!("stable", AliasValidatorSelectionAlgorithm, last_epoch_version) {
+    if checked_feature!("stable", AliasValidatorSelectionAlgorithm, current_version) {
         return crate::validator_selection::proposals_to_epoch_info(
             epoch_config,
             rng_seed,
@@ -58,7 +59,7 @@ pub fn proposals_to_epoch_info(
             validator_reward,
             minted_amount,
             next_version,
-            last_epoch_version,
+            use_stable_shard_assignment,
         );
     } else {
         return old_validator_selection::proposals_to_epoch_info(
@@ -237,12 +238,6 @@ mod old_validator_selection {
             chunk_producers_settlement.push(shard_settlement);
         }
 
-        let fishermen_to_index = fishermen
-            .iter()
-            .enumerate()
-            .map(|(index, s)| (s.account_id().clone(), index as ValidatorId))
-            .collect::<HashMap<_, _>>();
-
         let validator_to_index = final_proposals
             .iter()
             .enumerate()
@@ -258,9 +253,6 @@ mod old_validator_selection {
             validator_to_index,
             block_producers_settlement,
             chunk_producers_settlement,
-            vec![],
-            fishermen,
-            fishermen_to_index,
             stake_change,
             validator_reward,
             validator_kickout,

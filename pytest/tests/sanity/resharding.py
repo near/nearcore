@@ -23,7 +23,7 @@ from resharding_lib import ReshardingTestBase, get_genesis_config_changes, get_c
 class ReshardingTest(ReshardingTestBase):
 
     def setUp(self) -> None:
-        super().setUp(epoch_length=5)
+        super().setUp(epoch_length=20)
 
     def test_resharding(self):
         logger.info("The resharding test is starting.")

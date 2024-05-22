@@ -1,5 +1,5 @@
-import { useQuery } from 'react-query';
-import { toHumanTime, formatDurationInMillis } from './utils';
+import { useQuery } from '@tanstack/react-query';
+import { formatDurationInMillis } from './utils';
 import { fetchRoutingTable } from './api';
 import './RoutingTableView.scss';
 
@@ -25,7 +25,7 @@ export const RoutingTableView = ({ addr }: RoutingTableViewProps) => {
     const peerLabels = routingInfo.edge_cache.peer_labels;
 
     const routable_peers = Object.keys(routingInfo.my_distances);
-    routable_peers.sort((a, b) => peerLabels[a] > peerLabels[b] ? 1 : -1);
+    routable_peers.sort((a, b) => (peerLabels[a] > peerLabels[b] ? 1 : -1));
 
     const direct_peers: string[] = [];
     const disconnected_peers: string[] = [];
@@ -38,12 +38,14 @@ export const RoutingTableView = ({ addr }: RoutingTableViewProps) => {
         }
     });
 
-    direct_peers.sort((a, b) => peerLabels[a] > peerLabels[b] ? 1 : -1);
-    disconnected_peers.sort((a, b) => peerLabels[a] > peerLabels[b] ? 1 : -1);
+    direct_peers.sort((a, b) => (peerLabels[a] > peerLabels[b] ? 1 : -1));
+    disconnected_peers.sort((a, b) => (peerLabels[a] > peerLabels[b] ? 1 : -1));
 
     return (
         <div className="routing-table-view">
-            <p><b>Routable Peers</b></p>
+            <p>
+                <b>Routable Peers</b>
+            </p>
             <table>
                 <thead>
                     <th>Peer ID</th>
@@ -63,8 +65,10 @@ export const RoutingTableView = ({ addr }: RoutingTableViewProps) => {
                     })}
                 </tbody>
             </table>
-            <br/>
-            <p><b>Direct Peers</b></p>
+            <br />
+            <p>
+                <b>Direct Peers</b>
+            </p>
             <table>
                 <thead>
                     <th>Peer ID</th>
@@ -83,14 +87,22 @@ export const RoutingTableView = ({ addr }: RoutingTableViewProps) => {
                                 <td>{peer_id.substring(8, 14)}...</td>
                                 <td>{peer_label}</td>
                                 <td>{peer_distances.distance.map((x) => x ?? '_').join(', ')}</td>
-                                <td>{peer_distances.min_nonce} ({formatDurationInMillis(Date.now() - peer_distances.min_nonce * 1000)})</td>
+                                <td>
+                                    {peer_distances.min_nonce} (
+                                    {formatDurationInMillis(
+                                        Date.now() - peer_distances.min_nonce * 1000
+                                    )}
+                                    )
+                                </td>
                             </tr>
                         );
                     })}
                 </tbody>
             </table>
-            <br/>
-            <p><b>Disconnected Peers</b></p>
+            <br />
+            <p>
+                <b>Disconnected Peers</b>
+            </p>
             <table>
                 <thead>
                     <th>Peer ID</th>
@@ -106,7 +118,9 @@ export const RoutingTableView = ({ addr }: RoutingTableViewProps) => {
                             <tr key={peer_label}>
                                 <td>{peer_id.substring(8, 14)}...</td>
                                 <td>{peer_label}</td>
-                                <td>{nonce} ({formatDurationInMillis(Date.now() - nonce * 1000)})</td>
+                                <td>
+                                    {nonce} ({formatDurationInMillis(Date.now() - nonce * 1000)})
+                                </td>
                             </tr>
                         );
                     })}

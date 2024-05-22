@@ -7,7 +7,7 @@ pub struct Universal {
     compiler_config: Option<Box<dyn CompilerConfig>>,
     target: Option<Target>,
     features: Option<Features>,
-    pool: Option<super::LimitedMemoryPool>,
+    pool: Option<super::MemoryPool>,
 }
 
 impl Universal {
@@ -42,7 +42,7 @@ impl Universal {
     }
 
     /// Set the pool of reusable code memory
-    pub fn code_memory_pool(mut self, pool: super::LimitedMemoryPool) -> Self {
+    pub fn code_memory_pool(mut self, pool: super::MemoryPool) -> Self {
         self.pool = Some(pool);
         self
     }

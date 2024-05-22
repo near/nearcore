@@ -11,11 +11,10 @@ This workload is similar to the FT workload with 2 major differences:
   - Periodic batches that adds steps (mints new tokens)
 """
 
-from common.sweat import RecipientSteps, SweatContract, SweatMintBatch
+from common.sweat import RecipientSteps, SweatGetClaimableBalanceForAccount, SweatMintBatch, SweatDeferBatch
 from common.ft import TransferFT
 from common.base import Account, AddFullAccessKey, NearUser
 from locust import between, tag, task
-import copy
 import logging
 import pathlib
 import random
@@ -29,20 +28,12 @@ import key
 logger = new_logger(level=logging.WARN)
 
 
-class SweatUser(NearUser):
+class SweatOracle(NearUser):
     """
-    Registers itself on an FT contract in the setup phase, then just sends Sweat to
-    random users.
-
-    Also includes a task to mint and distribute tokens in batches.
+    Registers itself as an oracle in the setup phase, then records Sweat minting events.
     """
     wait_time = between(1, 3)  # random pause between transactions
-
-    @task(3)
-    def ft_transfer(self):
-        receiver = self.sweat.random_receiver(self.account_id)
-        tx = TransferFT(self.sweat.account, self.account, receiver)
-        self.send_tx(tx, locust_name="Sweat transfer")
+    fixed_count = 1  # Oracle can do only one operation at a time.
 
     @task(1)
     def record_single_batch(self):
@@ -83,6 +74,22 @@ class SweatUser(NearUser):
             [[account_id, rng.randint(1000, 3000)] for account_id in receivers])
         self.send_tx(tx, locust_name="Sweat record batch (stress test)")
 
+    @tag("claim-test")
+    @task
+    def defer_batch(self):
+        rng = random.Random()
+        # just around the log limit
+        batch_size = min(rng.randint(100, 150),
+                         len(self.sweat.registered_users))
+        receivers = self.sweat.random_receivers(self.account_id, batch_size)
+        tx = SweatDeferBatch(
+            self.sweat.account.key.account_id, self.oracle,
+            self.sweat.claim.key.account_id, [
+                RecipientSteps(account_id, steps=rng.randint(1000, 3000))
+                for account_id in receivers
+            ])
+        self.send_tx(tx, locust_name="Sweat defer batch")
+
     def on_start(self):
         super().on_start()
         # We have one oracle account per worker. Sharing a single access key
@@ -94,10 +101,39 @@ class SweatUser(NearUser):
         user_oracle_key = key.Key.from_random(oracle.key.account_id)
         self.send_tx_retry(AddFullAccessKey(oracle, user_oracle_key),
                            "add user key to oracle")
-
         self.oracle = Account(user_oracle_key)
         self.oracle.refresh_nonce(self.node.node)
 
+        logger.debug(
+            f"{self.account_id} ready to use Sweat contract {self.sweat.account.key.account_id}"
+        )
+
+
+class SweatUser(NearUser):
+    """
+    Registers itself on an FT contract in the setup phase, then does one of two things:
+      - Sends Sweat to random users.
+      - Checks its' balance in sweat.claim contract.
+    """
+    wait_time = between(1, 3)  # random pause between transactions
+
+    @task(3)
+    def ft_transfer(self):
+        receiver = self.sweat.random_receiver(self.account_id)
+        tx = TransferFT(self.sweat.account, self.account, receiver)
+        self.send_tx(tx, locust_name="Sweat transfer")
+
+    @tag("claim-test")
+    @task
+    def get_claimable_balance_for_account(self):
+        tx = SweatGetClaimableBalanceForAccount(self.sweat.claim.key.account_id,
+                                                self.account,
+                                                self.account.key.account_id)
+        self.send_tx(tx, locust_name="Sweat.claim get balance")
+
+    def on_start(self):
+        super().on_start()
+        self.sweat = self.environment.sweat
         self.sweat.register_user(self)
         logger.debug(
             f"{self.account_id} ready to use Sweat contract {self.sweat.account.key.account_id}"

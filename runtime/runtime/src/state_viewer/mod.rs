@@ -142,7 +142,7 @@ impl TrieViewer {
         let mut values = vec![];
         let query = trie_key_parsers::get_raw_prefix_for_contract_data(account_id, prefix);
         let acc_sep_len = query.len() - prefix.len();
-        let mut iter = state_update.trie().iter()?;
+        let mut iter = state_update.trie().disk_iter()?;
         iter.remember_visited_nodes(include_proof);
         iter.seek_prefix(&query)?;
         for item in &mut iter {
@@ -189,10 +189,12 @@ impl TrieViewer {
         let config_store = RuntimeConfigStore::new(None);
         let config = config_store.get_config(PROTOCOL_VERSION);
         let apply_state = ApplyState {
+            apply_reason: None,
             block_height: view_state.block_height,
             // Used for legacy reasons
             prev_block_hash: view_state.prev_block_hash,
             block_hash: view_state.block_hash,
+            shard_id: view_state.shard_id,
             epoch_id: view_state.epoch_id.clone(),
             epoch_height: view_state.epoch_height,
             gas_price: 0,
@@ -205,6 +207,7 @@ impl TrieViewer {
             is_new_chunk: false,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
+            congestion_info: Default::default(),
         };
         let action_receipt = ActionReceipt {
             signer_id: originator_id.clone(),

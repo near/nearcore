@@ -14,14 +14,16 @@ use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum};
+use near_primitives::receipt::{
+    ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0,
+};
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction,
 };
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, TrieCacheMode,
+    AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, StorageUsage, TrieCacheMode,
 };
 use near_primitives::utils::{account_is_implicit, create_random_seed};
 use near_primitives::version::{
@@ -29,12 +31,12 @@ use near_primitives::version::{
 };
 use near_primitives_core::account::id::AccountType;
 use near_store::{
-    enqueue_yielded_promise_timeout, get_access_key, get_code, get_yielded_promise_indices,
-    remove_access_key, remove_account, set_access_key, set_code, set_yielded_promise_indices,
+    enqueue_promise_yield_timeout, get_access_key, get_code, get_promise_yield_indices,
+    remove_access_key, remove_account, set_access_key, set_code, set_promise_yield_indices,
     StorageError, TrieUpdate,
 };
 use near_vm_runner::logic::errors::{
-    CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
+    CacheError, CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
 };
 use near_vm_runner::logic::types::PromiseResult;
 use near_vm_runner::logic::{VMContext, VMOutcome};
@@ -57,10 +59,11 @@ fn get_contract_code(
     if checked_feature!("stable", EthImplicitAccounts, protocol_version)
         && account_id.get_account_type() == AccountType::EthImplicitAccount
     {
-        assert!(code_hash == *wallet_contract_magic_bytes().hash());
-        return Ok(Some(wallet_contract()));
+        let chain_id = runtime_ext.chain_id();
+        assert!(&code_hash == wallet_contract_magic_bytes(&chain_id).hash());
+        return Ok(Some(wallet_contract(&chain_id)));
     }
-    runtime_ext.get_code(code_hash).map(|option| option.map(Arc::new))
+    Ok(runtime_ext.get_code(code_hash).map(Arc::new))
 }
 
 /// Runs given function call with given context / apply state.
@@ -79,19 +82,6 @@ pub(crate) fn execute_function_call(
 ) -> Result<VMOutcome, RuntimeError> {
     let account_id = runtime_ext.account_id();
     tracing::debug!(target: "runtime", %account_id, "Calling the contract");
-    let code = match get_contract_code(&runtime_ext, account, apply_state.current_protocol_version)
-    {
-        Ok(Some(code)) => code,
-        Ok(None) => {
-            let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
-                account_id: account_id.as_str().into(),
-            });
-            return Ok(VMOutcome::nop_outcome(error));
-        }
-        Err(e) => {
-            return Err(RuntimeError::StorageError(e));
-        }
-    };
     // Output data receipts are ignored if the function call is not the last action in the batch.
     let output_data_receivers: Vec<_> = if is_last_action {
         action_receipt.output_data_receivers.iter().map(|r| r.receiver_id.clone()).collect()
@@ -127,19 +117,74 @@ pub(crate) fn execute_function_call(
     // the first access time. Although nodes are accessed for other actions as well, we do it only here because we
     // charge only for trie nodes touched during function calls.
     // TODO (#5920): Consider using RAII for switching the state back
+
     let protocol_version = runtime_ext.protocol_version();
     if checked_feature!("stable", ChunkNodesCache, protocol_version) {
         runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingChunk);
     }
-    let result = near_vm_runner::run(
-        &code,
+
+    near_vm_runner::reset_metrics();
+
+    let result_from_cache = near_vm_runner::run(
+        account,
+        None,
         &function_call.method_name,
         runtime_ext,
-        context,
+        &context,
         &config.wasm_config,
         &config.fees,
         promise_results,
         apply_state.cache.as_deref(),
+    );
+    let result = match result_from_cache {
+        Err(VMRunnerError::CacheError(CacheError::ReadError(err)))
+            if err.kind() == std::io::ErrorKind::NotFound =>
+        {
+            if checked_feature!("stable", ChunkNodesCache, protocol_version) {
+                runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingShard);
+            }
+            let code = match get_contract_code(
+                &runtime_ext,
+                account,
+                apply_state.current_protocol_version,
+            ) {
+                Ok(Some(code)) => code,
+                Ok(None) => {
+                    let error =
+                        FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
+                            account_id: account_id.as_str().into(),
+                        });
+                    return Ok(VMOutcome::nop_outcome(error));
+                }
+                Err(e) => {
+                    return Err(RuntimeError::StorageError(e));
+                }
+            };
+            if checked_feature!("stable", ChunkNodesCache, protocol_version) {
+                runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingChunk);
+            }
+            let r = near_vm_runner::run(
+                account,
+                Some(&code),
+                &function_call.method_name,
+                runtime_ext,
+                &context,
+                &config.wasm_config,
+                &config.fees,
+                promise_results,
+                apply_state.cache.as_deref(),
+            );
+            r
+        }
+        res => res,
+    };
+
+    near_vm_runner::report_metrics(
+        &apply_state.shard_id.to_string(),
+        &apply_state
+            .apply_reason
+            .as_ref()
+            .map_or_else(|| String::from("unknown"), |r| r.to_string()),
     );
 
     if checked_feature!("stable", ChunkNodesCache, protocol_version) {
@@ -208,6 +253,7 @@ pub(crate) fn action_function_call(
         )
         .into());
     }
+    state_update.trie.request_code_recording(account_id.clone());
     let mut receipt_manager = ReceiptManager::default();
     let mut runtime_ext = RuntimeExt::new(
         state_update,
@@ -224,7 +270,7 @@ pub(crate) fn action_function_call(
         apply_state,
         &mut runtime_ext,
         account,
-        &receipt.predecessor_id,
+        receipt.predecessor_id(),
         action_receipt,
         promise_results,
         function_call,
@@ -290,10 +336,9 @@ pub(crate) fn action_function_call(
     result.logs.extend(outcome.logs);
     result.profile.merge(&outcome.profile);
     if execution_succeeded {
-        // Fetch metadata for yielded promises queue
-        let mut yielded_promise_indices =
-            get_yielded_promise_indices(state_update).unwrap_or_default();
-        let initial_yielded_promise_indices = yielded_promise_indices.clone();
+        // Fetch metadata for PromiseYield timeout queue
+        let mut promise_yield_indices = get_promise_yield_indices(state_update).unwrap_or_default();
+        let initial_promse_yield_indices = promise_yield_indices.clone();
 
         let mut new_receipts: Vec<_> = receipt_manager
             .action_receipts
@@ -301,9 +346,9 @@ pub(crate) fn action_function_call(
             .map(|receipt| {
                 // If the newly created receipt is a PromiseYield, enqueue a timeout for it
                 if receipt.is_promise_yield {
-                    enqueue_yielded_promise_timeout(
+                    enqueue_promise_yield_timeout(
                         state_update,
-                        &mut yielded_promise_indices,
+                        &mut promise_yield_indices,
                         account_id.clone(),
                         receipt.input_data_ids[0],
                         apply_state.block_height
@@ -320,7 +365,7 @@ pub(crate) fn action_function_call(
                     actions: receipt.actions,
                 };
 
-                Receipt {
+                Receipt::V0(ReceiptV0 {
                     predecessor_id: account_id.clone(),
                     receiver_id: receipt.receiver_id,
                     // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
@@ -331,7 +376,7 @@ pub(crate) fn action_function_call(
                     } else {
                         ReceiptEnum::Action(new_action_receipt)
                     },
-                }
+                })
             })
             .collect();
 
@@ -339,7 +384,7 @@ pub(crate) fn action_function_call(
         new_receipts.extend(receipt_manager.data_receipts.into_iter().map(|receipt| {
             let new_data_receipt = DataReceipt { data_id: receipt.data_id, data: receipt.data };
 
-            Receipt {
+            Receipt::V0(ReceiptV0 {
                 predecessor_id: account_id.clone(),
                 receiver_id: account_id.clone(),
                 // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
@@ -350,12 +395,12 @@ pub(crate) fn action_function_call(
                 } else {
                     ReceiptEnum::Data(new_data_receipt)
                 },
-            }
+            })
         }));
 
         // Commit metadata for yielded promises queue
-        if yielded_promise_indices != initial_yielded_promise_indices {
-            set_yielded_promise_indices(state_update, &yielded_promise_indices);
+        if promise_yield_indices != initial_promse_yield_indices {
+            set_promise_yield_indices(state_update, &promise_yield_indices);
         }
 
         account.set_amount(outcome.balance);
@@ -458,12 +503,18 @@ pub(crate) fn action_transfer(account: &mut Account, deposit: Balance) -> Result
 pub(crate) fn action_nonrefundable_storage_transfer(
     account: &mut Account,
     deposit: Balance,
+    storage_amount_per_byte: Balance,
 ) -> Result<(), StorageError> {
-    account.set_nonrefundable(account.nonrefundable().checked_add(deposit).ok_or_else(|| {
-        StorageError::StorageInconsistentState(
-            "non-refundable account balance integer overflow".to_string(),
-        )
-    })?);
+    let permanent_storage_bytes = (deposit / storage_amount_per_byte) as StorageUsage;
+    account.set_permanent_storage_bytes(
+        account.permanent_storage_bytes().checked_add(permanent_storage_bytes).ok_or_else(
+            || {
+                StorageError::StorageInconsistentState(
+                    "permanent_storage_bytes integer overflow".to_string(),
+                )
+            },
+        )?,
+    );
     Ok(())
 }
 
@@ -526,12 +577,18 @@ pub(crate) fn action_implicit_account_creation_transfer(
     deposit: Balance,
     block_height: BlockHeight,
     current_protocol_version: ProtocolVersion,
-    nonrefundable: bool,
+    nonrefundable_storage_transfer: bool,
+    epoch_info_provider: &dyn EpochInfoProvider,
 ) {
     *actor_id = account_id.clone();
 
-    let (refundable_balance, nonrefundable_balance) =
-        if nonrefundable { (0, deposit) } else { (deposit, 0) };
+    let (amount, permanent_storage_bytes) = if nonrefundable_storage_transfer {
+        let permanent_storage_bytes =
+            (deposit / apply_state.config.storage_amount_per_byte()) as StorageUsage;
+        (0, permanent_storage_bytes)
+    } else {
+        (deposit, 0)
+    };
 
     match account_id.get_account_type() {
         AccountType::NearImplicitAccount => {
@@ -551,9 +608,9 @@ pub(crate) fn action_implicit_account_creation_transfer(
             let public_key = PublicKey::from_near_implicit_account(account_id).unwrap();
 
             *account = Some(Account::new(
-                refundable_balance,
+                amount,
                 0,
-                nonrefundable_balance,
+                permanent_storage_bytes,
                 CryptoHash::default(),
                 fee_config.storage_usage_config.num_bytes_account
                     + public_key.len() as u64
@@ -568,19 +625,21 @@ pub(crate) fn action_implicit_account_creation_transfer(
         // It holds because in the only calling site, we've checked the permissions before.
         AccountType::EthImplicitAccount => {
             if checked_feature!("stable", EthImplicitAccounts, current_protocol_version) {
+                let chain_id = epoch_info_provider.chain_id();
+
                 // We deploy "near[wallet contract hash]" magic bytes as the contract code,
                 // to mark that this is a neard-defined contract. It will not be used on a function call.
                 // Instead, neard-defined Wallet Contract implementation will be used.
-                let magic_bytes = wallet_contract_magic_bytes();
+                let magic_bytes = wallet_contract_magic_bytes(&chain_id);
 
                 let storage_usage = fee_config.storage_usage_config.num_bytes_account
                     + magic_bytes.code().len() as u64
                     + fee_config.storage_usage_config.num_extra_bytes_record;
 
                 *account = Some(Account::new(
-                    refundable_balance,
+                    amount,
                     0,
-                    nonrefundable_balance,
+                    permanent_storage_bytes,
                     *magic_bytes.hash(),
                     storage_usage,
                     current_protocol_version,
@@ -591,7 +650,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
                 // Note this contract is shared among ETH-implicit accounts and `precompile_contract`
                 // is a no-op if the contract was already compiled.
                 precompile_contract(
-                    &wallet_contract(),
+                    &wallet_contract(&chain_id),
                     &apply_state.config.wasm_config,
                     apply_state.cache.as_deref(),
                 )
@@ -669,12 +728,14 @@ pub(crate) fn action_delete_account(
     // We use current amount as a pay out to beneficiary.
     let account_balance = account.as_ref().unwrap().amount();
     if account_balance > 0 {
-        result
-            .new_receipts
-            .push(Receipt::new_balance_refund(&delete_account.beneficiary_id, account_balance));
+        result.new_receipts.push(Receipt::new_balance_refund(
+            &delete_account.beneficiary_id,
+            account_balance,
+            ReceiptPriority::NoPriority,
+        ));
     }
     remove_account(state_update, account_id)?;
-    *actor_id = receipt.predecessor_id.clone();
+    *actor_id = receipt.predecessor_id().clone();
     *account = None;
     Ok(())
 }
@@ -769,6 +830,7 @@ pub(crate) fn apply_delegate_action(
     sender_id: &AccountId,
     signed_delegate_action: &SignedDelegateAction,
     result: &mut ActionResult,
+    _priority: ReceiptPriority,
 ) -> Result<(), RuntimeError> {
     let delegate_action = &signed_delegate_action.delegate_action;
 
@@ -797,7 +859,7 @@ pub(crate) fn apply_delegate_action(
     }
 
     // Generate a new receipt from DelegateAction.
-    let new_receipt = Receipt {
+    let new_receipt = Receipt::V0(ReceiptV0 {
         predecessor_id: sender_id.clone(),
         receiver_id: delegate_action.receiver_id.clone(),
         receipt_id: CryptoHash::default(),
@@ -810,7 +872,7 @@ pub(crate) fn apply_delegate_action(
             input_data_ids: vec![],
             actions: delegate_action.get_actions(),
         }),
-    };
+    });
 
     // Note, Relayer prepaid all fees and all things required by actions: attached deposits and attached gas.
     // If something goes wrong, deposit is refunded to the predecessor, this is sender_id/Sender in DelegateAction.
@@ -835,13 +897,13 @@ pub(crate) fn apply_delegate_action(
 
 /// Returns Gas amount is required to execute Receipt and all actions it contains
 fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<Gas, RuntimeError> {
-    Ok(match &receipt.receipt {
+    Ok(match receipt.receipt() {
         ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
             let mut required_gas = safe_add_gas(
                 total_prepaid_exec_fees(
                     &apply_state.config,
                     &action_receipt.actions,
-                    &receipt.receiver_id,
+                    receipt.receiver_id(),
                 )?,
                 total_prepaid_gas(&action_receipt.actions)?,
             )?;
@@ -1078,7 +1140,7 @@ pub(crate) fn check_account_existence(
                 // purpose.
                 // For implicit accounts creation with non-refundable storage
                 // we require that this is the only action in the receipt.
-                return Err(ActionErrorKind::NonRefundableBalanceToExistingAccount {
+                return Err(ActionErrorKind::NonRefundableTransferToExistingAccount {
                     account_id: account_id.clone(),
                 }
                 .into());
@@ -1141,6 +1203,7 @@ mod tests {
     use near_primitives_core::version::PROTOCOL_VERSION;
     use near_store::set_account;
     use near_store::test_utils::TestTriesBuilder;
+    use std::collections::HashMap;
     use std::sync::Arc;
 
     fn test_action_create_account(
@@ -1252,7 +1315,11 @@ mod tests {
             Some(Account::new(100, 0, 0, *code_hash, storage_usage, PROTOCOL_VERSION));
         let mut actor_id = account_id.clone();
         let mut action_result = ActionResult::default();
-        let receipt = Receipt::new_balance_refund(&"alice.near".parse().unwrap(), 0);
+        let receipt = Receipt::new_balance_refund(
+            &"alice.near".parse().unwrap(),
+            0,
+            ReceiptPriority::NoPriority,
+        );
         let res = action_delete_account(
             state_update,
             &mut account,
@@ -1361,9 +1428,11 @@ mod tests {
 
     fn create_apply_state(block_height: BlockHeight) -> ApplyState {
         ApplyState {
+            apply_reason: None,
             block_height,
             prev_block_hash: CryptoHash::default(),
             block_hash: CryptoHash::default(),
+            shard_id: ShardUId::single_shard().shard_id(),
             epoch_id: EpochId::default(),
             epoch_height: 3,
             gas_price: 2,
@@ -1376,6 +1445,7 @@ mod tests {
             is_new_chunk: false,
             migration_data: Arc::default(),
             migration_flags: MigrationFlags::default(),
+            congestion_info: HashMap::new(),
         }
     }
 
@@ -1423,13 +1493,14 @@ mod tests {
             &sender_id,
             &signed_delegate_action,
             &mut result,
+            ReceiptPriority::NoPriority,
         )
         .expect("Expect ok");
 
         assert!(result.result.is_ok(), "Result error: {:?}", result.result.err());
         assert_eq!(
             result.new_receipts,
-            vec![Receipt {
+            vec![Receipt::V0(ReceiptV0 {
                 predecessor_id: sender_id.clone(),
                 receiver_id: signed_delegate_action.delegate_action.receiver_id.clone(),
                 receipt_id: CryptoHash::default(),
@@ -1440,8 +1511,8 @@ mod tests {
                     output_data_receivers: Vec::new(),
                     input_data_ids: Vec::new(),
                     actions: signed_delegate_action.delegate_action.get_actions(),
-                })
-            }]
+                }),
+            })]
         );
     }
 
@@ -1467,6 +1538,7 @@ mod tests {
             &sender_id,
             &signed_delegate_action,
             &mut result,
+            ReceiptPriority::NoPriority,
         )
         .expect("Expect ok");
 
@@ -1493,6 +1565,7 @@ mod tests {
             &sender_id,
             &signed_delegate_action,
             &mut result,
+            ReceiptPriority::NoPriority,
         )
         .expect("Expect ok");
 
@@ -1519,6 +1592,7 @@ mod tests {
             &"www.test.near".parse().unwrap(),
             &signed_delegate_action,
             &mut result,
+            ReceiptPriority::NoPriority,
         )
         .expect("Expect ok");
 

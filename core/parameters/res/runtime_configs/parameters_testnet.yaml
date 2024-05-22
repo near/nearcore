@@ -10,6 +10,7 @@ pessimistic_gas_price_inflation: {
 
 # Stateless validation config
 storage_proof_size_soft_limit: 999_999_999_999_999
+storage_proof_size_receipt_limit: 999_999_999_999_999
 
 # Account creation config
 min_allowed_top_level_account_length: 0
@@ -213,3 +214,21 @@ function_call_weight: false
 vm_kind: Wasmer0
 eth_implicit_accounts: false
 yield_resume: false
+
+# TODO What should be the config for testnet? 
+
+max_congestion_incoming_gas: 9_223_372_036_854_775_807
+max_congestion_outgoing_gas: 9_223_372_036_854_775_807
+max_congestion_memory_consumption: 9_223_372_036_854_775_807
+max_congestion_missed_chunks: 9_223_372_036_854_775_807
+
+max_outgoing_gas: 9_223_372_036_854_775_807
+min_outgoing_gas: 9_223_372_036_854_775_807
+allowed_shard_outgoing_gas: 9_223_372_036_854_775_807
+max_tx_gas: 9_223_372_036_854_775_807
+min_tx_gas: 9_223_372_036_854_775_807
+
+reject_tx_congestion_threshold: {
+  numerator: 1,
+  denominator: 1,
+}

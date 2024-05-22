@@ -28,7 +28,7 @@ pub mod value;
 /// with multiple flexibly-sized parts with relative ease.
 pub trait FlexibleDataHeader {
     /// The type of the original form of data to be used for encoding.
-    type InputData;
+    type InputData: ?Sized;
     /// The type of a view of the decoded data, which may reference the memory
     /// that we are decoding from, and therefore having a lifetime.
     type View<'a>;
@@ -45,7 +45,7 @@ pub trait FlexibleDataHeader {
     /// slice. This function must be implemented in a way that writes
     /// exactly `self.flexible_data_length()` bytes to the given memory
     /// slice. The caller must ensure that the memory slice is large enough.
-    fn encode_flexible_data(&self, data: Self::InputData, target: &mut ArenaSliceMut<'_>);
+    fn encode_flexible_data(&self, data: &Self::InputData, target: &mut ArenaSliceMut<'_>);
 
     /// Decodes the flexibly-sized part of the data from the given memory
     /// slice. This function must be implemented in a consistent manner

@@ -57,11 +57,9 @@ fn read_log_config(home_dir: &Path) -> Result<Option<LogConfig>, UpdateableConfi
 }
 
 // the file can be JSON with comments
-fn read_json_config<T: std::fmt::Debug>(
-    path: &Path,
-) -> Result<Option<T>, UpdateableConfigLoaderError>
+fn read_json_config<T>(path: &Path) -> Result<Option<T>, UpdateableConfigLoaderError>
 where
-    for<'a> T: Deserialize<'a>,
+    for<'a> T: Deserialize<'a> + std::fmt::Debug,
 {
     match std::fs::read_to_string(path) {
         Ok(config_str) => match near_config_utils::strip_comments_from_json_str(&config_str) {

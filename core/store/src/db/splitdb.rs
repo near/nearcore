@@ -35,7 +35,7 @@ impl SplitDB {
     /// implements total order on values but always compares the error on the
     /// left as lesser. This isn't even partial order. It is fine for merging
     /// lists but should not be used for anything more complex like sorting.
-    fn db_iter_item_cmp(a: &DBIteratorItem, b: &DBIteratorItem) -> Ordering {
+    pub(crate) fn db_iter_item_cmp(a: &DBIteratorItem, b: &DBIteratorItem) -> Ordering {
         match (a, b) {
             // Always put errors first.
             (Err(_), _) => Ordering::Less,
@@ -52,7 +52,7 @@ impl SplitDB {
     /// iterator will contain unique and sorted items from both input iterators.
     ///
     /// All errors from both inputs will be returned.
-    fn merge_iter<'a>(a: DBIterator<'a>, b: DBIterator<'a>) -> DBIterator<'a> {
+    pub(crate) fn merge_iter<'a>(a: DBIterator<'a>, b: DBIterator<'a>) -> DBIterator<'a> {
         // Merge the two iterators using the cmp function. The result will be an
         // iter of EitherOrBoth.
         let iter = itertools::merge_join_by(a, b, Self::db_iter_item_cmp);
@@ -198,7 +198,11 @@ impl Database for SplitDB {
         None
     }
 
-    fn create_checkpoint(&self, _path: &std::path::Path) -> anyhow::Result<()> {
+    fn create_checkpoint(
+        &self,
+        _path: &std::path::Path,
+        _columns_to_keep: Option<&[DBCol]>,
+    ) -> anyhow::Result<()> {
         log_assert_fail!("create_checkpoint is not allowed - the split storage has two stores");
         Ok(())
     }

@@ -1,7 +1,16 @@
-use std::collections::HashSet;
-
+use crate::{
+    adapter::ShardsManagerRequestFromClient,
+    client::ShardsManagerResponse,
+    test_loop::{
+        forward_client_request_to_shards_manager, forward_network_request_to_shards_manager,
+        MockChainForShardsManager, MockChainForShardsManagerConfig,
+    },
+    test_utils::default_tip,
+    ShardsManagerActor, CHUNK_REQUEST_RETRY,
+};
 use derive_enum_from_into::{EnumFrom, EnumTryInto};
 use near_async::messaging::noop;
+use near_async::test_loop::futures::TestLoopDelayedActionEvent;
 use near_async::time;
 use near_async::{
     messaging::{CanSend, IntoSender},
@@ -18,23 +27,11 @@ use near_network::{
 };
 use near_primitives::types::{AccountId, BlockHeight};
 use near_store::test_utils::create_test_store;
-use tracing::log::info;
-
-use crate::{
-    adapter::ShardsManagerRequestFromClient,
-    client::ShardsManagerResponse,
-    test_loop::{
-        forward_client_request_to_shards_manager, forward_network_request_to_shards_manager,
-        periodically_resend_chunk_requests, MockChainForShardsManager,
-        MockChainForShardsManagerConfig, ShardsManagerResendChunkRequests,
-    },
-    test_utils::default_tip,
-    ShardsManager, CHUNK_REQUEST_RETRY,
-};
+use std::collections::HashSet;
 
 #[derive(derive_more::AsMut)]
 struct TestData {
-    shards_manager: ShardsManager,
+    shards_manager: ShardsManagerActor,
     chain: MockChainForShardsManager,
     /// Captured events sent to the client.
     client_events: Vec<ShardsManagerResponse>,
@@ -49,7 +46,7 @@ impl AsMut<TestData> for TestData {
 }
 
 impl TestData {
-    fn new(shards_manager: ShardsManager, chain: MockChainForShardsManager) -> Self {
+    fn new(shards_manager: ShardsManagerActor, chain: MockChainForShardsManager) -> Self {
         Self { shards_manager, chain, client_events: vec![], network_events: vec![] }
     }
 }
@@ -60,8 +57,8 @@ enum TestEvent {
     NetworkToShardsManager(ShardsManagerRequestFromNetwork),
     ShardsManagerToClient(ShardsManagerResponse),
     ShardsManagerToNetwork(PeerManagerMessageRequest),
-    ShardsManagerResendRequests(ShardsManagerResendChunkRequests),
     Adhoc(AdhocEvent<TestData>),
+    ShardsManagerDelayedActions(TestLoopDelayedActionEvent<ShardsManagerActor>),
 }
 
 type ShardsManagerTestLoopBuilder = near_async::test_loop::TestLoopBuilder<TestEvent>;
@@ -89,7 +86,7 @@ fn test_basic_receive_complete_chunk() {
         },
     );
 
-    let shards_manager = ShardsManager::new(
+    let shards_manager = ShardsManagerActor::new(
         builder.clock(),
         Some(validators[0].clone()),
         chain.epoch_manager.clone(),
@@ -99,6 +96,7 @@ fn test_basic_receive_complete_chunk() {
         ReadOnlyChunksStore::new(store),
         default_tip(),
         default_tip(),
+        CHUNK_REQUEST_RETRY,
     );
     let test_data = TestData::new(shards_manager, chain);
     let mut test = builder.build(test_data);
@@ -166,7 +164,7 @@ fn test_chunk_forward() {
             shards_manager: builder.sender().into_sender(),
         },
     );
-    let shards_manager = ShardsManager::new(
+    let shards_manager = ShardsManagerActor::new(
         builder.clock(),
         Some(block_producers[0].clone()),
         chain.epoch_manager.clone(),
@@ -176,14 +174,19 @@ fn test_chunk_forward() {
         ReadOnlyChunksStore::new(store),
         default_tip(),
         default_tip(),
+        CHUNK_REQUEST_RETRY,
     );
     let mut test = builder.build(TestData::new(shards_manager, chain));
     test.register_handler(capture_events::<ShardsManagerResponse>().widen());
     test.register_handler(capture_events::<PeerManagerMessageRequest>().widen());
     test.register_handler(forward_client_request_to_shards_manager().widen());
     test.register_handler(forward_network_request_to_shards_manager().widen());
-    test.register_handler(periodically_resend_chunk_requests(CHUNK_REQUEST_RETRY).widen());
     test.register_handler(handle_adhoc_events::<TestData>().widen());
+    test.register_delayed_action_handler::<ShardsManagerActor>();
+
+    test.data.shards_manager.periodically_resend_chunk_requests(
+        &mut test.sender().into_delayed_action_runner::<ShardsManagerActor>(test.shutting_down()),
+    );
 
     // We'll produce a single chunk whose next chunk producer is a chunk-only
     // producer, so that we can test that the chunk is forwarded to the next
@@ -200,7 +203,7 @@ fn test_chunk_forward() {
                 data.chain.record_block(*hash, i as BlockHeight + 1);
                 let next_chunk_producer = data.chain.next_chunk_producer(0);
                 if !chunk_only_producers.contains(&next_chunk_producer) {
-                    info!(target: "test", "Trying again at height {} which has chunk producer {}, we want the next chunk producer to be a chunk only producer",
+                    tracing::info!(target: "test", "Trying again at height {} which has chunk producer {}, we want the next chunk producer to be a chunk only producer",
                           i + 1, next_chunk_producer);
                     continue;
                 }
@@ -260,4 +263,5 @@ fn test_chunk_forward() {
         }
     }
     assert!(seen_part_request);
+    test.shutdown_and_drain_remaining_events(time::Duration::seconds(1));
 }

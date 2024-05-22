@@ -1,0 +1,122 @@
+digraph G {
+    rankdir=LR;
+
+    // Invisible nodes for alignment
+    {
+        node [shape=point, width=0, height=0, label=""];
+        invisible_sink1;
+        invisible_sink2;
+        invisible_sink3;
+        invisible_sink4;
+        invisible_sink5;
+    }
+
+    // Nodes
+    subgraph cluster_shard1 {
+        label = "Shard 1";
+        style=filled;
+        color=lightgrey;
+        node [shape=ellipse];
+
+        Source1 [label="Source"];
+        Shard1 [label="Shard 1"];
+        Sink1 [label="Sink"];
+        Buffer1 [label="Outgoing Buffer fills to max" shape=box color="red" penwidth=2];
+
+
+        Sink1 -> invisible_sink1 [style=invis];
+    }
+
+    subgraph cluster_shard2 {
+        label = "Shard 2";
+        style=filled;
+        color=lightgrey;
+        node [shape=ellipse];
+
+        Source2 [label="Source"];
+        Shard2 [label="Shard 2"];
+        Sink2 [label="Sink"];
+
+        invisible_sink1 -> invisible_sink2 [style=invis];
+        Source1 -> Source2 [style=invis];
+        Sink2 -> invisible_sink2 [style=invis];
+    }
+
+    subgraph cluster_shard3 {
+        label = "Shard 3";
+        style=filled;
+        color=lightgrey;
+        node [shape=ellipse];
+
+        Source3 [label="Source"];
+        Shard3 [label="Shard 3"];
+        Sink3 [label="Sink"];
+
+        invisible_sink2 -> invisible_sink3 [style=invis];
+        Source2 -> Source3 [style=invis];
+        Sink3 -> invisible_sink3 [style=invis];
+    }
+
+    subgraph cluster_shard4 {
+        label = "Shard 4";
+        style=filled;
+        color=lightgrey;
+        node [shape=ellipse];
+
+        Source4 [label="Source"];
+        Shard4 [label="Shard 4"];
+        Sink4 [label="Sink"];
+
+        invisible_sink3 -> invisible_sink4 [style=invis];
+        Source3 -> Source4 [style=invis];
+        Shard3 -> Shard4 [style=invis];
+        Sink4 -> invisible_sink4 [style=invis];
+    }
+
+    subgraph cluster_shard5 {
+        label = "Shard 5";
+        style=filled;
+        color=lightgrey;
+        node [shape=ellipse];
+
+        Source5 [label="Source"];
+        Shard5 [label="Shard 5"];
+        Sink5 [label="Sink"];
+        Buffer5 [label="Outgoing Buffer fills to max" shape=box color="red" penwidth=2];
+
+        invisible_sink4 -> invisible_sink5 [style=invis];
+        Source4 -> Source5 [style=invis];
+        Shard4 -> Shard5 [style=invis];
+        Sink5 -> invisible_sink5 [style=invis];
+        Buffer5 -> Sink5 [style=invis];
+    }
+
+    // Edges
+    Source1 -> Shard1 [label="blocked tx to shard 2" color="green" penwidth=3];
+    Source2 -> Shard2 [label="blocked tx to shard 3" color="green" penwidth=3];
+    Source3 -> Shard3 [label="blocked tx to shard 3" color="green" penwidth=3];
+    Source4 -> Shard4 [label="blocked tx to shard 3" color="green" penwidth=3];
+    Source5 -> Shard5 [label="blocked tx to shard 4" color="green" penwidth=3];
+
+    Shard1 -> Sink1 [label="10 Tgas / 1000 Tgas"];
+    Shard2 -> Sink2 [label="10 Tgas / 1000 Tgas"];
+    Shard3 -> Sink3 [label="1000 Tgas / 1000 Tgas" color="green" penwidth=3];
+    Shard4 -> Sink4 [label="10 Tgas / 1000 Tgas"];
+    Shard5 -> Sink5 [label="10 Tgas / 1000 Tgas"];
+
+
+    Shard1 -> Buffer1 [label="backpressure" color="green" penwidth=2]
+    Buffer1 -> Shard2 [label="510 Tgas" color="green" penwidth=2];
+    Shard2 -> Shard3 [label="500 Tgas" color="green" penwidth=2];
+    Shard4 -> Shard3 [label="500 Tgas" color="green" penwidth=2];
+    Shard5 -> Buffer5 [label="backpressure" color="green" penwidth=2];
+    Buffer5 -> Shard4 [label="510 Tgas" color="green" penwidth=2];
+
+
+
+    // Aligning subgraphs
+    {rank=same; Source1; Source2; Source3; Source4; Source5;}
+    {rank=same; Shard1; Shard2; Shard3; Shard4; Shard5;}
+    {rank=same; Buffer1; Buffer5;}
+    {rank=same; Sink1; Sink2; Sink3; Sink4; Sink5; invisible_sink1; invisible_sink2; invisible_sink3; invisible_sink4; invisible_sink5;}
+}

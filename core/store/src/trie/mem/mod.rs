@@ -11,6 +11,8 @@ use std::collections::{BTreeMap, HashMap};
 mod arena;
 mod construction;
 pub(crate) mod flexible_data;
+mod freelist;
+pub mod iter;
 pub mod loading;
 pub mod lookup;
 pub mod metrics;
@@ -143,7 +145,7 @@ impl MemTries {
     pub fn update(
         &self,
         root: CryptoHash,
-        track_disk_changes: bool,
+        track_trie_changes: bool,
     ) -> Result<MemTrieUpdate, StorageError> {
         let root_id = if root == CryptoHash::default() {
             None
@@ -163,7 +165,7 @@ impl MemTries {
             root_id,
             &self.arena.memory(),
             self.shard_uid.to_string(),
-            track_disk_changes,
+            track_trie_changes,
         ))
     }
 }
@@ -223,13 +225,10 @@ mod tests {
                                 let root = MemTrieNodeId::new(
                                     arena,
                                     InputMemTrieNode::Leaf {
-                                        value: FlatStateValue::Inlined(
+                                        value: &FlatStateValue::Inlined(
                                             format!("{}", height).into_bytes(),
                                         ),
-                                        extension: NibbleSlice::new(&[])
-                                            .encoded(true)
-                                            .to_vec()
-                                            .into_boxed_slice(),
+                                        extension: &NibbleSlice::new(&[]).encoded(true),
                                     },
                                 );
                                 root.as_ptr_mut(arena.memory_mut()).compute_hash_recursively();

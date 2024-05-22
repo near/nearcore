@@ -18,6 +18,7 @@ actix.workspace = true
 anyhow.workspace = true
 awc.workspace = true
 borsh.workspace = true
+bytesize.workspace = true
 chrono.workspace = true
 cloud-storage.workspace = true
 dirs.workspace = true
@@ -94,7 +95,9 @@ test_features = [
   "near-client/test_features",
   "near-network/test_features",
   "near-store/test_features",
-  "near-jsonrpc/test_features"
+  "near-jsonrpc/test_features",
+  "near-primitives/test_features",
+  "near-vm-runner/test_features",
 ]
 expensive_tests = [
   "near-client/expensive_tests",
@@ -122,12 +125,7 @@ protocol_feature_nonrefundable_transfer_nep491 = [
 new_epoch_sync = [
   "near-client/new_epoch_sync"
 ]
-yield_resume = [
-  "near-store/yield_resume",
-  "near-primitives/yield_resume",
-]
 
-serialize_all_state_changes = ["near-store/serialize_all_state_changes"]
 nightly = [
   "near-actix-test-utils/nightly",
   "near-async/nightly",
@@ -155,9 +153,7 @@ nightly = [
   "protocol_feature_fix_contract_loading_cost",
   "protocol_feature_fix_staking_threshold",
   "protocol_feature_nonrefundable_transfer_nep491",
-  "serialize_all_state_changes",
   "testlib/nightly",
-  "yield_resume",
 ]
 nightly_protocol = [
   "near-actix-test-utils/nightly_protocol",

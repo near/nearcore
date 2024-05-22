@@ -1,10 +1,11 @@
+use ::time::ext::InstantExt as _;
 use anyhow::Context;
-use near_async::time;
+use near_async::time::{self, Instant};
 use near_network::raw::{ConnectError, Connection, DirectMessage, Message};
 use near_network::types::HandshakeFailureReason;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::types::{AccountId, BlockHeight, ShardId};
+use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::ProtocolVersion;
 use sha2::Digest;
 use sha2::Sha256;
@@ -36,11 +37,12 @@ fn handle_message(
             let state_response = response.clone().take_state_response();
             let cached_parts = state_response.cached_parts();
             let part_id = state_response.part_id();
+            let now = Instant::now();
             let duration = if let Some(part_id) = part_id {
-                let duration = app_info
-                    .requests_sent
-                    .get(&part_id)
-                    .map(|sent| (sent.elapsed() - received_at.elapsed()).as_seconds_f64());
+                let duration = app_info.requests_sent.get(&part_id).map(|sent| {
+                    (now.signed_duration_since(*sent) - now.signed_duration_since(received_at))
+                        .as_seconds_f64()
+                });
                 app_info.requests_sent.remove(&part_id);
                 duration
             } else {
@@ -70,21 +72,6 @@ fn handle_message(
     Ok(())
 }
 
-#[derive(Debug)]
-struct PeerIdentifier {
-    account_id: Option<AccountId>,
-    peer_id: PeerId,
-}
-
-impl std::fmt::Display for PeerIdentifier {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        match &self.account_id {
-            Some(a) => a.fmt(f),
-            None => self.peer_id.fmt(f),
-        }
-    }
-}
-
 async fn state_parts_from_node(
     block_hash: CryptoHash,
     shard_id: ShardId,
@@ -103,7 +90,10 @@ async fn state_parts_from_node(
     assert!(start_part_id < num_parts && num_parts > 0, "{}/{}", start_part_id, num_parts);
     let mut app_info = AppInfo::new();
 
+    let clock = time::Clock::real();
+
     let mut peer = match Connection::connect(
+        &clock,
         peer_addr,
         peer_id.clone(),
         protocol_version,

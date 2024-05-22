@@ -2,8 +2,8 @@
 # Start two nodes. Proxify both nodes
 # and wait until block at height >= 10 pass through the proxy.
 import sys, time
-import multiprocessing
 import pathlib
+from multiprocessing import Value
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -12,9 +12,6 @@ from configured_logger import logger
 from functools import partial
 from peer import *
 from proxy import ProxyHandler
-
-from multiprocessing import Value
-from utils import obj_to_string
 
 TIMEOUT = 30
 

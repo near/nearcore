@@ -8,6 +8,8 @@ use std::collections::{HashMap, HashSet};
 pub(crate) struct Transaction {
     #[allow(dead_code)]
     pub(crate) id: TransactionId,
+    /// When the transaction was produced.
+    pub(crate) submitted_at: Round,
 
     /// Where the transaction is converted to the first receipt.
     pub(crate) sender_shard: ShardId,

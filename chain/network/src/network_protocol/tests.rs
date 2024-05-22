@@ -24,7 +24,7 @@ fn deduplicate_edges() {
     let bc1 = data::make_edge(&b, &c, 1);
     let mut want = vec![ab5.clone(), ac9.clone(), bc1.clone()];
     want.sort_by_key(|e| e.key().clone());
-    let input = vec![ab1, ab3, ab5, ac7, ac9, bc1];
+    let input = [ab1, ab3, ab5, ac7, ac9, bc1];
     for p in input.iter().permutations(input.len()) {
         let mut got = Edge::deduplicate(p.into_iter().cloned().collect());
         got.sort_by_key(|e| e.key().clone());

@@ -47,7 +47,7 @@
         "DelegateActionAccessKeyError",
         "DelegateActionInvalidNonce",
         "DelegateActionNonceTooLarge",
-        "NonRefundableBalanceToExistingAccount"
+        "NonRefundableTransferToExistingAccount"
       ],
       "props": {
         "index": ""
@@ -547,6 +547,11 @@
         "account_id": ""
       }
     },
+    "InvalidTransactionVersion": {
+      "name": "InvalidTransactionVersion",
+      "subtypes": [],
+      "props": {}
+    },
     "InvalidTxError": {
       "name": "InvalidTxError",
       "subtypes": [
@@ -563,7 +568,8 @@
         "InvalidChain",
         "Expired",
         "ActionsValidation",
-        "TransactionSizeExceeded"
+        "TransactionSizeExceeded",
+        "InvalidTransactionVersion"
       ],
       "props": {}
     },
@@ -641,8 +647,8 @@
       "subtypes": [],
       "props": {}
     },
-    "NonRefundableBalanceToExistingAccount": {
-      "name": "NonRefundableBalanceToExistingAccount",
+    "NonRefundableTransferToExistingAccount": {
+      "name": "NonRefundableTransferToExistingAccount",
       "subtypes": [],
       "props": {
         "account_id": ""

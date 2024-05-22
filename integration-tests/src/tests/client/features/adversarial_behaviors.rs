@@ -1,4 +1,4 @@
-use std::{collections::HashSet, sync::Arc};
+use std::collections::HashSet;
 
 use near_async::{
     messaging::CanSend,
@@ -7,7 +7,8 @@ use near_async::{
 use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_chunks::{
-    test_loop::ShardsManagerResendChunkRequests, CHUNK_REQUEST_SWITCH_TO_FULL_FETCH,
+    shards_manager_actor::CHUNK_REQUEST_SWITCH_TO_FULL_FETCH,
+    test_loop::ShardsManagerResendChunkRequests,
 };
 use near_client::test_utils::TestEnv;
 use near_network::{
@@ -172,7 +173,7 @@ fn test_non_adversarial_case() {
             let _ = test.env.clients[i].start_process_block(
                 block.clone().into(),
                 if i == 0 { Provenance::PRODUCED } else { Provenance::NONE },
-                Arc::new(|_| {}),
+                None,
             );
             let mut accepted_blocks =
                 test.env.clients[i].finish_block_in_processing(block.header().hash());
@@ -306,7 +307,7 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
             let _ = test.env.clients[i].start_process_block(
                 block.clone().into(),
                 if i == 0 { Provenance::PRODUCED } else { Provenance::NONE },
-                Arc::new(|_| {}),
+                None,
             );
             let mut accepted_blocks =
                 test.env.clients[i].finish_block_in_processing(block.header().hash());

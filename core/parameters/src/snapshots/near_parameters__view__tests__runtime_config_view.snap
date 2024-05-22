@@ -39,9 +39,9 @@ expression: "&view"
         "execution": 64572944
       },
       "function_call_cost": {
-        "send_sir": 2319861500000,
-        "send_not_sir": 2319861500000,
-        "execution": 2319861500000
+        "send_sir": 200000000000,
+        "send_not_sir": 200000000000,
+        "execution": 780000000000
       },
       "function_call_cost_per_byte": {
         "send_sir": 2235934,
@@ -109,7 +109,7 @@ expression: "&view"
     "ext_costs": {
       "base": 264768111,
       "contract_loading_base": 35445963,
-      "contract_loading_bytes": 216750,
+      "contract_loading_bytes": 1089295,
       "read_memory_base": 2609863200,
       "read_memory_byte": 3801333,
       "write_memory_base": 2803794861,
@@ -170,10 +170,10 @@ expression: "&view"
       "alt_bn128_g1_sum_element": 5000000000,
       "alt_bn128_pairing_check_base": 9686000000000,
       "alt_bn128_pairing_check_element": 5102000000000,
-      "yield_create_base": 300000000000000,
-      "yield_create_byte": 300000000000000,
-      "yield_resume_base": 300000000000000,
-      "yield_resume_byte": 300000000000000
+      "yield_create_base": 153411779276,
+      "yield_create_byte": 15643988,
+      "yield_resume_base": 1195627285210,
+      "yield_resume_byte": 1195627285210
     },
     "grow_mem_cost": 1,
     "regular_op_cost": 822756,
@@ -187,7 +187,7 @@ expression: "&view"
     "alt_bn128": true,
     "function_call_weight": true,
     "eth_implicit_accounts": false,
-    "yield_resume_host_functions": false,
+    "yield_resume_host_functions": true,
     "limit_config": {
       "max_gas_burnt": 300000000000000,
       "max_stack_height": 262144,
@@ -216,7 +216,8 @@ expression: "&view"
       "max_locals_per_contract": 1000000,
       "account_id_validity_rules_version": 1,
       "yield_timeout_length_in_blocks": 200,
-      "max_yield_payload_size": 1024
+      "max_yield_payload_size": 1024,
+      "storage_proof_size_receipt_limit": 999999999999999
     }
   },
   "account_creation_config": {

@@ -1,0 +1,5 @@
+yield_resume: { old: false, new: true }
+wasm_yield_create_base: { old: 300_000_000_000_000, new: 153_411_779_276 }
+wasm_yield_create_byte: { old: 300_000_000_000_000, new: 15_643_988 }
+wasm_yield_resume_base: { old: 300_000_000_000_000, new: 1_195_627_285_210 }
+wasm_yield_resume_byte: { old: 300_000_000_000_000, new: 17_212_011 }

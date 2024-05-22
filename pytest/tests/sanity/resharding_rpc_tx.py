@@ -16,7 +16,7 @@ from configured_logger import logger
 import cluster
 from resharding_lib import ReshardingTestBase, get_genesis_config_changes, get_client_config_changes
 import transaction
-from utils import MetricsTracker, poll_blocks
+from utils import MetricsTracker, poll_blocks, wait_for_blocks
 import key
 
 STARTING_AMOUNT = 123 * (10**24)
@@ -25,7 +25,15 @@ STARTING_AMOUNT = 123 * (10**24)
 class ReshardingRpcTx(ReshardingTestBase):
 
     def setUp(self) -> None:
-        super().setUp(epoch_length=5)
+        # The epoch needs to be quite long because we submit transactions and
+        # wait for the response which takes some blocks. We need to make sure
+        # that transactions are fully processed before resharding so that the
+        # test checks the right things.
+        super().setUp(epoch_length=20)
+
+        # Print full diff in case of assertion failure. It's handy when the
+        # responses from submit and get transaction differ.
+        self.maxDiff = None
 
     def __setup_account(self, account_id, nonce):
         """ Create an account with full access key and balance. """
@@ -40,6 +48,7 @@ class ReshardingRpcTx(ReshardingTestBase):
         return account
 
     def __submit_transfer_tx(self, from_key, to_account_id, nonce):
+        logger.info(f"submit transfer tx from {from_key} to {to_account_id}")
         """ Submit a transfer transaction and wait for the response. """
         encoded_block_hash = self.node.get_latest_block().hash_bytes
         payment_tx = transaction.sign_payment_tx(from_key, to_account_id, 100,
@@ -53,21 +62,24 @@ class ReshardingRpcTx(ReshardingTestBase):
         tx_hash = transfer_response['result']['transaction']['hash']
         response = self.node.get_tx(tx_hash, sender_account_id)
 
-        self.assertEqual(
-            transfer_response['result']['final_execution_status'],
-            'EXECUTED',
-        )
-        self.assertEqual(
-            response['result']['final_execution_status'],
-            'FINAL',
-        )
+        self.assertTrue(
+            transfer_response['result']['final_execution_status']
+            in ['EXECUTED_OPTIMISTIC', 'EXECUTED', 'FINAL'],)
+        self.assertTrue(
+            response['result']['final_execution_status']
+            in ['EXECUTED_OPTIMISTIC', 'EXECUTED', 'FINAL'],)
 
         transfer_response = copy.deepcopy(transfer_response)
         transfer_response['result']['final_execution_status'] = "IGNORE_ME"
         response['result']['final_execution_status'] = "IGNORE_ME"
 
-        assert response == transfer_response, response
-        pass
+        response = response['result']
+        transfer_response = transfer_response['result']
+
+        # Do not compare receipts_outcome field it may have more values in the
+        # latter response.
+        for key in ['status', 'transaction', 'transaction_outcome']:
+            self.assertEqual(response[key], transfer_response[key])
 
     def test_resharding_rpc_tx(self):
         num_nodes = 2
@@ -91,8 +103,9 @@ class ReshardingRpcTx(ReshardingTestBase):
         account0 = self.__setup_account('setup_test_account.test0', 1)
         account1 = self.__setup_account('z_setup_test_account.test0', 2)
 
+        logger.info("wait for one block to create the accounts")
         # Poll one block to create the accounts
-        poll_blocks(self.node)
+        wait_for_blocks(self.node, count=1)
 
         # Submit a transfer transaction between the accounts, we would verify the transaction status later
         response0 = self.__submit_transfer_tx(
@@ -109,7 +122,7 @@ class ReshardingRpcTx(ReshardingTestBase):
         metrics_tracker = MetricsTracker(self.node)
         for height, _ in poll_blocks(self.node):
             # wait for resharding to complete
-            if height < 2 * self.epoch_length:
+            if height <= 2 * self.epoch_length + self.epoch_offset:
                 continue
 
             # Quick check whether resharding is completed

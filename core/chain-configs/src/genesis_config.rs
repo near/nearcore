@@ -60,8 +60,24 @@ fn default_minimum_stake_ratio() -> Rational32 {
     Rational32::new(160, 1_000_000)
 }
 
+fn default_shuffle_shard_assignment_for_chunk_producers() -> bool {
+    false
+}
+
 fn default_minimum_validators_per_shard() -> u64 {
     1
+}
+
+fn default_num_chunk_producer_seats() -> u64 {
+    100
+}
+
+fn default_num_chunk_validator_seats() -> u64 {
+    300
+}
+
+fn default_chunk_producer_assignment_changes_limit() -> u64 {
+    5
 }
 
 fn default_num_chunk_only_producer_seats() -> u64 {
@@ -158,6 +174,7 @@ pub struct GenesisConfig {
     pub shard_layout: ShardLayout,
     #[serde(default = "default_num_chunk_only_producer_seats")]
     #[default(300)]
+    /// Deprecated.
     pub num_chunk_only_producer_seats: NumSeats,
     /// The minimum number of validators each shard must have
     #[serde(default = "default_minimum_validators_per_shard")]
@@ -172,12 +189,33 @@ pub struct GenesisConfig {
     #[serde(default = "default_minimum_stake_ratio")]
     #[default(Rational32::new(160, 1_000_000))]
     pub minimum_stake_ratio: Rational32,
+    /// If true, shuffle the chunk producers across shards. In other words, if
+    /// the shard assignments were `[S_0, S_1, S_2, S_3]` where `S_i` represents
+    /// the set of chunk producers for shard `i`, if this flag were true, the
+    /// shard assignments might become, for example, `[S_2, S_0, S_3, S_1]`.
+    #[serde(default = "default_shuffle_shard_assignment_for_chunk_producers")]
+    #[default(false)]
+    pub shuffle_shard_assignment_for_chunk_producers: bool,
     #[serde(default = "default_use_production_config")]
     #[default(false)]
     /// This is only for test purposes. We hard code some configs for mainnet and testnet
     /// in AllEpochConfig, and we want to have a way to test that code path. This flag is for that.
     /// If set to true, the node will use the same config override path as mainnet and testnet.
     pub use_production_config: bool,
+    #[serde(default = "default_num_chunk_producer_seats")]
+    #[default(100)]
+    /// Number of chunk producers.
+    /// Don't mess it up with chunk-only producers feature which is deprecated.
+    pub num_chunk_producer_seats: NumSeats,
+    #[serde(default = "default_num_chunk_validator_seats")]
+    #[default(300)]
+    pub num_chunk_validator_seats: NumSeats,
+    #[serde(default = "default_chunk_producer_assignment_changes_limit")]
+    #[default(5)]
+    /// Limits the number of shard changes in chunk producer assignments,
+    /// if algorithm is able to choose assignment with better balance of
+    /// number of chunk producers for shards.
+    pub chunk_producer_assignment_changes_limit: NumSeats,
 }
 
 impl GenesisConfig {
@@ -206,9 +244,15 @@ impl From<&GenesisConfig> for EpochConfig {
             minimum_stake_divisor: config.minimum_stake_divisor,
             shard_layout: config.shard_layout.clone(),
             validator_selection_config: near_primitives::epoch_manager::ValidatorSelectionConfig {
+                num_chunk_producer_seats: config.num_chunk_producer_seats,
+                num_chunk_validator_seats: config.num_chunk_validator_seats,
                 num_chunk_only_producer_seats: config.num_chunk_only_producer_seats,
                 minimum_validators_per_shard: config.minimum_validators_per_shard,
                 minimum_stake_ratio: config.minimum_stake_ratio,
+                chunk_producer_assignment_changes_limit: config
+                    .chunk_producer_assignment_changes_limit,
+                shuffle_shard_assignment_for_chunk_producers: config
+                    .shuffle_shard_assignment_for_chunk_producers,
             },
             validator_max_kickout_stake_perc: config.max_kickout_stake_perc,
         }
@@ -779,6 +823,11 @@ pub struct ProtocolConfigView {
     /// The lowest ratio s/s_total any block producer can have.
     /// See <https://github.com/near/NEPs/pull/167> for details
     pub minimum_stake_ratio: Rational32,
+    /// If true, shuffle the chunk producers across shards. In other words, if
+    /// the shard assignments were `[S_0, S_1, S_2, S_3]` where `S_i` represents
+    /// the set of chunk producers for shard `i`, if this flag were true, the
+    /// shard assignments might become, for example, `[S_2, S_0, S_3, S_1]`.
+    pub shuffle_shard_assignment_for_chunk_producers: bool,
     /// The minimum number of validators each shard must have
     pub minimum_validators_per_shard: NumSeats,
     /// Number of validator seats for chunk only producers.
@@ -826,6 +875,8 @@ impl From<ProtocolConfig> for ProtocolConfigView {
             minimum_stake_divisor: genesis_config.minimum_stake_divisor,
             max_kickout_stake_perc: genesis_config.max_kickout_stake_perc,
             minimum_stake_ratio: genesis_config.minimum_stake_ratio,
+            shuffle_shard_assignment_for_chunk_producers: genesis_config
+                .shuffle_shard_assignment_for_chunk_producers,
             minimum_validators_per_shard: genesis_config.minimum_validators_per_shard,
             num_chunk_only_producer_seats: genesis_config.num_chunk_only_producer_seats,
             shard_layout: genesis_config.shard_layout,

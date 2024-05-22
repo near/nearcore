@@ -40,11 +40,11 @@ impl FlexibleDataHeader for EncodedChildrenHeader {
 
     fn encode_flexible_data(
         &self,
-        children: [Option<MemTrieNodeId>; 16],
+        children: &[Option<MemTrieNodeId>; 16],
         target: &mut ArenaSliceMut<'_>,
     ) {
         let mut j = 0;
-        for (i, child) in children.into_iter().enumerate() {
+        for (i, child) in children.iter().enumerate() {
             if self.mask & (1 << i) != 0 {
                 target.write_pos_at(j, child.unwrap().pos);
                 j += size_of::<usize>();

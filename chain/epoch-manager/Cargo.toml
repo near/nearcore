@@ -23,6 +23,7 @@ smart-default.workspace = true
 tracing.workspace = true
 # itertools has collect_vec which is useful in quick debugging prints
 itertools.workspace = true
+once_cell.workspace = true
 
 near-o11y.workspace = true
 near-crypto.workspace = true

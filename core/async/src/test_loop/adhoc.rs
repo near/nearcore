@@ -52,8 +52,7 @@ impl<Data: 'static, Event: From<AdhocEvent<Data>> + 'static> AdhocEventSender<Da
 
 /// Handler to handle adhoc events.
 pub fn handle_adhoc_events<Data: 'static>() -> LoopEventHandler<Data, AdhocEvent<Data>> {
-    LoopEventHandler::new(|event: AdhocEvent<Data>, data, _ctx| {
+    LoopEventHandler::new_simple(|event: AdhocEvent<Data>, data| {
         (event.handler)(data);
-        Ok(())
     })
 }

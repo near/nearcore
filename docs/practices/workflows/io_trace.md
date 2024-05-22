@@ -15,7 +15,7 @@ slow receipts.
 
 ## Setup 
 
-When compiling neard (or the paramater estimator) with `feature=io_trace` it
+When compiling neard (or the parameter estimator) with `feature=io_trace` it
 instruments the binary code with fine-grained database operations tracking.
 
 *Aside: We don't enable it by default because we are afraid the overhead could be
@@ -44,7 +44,7 @@ cargo build --release -p neard --features=io_trace
 target/release/neard \
     --record-io-trace=75220100-75220101.s0.io_trace \
     view-state apply-range --start-index 75220100 --end-index 75220101 \
-    --sequential --shard-id 0
+    --shard-id 0 sequential
 ```
 
 ```bash

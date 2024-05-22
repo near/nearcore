@@ -3,11 +3,9 @@ use crate::gas_cost::{GasCost, LeastSquaresTolerance};
 use crate::vm_estimator::create_context;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::StoreCompiledContractCache;
 use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::mocks::mock_external::MockedExternal;
-use near_vm_runner::logic::CompiledContractCache;
-use near_vm_runner::ContractCode;
+use near_vm_runner::{ContractCode, ContractRuntimeCache, FilesystemContractRuntimeCache};
 use std::fmt::Write;
 
 pub(crate) fn gas_metering_cost(config: &Config) -> (GasCost, GasCost) {
@@ -126,10 +124,8 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     let repeats = config.iter_per_block as u64;
     let vm_kind = config.vm_kind;
     let warmup_repeats = config.warmup_iters_per_block;
-
-    let store = near_store::test_utils::create_test_store();
-    let cache_store = StoreCompiledContractCache::new(&store);
-    let cache: Option<&dyn CompiledContractCache> = Some(&cache_store);
+    let cache_store = FilesystemContractRuntimeCache::test().unwrap();
+    let cache: Option<&dyn ContractRuntimeCache> = Some(&cache_store);
     let config_store = RuntimeConfigStore::new(None);
     let runtime_config = config_store.get_config(PROTOCOL_VERSION).as_ref();
     let vm_config_gas = runtime_config.wasm_config.clone();
@@ -150,10 +146,11 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     for _ in 0..warmup_repeats {
         let result = runtime
             .run(
-                contract,
+                *contract.hash(),
+                Some(&contract),
                 "hello",
                 &mut fake_external,
-                fake_context.clone(),
+                &fake_context,
                 &fees,
                 &promise_results,
                 cache,
@@ -170,10 +167,11 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     for _ in 0..repeats {
         let result = runtime
             .run(
-                contract,
+                *contract.hash(),
+                Some(&contract),
                 "hello",
                 &mut fake_external,
-                fake_context.clone(),
+                &fake_context,
                 &fees,
                 &promise_results,
                 cache,
@@ -187,10 +185,11 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     for _ in 0..warmup_repeats {
         let result = runtime_free_gas
             .run(
-                contract,
+                *contract.hash(),
+                Some(&contract),
                 "hello",
                 &mut fake_external,
-                fake_context.clone(),
+                &fake_context,
                 &fees,
                 &promise_results,
                 cache,
@@ -204,10 +203,11 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     for _ in 0..repeats {
         let result = runtime_free_gas
             .run(
-                contract,
+                *contract.hash(),
+                Some(&contract),
                 "hello",
                 &mut fake_external,
-                fake_context.clone(),
+                &fake_context,
                 &fees,
                 &promise_results,
                 cache,

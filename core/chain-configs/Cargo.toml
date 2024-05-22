@@ -33,6 +33,7 @@ near-primitives.workspace = true
 near-config-utils.workspace = true
 
 [features]
+protocol_feature_nonrefundable_transfer_nep491 = []
 nightly_protocol = [
   "near-async/nightly_protocol",
   "near-o11y/nightly_protocol",
@@ -45,6 +46,7 @@ nightly = [
   "near-parameters/nightly",
   "near-primitives/nightly",
   "nightly_protocol",
+  "protocol_feature_nonrefundable_transfer_nep491",
 ]
 default = []
 metrics = ["near-o11y"]

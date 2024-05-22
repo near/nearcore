@@ -12,7 +12,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
 use near_primitives::state::FlatStateValue;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::BlockHeight;
+use near_primitives::types::{BlockHeight, StateRoot};
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use std::collections::BTreeSet;
 use std::time::Instant;
@@ -113,9 +113,11 @@ fn get_state_root(
 /// deltas. The returned tries would contain a root for each block that the
 /// flat storage currently has, i.e. one for the final block, and one for each
 /// block that flat storage has a delta for, possibly in more than one fork.
+/// `state_root` parameter is required if `ChunkExtra` is not available, e.g. on catchup.
 pub fn load_trie_from_flat_state_and_delta(
     store: &Store,
     shard_uid: ShardUId,
+    state_root: Option<StateRoot>,
 ) -> Result<MemTries, StorageError> {
     debug!(target: "memtrie", %shard_uid, "Loading base trie from flat state...");
     let flat_head = match get_flat_storage_status(&store, shard_uid)? {
@@ -128,13 +130,13 @@ pub fn load_trie_from_flat_state_and_delta(
         }
     };
 
-    let mut mem_tries = load_trie_from_flat_state(
-        &store,
-        shard_uid,
-        get_state_root(store, flat_head.hash, shard_uid)?,
-        flat_head.height,
-    )
-    .unwrap();
+    let state_root = match state_root {
+        Some(state_root) => state_root,
+        None => get_state_root(store, flat_head.hash, shard_uid)?,
+    };
+
+    let mut mem_tries =
+        load_trie_from_flat_state(&store, shard_uid, state_root, flat_head.height).unwrap();
 
     debug!(target: "memtrie", %shard_uid, "Loading flat state deltas...");
     // We load the deltas in order of height, so that we always have the previous state root
@@ -185,17 +187,19 @@ mod tests {
     use crate::trie::mem::loading::load_trie_from_flat_state;
     use crate::trie::mem::lookup::memtrie_lookup;
     use crate::{DBCol, KeyLookupMode, NibbleSlice, ShardTries, Store, Trie, TrieUpdate};
+    use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
     use near_primitives::state::FlatStateValue;
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::chunk_extra::ChunkExtra;
     use near_primitives::types::StateChangeCause;
+    use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
 
     fn check(keys: Vec<Vec<u8>>) {
-        let shard_tries = TestTriesBuilder::new().with_flat_storage().build();
+        let shard_tries = TestTriesBuilder::new().with_flat_storage(true).build();
         let shard_uid = ShardUId::single_shard();
         let changes = keys.iter().map(|key| (key.to_vec(), Some(key.to_vec()))).collect::<Vec<_>>();
         let changes = simplify_changes(&changes);
@@ -461,7 +465,7 @@ mod tests {
         // Load into memory. It should load the base flat state (block 0), plus all
         // four deltas. We'll check against the state roots at each block; they should
         // all exist in the loaded memtrie.
-        let mem_tries = load_trie_from_flat_state_and_delta(&store, shard_uid).unwrap();
+        let mem_tries = load_trie_from_flat_state_and_delta(&store, shard_uid, None).unwrap();
 
         assert_eq!(
             memtrie_lookup(mem_tries.get_root(&state_root_0).unwrap(), &test_key.to_vec(), None)
@@ -532,7 +536,20 @@ mod tests {
         shard_uid: ShardUId,
         state_root: CryptoHash,
     ) {
-        let chunk_extra = ChunkExtra::new(&state_root, CryptoHash::default(), Vec::new(), 0, 0, 0);
+        let congestion_info = ProtocolFeature::CongestionControl
+            .enabled(PROTOCOL_VERSION)
+            .then(CongestionInfo::default);
+
+        let chunk_extra = ChunkExtra::new(
+            PROTOCOL_VERSION,
+            &state_root,
+            CryptoHash::default(),
+            Vec::new(),
+            0,
+            0,
+            0,
+            congestion_info,
+        );
         let mut store_update = store.store_update();
         store_update
             .set_ser(DBCol::ChunkExtra, &get_block_shard_uid(&block_hash, &shard_uid), &chunk_extra)

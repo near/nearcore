@@ -19,18 +19,19 @@ serde_json.workspace = true
 tempfile.workspace = true
 tracing.workspace = true
 
-near-chain.workspace = true
 near-chain-configs.workspace = true
-near-crypto.workspace = true
-near-client.workspace = true
+near-chain.workspace = true
 near-client-primitives.workspace = true
-near-epoch-manager.workspace = true
+near-client.workspace = true
 nearcore.workspace = true
+near-crypto.workspace = true
+near-epoch-manager.workspace = true
+near-o11y.workspace = true
 near-parameters.workspace = true
 near-primitives.workspace = true
 near-store.workspace = true
-near-o11y.workspace = true
 near-test-contracts.workspace = true
+near-vm-runner.workspace = true
 
 [dev-dependencies]
 testlib.workspace = true

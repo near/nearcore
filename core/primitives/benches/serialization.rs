@@ -11,7 +11,9 @@ use near_primitives::block::{genesis_chunks, Block};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::combine_hash;
 use near_primitives::test_utils::account_new;
-use near_primitives::transaction::{Action, SignedTransaction, Transaction, TransferAction};
+use near_primitives::transaction::{
+    Action, SignedTransaction, Transaction, TransactionV0, TransferAction,
+};
 use near_primitives::types::{EpochId, StateRoot};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -25,14 +27,14 @@ fn create_transaction() -> SignedTransaction {
     }
     SignedTransaction::new(
         Signature::empty(KeyType::ED25519),
-        Transaction {
+        Transaction::V0(TransactionV0 {
             signer_id: "123213123123".parse().unwrap(),
             public_key: PublicKey::empty(KeyType::ED25519),
             nonce: 123,
             receiver_id: "1231231232131".parse().unwrap(),
             block_hash: Default::default(),
             actions,
-        },
+        }),
     )
 }
 

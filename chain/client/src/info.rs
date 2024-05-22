@@ -1,12 +1,15 @@
 use crate::config_updater::ConfigUpdater;
 use crate::{metrics, SyncStatus};
 use itertools::Itertools;
+use lru::LruCache;
 use near_async::messaging::Sender;
 use near_async::time::{Clock, Instant};
 use near_chain_configs::{ClientConfig, LogSummaryStyle, SyncConfig};
 use near_client_primitives::types::StateSyncStatus;
+use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::NetworkInfo;
 use near_primitives::block::Tip;
+use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::telemetry::{
     TelemetryAgentInfo, TelemetryChainInfo, TelemetryInfo, TelemetrySystemInfo,
@@ -24,10 +27,11 @@ use near_primitives::views::{
 };
 use near_telemetry::TelemetryEvent;
 use std::cmp::min;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 use std::sync::Arc;
 use sysinfo::{get_current_pid, set_open_files_limit, Pid, ProcessExt, System, SystemExt};
+use time::ext::InstantExt as _;
 use tracing::info;
 
 const TERAGAS: f64 = 1_000_000_000_000_f64;
@@ -68,6 +72,8 @@ pub struct InfoHelper {
     enable_multiline_logging: bool,
     // Keeps track of the previous SyncRequirement for updating metrics.
     prev_sync_requirement: Option<String>,
+    /// Number of validators (block + chunk producers) per epoch, cached for a small number of epochs.
+    num_validators_per_epoch: LruCache<EpochId, usize>,
 }
 
 impl InfoHelper {
@@ -95,6 +101,7 @@ impl InfoHelper {
             epoch_id: None,
             enable_multiline_logging: client_config.enable_multiline_logging,
             prev_sync_requirement: None,
+            num_validators_per_epoch: LruCache::new(3),
         }
     }
 
@@ -243,7 +250,13 @@ impl InfoHelper {
             for shard_id in shard_ids {
                 let mut stake_per_cp = HashMap::<ValidatorId, Balance>::new();
                 stake_sum = 0;
-                for &id in &epoch_info.chunk_producers_settlement()[shard_id as usize] {
+                let chunk_producers_settlement = &epoch_info.chunk_producers_settlement();
+                let chunk_producers = chunk_producers_settlement.get(shard_id as usize);
+                let Some(chunk_producers) = chunk_producers else {
+                    tracing::warn!(target: "stats", ?shard_id, ?chunk_producers_settlement, "invalid shard id, not found in the shard settlement");
+                    continue;
+                };
+                for &id in chunk_producers {
                     let stake = epoch_info.validator_stake(id);
                     stake_per_cp.insert(id, stake);
                     stake_sum += stake;
@@ -269,6 +282,36 @@ impl InfoHelper {
         }
     }
 
+    /// Returns the number of validators in a given epoch (EpochId).
+    ///
+    /// The set of validators include both block producers and chunk producers.
+    /// This set of validators do not change during the epoch, so it is cached for a small number of epochs.
+    /// It does NOT currently consider whether the validators are slashed or not.
+    fn get_num_validators(
+        &mut self,
+        epoch_manager: &dyn EpochManagerAdapter,
+        epoch_id: &EpochId,
+        last_block_hash: &CryptoHash,
+    ) -> usize {
+        self.num_validators_per_epoch
+            .get_or_insert(epoch_id.clone(), || {
+                let block_producers: HashSet<AccountId> = epoch_manager
+                    .get_epoch_block_producers_ordered(epoch_id, last_block_hash)
+                    .unwrap_or(vec![])
+                    .into_iter()
+                    .map(|(validator_stake, _)| validator_stake.account_id().clone())
+                    .collect();
+                let chunk_producers: HashSet<AccountId> = epoch_manager
+                    .get_epoch_chunk_producers(epoch_id)
+                    .unwrap_or(vec![])
+                    .into_iter()
+                    .map(|validator_stake| validator_stake.account_id().clone())
+                    .collect();
+                block_producers.union(&chunk_producers).count()
+            })
+            .map_or(0, |num_validators| *num_validators)
+    }
+
     /// Print current summary.
     pub fn log_summary(
         &mut self,
@@ -280,10 +323,11 @@ impl InfoHelper {
         let is_syncing = client.sync_status.is_syncing();
         let head = unwrap_or_return!(client.chain.head());
         let validator_info = if !is_syncing {
-            let validators = unwrap_or_return!(client
-                .epoch_manager
-                .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash));
-            let num_validators = validators.len();
+            let num_validators = self.get_num_validators(
+                client.epoch_manager.as_ref(),
+                &head.epoch_id,
+                &head.last_block_hash,
+            );
             let account_id = client.validator_signer.as_ref().map(|x| x.validator_id());
             let is_validator = if let Some(account_id) = account_id {
                 match client.epoch_manager.get_validator_by_account_id(
@@ -396,11 +440,12 @@ impl InfoHelper {
             PrettyNumber::bytes_per_sec(network_info.sent_bytes_per_sec)
         ));
 
+        let now = Instant::now();
         let avg_bls = (self.num_blocks_processed as f64)
-            / (self.started.elapsed().whole_milliseconds() as f64)
+            / (now.signed_duration_since(self.started).whole_milliseconds() as f64)
             * 1000.0;
         let avg_gas_used = ((self.gas_used as f64)
-            / (self.started.elapsed().whole_milliseconds() as f64)
+            / (now.signed_duration_since(self.started).whole_milliseconds() as f64)
             * 1000.0) as u64;
         let blocks_info_log =
             Some(format!(" {:.2} bps {}", avg_bls, PrettyNumber::gas_per_sec(avg_gas_used)));
@@ -474,16 +519,19 @@ impl InfoHelper {
         self.num_chunks_in_blocks_processed = 0;
         self.gas_used = 0;
 
-        self.telemetry_sender.send(TelemetryEvent::new(self.telemetry_info(
-            head,
-            sync_status,
-            node_id,
-            network_info,
-            client_config,
-            cpu_usage,
-            memory_usage,
-            is_validator,
-        )));
+        let telemetry_event = TelemetryEvent {
+            content: self.telemetry_info(
+                head,
+                sync_status,
+                node_id,
+                network_info,
+                client_config,
+                cpu_usage,
+                memory_usage,
+                is_validator,
+            ),
+        };
+        self.telemetry_sender.send(telemetry_event);
     }
 
     fn telemetry_info(
@@ -863,13 +911,15 @@ mod tests {
     use near_async::messaging::{noop, IntoSender};
     use near_async::time::Clock;
     use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
-    use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
+    use near_chain::runtime::NightshadeRuntime;
     use near_chain::types::ChainConfig;
     use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
+    use near_chain_configs::Genesis;
     use near_epoch_manager::shard_tracker::ShardTracker;
+    use near_epoch_manager::test_utils::*;
+    use near_epoch_manager::EpochManager;
     use near_network::test_utils::peer_id_from_seed;
-    use near_primitives::version::PROTOCOL_VERSION;
-    use num_rational::Ratio;
+    use near_store::genesis::initialize_genesis_state;
 
     #[test]
     fn test_pretty_number() {
@@ -892,28 +942,20 @@ mod tests {
     }
 
     #[test]
-    fn telemetry_info() {
+    fn test_telemetry_info() {
         let config = ClientConfig::test(false, 1230, 2340, 50, false, true, true, true);
         let info_helper = InfoHelper::new(Clock::real(), noop().into_sender(), &config, None);
 
         let store = near_store::test_utils::create_test_store();
-        let vs =
-            ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test".parse().unwrap()]]);
-        let epoch_manager = MockEpochManager::new_with_validators(store.clone(), vs, 123);
+        let mut genesis = Genesis::test(vec!["test".parse::<AccountId>().unwrap()], 1);
+        genesis.config.epoch_length = 123;
+        let tempdir = tempfile::tempdir().unwrap();
+        initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-        let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
-        let chain_genesis = ChainGenesis {
-            time: Clock::real().now_utc(),
-            height: 0,
-            gas_limit: 1_000_000,
-            min_gas_price: 100,
-            max_gas_price: 1_000_000_000,
-            total_supply: 3_000_000_000_000_000_000_000_000_000_000_000,
-            gas_price_adjustment_rate: Ratio::from_integer(0),
-            transaction_validity_period: 123123,
-            epoch_length: 123,
-            protocol_version: PROTOCOL_VERSION,
-        };
+        let runtime =
+            NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
+        let chain_genesis = ChainGenesis::new(&genesis.config);
         let doomslug_threshold_mode = DoomslugThresholdMode::TwoThirds;
         let chain = Chain::new(
             Clock::real(),
@@ -925,6 +967,7 @@ mod tests {
             ChainConfig::test(),
             None,
             Arc::new(RayonAsyncComputationSpawner),
+            None,
         )
         .unwrap();
 
@@ -953,6 +996,65 @@ mod tests {
         assert_matches!(
             telemetry["extra_info"].as_str().unwrap().find("\"max_block_production_delay\":2.34,"),
             Some(_)
+        );
+    }
+
+    /// Tests that `num_validators` returns the number of all validators including both block and chunk producers.
+    #[test]
+    fn test_num_validators() {
+        let amount_staked = 1_000_000;
+        let validators = vec![
+            ("test1".parse().unwrap(), amount_staked),
+            ("test2".parse().unwrap(), amount_staked),
+            ("test3".parse().unwrap(), amount_staked),
+            ("test4".parse().unwrap(), amount_staked),
+            ("test5".parse().unwrap(), amount_staked),
+        ];
+        let num_validators = validators.len();
+        let num_block_producer_seats = 3usize;
+        assert!(
+            num_block_producer_seats < num_validators,
+            "for this test, make sure number of validators are more than block producer seats"
+        );
+
+        let last_block_hash = CryptoHash::default();
+        let epoch_id = EpochId::default();
+        let epoch_length = 2;
+        let num_shards = 2;
+
+        let epoch_manager_adapter = setup_epoch_manager(
+            validators,
+            epoch_length,
+            num_shards,
+            num_block_producer_seats.try_into().unwrap(),
+            0,
+            90,
+            90,
+            90,
+            default_reward_calculator(),
+        )
+        .into_handle();
+
+        // First check that we have different number of block and chunk producers.
+        assert_eq!(
+            num_block_producer_seats,
+            epoch_manager_adapter
+                .get_epoch_block_producers_ordered(&epoch_id, &last_block_hash)
+                .unwrap()
+                .len()
+        );
+        assert_eq!(
+            num_validators,
+            epoch_manager_adapter.get_epoch_chunk_producers(&epoch_id).unwrap().len()
+        );
+
+        // Then check that get_num_validators returns the correct number of validators.
+        let client_config = ClientConfig::test(false, 1230, 2340, 50, false, true, true, true);
+        let mut info_helper =
+            InfoHelper::new(Clock::real(), noop().into_sender(), &client_config, None);
+        assert_eq!(
+            num_validators,
+            info_helper.get_num_validators(&epoch_manager_adapter, &epoch_id, &last_block_hash)
         );
     }
 }

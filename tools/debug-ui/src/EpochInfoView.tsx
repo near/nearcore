@@ -1,6 +1,5 @@
 import './EpochInfoView.scss';
-import { NavLink } from 'react-router-dom';
-import { Navigate, Route, Routes } from 'react-router';
+import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
 import { EpochShardsView } from './EpochShardsView';
 import { EpochValidatorsView } from './EpochValidatorsView';
 import { RecentEpochsView } from './RecentEpochsView';

@@ -12,6 +12,7 @@ use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, Gas, Nonc
 use near_store::config::StateSnapshotType;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
+use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use nearcore::NightshadeRuntime;
 use std::io;
 use std::path::Path;
@@ -53,9 +54,14 @@ impl Scenario {
         let home_dir = tempdir.as_ref().map(|d| d.path());
         initialize_genesis_state(store.clone(), &genesis, home_dir);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let home_dir = home_dir.unwrap_or_else(|| Path::new("."));
+        let contract_cache = FilesystemContractRuntimeCache::new(home_dir, None::<&str>)
+            .expect("filesystem contract cache")
+            .handle();
         let runtime = NightshadeRuntime::test_with_runtime_config_store(
-            home_dir.unwrap_or_else(|| Path::new(".")),
+            home_dir,
             store.clone(),
+            contract_cache,
             &genesis.config,
             epoch_manager.clone(),
             runtime_config_store,
@@ -179,6 +185,7 @@ impl TransactionConfig {
             &self.signer,
             self.actions.clone(),
             *last_block.hash(),
+            0,
         )
     }
 }

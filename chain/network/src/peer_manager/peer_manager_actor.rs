@@ -11,6 +11,7 @@ use crate::peer_manager::connection;
 use crate::peer_manager::network_state::{NetworkState, WhitelistNode};
 use crate::peer_manager::peer_store;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
+use crate::state_witness::PartialWitnessSenderForNetwork;
 use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
@@ -19,6 +20,7 @@ use crate::types::{
     NetworkResponses, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType,
     SetChainInfo, SnapshotHostInfo,
 };
+use ::time::ext::InstantExt as _;
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, AsyncContext as _};
 use anyhow::Context as _;
@@ -207,6 +209,7 @@ impl PeerManagerActor {
         config: config::NetworkConfig,
         client: ClientSenderForNetwork,
         shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
+        partial_witness_adapter: PartialWitnessSenderForNetwork,
         genesis_id: GenesisId,
     ) -> anyhow::Result<actix::Addr<Self>> {
         let config = config.verify().context("config")?;
@@ -237,6 +240,7 @@ impl PeerManagerActor {
             genesis_id,
             client,
             shards_manager_adapter,
+            partial_witness_adapter,
             whitelist_nodes,
         ));
         arbiter.spawn({
@@ -838,8 +842,9 @@ impl PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::PartialEncodedChunkRequest { target, request, create_time } => {
-                metrics::PARTIAL_ENCODED_CHUNK_REQUEST_DELAY
-                    .observe((self.clock.now() - create_time.0).as_seconds_f64());
+                metrics::PARTIAL_ENCODED_CHUNK_REQUEST_DELAY.observe(
+                    (self.clock.now().signed_duration_since(create_time)).as_seconds_f64(),
+                );
                 let mut success = false;
 
                 // Make two attempts to send the message. First following the preference of `prefer_peer`,
@@ -976,12 +981,45 @@ impl PeerManagerActor {
                 }
                 NetworkResponses::NoResponse
             }
+            NetworkRequests::ChunkStateWitnessAck(target, ack) => {
+                self.state.send_message_to_account(
+                    &self.clock,
+                    &target,
+                    RoutedMessageBody::ChunkStateWitnessAck(ack),
+                );
+                NetworkResponses::NoResponse
+            }
             NetworkRequests::ChunkEndorsement(target, endorsement) => {
                 self.state.send_message_to_account(
                     &self.clock,
                     &target,
                     RoutedMessageBody::ChunkEndorsement(endorsement),
                 );
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple) => {
+                for (chunk_validator, partial_witness) in validator_witness_tuple {
+                    self.state.send_message_to_account(
+                        &self.clock,
+                        &chunk_validator,
+                        RoutedMessageBody::PartialEncodedStateWitness(partial_witness),
+                    );
+                }
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::PartialEncodedStateWitnessForward(
+                chunk_validators,
+                partial_witness,
+            ) => {
+                for chunk_validator in chunk_validators {
+                    self.state.send_message_to_account(
+                        &self.clock,
+                        &chunk_validator,
+                        RoutedMessageBody::PartialEncodedStateWitnessForward(
+                            partial_witness.clone(),
+                        ),
+                    );
+                }
                 NetworkResponses::NoResponse
             }
         }
@@ -1057,8 +1095,7 @@ impl actix::Handler<WithSpanContext<PeerManagerMessageRequest>> for PeerManagerA
         msg: WithSpanContext<PeerManagerMessageRequest>,
         ctx: &mut Self::Context,
     ) -> Self::Result {
-        let msg_type: &str = (&msg.msg).into();
-        let (_span, msg) = handler_debug_span!(target: "network", msg, msg_type);
+        let (_span, msg) = handler_debug_span!(target: "network", msg);
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
         self.handle_peer_manager_message(msg, ctx)

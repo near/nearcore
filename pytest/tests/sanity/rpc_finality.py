@@ -60,7 +60,7 @@ class TestRpcFinality(unittest.TestCase):
         # this transaction will be added to the block (probably around block 5)
         # and the receipts & transfers will happen in the next block (block 6).
         # This function should return as soon as block 6 arrives in node0.
-        logger.info(nodes[0].send_tx_rpc(tx, wait_until='INCLUDED', timeout=10))
+        logger.info(nodes[0].send_tx_and_wait(tx, timeout=10))
         logger.info("Done")
 
         # kill one validating node so that block cannot be finalized.

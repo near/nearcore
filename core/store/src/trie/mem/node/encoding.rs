@@ -180,7 +180,7 @@ impl MemTrieNodeId {
                     value: value_header,
                 });
                 data.encode_flexible(&extension_header, extension);
-                data.encode_flexible(&value_header, value);
+                data.encode_flexible(&value_header, &value);
                 data.finish()
             }
             InputMemTrieNode::Extension { extension, child } => {
@@ -209,7 +209,7 @@ impl MemTrieNodeId {
                     nonleaf: NonLeafHeader::new(memory_usage, node_hash),
                     children: children_header,
                 });
-                data.encode_flexible(&children_header, children);
+                data.encode_flexible(&children_header, &children);
                 data.finish()
             }
             InputMemTrieNode::BranchWithValue { children, value } => {
@@ -227,8 +227,8 @@ impl MemTrieNodeId {
                     children: children_header,
                     value: value_header,
                 });
-                data.encode_flexible(&children_header, children);
-                data.encode_flexible(&value_header, value);
+                data.encode_flexible(&children_header, &children);
+                data.encode_flexible(&value_header, &value);
                 data.finish()
             }
         };

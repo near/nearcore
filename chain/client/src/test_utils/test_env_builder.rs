@@ -1,3 +1,4 @@
+use super::mock_partial_witness_adapter::MockPartialWitnessAdapter;
 use super::setup::{setup_client_with_runtime, setup_synchronous_shards_manager};
 use super::test_env::TestEnv;
 use super::{AccountIndices, TEST_SEED};
@@ -16,10 +17,12 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_manager::{AllEpochConfigTestOverrides, RngSeed};
+use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, NumShards};
 use near_store::config::StateSnapshotType;
 use near_store::test_utils::create_test_store;
 use near_store::{NodeStorage, ShardUId, Store, StoreConfig, TrieConfig};
+use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -47,6 +50,7 @@ pub struct TestEnvBuilder {
     validators: Vec<AccountId>,
     home_dirs: Option<Vec<PathBuf>>,
     stores: Option<Vec<Store>>,
+    contract_caches: Option<Vec<Box<dyn ContractRuntimeCache>>>,
     epoch_managers: Option<Vec<EpochManagerKind>>,
     shard_trackers: Option<Vec<ShardTracker>>,
     runtimes: Option<Vec<Arc<dyn RuntimeAdapter>>>,
@@ -77,6 +81,7 @@ impl TestEnvBuilder {
             validators,
             home_dirs: None,
             stores: None,
+            contract_caches: None,
             epoch_managers: None,
             shard_trackers: None,
             runtimes: None,
@@ -166,6 +171,16 @@ impl TestEnvBuilder {
         self
     }
 
+    pub fn contract_caches<C: ContractRuntimeCache>(
+        mut self,
+        caches: impl IntoIterator<Item = C>,
+    ) -> Self {
+        assert!(self.contract_caches.is_none(), "Cannot override twice");
+        self.contract_caches = Some(caches.into_iter().map(|c| c.handle()).collect());
+        assert_eq!(self.contract_caches.as_ref().unwrap().len(), self.clients.len());
+        self
+    }
+
     pub fn real_stores(self) -> Self {
         let ret = self.ensure_home_dirs();
         let stores = ret
@@ -197,6 +212,14 @@ impl TestEnvBuilder {
             let num_clients = self.clients.len();
             self.stores((0..num_clients).map(|_| create_test_store()).collect())
         }
+    }
+
+    fn ensure_contract_caches(self) -> Self {
+        if self.contract_caches.is_some() {
+            return self;
+        }
+        let count = self.clients.len();
+        self.contract_caches((0..count).map(|_| FilesystemContractRuntimeCache::test().unwrap()))
     }
 
     /// Specifies custom EpochManagerHandle for each client.  This allows us to
@@ -289,27 +312,45 @@ impl TestEnvBuilder {
         nightshade_runtime_creator: impl Fn(
             PathBuf,
             Store,
+            Box<dyn ContractRuntimeCache>,
             Arc<EpochManagerHandle>,
             RuntimeConfigStore,
             TrieConfig,
         ) -> Arc<dyn RuntimeAdapter>,
     ) -> Self {
-        let builder = self.ensure_home_dirs().ensure_epoch_managers().ensure_stores();
+        let builder = self
+            .ensure_home_dirs()
+            .ensure_epoch_managers()
+            .ensure_stores()
+            .ensure_contract_caches();
+        let home_dirs = builder.home_dirs.clone().unwrap();
+        let stores = builder.stores.clone().unwrap();
+        let contract_caches =
+            builder.contract_caches.as_ref().unwrap().iter().map(|c| c.handle()).collect_vec();
+        let epoch_managers = builder.epoch_managers.clone().unwrap();
         let runtimes = multizip((
-            builder.home_dirs.clone().unwrap(),
-            builder.stores.clone().unwrap(),
-            builder.epoch_managers.clone().unwrap(),
+            home_dirs,
+            stores,
+            contract_caches,
+            epoch_managers,
             runtime_configs,
             trie_configs,
         ))
-        .map(|(home_dir, store, epoch_manager, runtime_config, trie_config)| {
+        .map(|(home_dir, store, contract_cache, epoch_manager, runtime_config, trie_config)| {
             let epoch_manager = match epoch_manager {
                 EpochManagerKind::Mock(_) => {
                     panic!("NightshadeRuntime can only be instantiated with EpochManagerHandle")
                 }
                 EpochManagerKind::Handle(handle) => handle,
             };
-            nightshade_runtime_creator(home_dir, store, epoch_manager, runtime_config, trie_config)
+            nightshade_runtime_creator(
+                home_dir,
+                store,
+                contract_cache,
+                epoch_manager,
+                runtime_config,
+                trie_config,
+            )
         })
         .collect();
         builder.runtimes(runtimes)
@@ -469,7 +510,9 @@ impl TestEnvBuilder {
         let network_adapters = self.network_adapters.unwrap();
         let client_adapters = (0..num_clients)
             .map(|_| Arc::new(MockClientAdapterForShardsManager::default()))
-            .collect::<Vec<_>>();
+            .collect_vec();
+        let partial_witness_adapters =
+            (0..num_clients).map(|_| MockPartialWitnessAdapter::default()).collect_vec();
         let shards_manager_adapters = (0..num_clients)
             .map(|i| {
                 let clock = clock.clone();
@@ -489,11 +532,12 @@ impl TestEnvBuilder {
                     &chain_genesis,
                 )
             })
-            .collect::<Vec<_>>();
+            .collect_vec();
         let clients = (0..num_clients)
                 .map(|i| {
                     let account_id = clients[i].clone();
                     let network_adapter = network_adapters[i].clone();
+                    let partial_witness_adapter = partial_witness_adapters[i].clone();
                     let shards_manager_adapter = shards_manager_adapters[i].clone();
                     let epoch_manager = epoch_managers[i].clone();
                     let shard_tracker = shard_trackers[i].clone();
@@ -517,10 +561,10 @@ impl TestEnvBuilder {
                         make_snapshot_callback,
                         delete_snapshot_callback,
                     };
+                    let validator_signer = Arc::new(create_test_signer(clients[i].as_str()));
                     setup_client_with_runtime(
                         clock.clone(),
                         u64::try_from(num_validators).unwrap(),
-                        Some(account_id),
                         false,
                         network_adapter.as_multi_sender(),
                         shards_manager_adapter,
@@ -532,6 +576,8 @@ impl TestEnvBuilder {
                         self.archive,
                         self.save_trie_changes,
                         Some(snapshot_callbacks),
+                        partial_witness_adapter.into_multi_sender(),
+                        validator_signer,
                     )
                 })
                 .collect();
@@ -542,6 +588,7 @@ impl TestEnvBuilder {
             validators,
             network_adapters,
             client_adapters,
+            partial_witness_adapters,
             shards_manager_adapters,
             clients,
             account_indices: AccountIndices(

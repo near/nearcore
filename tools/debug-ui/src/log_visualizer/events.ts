@@ -57,12 +57,17 @@ export class EventItem {
             const secondBracket = /[({]/.exec(afterFirstParens);
             if (secondBracket !== null) {
                 this.subtitle = afterFirstParens.substring(0, secondBracket.index);
-                if (this.subtitle === "DelayedAction"
-                    || this.subtitle === "Task"
-                    || this.subtitle === "AsyncComputation") {
+                if (
+                    this.subtitle === 'DelayedAction' ||
+                    this.subtitle === 'Task' ||
+                    this.subtitle === 'AsyncComputation'
+                ) {
                     // Special logic for DelayedAction and Task, where we're more interested
                     // in the name, which is printed in the parens.
-                    this.subtitle = afterFirstParens.substring(secondBracket.index + 1, afterFirstParens.length - 1);
+                    this.subtitle = afterFirstParens.substring(
+                        secondBracket.index + 1,
+                        afterFirstParens.length - 1
+                    );
                 }
             } else {
                 this.subtitle = afterFirstParens;
@@ -188,20 +193,24 @@ export class EventItemCollection {
                     current_event: string;
                     current_time_ms: number;
                 };
-                const startData = JSON.parse(line.substring(startIndex + startMarker.length)) as EventStartLogLineData;
+                const startData = JSON.parse(
+                    line.substring(startIndex + startMarker.length)
+                ) as EventStartLogLineData;
                 totalEventCount = startData.total_events;
                 const event = new EventItem(
                     startData.current_index,
                     parentIds[startData.current_index] ?? null,
                     startData.current_time_ms,
-                    startData.current_event,
+                    startData.current_event
                 );
                 items.add(event);
             } else if (endIndex != -1) {
                 type EventEndLogLineData = {
                     total_events: number;
                 };
-                const endData = JSON.parse(line.substring(endIndex + endMarker.length)) as EventEndLogLineData;
+                const endData = JSON.parse(
+                    line.substring(endIndex + endMarker.length)
+                ) as EventEndLogLineData;
                 for (let i = totalEventCount; i < endData.total_events; i++) {
                     parentIds[i] = items.lastEvent()!.id;
                 }

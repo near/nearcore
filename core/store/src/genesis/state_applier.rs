@@ -1,8 +1,8 @@
 use crate::flat::FlatStateChanges;
 use crate::{
     get_account, has_received_data, set, set_access_key, set_account, set_code,
-    set_delayed_receipt, set_postponed_receipt, set_received_data, set_yielded_promise, ShardTries,
-    TrieUpdate,
+    set_delayed_receipt, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
+    ShardTries, TrieUpdate,
 };
 
 use near_chain_configs::Genesis;
@@ -269,11 +269,11 @@ impl GenesisStateApplier {
             "processing postponed receipts…"
         );
         for receipt in postponed_receipts {
-            let account_id = &receipt.receiver_id;
+            let account_id = receipt.receiver_id();
 
             // Logic similar to `apply_receipt`
-            match receipt.receipt {
-                ReceiptEnum::Action(ref action_receipt) => {
+            match receipt.receipt() {
+                ReceiptEnum::Action(action_receipt) => {
                     let mut pending_data_count: u32 = 0;
                     for data_id in &action_receipt.input_data_ids {
                         storage.modify(|state_update| {
@@ -287,7 +287,7 @@ impl GenesisStateApplier {
                                         receiver_id: account_id.clone(),
                                         data_id: *data_id,
                                     },
-                                    &receipt.receipt_id,
+                                    receipt.receipt_id(),
                                 )
                             }
                         });
@@ -300,7 +300,7 @@ impl GenesisStateApplier {
                                 state_update,
                                 TrieKey::PendingDataCount {
                                     receiver_id: account_id.clone(),
-                                    receipt_id: receipt.receipt_id,
+                                    receipt_id: *receipt.receipt_id(),
                                 },
                                 &pending_data_count,
                             );
@@ -310,7 +310,7 @@ impl GenesisStateApplier {
                 }
                 ReceiptEnum::PromiseYield(ref _action_receipt) => {
                     storage.modify(|state_update| {
-                        set_yielded_promise(state_update, &receipt);
+                        set_promise_yield_receipt(state_update, &receipt);
                     });
                 }
                 ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => {

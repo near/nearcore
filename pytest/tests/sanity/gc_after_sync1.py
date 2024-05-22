@@ -11,24 +11,31 @@ import pathlib
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
+import state_sync_lib
 from configured_logger import logger
 import utils
 
-EPOCH_LENGTH = 20
+EPOCH_LENGTH = 30
 TARGET_HEIGHT1 = EPOCH_LENGTH + (EPOCH_LENGTH // 2)
 TARGET_HEIGHT2 = EPOCH_LENGTH * 3 + (EPOCH_LENGTH // 2)
 TARGET_HEIGHT3 = EPOCH_LENGTH * 10 + (EPOCH_LENGTH // 2)
 
-node0_config = {"gc_blocks_limit": 10}
+node0_config, node1_config = state_sync_lib.get_state_sync_configs_pair()
 
-node1_config = {
+node0_config.update({"gc_blocks_limit": 10})
+
+node1_config.update({
     "consensus": {
         "block_fetch_horizon": 10,
         "block_header_fetch_horizon": 10,
     },
     "tracked_shards": [0],
     "gc_blocks_limit": 10,
-}
+    "gc_step_period": {
+        "secs": 0,
+        "nanos": 100000000
+    }
+})
 
 nodes = start_cluster(
     1, 1, 1, None,

@@ -22,6 +22,7 @@ use near_primitives_core::account::id::{AccountId, AccountType};
 use std::mem::size_of;
 use std::ops::Deref;
 
+pub mod io;
 pub mod min_heap;
 
 /// Number of nano seconds in a second.
@@ -393,7 +394,7 @@ macro_rules! unwrap_or_return {
         match $obj {
             Ok(value) => value,
             Err(err) => {
-                tracing::error!(target: "client", "Unwrap error: {}", err);
+                tracing::error!(target: "near", "Unwrap error: {}", err);
                 return $ret;
             }
         }
@@ -402,7 +403,7 @@ macro_rules! unwrap_or_return {
         match $obj {
             Ok(value) => value,
             Err(err) => {
-                tracing::error!(target: "client", "Unwrap error: {}", err);
+                tracing::error!(target: "near", "Unwrap error: {}", err);
                 return;
             }
         }

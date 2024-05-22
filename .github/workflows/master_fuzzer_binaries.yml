@@ -19,11 +19,15 @@ jobs:
       - run: sudo mkswap /swap-file
       - run: sudo swapon /swap-file
 
+      - name: Checkout
+        uses: actions/checkout@v4
+  
       - id: "auth"
-        uses: "google-github-actions/auth@v1"
+        name: Authenticate with Google Cloud
+        uses: "google-github-actions/auth@v2"
         with:
-          workload_identity_provider: "projects/968400232856/locations/global/workloadIdentityPools/project-identity-pool/providers/github-provider"
-          service_account: "near-fuzzer-service-account@near-fuzzer.iam.gserviceaccount.com"
+          workload_identity_provider: "projects/346595944828/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+          service_account: "github-service-account@nearone-clusterfuzz.iam.gserviceaccount.com"
 
       - name: Installing nightly rust
         run: |
@@ -45,11 +49,9 @@ jobs:
         with:
           version: ">= 416.0.0"
 
-      - uses: actions/checkout@master
-
       - name: "Compile fuzzers and upload to GCS"
         run: |
           NAME="nearcore-${{ github.ref_name }}-$(env TZ=Etc/UTC  date +"%Y%m%d%H%M%S")"
           # Our Clusterfuzz setup currently (2024-02) runs on Cascade Lake CPUs
           RUSTFLAGS="--cfg fuzz -C target-cpu=cascadelake" cargo +nightly bolero build-clusterfuzz --all-features --profile fuzz
-          gsutil cp -Z target/fuzz/clusterfuzz.tar "gs://fuzzer_targets/${{ github.ref_name }}/$NAME.tar.gz"
+          gsutil cp -Z target/fuzz/clusterfuzz.tar "gs://nearone_fuzzer_targets/${{ github.ref_name }}/$NAME.tar.gz"

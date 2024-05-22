@@ -1,3 +1,4 @@
+use actix_web::cookie::time::ext::InstantExt as _;
 use actix_web::{web, App, HttpServer};
 use anyhow::Context;
 pub use cli::PingCommand;
@@ -215,7 +216,7 @@ impl AppInfo {
 
                 match pending_pings.remove(&nonce) {
                     Some(times) => {
-                        let latency = received_at - times.sent_at;
+                        let latency = received_at.signed_duration_since(times.sent_at);
                         state.stats.pong_received(latency);
                         assert!(self.timeouts.remove(&PingTimeout {
                             peer_id: peer_id.clone(),
@@ -390,7 +391,10 @@ async fn ping_via_node(
 
     app_info.add_peer(peer_id.clone(), None);
 
+    let clock = time::Clock::real();
+
     let mut peer = match Connection::connect(
+        &clock,
         peer_addr,
         peer_id,
         protocol_version,

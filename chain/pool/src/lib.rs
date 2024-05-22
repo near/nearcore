@@ -103,8 +103,8 @@ impl TransactionPool {
 
         // At this point transaction is accepted to the pool.
         self.total_transaction_size = new_total_transaction_size;
-        let signer_id = &signed_transaction.transaction.signer_id;
-        let signer_public_key = &signed_transaction.transaction.public_key;
+        let signer_id = signed_transaction.transaction.signer_id();
+        let signer_public_key = signed_transaction.transaction.public_key();
         self.transactions
             .entry(self.key(signer_id, signer_public_key))
             .or_insert_with(Vec::new)
@@ -134,8 +134,8 @@ impl TransactionPool {
                 continue;
             }
 
-            let signer_id = &tx.transaction.signer_id;
-            let signer_public_key = &tx.transaction.public_key;
+            let signer_id = tx.transaction.signer_id();
+            let signer_public_key = tx.transaction.public_key();
             grouped_transactions
                 .entry(self.key(signer_id, signer_public_key))
                 .or_insert_with(HashSet::new)
@@ -230,7 +230,7 @@ impl<'a> TransactionGroupIterator for PoolIteratorWrapper<'a> {
             self.pool.last_used_key = key;
             let mut transactions =
                 self.pool.transactions.remove(&key).expect("just checked existence");
-            transactions.sort_by_key(|st| std::cmp::Reverse(st.transaction.nonce));
+            transactions.sort_by_key(|st| std::cmp::Reverse(st.transaction.nonce()));
             self.sorted_groups.push_back(TransactionGroup {
                 key,
                 transactions,
@@ -380,7 +380,7 @@ mod tests {
         (
             prepare_transactions(&mut pool, expected_weight)
                 .iter()
-                .map(|tx| tx.transaction.nonce)
+                .map(|tx| tx.transaction.nonce())
                 .collect(),
             pool,
         )
@@ -455,7 +455,7 @@ mod tests {
         sort_pairs(&mut nonces[..6]);
         assert_eq!(nonces, vec![1, 21, 2, 22, 3, 23, 24, 25, 26, 27]);
         let nonces: Vec<u64> =
-            prepare_transactions(&mut pool, 10).iter().map(|tx| tx.transaction.nonce).collect();
+            prepare_transactions(&mut pool, 10).iter().map(|tx| tx.transaction.nonce()).collect();
         assert_eq!(nonces, vec![28, 29, 30, 31]);
     }
 
@@ -498,9 +498,9 @@ mod tests {
         assert_eq!(pool.len(), txs_to_check.len());
 
         let mut pool_txs = prepare_transactions(&mut pool, txs_to_check.len() as u32);
-        pool_txs.sort_by_key(|tx| tx.transaction.nonce);
+        pool_txs.sort_by_key(|tx| tx.transaction.nonce());
         let mut expected_txs = txs_to_check.to_vec();
-        expected_txs.sort_by_key(|tx| tx.transaction.nonce);
+        expected_txs.sort_by_key(|tx| tx.transaction.nonce());
 
         assert_eq!(pool_txs, expected_txs);
     }
@@ -518,7 +518,7 @@ mod tests {
         let mut pool_iter = pool.pool_iterator();
         while let Some(iter) = pool_iter.next() {
             while let Some(tx) = iter.next() {
-                if tx.transaction.nonce & 1 == 1 {
+                if tx.transaction.nonce() & 1 == 1 {
                     res.push(tx);
                     break;
                 }
@@ -527,7 +527,7 @@ mod tests {
         drop(pool_iter);
         assert_eq!(pool.len(), 0);
         assert_eq!(pool.transaction_size(), 0);
-        let mut nonces: Vec<_> = res.into_iter().map(|tx| tx.transaction.nonce).collect();
+        let mut nonces: Vec<_> = res.into_iter().map(|tx| tx.transaction.nonce()).collect();
         sort_pairs(&mut nonces[..4]);
         assert_eq!(nonces, vec![1, 21, 3, 23, 25, 27, 29, 31]);
     }
@@ -590,7 +590,7 @@ mod tests {
         let txs = prepare_transactions(&mut pool, 5);
         assert_eq!(txs.len(), 5);
         nonces.sort();
-        let mut new_nonces = txs.iter().map(|tx| tx.transaction.nonce).collect::<Vec<_>>();
+        let mut new_nonces = txs.iter().map(|tx| tx.transaction.nonce()).collect::<Vec<_>>();
         new_nonces.sort();
         assert_ne!(nonces, new_nonces);
     }

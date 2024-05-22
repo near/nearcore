@@ -8,7 +8,7 @@ all users collude to make the system as slow as possible.
 This benchmarking suite is used to check that the gas parameters defined in the
 protocol are correct. Correct in this context means, a chunk filled with 1 Pgas
 (**P**eta gas) will take at most 1 second to be applied. Or more generally,
-per 1 Tgas of execution, we spend no more than 1ms wall-clock time. 
+per 1 Tgas of execution, we spend no more than 1ms wall-clock time.
 
 For now, nearcore timing is the only one that matters. Things will become more
 complicated once there are multiple client implementations. But knowing that
@@ -84,9 +84,9 @@ variations. This gives an approximation for IO bytes, as seen on the interface
 between the operating system and nearcore. To convert to gas, we use three
 constants to multiply with instruction count, read bytes, and write bytes.
 
-We run qemu inside a Docker container, to make sure the qemu and qemu plugin
-versions match with system libraries. Make sure to add `--docker` when running
-with `--metric icount`.
+We run qemu inside a Docker container using the Podman runtime, to make sure the qemu and qemu
+plugin versions match with system libraries. Make sure to add `--containerize` when running with
+`--metric icount`.
 
 The great thing about `icount` is that you can run it on different machines and
 it will always return the same result. It is not 100% deterministic but very

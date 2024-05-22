@@ -1,6 +1,9 @@
 use crate::metrics;
 
+use actix_rt::Arbiter;
 use borsh::BorshSerialize;
+use futures::future::BoxFuture;
+use futures::FutureExt;
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error};
@@ -25,107 +28,134 @@ use std::collections::HashSet;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-/// Starts one a thread per tracked shard.
-/// Each started thread will be dumping state parts of a single epoch to external storage.
-pub fn spawn_state_sync_dump(
-    client_config: &ClientConfig,
-    chain_genesis: ChainGenesis,
-    epoch_manager: Arc<dyn EpochManagerAdapter>,
-    shard_tracker: ShardTracker,
-    runtime: Arc<dyn RuntimeAdapter>,
-    account_id: Option<AccountId>,
-) -> anyhow::Result<Option<StateSyncDumpHandle>> {
-    let dump_config = if let Some(dump_config) = client_config.state_sync.dump.clone() {
-        dump_config
-    } else {
-        // Dump is not configured, and therefore not enabled.
-        tracing::debug!(target: "state_sync_dump", "Not spawning the state sync dump loop");
-        return Ok(None);
-    };
-    tracing::info!(target: "state_sync_dump", "Spawning the state sync dump loop");
+pub struct StateSyncDumper {
+    pub clock: Clock,
+    pub client_config: ClientConfig,
+    pub chain_genesis: ChainGenesis,
+    pub epoch_manager: Arc<dyn EpochManagerAdapter>,
+    pub shard_tracker: ShardTracker,
+    pub runtime: Arc<dyn RuntimeAdapter>,
+    pub account_id: Option<AccountId>,
+    pub dump_future_runner: Box<dyn Fn(BoxFuture<'static, ()>) -> Box<dyn FnOnce()>>,
+    pub handle: Option<StateSyncDumpHandle>,
+}
 
-    let external = match dump_config.location {
-        ExternalStorageLocation::S3 { bucket, region } => ExternalConnection::S3{
-            bucket: Arc::new(create_bucket_readwrite(&bucket, &region, std::time::Duration::from_secs(30), dump_config.credentials_file).expect(
-                "Failed to authenticate connection to S3. Please either provide AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in the environment, or create a credentials file and link it in config.json as 's3_credentials_file'."))
-        },
-        ExternalStorageLocation::Filesystem { root_dir } => ExternalConnection::Filesystem { root_dir },
-        ExternalStorageLocation::GCS { bucket } => {
-            if let Some(credentials_file) = dump_config.credentials_file {
-                if let Ok(var) = std::env::var("SERVICE_ACCOUNT") {
-                    tracing::warn!(target: "state_sync_dump", "Environment variable 'SERVICE_ACCOUNT' is set to {var}, but 'credentials_file' in config.json overrides it to '{credentials_file:?}'");
-                    println!("Environment variable 'SERVICE_ACCOUNT' is set to {var}, but 'credentials_file' in config.json overrides it to '{credentials_file:?}'");
+impl StateSyncDumper {
+    /// Starts one a thread per tracked shard.
+    /// Each started thread will be dumping state parts of a single epoch to external storage.
+    pub fn start(&mut self) -> anyhow::Result<()> {
+        assert!(self.handle.is_none(), "StateSyncDumper already started");
+
+        let dump_config = if let Some(dump_config) = self.client_config.state_sync.dump.clone() {
+            dump_config
+        } else {
+            // Dump is not configured, and therefore not enabled.
+            tracing::debug!(target: "state_sync_dump", "Not spawning the state sync dump loop");
+            return Ok(());
+        };
+        tracing::info!(target: "state_sync_dump", "Spawning the state sync dump loop");
+
+        let external = match dump_config.location {
+            ExternalStorageLocation::S3 { bucket, region } => ExternalConnection::S3 {
+                bucket: Arc::new(create_bucket_readwrite(&bucket, &region, std::time::Duration::from_secs(30), dump_config.credentials_file).expect(
+                    "Failed to authenticate connection to S3. Please either provide AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in the environment, or create a credentials file and link it in config.json as 's3_credentials_file'."))
+            },
+            ExternalStorageLocation::Filesystem { root_dir } => ExternalConnection::Filesystem { root_dir },
+            ExternalStorageLocation::GCS { bucket } => {
+                if let Some(credentials_file) = dump_config.credentials_file {
+                    if let Ok(var) = std::env::var("SERVICE_ACCOUNT") {
+                        tracing::warn!(target: "state_sync_dump", "Environment variable 'SERVICE_ACCOUNT' is set to {var}, but 'credentials_file' in config.json overrides it to '{credentials_file:?}'");
+                        println!("Environment variable 'SERVICE_ACCOUNT' is set to {var}, but 'credentials_file' in config.json overrides it to '{credentials_file:?}'");
+                    }
+                    std::env::set_var("SERVICE_ACCOUNT", &credentials_file);
+                    tracing::info!(target: "state_sync_dump", "Set the environment variable 'SERVICE_ACCOUNT' to '{credentials_file:?}'");
                 }
-                std::env::set_var("SERVICE_ACCOUNT", &credentials_file);
-                tracing::info!(target: "state_sync_dump", "Set the environment variable 'SERVICE_ACCOUNT' to '{credentials_file:?}'");
-            }
-            ExternalConnection::GCS {
-                gcs_client: Arc::new(cloud_storage::Client::default()),
-                reqwest_client: Arc::new(reqwest::Client::default()),
-                bucket
-            }
-        },
-    };
+                ExternalConnection::GCS {
+                    gcs_client: Arc::new(cloud_storage::Client::default()),
+                    reqwest_client: Arc::new(reqwest::Client::default()),
+                    bucket,
+                }
+            },
+        };
 
-    // Determine how many threads to start.
-    // TODO: Handle the case of changing the shard layout.
-    let shard_ids = {
-        // Sadly, `Chain` is not `Send` and each thread needs to create its own `Chain` instance.
-        let chain = Chain::new_for_view_client(
-            Clock::real(),
-            epoch_manager.clone(),
-            shard_tracker.clone(),
-            runtime.clone(),
-            &chain_genesis,
-            DoomslugThresholdMode::TwoThirds,
-            false,
-        )?;
-        let epoch_id = chain.head()?.epoch_id;
-        epoch_manager.shard_ids(&epoch_id)
-    }?;
-
-    let chain_id = client_config.chain_id.clone();
-    let keep_running = Arc::new(AtomicBool::new(true));
-    // Start a thread for each shard.
-    let handles = shard_ids
-        .into_iter()
-        .map(|shard_id| {
-            let runtime = runtime.clone();
-            let chain_genesis = chain_genesis.clone();
+        // Determine how many threads to start.
+        // TODO: Handle the case of changing the shard layout.
+        let shard_ids = {
+            // Sadly, `Chain` is not `Send` and each thread needs to create its own `Chain` instance.
             let chain = Chain::new_for_view_client(
-                Clock::real(),
-                epoch_manager.clone(),
-                shard_tracker.clone(),
-                runtime.clone(),
-                &chain_genesis,
+                self.clock.clone(),
+                self.epoch_manager.clone(),
+                self.shard_tracker.clone(),
+                self.runtime.clone(),
+                &self.chain_genesis,
                 DoomslugThresholdMode::TwoThirds,
                 false,
-            )
-            .unwrap();
-            let arbiter_handle = actix_rt::Arbiter::new().handle();
-            assert!(arbiter_handle.spawn(state_sync_dump(
-                shard_id as ShardId,
-                chain,
-                epoch_manager.clone(),
-                shard_tracker.clone(),
-                runtime.clone(),
-                chain_id.clone(),
-                dump_config.restart_dump_for_shards.clone().unwrap_or_default(),
-                external.clone(),
-                dump_config.iteration_delay.unwrap_or(Duration::seconds(10)),
-                account_id.clone(),
-                keep_running.clone(),
-            )));
-            arbiter_handle
-        })
-        .collect();
+            )?;
+            let epoch_id = chain.head()?.epoch_id;
+            self.epoch_manager.shard_ids(&epoch_id)
+        }?;
 
-    Ok(Some(StateSyncDumpHandle { handles, keep_running }))
+        let chain_id = self.client_config.chain_id.clone();
+        let keep_running = Arc::new(AtomicBool::new(true));
+        // Start a thread for each shard.
+        let handles = shard_ids
+            .into_iter()
+            .map(|shard_id| {
+                let runtime = self.runtime.clone();
+                let chain_genesis = self.chain_genesis.clone();
+                let chain = Chain::new_for_view_client(
+                    self.clock.clone(),
+                    self.epoch_manager.clone(),
+                    self.shard_tracker.clone(),
+                    runtime.clone(),
+                    &chain_genesis,
+                    DoomslugThresholdMode::TwoThirds,
+                    false,
+                )
+                .unwrap();
+                (self.dump_future_runner)(
+                    state_sync_dump(
+                        self.clock.clone(),
+                        shard_id as ShardId,
+                        chain,
+                        self.epoch_manager.clone(),
+                        self.shard_tracker.clone(),
+                        runtime.clone(),
+                        chain_id.clone(),
+                        dump_config.restart_dump_for_shards.clone().unwrap_or_default(),
+                        external.clone(),
+                        dump_config.iteration_delay.unwrap_or(Duration::seconds(10)),
+                        self.account_id.clone(),
+                        keep_running.clone(),
+                    )
+                    .boxed(),
+                )
+            })
+            .collect();
+
+        self.handle = Some(StateSyncDumpHandle { handles, keep_running });
+        Ok(())
+    }
+
+    pub fn arbiter_dump_future_runner() -> Box<dyn Fn(BoxFuture<'static, ()>) -> Box<dyn FnOnce()>>
+    {
+        Box::new(|future| {
+            let arbiter = Arbiter::new();
+            assert!(arbiter.spawn(future));
+            Box::new(move || {
+                arbiter.stop();
+            })
+        })
+    }
+
+    pub fn stop(&mut self) {
+        self.handle.take();
+    }
 }
 
 /// Holds arbiter handles controlling the lifetime of the spawned threads.
 pub struct StateSyncDumpHandle {
-    pub handles: Vec<actix_rt::ArbiterHandle>,
+    pub handles: Vec<Box<dyn FnOnce()>>,
     keep_running: Arc<AtomicBool>,
 }
 
@@ -136,10 +166,10 @@ impl Drop for StateSyncDumpHandle {
 }
 
 impl StateSyncDumpHandle {
-    pub fn stop(&self) {
+    pub fn stop(&mut self) {
         self.keep_running.store(false, std::sync::atomic::Ordering::Relaxed);
-        self.handles.iter().for_each(|handle| {
-            handle.stop();
+        self.handles.drain(..).for_each(|dropper| {
+            dropper();
         });
     }
 }
@@ -202,40 +232,59 @@ fn select_random_part_id_with_index(parts_to_be_dumped: &Vec<u64>) -> (u64, usiz
     (selected_element, selected_idx)
 }
 
+enum StateDumpAction {
+    Wait,
+    Dump { epoch_id: EpochId, epoch_height: EpochHeight, sync_hash: CryptoHash },
+}
+
 fn get_current_state(
     chain: &Chain,
     shard_id: &ShardId,
     shard_tracker: &ShardTracker,
     account_id: &Option<AccountId>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
-) -> Result<Option<(EpochId, EpochHeight, CryptoHash)>, Error> {
-    let was_last_epoch_dumped = match chain.chain_store().get_state_sync_dump_progress(*shard_id) {
+) -> Result<StateDumpAction, Error> {
+    let was_last_epoch_done = match chain.chain_store().get_state_sync_dump_progress(*shard_id) {
         Ok(StateSyncDumpProgress::AllDumped { epoch_id, .. }) => Some(epoch_id),
+        Ok(StateSyncDumpProgress::Skipped { epoch_id, .. }) => Some(epoch_id),
         _ => None,
     };
 
-    match get_latest_epoch(shard_id, &chain, epoch_manager) {
-        Err(err) => {
-            tracing::debug!(target: "state_sync_dump", shard_id, ?err, "check_latest_epoch failed. Will retry.");
-            Err(err)
-        }
-        Ok((new_epoch_id, new_epoch_height, new_sync_hash)) => {
-            if Some(&new_epoch_id) == was_last_epoch_dumped.as_ref() {
-                tracing::debug!(target: "state_sync_dump", shard_id, ?was_last_epoch_dumped, ?new_epoch_id, new_epoch_height, ?new_sync_hash, "latest epoch is all dumped. No new epoch to dump. Idle");
-                Ok(None)
-            } else if cares_about_shard(
-                chain,
-                shard_id,
-                &new_sync_hash,
-                &shard_tracker,
-                &account_id,
-            )? {
-                Ok(Some((new_epoch_id, new_epoch_height, new_sync_hash)))
-            } else {
-                tracing::debug!(target: "state_sync_dump", shard_id, ?new_epoch_id, new_epoch_height, ?new_sync_hash, "Doesn't care about the shard in the current epoch. Idle");
-                Ok(None)
-            }
-        }
+    let latest_epoch_info = get_latest_epoch(shard_id, &chain, epoch_manager.clone());
+    let LatestEpochInfo {
+        prev_epoch_id,
+        epoch_id: new_epoch_id,
+        epoch_height: new_epoch_height,
+        sync_hash: new_sync_hash,
+    } = latest_epoch_info.map_err(|err| {
+        tracing::error!(target: "state_sync_dump", shard_id, ?err, "Failed to get the latest epoch");
+        err
+    })?;
+
+    if Some(&new_epoch_id) == was_last_epoch_done.as_ref() {
+        tracing::debug!(target: "state_sync_dump", shard_id, ?was_last_epoch_done, ?new_epoch_id, new_epoch_height, ?new_sync_hash, "latest epoch is done. No new epoch to dump. Idle");
+        Ok(StateDumpAction::Wait)
+    } else if epoch_manager.get_shard_layout(&prev_epoch_id)
+        != epoch_manager.get_shard_layout(&new_epoch_id)
+    {
+        tracing::debug!(target: "state_sync_dump", shard_id, ?was_last_epoch_done, ?new_epoch_id, new_epoch_height, ?new_sync_hash, "Shard layout change detected, will skip dumping for this epoch. Idle");
+        chain.chain_store().set_state_sync_dump_progress(
+            *shard_id,
+            Some(StateSyncDumpProgress::Skipped {
+                epoch_id: new_epoch_id,
+                epoch_height: new_epoch_height,
+            }),
+        )?;
+        Ok(StateDumpAction::Wait)
+    } else if cares_about_shard(chain, shard_id, &new_sync_hash, &shard_tracker, &account_id)? {
+        Ok(StateDumpAction::Dump {
+            epoch_id: new_epoch_id,
+            epoch_height: new_epoch_height,
+            sync_hash: new_sync_hash,
+        })
+    } else {
+        tracing::debug!(target: "state_sync_dump", shard_id, ?new_epoch_id, new_epoch_height, ?new_sync_hash, "Doesn't care about the shard in the current epoch. Idle");
+        Ok(StateDumpAction::Wait)
     }
 }
 
@@ -275,6 +324,7 @@ async fn upload_state_header(
 const FAILURES_ALLOWED_PER_ITERATION: u32 = 10;
 
 async fn state_sync_dump(
+    clock: Clock,
     shard_id: ShardId,
     chain: Chain,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -310,8 +360,8 @@ async fn state_sync_dump(
                 tracing::error!(target: "state_sync_dump", ?err, ?shard_id, "Failed to get the current state");
                 None
             }
-            Ok(None) => None,
-            Ok(Some((epoch_id, epoch_height, sync_hash))) => {
+            Ok(StateDumpAction::Wait) => None,
+            Ok(StateDumpAction::Dump { epoch_id, epoch_height, sync_hash }) => {
                 let in_progress_data = get_in_progress_data(shard_id, sync_hash, &chain);
                 match in_progress_data {
                     Err(err) => {
@@ -392,7 +442,7 @@ async fn state_sync_dump(
                                 // Stop if the node is stopped.
                                 // Note that without this check the state dumping thread is unstoppable, i.e. non-interruptable.
                                 while keep_running.load(std::sync::atomic::Ordering::Relaxed)
-                                    && timer.elapsed().whole_seconds()
+                                    && timer.elapsed().as_secs()
                                         <= STATE_DUMP_ITERATION_TIME_LIMIT_SECS
                                     && !parts_to_dump.is_empty()
                                     && failures_cnt < FAILURES_ALLOWED_PER_ITERATION
@@ -504,7 +554,7 @@ async fn state_sync_dump(
 
         if !has_progress {
             // Avoid a busy-loop when there is nothing to do.
-            actix_rt::time::sleep(iteration_delay.unsigned_abs()).await;
+            clock.sleep(iteration_delay).await;
         }
     }
     tracing::debug!(target: "state_sync_dump", shard_id, "Stopped state dump thread");
@@ -589,12 +639,19 @@ fn cares_about_shard(
     Ok(shard_tracker.care_about_shard(account_id.as_ref(), sync_prev_hash, *shard_id, true))
 }
 
+struct LatestEpochInfo {
+    prev_epoch_id: EpochId,
+    epoch_id: EpochId,
+    epoch_height: EpochHeight,
+    sync_hash: CryptoHash,
+}
+
 /// return epoch_id and sync_hash of the latest complete epoch available locally.
 fn get_latest_epoch(
     shard_id: &ShardId,
     chain: &Chain,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
-) -> Result<(EpochId, EpochHeight, CryptoHash), Error> {
+) -> Result<LatestEpochInfo, Error> {
     let head = chain.head()?;
     tracing::debug!(target: "state_sync_dump", shard_id, "Check if a new complete epoch is available");
     let hash = head.last_block_hash;
@@ -604,8 +661,9 @@ fn get_latest_epoch(
     let final_block_header = chain.get_block_header(&final_hash)?;
     let epoch_id = final_block_header.epoch_id().clone();
     let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
+    let prev_epoch_id = epoch_manager.get_prev_epoch_id_from_prev_block(&head.prev_block_hash)?;
     let epoch_height = epoch_info.epoch_height();
     tracing::debug!(target: "state_sync_dump", ?final_hash, ?sync_hash, ?epoch_id, epoch_height, "get_latest_epoch");
 
-    Ok((epoch_id, epoch_height, sync_hash))
+    Ok(LatestEpochInfo { prev_epoch_id, epoch_id, epoch_height, sync_hash })
 }

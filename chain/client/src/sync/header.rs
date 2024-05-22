@@ -59,6 +59,11 @@ pub struct HeaderSync {
 
     /// Expected increase of header head height per second during header sync
     expected_height_per_second: u64,
+
+    /// Not for production use.
+    /// Expected height when node will be automatically shut down, so header
+    /// sync can be stopped.
+    shutdown_height: near_chain_configs::MutableConfigValue<Option<BlockHeight>>,
 }
 
 impl HeaderSync {
@@ -69,6 +74,7 @@ impl HeaderSync {
         progress_timeout: Duration,
         stall_ban_timeout: Duration,
         expected_height_per_second: u64,
+        shutdown_height: near_chain_configs::MutableConfigValue<Option<BlockHeight>>,
     ) -> Self {
         HeaderSync {
             clock: clock.clone(),
@@ -81,10 +87,11 @@ impl HeaderSync {
             },
             syncing_peer: None,
             stalling_ts: None,
-            initial_timeout: initial_timeout,
-            progress_timeout: progress_timeout,
-            stall_ban_timeout: stall_ban_timeout,
+            initial_timeout,
+            progress_timeout,
+            stall_ban_timeout,
             expected_height_per_second,
+            shutdown_height,
         }
     }
 
@@ -98,7 +105,8 @@ impl HeaderSync {
         highest_height: BlockHeight,
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<(), near_chain::Error> {
-        let _span = tracing::debug_span!(target: "sync", "run", sync = "HeaderSync").entered();
+        let _span =
+            tracing::debug_span!(target: "sync", "run_sync", sync_type = "HeaderSync").entered();
         let head = chain.head()?;
         let header_head = chain.header_head()?;
 
@@ -146,8 +154,9 @@ impl HeaderSync {
         self.syncing_peer = None;
         // Pick a new random peer to request the next batch of headers.
         if let Some(peer) = highest_height_peers.choose(&mut thread_rng()).cloned() {
-            // TODO: This condition should always be true, otherwise we can already complete header sync.
-            if peer.highest_block_height > header_head.height {
+            let shutdown_height = self.shutdown_height.get().unwrap_or(u64::MAX);
+            let highest_height = peer.highest_block_height.min(shutdown_height);
+            if highest_height > header_head.height {
                 self.syncing_peer = self.request_headers(chain, peer);
             }
         }
@@ -375,11 +384,10 @@ fn get_locator_ordinals(lowest_ordinal: u64, highest_ordinal: u64) -> Vec<u64> {
 mod test {
     use near_async::messaging::IntoMultiSender;
     use near_async::time::{Clock, Duration, FakeClock, Utc};
-    use near_chain::test_utils::{
-        process_block_sync, setup, setup_with_validators_and_start_time, ValidatorSchedule,
-    };
+    use near_chain::test_utils::{process_block_sync, setup, setup_with_tx_validity_period};
     use near_chain::types::Tip;
     use near_chain::{BlockProcessingArtifact, Provenance};
+    use near_chain_configs::MutableConfigValue;
     use near_client_primitives::types::SyncStatus;
     use near_crypto::{KeyType, PublicKey};
     use near_network::test_utils::MockPeerManagerAdapter;
@@ -448,6 +456,7 @@ mod test {
             Duration::seconds(2),
             Duration::seconds(120),
             1_000_000_000,
+            MutableConfigValue::new(None, "expected_shutdown"),
         );
         let (mut chain, _, _, signer) = setup(Clock::real());
         for _ in 0..3 {
@@ -535,6 +544,7 @@ mod test {
             Duration::seconds(2),
             Duration::seconds(120),
             1_000_000_000,
+            MutableConfigValue::new(None, "expected_shutdown"),
         );
         let (mut chain, _, _, signer) = setup(Clock::real());
         let (mut chain2, _, _, signer2) = setup(Clock::real());
@@ -646,6 +656,7 @@ mod test {
             Duration::seconds(1),
             Duration::seconds(3),
             25,
+            MutableConfigValue::new(None, "expected_shutdown"),
         );
 
         let set_syncing_peer = |header_sync: &mut HeaderSync| {
@@ -742,16 +753,13 @@ mod test {
             Duration::seconds(2),
             Duration::seconds(120),
             1_000_000_000,
+            MutableConfigValue::new(None, "expected_shutdown"),
         );
 
-        let vs = ValidatorSchedule::new()
-            .block_producers_per_epoch(vec![vec!["test0".parse().unwrap()]]);
         let clock = FakeClock::new(Utc::UNIX_EPOCH);
         // Don't bother with epoch switches. It's not relevant.
-        let (mut chain, _, _, _) =
-            setup_with_validators_and_start_time(clock.clock(), vs.clone(), 10000, 100);
-        let (mut chain2, _, _, signers2) =
-            setup_with_validators_and_start_time(clock.clock(), vs, 10000, 100);
+        let (mut chain, _, _, _) = setup_with_tx_validity_period(clock.clock(), 100, 10000);
+        let (mut chain2, _, _, signer2) = setup_with_tx_validity_period(clock.clock(), 100, 10000);
         // Set up the second chain with 2000+ blocks.
         let mut block_merkle_tree = PartialMerkleTree::default();
         block_merkle_tree.insert(*chain.genesis().hash()); // for genesis block
@@ -777,7 +785,7 @@ mod test {
                 epoch_id,
                 next_epoch_id,
                 None,
-                signers2
+                [&signer2]
                     .iter()
                     .map(|signer| {
                         Some(Box::new(
@@ -797,7 +805,7 @@ mod test {
                 Some(0),
                 vec![],
                 vec![],
-                &*signers2[0],
+                signer2.as_ref(),
                 *last_block.header().next_bp_hash(),
                 block_merkle_tree.root(),
                 clock.now_utc(),

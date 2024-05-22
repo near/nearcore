@@ -52,6 +52,7 @@ pub struct StoreConfig {
     /// Enable fetching account and access key data ahead of time to avoid IO latency.
     pub enable_receipt_prefetching: bool,
 
+    /// TODO: use `PrefetchConfig` for SWEAT prefetching.
     /// Configured accounts will be prefetched as SWEAT token account, if predecessor is listed as receiver.
     /// This config option is temporary and will be removed once flat storage is implemented.
     pub sweat_prefetch_receivers: Vec<String>,
@@ -59,12 +60,15 @@ pub struct StoreConfig {
     /// This config option is temporary and will be removed once flat storage is implemented.
     pub sweat_prefetch_senders: Vec<String>,
 
+    pub claim_sweat_prefetch_config: Vec<PrefetchConfig>,
+    pub kaiching_prefetch_config: Vec<PrefetchConfig>,
+
     /// List of shard UIDs for which we should load the tries in memory.
     /// TODO(#9511): This does not automatically survive resharding. We may need to figure out a
     /// strategy for that.
     pub load_mem_tries_for_shards: Vec<ShardUId>,
-    /// If true, load mem tries for all shards; this has priority over `load_mem_tries_for_shards`.
-    pub load_mem_tries_for_all_shards: bool,
+    /// If true, load mem trie for each shard being tracked; this has priority over `load_mem_tries_for_shards`.
+    pub load_mem_tries_for_tracked_shards: bool,
 
     /// Path where to create RocksDB checkpoints during database migrations or
     /// `false` to disable that feature.
@@ -95,9 +99,6 @@ pub struct StoreConfig {
 
     // TODO (#9989): To be phased out in favor of state_snapshot_config
     pub state_snapshot_enabled: bool,
-
-    // TODO (#9989): To be phased out in favor of state_snapshot_config
-    pub state_snapshot_compaction_enabled: bool,
 }
 
 /// Config used to control state snapshot creation. This is used for state sync and resharding.
@@ -105,11 +106,6 @@ pub struct StoreConfig {
 #[serde(default)]
 pub struct StateSnapshotConfig {
     pub state_snapshot_type: StateSnapshotType,
-    /// State Snapshot compaction usually is a good thing but is heavy on IO and can take considerable
-    /// amount of time.
-    /// It makes state snapshots tiny (10GB) over the course of an epoch.
-    /// We may want to disable it for archival nodes during resharding
-    pub compaction_enabled: bool,
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
@@ -259,6 +255,16 @@ impl Default for StoreConfig {
                 "oracle.sweat".to_owned(),
                 "sweat_the_oracle.testnet".to_owned(),
             ],
+            claim_sweat_prefetch_config: vec![PrefetchConfig {
+                receiver: "claim.sweat".to_owned(),
+                sender: "token.sweat".to_owned(),
+                method_name: "record_batch_for_hold".to_owned(),
+            }],
+            kaiching_prefetch_config: vec![PrefetchConfig {
+                receiver: "earn.kaiching".to_owned(),
+                sender: "wallet.kaiching".to_owned(),
+                method_name: "ft_on_transfer".to_owned(),
+            }],
 
             // TODO(#9511): Consider adding here shard id 3 or all shards after
             // this feature will be tested. Until that, use at your own risk.
@@ -266,7 +272,7 @@ impl Default for StoreConfig {
             // It will speed up processing of shards where it is enabled, but
             // requires more RAM and takes several minutes on startup.
             load_mem_tries_for_shards: Default::default(),
-            load_mem_tries_for_all_shards: false,
+            load_mem_tries_for_tracked_shards: false,
 
             migration_snapshot: Default::default(),
 
@@ -274,9 +280,6 @@ impl Default for StoreConfig {
 
             // TODO: To be phased out in favor of state_snapshot_config
             state_snapshot_enabled: false,
-
-            // TODO: To be phased out in favor of state_snapshot_config
-            state_snapshot_compaction_enabled: false,
         }
     }
 }
@@ -340,4 +343,16 @@ impl Default for TrieCacheConfig {
             shard_cache_deletions_queue_capacity: DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY,
         }
     }
+}
+
+/// Parameters for prefetching certain contract calls.
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct PrefetchConfig {
+    /// Receipt receiver, or contract account id.
+    pub receiver: String,
+    /// Receipt sender.
+    pub sender: String,
+    /// Contract method name.
+    pub method_name: String,
 }

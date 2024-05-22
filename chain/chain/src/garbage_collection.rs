@@ -15,7 +15,7 @@ use near_store::flat::store_helper;
 use near_store::{DBCol, KeyForStateChanges, ShardTries, ShardUId};
 
 use crate::types::RuntimeAdapter;
-use crate::{metrics, Chain, ChainStoreAccess, ChainStoreUpdate};
+use crate::{metrics, Chain, ChainStore, ChainStoreAccess, ChainStoreUpdate};
 
 #[derive(Clone)]
 pub enum GCMode {
@@ -34,7 +34,27 @@ impl fmt::Debug for GCMode {
     }
 }
 
+/// Both functions here are only used for testing as they create convenient
+/// wrappers that allow us to do correctness integration testing without having
+/// to fully spin up GCActor
+///
+/// TODO - the reset_data_pre_state_sync function seems to also be used in
+/// production code. It's used in update_sync_status <- handle_sync_needed <- run_sync_step
 impl Chain {
+    pub fn clear_data(&mut self, gc_config: &GCConfig) -> Result<(), Error> {
+        let runtime_adapter = self.runtime_adapter.clone();
+        let epoch_manager = self.epoch_manager.clone();
+        self.mut_chain_store().clear_data(gc_config, runtime_adapter, epoch_manager)
+    }
+
+    pub fn reset_data_pre_state_sync(&mut self, sync_hash: CryptoHash) -> Result<(), Error> {
+        let runtime_adapter = self.runtime_adapter.clone();
+        let epoch_manager = self.epoch_manager.clone();
+        self.mut_chain_store().reset_data_pre_state_sync(sync_hash, runtime_adapter, epoch_manager)
+    }
+}
+
+impl ChainStore {
     // GC CONTRACT
     // ===
     //
@@ -105,23 +125,30 @@ impl Chain {
     // State Sync Clearing:
     // 1. Executing State Sync means that no data in the storage is useful for block processing
     //    and should be removed completely.
-    // 2. The Tail should be set to the block preceding Sync Block.
+    // 2. The Tail should be set to the block preceding Sync Block if there are
+    //    no missing chunks or to a block before that such that all shards have
+    //    at least one new chunk in the blocks leading to the Sync Block.
     // 3. All the data preceding new Tail is deleted in State Sync Clearing
     //    and the Trie is updated with having only Genesis data.
     // 4. State Sync Clearing happens in `reset_data_pre_state_sync()`.
     //
-    pub fn clear_data(&mut self, tries: ShardTries, gc_config: &GCConfig) -> Result<(), Error> {
+    pub fn clear_data(
+        &mut self,
+        gc_config: &GCConfig,
+        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        epoch_manager: Arc<dyn EpochManagerAdapter>,
+    ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "garbage_collection", "clear_data").entered();
-
-        let head = self.chain_store().head()?;
-        let tail = self.chain_store().tail()?;
-        let gc_stop_height = self.runtime_adapter.get_gc_stop_height(&head.last_block_hash);
+        let tries = runtime_adapter.get_tries();
+        let head = self.head()?;
+        let tail = self.tail()?;
+        let gc_stop_height = runtime_adapter.get_gc_stop_height(&head.last_block_hash);
         if gc_stop_height > head.height {
             return Err(Error::GCError("gc_stop_height cannot be larger than head.height".into()));
         }
         let prev_epoch_id = self.get_block_header(&head.prev_block_hash)?.epoch_id().clone();
         let epoch_change = prev_epoch_id != head.epoch_id;
-        let mut fork_tail = self.chain_store().fork_tail()?;
+        let mut fork_tail = self.fork_tail()?;
         metrics::TAIL_HEIGHT.set(tail as i64);
         metrics::FORK_TAIL_HEIGHT.set(fork_tail as i64);
         metrics::CHUNK_TAIL_HEIGHT.set(self.chain_store().chunk_tail()? as i64);
@@ -130,7 +157,7 @@ impl Chain {
             // if head doesn't change on the epoch boundary, we may update fork tail several times
             // but that is fine since it doesn't affect correctness and also we limit the number of
             // heights that fork cleaning goes through so it doesn't slow down client either.
-            let mut chain_store_update = self.mut_chain_store().store_update();
+            let mut chain_store_update = self.store_update();
             chain_store_update.update_fork_tail(gc_stop_height);
             chain_store_update.commit()?;
             fork_tail = gc_stop_height;
@@ -141,11 +168,16 @@ impl Chain {
         let gc_fork_clean_step = gc_config.gc_fork_clean_step;
         let stop_height = tail.max(fork_tail.saturating_sub(gc_fork_clean_step));
         for height in (stop_height..fork_tail).rev() {
-            self.clear_forks_data(tries.clone(), height, &mut gc_blocks_remaining)?;
+            self.clear_forks_data(
+                tries.clone(),
+                height,
+                &mut gc_blocks_remaining,
+                epoch_manager.clone(),
+            )?;
             if gc_blocks_remaining == 0 {
                 return Ok(());
             }
-            let mut chain_store_update = self.mut_chain_store().store_update();
+            let mut chain_store_update = self.store_update();
             chain_store_update.update_fork_tail(height);
             chain_store_update.commit()?;
         }
@@ -162,9 +194,9 @@ impl Chain {
                 .flatten()
                 .cloned()
                 .collect::<Vec<_>>();
-            let epoch_manager = self.epoch_manager.clone();
-            let runtime = self.runtime_adapter.clone();
-            let mut chain_store_update = self.mut_chain_store().store_update();
+            let epoch_manager = epoch_manager.clone();
+            let runtime = runtime_adapter.clone();
+            let mut chain_store_update = self.store_update();
             if let Some(block_hash) = blocks_current_height.first() {
                 let prev_hash = *chain_store_update.get_block_header(block_hash)?.prev_hash();
                 let prev_block_refcount = chain_store_update.get_block_refcount(&prev_hash)?;
@@ -205,16 +237,20 @@ impl Chain {
     /// storage, archival nodes do garbage collect that data.
     ///
     /// `gc_height_limit` limits how many heights will the function process.
-    pub fn clear_archive_data(&mut self, gc_height_limit: BlockHeightDelta) -> Result<(), Error> {
+    pub fn clear_archive_data(
+        &mut self,
+        gc_height_limit: BlockHeightDelta,
+        runtime_adapter: Arc<dyn RuntimeAdapter>,
+    ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "chain", "clear_archive_data").entered();
 
-        let head = self.chain_store().head()?;
-        let gc_stop_height = self.runtime_adapter.get_gc_stop_height(&head.last_block_hash);
+        let head = self.head()?;
+        let gc_stop_height = runtime_adapter.get_gc_stop_height(&head.last_block_hash);
         if gc_stop_height > head.height {
             return Err(Error::GCError("gc_stop_height cannot be larger than head.height".into()));
         }
 
-        let mut chain_store_update = self.mut_chain_store().store_update();
+        let mut chain_store_update = self.store_update();
         chain_store_update.clear_redundant_chunk_data(gc_stop_height, gc_height_limit)?;
         metrics::CHUNK_TAIL_HEIGHT.set(chain_store_update.chunk_tail()? as i64);
         metrics::GC_STOP_HEIGHT.set(gc_stop_height as i64);
@@ -226,6 +262,7 @@ impl Chain {
         tries: ShardTries,
         height: BlockHeight,
         gc_blocks_remaining: &mut NumBlocks,
+        epoch_manager: Arc<dyn EpochManagerAdapter>,
     ) -> Result<(), Error> {
         let blocks_current_height = self
             .chain_store()
@@ -244,8 +281,8 @@ impl Chain {
                 // because shorter chain cannot be Canonical one
                 // and it may be safely deleted
                 // and all its ancestors while there are no other sibling blocks rely on it.
-                let epoch_manager = self.epoch_manager.clone();
-                let mut chain_store_update = self.mut_chain_store().store_update();
+                let epoch_manager = epoch_manager.clone();
+                let mut chain_store_update = self.store_update();
                 if chain_store_update.get_block_refcount(&current_hash)? == 0 {
                     let prev_hash =
                         *chain_store_update.get_block_header(&current_hash)?.prev_hash();
@@ -270,14 +307,37 @@ impl Chain {
         Ok(())
     }
 
-    pub fn reset_data_pre_state_sync(&mut self, sync_hash: CryptoHash) -> Result<(), Error> {
+    pub fn reset_data_pre_state_sync(
+        &mut self,
+        sync_hash: CryptoHash,
+        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        epoch_manager: Arc<dyn EpochManagerAdapter>,
+    ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "sync", "reset_data_pre_state_sync").entered();
         let head = self.head()?;
         // Get header we were syncing into.
         let header = self.get_block_header(&sync_hash)?;
         let prev_hash = *header.prev_hash();
         let sync_height = header.height();
-        let gc_height = std::cmp::min(head.height + 1, sync_height);
+        // The congestion control added a dependency on the prev block when
+        // applying chunks in a block. This means that we need to keep the
+        // blocks at sync hash, prev hash and prev prev hash. The heigh of that
+        // block is sync_height - 2.
+        let mut gc_height = std::cmp::min(head.height + 1, sync_height - 2);
+
+        // In case there are missing chunks we need to keep more than just the
+        // sync hash block. The logic below adjusts the gc_height so that every
+        // shard is guaranteed to have at least one new chunk in the blocks
+        // leading to the sync hash block.
+        let prev_block = self.get_block(&prev_hash);
+        if let Ok(prev_block) = prev_block {
+            let min_height_included =
+                prev_block.chunks().iter().map(|chunk| chunk.height_included()).min();
+            if let Some(min_height_included) = min_height_included {
+                tracing::debug!(target: "sync", ?min_height_included, ?gc_height, "adjusting gc_height for missing chunks");
+                gc_height = std::cmp::min(gc_height, min_height_included - 1);
+            };
+        }
 
         // GC all the data from current tail up to `gc_height`. In case tail points to a height where
         // there is no block, we need to make sure that the last block before tail is cleaned.
@@ -292,8 +352,8 @@ impl Chain {
                 .cloned()
                 .collect::<Vec<_>>();
             for block_hash in blocks_current_height {
-                let epoch_manager = self.epoch_manager.clone();
-                let mut chain_store_update = self.mut_chain_store().store_update();
+                let epoch_manager = epoch_manager.clone();
+                let mut chain_store_update = self.store_update();
                 if !tail_prev_block_cleaned {
                     let prev_block_hash =
                         *chain_store_update.get_block_header(&block_hash)?.prev_hash();
@@ -316,7 +376,7 @@ impl Chain {
         }
 
         // Clear Chunks data
-        let mut chain_store_update = self.mut_chain_store().store_update();
+        let mut chain_store_update = self.store_update();
         // The largest height of chunk we have in storage is head.height + 1
         let chunk_height = std::cmp::min(head.height + 2, sync_height);
         chain_store_update.clear_chunk_data_and_headers(chunk_height)?;
@@ -324,8 +384,8 @@ impl Chain {
 
         // clear all trie data
 
-        let tries = self.runtime_adapter.get_tries();
-        let mut chain_store_update = self.mut_chain_store().store_update();
+        let tries = runtime_adapter.get_tries();
+        let mut chain_store_update = self.store_update();
         let mut store_update = tries.store_update();
         store_update.delete_all(DBCol::State);
         chain_store_update.merge(store_update);
@@ -816,10 +876,9 @@ impl<'a> ChainStoreUpdate<'a> {
 
     fn gc_outgoing_receipts(&mut self, block_hash: &CryptoHash, shard_id: ShardId) {
         let mut store_update = self.store().store_update();
-        match self
-            .get_outgoing_receipts(block_hash, shard_id)
-            .map(|receipts| receipts.iter().map(|receipt| receipt.receipt_id).collect::<Vec<_>>())
-        {
+        match self.get_outgoing_receipts(block_hash, shard_id).map(|receipts| {
+            receipts.iter().map(|receipt| *receipt.receipt_id()).collect::<Vec<_>>()
+        }) {
             Ok(receipt_ids) => {
                 for receipt_id in receipt_ids {
                     let key: Vec<u8> = receipt_id.into();
@@ -976,6 +1035,12 @@ impl<'a> ChainStoreUpdate<'a> {
                 store_update.delete(col, key);
             }
             DBCol::StateTransitionData => {
+                store_update.delete(col, key);
+            }
+            DBCol::LatestChunkStateWitnesses => {
+                store_update.delete(col, key);
+            }
+            DBCol::LatestWitnessesByIndex => {
                 store_update.delete(col, key);
             }
             DBCol::DbVersion

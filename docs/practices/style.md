@@ -407,7 +407,7 @@ find a particular span in logs or other tools ingesting the span data. If a
 span begins at the top of a function, prefer giving it a name of that function,
 otherwise prefer a `snake_case` name.
 
-When instrumenting asynchronous functions the [`#[tracing::instrument]`](instrument) macro or the
+When instrumenting asynchronous functions the [`#[tracing::instrument]`][instrument] macro or the
 `Future::instrument` is **required**. Using `Span::entered` or a similar method that is not aware
 of yield points will result in incorrect span data and could lead to difficult to troubleshoot
 issues such as stack overflows.

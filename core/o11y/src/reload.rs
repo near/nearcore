@@ -1,11 +1,11 @@
 use crate::opentelemetry::get_opentelemetry_filter;
 use crate::{log_config, log_counter, BuildEnvFilterError, EnvFilterBuilder, OpenTelemetryLevel};
 use once_cell::sync::OnceCell;
-use opentelemetry::sdk::trace::Tracer;
-use tracing::level_filters::LevelFilter;
+use opentelemetry_sdk::trace::Tracer;
+use std::str::FromStr as _;
 use tracing_appender::non_blocking::NonBlocking;
 use tracing_opentelemetry::OpenTelemetryLayer;
-use tracing_subscriber::filter::Filtered;
+use tracing_subscriber::filter::{Filtered, Targets};
 use tracing_subscriber::layer::Layered;
 use tracing_subscriber::reload::Handle;
 use tracing_subscriber::{fmt, reload, EnvFilter, Registry};
@@ -14,7 +14,7 @@ static LOG_LAYER_RELOAD_HANDLE: OnceCell<
     Handle<EnvFilter, log_counter::LogCountingLayer<Registry>>,
 > = OnceCell::new();
 static OTLP_LAYER_RELOAD_HANDLE: OnceCell<
-    Handle<LevelFilter, LogLayer<log_counter::LogCountingLayer<Registry>>>,
+    Handle<Targets, LogLayer<log_counter::LogCountingLayer<Registry>>>,
 > = OnceCell::new();
 
 // Records the level of opentelemetry tracing verbosity configured via command-line flags at the startup.
@@ -39,7 +39,7 @@ pub(crate) type SimpleLogLayer<Inner, W> = Layered<
 >;
 
 pub(crate) type TracingLayer<Inner> = Layered<
-    Filtered<OpenTelemetryLayer<Inner, Tracer>, reload::Layer<LevelFilter, Inner>, Inner>,
+    Filtered<OpenTelemetryLayer<Inner, Tracer>, reload::Layer<Targets, Inner>, Inner>,
     Inner,
 >;
 
@@ -52,7 +52,7 @@ pub(crate) fn set_log_layer_handle(
 }
 
 pub(crate) fn set_otlp_layer_handle(
-    handle: Handle<LevelFilter, LogLayer<log_counter::LogCountingLayer<Registry>>>,
+    handle: Handle<Targets, LogLayer<log_counter::LogCountingLayer<Registry>>>,
 ) {
     OTLP_LAYER_RELOAD_HANDLE
         .set(handle)
@@ -77,6 +77,8 @@ pub enum ReloadError {
     ReloadOpentelemetryLayer(#[source] reload::Error),
     #[error("could not create the log filter")]
     Parse(#[source] BuildEnvFilterError),
+    #[error("could not parse the opentelemetry filter")]
+    ParseOpentelemetry(#[source] tracing_subscriber::filter::ParseError),
 }
 
 pub fn reload_log_config(config: Option<&log_config::LogConfig>) {
@@ -84,7 +86,7 @@ pub fn reload_log_config(config: Option<&log_config::LogConfig>) {
         reload(
             config.rust_log.as_deref(),
             config.verbose_module.as_deref(),
-            config.opentelemetry_level,
+            config.opentelemetry.as_deref(),
         )
     } else {
         // When the LOG_CONFIG_FILENAME is not available, reset to the tracing and logging config
@@ -116,7 +118,7 @@ pub fn reload_log_config(config: Option<&log_config::LogConfig>) {
 pub fn reload(
     rust_log: Option<&str>,
     verbose_module: Option<&str>,
-    opentelemetry_level: Option<OpenTelemetryLevel>,
+    opentelemetry: Option<&str>,
 ) -> Result<(), Vec<ReloadError>> {
     let log_reload_result = LOG_LAYER_RELOAD_HANDLE.get().map_or(
         Err(ReloadError::NoLogReloadHandle),
@@ -137,14 +139,20 @@ pub fn reload(
         },
     );
 
-    let opentelemetry_level = opentelemetry_level
-        .unwrap_or(*DEFAULT_OTLP_LEVEL.get().unwrap_or(&OpenTelemetryLevel::OFF));
+    let opentelemetry_filter = opentelemetry
+        .map(|f| Targets::from_str(f).map_err(ReloadError::ParseOpentelemetry))
+        .unwrap_or_else(|| {
+            Ok(get_opentelemetry_filter(
+                *DEFAULT_OTLP_LEVEL.get().unwrap_or(&OpenTelemetryLevel::OFF),
+            ))
+        });
     let opentelemetry_reload_result = OTLP_LAYER_RELOAD_HANDLE.get().map_or(
         Err(ReloadError::NoOpentelemetryReloadHandle),
         |reload_handle| {
+            let opentelemetry_filter = opentelemetry_filter?;
             reload_handle
                 .modify(|otlp_filter| {
-                    *otlp_filter = get_opentelemetry_filter(opentelemetry_level);
+                    *otlp_filter = opentelemetry_filter;
                 })
                 .map_err(ReloadError::ReloadOpentelemetryLayer)?;
             Ok(())

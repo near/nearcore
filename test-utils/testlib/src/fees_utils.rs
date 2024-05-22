@@ -34,6 +34,12 @@ impl FeeHelper {
         self.gas_to_balance(gas_reward)
     }
 
+    pub fn new_action_receipt_cost(&self) -> Balance {
+        let exec_gas = self.cfg().fee(ActionCosts::new_action_receipt).exec_fee();
+        let send_gas = self.cfg().fee(ActionCosts::new_action_receipt).send_fee(false);
+        self.gas_to_balance(exec_gas + send_gas)
+    }
+
     pub fn create_account_cost(&self) -> Balance {
         let exec_gas = self.cfg().fee(ActionCosts::new_action_receipt).exec_fee()
             + self.cfg().fee(ActionCosts::create_account).exec_fee();

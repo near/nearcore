@@ -44,7 +44,7 @@ fn unchanged_gas_cost() {
     let old_gas = old_result.receipts_outcome[0].outcome.gas_burnt;
     assert_matches!(old_result.status, FinalExecutionStatus::SuccessValue(_));
 
-    env.upgrade_protocol(new_protocol_version);
+    env.upgrade_protocol_to_latest_version();
 
     let new_result = env.call_main(&account);
     let new_gas = new_result.receipts_outcome[0].outcome.gas_burnt;
@@ -77,7 +77,7 @@ fn preparation_error_gas_cost() {
     let old_gas = old_result.receipts_outcome[0].outcome.gas_burnt;
     assert_matches!(old_result.status, FinalExecutionStatus::Failure(_));
 
-    env.upgrade_protocol(new_protocol_version);
+    env.upgrade_protocol_to_latest_version();
 
     let new_result = env.call_main(&account);
     let new_gas = new_result.receipts_outcome[0].outcome.gas_burnt;
@@ -87,7 +87,7 @@ fn preparation_error_gas_cost() {
     assert_ne!(old_gas, new_gas);
     // Runtime parameter values for version of the protocol upgrade
     let loading_base = 35_445_963;
-    let loading_byte = 216_750;
+    let loading_byte = 1_089_295;
     let loading_cost = loading_base + contract_size as u64 * loading_byte;
     assert_eq!(old_gas + loading_cost, new_gas);
 }

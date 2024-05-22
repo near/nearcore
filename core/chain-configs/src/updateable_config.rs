@@ -98,6 +98,7 @@ pub struct UpdateableClientConfig {
     pub resharding_config: ReshardingConfig,
 
     /// Time limit for adding transactions in produce_chunk()
+    #[serde(default)]
     #[serde(with = "near_async::time::serde_opt_duration_as_std")]
     pub produce_chunk_add_transactions_time_limit: Option<Duration>,
 }

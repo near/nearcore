@@ -87,7 +87,7 @@ fn create_tx_deploy_contract(
     let code = near_test_contracts::rs_contract().to_vec();
     let action = DeployContractAction { code };
     let action = Action::DeployContract(action);
-    SignedTransaction::from_actions(height, test0(), test0(), signer, vec![action], block_hash)
+    SignedTransaction::from_actions(height, test0(), test0(), signer, vec![action], block_hash, 0)
 }
 
 fn create_tx_function_call(
@@ -101,7 +101,7 @@ fn create_tx_function_call(
         gas: 100_000_000_000_000,
         deposit: 0,
     }));
-    SignedTransaction::from_actions(nonce, test0(), test0(), signer, vec![action], block_hash)
+    SignedTransaction::from_actions(nonce, test0(), test0(), signer, vec![action], block_hash, 0)
 }
 
 /// Deploying test contract and calling write_random_value 5 times every block for 4 epochs.

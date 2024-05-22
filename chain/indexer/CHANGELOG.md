@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.38.x
+
+* Make `build_streamer_message` public to allow custom indexer to reuse this function (e.g. build an indexer that streams optimistic block finalities, indexer that streams only blocks satisfying some condition, etc.)
+* Add local cache for delayed local receipts to avoid fetching blocks from the node everytime we need to find a delayed local receipt
+  * Add metric to watch how far back in the history we went to find a delayed local receipt when cache didn't work
+* Remove unnecessary `#[async_recursion]` from `build_streamer_message` function
+* Clean up some useless debug logs and add more useful ones
+
 ## 1.32.x
 
 * Add `nightly` feature to NEAR Indexer Framework to respect this feature for `nearcore` lib (requried for `betanet`)

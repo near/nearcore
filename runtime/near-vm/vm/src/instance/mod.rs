@@ -16,7 +16,7 @@ pub use r#ref::{InstanceRef, WeakOrStrongInstanceRef};
 use crate::func_data_registry::VMFuncRef;
 use crate::global::Global;
 use crate::imports::Imports;
-use crate::memory::{Memory, MemoryError};
+use crate::memory::{LinearMemory, MemoryError};
 use crate::sig_registry::VMSharedSignatureIndex;
 use crate::table::{Table, TableElement};
 use crate::trap::traphandlers::get_trap_handler;
@@ -66,7 +66,7 @@ pub struct Instance {
     config: InstanceConfig,
 
     /// WebAssembly linear memory data.
-    memories: BoxedSlice<LocalMemoryIndex, Arc<dyn Memory>>,
+    memories: BoxedSlice<LocalMemoryIndex, Arc<LinearMemory>>,
 
     /// Table data...
     tables: BoxedSlice<LocalTableIndex, Arc<dyn Table>>,
@@ -830,7 +830,7 @@ impl InstanceHandle {
     pub unsafe fn new(
         artifact: Arc<dyn Artifact>,
         allocator: InstanceAllocator,
-        finished_memories: BoxedSlice<LocalMemoryIndex, Arc<dyn Memory>>,
+        finished_memories: BoxedSlice<LocalMemoryIndex, Arc<LinearMemory>>,
         finished_tables: BoxedSlice<LocalTableIndex, Arc<dyn Table>>,
         finished_globals: BoxedSlice<LocalGlobalIndex, Arc<Global>>,
         imports: Imports,
@@ -1028,10 +1028,10 @@ impl InstanceHandle {
             Ok(local) => Arc::clone(&instance.memories[local]),
             Err(import) => Arc::clone(&instance.imported_memory(import).from),
         };
-        Some(crate::VMMemory {
+        Some(crate::VMMemory::new(
             from,
-            instance_ref: Some(WeakOrStrongInstanceRef::Strong(self.instance().clone())),
-        })
+            Some(WeakOrStrongInstanceRef::Strong(self.instance().clone())),
+        ))
     }
 
     /// Return the indexed `VMMemoryDefinition`.
