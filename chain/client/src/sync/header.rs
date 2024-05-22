@@ -154,9 +154,8 @@ impl HeaderSync {
         self.syncing_peer = None;
         // Pick a new random peer to request the next batch of headers.
         if let Some(peer) = highest_height_peers.choose(&mut thread_rng()).cloned() {
-            let shutdown_height = self.shutdown_height.get();
-            let highest_height =
-                peer.highest_block_height.min(shutdown_height.unwrap_or(u64::MAX) as u64);
+            let shutdown_height = self.shutdown_height.get().unwrap_or(u64::MAX);
+            let highest_height = peer.highest_block_height.min(shutdown_height);
             if highest_height > header_head.height {
                 self.syncing_peer = self.request_headers(chain, peer);
             }
