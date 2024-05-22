@@ -817,13 +817,6 @@ impl<T: ChainAccess> TxMirror<T> {
                 .with_context(|| {
                     format!("Error loading target config from {:?}", target_home.as_ref())
                 })?;
-        if !target_config.client_config.archive {
-            // this is probably not going to come up, but we want to avoid a situation where
-            // we go offline for a long time and then come back online, and we state sync to
-            // the head of the target chain without looking for our outcomes that made it on
-            // chain right before we went offline
-            anyhow::bail!("config file in {} has archive: false, but archive must be set to true for the target chain", target_home.as_ref().display());
-        }
         let db = match mirror_db_path {
             Some(mirror_db_path) => open_db(mirror_db_path),
             None => {
