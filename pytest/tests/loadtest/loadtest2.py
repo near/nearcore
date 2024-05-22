@@ -31,9 +31,10 @@ import json
 import multiprocessing
 import multiprocessing.queues
 import ctypes
-import ed25519
 import queue
 import string
+from nacl.signing import SigningKey
+from nacl.encoding import HexEncoder
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -434,10 +435,10 @@ def main():
             ACCOUNTS.append(Account(sub_key))
 
     for i in range(int(args.accounts)):
-        keys = ed25519.create_keypair(entropy=rng.randbytes)
-        account_id = keys[1].to_bytes().hex()
-        sk = 'ed25519:' + base58.b58encode(keys[0].to_bytes()).decode('ascii')
-        pk = 'ed25519:' + base58.b58encode(keys[1].to_bytes()).decode('ascii')
+        signing_key = SigningKey(rng.randbytes(32))
+        account_id =signing_key.verify_key.to_bytes().hex()
+        sk = 'ed25519:' + base58.b58encode(signing_key.to_curve25519_private_key.to_bytes()).decode('ascii')
+        pk = 'ed25519:' + base58.b58encode(signing_key.verify_key.to_bytes()).decode('ascii')
         ACCOUNTS.append(Account(key.Key(account_id, pk, sk)))
 
     executors = int(args.executors)

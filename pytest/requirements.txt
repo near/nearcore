@@ -2,7 +2,6 @@ PyGithub
 base58
 cython
 deepdiff
-ed25519
 locust
 nearup
 numpy

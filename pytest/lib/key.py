@@ -3,7 +3,8 @@ import json
 import os
 import typing
 
-import ed25519
+from nacl.signing import SigningKey
+from nacl.encoding import HexEncoder
 
 
 class Key:
@@ -19,12 +20,15 @@ class Key:
 
     @classmethod
     def from_random(cls, account_id: str) -> 'Key':
-        keys = ed25519.create_keypair(entropy=os.urandom)
+        keys = SigningKey.generaterandom()
         return cls.from_keypair(account_id, keys)
+
+       
+       
 
     @classmethod
     def implicit_account(cls) -> 'Key':
-        keys = ed25519.create_keypair(entropy=os.urandom)
+        keys = SigningKey.generaterandom()
         account_id = keys[1].to_bytes().hex()
         return cls.from_keypair(account_id, keys)
 
@@ -49,7 +53,7 @@ class Key:
         # use the repeated seed string as secret key by injecting fake entropy
         fake_entropy = lambda length: (seed * (1 + int(length / len(seed)))
                                       ).encode()[:length]
-        keys = ed25519.create_keypair(entropy=fake_entropy)
+        keys = SigningKey.generate(fake_entropy)
         return cls.from_keypair(account_id, keys)
 
     @classmethod
@@ -75,4 +79,4 @@ class Key:
 
     def sign_bytes(self, data: typing.Union[bytes, bytearray]) -> bytes:
         sk = self.decoded_sk()
-        return ed25519.SigningKey(sk).sign(bytes(data))
+        return SigningKey(sk, encoder=HexEncoder).sign(bytes(data))

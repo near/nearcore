@@ -11,7 +11,6 @@ import unittest
 
 import base64
 import base58
-import ed25519
 import requests
 import requests.exceptions
 

@@ -1,6 +1,7 @@
 from serializer import BinarySerializer
 import hashlib
-from ed25519 import SigningKey
+from nacl.signing import SigningKey
+from nacl.encoding import HexEncoder
 import base58
 
 from messages.tx import *
@@ -34,7 +35,8 @@ def sign_and_serialize_transaction(receiverId, nonce, actions, blockHash,
 
     signature = Signature()
     signature.keyType = 0
-    signature.data = SigningKey(sk).sign(hash_)
+
+    signature.data = SigningKey(sk, encoder=HexEncoder).sign(hash_)
 
     signedTx = SignedTransaction()
     signedTx.transaction = tx
@@ -72,7 +74,7 @@ def create_signed_delegated_action(senderId, receiverId, actions, nonce,
 
     signature = Signature()
     signature.keyType = 0
-    signature.data = SigningKey(sk).sign(hash_)
+    signature.data = SigningKey(sk, encoder=HexEncoder).sign(hash_)
 
     signedDA = SignedDelegate()
     signedDA.delegateAction = delegated_action
