@@ -63,8 +63,8 @@ use smallvec::SmallVec;
 //
 // As the bottom two segments are no longer part of the right-most path, they
 // are converted to concrete TrieMemNodeId's.
-pub struct TrieConstructor<'a> {
-    arena: &'a mut Arena,
+pub struct TrieConstructor<'a, A: Arena> {
+    arena: &'a mut A,
     segments: Vec<TrieConstructionSegment>,
     trail_freelist: VecU8Freelist,
 }
@@ -127,7 +127,7 @@ impl TrieConstructionSegment {
         self.value.is_some() && !self.is_branch
     }
 
-    fn to_node(&self, arena: &mut Arena) -> MemTrieNodeId {
+    fn to_node(&self, arena: &mut impl Arena) -> MemTrieNodeId {
         let input_node = if self.is_branch {
             assert!(!self.children.is_empty());
             assert!(self.child.is_none());
@@ -186,8 +186,8 @@ impl NibblesHelper for NibbleSlice<'_> {
     }
 }
 
-impl<'a> TrieConstructor<'a> {
-    pub fn new(arena: &'a mut Arena) -> Self {
+impl<'a, A: Arena> TrieConstructor<'a, A> {
+    pub fn new(arena: &'a mut A) -> Self {
         // We should only have as many allocations as the number of segments
         // alive, which is at most the length of keys. We give a generous
         // margin on top of that. If this is exceeded in production, an error
@@ -403,7 +403,7 @@ impl<'a> TrieConstructor<'a> {
     }
 }
 
-impl<'a> Drop for TrieConstructor<'a> {
+impl<'a, A: Arena> Drop for TrieConstructor<'a, A> {
     fn drop(&mut self) {
         for segment in std::mem::take(&mut self.segments) {
             self.recycle_segment(segment);
