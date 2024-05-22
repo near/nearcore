@@ -1,8 +1,7 @@
-use crate::trie::mem::arena::{ArenaSlice, ArenaSliceMut};
-use crate::trie::OptimizedValueRef;
-
 use super::encoding::BorshFixedSize;
 use super::FlexibleDataHeader;
+use crate::trie::mem::arena::{ArenaMemory, ArenaSlice, ArenaSliceMut};
+use crate::trie::OptimizedValueRef;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::hash::CryptoHash;
 use near_primitives::state::{FlatStateValue, ValueRef};
@@ -36,7 +35,7 @@ impl EncodedValueHeader {
 
 impl FlexibleDataHeader for EncodedValueHeader {
     type InputData = FlatStateValue;
-    type View<'a> = ValueView<'a>;
+    type View<'a, M: ArenaMemory> = ValueView<'a>;
 
     fn from_input(value: &FlatStateValue) -> Self {
         match value {
@@ -60,7 +59,11 @@ impl FlexibleDataHeader for EncodedValueHeader {
         }
     }
 
-    fn encode_flexible_data(&self, value: &FlatStateValue, target: &mut ArenaSliceMut<'_>) {
+    fn encode_flexible_data<M: ArenaMemory>(
+        &self,
+        value: &FlatStateValue,
+        target: &mut ArenaSliceMut<M>,
+    ) {
         let (length, inlined) = self.decode();
         match value {
             FlatStateValue::Ref(value_ref) => {
@@ -76,10 +79,13 @@ impl FlexibleDataHeader for EncodedValueHeader {
         }
     }
 
-    fn decode_flexible_data<'a>(&self, source: &ArenaSlice<'a>) -> ValueView<'a> {
+    fn decode_flexible_data<'a, M: ArenaMemory>(
+        &self,
+        source: &ArenaSlice<'a, M>,
+    ) -> ValueView<'a> {
         let (length, inlined) = self.decode();
         if inlined {
-            ValueView::Inlined(source.clone())
+            ValueView::Inlined(source.raw_slice())
         } else {
             ValueView::Ref { length, hash: CryptoHash::try_from_slice(source.raw_slice()).unwrap() }
         }
@@ -90,7 +96,7 @@ impl FlexibleDataHeader for EncodedValueHeader {
 #[derive(Debug, Clone)]
 pub enum ValueView<'a> {
     Ref { length: u32, hash: CryptoHash },
-    Inlined(ArenaSlice<'a>),
+    Inlined(&'a [u8]),
 }
 
 impl<'a> ValueView<'a> {
@@ -99,7 +105,7 @@ impl<'a> ValueView<'a> {
             Self::Ref { length, hash } => {
                 FlatStateValue::Ref(ValueRef { length: *length, hash: *hash })
             }
-            Self::Inlined(data) => FlatStateValue::Inlined(data.raw_slice().to_vec()),
+            Self::Inlined(data) => FlatStateValue::Inlined(data.to_vec()),
         }
     }
 

@@ -45,7 +45,7 @@ struct ChunkProducersAssignment {
 fn select_validators_from_proposals(
     epoch_config: &EpochConfig,
     proposals: HashMap<AccountId, ValidatorStake>,
-    next_version: ProtocolVersion,
+    protocol_version: ProtocolVersion,
 ) -> ValidatorRoles {
     let shard_ids: Vec<_> = epoch_config.shard_layout.shard_ids().collect();
     let min_stake_ratio = {
@@ -59,7 +59,7 @@ fn select_validators_from_proposals(
         epoch_config.validator_selection_config.num_chunk_producer_seats as usize,
         min_stake_ratio,
         shard_ids.len() as NumShards,
-        next_version,
+        protocol_version,
     );
 
     let block_producer_proposals = order_proposals(proposals.values().cloned());
@@ -67,7 +67,7 @@ fn select_validators_from_proposals(
         block_producer_proposals,
         epoch_config.num_block_producer_seats as usize,
         min_stake_ratio,
-        next_version,
+        protocol_version,
     );
 
     let chunk_validator_proposals = order_proposals(proposals.values().cloned());
@@ -75,7 +75,7 @@ fn select_validators_from_proposals(
         chunk_validator_proposals,
         epoch_config.validator_selection_config.num_chunk_validator_seats as usize,
         min_stake_ratio,
-        next_version,
+        protocol_version,
     );
 
     let mut unselected_proposals = BinaryHeap::new();
@@ -181,7 +181,7 @@ pub fn proposals_to_epoch_info(
     mut validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
     validator_reward: HashMap<AccountId, Balance>,
     minted_amount: Balance,
-    next_version: ProtocolVersion,
+    protocol_version: ProtocolVersion,
     use_stable_shard_assignment: bool,
 ) -> Result<EpochInfo, EpochError> {
     debug_assert!(
@@ -203,13 +203,13 @@ pub fn proposals_to_epoch_info(
     // Select validators for the next epoch.
     // Returns unselected proposals, validator lists for all roles and stake
     // threshold to become a validator.
-    let validator_roles = if checked_feature!("stable", StatelessValidationV0, next_version) {
-        select_validators_from_proposals(epoch_config, proposals, next_version)
+    let validator_roles = if checked_feature!("stable", StatelessValidationV0, protocol_version) {
+        select_validators_from_proposals(epoch_config, proposals, protocol_version)
     } else {
         old_validator_selection::select_validators_from_proposals(
             epoch_config,
             proposals,
-            next_version,
+            protocol_version,
         )
     };
 
@@ -239,7 +239,7 @@ pub fn proposals_to_epoch_info(
         all_validators,
         validator_to_index,
         mut chunk_producers_settlement,
-    } = if checked_feature!("stable", StatelessValidationV0, next_version) {
+    } = if checked_feature!("stable", StatelessValidationV0, protocol_version) {
         get_chunk_producers_assignment(
             epoch_config,
             rng_seed,
@@ -247,7 +247,7 @@ pub fn proposals_to_epoch_info(
             &validator_roles,
             use_stable_shard_assignment,
         )?
-    } else if checked_feature!("stable", ChunkOnlyProducers, next_version) {
+    } else if checked_feature!("stable", ChunkOnlyProducers, protocol_version) {
         old_validator_selection::assign_chunk_producers_to_shards_chunk_only(
             epoch_config,
             validator_roles.chunk_producers,
@@ -273,7 +273,8 @@ pub fn proposals_to_epoch_info(
         .collect();
 
     // Assign chunk validators to shards using validator mandates abstraction.
-    let validator_mandates = if checked_feature!("stable", StatelessValidationV0, next_version) {
+    let validator_mandates = if checked_feature!("stable", StatelessValidationV0, protocol_version)
+    {
         // Value chosen based on calculations for the security of the protocol.
         // With this number of mandates per shard and 6 shards, the theory calculations predict the
         // protocol is secure for 40 years (at 90% confidence).
@@ -299,7 +300,7 @@ pub fn proposals_to_epoch_info(
         validator_kickout,
         minted_amount,
         threshold,
-        next_version,
+        protocol_version,
         rng_seed,
         validator_mandates,
     ))
@@ -461,7 +462,7 @@ mod old_validator_selection {
     pub(crate) fn select_validators_from_proposals(
         epoch_config: &EpochConfig,
         proposals: HashMap<AccountId, ValidatorStake>,
-        next_version: ProtocolVersion,
+        protocol_version: ProtocolVersion,
     ) -> ValidatorRoles {
         let max_bp_selected = epoch_config.num_block_producer_seats as usize;
         let min_stake_ratio = {
@@ -474,10 +475,10 @@ mod old_validator_selection {
             block_producer_proposals,
             max_bp_selected,
             min_stake_ratio,
-            next_version,
+            protocol_version,
         );
         let (chunk_producer_proposals, chunk_producers, cp_stake_threshold) =
-            if checked_feature!("stable", ChunkOnlyProducers, next_version) {
+            if checked_feature!("stable", ChunkOnlyProducers, protocol_version) {
                 let chunk_producer_proposals = order_proposals(proposals.into_values());
                 let max_cp_selected = max_bp_selected
                     + (epoch_config.validator_selection_config.num_chunk_only_producer_seats
@@ -489,7 +490,7 @@ mod old_validator_selection {
                         max_cp_selected,
                         min_stake_ratio,
                         num_shards,
-                        next_version,
+                        protocol_version,
                     );
                 (not_chunk_producers, chunk_producers, cp_stake_threshold)
             } else {
