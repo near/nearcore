@@ -160,7 +160,7 @@ max_length_method_name                                   256
 max_arguments_length                               4_194_304
 max_length_returned_data                           4_194_304
 max_contract_size                                  4_194_304
-max_transaction_size                               4_194_304
+max_transaction_size                               1_572_864
 max_length_storage_key                                 2_048
 max_length_storage_value                           4_194_304
 max_promises_per_function_call_action                  1_024

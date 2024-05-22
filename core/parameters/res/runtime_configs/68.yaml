@@ -1,0 +1,1 @@
+max_transaction_size: {old: 4_194_304, new: 1_572_864}
