@@ -20,6 +20,7 @@ use crate::types::{
     NetworkResponses, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType,
     SetChainInfo, SnapshotHostInfo,
 };
+use ::time::ext::InstantExt as _;
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, AsyncContext as _};
 use anyhow::Context as _;
@@ -841,8 +842,9 @@ impl PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::PartialEncodedChunkRequest { target, request, create_time } => {
-                metrics::PARTIAL_ENCODED_CHUNK_REQUEST_DELAY
-                    .observe((self.clock.now() - create_time).as_secs_f64());
+                metrics::PARTIAL_ENCODED_CHUNK_REQUEST_DELAY.observe(
+                    (self.clock.now().signed_duration_since(create_time)).as_seconds_f64(),
+                );
                 let mut success = false;
 
                 // Make two attempts to send the message. First following the preference of `prefer_peer`,
