@@ -8,6 +8,7 @@ use near_primitives::stateless_validation::EncodedChunkStateWitness;
 
 use crate::stateless_validation::chunk_validator::{
     pre_validate_chunk_state_witness, validate_chunk_state_witness, validate_prepared_transactions,
+    MainStateTransitionCache,
 };
 use crate::{metrics, Client};
 
@@ -126,6 +127,7 @@ impl Client {
                 pre_validation_result,
                 epoch_manager.as_ref(),
                 runtime_adapter.as_ref(),
+                &MainStateTransitionCache::default(),
             ) {
                 Ok(()) => {
                     tracing::debug!(
