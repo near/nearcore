@@ -42,6 +42,7 @@ use near_vm_runner::logic::ProtocolVersion;
 use once_cell::sync::OnceCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
+use time::ext::InstantExt as _;
 
 use super::mock_partial_witness_adapter::MockPartialWitnessAdapter;
 use super::setup::setup_client_with_runtime;
@@ -455,7 +456,7 @@ impl TestEnv {
                 return Ok(endorsement);
             }
 
-            let elapsed_since_start = start_time.elapsed();
+            let elapsed_since_start = Instant::now().signed_duration_since(start_time);
             if elapsed_since_start > CHUNK_ENDORSEMENTS_TIMEOUT {
                 return Err(TimeoutError(elapsed_since_start));
             }

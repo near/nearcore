@@ -340,7 +340,7 @@ impl NearVM {
         &self,
         artifact: &VMArtifact,
         mut import: NearVmImports<'_, '_, '_>,
-        method_name: &str,
+        entrypoint: FunctionIndex,
     ) -> Result<Result<(), FunctionCallError>, VMRunnerError> {
         let _span = tracing::debug_span!(target: "vm", "run_method").entered();
 
@@ -358,10 +358,6 @@ impl NearVM {
             offset_of!(near_vm_types::FastGasCounter, gas_limit)
         );
         let gas = import.vmlogic.gas_counter_pointer() as *mut near_vm_types::FastGasCounter;
-        let entrypoint = match get_entrypoint_index(&*artifact, method_name) {
-            Ok(index) => index,
-            Err(abort) => return Ok(Err(abort)),
-        };
         unsafe {
             let instance = {
                 let _span = tracing::debug_span!(target: "vm", "run_method/instantiate").entered();
@@ -615,10 +611,13 @@ impl crate::runner::VM for NearVM {
             method_name,
             |vmmemory, mut logic, artifact| {
                 let import = imports::near_vm::build(vmmemory, &mut logic, artifact.engine());
-                if let Err(e) = get_entrypoint_index(&*artifact, method_name) {
-                    return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(logic, e));
-                }
-                match self.run_method(&artifact, import, method_name)? {
+                let entrypoint = match get_entrypoint_index(&*artifact, method_name) {
+                    Ok(index) => index,
+                    Err(e) => {
+                        return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(logic, e))
+                    }
+                };
+                match self.run_method(&artifact, import, entrypoint)? {
                     Ok(()) => Ok(VMOutcome::ok(logic)),
                     Err(err) => Ok(VMOutcome::abort(logic, err)),
                 }

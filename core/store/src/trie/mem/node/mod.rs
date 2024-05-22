@@ -52,7 +52,7 @@ impl MemTrieNodeId {
 }
 
 /// This is for internal use only, so that we can put `MemTrieNodeId` in an
-/// ElasticArray.
+/// SmallVec.
 impl Default for MemTrieNodeId {
     fn default() -> Self {
         Self { pos: ArenaPos::invalid() }

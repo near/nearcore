@@ -3,8 +3,8 @@ use super::freelist::{ReusableVecU8, VecU8Freelist};
 use super::node::MemTrieNodeId;
 use crate::trie::mem::node::InputMemTrieNode;
 use crate::NibbleSlice;
-use elastic_array::ElasticArray4;
 use near_primitives::state::FlatStateValue;
+use smallvec::SmallVec;
 
 /// Algorithm to construct a trie from a given stream of sorted leaf values.
 ///
@@ -85,7 +85,7 @@ struct TrieConstructionSegment {
     value: Option<FlatStateValue>,
     // Only used if is_branch is true. The children that are already
     // constructed. The last child currently being constructed is not in here.
-    children: ElasticArray4<(u8, MemTrieNodeId)>,
+    children: SmallVec<[(u8, MemTrieNodeId); 4]>,
     // Only used for extension nodes; the child that is already constructed.
     child: Option<MemTrieNodeId>,
 }
