@@ -37,7 +37,7 @@ impl ProtocolUpgradeVotingSchedule {
 
     /// This method creates an instance of the ProtocolUpgradeVotingSchedule.
     ///
-    /// It will first check if the NEAR_TESTS_IMMEDIATE_PROTOCOL_UPGRADE is set
+    /// It will first check if the NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE is set
     /// in the environment and if so return the immediate upgrade schedule. This
     /// should only be used in tests, in particular in tests that in some way
     /// test neard upgrades.
@@ -47,7 +47,7 @@ impl ProtocolUpgradeVotingSchedule {
         client_protocol_version: ProtocolVersion,
         schedule: Vec<(chrono::DateTime<Utc>, ProtocolVersion)>,
     ) -> Result<Self, ProtocolUpgradeVotingScheduleError> {
-        let immediate_upgrade = env::var("NEAR_TESTS_IMMEDIATE_PROTOCOL_UPGRADE");
+        let immediate_upgrade = env::var("NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE");
         if let Ok(_) = immediate_upgrade {
             tracing::warn!("Setting immediate protocol upgrade. This is fine in tests but should be avoided otherwise");
             return Ok(Self::new_immediate(client_protocol_version));
@@ -324,7 +324,7 @@ mod tests {
     fn test_env_overwrite() {
         // The immediate protocol upgrade needs to be set for this test to pass in
         // the release branch where the protocol upgrade date is set.
-        std::env::set_var("NEAR_TESTS_IMMEDIATE_PROTOCOL_UPGRADE", "1");
+        std::env::set_var("NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE", "1");
 
         let client_protocol_version = 100;
         let schedule = make_simple_voting_schedule(client_protocol_version, "2999-02-03 23:59:59");
