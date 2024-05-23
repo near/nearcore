@@ -1268,8 +1268,9 @@ pub mod epoch_info {
         pub validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
         /// Only for validators who met the threshold and didn't get slashed
         pub validator_block_chunk_stats: HashMap<AccountId, BlockChunkValidatorStats>,
-        /// Protocol version for next epoch.
-        pub next_version: ProtocolVersion,
+        /// Protocol version for next next epoch, as summary of epoch T defines
+        /// epoch T+2.
+        pub next_next_epoch_version: ProtocolVersion,
     }
 }
 
