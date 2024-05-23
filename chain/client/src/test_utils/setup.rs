@@ -49,7 +49,7 @@ use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{AccountId, BlockHeightDelta, NumBlocks, NumSeats};
+use near_primitives::types::{AccountId, BlockHeightDelta, EpochId, NumBlocks, NumSeats};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
@@ -407,21 +407,20 @@ fn send_chunks<T, I, F>(
 }
 
 fn process_msg(
-    msg: NetworkResponses,
+    msg: PeerManagerMessageRequest,
     account_id1: AccountId,
     validators_clone2: Vec<AccountId>,
     key_pairs: Vec<PeerInfo>,
-    key_pairs1: Vec<PeerInfo>,
-    client_sender1: Sender<SetNetworkInfo>,
-    addresses: Vec<AccountId>,
+    client_sender1: &LateBoundSender<Addr<PeerManagerMock>>,
+    addresses: Vec<CryptoHash>,
     last_height1: Arc<RwLock<Vec<u64>>>,
     last_height2: Arc<RwLock<Vec<u64>>>,
-    connectors1: Vec<ActorHandlesForTesting>,
+    connectors1: &[ActorHandlesForTesting],
     check_block_stats: bool,
     block_stats1: Arc<RwLock<BlockStats>>,
     hash_to_height1: Arc<RwLock<HashMap<CryptoHash, u64>>>,
     drop_chunks: bool,
-    announced_accounts1: Arc<RwLock<HashSet<(AccountId, u64)>>>,
+    announced_accounts1: Arc<RwLock<HashSet<(AccountId, EpochId)>>>,
     tamper_with_fg: bool,
     largest_skipped_height1: Arc<RwLock<Vec<u64>>>,
     largest_endorsed_height1: Arc<RwLock<Vec<u64>>>,
@@ -432,7 +431,7 @@ fn process_msg(
 
     {
         let last_height2 = last_height2.read().unwrap();
-        let peers: Vec<_> = key_pairs1
+        let peers: Vec<_> = key_pairs
             .iter()
             .take(connectors1.len())
             .enumerate()
@@ -466,8 +465,8 @@ fn process_msg(
         let info = NetworkInfo {
             connected_peers: peers,
             tier1_connections: vec![],
-            num_connected_peers: key_pairs1.len(),
-            peer_max_count: key_pairs1.len() as u32,
+            num_connected_peers: key_pairs.len(),
+            peer_max_count: key_pairs.len() as u32,
             highest_height_peers: peers2,
             sent_bytes_per_sec: 0,
             received_bytes_per_sec: 0,
@@ -865,12 +864,11 @@ pub fn setup_mock_all_validators(
                     account_id1.clone(),
                     validators_clone2.clone(),
                     key_pairs.clone(),
-                    key_pairs1.clone(),
-                    client_sender1.clone(),
+                    client_sender1.as_ref(),
                     addresses.clone(),
                     last_height1.clone(),
                     last_height2.clone(),
-                    connectors1.clone(),
+                    connectors1.as_slice(),
                     check_block_stats,
                     block_stats1.clone(),
                     hash_to_height1.clone(),
