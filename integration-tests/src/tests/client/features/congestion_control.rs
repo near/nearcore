@@ -89,7 +89,7 @@ fn test_protocol_upgrade_under_congestion() {
     let contract = near_test_contracts::rs_contract();
     let create_contract_tx = SignedTransaction::create_contract(
         nonce,
-        sender_id.clone(),
+        sender_id,
         contract_id.clone(),
         contract.to_vec(),
         10 * 10u128.pow(24),
