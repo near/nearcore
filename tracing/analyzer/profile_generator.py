@@ -31,7 +31,7 @@ html_colors = [
 random.shuffle(html_colors)
 
 
-def category_generator(name: str) -> int:
+def category_generator(name: str):
     for color in html_colors:
         index = len(categories)
         categories.append(Category(

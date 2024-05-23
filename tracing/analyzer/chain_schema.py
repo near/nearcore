@@ -190,7 +190,7 @@ class BlockSpan(ChainSpan):
         if len(events) == 0:
             assert block_id is not None, "Failed to extract block id from span fields: %s" % str(
                 span)
-            events = [BlockEvent.extract(e, block_id) for e in span.events]
+            events = [] # [BlockEvent.extract(e, block_id) for e in span.events]
         else:
             block_id = block_id if block_id is not None else events[0].block_id
             for event in events:
@@ -219,7 +219,7 @@ class ChunkSpan(ChainSpan):
         if len(events) == 0:
             assert chunk_id is not None, "Failed to extract chunk id from span fields: %s" % str(
                 span)
-            events = [ChunkEvent.extract(e, chunk_id) for e in span.events]
+            events = [] # [ChunkEvent.extract(e, chunk_id) for e in span.events]
         else:
             chunk_id = chunk_id if chunk_id is not None else events[0].chunk_id
             for event in events:
@@ -331,14 +331,14 @@ def generate(trace_input: TraceInput) -> ChainHistory:
             if block_span is not None:
                 assert block_span.block_id is not None, "Failed to extract block id from span: %s" % str(
                     span)
-                print("Adding new block span: %s" % block_span.name)
+                print("Adding new block span: %s events=%s" % (block_span.name, str([e.name for e in block_span.events])))
                 chain_history.add_block_span(block_span.block_id, block_span)
 
             chunk_span = check_chunk_span(span)
             if chunk_span is not None:
                 assert chunk_span.chunk_id is not None, "Failed to extract chunk id from span: %s" % str(
                     span)
-                print("Adding new chunk span: %s" % chunk_span.name)
+                print("Adding new chunk span: %s events=%s" % (chunk_span.name, str([e.name for e in chunk_span.events])))
                 chain_history.add_chunk_span(chunk_span.chunk_id, chunk_span)
 
     return chain_history
