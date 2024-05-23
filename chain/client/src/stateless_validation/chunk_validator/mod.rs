@@ -358,8 +358,8 @@ pub(crate) fn pre_validate_chunk_state_witness(
             resharding_state_roots: None,
             block: Chain::get_apply_chunk_block_context(
                 epoch_manager,
-                last_chunk_block.header(),
-                &store.get_block(last_chunk_block.header().prev_hash())?,
+                last_chunk_block,
+                &store.get_block_header(last_chunk_block.header().prev_hash())?,
                 true,
             )?,
             is_first_block_with_chunk_of_version: false,
@@ -380,8 +380,8 @@ pub(crate) fn pre_validate_chunk_state_witness(
             .map(|block| -> Result<_, Error> {
                 Ok(Chain::get_apply_chunk_block_context(
                     epoch_manager,
-                    block.header(),
-                    &store.get_block(block.header().prev_hash())?,
+                    &block,
+                    &store.get_block_header(block.header().prev_hash())?,
                     false,
                 )?)
             })
