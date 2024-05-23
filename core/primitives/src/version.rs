@@ -77,7 +77,7 @@ pub const PROTOCOL_UPGRADE_SCHEDULE: Lazy<ProtocolUpgradeVotingSchedule> = Lazy:
     // let schedule = vec![(v1_datetime, v1_protocol_version), (v2_datetime, v2_protocol_version)];
     // ProtocolUpgradeVotingSchedule::new_from_env_or_schedule(PROTOCOL_VERSION, schedule).unwrap()
 
-    ProtocolUpgradeVotingSchedule::default()
+    ProtocolUpgradeVotingSchedule::new_immediate(PROTOCOL_VERSION)
 });
 
 /// Gives new clients an option to upgrade without announcing that they support

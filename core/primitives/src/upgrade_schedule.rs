@@ -16,7 +16,7 @@ pub enum ProtocolUpgradeVotingScheduleError {
 /// Multiple protocol version upgrades can be scheduled. The default schedule is
 /// empty and in that case the node will always vote for the client protocol
 /// version.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ProtocolUpgradeVotingSchedule {
     // The highest protocol version supported by the client. This class will
     // check that the schedule ends with this version.
@@ -29,6 +29,12 @@ pub struct ProtocolUpgradeVotingSchedule {
 }
 
 impl ProtocolUpgradeVotingSchedule {
+    /// This method creates an instance of the ProtocolUpgradeVotingSchedule
+    /// that will immediately vote for the client protocol version.
+    pub fn new_immediate(client_protocol_version: ProtocolVersion) -> Self {
+        Self { client_protocol_version, schedule: vec![] }
+    }
+
     /// This method creates an instance of the ProtocolUpgradeVotingSchedule.
     ///
     /// It will first check if the NEAR_TESTS_IMMEDIATE_PROTOCOL_UPGRADE is set
@@ -44,7 +50,7 @@ impl ProtocolUpgradeVotingSchedule {
         let immediate_upgrade = env::var("NEAR_TESTS_IMMEDIATE_PROTOCOL_UPGRADE");
         if let Ok(_) = immediate_upgrade {
             tracing::warn!("Setting immediate protocol upgrade. This is fine in tests but should be avoided otherwise");
-            return Ok(Self::default());
+            return Ok(Self::new_immediate(client_protocol_version));
         }
 
         // Sanity and invariant checks.
@@ -170,14 +176,13 @@ mod tests {
     #[test]
     fn test_default_upgrade_schedule() {
         // As no protocol upgrade voting schedule is set, always return the version supported by the client.
-
         let now = chrono::Utc::now();
-        let schedule = ProtocolUpgradeVotingSchedule::default();
-
         let client_protocol_version = 100;
+        let schedule = ProtocolUpgradeVotingSchedule::new_immediate(client_protocol_version);
+
         assert_eq!(
             client_protocol_version,
-            schedule.get_protocol_version(now, client_protocol_version - 2,)
+            schedule.get_protocol_version(now, client_protocol_version - 2)
         );
         assert_eq!(
             client_protocol_version,
@@ -201,21 +206,21 @@ mod tests {
         let next_epoch_protocol_version = client_protocol_version - 2;
         assert_eq!(
             next_epoch_protocol_version,
-            schedule.get_protocol_version(now, next_epoch_protocol_version,)
+            schedule.get_protocol_version(now, next_epoch_protocol_version)
         );
 
         // An upgrade happened before the scheduled time.
         let next_epoch_protocol_version = client_protocol_version;
         assert_eq!(
             next_epoch_protocol_version,
-            schedule.get_protocol_version(now, next_epoch_protocol_version,)
+            schedule.get_protocol_version(now, next_epoch_protocol_version)
         );
 
         // Several upgrades happened before the scheduled time. Announce only the currently supported protocol version.
         let next_epoch_protocol_version = client_protocol_version + 2;
         assert_eq!(
             client_protocol_version,
-            schedule.get_protocol_version(now, next_epoch_protocol_version,)
+            schedule.get_protocol_version(now, next_epoch_protocol_version)
         );
     }
 
@@ -321,8 +326,9 @@ mod tests {
         // the release branch where the protocol upgrade date is set.
         std::env::set_var("NEAR_TESTS_IMMEDIATE_PROTOCOL_UPGRADE", "1");
 
-        let schedule = make_simple_voting_schedule(100, "2999-02-03 23:59:59");
+        let client_protocol_version = 100;
+        let schedule = make_simple_voting_schedule(client_protocol_version, "2999-02-03 23:59:59");
 
-        assert_eq!(schedule, ProtocolUpgradeVotingSchedule::default());
+        assert_eq!(schedule, ProtocolUpgradeVotingSchedule::new_immediate(client_protocol_version));
     }
 }
