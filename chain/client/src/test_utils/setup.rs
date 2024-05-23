@@ -4,6 +4,7 @@
 
 use super::block_stats::BlockStats;
 use super::peer_manager_mock::PeerManagerMock;
+use crate::client_actor::ClientActorInner;
 use crate::stateless_validation::partial_witness::partial_witness_actor::{
     PartialWitnessActor, PartialWitnessSenderForClient,
 };
@@ -29,14 +30,17 @@ use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::shards_manager_actor::{start_shards_manager, ShardsManagerActor};
 use near_chunks::test_utils::SynchronousShardsManagerAdapter;
+use near_client_primitives::types::GetBlock;
 use near_crypto::{KeyType, PublicKey};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::{
     AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
-    BlockResponse, SetNetworkInfo, StateRequestHeader, StateRequestPart,
+    BlockResponse, ChunkEndorsementMessage, ChunkStateWitnessMessage, SetNetworkInfo,
+    StateRequestHeader, StateRequestPart,
 };
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
+use near_network::state_witness::PartialEncodedStateWitnessMessage;
 use near_network::types::{BlockInfo, PeerChainInfo};
 use near_network::types::{
     ConnectedPeerInfo, FullPeerInfo, NetworkRequests, NetworkResponses, PeerManagerAdapter,
@@ -49,7 +53,9 @@ use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{AccountId, BlockHeightDelta, EpochId, NumBlocks, NumSeats};
+use near_primitives::types::{
+    AccountId, BlockHeightDelta, BlockId, BlockReference, EpochId, NumBlocks, NumSeats,
+};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
@@ -87,7 +93,7 @@ pub fn setup(
     genesis_time: Utc,
     // ctx: &Context<ClientActor>,
     chunk_distribution_config: Option<ChunkDistributionNetworkConfig>,
-) -> (Block, Addr<ClientActor>, Addr<ViewClientActor>, ShardsManagerAdapterForTest) {
+) -> (Addr<ClientActor>, Addr<ViewClientActor>, ShardsManagerAdapterForTest) {
     let store = create_test_store();
     let num_validator_seats = vs.all_block_producers().count() as NumSeats;
     let epoch_manager = MockEpochManager::new_with_validators(store.clone(), vs, epoch_length);
@@ -130,7 +136,6 @@ pub fn setup(
         None,
     )
     .unwrap();
-    let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
 
     let signer = Arc::new(create_test_signer(account_id.as_str()));
     let telemetry = ActixWrapper::new(TelemetryActor::default()).start();
@@ -213,7 +218,7 @@ pub fn setup(
     let shards_manager_adapter = shards_manager_addr.with_auto_span_context();
     shards_manager_adapter_for_client.bind(shards_manager_adapter.clone());
 
-    (genesis_block, client_actor, view_client_addr, shards_manager_adapter.into_multi_sender())
+    (client_actor, view_client_addr, shards_manager_adapter.into_multi_sender())
 }
 
 pub fn setup_only_view(
@@ -346,7 +351,7 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
 ) -> ActorHandlesForTesting {
     let network_adapter = LateBoundSender::new();
     let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![validators]);
-    let (_, client_addr, view_client_addr, shards_manager_adapter) = setup(
+    let (client_addr, view_client_addr, shards_manager_adapter) = setup(
         clock.clone(),
         vs,
         10,
@@ -406,31 +411,30 @@ fn send_chunks<T, I, F>(
     }
 }
 
-fn process_msg(
+fn process_network_message_default(
     msg: PeerManagerMessageRequest,
-    account_id1: AccountId,
+    drop_chunks: bool,
+    tamper_with_fg: bool,
+    check_block_stats: bool,
+    account_id: AccountId,
     validators_clone2: Vec<AccountId>,
     key_pairs: Vec<PeerInfo>,
-    client_sender1: &LateBoundSender<Addr<PeerManagerMock>>,
     addresses: Vec<CryptoHash>,
-    last_height1: Arc<RwLock<Vec<u64>>>,
-    last_height2: Arc<RwLock<Vec<u64>>>,
-    connectors1: &[ActorHandlesForTesting],
-    check_block_stats: bool,
+    last_height: Arc<RwLock<Vec<u64>>>,
     block_stats1: Arc<RwLock<BlockStats>>,
-    hash_to_height1: Arc<RwLock<HashMap<CryptoHash, u64>>>,
-    drop_chunks: bool,
     announced_accounts1: Arc<RwLock<HashSet<(AccountId, EpochId)>>>,
-    tamper_with_fg: bool,
-    largest_skipped_height1: Arc<RwLock<Vec<u64>>>,
     largest_endorsed_height1: Arc<RwLock<Vec<u64>>>,
+    largest_skipped_height1: Arc<RwLock<Vec<u64>>>,
+    hash_to_height1: Arc<RwLock<HashMap<CryptoHash, u64>>>,
+    client_sender1: &LateBoundSender<Addr<ActixWrapper<ClientActorInner>>>,
+    connectors1: &[ActorHandlesForTesting],
 ) {
-    let my_ord = validators_clone2.iter().position(|it| it == &account_id1).unwrap();
+    let my_ord = validators_clone2.iter().position(|it| it == &account_id).unwrap();
     let my_key_pair = key_pairs[my_ord].clone();
     let my_address = addresses[my_ord];
 
     {
-        let last_height2 = last_height2.read().unwrap();
+        let last_height = last_height.read().unwrap();
         let peers: Vec<_> = key_pairs
             .iter()
             .take(connectors1.len())
@@ -445,7 +449,7 @@ fn process_msg(
                         },
                         // TODO: add the correct hash here
                         last_block: Some(BlockInfo {
-                            height: last_height2[i],
+                            height: last_height[i],
                             hash: CryptoHash::default(),
                         }),
                         tracked_shards: vec![0, 1, 2, 3],
@@ -496,7 +500,7 @@ fn process_msg(
                 );
             }
 
-            let mut last_height1 = last_height1.write().unwrap();
+            let mut last_height1 = last_height.write().unwrap();
 
             let my_height = &mut last_height1[my_ord];
 
@@ -731,16 +735,47 @@ fn process_msg(
                 }
             };
         }
+        NetworkRequests::ChunkStateWitness(accounts, state_witness) => {
+            println!("ChunkStateWitness: {:?}", accounts);
+            for (i, name) in validators_clone2.iter().enumerate() {
+                if accounts.contains(name) {
+                    connectors1[i].client_actor.do_send(
+                        ChunkStateWitnessMessage(state_witness.clone()).with_span_context(),
+                    );
+                }
+            }
+        }
+        NetworkRequests::ChunkEndorsement(account, endorsement) => {
+            println!("ChunkEndorsement: {:?}", account);
+            for (i, name) in validators_clone2.iter().enumerate() {
+                if name == account {
+                    connectors1[i]
+                        .client_actor
+                        .do_send(ChunkEndorsementMessage(endorsement.clone()).with_span_context());
+                }
+            }
+        }
+        NetworkRequests::PartialEncodedStateWitness(partial_witnesses) => {
+            for (account, partial_witness) in partial_witnesses {
+                for (i, name) in validators_clone2.iter().enumerate() {
+                    if name == account {
+                        connectors1[i].client_actor.do_send(
+                            PartialEncodedStateWitnessMessage(partial_witness.clone())
+                                .with_span_context(),
+                        );
+                    }
+                }
+            }
+        }
+        NetworkRequests::PartialEncodedStateWitnessForward(accounts, w) => {
+            println!("PartialEncodedStateWitnessForward: {:?}", accounts);
+        }
         NetworkRequests::ForwardTx(_, _)
         | NetworkRequests::BanPeer { .. }
         | NetworkRequests::TxStatus(_, _, _)
         | NetworkRequests::SnapshotHostInfo { .. }
         | NetworkRequests::Challenge(_)
-        | NetworkRequests::ChunkStateWitness(_, _)
-        | NetworkRequests::ChunkStateWitnessAck(_, _)
-        | NetworkRequests::ChunkEndorsement(_, _)
-        | NetworkRequests::PartialEncodedStateWitness(_)
-        | NetworkRequests::PartialEncodedStateWitnessForward(_, _) => {}
+        | NetworkRequests::ChunkStateWitnessAck(_, _) => {}
     }
 }
 
@@ -820,7 +855,6 @@ pub fn setup_mock_all_validators(
     let connectors: Arc<OnceCell<Vec<ActorHandlesForTesting>>> = Default::default();
 
     let announced_accounts = Arc::new(RwLock::new(HashSet::new()));
-    let genesis_block = Arc::new(RwLock::new(None));
 
     let last_height = Arc::new(RwLock::new(vec![0; key_pairs.len()]));
     let largest_endorsed_height = Arc::new(RwLock::new(vec![0u64; key_pairs.len()]));
@@ -833,15 +867,12 @@ pub fn setup_mock_all_validators(
         let vs = vs.clone();
         let block_stats1 = block_stats.clone();
         let validators_clone2 = validators.clone();
-        let genesis_block1 = genesis_block.clone();
         let key_pairs = key_pairs.clone();
-        let key_pairs1 = key_pairs.clone();
         let addresses = addresses.clone();
         let connectors1 = connectors.clone();
         let network_mock1 = peer_manager_mock.clone();
         let announced_accounts1 = announced_accounts.clone();
-        let last_height1 = last_height.clone();
-        let last_height2 = last_height.clone();
+        let last_height = last_height.clone();
         let largest_endorsed_height1 = largest_endorsed_height.clone();
         let largest_skipped_height1 = largest_skipped_height.clone();
         let hash_to_height1 = hash_to_height.clone();
@@ -859,31 +890,30 @@ pub fn setup_mock_all_validators(
             drop(guard);
 
             if perform_default {
-                process_msg(
+                process_network_message_default(
                     msg,
+                    drop_chunks,
+                    tamper_with_fg,
+                    check_block_stats,
                     account_id1.clone(),
                     validators_clone2.clone(),
                     key_pairs.clone(),
-                    client_sender1.as_ref(),
                     addresses.clone(),
-                    last_height1.clone(),
-                    last_height2.clone(),
-                    connectors1.as_slice(),
-                    check_block_stats,
+                    last_height.clone(),
                     block_stats1.clone(),
-                    hash_to_height1.clone(),
-                    drop_chunks,
                     announced_accounts1.clone(),
-                    tamper_with_fg,
-                    largest_skipped_height1.clone(),
                     largest_endorsed_height1.clone(),
+                    largest_skipped_height1.clone(),
+                    hash_to_height1.clone(),
+                    client_sender1.as_ref(),
+                    connectors1.as_slice(),
                 );
             }
             resp
         })
         .start();
 
-        let (block, client_addr, view_client_addr, shards_manager_adapter) = setup(
+        let (client_addr, view_client_addr, shards_manager_adapter) = setup(
             clock.clone(),
             vs,
             epoch_length,
@@ -901,7 +931,6 @@ pub fn setup_mock_all_validators(
             // ctx,
             chunk_distribution_config1,
         );
-        *genesis_block1.write().unwrap() = Some(block);
         client_sender.bind(client_addr.clone());
         ret.push(ActorHandlesForTesting {
             client_actor: client_addr,
@@ -910,6 +939,18 @@ pub fn setup_mock_all_validators(
         });
     }
     hash_to_height.write().unwrap().insert(CryptoHash::default(), 0);
+    // let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
+
+    actix_rt::Runtime::block_on(async {
+        genesis_block = ret[0]
+            .view_client_actor
+            .send(GetBlock(BlockReference::BlockId(BlockId::Height(0))).with_span_context())
+            .await
+            .unwrap()
+            .unwrap()
+            .header
+            .hash
+    });
     hash_to_height
         .write()
         .unwrap()
