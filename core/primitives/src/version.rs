@@ -75,7 +75,7 @@ pub const PROTOCOL_UPGRADE_SCHEDULE: Lazy<ProtocolUpgradeVotingSchedule> = Lazy:
     // let v2_datetime = ProtocolUpgradeVotingSchedule::parse_datetime("2000-01-10 15:00:00").unwrap();
     //
     // let schedule = vec![(v1_datetime, v1_protocol_version), (v2_datetime, v2_protocol_version)];
-    // ProtocolUpgradeVotingSchedule::new_from_env_or_schedule(PROTOCOL_VERSION, schedule)
+    // ProtocolUpgradeVotingSchedule::new_from_env_or_schedule(PROTOCOL_VERSION, schedule).unwrap()
 
     ProtocolUpgradeVotingSchedule::default()
 });
@@ -85,9 +85,5 @@ pub const PROTOCOL_UPGRADE_SCHEDULE: Lazy<ProtocolUpgradeVotingSchedule> = Lazy:
 /// <https://github.com/near/NEPs/issues/205>
 pub fn get_protocol_version(next_epoch_protocol_version: ProtocolVersion) -> ProtocolVersion {
     let now = chrono::Utc::now();
-    PROTOCOL_UPGRADE_SCHEDULE.get_protocol_version(
-        now,
-        next_epoch_protocol_version,
-        PROTOCOL_VERSION,
-    )
+    PROTOCOL_UPGRADE_SCHEDULE.get_protocol_version(now, next_epoch_protocol_version)
 }

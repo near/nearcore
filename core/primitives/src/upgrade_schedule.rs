@@ -18,6 +18,10 @@ pub enum ProtocolUpgradeVotingScheduleError {
 /// version.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ProtocolUpgradeVotingSchedule {
+    // The highest protocol version supported by the client. This class will
+    // check that the schedule ends with this version.
+    client_protocol_version: ProtocolVersion,
+
     /// The schedule is a sorted list of (datetime, version) tuples. The node
     /// should vote for the highest version that is less than or equal to the
     /// current time.
@@ -73,7 +77,7 @@ impl ProtocolUpgradeVotingSchedule {
             }
         }
 
-        Ok(Self { schedule })
+        Ok(Self { client_protocol_version, schedule })
     }
 
     /// This method returns the protocol version that the node should vote for.
@@ -82,19 +86,19 @@ impl ProtocolUpgradeVotingSchedule {
         now: DateTime<Utc>,
         // Protocol version that will be used in the next epoch.
         next_epoch_protocol_version: ProtocolVersion,
-        // Latest protocol version supported by this client.
-        client_protocol_version: ProtocolVersion,
     ) -> ProtocolVersion {
-        if next_epoch_protocol_version >= client_protocol_version {
-            return client_protocol_version;
+        if next_epoch_protocol_version >= self.client_protocol_version {
+            return self.client_protocol_version;
         }
 
         if self.schedule.is_empty() {
-            return client_protocol_version;
+            return self.client_protocol_version;
         }
 
         // The datetime values in the schedule are sorted in ascending order.
-        // Find the last datetime value that is less than the current time.
+        // Find the last datetime value that is less than the current time. The
+        // schedule is sorted and the last value is the client_protocol_version
+        // so we are guaranteed to find a correct protocol version.
         let mut result = next_epoch_protocol_version;
         for (time, version) in &self.schedule {
             if now < *time {
@@ -140,7 +144,7 @@ mod tests {
         make_voting_schedule_impl(schedule, client_protocol_version).unwrap()
     }
 
-    /// Make a schedule with a given list of protocol version upgardes.
+    /// Make a schedule with a given list of protocol version upgrades.
     fn make_voting_schedule_impl(
         schedule: Vec<(&str, u32)>,
         client_protocol_version: ProtocolVersion,
@@ -173,23 +177,15 @@ mod tests {
         let client_protocol_version = 100;
         assert_eq!(
             client_protocol_version,
-            schedule.get_protocol_version(
-                now,
-                client_protocol_version - 2,
-                client_protocol_version
-            )
+            schedule.get_protocol_version(now, client_protocol_version - 2,)
         );
         assert_eq!(
             client_protocol_version,
-            schedule.get_protocol_version(now, client_protocol_version, client_protocol_version)
+            schedule.get_protocol_version(now, client_protocol_version)
         );
         assert_eq!(
             client_protocol_version,
-            schedule.get_protocol_version(
-                now,
-                client_protocol_version + 2,
-                client_protocol_version
-            )
+            schedule.get_protocol_version(now, client_protocol_version + 2)
         );
     }
 
@@ -198,40 +194,28 @@ mod tests {
         let now = chrono::Utc::now();
 
         let client_protocol_version = 100;
-        let schedule = make_simple_voting_schedule(client_protocol_version, "2050-01-01 00:00:00");
+        let schedule = make_simple_voting_schedule(client_protocol_version, "3000-01-01 00:00:00");
 
         // The client supports a newer version than the version of the next epoch.
         // Upgrade voting will start in the far future, therefore don't announce the newest supported version.
         let next_epoch_protocol_version = client_protocol_version - 2;
         assert_eq!(
             next_epoch_protocol_version,
-            schedule.get_protocol_version(
-                now,
-                next_epoch_protocol_version,
-                client_protocol_version
-            )
+            schedule.get_protocol_version(now, next_epoch_protocol_version,)
         );
 
         // An upgrade happened before the scheduled time.
         let next_epoch_protocol_version = client_protocol_version;
         assert_eq!(
             next_epoch_protocol_version,
-            schedule.get_protocol_version(
-                now,
-                next_epoch_protocol_version,
-                client_protocol_version
-            )
+            schedule.get_protocol_version(now, next_epoch_protocol_version,)
         );
 
         // Several upgrades happened before the scheduled time. Announce only the currently supported protocol version.
         let next_epoch_protocol_version = client_protocol_version + 2;
         assert_eq!(
             client_protocol_version,
-            schedule.get_protocol_version(
-                now,
-                next_epoch_protocol_version,
-                client_protocol_version
-            )
+            schedule.get_protocol_version(now, next_epoch_protocol_version,)
         );
     }
 
@@ -245,23 +229,15 @@ mod tests {
         // Regardless of the protocol version of the next epoch, return the version supported by the client.
         assert_eq!(
             client_protocol_version,
-            schedule.get_protocol_version(
-                now,
-                client_protocol_version - 2,
-                client_protocol_version,
-            )
+            schedule.get_protocol_version(now, client_protocol_version - 2)
         );
         assert_eq!(
             client_protocol_version,
-            schedule.get_protocol_version(now, client_protocol_version, client_protocol_version,)
+            schedule.get_protocol_version(now, client_protocol_version)
         );
         assert_eq!(
             client_protocol_version,
-            schedule.get_protocol_version(
-                now,
-                client_protocol_version + 2,
-                client_protocol_version,
-            )
+            schedule.get_protocol_version(now, client_protocol_version + 2)
         );
     }
 
@@ -280,31 +256,31 @@ mod tests {
         let now = ProtocolUpgradeVotingSchedule::parse_datetime("2000-01-05 00:00:00").unwrap();
         assert_eq!(
             current_protocol_version,
-            schedule.get_protocol_version(now, current_protocol_version, client_protocol_version)
+            schedule.get_protocol_version(now, current_protocol_version)
         );
 
         // Test the first upgrade.
         let now = ProtocolUpgradeVotingSchedule::parse_datetime("2000-01-10 00:00:00").unwrap();
         assert_eq!(
             current_protocol_version + 1,
-            schedule.get_protocol_version(now, current_protocol_version, client_protocol_version)
+            schedule.get_protocol_version(now, current_protocol_version)
         );
         let now = ProtocolUpgradeVotingSchedule::parse_datetime("2000-01-12 00:00:00").unwrap();
         assert_eq!(
             current_protocol_version + 1,
-            schedule.get_protocol_version(now, current_protocol_version, client_protocol_version)
+            schedule.get_protocol_version(now, current_protocol_version)
         );
 
         // Test the final upgrade.
         let now = ProtocolUpgradeVotingSchedule::parse_datetime("2000-01-15 00:00:00").unwrap();
         assert_eq!(
             current_protocol_version + 2,
-            schedule.get_protocol_version(now, current_protocol_version, client_protocol_version,)
+            schedule.get_protocol_version(now, current_protocol_version)
         );
         let now = ProtocolUpgradeVotingSchedule::parse_datetime("2000-01-20 00:00:00").unwrap();
         assert_eq!(
             current_protocol_version + 2,
-            schedule.get_protocol_version(now, current_protocol_version, client_protocol_version,)
+            schedule.get_protocol_version(now, current_protocol_version)
         );
     }
 
