@@ -2129,6 +2129,8 @@ impl Handler<ChunkStateWitnessMessage> for ClientActorInner {
 impl Handler<ProcessChunkStateWitnessMessage> for ClientActorInner {
     #[perf]
     fn handle(&mut self, msg: ProcessChunkStateWitnessMessage) {
+        let me = self.client.validator_signer.as_ref().unwrap().validator_id().clone();
+        println!("{me} constructed some ProcessChunkStateWitnessMessage");
         if let Err(err) = self.client.process_chunk_state_witness(msg.0, None) {
             tracing::error!(target: "client", ?err, "Error processing chunk state witness");
         }

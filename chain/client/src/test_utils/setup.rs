@@ -30,7 +30,6 @@ use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::shards_manager_actor::{start_shards_manager, ShardsManagerActor};
 use near_chunks::test_utils::SynchronousShardsManagerAdapter;
-use near_client_primitives::types::GetBlock;
 use near_crypto::{KeyType, PublicKey};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManagerAdapter;
@@ -40,7 +39,10 @@ use near_network::client::{
     StateRequestHeader, StateRequestPart,
 };
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
-use near_network::state_witness::PartialEncodedStateWitnessMessage;
+use near_network::state_witness::{
+    PartialEncodedStateWitnessForwardMessage, PartialEncodedStateWitnessMessage,
+    PartialWitnessSenderForNetwork,
+};
 use near_network::types::{BlockInfo, PeerChainInfo};
 use near_network::types::{
     ConnectedPeerInfo, FullPeerInfo, NetworkRequests, NetworkResponses, PeerManagerAdapter,
@@ -48,14 +50,12 @@ use near_network::types::{
 use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network::types::{PeerInfo, PeerType};
 use near_o11y::WithSpanContextExt;
-use near_primitives::block::{ApprovalInner, Block, GenesisId};
+use near_primitives::block::{ApprovalInner, GenesisId};
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{
-    AccountId, BlockHeightDelta, BlockId, BlockReference, EpochId, NumBlocks, NumSeats,
-};
+use near_primitives::types::{AccountId, BlockHeightDelta, EpochId, NumBlocks, NumSeats};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
@@ -93,7 +93,12 @@ pub fn setup(
     genesis_time: Utc,
     // ctx: &Context<ClientActor>,
     chunk_distribution_config: Option<ChunkDistributionNetworkConfig>,
-) -> (Addr<ClientActor>, Addr<ViewClientActor>, ShardsManagerAdapterForTest) {
+) -> (
+    Addr<ClientActor>,
+    Addr<ViewClientActor>,
+    ShardsManagerAdapterForTest,
+    PartialWitnessSenderForNetwork,
+) {
     let store = create_test_store();
     let num_validator_seats = vs.all_block_producers().count() as NumSeats;
     let epoch_manager = MockEpochManager::new_with_validators(store.clone(), vs, epoch_length);
@@ -174,10 +179,11 @@ pub fn setup(
         SyncAdapter::actix_actor_maker(),
     )));
 
+    let client_adapter_for_partial_witness_actor = LateBoundSender::new();
     let (partial_witness_addr, _) = spawn_actix_actor(PartialWitnessActor::new(
         clock.clone(),
         network_adapter.clone(),
-        noop().into_multi_sender(),
+        client_adapter_for_partial_witness_actor.as_multi_sender(),
         signer.clone(),
         epoch_manager.clone(),
     ));
@@ -201,7 +207,7 @@ pub fn setup(
         None,
         adv,
         None,
-        partial_witness_adapter.into_multi_sender(),
+        partial_witness_adapter.clone().into_multi_sender(),
         enable_doomslug,
         Some(TEST_SEED),
     );
@@ -218,7 +224,14 @@ pub fn setup(
     let shards_manager_adapter = shards_manager_addr.with_auto_span_context();
     shards_manager_adapter_for_client.bind(shards_manager_adapter.clone());
 
-    (client_actor, view_client_addr, shards_manager_adapter.into_multi_sender())
+    client_adapter_for_partial_witness_actor.bind(client_actor.clone().with_auto_span_context());
+
+    (
+        client_actor,
+        view_client_addr,
+        shards_manager_adapter.into_multi_sender(),
+        partial_witness_adapter.into_multi_sender(),
+    )
 }
 
 pub fn setup_only_view(
@@ -351,7 +364,7 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
 ) -> ActorHandlesForTesting {
     let network_adapter = LateBoundSender::new();
     let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![validators]);
-    let (client_addr, view_client_addr, shards_manager_adapter) = setup(
+    let (client_addr, view_client_addr, shards_manager_adapter, partial_witness_sender) = setup(
         clock.clone(),
         vs,
         10,
@@ -381,6 +394,7 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
         client_actor: client_addr,
         view_client_actor: view_client_addr,
         shards_manager_adapter,
+        partial_witness_sender,
     }
 }
 
@@ -389,6 +403,7 @@ pub struct ActorHandlesForTesting {
     pub client_actor: Addr<ClientActor>,
     pub view_client_actor: Addr<ViewClientActor>,
     pub shards_manager_adapter: ShardsManagerAdapterForTest,
+    pub partial_witness_sender: PartialWitnessSenderForNetwork,
 }
 
 fn send_chunks<T, I, F>(
@@ -425,7 +440,8 @@ fn process_network_message_default(
     announced_accounts1: Arc<RwLock<HashSet<(AccountId, EpochId)>>>,
     largest_endorsed_height1: Arc<RwLock<Vec<u64>>>,
     largest_skipped_height1: Arc<RwLock<Vec<u64>>>,
-    hash_to_height1: Arc<RwLock<HashMap<CryptoHash, u64>>>,
+    // Maps block hashes to heights. May not include genesis block.
+    hash_to_height: Arc<RwLock<HashMap<CryptoHash, u64>>>,
     client_sender1: &LateBoundSender<Addr<ActixWrapper<ClientActorInner>>>,
     connectors1: &[ActorHandlesForTesting],
 ) {
@@ -506,10 +522,7 @@ fn process_network_message_default(
 
             *my_height = max(*my_height, block.header().height());
 
-            hash_to_height1
-                .write()
-                .unwrap()
-                .insert(*block.header().hash(), block.header().height());
+            hash_to_height.write().unwrap().insert(*block.header().hash(), block.header().height());
         }
         NetworkRequests::PartialEncodedChunkRequest { target, request, .. } => {
             send_chunks(
@@ -715,7 +728,7 @@ fn process_network_message_default(
                     );
                     largest_endorsed_height1.write().unwrap()[my_ord] = approval.target_height;
 
-                    if let Some(prev_height) = hash_to_height1.read().unwrap().get(&parent_hash) {
+                    if let Some(prev_height) = hash_to_height.read().unwrap().get(&parent_hash) {
                         assert_eq!(prev_height + 1, approval.target_height);
                     }
                 }
@@ -736,9 +749,9 @@ fn process_network_message_default(
             };
         }
         NetworkRequests::ChunkStateWitness(accounts, state_witness) => {
-            println!("ChunkStateWitness: {:?}", accounts);
             for (i, name) in validators_clone2.iter().enumerate() {
                 if accounts.contains(name) {
+                    println!("ChunkStateWitness receiver: {:?}", name);
                     connectors1[i].client_actor.do_send(
                         ChunkStateWitnessMessage(state_witness.clone()).with_span_context(),
                     );
@@ -746,9 +759,9 @@ fn process_network_message_default(
             }
         }
         NetworkRequests::ChunkEndorsement(account, endorsement) => {
-            println!("ChunkEndorsement: {:?}", account);
             for (i, name) in validators_clone2.iter().enumerate() {
                 if name == account {
+                    println!("ChunkEndorsement from {:?} to {:?}", endorsement.account_id, account);
                     connectors1[i]
                         .client_actor
                         .do_send(ChunkEndorsementMessage(endorsement.clone()).with_span_context());
@@ -759,16 +772,25 @@ fn process_network_message_default(
             for (account, partial_witness) in partial_witnesses {
                 for (i, name) in validators_clone2.iter().enumerate() {
                     if name == account {
-                        connectors1[i].client_actor.do_send(
-                            PartialEncodedStateWitnessMessage(partial_witness.clone())
-                                .with_span_context(),
-                        );
+                        println!("PartialEncodedStateWitness receiver: {}", account);
+                        connectors1[i]
+                            .partial_witness_sender
+                            .send(PartialEncodedStateWitnessMessage(partial_witness.clone()));
                     }
                 }
             }
         }
-        NetworkRequests::PartialEncodedStateWitnessForward(accounts, w) => {
-            println!("PartialEncodedStateWitnessForward: {:?}", accounts);
+        NetworkRequests::PartialEncodedStateWitnessForward(accounts, partial_witness) => {
+            for account in accounts {
+                for (i, name) in validators_clone2.iter().enumerate() {
+                    if name == account {
+                        println!("PartialEncodedStateWitnessForward receiver: {:?}", account);
+                        connectors1[i].partial_witness_sender.send(
+                            PartialEncodedStateWitnessForwardMessage(partial_witness.clone()),
+                        );
+                    }
+                }
+            }
         }
         NetworkRequests::ForwardTx(_, _)
         | NetworkRequests::BanPeer { .. }
@@ -843,7 +865,7 @@ pub fn setup_mock_all_validators(
             &PeerManagerMessageRequest,
         ) -> (PeerManagerMessageResponse, /* perform default */ bool),
     >,
-) -> (Block, Vec<ActorHandlesForTesting>, Arc<RwLock<BlockStats>>) {
+) -> ((), Vec<ActorHandlesForTesting>, Arc<RwLock<BlockStats>>) {
     let peer_manager_mock = Arc::new(RwLock::new(peer_manager_mock));
     let validators = vs.all_validators().cloned().collect::<Vec<_>>();
     let key_pairs = key_pairs;
@@ -913,7 +935,7 @@ pub fn setup_mock_all_validators(
         })
         .start();
 
-        let (client_addr, view_client_addr, shards_manager_adapter) = setup(
+        let (client_addr, view_client_addr, shards_manager_adapter, partial_witness_sender) = setup(
             clock.clone(),
             vs,
             epoch_length,
@@ -932,32 +954,17 @@ pub fn setup_mock_all_validators(
             chunk_distribution_config1,
         );
         client_sender.bind(client_addr.clone());
+
         ret.push(ActorHandlesForTesting {
             client_actor: client_addr,
             view_client_actor: view_client_addr,
             shards_manager_adapter,
+            partial_witness_sender,
         });
     }
     hash_to_height.write().unwrap().insert(CryptoHash::default(), 0);
-    let genesis_block = actix_rt::Runtime::block_on(async {
-        *genesis_block.write().unwrap() = Some(
-            ret[0]
-                .view_client_actor
-                .send(GetBlock(BlockReference::BlockId(BlockId::Height(0))).with_span_context())
-                .await
-                .unwrap()
-                .unwrap()
-                .header
-                .hash,
-        );
-    });
-    hash_to_height
-        .write()
-        .unwrap()
-        .insert(*genesis_block.read().unwrap().as_ref().unwrap().header().clone().hash(), 0);
     connectors.set(ret.clone()).ok().unwrap();
-    let value = genesis_block.read().unwrap();
-    (value.clone().unwrap(), ret, block_stats)
+    ((), ret, block_stats)
 }
 
 /// Sets up ClientActor and ViewClientActor without network.

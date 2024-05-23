@@ -1026,7 +1026,8 @@ impl EpochManagerAdapter for MockEpochManager {
         _tip: &Tip,
         _height: BlockHeight,
     ) -> Result<Vec<EpochId>, EpochError> {
-        unimplemented!();
+        let epochs = self.hash_to_epoch.read().unwrap();
+        Ok(epochs.values().cloned().collect::<Vec<_>>())
     }
 
     #[cfg(feature = "new_epoch_sync")]

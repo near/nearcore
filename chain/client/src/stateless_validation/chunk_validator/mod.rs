@@ -705,7 +705,11 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
         if signer.validator_id() == &block_producer {
             // Unwrap here as we always expect our own endorsements to be valid
             chunk_endorsement_tracker
-                .process_chunk_endorsement(chunk_header, endorsement.clone())
+                .process_chunk_endorsement(
+                    chunk_header,
+                    endorsement.clone(),
+                    signer.validator_id().clone(),
+                )
                 .unwrap();
         } else {
             network_sender.send(PeerManagerMessageRequest::NetworkRequests(
@@ -748,7 +752,12 @@ impl Client {
     ) -> Result<(), Error> {
         let (witness, raw_witness_size) =
             self.partially_validate_state_witness(&encoded_witness)?;
-
+        println!(
+            "process_chunk_state_witness FOR H={}, S={}: {:?}",
+            witness.chunk_header.height_created(),
+            witness.chunk_header.shard_id(),
+            self.validator_signer.as_ref().unwrap().validator_id()
+        );
         tracing::debug!(
             target: "client",
             chunk_hash=?witness.chunk_header.chunk_hash(),

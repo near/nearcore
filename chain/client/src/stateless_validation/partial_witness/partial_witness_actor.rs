@@ -278,8 +278,9 @@ impl PartialWitnessActor {
         self.validate_partial_encoded_state_witness(&partial_witness)?;
 
         // Store the partial encoded state witness for self.
+        let me = self.my_signer.validator_id().clone();
         self.partial_witness_tracker
-            .store_partial_encoded_state_witness(partial_witness.clone())?;
+            .store_partial_encoded_state_witness(partial_witness.clone(), me)?;
 
         // Forward the part to all the chunk validators.
         let chunk_validators = self
@@ -307,7 +308,8 @@ impl PartialWitnessActor {
         self.validate_partial_encoded_state_witness(&partial_witness)?;
 
         // Store the partial encoded state witness for self.
-        self.partial_witness_tracker.store_partial_encoded_state_witness(partial_witness)?;
+        let me = self.my_signer.validator_id().clone();
+        self.partial_witness_tracker.store_partial_encoded_state_witness(partial_witness, me)?;
 
         Ok(())
     }

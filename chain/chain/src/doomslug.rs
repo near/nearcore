@@ -701,6 +701,10 @@ impl Doomslug {
         has_enough_chunks: bool,
         log_block_production_info: bool,
     ) -> bool {
+        if !has_enough_chunks {
+            return false;
+        }
+
         let span = debug_span!(
             target: "doomslug",
             "ready_to_produce_block",

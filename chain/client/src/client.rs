@@ -967,6 +967,12 @@ impl Client {
                 .inc();
         }
 
+        println!(
+            "PRODUCED CHUNK {:?} {} {}",
+            encoded_chunk.chunk_hash(),
+            next_height,
+            encoded_chunk.shard_id()
+        );
         Ok(Some(ProduceChunkResult {
             chunk: encoded_chunk,
             encoded_chunk_parts_paths: merkle_paths,
@@ -1433,6 +1439,13 @@ impl Client {
         shard_chunk: Option<ShardChunk>,
         apply_chunks_done_sender: Option<Sender<ApplyChunksDoneMessage>>,
     ) {
+        let me = self.validator_signer.as_ref().unwrap().validator_id().clone();
+        println!(
+            "{me} on_chunk_completed {:?} H={} S={}",
+            partial_chunk.chunk_hash(),
+            partial_chunk.height_created(),
+            partial_chunk.shard_id()
+        );
         let chunk_header = partial_chunk.cloned_header();
         self.chain.blocks_delay_tracker.mark_chunk_completed(&chunk_header);
         self.block_production_info
@@ -1442,7 +1455,8 @@ impl Client {
         persist_chunk(partial_chunk, shard_chunk, self.chain.mut_chain_store())
             .expect("Could not persist chunk");
 
-        self.chunk_endorsement_tracker.process_pending_endorsements(&chunk_header);
+        let me = self.validator_signer.as_ref().unwrap().validator_id().clone();
+        self.chunk_endorsement_tracker.process_pending_endorsements(&chunk_header, me);
         // We're marking chunk as accepted.
         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
         // If this was the last chunk that was missing for a block, it will be processed now.

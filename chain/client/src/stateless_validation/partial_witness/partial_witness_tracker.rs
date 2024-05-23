@@ -12,6 +12,7 @@ use near_primitives::stateless_validation::{
     ChunkProductionKey, EncodedChunkStateWitness, PartialEncodedStateWitness,
 };
 use near_primitives::types::ShardId;
+use near_vm_runner::logic::types::AccountId;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use time::ext::InstantExt as _;
 
@@ -184,7 +185,10 @@ impl PartialEncodedStateWitnessTracker {
     pub fn store_partial_encoded_state_witness(
         &mut self,
         partial_witness: PartialEncodedStateWitness,
+        me: AccountId,
     ) -> Result<(), Error> {
+        let h = partial_witness.height_created();
+        let s = partial_witness.shard_id();
         tracing::debug!(target: "client", ?partial_witness, "store_partial_encoded_state_witness");
 
         self.maybe_insert_new_entry_in_parts_cache(&partial_witness)?;
@@ -200,6 +204,7 @@ impl PartialEncodedStateWitnessTracker {
                 .with_label_values(&[entry.shard_id.to_string().as_str()])
                 .observe(entry.duration_to_last_part.as_seconds_f64());
 
+            println!("{me} constructed ProcessChunkStateWitnessMessage H={h} S={s}");
             self.client_sender.send(ProcessChunkStateWitnessMessage(encoded_witness));
         }
         self.record_total_parts_cache_size_metric();

@@ -100,7 +100,7 @@ impl Test {
             vs,
             key_pairs,
             true,
-            self.block_timeout.whole_milliseconds() as u64, // TODO: use Duration for callees
+            self.block_timeout.whole_milliseconds() as u64 * 2, // TODO: use Duration for callees
             false,
             false,
             5,

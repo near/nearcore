@@ -49,17 +49,22 @@ impl Client {
         &mut self,
         endorsement: ChunkEndorsement,
     ) -> Result<(), Error> {
+        let me = self.validator_signer.as_ref().unwrap().validator_id().clone();
+        println!("at process_chunk_endorsement from {} to {}", endorsement.account_id, me.clone());
         // We need the chunk header in order to process the chunk endorsement.
         // If we don't have the header, then queue it up for when we do have the header.
         // We must use the partial chunk (as opposed to the full chunk) in order to get
         // the chunk header, because we may not be tracking that shard.
         match self.chain.chain_store().get_partial_chunk(endorsement.chunk_hash()) {
-            Ok(chunk) => self
-                .chunk_endorsement_tracker
-                .process_chunk_endorsement(&chunk.cloned_header(), endorsement),
+            Ok(chunk) => self.chunk_endorsement_tracker.process_chunk_endorsement(
+                &chunk.cloned_header(),
+                endorsement,
+                me.clone(),
+            ),
             Err(Error::ChunkMissing(_)) => {
                 tracing::debug!(target: "client", ?endorsement, "Endorsement arrived before chunk.");
-                self.chunk_endorsement_tracker.add_chunk_endorsement_to_pending_cache(endorsement)
+                self.chunk_endorsement_tracker
+                    .add_chunk_endorsement_to_pending_cache(endorsement, me.clone())
             }
             Err(error) => return Err(error),
         }
@@ -78,7 +83,7 @@ impl ChunkEndorsementTracker {
 
     /// Process pending endorsements for the given chunk header.
     /// It removes these endorsements from the `pending_chunk_endorsements` cache.
-    pub fn process_pending_endorsements(&self, chunk_header: &ShardChunkHeader) {
+    pub fn process_pending_endorsements(&self, chunk_header: &ShardChunkHeader, me: AccountId) {
         let chunk_hash = &chunk_header.chunk_hash();
         let chunk_endorsements = {
             let mut guard = self.pending_chunk_endorsements.lock();
@@ -89,7 +94,9 @@ impl ChunkEndorsementTracker {
         };
         tracing::debug!(target: "client", ?chunk_hash, "Processing pending chunk endorsements.");
         for endorsement in chunk_endorsements.values() {
-            if let Err(error) = self.process_chunk_endorsement(chunk_header, endorsement.clone()) {
+            if let Err(error) =
+                self.process_chunk_endorsement(chunk_header, endorsement.clone(), me.clone())
+            {
                 tracing::debug!(target: "client", ?endorsement, ?error, "Error processing pending chunk endorsement");
             }
         }
@@ -99,8 +106,9 @@ impl ChunkEndorsementTracker {
     pub(crate) fn add_chunk_endorsement_to_pending_cache(
         &self,
         endorsement: ChunkEndorsement,
+        me: AccountId,
     ) -> Result<(), Error> {
-        self.process_chunk_endorsement_impl(endorsement, None)
+        self.process_chunk_endorsement_impl(endorsement, None, me)
     }
 
     /// Function to process an incoming chunk endorsement from chunk validators.
@@ -110,9 +118,10 @@ impl ChunkEndorsementTracker {
         &self,
         chunk_header: &ShardChunkHeader,
         endorsement: ChunkEndorsement,
+        me: AccountId,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "client", "process_chunk_endorsement", chunk_hash=?chunk_header.chunk_hash()).entered();
-        self.process_chunk_endorsement_impl(endorsement, Some(chunk_header))
+        self.process_chunk_endorsement_impl(endorsement, Some(chunk_header), me)
     }
 
     /// If the chunk header is available, we will verify the chunk endorsement and then store it in a cache.
@@ -121,6 +130,7 @@ impl ChunkEndorsementTracker {
         &self,
         endorsement: ChunkEndorsement,
         chunk_header: Option<&ShardChunkHeader>,
+        me: AccountId,
     ) -> Result<(), Error> {
         let chunk_hash = endorsement.chunk_hash();
         let account_id = &endorsement.account_id;
@@ -140,7 +150,20 @@ impl ChunkEndorsementTracker {
             return Ok(());
         }
 
+        println!(
+            "got endorsement for chunk {:?} from {} to {}",
+            endorsement.chunk_hash(),
+            endorsement.account_id,
+            me
+        );
         if let Some(chunk_header) = chunk_header {
+            println!(
+                "at process_chunk_endorsement_impl from {} to {} | H={} S={}",
+                endorsement.account_id,
+                me,
+                chunk_header.height_created(),
+                chunk_header.shard_id()
+            );
             if !self.epoch_manager.verify_chunk_endorsement(&chunk_header, &endorsement)? {
                 tracing::error!(target: "client", ?endorsement, "Invalid chunk endorsement.");
                 return Err(Error::InvalidChunkEndorsement);
@@ -159,6 +182,7 @@ impl ChunkEndorsementTracker {
         let chunk_endorsements = guard.get_mut(chunk_hash).unwrap();
         chunk_endorsements.insert(account_id.clone(), endorsement);
 
+        println!("{me} endorsement_cache_len = {}", guard.len());
         Ok(())
     }
 
@@ -191,6 +215,15 @@ impl ChunkEndorsementTracker {
         // We can safely rely on the following details
         //    1. The chunk endorsements are from valid chunk_validator for this chunk.
         //    2. The chunk endorsements signatures are valid.
+        let e = self.chunk_endorsements.get(&chunk_header.chunk_hash());
+        if let Some(e) = e {
+            println!(
+                "ENDORSEMENTS FOR H={}, S={}: {:?}",
+                chunk_header.height_created(),
+                chunk_header.shard_id(),
+                e.keys().collect::<Vec<_>>()
+            );
+        }
         let Some(chunk_endorsements) = self.chunk_endorsements.get(&chunk_header.chunk_hash())
         else {
             // Early return if no chunk_endorsements found in our cache.
