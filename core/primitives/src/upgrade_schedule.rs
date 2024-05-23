@@ -1,8 +1,10 @@
-use chrono::{DateTime, NaiveDateTime, ParseError, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use near_primitives_core::types::ProtocolVersion;
 use std::env;
 
-#[derive(thiserror::Error, Debug)]
+const NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE: &str = "NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE";
+
+#[derive(thiserror::Error, Clone, Debug)]
 pub enum ProtocolUpgradeVotingScheduleError {
     #[error("The final upgrade must be the client protocol version! final version: {0}, client version: {1}")]
     InvalidFinalUpgrade(ProtocolVersion, ProtocolVersion),
@@ -10,7 +12,12 @@ pub enum ProtocolUpgradeVotingScheduleError {
     InvalidDateTimeOrder,
     #[error("The upgrades must be sorted and increasing by one!")]
     InvalidProtocolVersionOrder,
+
+    #[error("The environment override has an invalid format! Input: {0} Error: {1}")]
+    InvalidOverrideFormat(String, String),
 }
+
+type ProtocolUpgradeVotingScheduleRaw = Vec<(chrono::DateTime<Utc>, ProtocolVersion)>;
 
 /// Defines a schedule for validators to vote for the protocol version upgrades.
 /// Multiple protocol version upgrades can be scheduled. The default schedule is
@@ -25,7 +32,7 @@ pub struct ProtocolUpgradeVotingSchedule {
     /// The schedule is a sorted list of (datetime, version) tuples. The node
     /// should vote for the highest version that is less than or equal to the
     /// current time.
-    schedule: Vec<(chrono::DateTime<Utc>, ProtocolVersion)>,
+    schedule: ProtocolUpgradeVotingScheduleRaw,
 }
 
 impl ProtocolUpgradeVotingSchedule {
@@ -38,19 +45,19 @@ impl ProtocolUpgradeVotingSchedule {
     /// This method creates an instance of the ProtocolUpgradeVotingSchedule.
     ///
     /// It will first check if the NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE is set
-    /// in the environment and if so return the immediate upgrade schedule. This
-    /// should only be used in tests, in particular in tests that in some way
-    /// test neard upgrades.
+    /// in the environment and if so this override will be used as schedule.
+    /// This should only be used in tests, in particular in tests that in some
+    /// way test neard upgrades.
     ///
     /// Otherwise it will use the provided schedule.
     pub fn new_from_env_or_schedule(
         client_protocol_version: ProtocolVersion,
-        schedule: Vec<(chrono::DateTime<Utc>, ProtocolVersion)>,
+        mut schedule: ProtocolUpgradeVotingScheduleRaw,
     ) -> Result<Self, ProtocolUpgradeVotingScheduleError> {
-        let immediate_upgrade = env::var("NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE");
-        if let Ok(_) = immediate_upgrade {
-            tracing::warn!("Setting immediate protocol upgrade. This is fine in tests but should be avoided otherwise");
-            return Ok(Self::new_immediate(client_protocol_version));
+        let env_override = env::var(NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE);
+        if let Ok(env_override) = env_override {
+            tracing::warn!("Setting protocol upgrade override. This is fine in tests but should be avoided otherwise");
+            schedule = Self::parse_override(&env_override)?;
         }
 
         // Sanity and invariant checks.
@@ -122,10 +129,51 @@ impl ProtocolUpgradeVotingSchedule {
     }
 
     /// A helper method to parse the datetime string.
-    pub fn parse_datetime(s: &str) -> Result<DateTime<Utc>, ParseError> {
+    pub fn parse_datetime(s: &str) -> Result<DateTime<Utc>, chrono::ParseError> {
         let datetime = NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S")?;
         let datetime = DateTime::<Utc>::from_naive_utc_and_offset(datetime, Utc);
         Ok(datetime)
+    }
+
+    // Parse the protocol version override from the environment.
+    // The format is comma separate datetime:=version pairs.
+    fn parse_override(
+        override_str: &str,
+    ) -> Result<ProtocolUpgradeVotingScheduleRaw, ProtocolUpgradeVotingScheduleError> {
+        // The special value "now" means that the upgrade should happen immediately.
+        if override_str.to_lowercase() == "now" {
+            return Ok(vec![]);
+        }
+
+        tracing::info!(target:"protocol_upgrade", ?override_str, "parsing protocol version upgrade override");
+
+        let mut result = vec![];
+        let datetime_and_version_vec = override_str.split(',').collect::<Vec<_>>();
+        for datetime_and_version in datetime_and_version_vec {
+            let datetime_and_version = datetime_and_version.split('=').collect::<Vec<_>>();
+            let [datetime, version] = datetime_and_version[..] else {
+                let input = format!("{:?}", datetime_and_version);
+                let error = "The override must be in the format datetime=version!".to_string();
+                return Err(ProtocolUpgradeVotingScheduleError::InvalidOverrideFormat(
+                    input, error,
+                ));
+            };
+
+            let datetime = Self::parse_datetime(datetime).map_err(|err| {
+                ProtocolUpgradeVotingScheduleError::InvalidOverrideFormat(
+                    datetime.to_string(),
+                    err.to_string(),
+                )
+            })?;
+            let version = version.parse::<u32>().map_err(|err| {
+                ProtocolUpgradeVotingScheduleError::InvalidOverrideFormat(
+                    version.to_string(),
+                    err.to_string(),
+                )
+            })?;
+            result.push((datetime, version));
+        }
+        Ok(result)
     }
 }
 
@@ -321,14 +369,86 @@ mod tests {
     }
 
     #[test]
-    fn test_env_overwrite() {
-        // The immediate protocol upgrade needs to be set for this test to pass in
-        // the release branch where the protocol upgrade date is set.
-        std::env::set_var("NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE", "1");
+    fn test_parse_override() {
+        // prepare some datetime strings
 
+        let datetime_str_1 = "2001-01-01 23:59:59";
+        let datetime_str_2 = "2001-01-02 23:59:59";
+        let datetime_str_3 = "2001-01-03 23:59:59";
+
+        let datetime_1 = ProtocolUpgradeVotingSchedule::parse_datetime(datetime_str_1).unwrap();
+        let datetime_2 = ProtocolUpgradeVotingSchedule::parse_datetime(datetime_str_2).unwrap();
+        let datetime_3 = ProtocolUpgradeVotingSchedule::parse_datetime(datetime_str_3).unwrap();
+
+        let datetime_version_str_1 = format!("{}={}", datetime_str_1, 101);
+        let datetime_version_str_2 = format!("{}={}", datetime_str_2, 102);
+        let datetime_version_str_3 = format!("{}={}", datetime_str_3, 103);
+
+        // test immediate upgrade
+
+        let override_str = "now";
+        let raw_schedule = ProtocolUpgradeVotingSchedule::parse_override(override_str).unwrap();
+        assert_eq!(raw_schedule.len(), 0);
+
+        // test single upgrade
+
+        let override_str = datetime_version_str_1.clone();
+        let raw_schedule = ProtocolUpgradeVotingSchedule::parse_override(&override_str).unwrap();
+        assert_eq!(raw_schedule.len(), 1);
+
+        assert_eq!(raw_schedule[0].0, datetime_1);
+        assert_eq!(raw_schedule[0].1, 101);
+
+        // test double upgrade
+
+        let override_str =
+            [datetime_version_str_1.clone(), datetime_version_str_2.clone()].join(",");
+        let raw_schedule = ProtocolUpgradeVotingSchedule::parse_override(&override_str).unwrap();
+        assert_eq!(raw_schedule.len(), 2);
+
+        assert_eq!(raw_schedule[0].0, datetime_1);
+        assert_eq!(raw_schedule[0].1, 101);
+
+        assert_eq!(raw_schedule[1].0, datetime_2);
+        assert_eq!(raw_schedule[1].1, 102);
+
+        // test triple upgrade
+
+        let override_str =
+            [datetime_version_str_1, datetime_version_str_2, datetime_version_str_3].join(",");
+        let raw_schedule = ProtocolUpgradeVotingSchedule::parse_override(&override_str).unwrap();
+        assert_eq!(raw_schedule.len(), 3);
+
+        assert_eq!(raw_schedule[0].0, datetime_1);
+        assert_eq!(raw_schedule[0].1, 101);
+
+        assert_eq!(raw_schedule[1].0, datetime_2);
+        assert_eq!(raw_schedule[1].1, 102);
+
+        assert_eq!(raw_schedule[2].0, datetime_3);
+        assert_eq!(raw_schedule[2].1, 103);
+    }
+
+    #[test]
+    fn test_env_override() {
         let client_protocol_version = 100;
+
+        std::env::set_var(NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE, "now");
         let schedule = make_simple_voting_schedule(client_protocol_version, "2999-02-03 23:59:59");
 
         assert_eq!(schedule, ProtocolUpgradeVotingSchedule::new_immediate(client_protocol_version));
+
+        let datetime_override = "2000-01-01 23:59:59";
+        std::env::set_var(
+            NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE,
+            format!("{}={}", datetime_override, client_protocol_version),
+        );
+        let schedule = make_simple_voting_schedule(client_protocol_version, "2999-02-03 23:59:59");
+
+        assert_eq!(
+            schedule.schedule()[0].0,
+            ProtocolUpgradeVotingSchedule::parse_datetime(datetime_override).unwrap()
+        );
+        assert_eq!(schedule.schedule()[0].1, client_protocol_version);
     }
 }

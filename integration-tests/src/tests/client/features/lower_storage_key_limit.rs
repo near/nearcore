@@ -33,7 +33,7 @@ fn protocol_upgrade() {
 
     // The immediate protocol upgrade needs to be set for this test to pass in
     // the release branch where the protocol upgrade date is set.
-    std::env::set_var("NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE", "1");
+    std::env::set_var("NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE", "now");
 
     // Prepare TestEnv with a contract at the old protocol version.
     let mut env = {
