@@ -1,6 +1,5 @@
 from dataclasses import dataclass, field
 from datetime import timedelta
-import trace_schema
 
 MarkerPhase = int
 MarkerPayload = dict[str, str]
@@ -212,10 +211,10 @@ class ProfileMeta:
 
 @dataclass
 class RawMarkerTable:
-    data: list[MarkerPayload | None] = field(default_factory=list)
+    data: list[MarkerPayload] = field(default_factory=list)
     name: list[int] = field(default_factory=list)
-    start_time: list[float | None] = field(default_factory=list)
-    end_time: list[float | None] = field(default_factory=list)
+    start_time: list[float] = field(default_factory=list)
+    end_time: list[float] = field(default_factory=list)
     phase: list[MarkerPhase] = field(default_factory=list)
     category: list[int] = field(default_factory=list)
     length: int = field(default_factory=int)
@@ -256,7 +255,7 @@ class Thread:
     process_startup_time: int = field(default_factory=int)
     process_shutdown_time: int | None = None
     register_time: int = field(default_factory=int)
-    unregister_time: int | None = field(default_factory=int)
+    unregister_time: int = field(default_factory=int)
     paused_ranges: list[PausedRange] = field(default_factory=list)
     show_markers_in_timeline: bool = field(default_factory=bool)
     name: str = field(default_factory=str)

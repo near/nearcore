@@ -88,6 +88,12 @@ class BlockId:
     def __hash__(self) -> int:
         return hash(self.height)
 
+    def __str__(self) -> str:
+        return f"Block(height={self.height})"
+
+    def __repr__(self) -> str:
+        return self.__str__()
+
     @staticmethod
     def extract(fields: Fields):
         if fields.height is not None:
@@ -106,6 +112,12 @@ class ChunkId:
 
     def __hash__(self) -> int:
         return hash(self.shard_id)
+    
+    def __str__(self) -> str:
+        return f"Chunk(shard={self.shard_id})"
+
+    def __repr__(self) -> str:
+        return self.__str__()
 
     @staticmethod
     def extract(fields: Fields):
@@ -220,8 +232,7 @@ class ChunkSpan(ChainSpan):
             start_time=span.start_time,
             end_time=span.end_time,
             fields=span.fields,
-            events=[events if events else [
-                ChunkEvent.extract(e) for e in span.events]],
+            events=events,
         )
 
 ################################
@@ -320,12 +331,14 @@ def generate(trace_input: TraceInput) -> ChainHistory:
             if block_span is not None:
                 assert block_span.block_id is not None, "Failed to extract block id from span: %s" % str(
                     span)
+                print("Adding new block span: %s" % block_span.name)
                 chain_history.add_block_span(block_span.block_id, block_span)
 
             chunk_span = check_chunk_span(span)
             if chunk_span is not None:
                 assert chunk_span.chunk_id is not None, "Failed to extract chunk id from span: %s" % str(
                     span)
+                print("Adding new chunk span: %s" % chunk_span.name)
                 chain_history.add_chunk_span(chunk_span.chunk_id, chunk_span)
 
     return chain_history

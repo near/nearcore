@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from chain_schema import *
 from profile_schema import *
 from trace_schema import *
+import random
 
 
 @dataclass
@@ -15,18 +16,47 @@ class ChunkInfo:
 
 
 categories = []
-block_infos: dict[BlockId, BlockInfo] = {}
-chunk_infos: dict[ChunkInfo, ChunkInfo] = {}
+
+html_colors = [
+    "aqua", "black", "blue", "crimson", "darkblue", "darkgreen", "darkorange",
+    "darkred", "darkslateblue", "darkslategray", "darkturquoise", "deeppink",
+    "fuchsia", "forestgreen", "gold", "goldenrod", "gray", "green", "greenyellow",
+    "indigo", "indianred", "khaki", "lavender", "lime", "limegreen", "magenta",
+    "maroon", "mediumblue", "mediumseagreen", "mediumslateblue", "mediumvioletred",
+    "midnightblue", "navy", "olive", "olivedrab", "orange", "orangered", "orchid",
+    "palegoldenrod", "palegreen", "paleturquoise", "pink", "plum", "purple", "red",
+    "royalblue", "saddlebrown", "salmon", "seagreen", "sienna", "silver", "skyblue",
+    "slateblue", "slategray", "teal", "tomato", "turquoise", "violet", "wheat", "yellow",
+]
+random.shuffle(html_colors)
 
 
-def category_generator() -> int:
-    index = len(categories)
-    categories.append(Category(
-        name="Span",
-        color="blue",
-        subcategories=[],
-    ))
-    yield index
+def category_generator(name: str) -> int:
+    for color in html_colors:
+        index = len(categories)
+        categories.append(Category(
+            name=name,
+            color=color,
+            subcategories=[],
+        ))
+        yield index
+
+
+def span_payload(span: ChainSpan):
+    payload = {
+        "name": span.name,
+        "type": "span",
+    }
+    payload.update(span.fields.payload())
+    return payload
+
+def event_payload(event: ChainEvent):
+    payload = {
+        "name": event.name,
+        "type": "event",
+    }
+    payload.update(event.fields.payload())
+    return payload
 
 
 def generate_from_chain_schema(chain_history: ChainHistory):
@@ -35,14 +65,15 @@ def generate_from_chain_schema(chain_history: ChainHistory):
 
     threads = []
     for block_id, block_history in chain_history.block_histories.items():
-        category_id = next(category_generator())
-        block_info = BlockInfo(category_id=category_id)
-        block_infos[block_id] = block_info
+        thread_name = f"Block(height={block_id.height})"
+        category_id = next(category_generator(name=thread_name))
 
         thread = Thread(
             name=str(block_id),
-            process_name="block trace",
+            process_name=thread_name,
             process_type="default",
+            tid=block_id.height,
+            pid=block_id.height,
             is_main_thread=True,
             process_startup_time=global_start_time_ms,
             show_markers_in_timeline=True
@@ -51,24 +82,49 @@ def generate_from_chain_schema(chain_history: ChainHistory):
         strings_builder = StringTableBuilder()
         for span in block_history.spans:
             thread.markers.add_interval_marker(strings_builder=strings_builder,
-                                               name="%s (%s)" % (
-                                                   span.name, span.fields.node_id),
+                                               name=span.name,
                                                start_time=span.start_time - global_start_time,
                                                end_time=span.end_time - global_start_time,
                                                category=category_id,
-                                               data={
-                                                   "name": span.name,
-                                                   "type": "span",
-                                               }.update(span.fields.payload()))
+                                               data=span_payload(span))
             for event in span.events:
                 thread.markers.add_instant_marker(strings_builder=strings_builder,
                                                   name=event.name,
                                                   time=event.time - global_start_time,
                                                   category=category_id,
-                                                  data={
-                                                      "name": event.name,
-                                                      "type": "event",
-                                                  }.update(event.fields.payload()))
+                                                  data=event_payload(event))
+        thread.string_array = strings_builder.strings
+        threads.append(thread)
+
+    for chunk_id, chunk_history in chain_history.chunk_histories.items():
+        thread_name = f"Chunk(shard={chunk_id.shard_id})"
+        category_id = next(category_generator(name=thread_name))
+
+        thread = Thread(
+            name=str(chunk_id),
+            process_name=thread_name,
+            process_type="default",
+            tid=chunk_id.shard_id,
+            pid=chunk_id.shard_id,
+            is_main_thread=True,
+            process_startup_time=global_start_time_ms,
+            show_markers_in_timeline=True
+        )
+
+        strings_builder = StringTableBuilder()
+        for span in chunk_history.spans:
+            thread.markers.add_interval_marker(strings_builder=strings_builder,
+                                               name=span.name,
+                                               start_time=span.start_time - global_start_time,
+                                               end_time=span.end_time - global_start_time,
+                                               category=category_id,
+                                               data=span_payload(span))
+            for event in span.events:
+                thread.markers.add_instant_marker(strings_builder=strings_builder,
+                                                  name=event.name,
+                                                  time=event.time - global_start_time,
+                                                  category=category_id,
+                                                  data=event_payload(event))
         thread.string_array = strings_builder.strings
         threads.append(thread)
 
