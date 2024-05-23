@@ -406,6 +406,345 @@ fn send_chunks<T, I, F>(
     }
 }
 
+fn process_msg(
+    msg: NetworkResponses,
+    account_id1: AccountId,
+    validators_clone2: Vec<AccountId>,
+    key_pairs: Vec<PeerInfo>,
+    key_pairs1: Vec<PeerInfo>,
+    client_sender1: Sender<SetNetworkInfo>,
+    addresses: Vec<AccountId>,
+    last_height1: Arc<RwLock<Vec<u64>>>,
+    last_height2: Arc<RwLock<Vec<u64>>>,
+    connectors1: Vec<ActorHandlesForTesting>,
+    check_block_stats: bool,
+    block_stats1: Arc<RwLock<BlockStats>>,
+    hash_to_height1: Arc<RwLock<HashMap<CryptoHash, u64>>>,
+    drop_chunks: bool,
+    announced_accounts1: Arc<RwLock<HashSet<(AccountId, u64)>>>,
+    tamper_with_fg: bool,
+    largest_skipped_height1: Arc<RwLock<Vec<u64>>>,
+    largest_endorsed_height1: Arc<RwLock<Vec<u64>>>,
+) {
+    let my_ord = validators_clone2.iter().position(|it| it == &account_id1).unwrap();
+    let my_key_pair = key_pairs[my_ord].clone();
+    let my_address = addresses[my_ord];
+
+    {
+        let last_height2 = last_height2.read().unwrap();
+        let peers: Vec<_> = key_pairs1
+            .iter()
+            .take(connectors1.len())
+            .enumerate()
+            .map(|(i, peer_info)| ConnectedPeerInfo {
+                full_peer_info: FullPeerInfo {
+                    peer_info: peer_info.clone(),
+                    chain_info: PeerChainInfo {
+                        genesis_id: GenesisId {
+                            chain_id: "unittest".to_string(),
+                            hash: Default::default(),
+                        },
+                        // TODO: add the correct hash here
+                        last_block: Some(BlockInfo {
+                            height: last_height2[i],
+                            hash: CryptoHash::default(),
+                        }),
+                        tracked_shards: vec![0, 1, 2, 3],
+                        archival: true,
+                    },
+                },
+                received_bytes_per_sec: 0,
+                sent_bytes_per_sec: 0,
+                last_time_peer_requested: near_async::time::Instant::now(),
+                last_time_received_message: near_async::time::Instant::now(),
+                connection_established_time: near_async::time::Instant::now(),
+                peer_type: PeerType::Outbound,
+                nonce: 3,
+            })
+            .collect();
+        let peers2 = peers.iter().filter_map(|it| it.full_peer_info.clone().into()).collect();
+        let info = NetworkInfo {
+            connected_peers: peers,
+            tier1_connections: vec![],
+            num_connected_peers: key_pairs1.len(),
+            peer_max_count: key_pairs1.len() as u32,
+            highest_height_peers: peers2,
+            sent_bytes_per_sec: 0,
+            received_bytes_per_sec: 0,
+            known_producers: vec![],
+            tier1_accounts_keys: vec![],
+            tier1_accounts_data: vec![],
+        };
+        client_sender1.send(SetNetworkInfo(info).with_span_context());
+    }
+
+    match msg.as_network_requests_ref() {
+        NetworkRequests::Block { block } => {
+            if check_block_stats {
+                let block_stats2 = &mut *block_stats1.write().unwrap();
+                block_stats2.add_block(block);
+                block_stats2.check_stats(false);
+            }
+
+            for actor_handles in connectors1 {
+                actor_handles.client_actor.do_send(
+                    BlockResponse {
+                        block: block.clone(),
+                        peer_id: PeerInfo::random().id,
+                        was_requested: false,
+                    }
+                    .with_span_context(),
+                );
+            }
+
+            let mut last_height1 = last_height1.write().unwrap();
+
+            let my_height = &mut last_height1[my_ord];
+
+            *my_height = max(*my_height, block.header().height());
+
+            hash_to_height1
+                .write()
+                .unwrap()
+                .insert(*block.header().hash(), block.header().height());
+        }
+        NetworkRequests::PartialEncodedChunkRequest { target, request, .. } => {
+            send_chunks(
+                connectors1,
+                validators_clone2.iter().map(|s| Some(s.clone())).enumerate(),
+                target.account_id.as_ref().map(|s| s.clone()),
+                drop_chunks,
+                |c| {
+                    c.send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
+                        partial_encoded_chunk_request: request.clone(),
+                        route_back: my_address,
+                    });
+                },
+            );
+        }
+        NetworkRequests::PartialEncodedChunkResponse { route_back, response } => {
+            send_chunks(connectors1, addresses.iter().enumerate(), route_back, drop_chunks, |c| {
+                c.send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
+                    partial_encoded_chunk_response: response.clone(),
+                    received_time: Instant::now(),
+                });
+            });
+        }
+        NetworkRequests::PartialEncodedChunkMessage { account_id, partial_encoded_chunk } => {
+            send_chunks(
+                connectors1,
+                validators_clone2.iter().cloned().enumerate(),
+                account_id.clone(),
+                drop_chunks,
+                |c| {
+                    c.send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
+                        partial_encoded_chunk.clone().into(),
+                    ));
+                },
+            );
+        }
+        NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
+            send_chunks(
+                connectors1,
+                validators_clone2.iter().cloned().enumerate(),
+                account_id.clone(),
+                drop_chunks,
+                |c| {
+                    c.send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(
+                        forward.clone(),
+                    ));
+                },
+            );
+        }
+        NetworkRequests::BlockRequest { hash, peer_id } => {
+            for (i, peer_info) in key_pairs.iter().enumerate() {
+                let peer_id = peer_id.clone();
+                if peer_info.id == peer_id {
+                    let me = connectors1[my_ord].client_actor.clone();
+                    actix::spawn(
+                        connectors1[i]
+                            .view_client_actor
+                            .send(BlockRequest(*hash).with_span_context())
+                            .then(move |response| {
+                                let response = response.unwrap();
+                                match response {
+                                    Some(block) => {
+                                        me.do_send(
+                                            BlockResponse {
+                                                block: *block,
+                                                peer_id,
+                                                was_requested: true,
+                                            }
+                                            .with_span_context(),
+                                        );
+                                    }
+                                    None => {}
+                                }
+                                future::ready(())
+                            }),
+                    );
+                }
+            }
+        }
+        NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
+            for (i, peer_info) in key_pairs.iter().enumerate() {
+                let peer_id = peer_id.clone();
+                if peer_info.id == peer_id {
+                    let me = connectors1[my_ord].client_actor.clone();
+                    actix::spawn(
+                        connectors1[i]
+                            .view_client_actor
+                            .send(BlockHeadersRequest(hashes.clone()).with_span_context())
+                            .then(move |response| {
+                                let response = response.unwrap();
+                                match response {
+                                    Some(headers) => {
+                                        me.do_send(
+                                            BlockHeadersResponse(headers, peer_id)
+                                                .with_span_context(),
+                                        );
+                                    }
+                                    None => {}
+                                }
+                                future::ready(())
+                            }),
+                    );
+                }
+            }
+        }
+        NetworkRequests::StateRequestHeader { shard_id, sync_hash, .. } => {
+            for (i, _) in validators_clone2.iter().enumerate() {
+                let me = connectors1[my_ord].client_actor.clone();
+                actix::spawn(
+                    connectors1[i]
+                        .view_client_actor
+                        .send(
+                            StateRequestHeader { shard_id: *shard_id, sync_hash: *sync_hash }
+                                .with_span_context(),
+                        )
+                        .then(move |response| {
+                            let response = response.unwrap();
+                            match response {
+                                Some(response) => {
+                                    me.do_send(response.with_span_context());
+                                }
+                                None => {}
+                            }
+                            future::ready(())
+                        }),
+                );
+            }
+        }
+        NetworkRequests::StateRequestPart { shard_id, sync_hash, part_id, .. } => {
+            for (i, _) in validators_clone2.iter().enumerate() {
+                let me = connectors1[my_ord].client_actor.clone();
+                actix::spawn(
+                    connectors1[i]
+                        .view_client_actor
+                        .send(
+                            StateRequestPart {
+                                shard_id: *shard_id,
+                                sync_hash: *sync_hash,
+                                part_id: *part_id,
+                            }
+                            .with_span_context(),
+                        )
+                        .then(move |response| {
+                            let response = response.unwrap();
+                            match response {
+                                Some(response) => {
+                                    me.do_send(response.with_span_context());
+                                }
+                                None => {}
+                            }
+                            future::ready(())
+                        }),
+                );
+            }
+        }
+        NetworkRequests::AnnounceAccount(announce_account) => {
+            let mut aa = announced_accounts1.write().unwrap();
+            let key = (announce_account.account_id.clone(), announce_account.epoch_id.clone());
+            if aa.get(&key).is_none() {
+                aa.insert(key);
+                for actor_handles in connectors1 {
+                    actor_handles.view_client_actor.do_send(
+                        AnnounceAccountRequest(vec![(announce_account.clone(), None)])
+                            .with_span_context(),
+                    )
+                }
+            }
+        }
+        NetworkRequests::Approval { approval_message } => {
+            let height_mod = approval_message.approval.target_height % 300;
+
+            let do_propagate = if tamper_with_fg {
+                if height_mod < 100 {
+                    false
+                } else if height_mod < 200 {
+                    let mut rng = rand::thread_rng();
+                    rng.gen()
+                } else {
+                    true
+                }
+            } else {
+                true
+            };
+
+            let approval = approval_message.approval.clone();
+
+            if do_propagate {
+                for (i, name) in validators_clone2.iter().enumerate() {
+                    if name == &approval_message.target {
+                        connectors1[i].client_actor.do_send(
+                            BlockApproval(approval.clone(), my_key_pair.id.clone())
+                                .with_span_context(),
+                        );
+                    }
+                }
+            }
+
+            // Verify doomslug invariant
+            match approval.inner {
+                ApprovalInner::Endorsement(parent_hash) => {
+                    assert!(
+                        approval.target_height > largest_skipped_height1.read().unwrap()[my_ord]
+                    );
+                    largest_endorsed_height1.write().unwrap()[my_ord] = approval.target_height;
+
+                    if let Some(prev_height) = hash_to_height1.read().unwrap().get(&parent_hash) {
+                        assert_eq!(prev_height + 1, approval.target_height);
+                    }
+                }
+                ApprovalInner::Skip(prev_height) => {
+                    largest_skipped_height1.write().unwrap()[my_ord] = approval.target_height;
+                    let e = largest_endorsed_height1.read().unwrap()[my_ord];
+                    // `e` is the *target* height of the last endorsement. `prev_height`
+                    // is allowed to be anything >= to the source height, which is e-1.
+                    assert!(
+                        prev_height + 1 >= e,
+                        "New: {}->{}, Old: {}->{}",
+                        prev_height,
+                        approval.target_height,
+                        e - 1,
+                        e
+                    );
+                }
+            };
+        }
+        NetworkRequests::ForwardTx(_, _)
+        | NetworkRequests::BanPeer { .. }
+        | NetworkRequests::TxStatus(_, _, _)
+        | NetworkRequests::SnapshotHostInfo { .. }
+        | NetworkRequests::Challenge(_)
+        | NetworkRequests::ChunkStateWitness(_, _)
+        | NetworkRequests::ChunkStateWitnessAck(_, _)
+        | NetworkRequests::ChunkEndorsement(_, _)
+        | NetworkRequests::PartialEncodedStateWitness(_)
+        | NetworkRequests::PartialEncodedStateWitnessForward(_, _) => {}
+    }
+}
+
 /// Setup multiple clients talking to each other via a mock network.
 ///
 /// # Arguments
@@ -521,353 +860,30 @@ pub fn setup_mock_all_validators(
             drop(guard);
 
             if perform_default {
-                let my_ord = validators_clone2.iter().position(|it| it == &account_id1).unwrap();
-                let my_key_pair = key_pairs[my_ord].clone();
-                let my_address = addresses[my_ord];
-
-                {
-                    let last_height2 = last_height2.read().unwrap();
-                    let peers: Vec<_> = key_pairs1
-                        .iter()
-                        .take(connectors1.len())
-                        .enumerate()
-                        .map(|(i, peer_info)| ConnectedPeerInfo {
-                            full_peer_info: FullPeerInfo {
-                                peer_info: peer_info.clone(),
-                                chain_info: PeerChainInfo {
-                                    genesis_id: GenesisId {
-                                        chain_id: "unittest".to_string(),
-                                        hash: Default::default(),
-                                    },
-                                    // TODO: add the correct hash here
-                                    last_block: Some(BlockInfo {
-                                        height: last_height2[i],
-                                        hash: CryptoHash::default(),
-                                    }),
-                                    tracked_shards: vec![0, 1, 2, 3],
-                                    archival: true,
-                                },
-                            },
-                            received_bytes_per_sec: 0,
-                            sent_bytes_per_sec: 0,
-                            last_time_peer_requested: near_async::time::Instant::now(),
-                            last_time_received_message: near_async::time::Instant::now(),
-                            connection_established_time: near_async::time::Instant::now(),
-                            peer_type: PeerType::Outbound,
-                            nonce: 3,
-                        })
-                        .collect();
-                    let peers2 = peers
-                        .iter()
-                        .filter_map(|it| it.full_peer_info.clone().into())
-                        .collect();
-                    let info = NetworkInfo {
-                        connected_peers: peers,
-                        tier1_connections: vec![],
-                        num_connected_peers: key_pairs1.len(),
-                        peer_max_count: key_pairs1.len() as u32,
-                        highest_height_peers: peers2,
-                        sent_bytes_per_sec: 0,
-                        received_bytes_per_sec: 0,
-                        known_producers: vec![],
-                        tier1_accounts_keys: vec![],
-                        tier1_accounts_data: vec![],
-                    };
-                    client_sender1.send(SetNetworkInfo(info).with_span_context());
-                }
-
-                match msg.as_network_requests_ref() {
-                    NetworkRequests::Block { block } => {
-                        if check_block_stats {
-                            let block_stats2 = &mut *block_stats1.write().unwrap();
-                            block_stats2.add_block(block);
-                            block_stats2.check_stats(false);
-                        }
-
-                        for actor_handles in connectors1 {
-                            actor_handles.client_actor.do_send(
-                                BlockResponse {
-                                    block: block.clone(),
-                                    peer_id: PeerInfo::random().id,
-                                    was_requested: false,
-                                }
-                                .with_span_context(),
-                            );
-                        }
-
-                        let mut last_height1 = last_height1.write().unwrap();
-
-                        let my_height = &mut last_height1[my_ord];
-
-                        *my_height = max(*my_height, block.header().height());
-
-                        hash_to_height1
-                            .write()
-                            .unwrap()
-                            .insert(*block.header().hash(), block.header().height());
-                    }
-                    NetworkRequests::PartialEncodedChunkRequest { target, request, .. } => {
-                        send_chunks(
-                            connectors1,
-                            validators_clone2.iter().map(|s| Some(s.clone())).enumerate(),
-                            target.account_id.as_ref().map(|s| s.clone()),
-                            drop_chunks,
-                            |c| {
-                                c.send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest { partial_encoded_chunk_request: request.clone(), route_back: my_address });
-                            },
-                        );
-                    }
-                    NetworkRequests::PartialEncodedChunkResponse { route_back, response } => {
-                        send_chunks(
-                            connectors1,
-                            addresses.iter().enumerate(),
-                            route_back,
-                            drop_chunks,
-                            |c| {
-                                c.send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse { partial_encoded_chunk_response: response.clone(), received_time: Instant::now() });
-                            },
-                        );
-                    }
-                    NetworkRequests::PartialEncodedChunkMessage {
-                        account_id,
-                        partial_encoded_chunk,
-                    } => {
-                        send_chunks(
-                            connectors1,
-                            validators_clone2.iter().cloned().enumerate(),
-                            account_id.clone(),
-                            drop_chunks,
-                            |c| {
-                                c.send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(partial_encoded_chunk.clone().into()));
-                            },
-                        );
-                    }
-                    NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
-                        send_chunks(
-                            connectors1,
-                            validators_clone2.iter().cloned().enumerate(),
-                            account_id.clone(),
-                            drop_chunks,
-                            |c| {
-                                c.send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(forward.clone()));
-                            }
-                        );
-                    }
-                    NetworkRequests::BlockRequest { hash, peer_id } => {
-                        for (i, peer_info) in key_pairs.iter().enumerate() {
-                            let peer_id = peer_id.clone();
-                            if peer_info.id == peer_id {
-                                let me = connectors1[my_ord].client_actor.clone();
-                                actix::spawn(
-                                    connectors1[i]
-                                        .view_client_actor
-                                        .send(BlockRequest(*hash).with_span_context())
-                                        .then(move |response| {
-                                            let response = response.unwrap();
-                                            match response {
-                                                Some(block) => {
-                                                    me.do_send(
-                                                        BlockResponse {
-                                                            block: *block,
-                                                            peer_id,
-                                                            was_requested: true,
-                                                        }
-                                                        .with_span_context(),
-                                                    );
-                                                }
-                                                None => {}
-                                            }
-                                            future::ready(())
-                                        }),
-                                );
-                            }
-                        }
-                    }
-                    NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
-                        for (i, peer_info) in key_pairs.iter().enumerate() {
-                            let peer_id = peer_id.clone();
-                            if peer_info.id == peer_id {
-                                let me = connectors1[my_ord].client_actor.clone();
-                                actix::spawn(
-                                    connectors1[i]
-                                        .view_client_actor
-                                        .send(
-                                            BlockHeadersRequest(hashes.clone())
-                                                .with_span_context(),
-                                        )
-                                        .then(move |response| {
-                                            let response = response.unwrap();
-                                            match response {
-                                                Some(headers) => {
-                                                    me.do_send(
-                                                        BlockHeadersResponse(headers, peer_id)
-                                                            .with_span_context(),
-                                                    );
-                                                }
-                                                None => {}
-                                            }
-                                            future::ready(())
-                                        }),
-                                );
-                            }
-                        }
-                    }
-                    NetworkRequests::StateRequestHeader {
-                        shard_id,
-                        sync_hash, ..
-                    } => {
-                        for (i, _) in validators_clone2.iter().enumerate() {
-                            let me = connectors1[my_ord].client_actor.clone();
-                            actix::spawn(
-                                connectors1[i]
-                                    .view_client_actor
-                                    .send(
-                                        StateRequestHeader {
-                                            shard_id: *shard_id,
-                                            sync_hash: *sync_hash,
-                                        }
-                                            .with_span_context(),
-                                    )
-                                    .then(move |response| {
-                                        let response = response.unwrap();
-                                        match response {
-                                            Some(response) => {
-                                                me.do_send(response.with_span_context());
-                                            }
-                                            None => {}
-                                        }
-                                        future::ready(())
-                                    }),
-                            );
-                        }
-                    }
-                    NetworkRequests::StateRequestPart {
-                        shard_id,
-                        sync_hash,
-                        part_id, ..
-                    } => {
-                        for (i, _) in validators_clone2.iter().enumerate() {
-                            let me = connectors1[my_ord].client_actor.clone();
-                            actix::spawn(
-                                connectors1[i]
-                                    .view_client_actor
-                                    .send(
-                                        StateRequestPart {
-                                            shard_id: *shard_id,
-                                            sync_hash: *sync_hash,
-                                            part_id: *part_id,
-                                        }
-                                            .with_span_context(),
-                                    )
-                                    .then(move |response| {
-                                        let response = response.unwrap();
-                                        match response {
-                                            Some(response) => {
-                                                me.do_send(response.with_span_context());
-                                            }
-                                            None => {}
-                                        }
-                                        future::ready(())
-                                    }),
-                            );
-                        }
-                    }
-                    NetworkRequests::AnnounceAccount(announce_account) => {
-                        let mut aa = announced_accounts1.write().unwrap();
-                        let key = (
-                            announce_account.account_id.clone(),
-                            announce_account.epoch_id.clone(),
-                        );
-                        if aa.get(&key).is_none() {
-                            aa.insert(key);
-                            for actor_handles in connectors1 {
-                                actor_handles.view_client_actor.do_send(
-                                    AnnounceAccountRequest(vec![(
-                                        announce_account.clone(),
-                                        None,
-                                    )])
-                                        .with_span_context(),
-                                )
-                            }
-                        }
-                    }
-                    NetworkRequests::Approval { approval_message } => {
-                        let height_mod = approval_message.approval.target_height % 300;
-
-                        let do_propagate = if tamper_with_fg {
-                            if height_mod < 100 {
-                                false
-                            } else if height_mod < 200 {
-                                let mut rng = rand::thread_rng();
-                                rng.gen()
-                            } else {
-                                true
-                            }
-                        } else {
-                            true
-                        };
-
-                        let approval = approval_message.approval.clone();
-
-                        if do_propagate {
-                            for (i, name) in validators_clone2.iter().enumerate() {
-                                if name == &approval_message.target {
-                                    connectors1[i].client_actor.do_send(
-                                        BlockApproval(approval.clone(), my_key_pair.id.clone())
-                                            .with_span_context(),
-                                    );
-                                }
-                            }
-                        }
-
-                        // Verify doomslug invariant
-                        match approval.inner {
-                            ApprovalInner::Endorsement(parent_hash) => {
-                                assert!(
-                                    approval.target_height
-                                        > largest_skipped_height1.read().unwrap()[my_ord]
-                                );
-                                largest_endorsed_height1.write().unwrap()[my_ord] =
-                                    approval.target_height;
-
-                                if let Some(prev_height) =
-                                    hash_to_height1.read().unwrap().get(&parent_hash)
-                                {
-                                    assert_eq!(prev_height + 1, approval.target_height);
-                                }
-                            }
-                            ApprovalInner::Skip(prev_height) => {
-                                largest_skipped_height1.write().unwrap()[my_ord] =
-                                    approval.target_height;
-                                let e = largest_endorsed_height1.read().unwrap()[my_ord];
-                                // `e` is the *target* height of the last endorsement. `prev_height`
-                                // is allowed to be anything >= to the source height, which is e-1.
-                                assert!(
-                                    prev_height + 1 >= e,
-                                    "New: {}->{}, Old: {}->{}",
-                                    prev_height,
-                                    approval.target_height,
-                                    e - 1,
-                                    e
-                                );
-                            }
-                        };
-                    }
-                    NetworkRequests::ForwardTx(_, _)
-                    | NetworkRequests::BanPeer { .. }
-                    | NetworkRequests::TxStatus(_, _, _)
-                    | NetworkRequests::SnapshotHostInfo { .. }
-                    | NetworkRequests::Challenge(_)
-                    | NetworkRequests::ChunkStateWitness(_, _)
-                    | NetworkRequests::ChunkStateWitnessAck(_, _)
-                    | NetworkRequests::ChunkEndorsement(_, _)
-                    | NetworkRequests::PartialEncodedStateWitness(_)
-                    | NetworkRequests::PartialEncodedStateWitnessForward(_, _) => {}
-                };
+                process_msg(
+                    msg,
+                    account_id1.clone(),
+                    validators_clone2.clone(),
+                    key_pairs.clone(),
+                    key_pairs1.clone(),
+                    client_sender1.clone(),
+                    addresses.clone(),
+                    last_height1.clone(),
+                    last_height2.clone(),
+                    connectors1.clone(),
+                    check_block_stats,
+                    block_stats1.clone(),
+                    hash_to_height1.clone(),
+                    drop_chunks,
+                    announced_accounts1.clone(),
+                    tamper_with_fg,
+                    largest_skipped_height1.clone(),
+                    largest_endorsed_height1.clone(),
+                );
             }
             resp
         })
-            .start();
+        .start();
 
         let (block, client_addr, view_client_addr, shards_manager_adapter) = setup(
             clock.clone(),
