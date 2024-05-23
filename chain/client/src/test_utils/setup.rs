@@ -939,17 +939,17 @@ pub fn setup_mock_all_validators(
         });
     }
     hash_to_height.write().unwrap().insert(CryptoHash::default(), 0);
-    // let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
-
-    actix_rt::Runtime::block_on(async {
-        genesis_block = ret[0]
-            .view_client_actor
-            .send(GetBlock(BlockReference::BlockId(BlockId::Height(0))).with_span_context())
-            .await
-            .unwrap()
-            .unwrap()
-            .header
-            .hash
+    let genesis_block = actix_rt::Runtime::block_on(async {
+        *genesis_block.write().unwrap() = Some(
+            ret[0]
+                .view_client_actor
+                .send(GetBlock(BlockReference::BlockId(BlockId::Height(0))).with_span_context())
+                .await
+                .unwrap()
+                .unwrap()
+                .header
+                .hash,
+        );
     });
     hash_to_height
         .write()
