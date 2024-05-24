@@ -1,5 +1,5 @@
 pub use self::iterator::TrieUpdateIterator;
-use super::{OptimizedValueRef, Trie, TrieWithReadLock};
+use super::{OptimizedValueRef, Trie};
 use crate::trie::{KeyLookupMode, TrieChanges};
 use crate::{StorageError, TrieStorage};
 use near_primitives::hash::CryptoHash;
@@ -238,15 +238,7 @@ impl TrieUpdate {
 
     /// Returns Error if the underlying storage fails
     pub fn iter(&self, key_prefix: &[u8]) -> Result<TrieUpdateIterator<'_>, StorageError> {
-        TrieUpdateIterator::new(self, key_prefix, None)
-    }
-
-    pub fn locked_iter<'a>(
-        &'a self,
-        key_prefix: &[u8],
-        lock: &'a TrieWithReadLock<'_>,
-    ) -> Result<TrieUpdateIterator<'a>, StorageError> {
-        TrieUpdateIterator::new(self, key_prefix, Some(lock))
+        TrieUpdateIterator::new(self, key_prefix)
     }
 
     pub fn get_root(&self) -> &StateRoot {

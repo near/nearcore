@@ -966,9 +966,8 @@ pub fn remove_account(
     state_update.remove(TrieKey::ContractCode { account_id: account_id.clone() });
 
     // Removing access keys
-    let lock = state_update.trie().lock_for_iter();
     let public_keys = state_update
-        .locked_iter(&trie_key_parsers::get_raw_prefix_for_access_keys(account_id), &lock)?
+        .iter(&trie_key_parsers::get_raw_prefix_for_access_keys(account_id))?
         .map(|raw_key| {
             trie_key_parsers::parse_public_key_from_access_key_key(&raw_key?, account_id).map_err(
                 |_e| {
@@ -979,16 +978,13 @@ pub fn remove_account(
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
-    drop(lock);
-
     for public_key in public_keys {
         state_update.remove(TrieKey::AccessKey { account_id: account_id.clone(), public_key });
     }
 
     // Removing contract data
-    let lock = state_update.trie().lock_for_iter();
     let data_keys = state_update
-        .locked_iter(&trie_key_parsers::get_raw_prefix_for_contract_data(account_id, &[]), &lock)?
+        .iter(&trie_key_parsers::get_raw_prefix_for_contract_data(account_id, &[]))?
         .map(|raw_key| {
             trie_key_parsers::parse_data_key_from_contract_data_key(&raw_key?, account_id)
                 .map_err(|_e| {
@@ -999,8 +995,6 @@ pub fn remove_account(
                 .map(Vec::from)
         })
         .collect::<Result<Vec<_>, _>>()?;
-    drop(lock);
-
     for key in data_keys {
         state_update.remove(TrieKey::ContractData { account_id: account_id.clone(), key });
     }

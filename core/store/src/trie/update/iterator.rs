@@ -1,7 +1,7 @@
 use std::iter::Peekable;
 use std::ops::Bound;
 
-use crate::trie::{update::*, TrieWithReadLock};
+use crate::trie::update::*;
 use crate::StorageError;
 
 use crate::trie::TrieIterator;
@@ -39,15 +39,8 @@ pub struct TrieUpdateIterator<'a>(Option<(Peekable<TrieIterator<'a>>, Peekable<M
 
 impl<'a> TrieUpdateIterator<'a> {
     #![allow(clippy::new_ret_no_self)]
-    pub fn new(
-        state_update: &'a TrieUpdate,
-        prefix: &[u8],
-        lock: Option<&'a TrieWithReadLock<'_>>,
-    ) -> Result<Self, StorageError> {
-        let mut trie_iter = match lock {
-            Some(lock) => lock.iter()?,
-            None => TrieIterator::Disk(state_update.trie.disk_iter()?),
-        };
+    pub fn new(state_update: &'a TrieUpdate, prefix: &[u8]) -> Result<Self, StorageError> {
+        let mut trie_iter = state_update.trie.iter()?;
         trie_iter.seek_prefix(prefix)?;
 
         let end_bound = make_prefix_range_end_bound(prefix);

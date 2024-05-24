@@ -191,7 +191,7 @@ impl ContractAccount {
 
 impl ContractAccountIterator {
     pub(crate) fn new(trie: Trie, filter: ContractAccountFilter) -> anyhow::Result<Self> {
-        let mut trie_iter = trie.disk_iter()?;
+        let mut trie_iter = trie.iter()?;
         // TODO(#8376): Consider changing the interface to TrieKey to make this easier.
         // `TrieKey::ContractCode` requires a valid `AccountId`, we use "xx"
         let key = TrieKey::ContractCode { account_id: "xx".parse()? }.to_vec();
@@ -208,7 +208,6 @@ impl ContractAccountIterator {
 
         // finally, use trie iterator to find all contract nodes
         let vec_of_nodes = trie_iter.visit_nodes_interval(&nibbles_before, &nibbles_after)?;
-        drop(trie_iter);
         let contract_nodes = VecDeque::from(vec_of_nodes);
         Ok(Self { contract_nodes, filter, trie })
     }

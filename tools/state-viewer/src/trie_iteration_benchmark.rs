@@ -164,7 +164,7 @@ impl TrieIterationBenchmarkCmd {
         let start = Instant::now();
         let mut node_count = 0;
         let mut error_count = 0;
-        let iter = trie.disk_iter_with_prune_condition(prune_condition);
+        let iter = trie.iter_with_prune_condition(prune_condition);
         let iter = match iter {
             Ok(iter) => iter,
             Err(err) => {

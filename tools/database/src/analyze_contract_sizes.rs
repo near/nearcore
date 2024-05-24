@@ -98,7 +98,7 @@ impl AnalyzeContractSizesCommand {
             let trie_storage = Rc::new(TrieDBStorage::new(store.clone(), shard_uid));
             let trie = Trie::new(trie_storage, *state_root, None);
 
-            let mut iterator = trie.disk_iter().unwrap();
+            let mut iterator = trie.iter().unwrap();
             iterator.seek_prefix(&[col::CONTRACT_CODE]).unwrap();
 
             for (i, item) in iterator.enumerate() {
