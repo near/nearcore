@@ -335,6 +335,7 @@ pub fn amend_genesis(
                 records_seq.serialize_element(&r).unwrap();
             }
             StateRecord::Account { account_id, account } => {
+                account.set_amount(account.amount() + 1_000 * NEAR_BASE);
                 if let Some(acc) = wanted.get_mut(account_id) {
                     acc.update_from_existing(account);
                 } else {
