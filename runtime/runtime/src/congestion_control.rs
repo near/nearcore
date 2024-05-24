@@ -51,6 +51,17 @@ enum ReceiptForwarding {
     NotForwarded(Receipt),
 }
 
+/// A wrapper around `DelayedReceiptQueue` to accumulate changes in gas and
+/// bytes.
+///
+/// This struct exists for two reasons. One, to encapsulate the accounting of
+/// gas and bytes in functions that can be called in all necessary places. Two,
+/// to accumulate changes and only apply them to `CongestionInfo` in the end,
+/// which avoids problems with multiple mutable borrows with the closure
+/// approach we currently have in receipt processing code.
+///
+/// We use positive added and removed values to avoid integer conversions with
+/// the associated additional overflow conditions.
 pub(crate) struct DelayedReceiptQueueWrapper {
     queue: DelayedReceiptQueue,
     new_delayed_gas: Gas,
