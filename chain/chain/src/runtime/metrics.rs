@@ -51,11 +51,15 @@ pub(crate) static PREPARE_TX_GAS: Lazy<HistogramVec> = Lazy::new(|| {
     .unwrap()
 });
 
-pub(crate) static CONGESTION_PREPARE_TX_REJECTED: Lazy<HistogramVec> = Lazy::new(|| {
+pub(crate) static PREPARE_TX_REJECTED: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
-        "near_congestion_prepare_tx_rejected",
+        "near_prepare_tx_rejected",
         "The number of transactions removed from the transaction pool due to congestion.",
-        &["shard_id"],
+        // possible reasons:
+        // - invalid_tx             The tx failed validation or the signer has not enough funds.
+        // - invalid_block_hash     The block_hash field on the tx is expired or not on the canonical chain.
+        // - congestion             The receiver shard is congested.
+        &["shard_id", "reason"],
         // Histogram boundaries are inclusive. Pick the first boundary below 1
         // to have 0 values as a separate bucket.
         // In exclusive boundaries, this would be equivalent to:

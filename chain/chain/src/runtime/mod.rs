@@ -789,6 +789,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                 + runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::storage_read_value_byte));
         // for metrics only
         let mut rejected_due_to_congestion = 0;
+        let mut rejected_invalid_tx = 0;
+        let mut rejected_invalid_for_chain = 0;
 
         // Add new transactions to the result until some limit is hit or the transactions run out.
         loop {
@@ -847,6 +849,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     // Verifying the transaction is on the same chain and hasn't expired yet.
                     if !chain_validate(&tx) {
                         tracing::trace!(target: "runtime", tx=?tx.get_hash(), "discarding transaction that failed chain validation");
+                        rejected_invalid_for_chain += 1;
                         continue;
                     }
 
@@ -870,6 +873,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         }
                         Err(RuntimeError::InvalidTxError(err)) => {
                             tracing::trace!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction that is invalid");
+                            rejected_invalid_tx += 1;
                             state_update.rollback();
                         }
                         Err(RuntimeError::StorageError(err)) => {
@@ -886,9 +890,15 @@ impl RuntimeAdapter for NightshadeRuntime {
         debug!(target: "runtime", "Transaction filtering results {} valid out of {} pulled from the pool", result.transactions.len(), num_checked_transactions);
         let shard_label = shard_id.to_string();
         metrics::PREPARE_TX_SIZE.with_label_values(&[&shard_label]).observe(total_size as f64);
-        metrics::CONGESTION_PREPARE_TX_REJECTED
-            .with_label_values(&[&shard_label])
+        metrics::PREPARE_TX_REJECTED
+            .with_label_values(&[&shard_label, "congestion"])
             .observe(rejected_due_to_congestion as f64);
+        metrics::PREPARE_TX_REJECTED
+            .with_label_values(&[&shard_label, "invalid_tx"])
+            .observe(rejected_invalid_tx as f64);
+        metrics::PREPARE_TX_REJECTED
+            .with_label_values(&[&shard_label, "invalid_block_hash"])
+            .observe(rejected_invalid_for_chain as f64);
         metrics::PREPARE_TX_GAS.with_label_values(&[&shard_label]).observe(total_gas_burnt as f64);
         metrics::CONGESTION_PREPARE_TX_GAS_LIMIT
             .with_label_values(&[&shard_label])
