@@ -787,6 +787,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         let size_limit = transactions_gas_limit
             / (runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::storage_write_value_byte)
                 + runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::storage_read_value_byte));
+        // for metrics only
+        let mut rejected_due_to_congestion = 0;
 
         // Add new transactions to the result until some limit is hit or the transactions run out.
         loop {
@@ -836,6 +838,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                             );
                             if !congestion_control.shard_accepts_transactions() {
                                 tracing::trace!(target: "runtime", tx=?tx.get_hash(), "discarding transaction due to congestion");
+                                rejected_due_to_congestion += 1;
                                 continue;
                             }
                         }
@@ -881,9 +884,15 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
         }
         debug!(target: "runtime", "Transaction filtering results {} valid out of {} pulled from the pool", result.transactions.len(), num_checked_transactions);
-        metrics::PREPARE_TX_SIZE
-            .with_label_values(&[&shard_id.to_string()])
-            .observe(total_size as f64);
+        let shard_label = shard_id.to_string();
+        metrics::PREPARE_TX_SIZE.with_label_values(&[&shard_label]).observe(total_size as f64);
+        metrics::CONGESTION_PREPARE_TX_REJECTED
+            .with_label_values(&[&shard_label])
+            .observe(rejected_due_to_congestion as f64);
+        metrics::PREPARE_TX_GAS.with_label_values(&[&shard_label]).observe(total_gas_burnt as f64);
+        metrics::CONGESTION_PREPARE_TX_GAS_LIMIT
+            .with_label_values(&[&shard_label])
+            .set(i64::try_from(transactions_gas_limit).unwrap_or(i64::MAX));
         result.storage_proof = state_update.trie.recorded_storage().map(|s| s.nodes);
         Ok(result)
     }
