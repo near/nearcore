@@ -63,11 +63,11 @@ pub const PROTOCOL_UPGRADE_SCHEDULE: Lazy<ProtocolUpgradeVotingSchedule> = Lazy:
     // the protocol upgrade will happen 1-2 epochs (15h-30h) after the set date.
     // Ideally that should be during working hours.
     //
-    // Multiple protocol version upgrades can be scheduled. Please make sure to
-    // make sure they are ordered by datetime and version, the last one is the
+    // Multiple protocol version upgrades can be scheduled. Please make sure
+    // that they are ordered by datetime and version, the last one is the
     // PROTOCOL_VERSION and that there is enough time between subsequent
     // upgrades.
-    //
+
     // e.g.
     // let v1_protocol_version = 50;
     // let v2_protocol_version = 51;
@@ -77,7 +77,7 @@ pub const PROTOCOL_UPGRADE_SCHEDULE: Lazy<ProtocolUpgradeVotingSchedule> = Lazy:
     // let schedule = vec![(v1_datetime, v1_protocol_version), (v2_datetime, v2_protocol_version)];
     // ProtocolUpgradeVotingSchedule::new_from_env_or_schedule(PROTOCOL_VERSION, schedule).unwrap()
 
-    ProtocolUpgradeVotingSchedule::new_immediate(PROTOCOL_VERSION)
+    ProtocolUpgradeVotingSchedule::new_from_env_or_schedule(PROTOCOL_VERSION, vec![]).unwrap()
 });
 
 /// Gives new clients an option to upgrade without announcing that they support

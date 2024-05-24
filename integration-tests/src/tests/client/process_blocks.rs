@@ -2805,6 +2805,120 @@ fn test_epoch_protocol_version_change() {
 }
 
 #[test]
+fn test_epoch_multi_protocol_version_change() {
+    init_test_logger();
+
+    let v0 = PROTOCOL_VERSION - 2;
+    let v1 = PROTOCOL_VERSION - 1;
+    let v2 = PROTOCOL_VERSION;
+
+    // produce blocks roughly every 100ms
+    // one epoch is roughly 500ms
+    // at least two epochs are needed for one protocol upgrade
+    // schedule the first protocol upgrade voting at now +1s
+    // schedule the second protocol upgrade voting at now +3s
+
+    let start_time = chrono::Utc::now();
+    let end_time = start_time + chrono::Duration::seconds(6);
+
+    let v1_upgrade_time = start_time + chrono::Duration::seconds(1);
+    let v2_upgrade_time = start_time + chrono::Duration::seconds(3);
+
+    let v1_upgrade_time = v1_upgrade_time.format("%Y-%m-%d %H:%M:%S").to_string();
+    let v2_upgrade_time = v2_upgrade_time.format("%Y-%m-%d %H:%M:%S").to_string();
+
+    let protocol_version_override =
+        format!("{}={},{}={}", v1_upgrade_time, v1, v2_upgrade_time, v2);
+
+    tracing::debug!(target: "test", ?protocol_version_override, "setting the protocol_version_override");
+    std::env::set_var("NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE", protocol_version_override);
+
+    let epoch_length = 5;
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 2);
+    genesis.config.epoch_length = epoch_length;
+    genesis.config.protocol_version = v0;
+    let mut env = TestEnv::builder(&genesis.config)
+        .clients_count(2)
+        .validator_seats(2)
+        .nightshade_runtimes(&genesis)
+        .build();
+
+    let mut seen_v0 = false;
+    let mut seen_v1 = false;
+    let mut seen_v2 = false;
+
+    let mut height = 1;
+    while chrono::Utc::now() < end_time {
+        let head = env.clients[0].chain.head().unwrap();
+        let epoch_id = env.clients[0]
+            .epoch_manager
+            .get_epoch_id_from_prev_block(&head.last_block_hash)
+            .unwrap();
+        let protocol_version =
+            env.clients[0].epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
+
+        produce_chunks(&mut env, &epoch_id, height);
+
+        produce_block(&mut env, &epoch_id, height);
+
+        if protocol_version == v0 {
+            seen_v0 = true;
+        }
+        if protocol_version == v1 {
+            seen_v1 = true;
+        }
+        if protocol_version == v2 {
+            seen_v2 = true;
+        }
+
+        tracing::debug!(target: "test", ?height, ?protocol_version, "loop iter finished");
+
+        height += 1;
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    assert!(seen_v0);
+    assert!(seen_v1);
+    assert!(seen_v2);
+}
+
+// helper for test_epoch_multi_protocol_version_change
+fn produce_block(env: &mut TestEnv, epoch_id: &EpochId, height: u64) {
+    let block_producer = env.clients[0].epoch_manager.get_block_producer(epoch_id, height).unwrap();
+    let index = if block_producer == "test0" { 0 } else { 1 };
+    let block = env.clients[index].produce_block(height).unwrap().unwrap();
+    for client in &mut env.clients {
+        client.process_block_test(block.clone().into(), Provenance::NONE).unwrap();
+    }
+}
+
+// helper for test_epoch_multi_protocol_version_change
+fn produce_chunks(env: &mut TestEnv, epoch_id: &EpochId, height: u64) {
+    let shard_layout = env.clients[0].epoch_manager.get_shard_layout(epoch_id).unwrap();
+
+    for shard_id in shard_layout.shard_ids() {
+        let chunk_producer =
+            env.clients[0].epoch_manager.get_chunk_producer(epoch_id, height, shard_id).unwrap();
+
+        let produce_chunk_result = create_chunk_on_height(env.client(&chunk_producer), height);
+        let ProduceChunkResult { chunk, encoded_chunk_parts_paths, receipts, .. } =
+            produce_chunk_result;
+
+        for client in &mut env.clients {
+            let validator_id = client.validator_signer.as_ref().unwrap().validator_id().clone();
+            client
+                .persist_and_distribute_encoded_chunk(
+                    chunk.clone(),
+                    encoded_chunk_parts_paths.clone(),
+                    receipts.clone(),
+                    validator_id,
+                )
+                .unwrap();
+        }
+    }
+}
+
+#[test]
 fn test_discard_non_finalizable_block() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();

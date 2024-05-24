@@ -56,8 +56,12 @@ impl ProtocolUpgradeVotingSchedule {
     ) -> Result<Self, ProtocolUpgradeVotingScheduleError> {
         let env_override = env::var(NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE);
         if let Ok(env_override) = env_override {
-            tracing::warn!("Setting protocol upgrade override. This is fine in tests but should be avoided otherwise");
             schedule = Self::parse_override(&env_override)?;
+            tracing::warn!(
+                target: "protocol_upgrade",
+                ?schedule,
+                "Setting protocol upgrade override. This is fine in tests but should be avoided otherwise"
+            );
         }
 
         // Sanity and invariant checks.
@@ -89,6 +93,8 @@ impl ProtocolUpgradeVotingSchedule {
                 return Err(ProtocolUpgradeVotingScheduleError::InvalidProtocolVersionOrder);
             }
         }
+
+        tracing::debug!(target: "protocol_upgrade", ?schedule, "created protocol upgrade schedule");
 
         Ok(Self { client_protocol_version, schedule })
     }
@@ -144,8 +150,6 @@ impl ProtocolUpgradeVotingSchedule {
         if override_str.to_lowercase() == "now" {
             return Ok(vec![]);
         }
-
-        tracing::info!(target:"protocol_upgrade", ?override_str, "parsing protocol version upgrade override");
 
         let mut result = vec![];
         let datetime_and_version_vec = override_str.split(',').collect::<Vec<_>>();
