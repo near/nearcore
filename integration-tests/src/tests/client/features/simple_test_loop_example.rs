@@ -9,37 +9,32 @@ use near_async::test_loop::TestLoopBuilder;
 use near_async::time::Duration;
 use near_chain::chunks_store::ReadOnlyChunksStore;
 use near_chain::ChainGenesis;
-use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, GenesisRecords};
+use near_chain_configs::test_genesis::TestGenesisBuilder;
+use near_chain_configs::ClientConfig;
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
+use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_chunks::test_loop::forward_client_request_to_shards_manager;
-use near_chunks::ShardsManager;
-use near_client::client_actions::{
-    ClientActions, ClientSenderForClientMessage, SyncJobsSenderForClientMessage,
+use near_client::client_actor::{
+    ClientActorInner, ClientSenderForClientMessage, SyncJobsSenderForClientMessage,
 };
-use near_client::sync_jobs_actions::{
-    ClientSenderForSyncJobsMessage, SyncJobsActions, SyncJobsSenderForSyncJobsMessage,
-};
-use near_client::test_utils::test_loop::client_actions::{
-    forward_client_messages_from_client_to_client_actions,
+use near_client::sync_jobs_actor::{ClientSenderForSyncJobsMessage, SyncJobsActor};
+use near_client::test_utils::test_loop::client_actor::{
+    forward_client_messages_from_client_to_client_actor,
     forward_client_messages_from_shards_manager,
-    forward_client_messages_from_sync_jobs_to_client_actions,
+    forward_client_messages_from_sync_jobs_to_client_actor,
 };
-use near_client::test_utils::test_loop::sync_jobs_actions::forward_sync_jobs_messages_from_client_to_sync_jobs_actions;
+use near_client::test_utils::test_loop::sync_jobs_actor::forward_messages_from_client_to_sync_jobs_actor;
 use near_client::test_utils::{MAX_BLOCK_PROD_TIME, MIN_BLOCK_PROD_TIME};
 use near_client::{Client, SyncAdapter, SyncMessage};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
 use near_network::client::ClientSenderForNetworkMessage;
 use near_primitives::network::PeerId;
-use near_primitives::shard_layout::ShardLayout;
-use near_primitives::state_record::StateRecord;
-use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
-use near_primitives::types::{AccountId, AccountInfo};
-use near_primitives::utils::from_timestamp;
-use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives_core::account::{AccessKey, Account};
-use near_primitives_core::hash::CryptoHash;
+
+use near_primitives::test_utils::create_test_signer;
+use near_primitives::types::AccountId;
+
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use nearcore::NightshadeRuntime;
@@ -49,9 +44,9 @@ use std::sync::{Arc, RwLock};
 #[derive(derive_more::AsMut, derive_more::AsRef)]
 struct TestData {
     pub dummy: (),
-    pub client: ClientActions,
-    pub sync_jobs: SyncJobsActions,
-    pub shards_manager: ShardsManager,
+    pub client: ClientActorInner,
+    pub sync_jobs: SyncJobsActor,
+    pub shards_manager: ShardsManagerActor,
 }
 
 impl AsMut<TestData> for TestData {
@@ -66,13 +61,13 @@ enum TestEvent {
     Task(Arc<TestLoopTask>),
     Adhoc(AdhocEvent<TestData>),
     AsyncComputation(TestLoopAsyncComputationEvent),
-    ClientDelayedActions(TestLoopDelayedActionEvent<ClientActions>),
+    ClientDelayedActions(TestLoopDelayedActionEvent<ClientActorInner>),
+    SyncJobsDelayedActions(TestLoopDelayedActionEvent<SyncJobsActor>),
     ClientEventFromNetwork(ClientSenderForNetworkMessage),
     ClientEventFromClient(ClientSenderForClientMessage),
     ClientEventFromSyncJobs(ClientSenderForSyncJobsMessage),
     ClientEventFromShardsManager(ShardsManagerResponse),
     SyncJobsEventFromClient(SyncJobsSenderForClientMessage),
-    SyncJobsEventFromSyncJobs(SyncJobsSenderForSyncJobsMessage),
     ShardsManagerRequestFromClient(ShardsManagerRequestFromClient),
     ClientEventFromStateSyncAdapter(SyncMessage),
 }
@@ -82,9 +77,8 @@ const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 #[test]
 fn test_client_with_simple_test_loop() {
     let builder = TestLoopBuilder::<TestEvent>::new();
-    let sync_jobs_actions = SyncJobsActions::new(
+    let sync_jobs_actor = SyncJobsActor::new(
         builder.sender().into_wrapped_multi_sender::<ClientSenderForSyncJobsMessage, _>(),
-        builder.sender().into_wrapped_multi_sender::<SyncJobsSenderForSyncJobsMessage, _>(),
     );
     let client_config = ClientConfig::test(
         true,
@@ -96,66 +90,28 @@ fn test_client_with_simple_test_loop() {
         false,
         false,
     );
-    let validator_stake = 1000000 * ONE_NEAR;
     let initial_balance = 10000 * ONE_NEAR;
     let accounts =
         (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
 
-    // TODO: Make some builder for genesis.
-    let mut genesis_config = GenesisConfig {
-        genesis_time: from_timestamp(builder.clock().now_utc().unix_timestamp_nanos() as u64),
-        protocol_version: PROTOCOL_VERSION,
-        genesis_height: 10000,
-        shard_layout: ShardLayout::v1(
-            vec!["account3", "account5", "account7"]
-                .into_iter()
-                .map(|a| a.parse().unwrap())
-                .collect(),
-            None,
-            1,
-        ),
-        min_gas_price: 0,
-        max_gas_price: 0,
-        gas_limit: 100000000000000,
-        transaction_validity_period: 1000,
-        validators: vec![AccountInfo {
-            account_id: accounts[0].clone(),
-            amount: validator_stake,
-            public_key: create_test_signer(accounts[0].as_str()).public_key(),
-        }],
-        epoch_length: 10,
-        protocol_treasury_account: accounts[2].clone(),
-        num_block_producer_seats: 1,
-        minimum_validators_per_shard: 1,
-        num_block_producer_seats_per_shard: vec![1, 1, 1, 1],
-        ..Default::default()
-    };
-    let mut records = Vec::new();
-    for (i, account) in accounts.iter().enumerate() {
-        // The staked amount must be consistent with validators from genesis.
-        let staked = if i < 1 { validator_stake } else { 0 };
-        records.push(StateRecord::Account {
-            account_id: account.clone(),
-            account: Account::new(
-                initial_balance,
-                staked,
-                0,
-                CryptoHash::default(),
-                0,
-                PROTOCOL_VERSION,
-            ),
-        });
-        records.push(StateRecord::AccessKey {
-            account_id: account.clone(),
-            public_key: create_user_test_signer(&account).public_key,
-            access_key: AccessKey::full_access(),
-        });
-        // The total supply must be correct to pass validation.
-        genesis_config.total_supply += initial_balance + staked;
+    let mut genesis_builder = TestGenesisBuilder::new();
+    genesis_builder
+        .genesis_time_from_clock(&builder.clock())
+        .protocol_version_latest()
+        .genesis_height(10000)
+        .gas_prices_free()
+        .gas_limit_one_petagas()
+        .shard_layout_simple_v1(&["account3", "account5", "account7"])
+        .transaction_validity_period(1000)
+        .epoch_length(10)
+        .validators_desired_roles(&["account0"], &[])
+        .shuffle_shard_assignment_for_chunk_producers(true);
+    for account in &accounts {
+        genesis_builder.add_user_account_simple(account.clone(), initial_balance);
     }
+    let genesis = genesis_builder.build();
 
     let store = create_test_store();
-    let genesis = Genesis::new(genesis_config, GenesisRecords(records)).unwrap();
     initialize_genesis_state(store.clone(), &genesis, None);
 
     let chain_genesis = ChainGenesis::new(&genesis.config);
@@ -192,7 +148,7 @@ fn test_client_with_simple_test_loop() {
     )
     .unwrap();
 
-    let shards_manager = ShardsManager::new(
+    let shards_manager = ShardsManagerActor::new(
         builder.clock(),
         Some(accounts[0].clone()),
         epoch_manager,
@@ -202,9 +158,10 @@ fn test_client_with_simple_test_loop() {
         ReadOnlyChunksStore::new(store),
         client.chain.head().unwrap(),
         client.chain.header_head().unwrap(),
+        Duration::milliseconds(100),
     );
 
-    let client_actions = ClientActions::new(
+    let client_actor = ClientActorInner::new(
         builder.clock(),
         client,
         builder.sender().into_wrapped_multi_sender::<ClientSenderForClientMessage, _>(),
@@ -221,32 +178,28 @@ fn test_client_with_simple_test_loop() {
     )
     .unwrap();
 
-    let data = TestData {
-        dummy: (),
-        client: client_actions,
-        sync_jobs: sync_jobs_actions,
-        shards_manager,
-    };
+    let data =
+        TestData { dummy: (), client: client_actor, sync_jobs: sync_jobs_actor, shards_manager };
 
     let mut test = builder.build(data);
-    test.register_handler(forward_client_messages_from_client_to_client_actions().widen());
-    test.register_handler(forward_client_messages_from_sync_jobs_to_client_actions().widen());
+    test.register_handler(forward_client_messages_from_client_to_client_actor().widen());
+    test.register_handler(forward_client_messages_from_sync_jobs_to_client_actor().widen());
     test.register_handler(forward_client_messages_from_shards_manager().widen());
     test.register_handler(
-        forward_sync_jobs_messages_from_client_to_sync_jobs_actions(
-            test.sender().into_future_spawner(),
+        forward_messages_from_client_to_sync_jobs_actor(
+            test.sender().into_delayed_action_runner(test.shutting_down()),
         )
         .widen(),
     );
     test.register_handler(drive_futures().widen());
     test.register_handler(handle_adhoc_events::<TestData>().widen());
     test.register_handler(drive_async_computations().widen());
-    test.register_delayed_action_handler::<ClientActions>();
+    test.register_delayed_action_handler::<ClientActorInner>();
     test.register_handler(forward_client_request_to_shards_manager().widen());
     // TODO: handle additional events.
 
     let mut delayed_runner =
-        test.sender().into_delayed_action_runner::<ClientActions>(test.shutting_down());
+        test.sender().into_delayed_action_runner::<ClientActorInner>(test.shutting_down());
     test.sender().send_adhoc_event("start_client", move |data| {
         data.client.start(&mut delayed_runner);
     });

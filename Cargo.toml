@@ -2,7 +2,7 @@
 version = "0.0.0"                               # managed by cargo-workspaces, see below
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2021"
-rust-version = "1.77.0"
+rust-version = "1.78.0"
 repository = "https://github.com/near/nearcore"
 license = "MIT OR Apache-2.0"
 
@@ -94,6 +94,9 @@ members = [
     "utils/near-cache",
     "utils/stdx",
 ]
+exclude = [
+    "tracing",
+]
 
 [workspace.lints.clippy]
 all = { level = "allow", priority = -100 }
@@ -161,6 +164,7 @@ curve25519-dalek = { version = "4.1.1", default-features = false, features = [
 ] }
 derive-enum-from-into = "0.1.1"
 derive_more = "0.99.9"
+derive-where = "1.2.7"
 dirs = "4"
 dynasm = "2.0"
 dynasmrt = "2.0"
@@ -169,7 +173,6 @@ ed25519-dalek = { version = "2.1.0", default-features = false, features = [
     "hazmat",
     "rand_core",
 ] }
-elastic-array = "0.11"
 enum-map = "2.1.0"
 enumset = "1.0"
 ethabi = "18"

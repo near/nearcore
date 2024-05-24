@@ -71,7 +71,7 @@ pub const MAX_STATE_PART_REQUEST: u64 = 16;
 pub const MAX_PENDING_PART: u64 = MAX_STATE_PART_REQUEST * 10000;
 /// Time limit per state dump iteration.
 /// A node must check external storage for parts to dump again once time is up.
-pub const STATE_DUMP_ITERATION_TIME_LIMIT_SECS: i64 = 300;
+pub const STATE_DUMP_ITERATION_TIME_LIMIT_SECS: u64 = 300;
 
 pub enum StateSyncResult {
     /// State sync still in progress. No action needed by the caller.
@@ -764,7 +764,8 @@ impl StateSync {
         use_colour: bool,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
     ) -> Result<StateSyncResult, near_chain::Error> {
-        let _span = tracing::debug_span!(target: "sync", "run", sync = "StateSync").entered();
+        let _span =
+            tracing::debug_span!(target: "sync", "run_sync", sync_type = "StateSync").entered();
         tracing::trace!(target: "sync", %sync_hash, ?tracking_shards, "syncing state");
         let now = self.clock.now_utc();
 
@@ -1070,47 +1071,58 @@ impl StateSync {
         need_to_reshard: bool,
         shard_sync_download: &mut ShardSyncDownload,
     ) -> Result<bool, near_chain::Error> {
+        let shard_id = shard_uid.shard_id();
+        let result = self.sync_shards_apply_finalizing_status_impl(
+            shard_uid,
+            chain,
+            sync_hash,
+            need_to_reshard,
+            shard_sync_download,
+        );
+
+        if let Err(err) = &result {
+            // Cannot finalize the downloaded state.
+            // The reasonable behavior here is to start from the very beginning.
+            metrics::STATE_SYNC_DISCARD_PARTS.with_label_values(&[&shard_id.to_string()]).inc();
+            tracing::error!(target: "sync", %shard_id, %sync_hash, ?err, "State sync finalizing error");
+            *shard_sync_download = ShardSyncDownload::new_download_state_header(now);
+            let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
+            let state_num_parts = shard_state_header.num_state_parts();
+            chain.clear_downloaded_parts(shard_id, sync_hash, state_num_parts)?;
+        }
+
+        return result;
+    }
+
+    fn sync_shards_apply_finalizing_status_impl(
+        &mut self,
+        shard_uid: ShardUId,
+        chain: &mut Chain,
+        sync_hash: CryptoHash,
+        need_to_reshard: bool,
+        shard_sync_download: &mut ShardSyncDownload,
+    ) -> Result<bool, near_chain::Error> {
         // Keep waiting until our shard is on the list of results
         // (these are set via callback from ClientActor - both for sync and catchup).
         let mut shard_sync_done = false;
         let Some(result) = self.load_memtrie_results.remove(&shard_uid) else {
             return Ok(shard_sync_done);
         };
-        let shard_id = shard_uid.shard_id();
 
-        // TODO(wacban) refactor this
-        result
-            .and_then(|_| {
-                chain.set_state_finalize(shard_id, sync_hash)?;
-                // If the shard layout is changing in this epoch - we have to apply it right now.
-                if need_to_reshard {
-                    *shard_sync_download = ShardSyncDownload {
-                        downloads: vec![],
-                        status: ShardSyncStatus::ReshardingScheduling,
-                    };
-                } else {
-                    // If there is no layout change - we're done.
-                    *shard_sync_download = ShardSyncDownload {
-                        downloads: vec![],
-                        status: ShardSyncStatus::StateSyncDone,
-                    };
-                    shard_sync_done = true;
-                }
-                Ok(())
-            })
-            .or_else(|err| -> Result<(), near_chain::Error> {
-                // Cannot finalize the downloaded state.
-                // The reasonable behavior here is to start from the very beginning.
-                metrics::STATE_SYNC_DISCARD_PARTS
-                    .with_label_values(&[&shard_id.to_string()])
-                    .inc();
-                tracing::error!(target: "sync", %shard_id, %sync_hash, ?err, "State sync finalizing error");
-                *shard_sync_download = ShardSyncDownload::new_download_state_header(now);
-                let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
-                let state_num_parts = shard_state_header.num_state_parts();
-                chain.clear_downloaded_parts(shard_id, sync_hash, state_num_parts)?;
-                Ok(())
-            })?;
+        result?;
+
+        chain.set_state_finalize(shard_uid.shard_id(), sync_hash)?;
+        if need_to_reshard {
+            // If the shard layout is changing in this epoch - we have to apply it right now.
+            let status = ShardSyncStatus::ReshardingScheduling;
+            *shard_sync_download = ShardSyncDownload { downloads: vec![], status };
+        } else {
+            // If there is no layout change - we're done.
+            let status = ShardSyncStatus::StateSyncDone;
+            *shard_sync_download = ShardSyncDownload { downloads: vec![], status };
+            shard_sync_done = true;
+        }
+
         Ok(shard_sync_done)
     }
 
@@ -1219,7 +1231,7 @@ fn request_header_from_external_storage(
         &StateFileType::StateHeader,
     );
     state_parts_future_spawner.spawn(
-        "download_header_from_external_storage", 
+        "download_header_from_external_storage",
         async move {
             let result = download_header_from_external_storage(shard_id, sync_hash, location, external).await;
             match state_parts_mpsc_tx.send(StateSyncGetFileResult {

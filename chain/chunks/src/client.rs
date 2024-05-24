@@ -122,7 +122,7 @@ impl ShardedTransactionPool {
     /// transactions back to the pool with the new shard uids.
     pub fn reshard(&mut self, old_shard_layout: &ShardLayout, new_shard_layout: &ShardLayout) {
         tracing::debug!(
-            target: "client",
+            target: "resharding",
             old_shard_layout_version = old_shard_layout.version(),
             new_shard_layout_version = new_shard_layout.version(),
             "resharding the transaction pool"
@@ -143,7 +143,7 @@ impl ShardedTransactionPool {
         }
 
         for tx in transactions {
-            let signer_id = &tx.transaction.signer_id;
+            let signer_id = tx.transaction.signer_id();
             let new_shard_uid = account_id_to_shard_uid(&signer_id, new_shard_layout);
             self.insert_transaction(new_shard_uid, tx);
         }
@@ -266,8 +266,8 @@ mod tests {
                 while let Some(group) = pool_iter.next() {
                     while let Some(tx) = group.next() {
                         total += 1;
-                        let account_id = tx.transaction.signer_id;
-                        let tx_shard_uid = account_id_to_shard_uid(&account_id, &new_shard_layout);
+                        let account_id = tx.transaction.signer_id();
+                        let tx_shard_uid = account_id_to_shard_uid(account_id, &new_shard_layout);
                         tracing::debug!("checking {account_id:?}:{tx_shard_uid} in {shard_uid}");
                         assert_eq!(shard_uid, tx_shard_uid);
                     }

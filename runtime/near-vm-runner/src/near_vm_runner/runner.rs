@@ -162,6 +162,7 @@ impl NearVM {
         code: &ContractCode,
     ) -> Result<UniversalExecutable, CompilationError> {
         let _span = tracing::debug_span!(target: "vm", "NearVM::compile_uncached").entered();
+        let start = std::time::Instant::now();
         let prepared_code = prepare::prepare_contract(code.code(), &self.config, VMKind::NearVm)
             .map_err(CompilationError::PrepareError)?;
 
@@ -176,6 +177,7 @@ impl NearVM {
                 tracing::error!(?err, "near_vm failed to compile the prepared code (this is defense-in-depth, the error was recovered from but should be reported to pagoda)");
                 CompilationError::WasmerCompileError { msg: err.to_string() }
             })?;
+        crate::metrics::compilation_duration(VMKind::NearVm, start.elapsed());
         Ok(executable)
     }
 
@@ -223,6 +225,9 @@ impl NearVM {
         // (wasm code size, compilation result)
         type MemoryCacheType = (u64, Result<VMArtifact, CompilationError>);
         let to_any = |v: MemoryCacheType| -> Box<dyn std::any::Any + Send> { Box::new(v) };
+        // To identify a cache hit from either in-memory and on-disk cache correctly, we first assume that we have a cache hit here,
+        // and then we set it to false when we fail to find any entry and decide to compile (by calling compile_and_cache below).
+        let mut is_cache_hit = true;
         let (wasm_bytes, artifact_result) = cache.memory_cache().try_lookup(
             code_hash,
             || match code {
@@ -277,6 +282,7 @@ impl NearVM {
                 Some(code) => {
                     let _span =
                         tracing::debug_span!(target: "vm", "NearVM::build_from_source").entered();
+                    is_cache_hit = false;
                     Ok(to_any((
                         code.code().len() as u64,
                         match self.compile_and_cache(code, cache)? {
@@ -300,6 +306,8 @@ impl NearVM {
                 (wasm_bytes, downcast.clone())
             },
         )?;
+
+        crate::metrics::record_compiled_contract_cache_lookup(is_cache_hit);
 
         let mut memory = NearVmMemory::new(
             self.config.limit_config.initial_memory_pages,
@@ -332,7 +340,7 @@ impl NearVM {
         &self,
         artifact: &VMArtifact,
         mut import: NearVmImports<'_, '_, '_>,
-        method_name: &str,
+        entrypoint: FunctionIndex,
     ) -> Result<Result<(), FunctionCallError>, VMRunnerError> {
         let _span = tracing::debug_span!(target: "vm", "run_method").entered();
 
@@ -350,10 +358,6 @@ impl NearVM {
             offset_of!(near_vm_types::FastGasCounter, gas_limit)
         );
         let gas = import.vmlogic.gas_counter_pointer() as *mut near_vm_types::FastGasCounter;
-        let entrypoint = match get_entrypoint_index(&*artifact, method_name) {
-            Ok(index) => index,
-            Err(abort) => return Ok(Err(abort)),
-        };
         unsafe {
             let instance = {
                 let _span = tracing::debug_span!(target: "vm", "run_method/instantiate").entered();
@@ -607,10 +611,13 @@ impl crate::runner::VM for NearVM {
             method_name,
             |vmmemory, mut logic, artifact| {
                 let import = imports::near_vm::build(vmmemory, &mut logic, artifact.engine());
-                if let Err(e) = get_entrypoint_index(&*artifact, method_name) {
-                    return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(logic, e));
-                }
-                match self.run_method(&artifact, import, method_name)? {
+                let entrypoint = match get_entrypoint_index(&*artifact, method_name) {
+                    Ok(index) => index,
+                    Err(e) => {
+                        return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(logic, e))
+                    }
+                };
+                match self.run_method(&artifact, import, entrypoint)? {
                     Ok(()) => Ok(VMOutcome::ok(logic)),
                     Err(err) => Ok(VMOutcome::abort(logic, err)),
                 }

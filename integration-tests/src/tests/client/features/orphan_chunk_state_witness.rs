@@ -128,9 +128,9 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
     // The witness isn't processed on `excluded_validator` to give users of
     // `setup_orphan_witness_test()` full control over the events.
     let mut encoded_witness_opt = None;
-    let state_witness_adapter =
-        env.state_witness_adapters[env.get_client_index(&block2_chunk_producer)].clone();
-    while let Some(request) = state_witness_adapter.pop_distribution_request() {
+    let partial_witness_adapter =
+        env.partial_witness_adapters[env.get_client_index(&block2_chunk_producer)].clone();
+    while let Some(request) = partial_witness_adapter.pop_distribution_request() {
         let DistributeStateWitnessRequest { epoch_id, chunk_header, state_witness } = request;
         let (encoded_witness, _) = EncodedChunkStateWitness::encode(&state_witness).unwrap();
         let chunk_validators = env

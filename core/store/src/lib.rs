@@ -24,8 +24,8 @@ use near_primitives::account::{AccessKey, Account};
 pub use near_primitives::errors::{MissingTrieValueContext, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout, Receipt, ReceiptEnum,
-    ReceivedData,
+    BufferedReceiptIndices, DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout,
+    Receipt, ReceiptEnum, ReceivedData,
 };
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
@@ -782,10 +782,10 @@ pub fn has_received_data(
 }
 
 pub fn set_postponed_receipt(state_update: &mut TrieUpdate, receipt: &Receipt) {
-    assert!(matches!(receipt.receipt, ReceiptEnum::Action(_)));
+    assert!(matches!(receipt.receipt(), ReceiptEnum::Action(_)));
     let key = TrieKey::PostponedReceipt {
-        receiver_id: receipt.receiver_id.clone(),
-        receipt_id: receipt.receipt_id,
+        receiver_id: receipt.receiver_id().clone(),
+        receipt_id: *receipt.receipt_id(),
     };
     set(state_update, key, receipt);
 }
@@ -839,7 +839,6 @@ pub fn set_promise_yield_indices(
     state_update: &mut TrieUpdate,
     promise_yield_indices: &PromiseYieldIndices,
 ) {
-    assert!(cfg!(feature = "yield_resume"));
     set(state_update, TrieKey::PromiseYieldIndices, promise_yield_indices);
 }
 
@@ -851,7 +850,6 @@ pub fn enqueue_promise_yield_timeout(
     data_id: CryptoHash,
     expires_at: BlockHeight,
 ) {
-    assert!(cfg!(feature = "yield_resume"));
     set(
         state_update,
         TrieKey::PromiseYieldTimeout { index: promise_yield_indices.next_available_index },
@@ -864,12 +862,11 @@ pub fn enqueue_promise_yield_timeout(
 }
 
 pub fn set_promise_yield_receipt(state_update: &mut TrieUpdate, receipt: &Receipt) {
-    assert!(cfg!(feature = "yield_resume"));
-    match &receipt.receipt {
+    match receipt.receipt() {
         ReceiptEnum::PromiseYield(ref action_receipt) => {
             assert!(action_receipt.input_data_ids.len() == 1);
             let key = TrieKey::PromiseYieldReceipt {
-                receiver_id: receipt.receiver_id.clone(),
+                receiver_id: receipt.receiver_id().clone(),
                 data_id: action_receipt.input_data_ids[0],
             };
             set(state_update, key, receipt);
@@ -900,6 +897,12 @@ pub fn has_promise_yield_receipt(
     data_id: CryptoHash,
 ) -> Result<bool, StorageError> {
     trie.contains_key(&TrieKey::PromiseYieldReceipt { receiver_id, data_id })
+}
+
+pub fn get_buffered_receipt_indices(
+    trie: &dyn TrieAccess,
+) -> Result<BufferedReceiptIndices, StorageError> {
+    Ok(get(trie, &TrieKey::BufferedReceiptIndices)?.unwrap_or_default())
 }
 
 pub fn set_access_key(
@@ -963,8 +966,9 @@ pub fn remove_account(
     state_update.remove(TrieKey::ContractCode { account_id: account_id.clone() });
 
     // Removing access keys
+    let lock = state_update.trie().lock_for_iter();
     let public_keys = state_update
-        .iter(&trie_key_parsers::get_raw_prefix_for_access_keys(account_id))?
+        .locked_iter(&trie_key_parsers::get_raw_prefix_for_access_keys(account_id), &lock)?
         .map(|raw_key| {
             trie_key_parsers::parse_public_key_from_access_key_key(&raw_key?, account_id).map_err(
                 |_e| {
@@ -975,13 +979,16 @@ pub fn remove_account(
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
+    drop(lock);
+
     for public_key in public_keys {
         state_update.remove(TrieKey::AccessKey { account_id: account_id.clone(), public_key });
     }
 
     // Removing contract data
+    let lock = state_update.trie().lock_for_iter();
     let data_keys = state_update
-        .iter(&trie_key_parsers::get_raw_prefix_for_contract_data(account_id, &[]))?
+        .locked_iter(&trie_key_parsers::get_raw_prefix_for_contract_data(account_id, &[]), &lock)?
         .map(|raw_key| {
             trie_key_parsers::parse_data_key_from_contract_data_key(&raw_key?, account_id)
                 .map_err(|_e| {
@@ -992,6 +999,8 @@ pub fn remove_account(
                 .map(Vec::from)
         })
         .collect::<Result<Vec<_>, _>>()?;
+    drop(lock);
+
     for key in data_keys {
         state_update.remove(TrieKey::ContractData { account_id: account_id.clone(), key });
     }

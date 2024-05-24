@@ -321,6 +321,16 @@ class BaseNode(object):
                 "finality": finality
             })
 
+    def wait_at_least_one_block(self):
+        start_height = self.get_latest_block().height
+        timeout_sec = 5
+        started = time.monotonic()
+        while time.monotonic() - started < timeout_sec:
+            height = self.get_latest_block().height
+            if height > start_height:
+                break
+            time.sleep(0.2)
+
     def get_nonce_for_pk(self, acc, pk, finality='optimistic'):
         for access_key in self.get_access_key_list(acc,
                                                    finality)['result']['keys']:
@@ -389,20 +399,24 @@ class RpcNode(BaseNode):
 
 class LocalNode(BaseNode):
 
-    def __init__(self,
-                 port,
-                 rpc_port,
-                 near_root,
-                 node_dir,
-                 blacklist,
-                 binary_name=None,
-                 single_node=False):
+    def __init__(
+        self,
+        port,
+        rpc_port,
+        near_root,
+        node_dir,
+        blacklist,
+        binary_name=None,
+        single_node=False,
+        ordinal=None,
+    ):
         super(LocalNode, self).__init__()
         self.port = port
         self.rpc_port = rpc_port
         self.near_root = str(near_root)
         self.node_dir = node_dir
         self.binary_name = binary_name or 'neard'
+        self.ordinal = ordinal
         self.cleaned = False
         self.validator_key = Key.from_json_file(
             os.path.join(node_dir, "validator_key.json"))
@@ -452,11 +466,14 @@ class LocalNode(BaseNode):
             logger.info(f'=== stdout: available at {stdout}')
             logger.info(f'=== stderr: available at {stderr}')
 
-    def start(self,
-              *,
-              boot_node: BootNode = None,
-              skip_starting_proxy=False,
-              extra_env: typing.Dict[str, str] = dict()):
+    def start(
+            self,
+            *,
+            boot_node: BootNode = None,
+            skip_starting_proxy=False,
+            extra_env: typing.Dict[str, str] = dict(),
+    ):
+        logger.info(f"Starting node {self.ordinal}.")
         cmd = self._get_command_line(
             self.near_root,
             self.node_dir,
@@ -500,6 +517,7 @@ class LocalNode(BaseNode):
         self._pid = self._process.pid
 
     def kill(self, *, gentle=False):
+        logger.info(f"Killing node {self.ordinal}.")
         """Kills the process.  If `gentle` sends SIGINT before killing."""
         if self._proxy_local_stopped is not None:
             self._proxy_local_stopped.value = 1

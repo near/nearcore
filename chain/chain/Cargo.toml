@@ -15,21 +15,22 @@ borsh.workspace = true
 bytesize.workspace = true
 chrono.workspace = true
 crossbeam-channel.workspace = true
+easy-ext.workspace = true
 enum-map.workspace = true
 itertools.workspace = true
 itoa.workspace = true
 lru.workspace = true
 num-rational.workspace = true
 once_cell.workspace = true
-rand.workspace = true
 rand_chacha.workspace = true
+rand.workspace = true
 rayon.workspace = true
 strum.workspace = true
+tempfile.workspace = true
 thiserror.workspace = true
+time.workspace = true
 tracing.workspace = true
 yansi.workspace = true
-easy-ext.workspace = true
-tempfile.workspace = true
 
 near-async.workspace = true
 near-cache.workspace = true
@@ -60,7 +61,10 @@ assert_matches.workspace = true
 # if enabled, we assert in most situations that are impossible unless some byzantine behavior is observed.
 byzantine_asserts = []
 expensive_tests = []
-test_features = []
+test_features = [
+  "near-vm-runner/test_features",
+  "near-primitives/test_features",
+]
 shadow_chunk_validation = []
 no_cache = ["near-store/no_cache"]
 new_epoch_sync = [

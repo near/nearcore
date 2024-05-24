@@ -64,7 +64,6 @@ pub fn run(
     let runtime = vm_kind
         .runtime(wasm_config.clone())
         .unwrap_or_else(|| panic!("the {vm_kind:?} runtime has not been enabled at compile time"));
-
     let outcome = runtime.run(
         account.code_hash(),
         code,
@@ -74,7 +73,11 @@ pub fn run(
         fees_config,
         promise_results,
         cache,
-    )?;
+    );
+    let outcome = match outcome {
+        Ok(o) => o,
+        e @ Err(_) => return e,
+    };
 
     span.record("burnt_gas", outcome.burnt_gas);
     span.record("compute_usage", outcome.compute_usage);

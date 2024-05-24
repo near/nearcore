@@ -5,6 +5,7 @@ mod account_id_in_function_call_permission;
 mod adversarial_behaviors;
 mod cap_max_gas_price;
 mod chunk_nodes_cache;
+mod congestion_control;
 mod delegate_action;
 #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
 mod fix_contract_loading_cost;
@@ -26,4 +27,5 @@ mod simple_test_loop_example;
 mod stateless_validation;
 mod storage_proof_size_limit;
 mod wallet_contract;
+mod yield_timeouts;
 mod zero_balance_account;

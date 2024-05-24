@@ -78,10 +78,10 @@ pub fn validate_transactions_order(transactions: &[SignedTransaction]) -> bool {
     let mut current_batch = 1;
 
     for tx in transactions {
-        let key = (&tx.transaction.signer_id, &tx.transaction.public_key);
+        let key = (tx.transaction.signer_id(), tx.transaction.public_key());
 
         // Verifying nonce
-        let nonce = tx.transaction.nonce;
+        let nonce = tx.transaction.nonce();
         if let Some(last_nonce) = nonces.get(&key) {
             if nonce <= *last_nonce {
                 // Nonces should increase.

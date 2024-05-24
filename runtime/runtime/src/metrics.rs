@@ -1,8 +1,13 @@
+use crate::congestion_control::ReceiptSink;
 use near_o11y::metrics::{
-    exponential_buckets, linear_buckets, try_create_counter_vec, try_create_histogram_vec,
-    try_create_histogram_with_buckets, try_create_int_counter, try_create_int_counter_vec,
-    CounterVec, Histogram, HistogramVec, IntCounter, IntCounterVec,
+    exponential_buckets, linear_buckets, try_create_counter_vec, try_create_gauge_vec,
+    try_create_histogram_vec, try_create_histogram_with_buckets, try_create_int_counter,
+    try_create_int_counter_vec, try_create_int_gauge_vec, CounterVec, GaugeVec, Histogram,
+    HistogramVec, IntCounter, IntCounterVec, IntGaugeVec,
 };
+use near_parameters::config::CongestionControlConfig;
+use near_primitives::congestion_info::CongestionInfo;
+use near_primitives::types::ShardId;
 use once_cell::sync::Lazy;
 use std::time::Duration;
 
@@ -339,6 +344,60 @@ pub static CHUNK_RECORDED_SIZE_UPPER_BOUND_RATIO: Lazy<Histogram> = Lazy::new(||
     .unwrap()
 });
 
+static CONGESTION_RECEIPT_FORWARDING_UNUSED_CAPACITY_GAS: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_congestion_receipt_forwarding_unused_capacity_gas",
+        "How much additional gas could have been forwarded in the same chunk from one shard to another. An indicator for congestion backpressure.",
+        &["sender_shard_id", "receiver_shard_id"],
+    )
+    .unwrap()
+});
+
+static CONGESTION_OUTGOING_RECEIPT_BUFFER_LEN: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_congestion_outgoing_receipt_buffer_len",
+        "Number of receipts currently stored in the outgoing receipt buffer which were held back because the receiver is congested.",
+        &["sender_shard_id", "receiver_shard_id"],
+    )
+    .unwrap()
+});
+
+static CONGESTION_LEVEL: Lazy<GaugeVec> = Lazy::new(|| {
+    try_create_gauge_vec(
+        "near_congestion_level",
+        "Summary of congestion per shard, between 0.0 and 1.0.",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+static CONGESTION_RECEIPT_BYTES: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_congestion_receipt_bytes",
+        "Size of all receipts currently delayed or buffered due to congestion.",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+static CONGESTION_INCOMING_GAS: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_congestion_incoming_gas",
+        "Gas of all receipts currently delayed due to congestion.",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+static CONGESTION_OUTGOING_GAS: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_congestion_outgoing_gas",
+        "Gas of all receipts in the outgoing receipts buffer due to congestion on other shards.",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
 /// Buckets used for burned gas in receipts.
 ///
 /// The maximum possible is 1300 Tgas for a full chunk.
@@ -556,5 +615,64 @@ impl ApplyMetrics {
         CHUNK_COMPUTE
             .with_label_values(&[shard_id])
             .observe(self.accumulated_compute as f64 / TERA);
+    }
+}
+
+pub fn report_congestion_metrics(
+    receipt_sink: &ReceiptSink,
+    sender_shard_id: ShardId,
+    config: &CongestionControlConfig,
+) {
+    match receipt_sink {
+        ReceiptSink::V1(_) => {
+            // no metrics to report
+        }
+        ReceiptSink::V2(inner) => {
+            let sender_shard_label = sender_shard_id.to_string();
+            report_congestion_indicators(&inner.own_congestion_info, &sender_shard_label, &config);
+            report_outgoing_buffers(inner, sender_shard_label);
+        }
+    }
+}
+
+/// Report key congestion indicator levels of a shard.
+fn report_congestion_indicators(
+    congestion_info: &CongestionInfo,
+    shard_label: &str,
+    config: &CongestionControlConfig,
+) {
+    let congestion_level = congestion_info.localized_congestion_level(config);
+    CONGESTION_LEVEL.with_label_values(&[shard_label]).set(congestion_level);
+
+    let CongestionInfo::V1(inner) = congestion_info;
+    CONGESTION_RECEIPT_BYTES
+        .with_label_values(&[shard_label])
+        .set(inner.receipt_bytes.try_into().unwrap_or(i64::MAX));
+    CONGESTION_INCOMING_GAS
+        .with_label_values(&[shard_label])
+        .set(inner.delayed_receipts_gas.try_into().unwrap_or(i64::MAX));
+    CONGESTION_OUTGOING_GAS
+        .with_label_values(&[shard_label])
+        .set(inner.buffered_receipts_gas.try_into().unwrap_or(i64::MAX));
+}
+
+/// From `sender_shard` to all other shards, reports how many receipts are
+/// currently buffered and how much forwarding capacity was left.
+fn report_outgoing_buffers(
+    inner: &crate::congestion_control::ReceiptSinkV2,
+    sender_shard_label: String,
+) {
+    for (&receiver_shard_id, &unused_capacity) in inner.outgoing_limit.iter() {
+        let receiver_shard_label = receiver_shard_id.to_string();
+
+        CONGESTION_RECEIPT_FORWARDING_UNUSED_CAPACITY_GAS
+            .with_label_values(&[&sender_shard_label, &receiver_shard_label])
+            .set(i64::try_from(unused_capacity).unwrap_or(i64::MAX));
+
+        if let Some(len) = inner.outgoing_buffers.buffer_len(receiver_shard_id) {
+            CONGESTION_OUTGOING_RECEIPT_BUFFER_LEN
+                .with_label_values(&[&sender_shard_label, &receiver_shard_label])
+                .set(i64::try_from(len).unwrap_or(i64::MAX));
+        }
     }
 }

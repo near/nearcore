@@ -14,6 +14,7 @@ use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::{EpochManagerAdapter, RngSeed};
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::Tip;
 use near_primitives::block_header::{Approval, ApprovalInner};
 use near_primitives::congestion_info::CongestionInfo;
@@ -24,7 +25,7 @@ use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::epoch_manager::ValidatorSelectionConfig;
 use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
+use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::state_part::PartId;
@@ -40,7 +41,7 @@ use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, Nonce, NumShards,
     ShardId, StateChangesForResharding, StateRoot, StateRootNode, ValidatorInfoIdentifier,
 };
-use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
+use near_primitives::version::{ProtocolFeature, ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::{
     AccessKeyInfoView, AccessKeyList, CallResult, ContractCodeView, EpochValidatorInfo,
     QueryRequest, QueryResponse, QueryResponseKind, ViewStateResult,
@@ -391,6 +392,15 @@ impl KeyValueRuntime {
         }
         Ok(None)
     }
+
+    fn get_congestion_info(protocol_version: ProtocolVersion) -> Option<CongestionInfo> {
+        if ProtocolFeature::CongestionControl.enabled(protocol_version) {
+            // TODO(congestion_control) - properly initialize
+            Some(CongestionInfo::default())
+        } else {
+            None
+        }
+    }
 }
 
 pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: NumShards) -> ShardId {
@@ -519,9 +529,6 @@ impl EpochManagerAdapter for MockEpochManager {
             validator_to_index,
             bp_settlement,
             cp_settlement,
-            vec![],
-            vec![],
-            HashMap::new(),
             BTreeMap::new(),
             HashMap::new(),
             HashMap::new(),
@@ -1100,6 +1107,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn apply_chunk(
         &self,
         storage_config: RuntimeStorageConfig,
+        _apply_reason: ApplyChunkReason,
         chunk: ApplyChunkShardContext,
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],
@@ -1115,16 +1123,19 @@ impl RuntimeAdapter for KeyValueRuntime {
 
         for receipt in receipts.iter() {
             if let ReceiptEnum::Action(action) | ReceiptEnum::PromiseYield(action) =
-                &receipt.receipt
+                receipt.receipt()
             {
-                assert_eq!(account_id_to_shard_id(&receipt.receiver_id, self.num_shards), shard_id);
-                if !state.receipt_nonces.contains(&receipt.receipt_id) {
-                    state.receipt_nonces.insert(receipt.receipt_id);
+                assert_eq!(
+                    account_id_to_shard_id(receipt.receiver_id(), self.num_shards),
+                    shard_id
+                );
+                if !state.receipt_nonces.contains(receipt.receipt_id()) {
+                    state.receipt_nonces.insert(*receipt.receipt_id());
                     if let Action::Transfer(TransferAction { deposit }) = action.actions[0] {
                         balance_transfers.push((
                             receipt.get_hash(),
-                            receipt.predecessor_id.clone(),
-                            receipt.receiver_id.clone(),
+                            receipt.predecessor_id().clone(),
+                            receipt.receiver_id().clone(),
                             deposit,
                             0,
                         ));
@@ -1139,36 +1150,37 @@ impl RuntimeAdapter for KeyValueRuntime {
 
         for transaction in transactions {
             assert_eq!(
-                account_id_to_shard_id(&transaction.transaction.signer_id, self.num_shards),
+                account_id_to_shard_id(transaction.transaction.signer_id(), self.num_shards),
                 shard_id
             );
-            if transaction.transaction.actions.is_empty() {
+            if transaction.transaction.actions().is_empty() {
                 continue;
             }
-            if let Action::Transfer(TransferAction { deposit }) = transaction.transaction.actions[0]
+            if let Action::Transfer(TransferAction { deposit }) =
+                transaction.transaction.actions()[0]
             {
                 if !state.tx_nonces.contains(&AccountNonce(
-                    transaction.transaction.receiver_id.clone(),
-                    transaction.transaction.nonce,
+                    transaction.transaction.receiver_id().clone(),
+                    transaction.transaction.nonce(),
                 )) {
                     state.tx_nonces.insert(AccountNonce(
-                        transaction.transaction.receiver_id.clone(),
-                        transaction.transaction.nonce,
+                        transaction.transaction.receiver_id().clone(),
+                        transaction.transaction.nonce(),
                     ));
                     balance_transfers.push((
                         transaction.get_hash(),
-                        transaction.transaction.signer_id.clone(),
-                        transaction.transaction.receiver_id.clone(),
+                        transaction.transaction.signer_id().clone(),
+                        transaction.transaction.receiver_id().clone(),
                         deposit,
-                        transaction.transaction.nonce,
+                        transaction.transaction.nonce(),
                     ));
                 } else {
                     balance_transfers.push((
                         transaction.get_hash(),
-                        transaction.transaction.signer_id.clone(),
-                        transaction.transaction.receiver_id.clone(),
+                        transaction.transaction.signer_id().clone(),
+                        transaction.transaction.receiver_id().clone(),
                         0,
-                        transaction.transaction.nonce,
+                        transaction.transaction.nonce(),
                     ));
                 }
             } else {
@@ -1199,7 +1211,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                     vec![]
                 } else {
                     assert_ne!(nonce, 0);
-                    let receipt = Receipt {
+                    let receipt = Receipt::V0(ReceiptV0 {
                         predecessor_id: from.clone(),
                         receiver_id: to.clone(),
                         receipt_id: create_receipt_nonce(from.clone(), to.clone(), amount, nonce),
@@ -1211,7 +1223,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                             input_data_ids: vec![],
                             actions: vec![Action::Transfer(TransferAction { deposit: amount })],
                         }),
-                    };
+                    });
                     let receipt_hash = receipt.get_hash();
                     outgoing_receipts.push(receipt);
                     vec![receipt_hash]
@@ -1264,7 +1276,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             processed_delayed_receipts: vec![],
             processed_yield_timeouts: vec![],
             applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
-            congestion_info: Some(CongestionInfo::default()),
+            congestion_info: Self::get_congestion_info(PROTOCOL_VERSION),
         })
     }
 

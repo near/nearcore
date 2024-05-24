@@ -1,15 +1,39 @@
 pub use self::iterator::TrieUpdateIterator;
-use super::{OptimizedValueRef, Trie};
+use super::{OptimizedValueRef, Trie, TrieWithReadLock};
 use crate::trie::{KeyLookupMode, TrieChanges};
-use crate::StorageError;
+use crate::{StorageError, TrieStorage};
+use near_primitives::hash::CryptoHash;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
-    TrieCacheMode,
+    AccountId, RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause,
+    StateRoot, TrieCacheMode,
 };
+use near_vm_runner::ContractCode;
 use std::collections::BTreeMap;
+use std::rc::Rc;
 
 mod iterator;
+
+/// Reads contract code from the trie by its hash.
+/// Currently, uses `TrieStorage`. Consider implementing separate logic for
+/// requesting and compiling contracts, as any contract code read and
+/// compilation is a major bottleneck during chunk execution.
+struct ContractStorage {
+    storage: Rc<dyn TrieStorage>,
+}
+
+impl ContractStorage {
+    fn new(storage: Rc<dyn TrieStorage>) -> Self {
+        Self { storage }
+    }
+
+    pub fn get(&self, code_hash: CryptoHash) -> Option<ContractCode> {
+        match self.storage.retrieve_raw_bytes(&code_hash) {
+            Ok(raw_code) => Some(ContractCode::new(raw_code.to_vec(), Some(code_hash))),
+            Err(_) => None,
+        }
+    }
+}
 
 /// Key-value update. Contains a TrieKey and a value.
 pub struct TrieKeyValueUpdate {
@@ -24,6 +48,7 @@ pub type TrieUpdates = BTreeMap<Vec<u8>, TrieKeyValueUpdate>;
 /// TODO (#7327): rename to StateUpdate
 pub struct TrieUpdate {
     pub trie: Trie,
+    contract_storage: ContractStorage,
     committed: RawStateChanges,
     prospective: TrieUpdates,
 }
@@ -51,7 +76,13 @@ impl<'a> TrieUpdateValuePtr<'a> {
 
 impl TrieUpdate {
     pub fn new(trie: Trie) -> Self {
-        TrieUpdate { trie, committed: Default::default(), prospective: Default::default() }
+        let trie_storage = trie.storage.clone();
+        Self {
+            trie,
+            contract_storage: ContractStorage::new(trie_storage),
+            committed: Default::default(),
+            prospective: Default::default(),
+        }
     }
 
     pub fn trie(&self) -> &Trie {
@@ -102,6 +133,33 @@ impl TrieUpdate {
             }
         }
         self.trie.get(&key)
+    }
+
+    /// Gets code from trie updates or directly from contract storage,
+    /// bypassing the trie.
+    pub fn get_code(
+        &self,
+        account_id: AccountId,
+        code_hash: CryptoHash,
+    ) -> Option<near_vm_runner::ContractCode> {
+        let key = TrieKey::ContractCode { account_id }.to_vec();
+        let raw_code_update = if let Some(key_value) = self.prospective.get(&key) {
+            Some(key_value.value.as_ref().map(<Vec<u8>>::clone))
+        } else if let Some(changes_with_trie_key) = self.committed.get(&key) {
+            if let Some(RawStateChange { data, .. }) = changes_with_trie_key.changes.last() {
+                Some(data.as_ref().map(<Vec<u8>>::clone))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        match raw_code_update {
+            Some(raw_code) => {
+                raw_code.map(|code| near_vm_runner::ContractCode::new(code, Some(code_hash)))
+            }
+            None => self.contract_storage.get(code_hash),
+        }
     }
 
     pub fn set(&mut self, trie_key: TrieKey, value: Vec<u8>) {
@@ -180,7 +238,15 @@ impl TrieUpdate {
 
     /// Returns Error if the underlying storage fails
     pub fn iter(&self, key_prefix: &[u8]) -> Result<TrieUpdateIterator<'_>, StorageError> {
-        TrieUpdateIterator::new(self, key_prefix)
+        TrieUpdateIterator::new(self, key_prefix, None)
+    }
+
+    pub fn locked_iter<'a>(
+        &'a self,
+        key_prefix: &[u8],
+        lock: &'a TrieWithReadLock<'_>,
+    ) -> Result<TrieUpdateIterator<'a>, StorageError> {
+        TrieUpdateIterator::new(self, key_prefix, Some(lock))
     }
 
     pub fn get_root(&self) -> &StateRoot {

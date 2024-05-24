@@ -26,6 +26,7 @@ log.workspace = true
 openssl-probe.workspace = true
 parking_lot.workspace = true
 rand.workspace = true
+time.workspace = true
 tokio.workspace = true
 
 near-async.workspace = true

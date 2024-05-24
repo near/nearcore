@@ -421,6 +421,9 @@ impl PeerActor {
             PeerMessage::SyncSnapshotHosts(_) => {
                 metrics::SYNC_SNAPSHOT_HOSTS.with_label_values(&["sent"]).inc()
             }
+            PeerMessage::Routed(routed) => {
+                tracing::debug!(target: "network", source=?routed.msg.author, target=?routed.msg.target, message=?routed.msg.body, "send_routed_message");
+            }
             _ => (),
         };
 
@@ -1016,7 +1019,7 @@ impl PeerActor {
                 None
             }
             RoutedMessageBody::ChunkStateWitnessAck(ack) => {
-                network_state.state_witness_adapter.send(ChunkStateWitnessAckMessage(ack));
+                network_state.partial_witness_adapter.send(ChunkStateWitnessAckMessage(ack));
                 None
             }
             RoutedMessageBody::ChunkEndorsement(endorsement) => {
@@ -1025,13 +1028,13 @@ impl PeerActor {
             }
             RoutedMessageBody::PartialEncodedStateWitness(witness) => {
                 network_state
-                    .state_witness_adapter
+                    .partial_witness_adapter
                     .send(PartialEncodedStateWitnessMessage(witness));
                 None
             }
             RoutedMessageBody::PartialEncodedStateWitnessForward(witness) => {
                 network_state
-                    .state_witness_adapter
+                    .partial_witness_adapter
                     .send(PartialEncodedStateWitnessForwardMessage(witness));
                 None
             }

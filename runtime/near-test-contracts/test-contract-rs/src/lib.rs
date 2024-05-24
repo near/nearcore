@@ -190,6 +190,9 @@ extern "C" {
     fn alt_bn128_g1_sum(value_len: u64, value_ptr: u64, register_id: u64);
     #[cfg(feature = "latest_protocol")]
     fn alt_bn128_pairing_check(value_len: u64, value_ptr: u64) -> u64;
+
+    #[cfg(feature = "test_features")]
+    fn sleep_nanos(nanos: u64);
 }
 
 macro_rules! ext_test {
@@ -390,6 +393,23 @@ pub unsafe fn log_something() {
 #[no_mangle]
 pub unsafe fn loop_forever() {
     loop {}
+}
+
+#[cfg(feature = "test_features")]
+#[no_mangle]
+pub unsafe fn sleep() {
+    const U64_SIZE: usize = size_of::<u64>();
+    let data = [0u8; U64_SIZE];
+
+    input(0);
+    assert!(register_len(0) == U64_SIZE as u64);
+    read_register(0, data.as_ptr() as u64);
+    let nanos = u64::from_le_bytes(data);
+
+    let data = b"sleeping";
+    log_utf8(data.len() as u64, data.as_ptr() as _);
+
+    sleep_nanos(nanos);
 }
 
 #[no_mangle]
@@ -880,11 +900,10 @@ fn call_promise() {
     }
 }
 
-/// Function which expects to receive exactly one promise result,
-/// the contents of which should match the function's input.
-///
 /// Used as the yield callback in tests of yield create / yield resume.
-/// Returns double the first byte of the payload, if there is one.
+/// The function takes an argument indicating the expected yield payload (promise input).
+/// It panics if executed with the wrong payload.
+/// Returns the payload length.
 #[no_mangle]
 unsafe fn check_promise_result_return_value() {
     input(0);
@@ -893,24 +912,25 @@ unsafe fn check_promise_result_return_value() {
     read_register(0, expected.as_ptr() as u64);
 
     assert_eq!(promise_results_count(), 1);
-    match promise_result(0, 0) {
-        1 => {
-            let mut result = vec![0; register_len(0) as usize];
-            read_register(0, result.as_ptr() as *const u64 as u64);
-            assert_eq!(expected, result);
 
-            // Double the first byte of the payload, then return it.
-            // Used in tests to verify that this function's return value is handled as expected.
-            result[0] *= 2;
-            value_return(1u64, result.as_ptr() as u64);
+    let payload_len = match promise_result(0, 0) {
+        1 => {
+            let payload = vec![0; register_len(0) as usize];
+            read_register(0, payload.as_ptr() as *const u64 as u64);
+            assert_eq!(expected, payload);
+
+            payload.len()
         }
         2 => {
             assert_eq!(expected_result_len, 0);
-            let result = vec![23u8];
-            value_return(1u64, result.as_ptr() as u64);
+
+            0
         }
         _ => unreachable!(),
     };
+
+    let result = vec![payload_len as u8];
+    value_return(1u64, result.as_ptr() as u64);
 }
 
 /// Function which expects to receive exactly one promise result,

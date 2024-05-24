@@ -155,9 +155,9 @@ pub fn map_receipt(
     secret: Option<&[u8; crate::secret::SECRET_LEN]>,
     default_key: &PublicKey,
 ) {
-    receipt.predecessor_id = crate::key_mapping::map_account(&receipt.predecessor_id, secret);
-    receipt.receiver_id = crate::key_mapping::map_account(&receipt.receiver_id, secret);
-    match &mut receipt.receipt {
+    receipt.set_predecessor_id(crate::key_mapping::map_account(receipt.predecessor_id(), secret));
+    receipt.set_receiver_id(crate::key_mapping::map_account(receipt.receiver_id(), secret));
+    match receipt.receipt_mut() {
         ReceiptEnum::Action(r) | ReceiptEnum::PromiseYield(r) => {
             map_action_receipt(r, secret, default_key);
         }
@@ -268,7 +268,7 @@ mod test {
     use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
     use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
     use near_primitives::hash::CryptoHash;
-    use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
+    use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
     use near_primitives::transaction::{Action, AddKeyAction, CreateAccountAction};
     use near_primitives_core::account::AccessKey;
 
@@ -276,7 +276,7 @@ mod test {
     fn test_map_receipt() {
         let default_key = crate::key_mapping::default_extra_key(None).public_key();
 
-        let mut receipt0 = Receipt {
+        let mut receipt0 = Receipt::V0(ReceiptV0 {
             predecessor_id: "foo.near".parse().unwrap(),
             receiver_id: "foo.foo.near".parse().unwrap(),
             receipt_id: CryptoHash::default(),
@@ -305,8 +305,8 @@ mod test {
                     })),
                 ],
             }),
-        };
-        let want_receipt0 = Receipt {
+        });
+        let want_receipt0 = Receipt::V0(ReceiptV0 {
             predecessor_id: "foo.near".parse().unwrap(),
             receiver_id: "foo.foo.near".parse().unwrap(),
             receipt_id: CryptoHash::default(),
@@ -339,7 +339,7 @@ mod test {
                     })),
                 ],
             }),
-        };
+        });
 
         let secret_key = SecretKey::from_random(KeyType::ED25519);
         let delegate_action = DelegateAction {
@@ -360,7 +360,7 @@ mod test {
         let tx_hash = delegate_action.get_nep461_hash();
         let signature = secret_key.sign(tx_hash.as_ref());
 
-        let mut receipt1 = Receipt {
+        let mut receipt1 = Receipt::V0(ReceiptV0 {
             predecessor_id: "757a45019f9a3e5bd475586c31f63d6e15d50f5366caf4643f6f69731a222cad"
                 .parse()
                 .unwrap(),
@@ -383,7 +383,7 @@ mod test {
                     signature,
                 }))],
             }),
-        };
+        });
 
         let mapped_secret_key = crate::key_mapping::map_key(&secret_key.public_key(), None);
         let delegate_action = DelegateAction {
@@ -403,7 +403,7 @@ mod test {
         };
         let tx_hash = delegate_action.get_nep461_hash();
         let signature = mapped_secret_key.sign(tx_hash.as_ref());
-        let want_receipt1 = Receipt {
+        let want_receipt1 = Receipt::V0(ReceiptV0 {
             predecessor_id: "3f8c3be8929e5fa61907f13a6247e7e452b92bb7d224cf691a9aa67814eb509b"
                 .parse()
                 .unwrap(),
@@ -426,7 +426,7 @@ mod test {
                     signature,
                 }))],
             }),
-        };
+        });
 
         crate::genesis::map_receipt(&mut receipt0, None, &default_key);
         assert_eq!(receipt0, want_receipt0);

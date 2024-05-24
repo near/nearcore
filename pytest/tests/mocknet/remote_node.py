@@ -63,6 +63,10 @@ class RemoteNeardRunner:
         ' && ./venv/bin/pip install -r requirements.txt'
         cmd_utils.run_cmd(self.node, cmd)
 
+    def update_python(self):
+        cmd = f'cd {self.neard_runner_home} && ./venv/bin/pip install -r requirements.txt'
+        cmd_utils.run_cmd(self.node, cmd)
+
     def stop_neard_runner(self):
         # this looks for python processes with neard_runner.py in the command line. the first word will
         # be the pid, which we extract with the last awk command
@@ -122,9 +126,10 @@ def get_nodes(chain_id, start_height, unique_id):
             f'could not find any mounts in /home/ubuntu/.near on {traffic_generator.instance_name}'
         )
     traffic_runner_home = os.path.join(traffic_target_home, 'neard-runner')
-    return NodeHandle(RemoteNeardRunner(
-        traffic_generator, traffic_runner_home)), [
-            NodeHandle(
-                RemoteNeardRunner(node, '/home/ubuntu/.near/neard-runner'))
-            for node in nodes
-        ]
+    return NodeHandle(RemoteNeardRunner(traffic_generator, traffic_runner_home),
+                      can_validate=False), [
+                          NodeHandle(
+                              RemoteNeardRunner(
+                                  node, '/home/ubuntu/.near/neard-runner'))
+                          for node in nodes
+                      ]

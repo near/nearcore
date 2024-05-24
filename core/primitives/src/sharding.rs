@@ -196,7 +196,7 @@ impl ShardChunkHeaderV3 {
         congestion_info: CongestionInfo,
         signer: &dyn ValidatorSigner,
     ) -> Self {
-        let inner = if protocol_version >= ProtocolFeature::CongestionControl.protocol_version() {
+        let inner = if ProtocolFeature::CongestionControl.enabled(protocol_version) {
             ShardChunkHeaderInner::V3(ShardChunkHeaderInnerV3 {
                 prev_block_hash,
                 prev_state_root,
@@ -428,6 +428,7 @@ impl ShardChunkHeader {
         }
     }
 
+    /// Congestion info, if the feature is enabled on the chunk, `None` otherwise.
     #[inline]
     pub fn congestion_info(&self) -> Option<CongestionInfo> {
         match self {

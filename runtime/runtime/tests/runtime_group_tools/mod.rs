@@ -2,7 +2,7 @@ use near_chain_configs::{get_initial_supply, Genesis, GenesisConfig, GenesisReco
 use near_crypto::{InMemorySigner, KeyType};
 use near_parameters::ActionCosts;
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::congestion_info::CongestionInfo;
+use near_primitives::congestion_info::ExtendedCongestionInfo;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
@@ -11,7 +11,7 @@ use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{AccountId, AccountInfo, Balance};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives_core::account::id::AccountIdRef;
 use near_store::genesis::GenesisStateApplier;
 use near_store::test_utils::TestTriesBuilder;
@@ -89,14 +89,20 @@ impl StandaloneRuntime {
             &genesis,
             account_ids,
         );
-        let congestion_info: HashMap<_, _> = genesis
-            .config
-            .shard_layout
-            .shard_ids()
-            .map(|shard_id| (shard_id, CongestionInfo::default()))
-            .collect();
+        let congestion_info: HashMap<_, _> =
+            if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
+                genesis
+                    .config
+                    .shard_layout
+                    .shard_ids()
+                    .map(|shard_id| (shard_id, ExtendedCongestionInfo::default()))
+                    .collect()
+            } else {
+                Default::default()
+            };
 
         let apply_state = ApplyState {
+            apply_reason: None,
             block_height: 1,
             prev_block_hash: Default::default(),
             block_hash: Default::default(),
@@ -267,7 +273,7 @@ impl RuntimeGroup {
                 .0
                 .lock()
                 .unwrap()
-                .get_mut(&transaction.transaction.signer_id)
+                .get_mut(transaction.transaction.signer_id())
                 .unwrap()
                 .incoming_transactions
                 .push(transaction);
@@ -333,7 +339,8 @@ impl RuntimeGroup {
                 mailbox.incoming_transactions.clear();
                 group.transaction_logs.lock().unwrap().extend(transaction_results);
                 for new_receipt in new_receipts {
-                    let locked_other_mailbox = mailboxes.get_mut(&new_receipt.receiver_id).unwrap();
+                    let locked_other_mailbox =
+                        mailboxes.get_mut(new_receipt.receiver_id()).unwrap();
                     locked_other_mailbox.incoming_receipts.push(new_receipt);
                 }
                 group.mailboxes.1.notify_all();
@@ -420,9 +427,9 @@ macro_rules! assert_receipts {
     $($action_name:ident, $action_pat:pat, $action_assert:block ),+
      => [ $($produced_receipt:ident),*] ) => {
         let r = $group.get_receipt($to, $receipt);
-        assert_eq!(r.predecessor_id, $from);
-        assert_eq!(r.receiver_id, $to);
-        match &r.receipt {
+        assert_eq!(r.predecessor_id().clone(), $from);
+        assert_eq!(r.receiver_id().clone(), $to);
+        match r.receipt() {
             $receipt_pat => {
                 $receipt_assert
                 tuplet!(( $($action_name),* ) = $actions_name, "Incorrect number of actions");

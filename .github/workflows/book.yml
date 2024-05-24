@@ -23,10 +23,11 @@ jobs:
     - name: Build
       run: mdbook build
       working-directory: docs
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v4
       with:
         name: book
         path: target/book
+        overwrite: true
 
   deploy:
     name: Deploy
@@ -36,7 +37,7 @@ jobs:
     needs: book
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     steps:
-    - uses: actions/download-artifact@v2
+    - uses: actions/download-artifact@v4
       with:
         name: book
     - uses: peaceiris/actions-gh-pages@v3

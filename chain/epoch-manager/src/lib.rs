@@ -116,6 +116,14 @@ impl EpochInfoProvider for EpochManagerHandle {
         let epoch_manager = self.read();
         epoch_manager.config.chain_id().into()
     }
+
+    fn account_id_to_shard_id(
+        &self,
+        account_id: &AccountId,
+        epoch_id: &EpochId,
+    ) -> Result<ShardId, EpochError> {
+        EpochManagerAdapter::account_id_to_shard_id(self, account_id, epoch_id)
+    }
 }
 
 /// Tracks epoch information across different forks, such as validators.
@@ -267,6 +275,7 @@ impl EpochManager {
                 0,
                 genesis_protocol_version,
                 genesis_protocol_version,
+                false,
             )?;
             // Dummy block info.
             // Artificial block we add to simplify implementation: dummy block is the
@@ -610,7 +619,7 @@ impl EpochManager {
         let config = self.config.for_protocol_version(protocol_version);
         // Note: non-deterministic iteration is fine here, there can be only one
         // version with large enough stake.
-        let next_version = if let Some((version, stake)) =
+        let next_next_epoch_version = if let Some((version, stake)) =
             versions.into_iter().max_by_key(|&(_version, stake)| stake)
         {
             let numer = *config.protocol_upgrade_stake_threshold.numer() as u128;
@@ -625,8 +634,8 @@ impl EpochManager {
             protocol_version
         };
 
-        PROTOCOL_VERSION_NEXT.set(next_version as i64);
-        tracing::info!(target: "epoch_manager", ?next_version, "Protocol version voting.");
+        PROTOCOL_VERSION_NEXT.set(next_next_epoch_version as i64);
+        tracing::info!(target: "epoch_manager", ?next_next_epoch_version, "Protocol version voting.");
 
         // Gather slashed validators and add them to kick out first.
         let slashed_validators = last_block_info.slashed();
@@ -671,7 +680,7 @@ impl EpochManager {
             all_proposals: proposals,
             validator_kickout,
             validator_block_chunk_stats,
-            next_version,
+            next_next_epoch_version,
         })
     }
 
@@ -696,7 +705,7 @@ impl EpochManager {
             all_proposals,
             validator_kickout,
             mut validator_block_chunk_stats,
-            next_version,
+            next_next_epoch_version,
             ..
         } = epoch_summary;
 
@@ -725,7 +734,10 @@ impl EpochManager {
                 epoch_duration,
             )
         };
-        let next_next_epoch_config = self.config.for_protocol_version(next_version);
+        let next_next_epoch_config = self.config.for_protocol_version(next_next_epoch_version);
+        let next_epoch_version = next_epoch_info.protocol_version();
+        let next_shard_layout = self.config.for_protocol_version(next_epoch_version).shard_layout;
+        let has_same_shard_layout = next_shard_layout == next_next_epoch_config.shard_layout;
         let next_next_epoch_info = match proposals_to_epoch_info(
             &next_next_epoch_config,
             rng_seed,
@@ -734,8 +746,9 @@ impl EpochManager {
             validator_kickout,
             validator_reward,
             minted_amount,
-            next_version,
             epoch_protocol_version,
+            next_next_epoch_version,
+            has_same_shard_layout,
         ) {
             Ok(next_next_epoch_info) => next_next_epoch_info,
             Err(EpochError::ThresholdError { stake_sum, num_seats }) => {

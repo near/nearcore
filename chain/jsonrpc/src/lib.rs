@@ -480,6 +480,7 @@ impl JsonRpcHandler {
             "adv_disable_header_sync" => self.adv_disable_header_sync(request.params).await,
             "adv_disable_doomslug" => self.adv_disable_doomslug(request.params).await,
             "adv_produce_blocks" => self.adv_produce_blocks(request.params).await,
+            "adv_produce_chunks" => self.adv_produce_chunks(request.params).await,
             "adv_switch_to_height" => self.adv_switch_to_height(request.params).await,
             "adv_get_saved_blocks" => self.adv_get_saved_blocks(request.params).await,
             "adv_check_store" => self.adv_check_store(request.params).await,
@@ -487,11 +488,12 @@ impl JsonRpcHandler {
         })
     }
 
-    async fn client_send<M, R: Send + 'static, F: Send + 'static, E>(&self, msg: M) -> Result<R, E>
+    async fn client_send<M, R, F, E>(&self, msg: M) -> Result<R, E>
     where
         ClientSenderForRpc: CanSend<MessageWithCallback<M, Result<R, F>>>,
-        E: RpcFrom<F>,
-        E: RpcFrom<AsyncSendError>,
+        R: Send + 'static,
+        F: Send + 'static,
+        E: RpcFrom<F> + RpcFrom<AsyncSendError>,
     {
         self.client_sender
             .send_async(msg)
@@ -500,14 +502,12 @@ impl JsonRpcHandler {
             .map_err(RpcFrom::rpc_from)
     }
 
-    async fn view_client_send<M, T: Send + 'static, E, F: Send + 'static>(
-        &self,
-        msg: M,
-    ) -> Result<T, E>
+    async fn view_client_send<M, T, E, F>(&self, msg: M) -> Result<T, E>
     where
         ViewClientSenderForRpc: CanSend<MessageWithCallback<M, Result<T, F>>>,
-        E: RpcFrom<F>,
-        E: RpcFrom<AsyncSendError>,
+        T: Send + 'static,
+        E: RpcFrom<AsyncSendError> + RpcFrom<F>,
+        F: Send + 'static,
     {
         self.view_client_sender
             .send_async(msg)
@@ -516,13 +516,11 @@ impl JsonRpcHandler {
             .map_err(RpcFrom::rpc_from)
     }
 
-    async fn peer_manager_send<M, T: Send + 'static, E: Send + 'static>(
-        &self,
-        msg: M,
-    ) -> Result<T, E>
+    async fn peer_manager_send<M, T, E>(&self, msg: M) -> Result<T, E>
     where
         PeerManagerSenderForRpc: CanSend<MessageWithCallback<M, T>>,
-        E: RpcFrom<AsyncSendError>,
+        T: Send + 'static,
+        E: RpcFrom<AsyncSendError> + Send + 'static,
     {
         self.peer_manager_sender.send_async(msg).await.map_err(RpcFrom::rpc_from)
     }
@@ -661,7 +659,7 @@ impl JsonRpcHandler {
     ) -> Result<ProcessTxResponse, near_jsonrpc_primitives::types::transactions::RpcTransactionError>
     {
         let tx_hash = tx.get_hash();
-        let signer_account_id = tx.transaction.signer_id.clone();
+        let signer_account_id = tx.transaction.signer_id().clone();
         let response = self
             .client_sender
             .send_async(ProcessTxRequest { transaction: tx, is_forwarded: false, check_only })
@@ -1260,6 +1258,12 @@ impl JsonRpcHandler {
         let (num_blocks, only_valid) = crate::api::Params::parse(params)?;
         self.client_sender
             .send(near_client::NetworkAdversarialMessage::AdvProduceBlocks(num_blocks, only_valid));
+        Ok(Value::String(String::new()))
+    }
+
+    async fn adv_produce_chunks(&self, params: Value) -> Result<Value, RpcError> {
+        let mode = crate::api::Params::parse(params)?;
+        self.client_sender.send(near_client::NetworkAdversarialMessage::AdvProduceChunks(mode));
         Ok(Value::String(String::new()))
     }
 

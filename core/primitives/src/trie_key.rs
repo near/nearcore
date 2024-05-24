@@ -1,11 +1,9 @@
-use std::mem::size_of;
-
-use borsh::{BorshDeserialize, BorshSerialize};
-
-use near_crypto::PublicKey;
-
 use crate::hash::CryptoHash;
 use crate::types::AccountId;
+use borsh::{BorshDeserialize, BorshSerialize};
+use near_crypto::PublicKey;
+use near_primitives_core::types::ShardId;
+use std::mem::size_of;
 
 pub(crate) const ACCOUNT_DATA_SEPARATOR: u8 = b',';
 // The use of `ACCESS_KEY` as a separator is a historical artefact.
@@ -50,8 +48,18 @@ pub mod col {
     /// This column id is used when storing the postponed PromiseYield receipts
     /// (`primitives::receipt::Receipt`).
     pub const PROMISE_YIELD_RECEIPT: u8 = 12;
-    /// All columns except those used for the delayed receipts queue and the yielded promises
-    /// queue, which are both global state for the shard.
+    /// Indices of outgoing receipts. A singleton per shard.
+    /// (`primitives::receipt::BufferedReceiptIndices`)
+    pub const BUFFERED_RECEIPT_INDICES: u8 = 13;
+    /// Outgoing receipts that need to be buffered due to congestion +
+    /// backpressure on the receiving shard.
+    /// (`primitives::receipt::Receipt`).
+    pub const BUFFERED_RECEIPT: u8 = 14;
+    /// All columns except those used for the delayed receipts queue, the yielded promises
+    /// queue, and the outgoing receipts buffer, which are global state for the shard.
+
+    // NOTE: NEW_COLUMN = 15 will be the last unique nibble in the trie!
+    // Consider demultiplexing on 15 and using 2-nibble prefixes.
     pub const COLUMNS_WITH_ACCOUNT_ID_IN_KEY: [(u8, &str); 9] = [
         (ACCOUNT, "Account"),
         (CONTRACT_CODE, "ContractCode"),
@@ -109,6 +117,14 @@ pub enum TrieKey {
     /// Used to store the postponed promise yield receipt `primitives::receipt::Receipt`
     /// for a given receiver's `AccountId` and a given `data_id`.
     PromiseYieldReceipt { receiver_id: AccountId, data_id: CryptoHash },
+    /// Used to store indices of the buffered receipts queues per shard.
+    /// NOTE: It is a singleton per shard, holding indices for all outgoing shards.
+    BufferedReceiptIndices,
+    /// Used to store a buffered receipt `primitives::receipt::Receipt` for a
+    /// given index `u64` and receiving shard. There is one unique queue
+    /// per ordered shard pair. The trie for shard X stores all queues for pairs
+    /// (X,*) without (X,X).
+    BufferedReceipt { receiving_shard: ShardId, index: u64 },
 }
 
 /// Provides `len` function.
@@ -177,6 +193,12 @@ impl TrieKey {
                     + account_id.len()
                     + ACCOUNT_DATA_SEPARATOR.len()
                     + key.len()
+            }
+            TrieKey::BufferedReceiptIndices => col::BUFFERED_RECEIPT_INDICES.len(),
+            TrieKey::BufferedReceipt { index, .. } => {
+                col::BUFFERED_RECEIPT.len()
+                    + std::mem::size_of::<u16>()
+                    + std::mem::size_of_val(index)
             }
         }
     }
@@ -250,6 +272,14 @@ impl TrieKey {
                 buf.push(ACCOUNT_DATA_SEPARATOR);
                 buf.extend(data_id.as_ref());
             }
+            TrieKey::BufferedReceiptIndices => buf.push(col::BUFFERED_RECEIPT_INDICES),
+            TrieKey::BufferedReceipt { index, receiving_shard } => {
+                buf.push(col::BUFFERED_RECEIPT);
+                // Use  u16 for shard id to reduce depth in trie.
+                assert!(*receiving_shard <= u16::MAX as u64, "Shard ID too big.");
+                buf.extend(&(*receiving_shard as u16).to_le_bytes());
+                buf.extend(&index.to_le_bytes());
+            }
         };
         debug_assert_eq!(expected_len, buf.len() - start_len);
     }
@@ -276,6 +306,8 @@ impl TrieKey {
             TrieKey::PromiseYieldIndices => None,
             TrieKey::PromiseYieldTimeout { .. } => None,
             TrieKey::PromiseYieldReceipt { receiver_id, .. } => Some(receiver_id.clone()),
+            TrieKey::BufferedReceiptIndices => None,
+            TrieKey::BufferedReceipt { .. } => None,
         }
     }
 }
@@ -491,7 +523,9 @@ pub mod trie_key_parsers {
 
 #[cfg(test)]
 mod tests {
+    use crate::shard_layout::ShardLayout;
     use near_crypto::KeyType;
+    use near_primitives_core::version::PROTOCOL_VERSION;
 
     use super::*;
 
@@ -793,5 +827,15 @@ mod tests {
                 Some(account_id)
             );
         }
+    }
+
+    #[test]
+    fn test_shard_id_u16_optimization() {
+        let shard_layout = ShardLayout::for_protocol_version(PROTOCOL_VERSION);
+        let max_id = shard_layout.shard_ids().max().unwrap();
+        assert!(
+            max_id <= u16::MAX as u64,
+            "buffered receipt trie key optimization broken, must fit in a u16"
+        );
     }
 }

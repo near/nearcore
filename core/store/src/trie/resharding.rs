@@ -24,7 +24,7 @@ impl Trie {
     pub fn get_trie_items_for_part(&self, part_id: PartId) -> Result<Vec<TrieItem>, StorageError> {
         let path_begin = self.find_state_part_boundary(part_id.idx, part_id.total)?;
         let path_end = self.find_state_part_boundary(part_id.idx + 1, part_id.total)?;
-        self.iter()?.get_trie_items(&path_begin, &path_end)
+        self.disk_iter()?.get_trie_items(&path_begin, &path_end)
     }
 }
 
@@ -103,6 +103,9 @@ impl ShardTries {
                         None => trie_update.remove(trie_key),
                     }
                 }
+                // TODO(congestion_control) - integration with resharding
+                TrieKey::BufferedReceiptIndices => todo!(),
+                TrieKey::BufferedReceipt { .. } => todo!(),
             }
         }
         for (_, update) in trie_updates.iter_mut() {
@@ -263,11 +266,11 @@ fn apply_delayed_receipts_to_children_states_impl(
     }
 
     for receipt in insert_receipts {
-        let new_shard_uid: ShardUId = account_id_to_shard_uid(&receipt.receiver_id);
+        let new_shard_uid: ShardUId = account_id_to_shard_uid(receipt.receiver_id());
         if !trie_updates.contains_key(&new_shard_uid) {
             let err = format!(
                 "Account {} is in new shard {:?} but state_roots only contains {:?}",
-                receipt.receiver_id,
+                receipt.receiver_id(),
                 new_shard_uid,
                 trie_updates.keys(),
             );
@@ -292,11 +295,11 @@ fn apply_delayed_receipts_to_children_states_impl(
     }
 
     for receipt in delete_receipts {
-        let new_shard_uid: ShardUId = account_id_to_shard_uid(&receipt.receiver_id);
+        let new_shard_uid: ShardUId = account_id_to_shard_uid(receipt.receiver_id());
         if !trie_updates.contains_key(&new_shard_uid) {
             let err = format!(
                 "Account {} is in new shard {:?} but state_roots only contains {:?}",
-                receipt.receiver_id,
+                receipt.receiver_id(),
                 new_shard_uid,
                 trie_updates.keys(),
             );
@@ -337,13 +340,6 @@ fn apply_promise_yield_timeouts_to_children_states_impl(
     delete_timeouts: &[PromiseYieldTimeout],
     account_id_to_shard_uid: &dyn Fn(&AccountId) -> ShardUId,
 ) -> Result<(), StorageError> {
-    // TODO: we can remove this check once yield execution is stabilized.
-    // For now it prevents populating promise yield indices for the child shards with default
-    // values if the feature has not been enabled.
-    if insert_timeouts.is_empty() && delete_timeouts.is_empty() {
-        return Ok(());
-    }
-
     let mut promise_yield_indices_by_shard = HashMap::new();
     for (shard_uid, update) in trie_updates.iter() {
         promise_yield_indices_by_shard.insert(*shard_uid, get_promise_yield_indices(update)?);
@@ -558,11 +554,12 @@ mod tests {
 
                 // check that the 4 tries combined to the orig trie
                 let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
-                let trie_items: HashMap<_, _> = trie.iter().unwrap().map(Result::unwrap).collect();
+                let trie_items: HashMap<_, _> =
+                    trie.disk_iter().unwrap().map(Result::unwrap).collect();
                 let mut combined_trie_items: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
                 for (shard_uid, state_root) in state_roots.iter() {
                     let trie = tries.get_view_trie_for_shard(*shard_uid, *state_root);
-                    combined_trie_items.extend(trie.iter().unwrap().map(Result::unwrap));
+                    combined_trie_items.extend(trie.disk_iter().unwrap().map(Result::unwrap));
                 }
                 assert_eq!(trie_items, combined_trie_items);
             }
@@ -710,7 +707,7 @@ mod tests {
         let mut expected_receipts_by_shard: HashMap<_, _> =
             state_roots.iter().map(|(shard_uid, _)| (shard_uid, vec![])).collect();
         for receipt in expected_all_receipts {
-            let shard_uid = account_id_to_shard_id(&receipt.receiver_id);
+            let shard_uid = account_id_to_shard_id(receipt.receiver_id());
             expected_receipts_by_shard.get_mut(&shard_uid).unwrap().push(receipt.clone());
         }
         assert_eq!(expected_receipts_by_shard, receipts_by_shard);

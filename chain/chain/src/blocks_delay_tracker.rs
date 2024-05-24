@@ -10,6 +10,7 @@ use near_primitives::views::{
 };
 use std::collections::{hash_map::Entry, BTreeMap, HashMap};
 use std::mem;
+use time::ext::InstantExt as _;
 use tracing::error;
 
 use crate::{metrics, Chain, ChainStoreAccess};
@@ -312,7 +313,8 @@ impl BlocksDelayTracker {
     fn update_block_metrics(&self, block: &BlockTrackingStats) {
         if let Some(start) = block.orphaned_timestamp {
             if let Some(end) = block.removed_from_orphan_timestamp {
-                metrics::BLOCK_ORPHANED_DELAY.observe((end - start).as_seconds_f64().max(0.0));
+                metrics::BLOCK_ORPHANED_DELAY
+                    .observe((end.signed_duration_since(start)).as_seconds_f64().max(0.0));
             }
         } else {
             metrics::BLOCK_ORPHANED_DELAY.observe(0.);
@@ -320,7 +322,7 @@ impl BlocksDelayTracker {
         if let Some(start) = block.missing_chunks_timestamp {
             if let Some(end) = block.removed_from_missing_chunks_timestamp {
                 metrics::BLOCK_MISSING_CHUNKS_DELAY
-                    .observe((end - start).as_seconds_f64().max(0.0));
+                    .observe((end.signed_duration_since(start)).as_seconds_f64().max(0.0));
             }
         } else {
             metrics::BLOCK_MISSING_CHUNKS_DELAY.observe(0.);
@@ -362,15 +364,20 @@ impl BlocksDelayTracker {
                 .collect();
             let now = self.clock.now();
             let block_status = chain.get_block_status(block_hash, block_stats);
-            let in_progress_ms = (block_stats.processed_timestamp.unwrap_or(now)
-                - block_stats.received_timestamp)
-                .whole_milliseconds()
-                .max(0) as u128;
+            let in_progress_ms = (block_stats
+                .processed_timestamp
+                .unwrap_or(now)
+                .signed_duration_since(block_stats.received_timestamp))
+            .whole_milliseconds()
+            .max(0) as u128;
             let orphaned_ms = if let Some(orphaned_time) = block_stats.orphaned_timestamp {
                 Some(
-                    (block_stats.removed_from_orphan_timestamp.unwrap_or(now) - orphaned_time)
-                        .whole_milliseconds()
-                        .max(0) as u128,
+                    (block_stats
+                        .removed_from_orphan_timestamp
+                        .unwrap_or(now)
+                        .signed_duration_since(orphaned_time))
+                    .whole_milliseconds()
+                    .max(0) as u128,
                 )
             } else {
                 None
@@ -378,10 +385,12 @@ impl BlocksDelayTracker {
             let missing_chunks_ms =
                 if let Some(missing_chunks_time) = block_stats.missing_chunks_timestamp {
                     Some(
-                        (block_stats.removed_from_missing_chunks_timestamp.unwrap_or(now)
-                            - missing_chunks_time)
-                            .whole_milliseconds()
-                            .max(0) as u128,
+                        (block_stats
+                            .removed_from_missing_chunks_timestamp
+                            .unwrap_or(now)
+                            .signed_duration_since(missing_chunks_time))
+                        .whole_milliseconds()
+                        .max(0) as u128,
                     )
                 } else {
                     None

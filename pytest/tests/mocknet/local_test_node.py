@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-defines the LocalTestNeardRunner class meant to to test mocknet itself locally
+defines the LocalTestNeardRunner class meant to test mocknet itself locally
 """
 from argparse import ArgumentParser
 import http.server
@@ -98,6 +98,9 @@ class LocalTestNeardRunner:
         )
 
     def init_python(self):
+        return
+
+    def update_python(self):
         return
 
     def _pid_path(self):
@@ -356,14 +359,18 @@ def get_node_homes(local_mocknet_path):
     return [local_mocknet_path / x[0] for x in node_homes]
 
 
+DEFAULT_LOCAL_MOCKNET_DIR = pathlib.Path.home() / '.near/local-mocknet'
+
+
 # return a NodeHandle for each of the neard runner directories in `local_mocknet_path`
-def get_nodes(local_mocknet_path=pathlib.Path.home() / '.near/local-mocknet'):
+def get_nodes(local_mocknet_path=DEFAULT_LOCAL_MOCKNET_DIR):
     runner_port = 3000
     neard_rpc_port = 3040
     neard_protocol_port = 24577
-    traffic_generator = NodeHandle(
-        LocalTestNeardRunner(local_mocknet_path / 'traffic-generator',
-                             runner_port, neard_rpc_port, neard_protocol_port))
+    traffic_generator = NodeHandle(LocalTestNeardRunner(
+        local_mocknet_path / 'traffic-generator', runner_port, neard_rpc_port,
+        neard_protocol_port),
+                                   can_validate=False)
 
     node_homes = get_node_homes(local_mocknet_path)
     nodes = []
@@ -415,7 +422,7 @@ def local_test_setup_cmd(args):
         if args.fork_height is not None:
             sys.exit('cannot give --fork-height without --legacy-records')
 
-    local_mocknet_path = pathlib.Path.home() / '.near/local-mocknet'
+    local_mocknet_path = DEFAULT_LOCAL_MOCKNET_DIR
     if os.path.exists(local_mocknet_path):
         if not args.yes:
             print(

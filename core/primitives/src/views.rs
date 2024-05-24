@@ -13,12 +13,12 @@ use crate::block_header::{
 use crate::block_header::{BlockHeaderInnerRestV4, BlockHeaderV4};
 use crate::challenge::{Challenge, ChallengesResult};
 use crate::checked_feature;
-use crate::congestion_info::CongestionInfo;
+use crate::congestion_info::{CongestionInfo, CongestionInfoV1};
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, MerklePath};
 use crate::network::PeerId;
-use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
+use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum, ReceiptV1};
 use crate::serialize::dec_format;
 use crate::sharding::{
     ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderInnerV2,
@@ -1353,6 +1353,7 @@ pub struct SignedTransactionView {
     pub nonce: Nonce,
     pub receiver_id: AccountId,
     pub actions: Vec<ActionView>,
+    pub priority_fee: u64,
     pub signature: Signature,
     pub hash: CryptoHash,
 }
@@ -1360,19 +1361,17 @@ pub struct SignedTransactionView {
 impl From<SignedTransaction> for SignedTransactionView {
     fn from(signed_tx: SignedTransaction) -> Self {
         let hash = signed_tx.get_hash();
+        let transaction = signed_tx.transaction;
+        let priority_fee = transaction.priority_fee().unwrap_or_default();
         SignedTransactionView {
-            signer_id: signed_tx.transaction.signer_id,
-            public_key: signed_tx.transaction.public_key,
-            nonce: signed_tx.transaction.nonce,
-            receiver_id: signed_tx.transaction.receiver_id,
-            actions: signed_tx
-                .transaction
-                .actions
-                .into_iter()
-                .map(|action| action.into())
-                .collect(),
+            signer_id: transaction.signer_id().clone(),
+            public_key: transaction.public_key().clone(),
+            nonce: transaction.nonce(),
+            receiver_id: transaction.receiver_id().clone(),
+            actions: transaction.take_actions().into_iter().map(|action| action.into()).collect(),
             signature: signed_tx.signature,
             hash,
+            priority_fee,
         }
     }
 }
@@ -1933,6 +1932,7 @@ pub struct ReceiptView {
     pub receipt_id: CryptoHash,
 
     pub receipt: ReceiptEnumView,
+    pub priority: u64,
 }
 
 #[derive(
@@ -1991,14 +1991,15 @@ fn default_is_promise() -> bool {
 
 impl From<Receipt> for ReceiptView {
     fn from(receipt: Receipt) -> Self {
-        let is_promise_yield = matches!(&receipt.receipt, ReceiptEnum::PromiseYield(_));
-        let is_promise_resume = matches!(&receipt.receipt, ReceiptEnum::PromiseResume(_));
+        let is_promise_yield = matches!(receipt.receipt(), ReceiptEnum::PromiseYield(_));
+        let is_promise_resume = matches!(receipt.receipt(), ReceiptEnum::PromiseResume(_));
+        let priority = receipt.priority().value();
 
         ReceiptView {
-            predecessor_id: receipt.predecessor_id,
-            receiver_id: receipt.receiver_id,
-            receipt_id: receipt.receipt_id,
-            receipt: match receipt.receipt {
+            predecessor_id: receipt.predecessor_id().clone(),
+            receiver_id: receipt.receiver_id().clone(),
+            receipt_id: *receipt.receipt_id(),
+            receipt: match receipt.take_receipt() {
                 ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
                     ReceiptEnumView::Action {
                         signer_id: action_receipt.signer_id,
@@ -2029,6 +2030,7 @@ impl From<Receipt> for ReceiptView {
                     }
                 }
             },
+            priority,
         }
     }
 }
@@ -2037,7 +2039,7 @@ impl TryFrom<ReceiptView> for Receipt {
     type Error = Box<dyn std::error::Error + Send + Sync>;
 
     fn try_from(receipt_view: ReceiptView) -> Result<Self, Self::Error> {
-        Ok(Receipt {
+        Ok(Receipt::V1(ReceiptV1 {
             predecessor_id: receipt_view.predecessor_id,
             receiver_id: receipt_view.receiver_id,
             receipt_id: receipt_view.receipt_id,
@@ -2085,7 +2087,8 @@ impl TryFrom<ReceiptView> for Receipt {
                     }
                 }
             },
-        })
+            priority: receipt_view.priority,
+        }))
     }
 }
 
@@ -2457,14 +2460,35 @@ pub struct SplitStorageInfoView {
     pub hot_db_kind: Option<String>,
 }
 
-// TODO(congestion_control) implement CongestionInfoView
-// serde/json doesn't like 128 bit integers
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct CongestionInfoView {}
+pub struct CongestionInfoView {
+    #[serde(with = "dec_format")]
+    pub delayed_receipts_gas: u128,
+
+    #[serde(with = "dec_format")]
+    pub buffered_receipts_gas: u128,
+
+    pub receipt_bytes: u64,
+
+    pub allowed_shard: u16,
+}
 
 impl From<CongestionInfo> for CongestionInfoView {
-    fn from(_: CongestionInfo) -> Self {
-        Self {}
+    fn from(congestion_info: CongestionInfo) -> Self {
+        match congestion_info {
+            CongestionInfo::V1(congestion_info) => congestion_info.into(),
+        }
+    }
+}
+
+impl From<CongestionInfoV1> for CongestionInfoView {
+    fn from(congestion_info: CongestionInfoV1) -> Self {
+        Self {
+            delayed_receipts_gas: congestion_info.delayed_receipts_gas,
+            buffered_receipts_gas: congestion_info.buffered_receipts_gas,
+            receipt_bytes: congestion_info.receipt_bytes,
+            allowed_shard: congestion_info.allowed_shard,
+        }
     }
 }
 

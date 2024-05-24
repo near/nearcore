@@ -68,6 +68,18 @@ fn default_minimum_validators_per_shard() -> u64 {
     1
 }
 
+fn default_num_chunk_producer_seats() -> u64 {
+    100
+}
+
+fn default_num_chunk_validator_seats() -> u64 {
+    300
+}
+
+fn default_chunk_producer_assignment_changes_limit() -> u64 {
+    5
+}
+
 fn default_num_chunk_only_producer_seats() -> u64 {
     300
 }
@@ -162,6 +174,7 @@ pub struct GenesisConfig {
     pub shard_layout: ShardLayout,
     #[serde(default = "default_num_chunk_only_producer_seats")]
     #[default(300)]
+    /// Deprecated.
     pub num_chunk_only_producer_seats: NumSeats,
     /// The minimum number of validators each shard must have
     #[serde(default = "default_minimum_validators_per_shard")]
@@ -189,6 +202,20 @@ pub struct GenesisConfig {
     /// in AllEpochConfig, and we want to have a way to test that code path. This flag is for that.
     /// If set to true, the node will use the same config override path as mainnet and testnet.
     pub use_production_config: bool,
+    #[serde(default = "default_num_chunk_producer_seats")]
+    #[default(100)]
+    /// Number of chunk producers.
+    /// Don't mess it up with chunk-only producers feature which is deprecated.
+    pub num_chunk_producer_seats: NumSeats,
+    #[serde(default = "default_num_chunk_validator_seats")]
+    #[default(300)]
+    pub num_chunk_validator_seats: NumSeats,
+    #[serde(default = "default_chunk_producer_assignment_changes_limit")]
+    #[default(5)]
+    /// Limits the number of shard changes in chunk producer assignments,
+    /// if algorithm is able to choose assignment with better balance of
+    /// number of chunk producers for shards.
+    pub chunk_producer_assignment_changes_limit: NumSeats,
 }
 
 impl GenesisConfig {
@@ -217,9 +244,13 @@ impl From<&GenesisConfig> for EpochConfig {
             minimum_stake_divisor: config.minimum_stake_divisor,
             shard_layout: config.shard_layout.clone(),
             validator_selection_config: near_primitives::epoch_manager::ValidatorSelectionConfig {
+                num_chunk_producer_seats: config.num_chunk_producer_seats,
+                num_chunk_validator_seats: config.num_chunk_validator_seats,
                 num_chunk_only_producer_seats: config.num_chunk_only_producer_seats,
                 minimum_validators_per_shard: config.minimum_validators_per_shard,
                 minimum_stake_ratio: config.minimum_stake_ratio,
+                chunk_producer_assignment_changes_limit: config
+                    .chunk_producer_assignment_changes_limit,
                 shuffle_shard_assignment_for_chunk_producers: config
                     .shuffle_shard_assignment_for_chunk_producers,
             },

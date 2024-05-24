@@ -8,6 +8,7 @@ use near_chain::types::{
 };
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::combine_hash;
 use near_primitives::receipt::Receipt;
@@ -133,6 +134,7 @@ pub(crate) fn apply_chunk(
     Ok((
         runtime.apply_chunk(
             RuntimeStorageConfig::new(prev_state_root, use_flat_storage),
+            ApplyChunkReason::UpdateTrackedShard,
             ApplyChunkShardContext {
                 shard_id,
                 last_validator_proposals: chunk_header.prev_validator_proposals(),
@@ -187,7 +189,7 @@ fn find_tx_or_receipt(
                 let shard_layout =
                     epoch_manager.get_shard_layout_from_prev_block(chunk.prev_block())?;
                 let to_shard =
-                    shard_layout::account_id_to_shard_id(&receipt.receiver_id, &shard_layout);
+                    shard_layout::account_id_to_shard_id(receipt.receiver_id(), &shard_layout);
                 return Ok(Some((HashType::Receipt, to_shard)));
             }
         }
@@ -395,7 +397,7 @@ fn apply_receipt_in_chunk(
                         let shard_layout =
                             epoch_manager.get_shard_layout_from_prev_block(chunk.prev_block())?;
                         let to_shard = shard_layout::account_id_to_shard_id(
-                            &receipt.receiver_id,
+                            receipt.receiver_id(),
                             &shard_layout,
                         );
                         to_apply.insert((height, to_shard));
@@ -682,7 +684,7 @@ mod test {
 
                     for receipt in chunk.prev_outgoing_receipts() {
                         let to_shard = shard_layout::account_id_to_shard_id(
-                            &receipt.receiver_id,
+                            receipt.receiver_id(),
                             &shard_layout,
                         );
 

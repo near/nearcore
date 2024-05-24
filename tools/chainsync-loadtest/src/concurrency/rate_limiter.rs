@@ -1,3 +1,4 @@
+use ::time::ext::InstantExt as _;
 use near_async::time;
 use near_network::concurrency::ctx;
 use std::sync::Arc;
@@ -12,7 +13,8 @@ struct Inner {
 
 impl Inner {
     fn ticks(&self, t: time::Instant) -> u64 {
-        return ((t - self.start).as_seconds_f64() / self.interval.as_seconds_f64()) as u64;
+        return ((t.signed_duration_since(self.start)).as_seconds_f64()
+            / self.interval.as_seconds_f64()) as u64;
     }
     fn instant(&self, ticks: u64) -> time::Instant {
         return self.start + self.interval * (ticks as f64);

@@ -35,6 +35,6 @@ fn should_include_signed_transaction(
 ) -> bool {
     match select_account_ids {
         None => true,
-        Some(specified_ids) => specified_ids.contains(&signed_transaction.transaction.receiver_id),
+        Some(specified_ids) => specified_ids.contains(signed_transaction.transaction.receiver_id()),
     }
 }

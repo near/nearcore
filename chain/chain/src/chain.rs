@@ -8,12 +8,11 @@ use crate::lightclient::get_epoch_block_producers_view;
 use crate::migrations::check_if_block_is_first_with_chunk_of_version;
 use crate::missing_chunks::MissingChunksPool;
 use crate::orphan::{Orphan, OrphanBlockPool};
+use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::sharding::shuffle_receipt_proofs;
 use crate::state_request_tracker::StateRequestTracker;
 use crate::state_snapshot_actor::SnapshotCallbacks;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
-
-use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::types::{
     AcceptedBlock, ApplyChunkBlockContext, BlockEconomicsConfig, ChainConfig, RuntimeAdapter,
     StorageDataSource,
@@ -103,6 +102,7 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
+use time::ext::InstantExt as _;
 use tracing::{debug, debug_span, error, info, warn, Span};
 
 /// The size of the invalid_blocks in-memory pool
@@ -472,6 +472,17 @@ impl Chain {
                     .save_block_extra(genesis.hash(), BlockExtra { challenges_result: vec![] });
 
                 for (chunk_header, state_root) in genesis.chunks().iter().zip(state_roots.iter()) {
+                    let congestion_info = if ProtocolFeature::CongestionControl
+                        .enabled(chain_genesis.protocol_version)
+                    {
+                        genesis
+                            .shards_congestion_info()
+                            .get(&chunk_header.shard_id())
+                            .map(|info| info.congestion_info)
+                    } else {
+                        None
+                    };
+
                     store_update.save_chunk_extra(
                         genesis.hash(),
                         &epoch_manager
@@ -480,6 +491,7 @@ impl Chain {
                             state_root,
                             chain_genesis.gas_limit,
                             chain_genesis.protocol_version,
+                            congestion_info,
                         ),
                     );
                 }
@@ -610,6 +622,7 @@ impl Chain {
         state_root: &StateRoot,
         gas_limit: Gas,
         genesis_protocol_version: ProtocolVersion,
+        congestion_info: Option<CongestionInfo>,
     ) -> ChunkExtra {
         ChunkExtra::new(
             genesis_protocol_version,
@@ -619,23 +632,15 @@ impl Chain {
             0,
             gas_limit,
             0,
-            Self::get_genesis_congestion_info(genesis_protocol_version),
+            congestion_info,
         )
-    }
-
-    fn get_genesis_congestion_info(protocol_version: ProtocolVersion) -> Option<CongestionInfo> {
-        if protocol_version >= ProtocolFeature::CongestionControl.protocol_version() {
-            // TODO(congestion_control) - properly initialize
-            Some(CongestionInfo::default())
-        } else {
-            None
-        }
     }
 
     pub fn genesis_chunk_extra(
         &self,
         shard_id: ShardId,
         genesis_protocol_version: ProtocolVersion,
+        congestion_info: Option<CongestionInfo>,
     ) -> Result<ChunkExtra, Error> {
         let shard_index = shard_id as usize;
         let state_root = *get_genesis_state_roots(self.chain_store.store())?
@@ -652,7 +657,12 @@ impl Chain {
                 Error::Other(format!("genesis chunk does not exist for shard {shard_index}"))
             })?
             .gas_limit();
-        Ok(Self::create_genesis_chunk_extra(&state_root, gas_limit, genesis_protocol_version))
+        Ok(Self::create_genesis_chunk_extra(
+            &state_root,
+            gas_limit,
+            genesis_protocol_version,
+            congestion_info,
+        ))
     }
 
     /// Creates a light client block for the last final block from perspective of some other block
@@ -1080,7 +1090,7 @@ impl Chain {
         header: &BlockHeader,
         challenges: &mut Vec<ChallengeBody>,
     ) -> Result<(), Error> {
-        debug!(target: "chain", "Process block header: {} at {}", header.hash(), header.height());
+        debug!(target: "chain", block_hash=?header.hash(), height=header.height(), "process_block_header");
 
         check_known(self, header.hash())?.map_err(|e| Error::BlockKnown(e))?;
         self.validate_header(header, &Provenance::NONE, challenges)?;
@@ -1413,12 +1423,12 @@ impl Chain {
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) -> Result<(), Error> {
+        let block_height = block.header().height();
         let _span =
-            debug_span!(target: "chain", "start_process_block_async", ?provenance).entered();
+            debug_span!(target: "chain", "start_process_block_async", ?provenance, height=block_height).entered();
         let block_received_time = self.clock.now();
         metrics::BLOCK_PROCESSING_ATTEMPTS_TOTAL.inc();
 
-        let block_height = block.header().height();
         let hash = *block.hash();
         let res = self.start_process_block_impl(
             me,
@@ -1627,7 +1637,8 @@ impl Chain {
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) -> Result<(), Error> {
-        let _span = tracing::debug_span!(target: "sync", "reset_heads_post_state_sync").entered();
+        let _span = tracing::debug_span!(target: "sync", "reset_heads_post_state_sync", ?sync_hash)
+            .entered();
         // Get header we were syncing into.
         let header = self.get_block_header(&sync_hash)?;
         let hash = *header.prev_hash();
@@ -1738,8 +1749,9 @@ impl Chain {
                             .add_block_with_missing_chunks(orphan, missing_chunk_hashes.clone());
                         debug!(
                             target: "chain",
-                            "Process block: missing chunks. Block hash: {:?}. Missing chunks: {:?}",
-                            block_hash, missing_chunk_hashes,
+                            ?block_hash,
+                            chunk_hashes=missing_chunk_hashes.iter().map(|h| format!("{:?}", h)).join(","),
+                            "Process block: missing chunks"
                         );
                     }
                     Error::EpochOutOfBounds(epoch_id) => {
@@ -1750,10 +1762,10 @@ impl Chain {
                     Error::BlockKnown(block_known_error) => {
                         debug!(
                             target: "chain",
-                            "Block {} at {} is known at this time: {:?}",
-                            block.hash(),
-                            block_height,
-                            block_known_error);
+                            block_hash=?block.hash(),
+                            height=block_height,
+                            error=?block_known_error,
+                            "Block known at this time");
                     }
                     _ => {}
                 }
@@ -1920,12 +1932,7 @@ impl Chain {
                     true,
                 )
             };
-            tracing::debug!(
-                target: "chain",
-                "Updating flat storage for shard {} need_flat_storage_update: {}",
-                shard_id,
-                need_flat_storage_update
-            );
+            tracing::debug!(target: "chain", shard_id,need_flat_storage_update, "Updating flat storage");
 
             if need_flat_storage_update {
                 let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
@@ -1958,8 +1965,11 @@ impl Chain {
         };
 
         metrics::BLOCK_PROCESSED_TOTAL.inc();
-        metrics::BLOCK_PROCESSING_TIME
-            .observe((self.clock.now() - block_start_processing_time).as_seconds_f64().max(0.0));
+        metrics::BLOCK_PROCESSING_TIME.observe(
+            (self.clock.now().signed_duration_since(block_start_processing_time))
+                .as_seconds_f64()
+                .max(0.0),
+        );
         self.blocks_delay_tracker.finish_block_processing(&block_hash, new_head.clone());
 
         timer.observe_duration();
@@ -2007,7 +2017,7 @@ impl Chain {
         // see if the block is already in processing or if there are too many blocks being processed
         self.blocks_in_processing.add_dry_run(block.hash())?;
 
-        debug!(target: "chain", num_approvals = header.num_approvals(), "Preprocess block");
+        debug!(target: "chain", height=header.height(), num_approvals = header.num_approvals(), "preprocess_block");
 
         // Check that we know the epoch of the block before we try to get the header
         // (so that a block from unknown epoch doesn't get marked as an orphan)
@@ -2525,7 +2535,7 @@ impl Chain {
             "get_state_response_part",
             shard_id,
             part_id,
-            %sync_hash)
+            ?sync_hash)
         .entered();
         // Check cache
         let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id))?;
@@ -2572,7 +2582,9 @@ impl Chain {
             )
             .log_storage_error("obtain_state_part fail")?;
 
-        let elapsed_ms = (self.clock.now() - current_time).whole_milliseconds().max(0) as u128;
+        let elapsed_ms = (self.clock.now().signed_duration_since(current_time))
+            .whole_milliseconds()
+            .max(0) as u128;
         self.requested_state_parts
             .save_state_part_elapsed(&sync_hash, &shard_id, &part_id, elapsed_ms);
 
@@ -2853,6 +2865,15 @@ impl Chain {
         Ok(())
     }
 
+    /// This method is called when the state sync is finished for a shard. It
+    /// applies the chunks and populates information in the db, most notably for
+    /// the chunk, chunk extra and flat storage.
+    ///
+    /// It starts at the height included of the chunk in the sync hash up until
+    /// the height of the sync hash.
+    ///
+    /// The first chunk, the one at height included, is a new chunk. The
+    /// remaining ones are old (missing) chunks.
     pub fn set_state_finalize(
         &mut self,
         shard_id: ShardId,
@@ -3002,7 +3023,7 @@ impl Chain {
                 self.chain_store()
                     .check_transaction_validity_period(
                         prev_block_header,
-                        &transaction.transaction.block_hash,
+                        transaction.transaction.block_hash(),
                         transaction_validity_period,
                     )
                     .map_err(|_| Error::from(Error::InvalidTransactions))?;
@@ -3020,21 +3041,22 @@ impl Chain {
             self.chain_store()
                 .check_transaction_validity_period(
                     &prev_block_header,
-                    &tx.transaction.block_hash,
+                    tx.transaction.block_hash(),
                     self.transaction_validity_period,
                 )
                 .is_ok()
         }
     }
 
-    /// For a given previous block and current block header, return information
+    /// For a given previous block header and current block, return information
     /// about block necessary for processing shard update.
     pub fn get_apply_chunk_block_context(
         epoch_manager: &dyn EpochManagerAdapter,
-        block_header: &BlockHeader,
-        prev_block: &Block,
+        block: &Block,
+        prev_block_header: &BlockHeader,
         is_new_chunk: bool,
     ) -> Result<ApplyChunkBlockContext, Error> {
+        let block_header = &block.header();
         let epoch_id = block_header.epoch_id();
         let protocol_version = epoch_manager.get_epoch_protocol_version(epoch_id)?;
         // Before `FixApplyChunks` feature, gas price was taken from current
@@ -3044,9 +3066,9 @@ impl Chain {
         {
             block_header.next_gas_price()
         } else {
-            prev_block.header().next_gas_price()
+            prev_block_header.next_gas_price()
         };
-        let congestion_info = prev_block.shards_congestion_info();
+        let congestion_info = block.shards_congestion_info();
 
         Ok(ApplyChunkBlockContext::from_header(block_header, gas_price, congestion_info))
     }
@@ -3596,8 +3618,8 @@ impl Chain {
         let shard_update_reason = if shard_context.should_apply_chunk {
             let block_context = Self::get_apply_chunk_block_context(
                 self.epoch_manager.as_ref(),
-                block.header(),
-                &prev_block,
+                &block,
+                prev_block.header(),
                 is_new_chunk,
             )?;
             if is_new_chunk {
@@ -4397,7 +4419,7 @@ impl Chain {
     ) -> HashMap<ShardId, Vec<Receipt>> {
         let mut result = HashMap::new();
         for receipt in receipts {
-            let shard_id = account_id_to_shard_id(&receipt.receiver_id, shard_layout);
+            let shard_id = account_id_to_shard_id(receipt.receiver_id(), shard_layout);
             let entry = result.entry(shard_id).or_insert_with(Vec::new);
             entry.push(receipt)
         }
@@ -4418,8 +4440,8 @@ impl Chain {
         let mut cache = HashMap::new();
         for receipt in receipts {
             let &mut shard_id = cache
-                .entry(&receipt.receiver_id)
-                .or_insert_with(|| account_id_to_shard_id(&receipt.receiver_id, shard_layout));
+                .entry(receipt.receiver_id())
+                .or_insert_with(|| account_id_to_shard_id(receipt.receiver_id(), shard_layout));
             // This unwrap should be safe as we pre-populated the map with all
             // valid shard ids.
             result.get_mut(&shard_id).unwrap().push(receipt);

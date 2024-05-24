@@ -8,6 +8,7 @@ use near_primitives::stateless_validation::EncodedChunkStateWitness;
 
 use crate::stateless_validation::chunk_validator::{
     pre_validate_chunk_state_witness, validate_chunk_state_witness, validate_prepared_transactions,
+    MainStateTransitionCache,
 };
 use crate::{metrics, Client};
 
@@ -19,7 +20,7 @@ impl Client {
             return Ok(());
         }
         let block_hash = block.hash();
-        tracing::debug!(target: "stateless_validation", ?block_hash, "shadow validation for block chunks");
+        tracing::debug!(target: "client", ?block_hash, "shadow validation for block chunks");
         let prev_block = self.chain.get_block(block.header().prev_hash())?;
         let prev_block_chunks = prev_block.chunks();
         for chunk in
@@ -32,7 +33,7 @@ impl Client {
             {
                 metrics::SHADOW_CHUNK_VALIDATION_FAILED_TOTAL.inc();
                 tracing::error!(
-                    target: "stateless_validation",
+                    target: "client",
                     ?err,
                     shard_id = chunk.shard_id(),
                     ?block_hash,
@@ -82,6 +83,9 @@ impl Client {
             chunk,
             validated_transactions.storage_proof,
         )?;
+        if self.config.save_latest_witnesses {
+            self.chain.chain_store.save_latest_chunk_state_witness(&witness)?;
+        }
         let (encoded_witness, raw_witness_size) = {
             let shard_id_label = shard_id.to_string();
             let encode_timer = metrics::CHUNK_STATE_WITNESS_ENCODE_TIME
@@ -89,12 +93,11 @@ impl Client {
                 .start_timer();
             let (encoded_witness, raw_witness_size) = EncodedChunkStateWitness::encode(&witness)?;
             encode_timer.observe_duration();
-            metrics::CHUNK_STATE_WITNESS_TOTAL_SIZE
-                .with_label_values(&[shard_id_label.as_str()])
-                .observe(encoded_witness.size_bytes() as f64);
-            metrics::CHUNK_STATE_WITNESS_RAW_SIZE
-                .with_label_values(&[shard_id_label.as_str()])
-                .observe(raw_witness_size as f64);
+            metrics::record_witness_size_metrics(
+                raw_witness_size,
+                encoded_witness.size_bytes(),
+                &witness,
+            );
             let decode_timer = metrics::CHUNK_STATE_WITNESS_DECODE_TIME
                 .with_label_values(&[shard_id_label.as_str()])
                 .start_timer();
@@ -110,7 +113,7 @@ impl Client {
             self.runtime_adapter.as_ref(),
         )?;
         tracing::debug!(
-            target: "stateless_validation",
+            target: "client",
             shard_id,
             ?chunk_hash,
             witness_size = encoded_witness.size_bytes(),
@@ -127,10 +130,11 @@ impl Client {
                 pre_validation_result,
                 epoch_manager.as_ref(),
                 runtime_adapter.as_ref(),
+                &MainStateTransitionCache::default(),
             ) {
                 Ok(()) => {
                     tracing::debug!(
-                        target: "stateless_validation",
+                        target: "client",
                         shard_id,
                         ?chunk_hash,
                         validation_elapsed = ?validation_start.elapsed(),
@@ -140,7 +144,7 @@ impl Client {
                 Err(err) => {
                     metrics::SHADOW_CHUNK_VALIDATION_FAILED_TOTAL.inc();
                     tracing::error!(
-                        target: "stateless_validation",
+                        target: "client",
                         ?err,
                         shard_id,
                         ?chunk_hash,

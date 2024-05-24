@@ -6,6 +6,7 @@ use near_chain_configs::MIN_GAS_PRICE;
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_parameters::RuntimeConfig;
+use near_primitives::congestion_info::ExtendedCongestionInfo;
 use near_primitives::errors::{RuntimeError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
@@ -13,7 +14,7 @@ use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeightDelta, MerkleHash};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ContractCodeView,
     ExecutionOutcomeView, ExecutionOutcomeWithIdView, ExecutionStatusView,
@@ -143,7 +144,7 @@ impl RuntimeUser {
                 return Ok(());
             }
             for receipt in apply_result.outgoing_receipts.iter() {
-                self.receipts.borrow_mut().insert(receipt.receipt_id, receipt.clone());
+                self.receipts.borrow_mut().insert(*receipt.receipt_id(), receipt.clone());
             }
             receipts = apply_result.outgoing_receipts;
             txs = vec![];
@@ -153,8 +154,16 @@ impl RuntimeUser {
     fn apply_state(&self) -> ApplyState {
         // TODO(congestion_control) - Set shard id somehow.
         let shard_id = 0;
+        // TODO(congestion_control) - Set other shard ids somehow.
+        let all_shard_ids = [0, 1, 2, 3, 4, 5];
+        let congestion_info = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
+            all_shard_ids.into_iter().map(|id| (id, ExtendedCongestionInfo::default())).collect()
+        } else {
+            HashMap::new()
+        };
 
         ApplyState {
+            apply_reason: None,
             block_height: 1,
             prev_block_hash: Default::default(),
             block_hash: Default::default(),
@@ -171,8 +180,7 @@ impl RuntimeUser {
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
-            // TODO(congestion_control): Probably should create a hashmap per shard and fill a default congestion info for each
-            congestion_info: HashMap::default(),
+            congestion_info,
         }
     }
 

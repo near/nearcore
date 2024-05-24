@@ -13,17 +13,17 @@ use itertools::GroupBy;
 use itertools::Itertools;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
-use near_chain::types::ApplyChunkBlockContext;
-use near_chain::types::ApplyChunkResult;
-use near_chain::types::ApplyChunkShardContext;
-use near_chain::types::RuntimeAdapter;
-use near_chain::types::RuntimeStorageConfig;
+use near_chain::types::{
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
+    RuntimeStorageConfig,
+};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, Error};
 use near_chain_configs::GenesisChangeConfig;
 use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::EpochManagerHandle;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::account::id::AccountId;
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -95,6 +95,7 @@ pub(crate) fn apply_block(
         runtime
             .apply_chunk(
                 RuntimeStorageConfig::new(*chunk_inner.prev_state_root(), use_flat_storage),
+                ApplyChunkReason::UpdateTrackedShard,
                 ApplyChunkShardContext {
                     shard_id,
                     last_validator_proposals: chunk_inner.prev_validator_proposals(),
@@ -119,6 +120,7 @@ pub(crate) fn apply_block(
         runtime
             .apply_chunk(
                 RuntimeStorageConfig::new(*chunk_extra.state_root(), use_flat_storage),
+                ApplyChunkReason::UpdateTrackedShard,
                 ApplyChunkShardContext {
                     shard_id,
                     last_validator_proposals: chunk_extra.validator_proposals(),
@@ -758,7 +760,7 @@ pub(crate) fn state(home_dir: &Path, near_config: NearConfig, store: Store) {
         let trie = runtime
             .get_trie_for_shard(shard_id as u64, header.prev_hash(), *state_root, false)
             .unwrap();
-        for item in trie.iter().unwrap() {
+        for item in trie.disk_iter().unwrap() {
             let (key, value) = item.unwrap();
             if let Some(state_record) = StateRecord::from_raw_key_value(key, value) {
                 println!("{}", state_record);

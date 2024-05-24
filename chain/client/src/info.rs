@@ -31,6 +31,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 use std::sync::Arc;
 use sysinfo::{get_current_pid, set_open_files_limit, Pid, ProcessExt, System, SystemExt};
+use time::ext::InstantExt as _;
 use tracing::info;
 
 const TERAGAS: f64 = 1_000_000_000_000_f64;
@@ -439,11 +440,12 @@ impl InfoHelper {
             PrettyNumber::bytes_per_sec(network_info.sent_bytes_per_sec)
         ));
 
+        let now = Instant::now();
         let avg_bls = (self.num_blocks_processed as f64)
-            / (self.started.elapsed().whole_milliseconds() as f64)
+            / (now.signed_duration_since(self.started).whole_milliseconds() as f64)
             * 1000.0;
         let avg_gas_used = ((self.gas_used as f64)
-            / (self.started.elapsed().whole_milliseconds() as f64)
+            / (now.signed_duration_since(self.started).whole_milliseconds() as f64)
             * 1000.0) as u64;
         let blocks_info_log =
             Some(format!(" {:.2} bps {}", avg_bls, PrettyNumber::gas_per_sec(avg_gas_used)));
@@ -517,16 +519,19 @@ impl InfoHelper {
         self.num_chunks_in_blocks_processed = 0;
         self.gas_used = 0;
 
-        self.telemetry_sender.send(TelemetryEvent::new(self.telemetry_info(
-            head,
-            sync_status,
-            node_id,
-            network_info,
-            client_config,
-            cpu_usage,
-            memory_usage,
-            is_validator,
-        )));
+        let telemetry_event = TelemetryEvent {
+            content: self.telemetry_info(
+                head,
+                sync_status,
+                node_id,
+                network_info,
+                client_config,
+                cpu_usage,
+                memory_usage,
+                is_validator,
+            ),
+        };
+        self.telemetry_sender.send(telemetry_event);
     }
 
     fn telemetry_info(

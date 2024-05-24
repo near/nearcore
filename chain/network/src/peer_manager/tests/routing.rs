@@ -14,7 +14,7 @@ use crate::peer_manager::testonly::Event;
 use crate::private_actix::RegisterPeerError;
 use crate::tcp;
 use crate::testonly::{abort_on_panic, make_rng, Rng};
-use crate::types::PeerMessage;
+use crate::types::{Edge, PeerMessage};
 use crate::types::{PeerInfo, ReasonForBan};
 use near_async::time;
 use near_primitives::network::PeerId;
@@ -648,7 +648,7 @@ fn make_configs(
         .collect();
     for config in cfgs.iter_mut() {
         config.outbound_disabled = !enable_outbound;
-        config.peer_store.boot_nodes = boot_nodes.clone();
+        config.peer_store.boot_nodes.clone_from(&boot_nodes);
     }
     cfgs
 }
@@ -1001,7 +1001,11 @@ async fn repeated_data_in_sync_routing_table() {
         }
         // Add more data.
         let key = data::make_secret_key(rng);
-        edges_want.insert(data::make_edge(&peer.cfg.network.node_key, &key, 1));
+        edges_want.insert(data::make_edge(
+            &peer.cfg.network.node_key,
+            &key,
+            Edge::create_fresh_nonce(&clock.clock()),
+        ));
         accounts_want.insert(data::make_announce_account(rng));
         // Send all the data created so far. PeerManager is expected to discard the duplicates.
         peer.send(PeerMessage::SyncRoutingTable(RoutingTableUpdate {
@@ -1081,7 +1085,11 @@ async fn fix_local_edges() {
         .await;
     // TODO(gprusak): the case when the edge is updated via UpdateNondeRequest is not covered yet,
     // as it requires awaiting for the RPC roundtrip which is not implemented yet.
-    let edge1 = data::make_edge(&pm.cfg.node_key, &data::make_secret_key(rng), 1);
+    let edge1 = data::make_edge(
+        &pm.cfg.node_key,
+        &data::make_secret_key(rng),
+        Edge::create_fresh_nonce(&clock.clock()),
+    );
     let edge2 = conn
         .edge
         .as_ref()

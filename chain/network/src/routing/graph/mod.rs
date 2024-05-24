@@ -4,6 +4,7 @@ use crate::network_protocol::{Edge, EdgeState};
 use crate::routing::bfs;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
+use ::time::ext::InstantExt as _;
 use arc_swap::ArcSwap;
 use near_async::time;
 use near_primitives::network::PeerId;
@@ -201,7 +202,8 @@ impl Inner {
         for peer in next_hops.keys() {
             self.peer_reachable_at.insert(peer.clone(), now);
         }
-        if let Some(unreachable_since) = now.checked_sub(self.config.prune_unreachable_peers_after)
+        if let Some(unreachable_since) =
+            now.checked_sub_signed(self.config.prune_unreachable_peers_after)
         {
             self.prune_unreachable_peers(unreachable_since);
         }

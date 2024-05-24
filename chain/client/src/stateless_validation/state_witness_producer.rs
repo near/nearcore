@@ -15,8 +15,9 @@ use near_primitives::stateless_validation::{
 use near_primitives::types::{AccountId, EpochId};
 
 use crate::stateless_validation::chunk_validator::send_chunk_endorsement_to_block_producers;
-use crate::stateless_validation::state_witness_actor::DistributeStateWitnessRequest;
 use crate::Client;
+
+use super::partial_witness::partial_witness_actor::DistributeStateWitnessRequest;
 
 impl Client {
     /// Distributes the chunk state witness to chunk validators that are
@@ -33,6 +34,9 @@ impl Client {
         if !checked_feature!("stable", StatelessValidationV0, protocol_version) {
             return Ok(());
         }
+        let chunk_header = chunk.cloned_header();
+        let shard_id = chunk_header.shard_id();
+        let _span = tracing::debug_span!(target: "client", "send_chunk_state_witness", chunk_hash=?chunk_header.chunk_hash(), ?shard_id).entered();
 
         let my_signer = self.validator_signer.as_ref().ok_or(Error::NotAValidator)?.clone();
         let state_witness = self.create_state_witness(
@@ -43,8 +47,10 @@ impl Client {
             transactions_storage_proof,
         )?;
 
-        let chunk_header = chunk.cloned_header();
-        let shard_id = chunk_header.shard_id();
+        if self.config.save_latest_witnesses {
+            self.chain.chain_store.save_latest_chunk_state_witness(&state_witness)?;
+        }
+
         let height = chunk_header.height_created();
         if self
             .epoch_manager
@@ -52,6 +58,7 @@ impl Client {
             .contains(my_signer.validator_id())
         {
             // Bypass state witness validation if we created state witness. Endorse the chunk immediately.
+            tracing::debug!(target: "client", chunk_hash=?chunk_header.chunk_hash(), "send_chunk_endorsement_from_chunk_producer");
             send_chunk_endorsement_to_block_producers(
                 &chunk_header,
                 self.epoch_manager.as_ref(),
@@ -61,7 +68,7 @@ impl Client {
             );
         }
 
-        self.state_witness_adapter.send(DistributeStateWitnessRequest {
+        self.partial_witness_adapter.send(DistributeStateWitnessRequest {
             epoch_id: epoch_id.clone(),
             chunk_header,
             state_witness,

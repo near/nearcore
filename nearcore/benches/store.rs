@@ -57,7 +57,7 @@ fn read_trie_items(bench: &mut Bencher, shard_id: usize, mode: Mode) {
             .unwrap();
         let start = Instant::now();
         let num_items_read = trie
-            .iter()
+            .disk_iter()
             .unwrap()
             .enumerate()
             .map(|(i, _)| {

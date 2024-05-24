@@ -2,6 +2,7 @@ pub use borsh;
 pub use num_rational;
 
 pub mod account;
+pub mod apply;
 pub mod chains;
 pub mod config;
 pub mod hash;

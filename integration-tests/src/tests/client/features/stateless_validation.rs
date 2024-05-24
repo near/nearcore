@@ -129,7 +129,9 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
     let mut env = TestEnv::builder(&genesis.config)
         .clients(accounts.iter().take(8).cloned().collect())
         .epoch_managers_with_test_overrides(epoch_config_test_overrides)
-        .nightshade_runtimes(&genesis)
+        // Disable congestion control in order to avoid rejecting transactions
+        // in tests with missing chunks.
+        .nightshade_runtimes_congestion_control_disabled(&genesis)
         .build();
     let mut tx_hashes = vec![];
 
@@ -166,7 +168,7 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
 
         let block_producer = env.get_block_producer_at_offset(&tip, 1);
         tracing::debug!(
-            target: "stateless_validation",
+            target: "client",
             "Producing block at height {} by {}", tip.height + 1, block_producer
         );
         let block = env.client(&block_producer).produce_block(tip.height + 1).unwrap().unwrap();
@@ -175,7 +177,7 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
         for i in 0..env.clients.len() {
             let validator_id = env.get_client_id(i);
             tracing::debug!(
-                target: "stateless_validation",
+                target: "client",
                 "Applying block at height {} at {}", block.header().height(), validator_id
             );
             let blocks_processed = if rng.gen_bool(prob_missing_chunk) {
@@ -233,6 +235,10 @@ fn test_chunk_validation_low_missing_chunks() {
     run_chunk_validation_test(43, 0.3);
 }
 
+// This test fails because transactions are rejected when there are too many
+// missing chunks in a row.
+// TODO(congestion_control) - make congestion control configurable,
+// disable it here and re-enable this test
 #[test]
 fn test_chunk_validation_high_missing_chunks() {
     run_chunk_validation_test(44, 0.81);
