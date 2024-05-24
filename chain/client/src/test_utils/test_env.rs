@@ -12,7 +12,7 @@ use near_chain_configs::GenesisConfig;
 use near_chain_primitives::error::QueryError;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
-use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_crypto::{InMemorySigner, KeyType};
 use near_network::client::ProcessTxResponse;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::test_utils::MockPeerManagerAdapter;
@@ -467,14 +467,13 @@ impl TestEnv {
 
     pub fn send_money(&mut self, id: usize) -> ProcessTxResponse {
         let account_id = self.get_client_id(0);
-        let signer = Signer::InMemorySigner(
-            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref())
-        );
+        let signer =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
         let tx = SignedTransaction::send_money(
             1,
             account_id.clone(),
-            account_id.clone(),
-            &signer,
+            account_id,
+            &signer.into(),
             100,
             self.clients[id].chain.head().unwrap().last_block_hash,
         );
@@ -612,7 +611,7 @@ impl TestEnv {
     /// memory caches.
     /// Though, it seems that it is not necessary for current use cases.
     pub fn restart(&mut self, idx: usize) {
-        let account_id = self.get_client_id(idx).clone();
+        let account_id = self.get_client_id(idx);
         let rng_seed = match self.seeds.get(&account_id) {
             Some(seed) => *seed,
             None => TEST_SEED,
@@ -697,7 +696,7 @@ impl TestEnv {
             tip.height + 1,
             signer.account_id.clone(),
             receiver,
-            &Signer::InMemorySigner(signer.clone()),
+            &signer.clone().into(),
             actions,
             tip.last_block_hash,
             0,
@@ -714,9 +713,8 @@ impl TestEnv {
     ) -> SignedTransaction {
         let inner_signer =
             InMemorySigner::from_seed(sender.clone(), KeyType::ED25519, sender.as_str());
-        let relayer_signer = Signer::InMemorySigner(
-            InMemorySigner::from_seed(relayer.clone(), KeyType::ED25519, relayer.as_str())
-        );
+        let relayer_signer =
+            InMemorySigner::from_seed(relayer.clone(), KeyType::ED25519, relayer.as_str());
         let tip = self.clients[0].chain.head().unwrap();
         let user_nonce = tip.height + 1;
         let relayer_nonce = tip.height + 1;
@@ -737,7 +735,7 @@ impl TestEnv {
             relayer_nonce,
             relayer,
             sender,
-            &relayer_signer,
+            &relayer_signer.into(),
             vec![Action::Delegate(Box::new(signed_delegate_action))],
             tip.last_block_hash,
             0,

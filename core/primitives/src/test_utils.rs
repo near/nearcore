@@ -165,7 +165,7 @@ impl SignedTransaction {
         nonce: Nonce,
         signer_id: AccountId,
         receiver_id: AccountId,
-        signer: &dyn Signer,
+        signer: &Signer,
         actions: Vec<Action>,
         block_hash: CryptoHash,
         priority_fee: u64,
@@ -327,7 +327,7 @@ impl SignedTransaction {
             0,
             "test".parse().unwrap(),
             "test".parse().unwrap(),
-            &Signer::EmptySigner(EmptySigner::new()),
+            &EmptySigner::new().into(),
             vec![],
             block_hash,
             0,
@@ -451,7 +451,7 @@ impl BlockBody {
 /// # Examples
 ///
 /// // TODO(mm-near): change it to doc-tested code once we have easy way to create a genesis block.
-/// let signer = ValidatorSigner::EmptyValidatorSigner(EmptyValidatorSigner::default());
+/// let signer = EmptyValidatorSigner::default().into();
 /// let test_block = test_utils::TestBlockBuilder::new(prev, signer).height(33).build();
 pub struct TestBlockBuilder {
     clock: Clock,
@@ -473,7 +473,7 @@ impl TestBlockBuilder {
         Self {
             clock,
             prev: prev.clone(),
-            signer: signer.clone(),
+            signer,
             height: prev.header().height() + 1,
             epoch_id: prev.header().epoch_id().clone(),
             next_epoch_id: if prev.header().is_genesis() {
@@ -716,13 +716,12 @@ pub fn encode(xs: &[u64]) -> Vec<u8> {
 // Helper function that creates a new signer for a given account, that uses the account name as seed.
 // Should be used only in tests.
 pub fn create_test_signer(account_name: &str) -> ValidatorSigner {
-    ValidatorSigner::InMemoryValidatorSigner(
-        InMemoryValidatorSigner::from_seed(
-            account_name.parse().unwrap(),
-            KeyType::ED25519,
-            account_name,
-        )
+    InMemoryValidatorSigner::from_seed(
+        account_name.parse().unwrap(),
+        KeyType::ED25519,
+        account_name,
     )
+    .into()
 }
 
 /// Helper function that creates a new signer for a given account, that uses the account name as seed.

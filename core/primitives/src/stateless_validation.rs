@@ -375,7 +375,7 @@ impl ChunkStateWitness {
             Default::default(),
             Default::default(),
             CongestionInfo::default(),
-            &ValidatorSigner::EmptyValidatorSigner(EmptyValidatorSigner::default()),
+            &EmptyValidatorSigner::default().into(),
         ));
         Self::new(
             "alice.near".parse().unwrap(),

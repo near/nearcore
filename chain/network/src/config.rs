@@ -636,7 +636,7 @@ mod test {
             version: 0,
             timestamp: clock.now_utc(),
         };
-        let sad = ad.sign(&signer).unwrap();
+        let sad = ad.sign(&signer.into()).unwrap();
         assert!(sad.payload().len() <= network_protocol::MAX_ACCOUNT_DATA_SIZE_BYTES);
     }
 }

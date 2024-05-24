@@ -17,8 +17,8 @@ use crate::types::{AccountId, BlockHeight, EpochId};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ValidatorSigner {
-    EmptyValidatorSigner(EmptyValidatorSigner),
-    InMemoryValidatorSigner(InMemoryValidatorSigner),
+    Empty(EmptyValidatorSigner),
+    InMemory(InMemoryValidatorSigner),
 }
 
 /// Validator signer that is used to sign blocks and approvals.
@@ -26,24 +26,24 @@ impl ValidatorSigner {
     /// Account id of the given validator.
     pub fn validator_id(&self) -> &AccountId {
         match self {
-            ValidatorSigner::EmptyValidatorSigner(signer) => signer.validator_id(),
-            ValidatorSigner::InMemoryValidatorSigner(signer) => signer.validator_id(),
+            ValidatorSigner::Empty(signer) => signer.validator_id(),
+            ValidatorSigner::InMemory(signer) => signer.validator_id(),
         }
     }
 
     /// Public key that identifies this validator.
     pub fn public_key(&self) -> PublicKey {
         match self {
-            ValidatorSigner::EmptyValidatorSigner(signer) => signer.public_key(),
-            ValidatorSigner::InMemoryValidatorSigner(signer) => signer.public_key(),
+            ValidatorSigner::Empty(signer) => signer.public_key(),
+            ValidatorSigner::InMemory(signer) => signer.public_key(),
         }
     }
 
     /// Serializes telemetry info to JSON and signs it, returning JSON with "signature" field.
     pub fn sign_telemetry(&self, info: &TelemetryInfo) -> serde_json::Value {
         match self {
-            ValidatorSigner::EmptyValidatorSigner(signer) => signer.sign_telemetry(info),
-            ValidatorSigner::InMemoryValidatorSigner(signer) => signer.sign_telemetry(info),
+            ValidatorSigner::Empty(signer) => signer.sign_telemetry(info),
+            ValidatorSigner::InMemory(signer) => signer.sign_telemetry(info),
         }
     }
 
@@ -55,40 +55,44 @@ impl ValidatorSigner {
         inner_rest: &[u8],
     ) -> (CryptoHash, Signature) {
         match self {
-            ValidatorSigner::EmptyValidatorSigner(signer) => signer.sign_block_header_parts(prev_hash, inner_lite, inner_rest),
-            ValidatorSigner::InMemoryValidatorSigner(signer) => signer.sign_block_header_parts(prev_hash, inner_lite, inner_rest),
+            ValidatorSigner::Empty(signer) => {
+                signer.sign_block_header_parts(prev_hash, inner_lite, inner_rest)
+            }
+            ValidatorSigner::InMemory(signer) => {
+                signer.sign_block_header_parts(prev_hash, inner_lite, inner_rest)
+            }
         }
     }
 
     /// Signs given inner of the chunk header.
     pub fn sign_chunk_hash(&self, chunk_hash: &ChunkHash) -> Signature {
         match self {
-            ValidatorSigner::EmptyValidatorSigner(signer) => signer.sign_chunk_hash(chunk_hash),
-            ValidatorSigner::InMemoryValidatorSigner(signer) => signer.sign_chunk_hash(chunk_hash),
+            ValidatorSigner::Empty(signer) => signer.sign_chunk_hash(chunk_hash),
+            ValidatorSigner::InMemory(signer) => signer.sign_chunk_hash(chunk_hash),
         }
     }
 
     /// Signs approval of given parent hash and reference hash.
     pub fn sign_approval(&self, inner: &ApprovalInner, target_height: BlockHeight) -> Signature {
         match self {
-            ValidatorSigner::EmptyValidatorSigner(signer) => signer.sign_approval(inner, target_height),
-            ValidatorSigner::InMemoryValidatorSigner(signer) => signer.sign_approval(inner, target_height),
+            ValidatorSigner::Empty(signer) => signer.sign_approval(inner, target_height),
+            ValidatorSigner::InMemory(signer) => signer.sign_approval(inner, target_height),
         }
     }
 
     /// Signs chunk endorsement to be sent to block producer.
     pub fn sign_chunk_endorsement(&self, inner: &ChunkEndorsementInner) -> Signature {
         match self {
-            ValidatorSigner::EmptyValidatorSigner(signer) => signer.sign_chunk_endorsement(inner),
-            ValidatorSigner::InMemoryValidatorSigner(signer) => signer.sign_chunk_endorsement(inner),
+            ValidatorSigner::Empty(signer) => signer.sign_chunk_endorsement(inner),
+            ValidatorSigner::InMemory(signer) => signer.sign_chunk_endorsement(inner),
         }
     }
 
     /// Signs chunk state witness to be sent to all validators.
     pub fn sign_chunk_state_witness(&self, witness_bytes: &EncodedChunkStateWitness) -> Signature {
         match self {
-            ValidatorSigner::EmptyValidatorSigner(signer) => signer.sign_chunk_state_witness(witness_bytes),
-            ValidatorSigner::InMemoryValidatorSigner(signer) => signer.sign_chunk_state_witness(witness_bytes),
+            ValidatorSigner::Empty(signer) => signer.sign_chunk_state_witness(witness_bytes),
+            ValidatorSigner::InMemory(signer) => signer.sign_chunk_state_witness(witness_bytes),
         }
     }
 
@@ -98,16 +102,16 @@ impl ValidatorSigner {
         part: &PartialEncodedStateWitnessInner,
     ) -> Signature {
         match self {
-            ValidatorSigner::EmptyValidatorSigner(signer) => signer.sign_partial_encoded_state_witness(part),
-            ValidatorSigner::InMemoryValidatorSigner(signer) => signer.sign_partial_encoded_state_witness(part),
+            ValidatorSigner::Empty(signer) => signer.sign_partial_encoded_state_witness(part),
+            ValidatorSigner::InMemory(signer) => signer.sign_partial_encoded_state_witness(part),
         }
     }
 
     /// Signs challenge body.
     pub fn sign_challenge(&self, challenge_body: &ChallengeBody) -> (CryptoHash, Signature) {
         match self {
-            ValidatorSigner::EmptyValidatorSigner(signer) => signer.sign_challenge(challenge_body),
-            ValidatorSigner::InMemoryValidatorSigner(signer) => signer.sign_challenge(challenge_body),
+            ValidatorSigner::Empty(signer) => signer.sign_challenge(challenge_body),
+            ValidatorSigner::InMemory(signer) => signer.sign_challenge(challenge_body),
         }
     }
 
@@ -119,8 +123,12 @@ impl ValidatorSigner {
         epoch_id: &EpochId,
     ) -> Signature {
         match self {
-            ValidatorSigner::EmptyValidatorSigner(signer) => signer.sign_account_announce(account_id, peer_id, epoch_id),
-            ValidatorSigner::InMemoryValidatorSigner(signer) => signer.sign_account_announce(account_id, peer_id, epoch_id),
+            ValidatorSigner::Empty(signer) => {
+                signer.sign_account_announce(account_id, peer_id, epoch_id)
+            }
+            ValidatorSigner::InMemory(signer) => {
+                signer.sign_account_announce(account_id, peer_id, epoch_id)
+            }
         }
     }
 
@@ -137,8 +145,8 @@ impl ValidatorSigner {
     /// harder.
     pub fn sign_account_key_payload(&self, proto_bytes: &[u8]) -> Signature {
         match self {
-            ValidatorSigner::EmptyValidatorSigner(signer) => signer.sign_account_key_payload(proto_bytes),
-            ValidatorSigner::InMemoryValidatorSigner(signer) => signer.sign_account_key_payload(proto_bytes),
+            ValidatorSigner::Empty(signer) => signer.sign_account_key_payload(proto_bytes),
+            ValidatorSigner::InMemory(signer) => signer.sign_account_key_payload(proto_bytes),
         }
     }
 
@@ -147,20 +155,31 @@ impl ValidatorSigner {
         data: &[u8],
     ) -> (near_crypto::vrf::Value, near_crypto::vrf::Proof) {
         match self {
-            ValidatorSigner::EmptyValidatorSigner(_) => unimplemented!(),
-            ValidatorSigner::InMemoryValidatorSigner(signer) => signer.compute_vrf_with_proof(data),
+            ValidatorSigner::Empty(_) => unimplemented!(),
+            ValidatorSigner::InMemory(signer) => signer.compute_vrf_with_proof(data),
         }
     }
 
     /// Used by test infrastructure, only implement if make sense for testing otherwise raise `unimplemented`.
     pub fn write_to_file(&self, path: &Path) -> std::io::Result<()> {
         match self {
-            ValidatorSigner::EmptyValidatorSigner(_) => unimplemented!(),
-            ValidatorSigner::InMemoryValidatorSigner(signer) => signer.write_to_file(path),
+            ValidatorSigner::Empty(_) => unimplemented!(),
+            ValidatorSigner::InMemory(signer) => signer.write_to_file(path),
         }
     }
 }
 
+impl From<EmptyValidatorSigner> for ValidatorSigner {
+    fn from(signer: EmptyValidatorSigner) -> Self {
+        ValidatorSigner::Empty(signer)
+    }
+}
+
+impl From<InMemoryValidatorSigner> for ValidatorSigner {
+    fn from(signer: InMemoryValidatorSigner) -> Self {
+        ValidatorSigner::InMemory(signer)
+    }
+}
 
 /// Test-only signer that "signs" everything with 0s.
 /// Don't use in any production or code that requires signature verification.
@@ -243,16 +262,12 @@ pub struct InMemoryValidatorSigner {
 
 impl InMemoryValidatorSigner {
     pub fn from_random(account_id: AccountId, key_type: KeyType) -> Self {
-        let signer = Arc::new(Signer::InMemorySigner(
-            InMemorySigner::from_random(account_id.clone(), key_type)
-        ));
+        let signer = Arc::new(InMemorySigner::from_random(account_id.clone(), key_type).into());
         Self { account_id, signer }
     }
 
     pub fn from_seed(account_id: AccountId, key_type: KeyType, seed: &str) -> Self {
-        let signer = Arc::new(Signer::InMemorySigner(
-            InMemorySigner::from_seed(account_id.clone(), key_type, seed)
-        ));
+        let signer = Arc::new(InMemorySigner::from_seed(account_id.clone(), key_type, seed).into());
         Self { account_id, signer }
     }
 
@@ -261,7 +276,7 @@ impl InMemoryValidatorSigner {
     }
 
     pub fn from_signer(signer: InMemorySigner) -> Self {
-        Self { account_id: signer.account_id.clone(), signer: Arc::new(Signer::InMemorySigner(signer)) }
+        Self { account_id: signer.account_id.clone(), signer: Arc::new(signer.into()) }
     }
 
     pub fn from_file(path: &Path) -> std::io::Result<Self> {
@@ -269,7 +284,7 @@ impl InMemoryValidatorSigner {
         Ok(Self::from_signer(signer))
     }
 
-    fn validator_id(&self) -> &AccountId {
+    pub fn validator_id(&self) -> &AccountId {
         &self.account_id
     }
 
@@ -319,7 +334,7 @@ impl InMemoryValidatorSigner {
         (hash, signature)
     }
 
-    fn sign_account_announce(
+    pub fn sign_account_announce(
         &self,
         account_id: &AccountId,
         peer_id: &PeerId,

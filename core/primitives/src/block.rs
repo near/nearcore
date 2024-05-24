@@ -125,7 +125,7 @@ pub fn genesis_chunks(
                 &[],
                 CryptoHash::default(),
                 CongestionInfo::default(),
-                &ValidatorSigner::EmptyValidatorSigner(EmptyValidatorSigner::default()),
+                &EmptyValidatorSigner::default().into(),
                 genesis_protocol_version,
             )
             .expect("Failed to decode genesis chunk");

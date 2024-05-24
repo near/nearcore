@@ -4,7 +4,7 @@
 # so that the next epoch block producers set is completely different
 # Make sure all nodes can still sync.
 
-import sys, time
+import sys, time, base58
 import pathlib
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))

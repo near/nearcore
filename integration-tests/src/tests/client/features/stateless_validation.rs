@@ -158,7 +158,7 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
                 round as u64,
                 sender_account,
                 receiver_account,
-                &signer,
+                &signer.into(),
                 ONE_NEAR,
                 tip.last_block_hash,
             );

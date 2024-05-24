@@ -91,7 +91,11 @@ impl Node for ProcessNode {
     }
 
     fn user(&self) -> Box<dyn User> {
-        Box::new(RpcUser::new(&self.config.rpc_addr().unwrap(), self.account_id.clone(), self.signer.clone()))
+        Box::new(RpcUser::new(
+            &self.config.rpc_addr().unwrap(),
+            self.account_id.clone(),
+            self.signer.clone(),
+        ))
     }
 
     fn as_process_ref(&self) -> &ProcessNode {
@@ -109,9 +113,12 @@ impl ProcessNode {
         let mut rng = rand::thread_rng();
         let work_dir = env::temp_dir().join(format!("process_node_{}", rng.gen::<u64>()));
         let account_id = config.validator_signer.as_ref().unwrap().validator_id().clone();
-        let in_memory_signer = InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
-        let signer = Arc::new(Signer::InMemorySigner(in_memory_signer));
-        let result = ProcessNode { config, work_dir, state: ProcessNodeState::Stopped, signer, account_id };
+        let signer = Arc::new(
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref())
+                .into(),
+        );
+        let result =
+            ProcessNode { config, work_dir, state: ProcessNodeState::Stopped, signer, account_id };
         result.reset_storage();
         result
     }

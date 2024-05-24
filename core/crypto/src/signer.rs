@@ -10,23 +10,23 @@ use std::sync::Arc;
 /// Generic signer trait, that can sign with some subset of supported curves.
 #[derive(Debug, PartialEq)]
 pub enum Signer {
-    EmptySigner(EmptySigner),
-    InMemorySigner(InMemorySigner),
+    Empty(EmptySigner),
+    InMemory(InMemorySigner),
 }
 
 /// Generic signer trait, that can sign with some subset of supported curves.
 impl Signer {
     pub fn public_key(&self) -> PublicKey {
         match self {
-            Signer::EmptySigner(signer) => signer.public_key(),
-            Signer::InMemorySigner(signer) => signer.public_key(),
+            Signer::Empty(signer) => signer.public_key(),
+            Signer::InMemory(signer) => signer.public_key(),
         }
     }
 
     pub fn sign(&self, data: &[u8]) -> Signature {
         match self {
-            Signer::EmptySigner(signer) => signer.sign(data),
-            Signer::InMemorySigner(signer) => signer.sign(data),
+            Signer::Empty(signer) => signer.sign(data),
+            Signer::InMemory(signer) => signer.sign(data),
         }
     }
 
@@ -36,17 +36,29 @@ impl Signer {
 
     pub fn compute_vrf_with_proof(&self, data: &[u8]) -> (crate::vrf::Value, crate::vrf::Proof) {
         match self {
-            Signer::EmptySigner(_) => unimplemented!(),
-            Signer::InMemorySigner(signer) => signer.compute_vrf_with_proof(data),
+            Signer::Empty(_) => unimplemented!(),
+            Signer::InMemory(signer) => signer.compute_vrf_with_proof(data),
         }
     }
 
     /// Used by test infrastructure, only implement if make sense for testing otherwise raise `unimplemented`.
     pub fn write_to_file(&self, path: &Path) -> io::Result<()> {
         match self {
-            Signer::EmptySigner(_) => unimplemented!(),
-            Signer::InMemorySigner(signer) => signer.write_to_file(path),
+            Signer::Empty(_) => unimplemented!(),
+            Signer::InMemory(signer) => signer.write_to_file(path),
         }
+    }
+}
+
+impl From<EmptySigner> for Signer {
+    fn from(signer: EmptySigner) -> Self {
+        Signer::Empty(signer)
+    }
+}
+
+impl From<InMemorySigner> for Signer {
+    fn from(signer: InMemorySigner) -> Self {
+        Signer::InMemory(signer)
     }
 }
 
@@ -89,9 +101,7 @@ impl InMemorySigner {
     pub fn from_file(path: &Path) -> io::Result<Self> {
         KeyFile::from_file(path).map(Self::from)
     }
-}
 
-impl InMemorySigner {
     pub fn public_key(&self) -> PublicKey {
         self.public_key.clone()
     }
@@ -112,7 +122,11 @@ impl InMemorySigner {
 
 impl fmt::Debug for InMemorySigner {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "InMemorySigner(account_id: {}, public_key: {})", self.account_id, self.public_key)
+        write!(
+            f,
+            "InMemorySigner(account_id: {}, public_key: {})",
+            self.account_id, self.public_key
+        )
     }
 }
 

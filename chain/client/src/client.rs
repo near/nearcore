@@ -39,7 +39,9 @@ use near_chain::{
     BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis, ChainStoreAccess, Doomslug,
     DoomslugThresholdMode, Provenance,
 };
-use near_chain_configs::{ClientConfig, LogSummaryStyle, MutableConfigValue, UpdateableClientConfig};
+use near_chain_configs::{
+    ClientConfig, LogSummaryStyle, MutableConfigValue, UpdateableClientConfig,
+};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardedTransactionPool;
 use near_chunks::logic::{
@@ -592,10 +594,9 @@ impl Client {
         height: BlockHeight,
         prev_hash: CryptoHash,
     ) -> Result<Option<Block>, Error> {
-        let validator_signer = self
-            .validator_signer
-            .get()
-            .ok_or_else(|| Error::BlockProducer("Called without block producer info.".to_string()))?;
+        let validator_signer = self.validator_signer.get().ok_or_else(|| {
+            Error::BlockProducer("Called without block producer info.".to_string())
+        })?;
 
         // Check that we are were called at the block that we are producer for.
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_hash).unwrap();
@@ -829,10 +830,9 @@ impl Client {
         next_height: BlockHeight,
         shard_id: ShardId,
     ) -> Result<Option<ProduceChunkResult>, Error> {
-        let validator_signer = self
-            .validator_signer
-            .get()
-            .ok_or_else(|| Error::ChunkProducer("Called without block producer info.".to_string()))?;
+        let validator_signer = self.validator_signer.get().ok_or_else(|| {
+            Error::ChunkProducer("Called without block producer info.".to_string())
+        })?;
 
         let chunk_proposer =
             self.epoch_manager.get_chunk_producer(epoch_id, next_height, shard_id).unwrap();
@@ -869,7 +869,7 @@ impl Client {
         last_header: ShardChunkHeader,
         next_height: BlockHeight,
         shard_id: ShardId,
-        validator_signer: Arc<dyn ValidatorSigner>,
+        validator_signer: Arc<ValidatorSigner>,
     ) -> Result<Option<ProduceChunkResult>, Error> {
         let span = tracing::Span::current();
         let timer = Instant::now();
@@ -2090,7 +2090,8 @@ impl Client {
                 Err(_) => false,
                 Ok(target_block_producer) => {
                     let validator_signer = self.validator_signer.get();
-                    Some(&target_block_producer) == validator_signer.as_ref().map(|x| x.validator_id())
+                    Some(&target_block_producer)
+                        == validator_signer.as_ref().map(|x| x.validator_id())
                 }
             };
 

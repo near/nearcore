@@ -1073,8 +1073,7 @@ pub fn create_testnet_configs(
     local_ports: bool,
     archive: bool,
     tracked_shards: Vec<u64>,
-) -> (Vec<Config>, Vec<ValidatorSigner>, Vec<InMemorySigner>, Genesis, Vec<InMemorySigner>)
-{
+) -> (Vec<Config>, Vec<ValidatorSigner>, Vec<InMemorySigner>, Genesis, Vec<InMemorySigner>) {
     let shard_keys = vec![];
     let (configs, validator_signers, network_signers, genesis) = create_testnet_configs_from_seeds(
         (0..(num_validator_seats + num_non_validator_seats))
@@ -1235,7 +1234,7 @@ pub fn load_config(
     let validator_file = dir.join(&config.validator_key_file);
     let validator_signer = if validator_file.exists() {
         match InMemoryValidatorSigner::from_file(&validator_file) {
-            Ok(signer) => Some(Arc::new(ValidatorSigner::InMemoryValidatorSigner(signer))),
+            Ok(signer) => Some(Arc::new(signer.into())),
             Err(_) => {
                 let error_message = format!(
                     "Failed initializing validator signer from {}",

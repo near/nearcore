@@ -326,7 +326,7 @@ impl ClientActorInner {
             info!(target: "client", "Starting validator node: {}", vs.validator_id());
         }
         let info_helper =
-            InfoHelper::new(clock.clone(), telemetry_sender, &config, validator_signer.clone());
+            InfoHelper::new(clock.clone(), telemetry_sender, &config, validator_signer);
 
         let now = clock.now_utc();
         Ok(ClientActorInner {
@@ -709,7 +709,8 @@ impl Handler<Status> for ClientActorInner {
             .into_chain_error()?;
 
         let node_public_key = self.node_id.public_key().clone();
-        let (validator_account_id, validator_public_key) = match &self.client.validator_signer.get() {
+        let (validator_account_id, validator_public_key) = match &self.client.validator_signer.get()
+        {
             Some(vs) => (Some(vs.validator_id().clone()), Some(vs.public_key())),
             None => (None, None),
         };
@@ -1161,11 +1162,9 @@ impl ClientActorInner {
     pub(crate) fn check_triggers(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) -> Duration {
         let _span = tracing::debug_span!(target: "client", "check_triggers").entered();
         if let Some(config_updater) = &mut self.config_updater {
-            config_updater.try_update(
-                    &|updateable_client_config| {
-                    self.client.update_client_config(updateable_client_config)
-                },
-            );
+            config_updater.try_update(&|updateable_client_config| {
+                self.client.update_client_config(updateable_client_config)
+            });
         }
 
         // Check block height to trigger expected shutdown

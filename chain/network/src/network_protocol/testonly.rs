@@ -160,7 +160,7 @@ pub fn make_signed_transaction<R: Rng>(rng: &mut R) -> SignedTransaction {
         rng.gen(),
         sender.account_id.clone(),
         receiver,
-        &sender,
+        &sender.into(),
         15,
         CryptoHash::default(),
     )
@@ -172,7 +172,7 @@ pub fn make_challenge<R: Rng>(rng: &mut R) -> Challenge {
             left_block_header: rng.sample_iter(&Standard).take(65).collect(),
             right_block_header: rng.sample_iter(&Standard).take(34).collect(),
         }),
-        &make_validator_signer(rng),
+        &make_validator_signer(rng).into(),
     )
 }
 
@@ -247,7 +247,12 @@ impl Chain {
         let signer = make_validator_signer(rng);
         for _ in 1..block_count {
             clock.advance(time::Duration::seconds(15));
-            blocks.push(make_block(&clock.clock(), &signer, blocks.last().unwrap(), chunks.make()));
+            blocks.push(make_block(
+                &clock.clock(),
+                &signer.clone().into(),
+                blocks.last().unwrap(),
+                chunks.make(),
+            ));
         }
         Chain {
             genesis_id: GenesisId {
@@ -314,7 +319,7 @@ impl Chain {
                 let peer_id = make_peer_id(rng);
                 Arc::new(
                     make_account_data(rng, 1, clock.now_utc(), v.public_key(), peer_id)
-                        .sign(v)
+                        .sign(&v.clone().into())
                         .unwrap(),
                 )
             })
@@ -400,7 +405,9 @@ pub fn make_account_data(
 pub fn make_signed_account_data(rng: &mut impl Rng, clock: &time::Clock) -> SignedAccountData {
     let signer = make_validator_signer(rng);
     let peer_id = make_peer_id(rng);
-    make_account_data(rng, 1, clock.now_utc(), signer.public_key(), peer_id).sign(&signer).unwrap()
+    make_account_data(rng, 1, clock.now_utc(), signer.public_key(), peer_id)
+        .sign(&signer.into())
+        .unwrap()
 }
 
 // Accessors for creating malformed SignedAccountData
