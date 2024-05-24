@@ -2758,28 +2758,8 @@ fn test_epoch_protocol_version_change() {
             .epoch_manager
             .get_epoch_id_from_prev_block(&head.last_block_hash)
             .unwrap();
-        let chunk_producer =
-            env.clients[0].epoch_manager.get_chunk_producer(&epoch_id, i, 0).unwrap();
-        let index = if chunk_producer == "test0" { 0 } else { 1 };
-        let ProduceChunkResult {
-            chunk: encoded_chunk,
-            encoded_chunk_parts_paths: merkle_paths,
-            receipts,
-            ..
-        } = create_chunk_on_height(&mut env.clients[index], i);
 
-        for j in 0..2 {
-            let validator_id =
-                env.clients[j].validator_signer.as_ref().unwrap().validator_id().clone();
-            env.clients[j]
-                .persist_and_distribute_encoded_chunk(
-                    encoded_chunk.clone(),
-                    merkle_paths.clone(),
-                    receipts.clone(),
-                    validator_id,
-                )
-                .unwrap();
-        }
+        produce_chunks(&mut env, &epoch_id, i);
 
         let epoch_id = env.clients[0]
             .epoch_manager
