@@ -12,7 +12,6 @@ mod arena;
 mod construction;
 pub(crate) mod flexible_data;
 mod freelist;
-pub mod iter;
 pub mod loading;
 pub mod lookup;
 pub mod metrics;
