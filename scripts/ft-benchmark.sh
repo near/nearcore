@@ -16,11 +16,11 @@ else
     git pull
 fi
 
+make neard
+
 # Stop previous experiment
 pkill -9 locust || true
 nearup stop 
-
-make neard
 
 # Start neard
 nearup run localnet --binary-path target/release/ --num-nodes 1 --num-shards 1 --override
