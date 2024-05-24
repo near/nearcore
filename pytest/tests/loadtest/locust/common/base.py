@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
-from locust import User, events, runners
+from locust import User, events, runners, FastHttpUser
+from locust.contrib.fasthttp import FastHttpSession
 from retrying import retry
 import abc
 import base64
@@ -230,11 +231,12 @@ class NearNodeProxy:
     Wrapper around a RPC node connection that tracks requests on locust.
     """
 
-    def __init__(self, environment):
+    def __init__(self, environment, user=None):
         self.request_event = environment.events.request
         [url, port] = environment.host.rsplit(":", 1)
         self.node = cluster.RpcNode(url, port)
-        self.session = requests.Session()
+        self.session = FastHttpSession(environment, base_url="http://%s:%s" % self.node.rpc_addr(), user=user,
+                                       connection_timeout=3.0, network_timeout=9.0, max_retries=3)
 
     def send_tx_retry(self, tx: Transaction, locust_name) -> dict:
         """
@@ -324,7 +326,7 @@ class NearNodeProxy:
             "context": {},  # not used  right now
             "exception": None,  # maybe overwritten later
         }
-
+    
     def post_json(self, method: str, params: typing.List[str]):
         j = {
             "method": method,
@@ -332,8 +334,7 @@ class NearNodeProxy:
             "id": "dontcare",
             "jsonrpc": "2.0"
         }
-        return self.session.post(url="http://%s:%s" % self.node.rpc_addr(),
-                                 json=j)
+        return self.session.post(url="/", json=j)
 
     @retry(wait_fixed=500,
            stop_max_delay=DEFAULT_TRANSACTION_TTL / timedelta(milliseconds=1),
@@ -463,7 +464,7 @@ class NearNodeProxy:
         logger.info(f"done preparing {len(accounts)} accounts")
 
 
-class NearUser(User):
+class NearUser(FastHttpUser):
     abstract = True
     id_counter = 0
     INIT_BALANCE = 100.0
@@ -482,7 +483,7 @@ class NearUser(User):
     def __init__(self, environment):
         super().__init__(environment)
         assert self.host is not None, "Near user requires the RPC node address"
-        self.node = NearNodeProxy(environment)
+        self.node = NearNodeProxy(environment, self)
         self.id = NearUser.get_next_id()
         user_suffix = f"{self.id}_run{environment.parsed_options.run_id}"
         self.account_id = NearUser.generate_account_id(
