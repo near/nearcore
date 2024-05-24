@@ -39,7 +39,7 @@ pub(crate) static PREPARE_TX_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
 pub(crate) static PREPARE_TX_GAS: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
         "near_prepare_tx_gas",
-        "How much gas was spent for processing new transaction.",
+        "How much gas was spent for processing new transactions when producing a chunk.",
         &["shard_id"],
         // 100e9 = 100 Ggas
         // A transaction with no actions costs 108 Ggas to process.
@@ -54,7 +54,7 @@ pub(crate) static PREPARE_TX_GAS: Lazy<HistogramVec> = Lazy::new(|| {
 pub(crate) static PREPARE_TX_REJECTED: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
         "near_prepare_tx_rejected",
-        "The number of transactions removed from the transaction pool due to congestion.",
+        "The number of transactions rejected when producing a chunk.",
         // possible reasons:
         // - invalid_tx             The tx failed validation or the signer has not enough funds.
         // - invalid_block_hash     The block_hash field on the tx is expired or not on the canonical chain.
