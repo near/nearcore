@@ -24,7 +24,7 @@ impl Trie {
     pub fn get_trie_items_for_part(&self, part_id: PartId) -> Result<Vec<TrieItem>, StorageError> {
         let path_begin = self.find_state_part_boundary(part_id.idx, part_id.total)?;
         let path_end = self.find_state_part_boundary(part_id.idx + 1, part_id.total)?;
-        self.disk_iter()?.get_trie_items(&path_begin, &path_end)
+        self.iter()?.get_trie_items(&path_begin, &path_end)
     }
 }
 
@@ -554,12 +554,11 @@ mod tests {
 
                 // check that the 4 tries combined to the orig trie
                 let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
-                let trie_items: HashMap<_, _> =
-                    trie.disk_iter().unwrap().map(Result::unwrap).collect();
+                let trie_items: HashMap<_, _> = trie.iter().unwrap().map(Result::unwrap).collect();
                 let mut combined_trie_items: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
                 for (shard_uid, state_root) in state_roots.iter() {
                     let trie = tries.get_view_trie_for_shard(*shard_uid, *state_root);
-                    combined_trie_items.extend(trie.disk_iter().unwrap().map(Result::unwrap));
+                    combined_trie_items.extend(trie.iter().unwrap().map(Result::unwrap));
                 }
                 assert_eq!(trie_items, combined_trie_items);
             }

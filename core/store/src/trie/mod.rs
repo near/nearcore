@@ -1,7 +1,5 @@
 use self::accounting_cache::TrieAccountingCache;
-use self::iterator::DiskTrieIterator;
 use self::mem::flexible_data::value::ValueView;
-use self::mem::iter::MemTrieIterator;
 use self::mem::lookup::memtrie_lookup;
 use self::mem::updating::{UpdatedMemTrieNode, UpdatedMemTrieNodeId};
 use self::mem::MemTries;
@@ -40,7 +38,7 @@ use std::fmt::Write;
 use std::hash::Hash;
 use std::rc::Rc;
 use std::str;
-use std::sync::{Arc, RwLock, RwLockReadGuard};
+use std::sync::{Arc, RwLock};
 
 pub mod accounting_cache;
 mod config;
@@ -914,7 +912,7 @@ impl Trie {
             Self::should_prune_view_trie(&partial_key, record_type, &from.as_ref(), &to.as_ref())
         };
 
-        let iter = match self.disk_iter_with_prune_condition(Some(Box::new(prune_condition))) {
+        let iter = match self.iter_with_prune_condition(Some(Box::new(prune_condition))) {
             Ok(iter) => iter,
             Err(err) => {
                 writeln!(f, "Error when getting the trie iterator: {}", err).expect("write failed");
@@ -1612,73 +1610,29 @@ impl Trie {
         }
     }
 
-    /// Returns an iterator that can be used to traverse any range in the trie.
-    /// This only uses the on-disk trie. If memtrie iteration is desired, see
-    /// `lock_for_iter`.
-    pub fn disk_iter(&self) -> Result<DiskTrieIterator<'_>, StorageError> {
-        DiskTrieIterator::new(self, None)
+    pub fn iter<'a>(&'a self) -> Result<TrieIterator<'a>, StorageError> {
+        TrieIterator::new(self, None)
     }
 
-    pub fn disk_iter_with_max_depth<'a>(
+    pub fn iter_with_max_depth<'a>(
         &'a self,
         max_depth: usize,
-    ) -> Result<DiskTrieIterator<'a>, StorageError> {
-        DiskTrieIterator::new(
+    ) -> Result<TrieIterator<'a>, StorageError> {
+        TrieIterator::new(
             self,
             Some(Box::new(move |key_nibbles: &Vec<u8>| key_nibbles.len() > max_depth)),
         )
     }
 
-    pub fn disk_iter_with_prune_condition<'a>(
+    pub fn iter_with_prune_condition<'a>(
         &'a self,
         prune_condition: Option<Box<dyn Fn(&Vec<u8>) -> bool>>,
-    ) -> Result<DiskTrieIterator<'a>, StorageError> {
-        DiskTrieIterator::new(self, prune_condition)
-    }
-
-    /// Grabs a read lock on the trie, so that a memtrie iterator can be
-    /// constructed afterward. This is needed because memtries are not
-    /// thread-safe.
-    pub fn lock_for_iter(&self) -> TrieWithReadLock<'_> {
-        TrieWithReadLock { trie: self, memtries: self.memtries.as_ref().map(|m| m.read().unwrap()) }
+    ) -> Result<TrieIterator<'a>, StorageError> {
+        TrieIterator::new(self, prune_condition)
     }
 
     pub fn get_trie_nodes_count(&self) -> TrieNodesCount {
         self.accounting_cache.borrow().get_trie_nodes_count()
-    }
-}
-
-/// A wrapper around `Trie`, but holding a read lock on memtries if they are present.
-/// This is needed to construct an memtrie iterator, as memtries are not thread-safe.
-pub struct TrieWithReadLock<'a> {
-    trie: &'a Trie,
-    memtries: Option<RwLockReadGuard<'a, MemTries>>,
-}
-
-impl<'a> TrieWithReadLock<'a> {
-    /// Obtains an iterator that can be used to traverse any range in the trie.
-    /// If memtries are present, returns an iterator that traverses the memtrie.
-    /// Otherwise, it falls back to an iterator that traverses the on-disk trie.
-    pub fn iter(&self) -> Result<TrieIterator<'_>, StorageError> {
-        match &self.memtries {
-            Some(memtries) => {
-                let root = if self.trie.root == CryptoHash::default() {
-                    None
-                } else {
-                    Some(memtries.get_root(&self.trie.root).ok_or_else(|| {
-                        StorageError::StorageInconsistentState(format!(
-                            "Failed to find root node {} in memtrie",
-                            self.trie.root
-                        ))
-                    })?)
-                };
-                Ok(TrieIterator::Memtrie(MemTrieIterator::new(
-                    root,
-                    Box::new(|value_ref| self.trie.deref_optimized(&value_ref)),
-                )))
-            }
-            None => Ok(TrieIterator::Disk(DiskTrieIterator::new(self.trie, None)?)),
-        }
     }
 }
 
@@ -1790,7 +1744,7 @@ mod tests {
         let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, changes.clone());
         let new_root = test_clear_trie(&tries, &root, shard_uid, changes);
         assert_eq!(new_root, Trie::EMPTY_ROOT);
-        assert_eq!(trie.disk_iter().unwrap().fold(0, |acc, _| acc + 1), 0);
+        assert_eq!(trie.iter().unwrap().fold(0, |acc, _| acc + 1), 0);
     }
 
     #[test]
@@ -1806,17 +1760,17 @@ mod tests {
         let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, pairs.clone());
         let trie = tries.get_trie_for_shard(shard_uid, root);
         let mut iter_pairs = vec![];
-        for pair in trie.disk_iter().unwrap() {
+        for pair in trie.iter().unwrap() {
             let (key, value) = pair.unwrap();
             iter_pairs.push((key, Some(value.to_vec())));
         }
         assert_eq!(pairs, iter_pairs);
 
-        let assert_has_next = |want, other_iter: &mut DiskTrieIterator| {
+        let assert_has_next = |want, other_iter: &mut TrieIterator| {
             assert_eq!(Some(want), other_iter.next().map(|item| item.unwrap().0).as_deref());
         };
 
-        let mut other_iter = trie.disk_iter().unwrap();
+        let mut other_iter = trie.iter().unwrap();
         other_iter.seek_prefix(b"r").unwrap();
         assert_eq!(other_iter.next(), None);
         other_iter.seek_prefix(b"x").unwrap();
@@ -1875,7 +1829,7 @@ mod tests {
         ];
         let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, ShardUId::single_shard(), changes);
         let trie = tries.get_trie_for_shard(ShardUId::single_shard(), root);
-        let mut iter = trie.disk_iter().unwrap();
+        let mut iter = trie.iter().unwrap();
         iter.seek_prefix(&[0, 116, 101, 115, 116, 44]).unwrap();
         let mut pairs = vec![];
         for pair in iter {
@@ -1912,7 +1866,7 @@ mod tests {
         ];
         let root = test_populate_trie(&tries, &root, ShardUId::single_shard(), changes);
         let trie = tries.get_trie_for_shard(ShardUId::single_shard(), root);
-        for r in trie.disk_iter().unwrap() {
+        for r in trie.iter().unwrap() {
             r.unwrap();
         }
     }
@@ -1963,7 +1917,7 @@ mod tests {
         ];
         let tries = TestTriesBuilder::new().build();
         let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, ShardUId::single_shard(), initial);
-        tries.get_trie_for_shard(ShardUId::single_shard(), root).disk_iter().unwrap().for_each(
+        tries.get_trie_for_shard(ShardUId::single_shard(), root).iter().unwrap().for_each(
             |result| {
                 result.unwrap();
             },
@@ -1971,7 +1925,7 @@ mod tests {
 
         let changes = vec![(vec![1, 2, 3], None)];
         let root = test_populate_trie(&tries, &root, ShardUId::single_shard(), changes);
-        tries.get_trie_for_shard(ShardUId::single_shard(), root).disk_iter().unwrap().for_each(
+        tries.get_trie_for_shard(ShardUId::single_shard(), root).iter().unwrap().for_each(
             |result| {
                 result.unwrap();
             },
@@ -2020,7 +1974,7 @@ mod tests {
             {
                 if let Some(value) = value {
                     let want = Some(Ok((key.clone(), value)));
-                    let mut iterator = trie.disk_iter().unwrap();
+                    let mut iterator = trie.iter().unwrap();
                     iterator.seek_prefix(&key).unwrap();
                     assert_eq!(want, iterator.next(), "key: {key:x?}");
                 }
@@ -2029,7 +1983,7 @@ mod tests {
             // Test some more random keys.
             let queries = gen_changes(&mut rng, 500).into_iter().map(|(key, _)| key);
             for query in queries {
-                let mut iterator = trie.disk_iter().unwrap();
+                let mut iterator = trie.iter().unwrap();
                 iterator.seek_prefix(&query).unwrap();
                 if let Some(Ok((key, _))) = iterator.next() {
                     assert!(key.starts_with(&query), "‘{key:x?}’ does not start with ‘{query:x?}’");
@@ -2060,7 +2014,7 @@ mod tests {
 
             let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
             let trie_changes = trie
-                .disk_iter()
+                .iter()
                 .unwrap()
                 .map(|item| {
                     let (key, _) = item.unwrap();

@@ -334,7 +334,7 @@ fn test_flat_storage_creation_start_from_state_part() {
             .map(|part_id| {
                 let path_begin = trie.find_state_part_boundary(part_id, NUM_PARTS).unwrap();
                 let path_end = trie.find_state_part_boundary(part_id + 1, NUM_PARTS).unwrap();
-                let mut trie_iter = trie.disk_iter().unwrap();
+                let mut trie_iter = trie.iter().unwrap();
                 let mut keys = vec![];
                 for item in trie_iter.visit_nodes_interval(&path_begin, &path_end).unwrap() {
                     if let TrieTraversalItem { key: Some(trie_key), .. } = item {
