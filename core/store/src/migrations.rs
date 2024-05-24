@@ -1,10 +1,19 @@
 use crate::metadata::DbKind;
 use crate::{DBCol, Store, StoreUpdate};
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives::epoch_manager::epoch_info::EpochSummary;
+use near_primitives::epoch_manager::AGGREGATOR_KEY;
+use near_primitives::hash::CryptoHash;
 use near_primitives::state::FlatStateValue;
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof};
+use near_primitives::types::{
+    validator_stake::ValidatorStake, AccountId, EpochId, ShardId, ValidatorId,
+    ValidatorKickoutReason, ValidatorStats,
+};
+use near_primitives::types::{BlockChunkValidatorStats, ChunkValidatorStats};
 use near_primitives::utils::get_outcome_id_block_hash;
-use std::collections::HashMap;
+use near_primitives::version::ProtocolVersion;
+use std::collections::{BTreeMap, HashMap};
 use tracing::info;
 
 pub struct BatchedStoreUpdate<'a> {
@@ -226,6 +235,114 @@ pub fn migrate_37_to_38(store: &Store) -> anyhow::Result<()> {
             crate::flat::FlatStateDeltaMetadata { block, prev_block_with_changes: None };
         update.set(DBCol::FlatStateDeltaMetadata, &key, &borsh::to_vec(&new_value)?);
     }
+    update.commit()?;
+    Ok(())
+}
+
+/// Migrates the database from version 38 to 39.
+///
+/// Rewrites Epoch summary to include endorsement stats.
+pub fn migrate_38_to_39(store: &Store) -> anyhow::Result<()> {
+    #[derive(BorshSerialize, BorshDeserialize)]
+    struct EpochInfoAggregator<T> {
+        /// Map from validator index to (num_blocks_produced, num_blocks_expected) so far in the given epoch.
+        pub block_tracker: HashMap<ValidatorId, ValidatorStats>,
+        /// For each shard, a map of validator id to (num_chunks_produced, num_chunks_expected) so far in the given epoch.
+        pub shard_tracker: HashMap<ShardId, HashMap<ValidatorId, T>>,
+        /// Latest protocol version that each validator supports.
+        pub version_tracker: HashMap<ValidatorId, ProtocolVersion>,
+        /// All proposals in this epoch up to this block.
+        pub all_proposals: BTreeMap<AccountId, ValidatorStake>,
+        /// Id of the epoch that this aggregator is in.
+        pub epoch_id: EpochId,
+        /// Last block hash recorded.
+        pub last_block_hash: CryptoHash,
+    }
+
+    type LegacyEpochInfoAggregator = EpochInfoAggregator<ValidatorStats>;
+    type NewEpochInfoAggregator = EpochInfoAggregator<ChunkValidatorStats>;
+
+    #[derive(BorshDeserialize)]
+    struct LegacyBlockChunkValidatorStats {
+        pub block_stats: ValidatorStats,
+        pub chunk_stats: ValidatorStats,
+    }
+
+    #[derive(BorshDeserialize)]
+    struct LegacyEpochSummary {
+        pub prev_epoch_last_block_hash: CryptoHash,
+        /// Proposals from the epoch, only the latest one per account
+        pub all_proposals: Vec<ValidatorStake>,
+        /// Kickout set, includes slashed
+        pub validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
+        /// Only for validators who met the threshold and didn't get slashed
+        pub validator_block_chunk_stats: HashMap<AccountId, LegacyBlockChunkValidatorStats>,
+        /// Protocol version for next epoch.
+        pub next_version: ProtocolVersion,
+    }
+
+    let mut update = store.store_update();
+
+    // Update EpochInfoAggregator
+    let maybe_legacy_aggregator: Option<LegacyEpochInfoAggregator> =
+        store.get_ser(DBCol::EpochInfo, AGGREGATOR_KEY)?;
+    if let Some(legacy_aggregator) = maybe_legacy_aggregator {
+        let new_aggregator = NewEpochInfoAggregator {
+            block_tracker: legacy_aggregator.block_tracker,
+            shard_tracker: legacy_aggregator
+                .shard_tracker
+                .into_iter()
+                .map(|(shard_id, legacy_stats)| {
+                    let new_stats = legacy_stats
+                        .into_iter()
+                        .map(|(validator_id, stats)| {
+                            (
+                                validator_id,
+                                ChunkValidatorStats::new_with_production(
+                                    stats.produced,
+                                    stats.expected,
+                                ),
+                            )
+                        })
+                        .collect();
+                    (shard_id, new_stats)
+                })
+                .collect(),
+            version_tracker: legacy_aggregator.version_tracker,
+            all_proposals: legacy_aggregator.all_proposals,
+            epoch_id: legacy_aggregator.epoch_id,
+            last_block_hash: legacy_aggregator.last_block_hash,
+        };
+        update.set_ser(DBCol::EpochInfo, AGGREGATOR_KEY, &new_aggregator)?;
+    }
+
+    // Update EpochSummary
+    for result in store.iter(DBCol::EpochValidatorInfo) {
+        let (key, old_value) = result?;
+        let legacy_summary = LegacyEpochSummary::try_from_slice(&old_value)?;
+        let new_value = EpochSummary {
+            prev_epoch_last_block_hash: legacy_summary.prev_epoch_last_block_hash,
+            all_proposals: legacy_summary.all_proposals,
+            validator_kickout: legacy_summary.validator_kickout,
+            validator_block_chunk_stats: legacy_summary
+                .validator_block_chunk_stats
+                .into_iter()
+                .map(|(account_id, stats)| {
+                    let new_stats = BlockChunkValidatorStats {
+                        block_stats: stats.block_stats,
+                        chunk_stats: ChunkValidatorStats::new_with_production(
+                            stats.chunk_stats.produced,
+                            stats.chunk_stats.expected,
+                        ),
+                    };
+                    (account_id, new_stats)
+                })
+                .collect(),
+            next_next_epoch_version: legacy_summary.next_version,
+        };
+        update.set(DBCol::EpochValidatorInfo, &key, &borsh::to_vec(&new_value)?);
+    }
+
     update.commit()?;
     Ok(())
 }

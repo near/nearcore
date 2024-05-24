@@ -1,6 +1,6 @@
 use crate::{
     ChainAccess, ChainError, LatestTargetNonce, MappedBlock, MappedTx, MappedTxProvenance,
-    NonceUpdater, TargetChainTx, TargetNonce, TxRef,
+    NonceUpdater, TargetChainTx, TargetNonce, TxBatch, TxRef,
 };
 use actix::Addr;
 use anyhow::Context;
@@ -45,14 +45,14 @@ impl TxSendInfo {
         target_height: BlockHeight,
         now: Instant,
     ) -> Self {
-        let target_signer_id = if &tx.source_signer_id != &tx.target_tx.transaction.signer_id {
-            Some(tx.target_tx.transaction.signer_id.clone())
+        let target_signer_id = if &tx.source_signer_id != tx.target_tx.transaction.signer_id() {
+            Some(tx.target_tx.transaction.signer_id().clone())
         } else {
             None
         };
-        let target_receiver_id = if &tx.source_receiver_id != &tx.target_tx.transaction.receiver_id
+        let target_receiver_id = if &tx.source_receiver_id != tx.target_tx.transaction.receiver_id()
         {
-            Some(tx.target_tx.transaction.receiver_id.clone())
+            Some(tx.target_tx.transaction.receiver_id().clone())
         } else {
             None
         };
@@ -68,7 +68,7 @@ impl TxSendInfo {
             actions: tx
                 .target_tx
                 .transaction
-                .actions
+                .actions()
                 .iter()
                 .map(|a| a.as_ref().to_string())
                 .collect::<Vec<_>>(),
@@ -120,7 +120,7 @@ struct NonceInfo {
 }
 
 pub(crate) enum SentBatch {
-    MappedBlock(MappedBlock),
+    MappedBlock(TxBatch),
     ExtraTxs(Vec<TargetChainTx>),
 }
 
@@ -129,7 +129,6 @@ pub(crate) enum SentBatch {
 
 // TODO: the separation between what's in here and what's in the main file with struct TxMirror is not
 // that clear and doesn't make that much sense. Should refactor
-#[derive(Default)]
 pub(crate) struct TxTracker {
     sent_txs: HashMap<CryptoHash, TxSendInfo>,
     txs_by_signer: HashMap<(AccountId, PublicKey), BTreeSet<TxId>>,
@@ -147,9 +146,11 @@ pub(crate) struct TxTracker {
     nonempty_height_queued: Option<BlockHeight>,
     height_popped: Option<BlockHeight>,
     height_seen: Option<BlockHeight>,
-    send_time: Option<Pin<Box<tokio::time::Sleep>>>,
+    send_time: Pin<Box<tokio::time::Sleep>>,
     // Config value in the target chain, used to judge how long to wait before sending a new batch of txs
     min_block_production_delay: Duration,
+    // optional specific tx send delay
+    tx_batch_interval: Option<Duration>,
     // timestamps in the target chain, used to judge how long to wait before sending a new batch of txs
     recent_block_timestamps: VecDeque<u64>,
     // last source block we'll be sending transactions for
@@ -162,6 +163,7 @@ impl TxTracker {
     // we unwrap() self.height_queued() in Self::next_heights()
     pub(crate) fn new<'a, I>(
         min_block_production_delay: Duration,
+        tx_batch_interval: Option<Duration>,
         next_heights: I,
         stop_height: Option<BlockHeight>,
     ) -> Self
@@ -169,7 +171,26 @@ impl TxTracker {
         I: IntoIterator<Item = &'a BlockHeight>,
     {
         let next_heights = next_heights.into_iter().map(Clone::clone).collect();
-        Self { min_block_production_delay, next_heights, stop_height, ..Default::default() }
+        Self {
+            min_block_production_delay,
+            next_heights,
+            stop_height,
+            tx_batch_interval,
+            // Wait at least 15 seconds before sending any transactions because for
+            // a few seconds after the node starts, transaction routing requests
+            // will be silently dropped by the peer manager.
+            send_time: Box::pin(tokio::time::sleep(std::time::Duration::from_secs(15))),
+            sent_txs: HashMap::new(),
+            txs_by_signer: HashMap::new(),
+            queued_blocks: VecDeque::new(),
+            updater_to_keys: HashMap::new(),
+            nonces: HashMap::new(),
+            height_queued: None,
+            nonempty_height_queued: None,
+            height_popped: None,
+            height_seen: None,
+            recent_block_timestamps: VecDeque::new(),
+        }
     }
 
     pub(crate) async fn next_heights<T: ChainAccess>(
@@ -400,8 +421,8 @@ impl TxTracker {
                         let info = self
                             .nonces
                             .get_mut(&(
-                                tx.target_tx.transaction.signer_id.clone(),
-                                tx.target_tx.transaction.public_key.clone(),
+                                tx.target_tx.transaction.signer_id().clone(),
+                                tx.target_tx.transaction.public_key().clone(),
                             ))
                             .unwrap();
                         info.queued_txs.insert(tx_ref.clone());
@@ -418,8 +439,8 @@ impl TxTracker {
                         let info = self
                             .nonces
                             .get_mut(&(
-                                tx.target_tx.signer_id.clone(),
-                                tx.target_tx.public_key.clone(),
+                                tx.target_tx.signer_id().clone(),
+                                tx.target_tx.public_key().clone(),
                             ))
                             .unwrap();
                         info.txs_awaiting_nonce.insert(tx_ref.clone());
@@ -441,30 +462,22 @@ impl TxTracker {
     }
 
     pub(crate) fn next_batch_time(&self) -> Instant {
-        match &self.send_time {
-            Some(t) => t.as_ref().deadline().into_std(),
-            None => Instant::now(),
-        }
+        self.send_time.as_ref().deadline().into_std()
     }
 
-    pub(crate) async fn next_batch(
+    async fn try_set_batch_nonces(
         &mut self,
         target_view_client: &Addr<ViewClientActor>,
         db: &DB,
-    ) -> anyhow::Result<MappedBlock> {
-        // sleep until 20 milliseconds before we want to send transactions before we check for nonces
-        // in the target chain. In the second or so between now and then, we might process another block
-        // that will set the nonces.
-        if let Some(s) = &self.send_time {
-            tokio::time::sleep_until(s.as_ref().deadline() - std::time::Duration::from_millis(20))
-                .await;
-        }
+    ) -> anyhow::Result<()> {
         let mut needed_access_keys = HashSet::new();
         for c in self.queued_blocks[0].chunks.iter_mut() {
             for tx in c.txs.iter_mut() {
                 if let TargetChainTx::AwaitingNonce(t) = tx {
-                    needed_access_keys
-                        .insert((t.target_tx.signer_id.clone(), t.target_tx.public_key.clone()));
+                    needed_access_keys.insert((
+                        t.target_tx.signer_id().clone(),
+                        t.target_tx.public_key().clone(),
+                    ));
                 }
             }
         }
@@ -487,12 +500,12 @@ impl TxTracker {
                             TargetChainTx::Ready(t) => {
                                 tracing::debug!(
                                     target: "mirror", "Prepared {} for ({}, {:?}) with nonce {} even though there are still pending outcomes that may affect the access key",
-                                    &t.provenance, &t.target_tx.transaction.signer_id, &t.target_tx.transaction.public_key, t.target_tx.transaction.nonce
+                                    &t.provenance, t.target_tx.transaction.signer_id(), t.target_tx.transaction.public_key(), t.target_tx.transaction.nonce()
                                 );
                                 self.nonces
                                     .get_mut(&(
-                                        t.target_tx.transaction.signer_id.clone(),
-                                        t.target_tx.transaction.public_key.clone(),
+                                        t.target_tx.transaction.signer_id().clone(),
+                                        t.target_tx.transaction.public_key().clone(),
                                     ))
                                     .unwrap()
                                     .txs_awaiting_nonce
@@ -501,12 +514,12 @@ impl TxTracker {
                             TargetChainTx::AwaitingNonce(t) => {
                                 tracing::warn!(
                                     target: "mirror", "Could not prepare {} for ({}, {:?}). Nonce unknown",
-                                    &t.provenance, &t.target_tx.signer_id, &t.target_tx.public_key,
+                                    &t.provenance, t.target_tx.signer_id(), t.target_tx.public_key(),
                                 );
                                 self.nonces
                                     .get_mut(&(
-                                        t.target_tx.signer_id.clone(),
-                                        t.target_tx.public_key.clone(),
+                                        t.target_tx.signer_id().clone(),
+                                        t.target_tx.public_key().clone(),
                                     ))
                                     .unwrap()
                                     .txs_awaiting_nonce
@@ -518,10 +531,45 @@ impl TxTracker {
                 };
             }
         }
-        if let Some(sleep) = &mut self.send_time {
-            sleep.await;
-        }
-        Ok(self.queued_blocks.pop_front().unwrap())
+        Ok(())
+    }
+
+    pub(crate) async fn next_batch(
+        &mut self,
+        target_view_client: &Addr<ViewClientActor>,
+        db: &DB,
+    ) -> anyhow::Result<TxBatch> {
+        // sleep until 20 milliseconds before we want to send transactions before we check for nonces
+        // in the target chain. In the second or so between now and then, we might process another block
+        // that will set the nonces.
+        tokio::time::sleep_until(
+            self.send_time.as_ref().deadline() - std::time::Duration::from_millis(20),
+        )
+        .await;
+        self.try_set_batch_nonces(target_view_client, db).await?;
+        (&mut self.send_time).await;
+        let block = self.queued_blocks.pop_front().unwrap();
+        let b = TxBatch {
+            source_height: block.source_height,
+            source_hash: block.source_hash,
+            txs: block
+                .chunks
+                .into_iter()
+                .flat_map(|c| {
+                    c.txs.into_iter().enumerate().map(move |(tx_idx, tx)| {
+                        (
+                            TxRef {
+                                source_height: block.source_height,
+                                shard_id: c.shard_id,
+                                tx_idx,
+                            },
+                            tx,
+                        )
+                    })
+                })
+                .collect(),
+        };
+        Ok(b)
     }
 
     fn remove_tx(&mut self, tx: &IndexerTransactionWithOutcome) {
@@ -734,7 +782,7 @@ impl TxTracker {
                             tx.try_set_nonce(nonce);
                             match tx {
                                 TargetChainTx::Ready(t) => {
-                                    tracing::debug!(target: "mirror", "set nonce for {:?}'s {} to {}", access_key, r, t.target_tx.transaction.nonce);
+                                    tracing::debug!(target: "mirror", "set nonce for {:?}'s {} to {}", access_key, r, t.target_tx.transaction.nonce());
                                 }
                                 _ => {
                                     tracing::warn!(target: "mirror", "Couldn't set nonce for {:?}'s {}", access_key, r);
@@ -913,12 +961,12 @@ impl TxTracker {
         {
             tracing::debug!(
                 target: "mirror", "Successfully sent transaction {} for {}: {:?}",
-                &hash, &tx.provenance, &tx.target_tx.transaction.actions,
+                &hash, &tx.provenance, tx.target_tx.transaction.actions(),
             );
         }
         let access_key = (
-            tx.target_tx.transaction.signer_id.clone(),
-            tx.target_tx.transaction.public_key.clone(),
+            tx.target_tx.transaction.signer_id().clone(),
+            tx.target_tx.transaction.public_key().clone(),
         );
         let source_height = tx_ref.as_ref().map(|t| t.source_height);
         // TODO: don't keep adding txs if we're not ever finding them on chain, since we'll OOM eventually
@@ -927,14 +975,14 @@ impl TxTracker {
         let txs = self.txs_by_signer.entry(access_key.clone()).or_default();
 
         if let Some(highest_nonce) = txs.iter().next_back() {
-            if highest_nonce.nonce > tx.target_tx.transaction.nonce {
+            if highest_nonce.nonce > tx.target_tx.transaction.nonce() {
                 tracing::warn!(
                     target: "mirror", "transaction sent with out of order nonce: {}: {}. Sent so far: {:?}",
-                    &hash, tx.target_tx.transaction.nonce, txs
+                    &hash, tx.target_tx.transaction.nonce(), txs
                 );
             }
         }
-        if !txs.insert(TxId { hash, nonce: tx.target_tx.transaction.nonce }) {
+        if !txs.insert(TxId { hash, nonce: tx.target_tx.transaction.nonce() }) {
             tracing::warn!(target: "mirror", "inserted tx {} twice into txs_by_signer", &hash);
         }
 
@@ -983,15 +1031,15 @@ impl TxTracker {
 
         let mut t = crate::read_target_nonce(
             db,
-            &tx.target_tx.transaction.signer_id,
-            &tx.target_tx.transaction.public_key,
+            tx.target_tx.transaction.signer_id(),
+            tx.target_tx.transaction.public_key(),
         )?
         .unwrap();
-        t.nonce = std::cmp::max(t.nonce, Some(tx.target_tx.transaction.nonce));
+        t.nonce = std::cmp::max(t.nonce, Some(tx.target_tx.transaction.nonce()));
         crate::put_target_nonce(
             db,
-            &tx.target_tx.transaction.signer_id,
-            &tx.target_tx.transaction.public_key,
+            tx.target_tx.transaction.signer_id(),
+            tx.target_tx.transaction.public_key(),
             &t,
         )?;
         let info = self.nonces.get_mut(&access_key).unwrap();
@@ -1085,7 +1133,7 @@ impl TxTracker {
                                     target_tx.try_set_nonce(None);
                                     match target_tx {
                                         TargetChainTx::Ready(t) => {
-                                            tracing::debug!(target: "mirror", "After skipping {} setting nonce for {:?}'s {} to {}", tx_ref, &access_key, r, t.target_tx.transaction.nonce);
+                                            tracing::debug!(target: "mirror", "After skipping {} setting nonce for {:?}'s {} to {}", tx_ref, &access_key, r, t.target_tx.transaction.nonce());
                                         }
                                         _ => {
                                             tracing::warn!(target: "mirror", "After skipping {} could not set nonce for {:?}'s {}", tx_ref, &access_key, r);
@@ -1109,7 +1157,7 @@ impl TxTracker {
                 }
             }
         }
-        let access_key = (tx.signer_id.clone(), tx.public_key.clone());
+        let access_key = (tx.signer_id().clone(), tx.public_key().clone());
         let info = self.nonces.get_mut(&access_key).unwrap();
         if info.last_height <= Some(tx_ref.source_height) {
             access_keys_to_remove.insert(access_key);
@@ -1131,32 +1179,14 @@ impl TxTracker {
 
         let (txs_sent, provenance) = match sent_batch {
             SentBatch::MappedBlock(b) => {
-                let block_delay = self
-                    .second_longest_recent_block_delay()
-                    .unwrap_or(self.min_block_production_delay + Duration::from_millis(100));
-                match &mut self.send_time {
-                    Some(t) => t.as_mut().reset(tokio::time::Instant::now() + block_delay),
-                    None => {
-                        self.send_time = Some(Box::pin(tokio::time::sleep(block_delay)));
-                    }
-                }
+                let block_delay = self.tx_batch_interval.unwrap_or_else(|| {
+                    self.second_longest_recent_block_delay()
+                        .unwrap_or(self.min_block_production_delay + Duration::from_millis(100))
+                });
+                self.send_time.as_mut().reset(tokio::time::Instant::now() + block_delay);
                 crate::set_last_source_height(db, b.source_height)?;
-                let txs = b
-                    .chunks
-                    .into_iter()
-                    .flat_map(|c| {
-                        c.txs.into_iter().enumerate().map(move |(tx_idx, tx)| {
-                            (
-                                Some(TxRef {
-                                    source_height: b.source_height,
-                                    shard_id: c.shard_id,
-                                    tx_idx,
-                                }),
-                                tx,
-                            )
-                        })
-                    })
-                    .collect::<Vec<_>>();
+                let txs =
+                    b.txs.into_iter().map(|(tx_ref, tx)| (Some(tx_ref), tx)).collect::<Vec<_>>();
                 (txs, format!("source #{}", b.source_height))
             }
             SentBatch::ExtraTxs(txs) => (

@@ -2,7 +2,7 @@ use crate::account::{AccessKey, Account};
 use crate::challenge::ChallengesResult;
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
-use crate::receipt::Receipt;
+use crate::receipt::{PromiseYieldTimeout, Receipt};
 use crate::serialize::dec_format;
 use crate::trie_key::TrieKey;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -13,6 +13,10 @@ use once_cell::sync::Lazy;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::sync::Arc;
+
+mod chunk_validator_stats;
+
+pub use chunk_validator_stats::ChunkValidatorStats;
 
 /// Hash used by to store state root.
 pub type StateRoot = CryptoHash;
@@ -213,16 +217,18 @@ pub struct ConsolidatedStateChange {
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub struct StateChangesForResharding {
     pub changes: Vec<ConsolidatedStateChange>,
-    // we need to store deleted receipts here because StateChanges will only include
-    // trie keys for removed values and account information can not be inferred from
-    // trie key for delayed receipts
+    // For DelayedReceipt and for PromiseYieldTimeout, account information is kept in the trie
+    // value rather than in the trie key. When such a key is erased, we need to know the erased
+    // value so that the change can be propagated to the correct child trie.
     pub processed_delayed_receipts: Vec<Receipt>,
+    pub processed_yield_timeouts: Vec<PromiseYieldTimeout>,
 }
 
 impl StateChangesForResharding {
     pub fn from_raw_state_changes(
         changes: &[RawStateChangesWithTrieKey],
         processed_delayed_receipts: Vec<Receipt>,
+        processed_yield_timeouts: Vec<PromiseYieldTimeout>,
     ) -> Self {
         let changes = changes
             .iter()
@@ -231,7 +237,7 @@ impl StateChangesForResharding {
                 ConsolidatedStateChange { trie_key: trie_key.clone(), value }
             })
             .collect();
-        Self { changes, processed_delayed_receipts }
+        Self { changes, processed_delayed_receipts, processed_yield_timeouts }
     }
 }
 
@@ -373,6 +379,8 @@ impl StateChanges {
                 TrieKey::PromiseYieldIndices => {}
                 TrieKey::PromiseYieldTimeout { .. } => {}
                 TrieKey::PromiseYieldReceipt { .. } => {}
+                TrieKey::BufferedReceiptIndices => {}
+                TrieKey::BufferedReceipt { .. } => {}
             }
         }
 
@@ -514,7 +522,7 @@ pub struct ApprovalStake {
 pub mod validator_stake {
     use crate::types::ApprovalStake;
     use borsh::{BorshDeserialize, BorshSerialize};
-    use near_crypto::PublicKey;
+    use near_crypto::{KeyType, PublicKey};
     use near_primitives_core::types::{AccountId, Balance};
     use serde::Serialize;
 
@@ -590,6 +598,10 @@ pub mod validator_stake {
 
         pub fn new(account_id: AccountId, public_key: PublicKey, stake: Balance) -> Self {
             Self::new_v1(account_id, public_key, stake)
+        }
+
+        pub fn test(account_id: AccountId) -> Self {
+            Self::new_v1(account_id, PublicKey::empty(KeyType::ED25519), 0)
         }
 
         pub fn into_v1(self) -> ValidatorStakeV1 {
@@ -727,11 +739,14 @@ pub struct BlockExtra {
 }
 
 pub mod chunk_extra {
+    use crate::congestion_info::CongestionInfo;
     use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
     use crate::types::StateRoot;
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_primitives_core::hash::CryptoHash;
     use near_primitives_core::types::{Balance, Gas};
+    use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
+    use near_vm_runner::logic::ProtocolVersion;
 
     pub use super::ChunkExtraV1;
 
@@ -740,6 +755,7 @@ pub mod chunk_extra {
     pub enum ChunkExtra {
         V1(ChunkExtraV1),
         V2(ChunkExtraV2),
+        V3(ChunkExtraV3),
     }
 
     #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq)]
@@ -758,27 +774,81 @@ pub mod chunk_extra {
         pub balance_burnt: Balance,
     }
 
+    /// V2 -> V3: add congestion info fields.
+    #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq)]
+    pub struct ChunkExtraV3 {
+        /// Post state root after applying give chunk.
+        pub state_root: StateRoot,
+        /// Root of merklizing results of receipts (transactions) execution.
+        pub outcome_root: CryptoHash,
+        /// Validator proposals produced by given chunk.
+        pub validator_proposals: Vec<ValidatorStake>,
+        /// Actually how much gas were used.
+        pub gas_used: Gas,
+        /// Gas limit, allows to increase or decrease limit based on expected time vs real time for computing the chunk.
+        pub gas_limit: Gas,
+        /// Total balance burnt after processing the current chunk.
+        pub balance_burnt: Balance,
+        /// Congestion info about this shard after the chunk was applied.
+        congestion_info: CongestionInfo,
+    }
+
     impl ChunkExtra {
+        /// This method creates a slimmed down and invalid ChunkExtra. It's used
+        /// for resharding where we only need the state root. This should not be
+        /// used as part of regular processing.
         pub fn new_with_only_state_root(state_root: &StateRoot) -> Self {
-            Self::new(state_root, CryptoHash::default(), vec![], 0, 0, 0)
+            // TODO(congestion_control) - integration with resharding
+            let congestion_control = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION)
+            {
+                Some(CongestionInfo::default())
+            } else {
+                None
+            };
+            Self::new(
+                PROTOCOL_VERSION,
+                state_root,
+                CryptoHash::default(),
+                vec![],
+                0,
+                0,
+                0,
+                congestion_control,
+            )
         }
 
         pub fn new(
+            protocol_version: ProtocolVersion,
             state_root: &StateRoot,
             outcome_root: CryptoHash,
             validator_proposals: Vec<ValidatorStake>,
             gas_used: Gas,
             gas_limit: Gas,
             balance_burnt: Balance,
+            congestion_info: Option<CongestionInfo>,
         ) -> Self {
-            Self::V2(ChunkExtraV2 {
-                state_root: *state_root,
-                outcome_root,
-                validator_proposals,
-                gas_used,
-                gas_limit,
-                balance_burnt,
-            })
+            if ProtocolFeature::CongestionControl.enabled(protocol_version) {
+                assert!(congestion_info.is_some());
+                Self::V3(ChunkExtraV3 {
+                    state_root: *state_root,
+                    outcome_root,
+                    validator_proposals,
+                    gas_used,
+                    gas_limit,
+                    balance_burnt,
+                    congestion_info: congestion_info.unwrap(),
+                })
+            } else {
+                assert!(congestion_info.is_none());
+                Self::V2(ChunkExtraV2 {
+                    state_root: *state_root,
+                    outcome_root,
+                    validator_proposals,
+                    gas_used,
+                    gas_limit,
+                    balance_burnt,
+                })
+            }
         }
 
         #[inline]
@@ -786,6 +856,7 @@ pub mod chunk_extra {
             match self {
                 Self::V1(v1) => &v1.outcome_root,
                 Self::V2(v2) => &v2.outcome_root,
+                Self::V3(v3) => &v3.outcome_root,
             }
         }
 
@@ -794,6 +865,7 @@ pub mod chunk_extra {
             match self {
                 Self::V1(v1) => &v1.state_root,
                 Self::V2(v2) => &v2.state_root,
+                Self::V3(v3) => &v3.state_root,
             }
         }
 
@@ -802,6 +874,7 @@ pub mod chunk_extra {
             match self {
                 Self::V1(v1) => &mut v1.state_root,
                 Self::V2(v2) => &mut v2.state_root,
+                Self::V3(v3) => &mut v3.state_root,
             }
         }
 
@@ -810,6 +883,7 @@ pub mod chunk_extra {
             match self {
                 Self::V1(v1) => ValidatorStakeIter::v1(&v1.validator_proposals),
                 Self::V2(v2) => ValidatorStakeIter::new(&v2.validator_proposals),
+                Self::V3(v3) => ValidatorStakeIter::new(&v3.validator_proposals),
             }
         }
 
@@ -818,6 +892,7 @@ pub mod chunk_extra {
             match self {
                 Self::V1(v1) => v1.gas_limit,
                 Self::V2(v2) => v2.gas_limit,
+                Self::V3(v3) => v3.gas_limit,
             }
         }
 
@@ -826,6 +901,7 @@ pub mod chunk_extra {
             match self {
                 Self::V1(v1) => v1.gas_used,
                 Self::V2(v2) => v2.gas_used,
+                Self::V3(v3) => v3.gas_used,
             }
         }
 
@@ -834,6 +910,16 @@ pub mod chunk_extra {
             match self {
                 Self::V1(v1) => v1.balance_burnt,
                 Self::V2(v2) => v2.balance_burnt,
+                Self::V3(v3) => v3.balance_burnt,
+            }
+        }
+
+        #[inline]
+        pub fn congestion_info(&self) -> Option<CongestionInfo> {
+            match self {
+                Self::V1(_) => None,
+                Self::V2(_) => None,
+                Self::V3(v3) => v3.congestion_info.into(),
             }
         }
     }
@@ -913,7 +999,7 @@ pub struct ValidatorStats {
 #[derive(Debug, BorshSerialize, BorshDeserialize, PartialEq, Eq)]
 pub struct BlockChunkValidatorStats {
     pub block_stats: ValidatorStats,
-    pub chunk_stats: ValidatorStats,
+    pub chunk_stats: ChunkValidatorStats,
 }
 
 #[derive(serde::Deserialize, Debug, arbitrary::Arbitrary, PartialEq, Eq)]
@@ -1012,6 +1098,16 @@ pub trait EpochInfoProvider {
     ) -> Result<Balance, EpochError>;
 
     fn minimum_stake(&self, prev_block_hash: &CryptoHash) -> Result<Balance, EpochError>;
+
+    /// Get the chain_id of the chain this epoch belongs to
+    fn chain_id(&self) -> String;
+
+    /// Which shard the account belongs to in the given epoch.
+    fn account_id_to_shard_id(
+        &self,
+        account_id: &AccountId,
+        epoch_id: &EpochId,
+    ) -> Result<ShardId, EpochError>;
 }
 
 /// Mode of the trie cache.

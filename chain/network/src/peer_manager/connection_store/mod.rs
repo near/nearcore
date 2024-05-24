@@ -3,6 +3,7 @@ use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager::connection;
 use crate::store;
 use crate::types::{ConnectionInfo, PeerInfo, PeerType};
+use ::time::ext::InstantExt;
 use near_async::time;
 use near_primitives::network::PeerId;
 use std::collections::HashSet;
@@ -128,7 +129,7 @@ impl ConnectionStore {
                 continue;
             }
 
-            let connected_duration: time::Duration = now - c.established_time;
+            let connected_duration: time::Duration = now.signed_duration_since(c.established_time);
             if connected_duration < STORED_CONNECTIONS_MIN_DURATION {
                 continue;
             }

@@ -7,13 +7,16 @@ use near_chain_configs::ReshardingConfig;
 use near_chain_primitives::Error;
 pub use near_epoch_manager::EpochManagerAdapter;
 use near_pool::types::TransactionGroupIterator;
+use near_primitives::apply::ApplyChunkReason;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::challenge::{ChallengesResult, PartialState};
 use near_primitives::checked_feature;
+use near_primitives::congestion_info::CongestionInfo;
+use near_primitives::congestion_info::ExtendedCongestionInfo;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
-use near_primitives::receipt::Receipt;
+use near_primitives::receipt::{PromiseYieldTimeout, Receipt};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::ShardChunkHeader;
@@ -31,7 +34,6 @@ use near_primitives::version::{
 };
 use near_primitives::views::{QueryRequest, QueryResponse};
 use near_store::flat::FlatStorageManager;
-use near_store::StorageError;
 use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
 use num_rational::Rational32;
 use std::collections::HashMap;
@@ -108,11 +110,16 @@ pub struct ApplyChunkResult {
     pub total_balance_burnt: Balance,
     pub proof: Option<PartialStorage>,
     pub processed_delayed_receipts: Vec<Receipt>,
+    pub processed_yield_timeouts: Vec<PromiseYieldTimeout>,
     /// Hash of Vec<Receipt> which were applied in a chunk, later used for
     /// chunk validation with state witness.
     /// Note that applied receipts are not necessarily executed as they can
     /// be delayed.
     pub applied_receipts_hash: CryptoHash,
+    /// The congestion info of the shard after applying the chunk. This field
+    /// should be set to None for chunks before the CongestionControl protocol
+    /// version and Some otherwise.
+    pub congestion_info: Option<CongestionInfo>,
 }
 
 impl ApplyChunkResult {
@@ -285,10 +292,15 @@ pub struct ApplyChunkBlockContext {
     pub gas_price: Balance,
     pub challenges_result: ChallengesResult,
     pub random_seed: CryptoHash,
+    pub congestion_info: HashMap<ShardId, ExtendedCongestionInfo>,
 }
 
 impl ApplyChunkBlockContext {
-    pub fn from_header(header: &BlockHeader, gas_price: Balance) -> Self {
+    pub fn from_header(
+        header: &BlockHeader,
+        gas_price: Balance,
+        congestion_info: HashMap<ShardId, ExtendedCongestionInfo>,
+    ) -> Self {
         Self {
             height: header.height(),
             block_hash: *header.hash(),
@@ -297,6 +309,7 @@ impl ApplyChunkBlockContext {
             gas_price,
             challenges_result: header.challenges_result().clone(),
             random_seed: *header.random_value(),
+            congestion_info,
         }
     }
 }
@@ -336,14 +349,17 @@ pub struct PrepareTransactionsBlockContext {
     pub next_gas_price: Balance,
     pub height: BlockHeight,
     pub block_hash: CryptoHash,
+    pub congestion_info: HashMap<ShardId, ExtendedCongestionInfo>,
 }
 
-impl From<&BlockHeader> for PrepareTransactionsBlockContext {
-    fn from(header: &BlockHeader) -> Self {
+impl From<&Block> for PrepareTransactionsBlockContext {
+    fn from(block: &Block) -> Self {
+        let header = block.header();
         Self {
             next_gas_price: header.next_gas_price(),
             height: header.height(),
             block_hash: *header.hash(),
+            congestion_info: block.shards_congestion_info(),
         }
     }
 }
@@ -436,6 +452,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn apply_chunk(
         &self,
         storage: RuntimeStorageConfig,
+        apply_reason: ApplyChunkReason,
         chunk: ApplyChunkShardContext,
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],
@@ -508,26 +525,6 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> bool;
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
-
-    /// Loads in-memory tries upon startup. The given shard_uids are possible candidates to load,
-    /// but which exact shards to load depends on configuration. This may only be called when flat
-    /// storage is ready.
-    fn load_mem_tries_on_startup(&self, tracked_shards: &[ShardUId]) -> Result<(), StorageError>;
-
-    /// Loads in-memory trie upon catchup, if it is enabled.
-    /// Requires state root because `ChunkExtra` is not available at the time mem-trie is being loaded.
-    fn load_mem_trie_on_catchup(
-        &self,
-        shard_uid: &ShardUId,
-        state_root: &StateRoot,
-    ) -> Result<(), StorageError>;
-
-    /// Retains in-memory tries for given shards, i.e. unload tries from memory for shards that are NOT
-    /// in the given list. Should be called to unload obsolete tries from memory.
-    fn retain_mem_tries(&self, shard_uids: &[ShardUId]);
-
-    /// Unload trie from memory for given shard.
-    fn unload_mem_trie(&self, shard_uid: &ShardUId);
 }
 
 /// The last known / checked height and time when we have processed it.

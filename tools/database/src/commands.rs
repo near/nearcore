@@ -2,6 +2,7 @@ use crate::adjust_database::ChangeDbKindCommand;
 use crate::analyse_data_size_distribution::AnalyseDataSizeDistributionCommand;
 use crate::analyse_gas_usage::AnalyseGasUsageCommand;
 use crate::analyse_high_load::HighLoadStatsCommand;
+use crate::analyze_contract_sizes::AnalyzeContractSizesCommand;
 use crate::analyze_delayed_receipt::AnalyzeDelayedReceiptCommand;
 use crate::compact::RunCompactionCommand;
 use crate::corrupt::CorruptStateSnapshotCommand;
@@ -9,6 +10,7 @@ use crate::make_snapshot::MakeSnapshotCommand;
 use crate::memtrie::LoadMemTrieCommand;
 use crate::run_migrations::RunMigrationsCommand;
 use crate::state_perf::StatePerfCommand;
+use crate::write_to_db::WriteCryptoHashCommand;
 use clap::Parser;
 use std::path::PathBuf;
 
@@ -48,11 +50,15 @@ enum SubCommand {
 
     /// Loads an in-memory trie for research purposes.
     LoadMemTrie(LoadMemTrieCommand),
+    /// Write CryptoHash to DB
+    WriteCryptoHash(WriteCryptoHashCommand),
     /// Outputs stats that are needed to analise high load
     /// for a block range and account.
     HighLoadStats(HighLoadStatsCommand),
     // Analyze congestion through delayed receipts
     AnalyzeDelayedReceipt(AnalyzeDelayedReceiptCommand),
+    /// Analyze size of contracts present in the current state
+    AnalyzeContractSizes(AnalyzeContractSizesCommand),
 }
 
 impl DatabaseCommand {
@@ -73,16 +79,11 @@ impl DatabaseCommand {
             }
             SubCommand::RunMigrations(cmd) => cmd.run(home),
             SubCommand::StatePerf(cmd) => cmd.run(home),
-            SubCommand::LoadMemTrie(cmd) => {
-                let near_config = nearcore::config::load_config(
-                    &home,
-                    near_chain_configs::GenesisValidationMode::UnsafeFast,
-                )
-                .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
-                cmd.run(near_config, home)
-            }
+            SubCommand::LoadMemTrie(cmd) => cmd.run(home),
+            SubCommand::WriteCryptoHash(cmd) => cmd.run(home),
             SubCommand::HighLoadStats(cmd) => cmd.run(home),
             SubCommand::AnalyzeDelayedReceipt(cmd) => cmd.run(home),
+            SubCommand::AnalyzeContractSizes(cmd) => cmd.run(home),
         }
     }
 }

@@ -2,6 +2,7 @@ use super::context::VMContext;
 use super::dependencies::{External, MemSlice, MemoryLike};
 use super::errors::{FunctionCallError, InconsistentStateError};
 use super::gas_counter::{FastGasCounter, GasCounter};
+use super::recorded_storage_counter::RecordedStorageCounter;
 use super::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use super::utils::split_method_names;
 use super::ValuePtr;
@@ -53,6 +54,8 @@ pub struct VMLogic<'a> {
     /// Storage usage of the current account at the moment
     current_storage_usage: StorageUsage,
     gas_counter: GasCounter,
+    /// Tracks size of the recorded trie storage proof.
+    recorded_storage_counter: RecordedStorageCounter,
     /// What method returns.
     return_data: ReturnData,
     /// Logs written by the runtime.
@@ -150,6 +153,10 @@ impl<'a> VMLogic<'a> {
             context.prepaid_gas,
             context.is_view(),
         );
+        let recorded_storage_counter = RecordedStorageCounter::new(
+            ext.get_recorded_storage_size(),
+            config.limit_config.storage_proof_size_receipt_limit,
+        );
         Self {
             ext,
             context,
@@ -161,6 +168,7 @@ impl<'a> VMLogic<'a> {
             current_account_locked_balance,
             current_storage_usage,
             gas_counter,
+            recorded_storage_counter,
             return_data: ReturnData::None,
             logs: vec![],
             registers: Default::default(),
@@ -1213,6 +1221,13 @@ impl<'a> VMLogic<'a> {
     /// This function might be intrinsified.
     pub fn gas_seen_from_wasm(&mut self, gas: u32) -> Result<()> {
         self.gas_opcodes(gas)
+    }
+
+    #[cfg(feature = "test_features")]
+    pub fn sleep_nanos(&mut self, nanos: u64) -> Result<()> {
+        let duration = std::time::Duration::from_nanos(nanos);
+        std::thread::sleep(duration);
+        Ok(())
     }
 
     // ################
@@ -2565,6 +2580,7 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.add_trie_fees(&nodes_delta)?;
         self.ext.storage_set(&key, &value)?;
         let storage_config = &self.fees_config.storage_usage_config;
+        self.recorded_storage_counter.observe_size(self.ext.get_recorded_storage_size())?;
         match evicted {
             Some(old_value) => {
                 // Inner value can't overflow, because the value length is limited.
@@ -2663,6 +2679,7 @@ impl<'a> VMLogic<'a> {
             tn_mem_reads = nodes_delta.mem_reads,
         );
 
+        self.recorded_storage_counter.observe_size(self.ext.get_recorded_storage_size())?;
         match read {
             Some(value) => {
                 self.registers.set(
@@ -2739,6 +2756,7 @@ impl<'a> VMLogic<'a> {
 
         self.gas_counter.add_trie_fees(&nodes_delta)?;
         let storage_config = &self.fees_config.storage_usage_config;
+        self.recorded_storage_counter.observe_size(self.ext.get_recorded_storage_size())?;
         match removed {
             Some(value) => {
                 // Inner value can't overflow, because the key/value length is limited.
@@ -2804,6 +2822,7 @@ impl<'a> VMLogic<'a> {
         );
 
         self.gas_counter.add_trie_fees(&nodes_delta)?;
+        self.recorded_storage_counter.observe_size(self.ext.get_recorded_storage_size())?;
         Ok(res? as u64)
     }
 

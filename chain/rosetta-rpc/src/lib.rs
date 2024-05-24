@@ -650,19 +650,21 @@ async fn construction_payloads(
     } = operations.try_into()?;
     let models::ConstructionMetadata { recent_block_hash, signer_public_access_key_nonce } =
         metadata;
-    let unsigned_transaction = near_primitives::transaction::Transaction {
-        block_hash: recent_block_hash.parse().map_err(|err| {
-            errors::ErrorKind::InvalidInput(format!(
-                "block hash could not be parsed due to: {:?}",
-                err
-            ))
-        })?,
-        signer_id: signer_account_id.clone(),
-        public_key: signer_public_access_key.clone(),
-        nonce: signer_public_access_key_nonce,
-        receiver_id: receiver_account_id,
-        actions,
-    };
+    let unsigned_transaction = near_primitives::transaction::Transaction::V0(
+        near_primitives::transaction::TransactionV0 {
+            block_hash: recent_block_hash.parse().map_err(|err| {
+                errors::ErrorKind::InvalidInput(format!(
+                    "block hash could not be parsed due to: {:?}",
+                    err
+                ))
+            })?,
+            signer_id: signer_account_id.clone(),
+            public_key: signer_public_access_key.clone(),
+            nonce: signer_public_access_key_nonce,
+            receiver_id: receiver_account_id,
+            actions,
+        },
+    );
 
     let (transaction_hash, _) = unsigned_transaction.get_hash_and_size();
 
@@ -727,12 +729,7 @@ async fn construction_parse(
 
     check_network_identifier(&client_addr, network_identifier).await?;
 
-    let near_primitives::transaction::Transaction {
-        actions,
-        signer_id: sender_account_id,
-        receiver_id: receiver_account_id,
-        ..
-    } = if signed {
+    let transaction = if signed {
         near_primitives::transaction::SignedTransaction::try_from_slice(&transaction.into_inner())
             .map_err(|err| {
                 errors::ErrorKind::InvalidInput(format!(
@@ -752,10 +749,13 @@ async fn construction_parse(
     };
 
     let account_identifier_signers =
-        if signed { vec![sender_account_id.clone().into()] } else { vec![] };
+        if signed { vec![transaction.signer_id().clone().into()] } else { vec![] };
 
-    let near_actions =
-        crate::adapters::NearActions { sender_account_id, receiver_account_id, actions };
+    let near_actions = crate::adapters::NearActions {
+        sender_account_id: transaction.signer_id().clone(),
+        receiver_account_id: transaction.receiver_id().clone(),
+        actions: transaction.take_actions(),
+    };
 
     Ok(Json(models::ConstructionParseResponse {
         account_identifier_signers,

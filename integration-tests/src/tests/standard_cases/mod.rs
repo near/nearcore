@@ -27,7 +27,7 @@ use std::sync::Arc;
 use crate::node::Node;
 use crate::user::User;
 use near_parameters::RuntimeConfig;
-use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
+use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::test_utils;
 use near_primitives::transaction::{Action, DeployContractAction, FunctionCallAction};
 use testlib::fees_utils::FeeHelper;
@@ -71,7 +71,8 @@ pub fn test_smart_contract_simple(node: impl Node) {
         transaction_result.status,
         FinalExecutionStatus::SuccessValue(10i32.to_le_bytes().to_vec())
     );
-    assert_eq!(transaction_result.receipts_outcome.len(), 2);
+    // Refund receipt may not be ready yet
+    assert!([1, 2].contains(&transaction_result.receipts_outcome.len()));
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
 }
@@ -114,7 +115,8 @@ pub fn test_smart_contract_self_call(node: impl Node) {
         transaction_result.status,
         FinalExecutionStatus::SuccessValue(10i32.to_le_bytes().to_vec())
     );
-    assert_eq!(transaction_result.receipts_outcome.len(), 2);
+    // Refund receipt may not be ready yet
+    assert!([1, 2].contains(&transaction_result.receipts_outcome.len()));
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
 }
@@ -138,7 +140,8 @@ pub fn test_smart_contract_bad_method_name(node: impl Node) {
             .into()
         )
     );
-    assert_eq!(transaction_result.receipts_outcome.len(), 2);
+    // Refund receipt may not be ready yet
+    assert!([1, 2].contains(&transaction_result.receipts_outcome.len()));
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
 }
@@ -162,7 +165,8 @@ pub fn test_smart_contract_empty_method_name_with_no_tokens(node: impl Node) {
             .into()
         )
     );
-    assert_eq!(transaction_result.receipts_outcome.len(), 2);
+    // Refund receipt may not be ready yet
+    assert!([1, 2].contains(&transaction_result.receipts_outcome.len()));
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
 }
@@ -209,7 +213,8 @@ pub fn test_smart_contract_with_args(node: impl Node) {
         transaction_result.status,
         FinalExecutionStatus::SuccessValue(5u64.to_le_bytes().to_vec())
     );
-    assert_eq!(transaction_result.receipts_outcome.len(), 2);
+    // Refund receipt may not be ready yet
+    assert!([1, 2].contains(&transaction_result.receipts_outcome.len()));
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
 }
@@ -265,7 +270,8 @@ pub fn test_upload_contract(node: impl Node) {
         )
         .unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    assert_eq!(transaction_result.receipts_outcome.len(), 2);
+    // Refund receipt may not be ready yet
+    assert!([1, 2].contains(&transaction_result.receipts_outcome.len()));
 
     node_user.view_contract_code(&eve_dot_alice_account()).expect_err(
         "RpcError { code: -32000, message: \"Server error\", data: Some(String(\"contract code of account eve.alice.near does not exist while viewing\")) }");
@@ -311,7 +317,8 @@ pub fn test_send_money(node: impl Node) {
     let transaction_result =
         node_user.send_money(account_id.clone(), bob_account(), money_used).unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    assert_eq!(transaction_result.receipts_outcome.len(), 2);
+    // Refund receipt may not be ready yet
+    assert!([1, 2].contains(&transaction_result.receipts_outcome.len()));
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
     assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 1);
@@ -560,7 +567,8 @@ pub fn test_create_account(node: impl Node) {
     let create_account_cost = fee_helper.create_account_transfer_full_key_cost();
 
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    assert_eq!(transaction_result.receipts_outcome.len(), 2);
+    // Refund receipt may not be ready yet
+    assert!([1, 2].contains(&transaction_result.receipts_outcome.len()));
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
     assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 1);
@@ -593,7 +601,8 @@ pub fn test_create_account_again(node: impl Node) {
         .unwrap();
 
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    assert_eq!(transaction_result.receipts_outcome.len(), 2);
+    // Refund receipt may not be ready yet
+    assert!([1, 2].contains(&transaction_result.receipts_outcome.len()));
     let fee_helper = fee_helper(&node);
     let create_account_cost = fee_helper.create_account_transfer_full_key_cost();
 
@@ -1015,7 +1024,8 @@ pub fn test_access_key_smart_contract(node: impl Node) {
         prepaid_gas + exec_gas - transaction_result.receipts_outcome[0].outcome.gas_burnt,
     );
 
-    assert_eq!(transaction_result.receipts_outcome.len(), 2);
+    // Refund receipt may not be ready yet
+    assert!([1, 2].contains(&transaction_result.receipts_outcome.len()));
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
 
@@ -1431,12 +1441,12 @@ fn make_receipt(node: &impl Node, actions: Vec<Action>, receiver_id: AccountId) 
         input_data_ids: vec![],
         actions,
     });
-    Receipt {
+    Receipt::V0(ReceiptV0 {
         predecessor_id: alice_account(),
         receiver_id,
         receipt_id: CryptoHash::hash_borsh(&receipt_enum),
         receipt: receipt_enum,
-    }
+    })
 }
 
 /// Check that numbers of charged trie node accesses during execution of the given receipts matches the provided
@@ -1452,7 +1462,7 @@ fn check_trie_nodes_count(
     let node_user = node.user();
     let mut node_touches: Vec<_> = vec![];
     let receipt_hashes: Vec<CryptoHash> =
-        receipts.iter().map(|receipt| receipt.receipt_id).collect();
+        receipts.iter().map(|receipt| *receipt.receipt_id()).collect();
 
     for i in 0..2 {
         node_user.add_receipts(receipts.clone(), use_flat_storage).unwrap();

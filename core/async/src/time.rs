@@ -25,11 +25,12 @@ use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::sync::{Arc, Mutex};
 pub use time::error;
+use time::ext::InstantExt;
 
 // TODO: consider wrapping these types to prevent interactions
 // with other time libraries, especially to prevent the direct access
 // to the realtime (i.e. not through the Clock).
-pub type Instant = time::Instant;
+pub type Instant = std::time::Instant;
 // TODO: OffsetDateTime stores the timestamp in a decomposed form of
 // (year,month,day,hour,...). If we find it inefficient, we should
 // probably migrate to a pure UNIX timestamp and convert is to datetime
@@ -37,7 +38,7 @@ pub type Instant = time::Instant;
 pub type Utc = time::OffsetDateTime;
 pub type Duration = time::Duration;
 
-// Instant doesn't have a deterministic contructor,
+// Instant doesn't have a deterministic constructor,
 // however since Instant is not convertible to an unix timestamp,
 // we can snapshot Instant::now() once and treat it as a constant.
 // All observable effects will be then deterministic.
@@ -77,7 +78,7 @@ pub struct Clock(ClockInner);
 
 impl Clock {
     /// Constructor of the real clock. Use it in production code.
-    /// Preferrably construct it directly in the main() function,
+    /// Preferably construct it directly in the main() function,
     /// so that it can be faked out in every other function.
     pub fn real() -> Clock {
         Clock(ClockInner::Real)
@@ -110,7 +111,7 @@ impl Clock {
     /// Cancellable.
     pub async fn sleep_until(&self, t: Instant) {
         match &self.0 {
-            ClockInner::Real => tokio::time::sleep_until(t.into_inner().into()).await,
+            ClockInner::Real => tokio::time::sleep_until(t.into()).await,
             ClockInner::Fake(fake) => fake.sleep_until(t).await,
         }
     }
@@ -185,7 +186,7 @@ impl FakeClockInner {
         }
     }
     pub fn advance_until(&mut self, t: Instant) {
-        let by = t - self.now();
+        let by = t.signed_duration_since(self.now());
         self.advance(by);
     }
 }
@@ -197,7 +198,7 @@ pub struct FakeClock(Arc<Mutex<FakeClockInner>>);
 impl FakeClock {
     /// Constructor of a fake clock. Use it in tests.
     /// It supports manually moving time forward (via advance()).
-    /// You can also arbitrarly set the UTC time in runtime.
+    /// You can also arbitrarily set the UTC time in runtime.
     /// Use FakeClock::clock() when calling prod code from tests.
     pub fn new(utc: Utc) -> Self {
         Self(Arc::new(Mutex::new(FakeClockInner::new(utc))))
@@ -270,12 +271,12 @@ impl Default for FakeClock {
 /// Interval equivalent to tokio::time::Interval with
 /// MissedTickBehavior::Skip.
 pub struct Interval {
-    next: time::Instant,
+    next: Instant,
     period: time::Duration,
 }
 
 impl Interval {
-    pub fn new(next: time::Instant, period: time::Duration) -> Self {
+    pub fn new(next: Instant, period: time::Duration) -> Self {
         Self { next, period }
     }
 
@@ -288,19 +289,19 @@ impl Interval {
         // for details. In essence, if more than `period` of time passes between consecutive
         // calls to tick, then the second tick completes immediately and the next one will be
         // aligned to the original schedule.
-        self.next = now + self.period
-            - Duration::nanoseconds(
-                ((now - self.next).whole_nanoseconds() % self.period.whole_nanoseconds())
-                    .try_into()
-                    // This operation is practically guaranteed not to
-                    // fail, as in order for it to fail, `period` would
-                    // have to be longer than `now - timeout`, and both
-                    // would have to be longer than 584 years.
-                    //
-                    // If it did fail, there's not a good way to pass
-                    // the error along to the user, so we just panic.
-                    .expect("too much time has elapsed since the interval was supposed to tick"),
-            );
+        self.next = now.add_signed(self.period).sub_signed(Duration::nanoseconds(
+            ((now.signed_duration_since(self.next)).whole_nanoseconds()
+                % self.period.whole_nanoseconds())
+            .try_into()
+            // This operation is practically guaranteed not to
+            // fail, as in order for it to fail, `period` would
+            // have to be longer than `now - timeout`, and both
+            // would have to be longer than 584 years.
+            //
+            // If it did fail, there's not a good way to pass
+            // the error along to the user, so we just panic.
+            .expect("too much time has elapsed since the interval was supposed to tick"),
+        ));
     }
 }
 

@@ -136,6 +136,7 @@ pub async fn build_streamer_message(
                 .filter(|tx| tx.transaction.signer_id == tx.transaction.receiver_id)
                 .collect::<Vec<&IndexerTransactionWithOutcome>>(),
             &block,
+            protocol_config_view.protocol_version,
         )
         .await?;
 
@@ -227,7 +228,7 @@ pub async fn build_streamer_message(
             let receipt_ids_included: std::collections::HashSet<CryptoHash> =
                 chunk_non_local_receipts.iter().map(|receipt| receipt.receipt_id).collect();
             for outcome in &receipt_execution_outcomes {
-                if receipt_ids_included.get(&outcome.receipt.receipt_id).is_none() {
+                if !receipt_ids_included.contains(&outcome.receipt.receipt_id) {
                     restored_receipts.push(outcome.receipt.clone());
                 }
             }
@@ -322,6 +323,7 @@ async fn find_local_receipt_by_id_in_block(
 ) -> Result<Option<views::ReceiptView>, FailedToFetchData> {
     let chunks = fetch_block_chunks(&client, &block).await?;
 
+    let protocol_config_view = fetch_protocol_config(&client, block.header.hash).await?;
     let mut shards_outcomes = fetch_outcomes(&client, block.header.hash).await?;
 
     for chunk in chunks {
@@ -348,6 +350,7 @@ async fn find_local_receipt_by_id_in_block(
                 &runtime_config,
                 vec![&indexer_transaction],
                 &block,
+                protocol_config_view.protocol_version,
             )
             .await?;
 

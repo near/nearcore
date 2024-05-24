@@ -72,7 +72,8 @@ impl BlockSync {
         highest_height: BlockHeight,
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<bool, near_chain::Error> {
-        let _span = tracing::debug_span!(target: "sync", "run", sync = "BlockSync").entered();
+        let _span =
+            tracing::debug_span!(target: "sync", "run_sync", sync_type = "BlockSync").entered();
         let head = chain.head()?;
         let header_head = chain.header_head()?;
 
@@ -234,7 +235,8 @@ impl BlockSync {
                     request_from_archival,
                     peer = ?peer.peer_info.id,
                     num_peers = highest_height_peers.len(),
-                    "Block sync: requested block");
+                    "Block sync: requested block"
+                );
                 self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                     NetworkRequests::BlockRequest { hash, peer_id: peer.peer_info.id.clone() },
                 ));

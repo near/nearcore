@@ -53,6 +53,9 @@ enum SubCommand {
     /// You can provide maximum depth and/or maximum number of vertices to traverse for each root.
     /// Trie is traversed using DFS with randomly shuffled kids for every node.
     CheckStateRoot(CheckStateRootCmd),
+    /// Modifies cold db from config to be considered not initialised.
+    /// Doesn't actually delete any data, except for HEAD and COLD_HEAD in BlockMisc.
+    ResetCold(ResetColdCmd),
 }
 
 impl ColdStoreCommand {
@@ -87,6 +90,7 @@ impl ColdStoreCommand {
             }
             SubCommand::PrepareHot(cmd) => cmd.run(&storage, &home_dir, &near_config),
             SubCommand::CheckStateRoot(cmd) => cmd.run(&storage),
+            SubCommand::ResetCold(cmd) => cmd.run(&storage),
         }
     }
 
@@ -650,5 +654,22 @@ impl CheckStateRootCmd {
         // As cold db strips shard_uid at the beginning of State key, we can add any 8 u8s as prefix.
         let cold_state_key = [&[1; 8], trie_key.as_ref()].concat();
         store.get(DBCol::State, &cold_state_key)
+    }
+}
+
+#[derive(clap::Args)]
+struct ResetColdCmd {}
+
+impl ResetColdCmd {
+    pub fn run(self, storage: &NodeStorage) -> anyhow::Result<()> {
+        let cold_store = storage
+            .get_cold_store()
+            .ok_or_else(|| anyhow::anyhow!("Cold storage is not configured"))?;
+
+        let mut store_update = cold_store.store_update();
+        store_update.delete(DBCol::BlockMisc, HEAD_KEY);
+        store_update.delete(DBCol::BlockMisc, COLD_HEAD_KEY);
+        store_update.commit()?;
+        Ok(())
     }
 }

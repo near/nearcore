@@ -4,17 +4,20 @@ use crate::flat::{
 };
 use crate::metadata::{DbKind, DbVersion, DB_VERSION};
 use crate::{
-    get, get_delayed_receipt_indices, DBCol, NodeStorage, ShardTries, StateSnapshotConfig, Store,
-    TrieConfig,
+    get, get_delayed_receipt_indices, get_promise_yield_indices, DBCol, NodeStorage, ShardTries,
+    StateSnapshotConfig, Store, Trie, TrieConfig,
 };
 use itertools::Itertools;
 use near_primitives::account::id::AccountId;
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{DataReceipt, Receipt, ReceiptEnum};
-use near_primitives::shard_layout::{ShardUId, ShardVersion};
+use near_primitives::receipt::{DataReceipt, PromiseYieldTimeout, Receipt, ReceiptEnum, ReceiptV1};
+use near_primitives::shard_layout::{get_block_shard_uid, ShardUId, ShardVersion};
 use near_primitives::state::FlatStateValue;
 use near_primitives::trie_key::TrieKey;
+use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{NumShards, StateRoot};
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use rand::seq::SliceRandom;
 use rand::Rng;
 use std::collections::HashMap;
@@ -94,24 +97,27 @@ impl TestTriesBuilder {
         self
     }
 
-    pub fn with_flat_storage(mut self) -> Self {
-        self.enable_flat_storage = true;
+    pub fn with_flat_storage(mut self, enable: bool) -> Self {
+        self.enable_flat_storage = enable;
         self
     }
 
-    pub fn with_in_memory_tries(mut self) -> Self {
-        self.enable_in_memory_tries = true;
+    pub fn with_in_memory_tries(mut self, enable: bool) -> Self {
+        self.enable_in_memory_tries = enable;
         self
     }
 
     pub fn build(self) -> ShardTries {
+        if self.enable_in_memory_tries && !self.enable_flat_storage {
+            panic!("In-memory tries require flat storage");
+        }
         let store = self.store.unwrap_or_else(create_test_store);
         let shard_uids = (0..self.num_shards)
             .map(|shard_id| ShardUId { shard_id: shard_id as u32, version: self.shard_version })
             .collect::<Vec<_>>();
         let flat_storage_manager = FlatStorageManager::new(store.clone());
         let tries = ShardTries::new(
-            store,
+            store.clone(),
             TrieConfig {
                 load_mem_tries_for_tracked_shards: self.enable_in_memory_tries,
                 ..Default::default()
@@ -147,6 +153,32 @@ impl TestTriesBuilder {
             }
         }
         if self.enable_in_memory_tries {
+            // ChunkExtra is needed for in-memory trie loading code to query state roots.
+            let congestion_info = ProtocolFeature::CongestionControl
+                .enabled(PROTOCOL_VERSION)
+                .then(CongestionInfo::default);
+            let chunk_extra = ChunkExtra::new(
+                PROTOCOL_VERSION,
+                &Trie::EMPTY_ROOT,
+                CryptoHash::default(),
+                Vec::new(),
+                0,
+                0,
+                0,
+                congestion_info,
+            );
+            let mut update_for_chunk_extra = store.store_update();
+            for shard_uid in &shard_uids {
+                update_for_chunk_extra
+                    .set_ser(
+                        DBCol::ChunkExtra,
+                        &get_block_shard_uid(&CryptoHash::default(), shard_uid),
+                        &chunk_extra,
+                    )
+                    .unwrap();
+            }
+            update_for_chunk_extra.commit().unwrap();
+
             tries.load_mem_tries_for_enabled_shards(&shard_uids).unwrap();
         }
         tries
@@ -266,11 +298,30 @@ pub fn gen_receipts(rng: &mut impl Rng, max_size: usize) -> Vec<Receipt> {
     let accounts = gen_accounts_from_alphabet(rng, 1, max_size, &alphabet);
     accounts
         .iter()
-        .map(|account_id| Receipt {
-            predecessor_id: account_id.clone(),
-            receiver_id: account_id.clone(),
-            receipt_id: CryptoHash::default(),
-            receipt: ReceiptEnum::Data(DataReceipt { data_id: CryptoHash::default(), data: None }),
+        .map(|account_id| {
+            Receipt::V1(ReceiptV1 {
+                predecessor_id: account_id.clone(),
+                receiver_id: account_id.clone(),
+                receipt_id: CryptoHash::default(),
+                receipt: ReceiptEnum::Data(DataReceipt {
+                    data_id: CryptoHash::default(),
+                    data: None,
+                }),
+                priority: 0,
+            })
+        })
+        .collect()
+}
+
+pub fn gen_timeouts(rng: &mut impl Rng, max_size: usize) -> Vec<PromiseYieldTimeout> {
+    let alphabet = gen_alphabet();
+    let accounts = gen_accounts_from_alphabet(rng, 1, max_size, &alphabet);
+    accounts
+        .iter()
+        .map(|account_id| PromiseYieldTimeout {
+            account_id: account_id.clone(),
+            data_id: CryptoHash::default(),
+            expires_at: 0,
         })
         .collect()
 }
@@ -352,4 +403,22 @@ pub fn get_all_delayed_receipts(
         receipts.push(receipt);
     }
     receipts
+}
+
+pub fn get_all_promise_yield_timeouts(
+    tries: &ShardTries,
+    shard_uid: &ShardUId,
+    state_root: &StateRoot,
+) -> Vec<PromiseYieldTimeout> {
+    let state_update = &tries.new_trie_update(*shard_uid, *state_root);
+    let mut promise_yield_indices = get_promise_yield_indices(state_update).unwrap();
+
+    let mut timeouts = vec![];
+    while promise_yield_indices.first_index < promise_yield_indices.next_available_index {
+        let key = TrieKey::PromiseYieldTimeout { index: promise_yield_indices.first_index };
+        let timeout = get(state_update, &key).unwrap().unwrap();
+        promise_yield_indices.first_index += 1;
+        timeouts.push(timeout);
+    }
+    timeouts
 }

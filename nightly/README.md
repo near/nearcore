@@ -5,7 +5,7 @@ request a run of the tests.  Most notably, `nightly.txt` file contains
 all the tests that NayDuck runs once a day on the head of the master
 branch of the repository.
 
-Nightly build results are available on [NayDuck](https://nayduck.near.org/).
+Nightly build results are available on [NayDuck](https://nayduck.nearone.org/).
 
 ## List file format
 

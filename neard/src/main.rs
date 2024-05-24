@@ -13,11 +13,12 @@ use std::time::Duration;
 static NEARD_VERSION: &str = env!("NEARD_VERSION");
 static NEARD_BUILD: &str = env!("NEARD_BUILD");
 static RUSTC_VERSION: &str = env!("NEARD_RUSTC_VERSION");
+static NEARD_FEATURES: &str = env!("NEARD_FEATURES");
 
 static NEARD_VERSION_STRING: Lazy<String> = Lazy::new(|| {
     format!(
-        "(release {}) (build {}) (rustc {}) (protocol {}) (db {})",
-        NEARD_VERSION, NEARD_BUILD, RUSTC_VERSION, PROTOCOL_VERSION, DB_VERSION
+        "(release {}) (build {}) (rustc {}) (protocol {}) (db {})\nfeatures: [{}]",
+        NEARD_VERSION, NEARD_BUILD, RUSTC_VERSION, PROTOCOL_VERSION, DB_VERSION, NEARD_FEATURES
     )
 });
 
@@ -58,11 +59,16 @@ fn main() -> anyhow::Result<()> {
     // to prevent the inner logic from trying to bump it further:
     // FD limit is a global variable, so it shouldn't be modified in an
     // uncoordinated way.
-    const FD_LIMIT: u64 = 65535;
-    let (_, hard) = rlimit::Resource::NOFILE.get().context("rlimit::Resource::NOFILE::get()")?;
-    rlimit::Resource::NOFILE.set(FD_LIMIT, FD_LIMIT).context(format!(
-        "couldn't set the file descriptor limit to {FD_LIMIT}, hard limit = {hard}"
-    ))?;
+    const REQUIRED_NOFILE: u64 = 65535;
+    let (soft, hard) = rlimit::Resource::NOFILE.get().context("rlimit::Resource::NOFILE::get()")?;
+    if soft < REQUIRED_NOFILE || hard < REQUIRED_NOFILE {
+        let new_soft = soft.max(REQUIRED_NOFILE);
+        let new_hard = hard.max(REQUIRED_NOFILE);
+        rlimit::Resource::NOFILE.set(new_soft, new_hard).context(format!(
+            "couldn't set the file descriptor limit to ({new_soft}, {new_hard}), \
+             current limit = ({soft}, {hard})"
+        ))?;
+    }
 
     NeardCmd::parse_and_run()
 }

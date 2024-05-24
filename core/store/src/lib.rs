@@ -24,8 +24,8 @@ use near_primitives::account::{AccessKey, Account};
 pub use near_primitives::errors::{MissingTrieValueContext, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout, Receipt, ReceiptEnum,
-    ReceivedData,
+    BufferedReceiptIndices, DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout,
+    Receipt, ReceiptEnum, ReceivedData,
 };
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
@@ -251,7 +251,7 @@ impl NodeStorage {
         Ok(match metadata::DbMetadata::read(self.hot_storage.as_ref())?.kind.unwrap() {
             metadata::DbKind::RPC => false,
             metadata::DbKind::Archive => true,
-            metadata::DbKind::Hot | metadata::DbKind::Cold => todo!(),
+            metadata::DbKind::Hot | metadata::DbKind::Cold => true,
         })
     }
 
@@ -360,6 +360,15 @@ impl Store {
     /// Loads state (`State` and `FlatState` columns) from given file.
     ///
     /// See [`Self::save_state_to_file`] for description of the file format.
+    #[tracing::instrument(
+        level = "info",
+        // FIXME: start moving things into tighter modules so that its easier to selectively trace
+        // specific things.
+        target = "store",
+        "Store::load_state_from_file",
+        skip_all,
+        fields(filename = %filename.display())
+    )]
     pub fn load_state_from_file(&self, filename: &Path) -> io::Result<()> {
         let file = File::open(filename)?;
         let mut file = std::io::BufReader::new(file);
@@ -500,7 +509,7 @@ impl StoreUpdate {
     ) {
         assert!(column.is_rc(), "can't update refcount: {column}");
         let value = refcount::encode_negative_refcount(decrease);
-        self.transaction.update_refcount(column, key.to_vec(), value)
+        self.transaction.update_refcount(column, key.to_vec(), value.to_vec())
     }
 
     /// Same as `self.decrement_refcount_by(column, key, 1)`.
@@ -574,6 +583,24 @@ impl StoreUpdate {
         self.transaction.merge(other.transaction)
     }
 
+    #[tracing::instrument(
+        level = "trace",
+        target = "store::update",
+        // FIXME: start moving things into tighter modules so that its easier to selectively trace
+        // specific things.
+        "StoreUpdate::commit",
+        skip_all,
+        fields(
+            transaction.ops.len = self.transaction.ops.len(),
+            total_bytes,
+            inserts,
+            sets,
+            rc_ops,
+            deletes,
+            delete_all_ops,
+            delete_range_ops
+        )
+    )]
     pub fn commit(self) -> io::Result<()> {
         debug_assert!(
             {
@@ -596,26 +623,76 @@ impl StoreUpdate {
             "Transaction overwrites itself: {:?}",
             self
         );
-        let _span = tracing::trace_span!(target: "store", "commit").entered();
-        for op in &self.transaction.ops {
-            match op {
-                DBOp::Insert { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "insert", col = %col, key = %StorageKey(key), size = value.len(), value = %AbbrBytes(value),)
-                }
-                DBOp::Set { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "set", col = %col, key = %StorageKey(key), size = value.len(), value = %AbbrBytes(value))
-                }
-                DBOp::UpdateRefcount { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "update_rc", col = %col, key = %StorageKey(key), size = value.len(), value = %AbbrBytes(value))
-                }
-                DBOp::Delete { col, key } => {
-                    tracing::trace!(target: "store", db_op = "delete", col = %col, key = %StorageKey(key))
-                }
-                DBOp::DeleteAll { col } => {
-                    tracing::trace!(target: "store", db_op = "delete_all", col = %col)
-                }
-                DBOp::DeleteRange { col, from, to } => {
-                    tracing::trace!(target: "store", db_op = "delete_range", col = %col, from = %StorageKey(from), to = %StorageKey(to))
+        let span = tracing::Span::current();
+        if !span.is_disabled() {
+            let [mut insert_count, mut set_count, mut update_rc_count] = [0u64; 3];
+            let [mut delete_count, mut delete_all_count, mut delete_range_count] = [0u64; 3];
+            let mut total_bytes = 0;
+            for op in &self.transaction.ops {
+                total_bytes += op.bytes();
+                let count = match op {
+                    DBOp::Set { .. } => &mut set_count,
+                    DBOp::Insert { .. } => &mut insert_count,
+                    DBOp::UpdateRefcount { .. } => &mut update_rc_count,
+                    DBOp::Delete { .. } => &mut delete_count,
+                    DBOp::DeleteAll { .. } => &mut delete_all_count,
+                    DBOp::DeleteRange { .. } => &mut delete_range_count,
+                };
+                *count += 1;
+            }
+            span.record("inserts", insert_count);
+            span.record("sets", set_count);
+            span.record("rc_ops", update_rc_count);
+            span.record("deletes", delete_count);
+            span.record("delete_all_ops", delete_all_count);
+            span.record("delete_range_ops", delete_range_count);
+            span.record("total_bytes", total_bytes);
+        }
+        if tracing::event_enabled!(target: "store::update::transactions", tracing::Level::TRACE) {
+            for op in &self.transaction.ops {
+                match op {
+                    DBOp::Insert { col, key, value } => tracing::trace!(
+                        target: "store::update::transactions",
+                        db_op = "insert",
+                        %col,
+                        key = %StorageKey(key),
+                        size = value.len(),
+                        value = %AbbrBytes(value),
+                    ),
+                    DBOp::Set { col, key, value } => tracing::trace!(
+                        target: "store::update::transactions",
+                        db_op = "set",
+                        %col,
+                        key = %StorageKey(key),
+                        size = value.len(),
+                        value = %AbbrBytes(value)
+                    ),
+                    DBOp::UpdateRefcount { col, key, value } => tracing::trace!(
+                        target: "store::update::transactions",
+                        db_op = "update_rc",
+                        %col,
+                        key = %StorageKey(key),
+                        size = value.len(),
+                        value = %AbbrBytes(value)
+                    ),
+                    DBOp::Delete { col, key } => tracing::trace!(
+                        target: "store::update::transactions",
+                        db_op = "delete",
+                        %col,
+                        key = %StorageKey(key)
+                    ),
+                    DBOp::DeleteAll { col } => tracing::trace!(
+                        target: "store::update::transactions",
+                        db_op = "delete_all",
+                        %col
+                    ),
+                    DBOp::DeleteRange { col, from, to } => tracing::trace!(
+                        target: "store::update::transactions",
+                        db_op = "delete_range",
+                        %col,
+                        from = %StorageKey(from),
+                        to = %StorageKey(to)
+                    ),
                 }
             }
         }
@@ -705,10 +782,10 @@ pub fn has_received_data(
 }
 
 pub fn set_postponed_receipt(state_update: &mut TrieUpdate, receipt: &Receipt) {
-    assert!(matches!(receipt.receipt, ReceiptEnum::Action(_)));
+    assert!(matches!(receipt.receipt(), ReceiptEnum::Action(_)));
     let key = TrieKey::PostponedReceipt {
-        receiver_id: receipt.receiver_id.clone(),
-        receipt_id: receipt.receipt_id,
+        receiver_id: receipt.receiver_id().clone(),
+        receipt_id: *receipt.receipt_id(),
     };
     set(state_update, key, receipt);
 }
@@ -762,7 +839,6 @@ pub fn set_promise_yield_indices(
     state_update: &mut TrieUpdate,
     promise_yield_indices: &PromiseYieldIndices,
 ) {
-    assert!(cfg!(feature = "yield_resume"));
     set(state_update, TrieKey::PromiseYieldIndices, promise_yield_indices);
 }
 
@@ -774,7 +850,6 @@ pub fn enqueue_promise_yield_timeout(
     data_id: CryptoHash,
     expires_at: BlockHeight,
 ) {
-    assert!(cfg!(feature = "yield_resume"));
     set(
         state_update,
         TrieKey::PromiseYieldTimeout { index: promise_yield_indices.next_available_index },
@@ -787,12 +862,11 @@ pub fn enqueue_promise_yield_timeout(
 }
 
 pub fn set_promise_yield_receipt(state_update: &mut TrieUpdate, receipt: &Receipt) {
-    assert!(cfg!(feature = "yield_resume"));
-    match &receipt.receipt {
+    match receipt.receipt() {
         ReceiptEnum::PromiseYield(ref action_receipt) => {
             assert!(action_receipt.input_data_ids.len() == 1);
             let key = TrieKey::PromiseYieldReceipt {
-                receiver_id: receipt.receiver_id.clone(),
+                receiver_id: receipt.receiver_id().clone(),
                 data_id: action_receipt.input_data_ids[0],
             };
             set(state_update, key, receipt);
@@ -823,6 +897,12 @@ pub fn has_promise_yield_receipt(
     data_id: CryptoHash,
 ) -> Result<bool, StorageError> {
     trie.contains_key(&TrieKey::PromiseYieldReceipt { receiver_id, data_id })
+}
+
+pub fn get_buffered_receipt_indices(
+    trie: &dyn TrieAccess,
+) -> Result<BufferedReceiptIndices, StorageError> {
+    Ok(get(trie, &TrieKey::BufferedReceiptIndices)?.unwrap_or_default())
 }
 
 pub fn set_access_key(
@@ -886,8 +966,9 @@ pub fn remove_account(
     state_update.remove(TrieKey::ContractCode { account_id: account_id.clone() });
 
     // Removing access keys
+    let lock = state_update.trie().lock_for_iter();
     let public_keys = state_update
-        .iter(&trie_key_parsers::get_raw_prefix_for_access_keys(account_id))?
+        .locked_iter(&trie_key_parsers::get_raw_prefix_for_access_keys(account_id), &lock)?
         .map(|raw_key| {
             trie_key_parsers::parse_public_key_from_access_key_key(&raw_key?, account_id).map_err(
                 |_e| {
@@ -898,13 +979,16 @@ pub fn remove_account(
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
+    drop(lock);
+
     for public_key in public_keys {
         state_update.remove(TrieKey::AccessKey { account_id: account_id.clone(), public_key });
     }
 
     // Removing contract data
+    let lock = state_update.trie().lock_for_iter();
     let data_keys = state_update
-        .iter(&trie_key_parsers::get_raw_prefix_for_contract_data(account_id, &[]))?
+        .locked_iter(&trie_key_parsers::get_raw_prefix_for_contract_data(account_id, &[]), &lock)?
         .map(|raw_key| {
             trie_key_parsers::parse_data_key_from_contract_data_key(&raw_key?, account_id)
                 .map_err(|_e| {
@@ -915,6 +999,8 @@ pub fn remove_account(
                 .map(Vec::from)
         })
         .collect::<Result<Vec<_>, _>>()?;
+    drop(lock);
+
     for key in data_keys {
         state_update.remove(TrieKey::ContractData { account_id: account_id.clone(), key });
     }

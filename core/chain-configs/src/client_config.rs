@@ -2,6 +2,7 @@
 use crate::ExternalStorageLocation::GCS;
 use crate::MutableConfigValue;
 use bytesize::ByteSize;
+use near_async::time::Duration;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats, ShardId,
 };
@@ -10,7 +11,6 @@ use std::cmp::{max, min};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use time::Duration;
 
 pub const TEST_STATE_SYNC_TIMEOUT: i64 = 5;
 
@@ -46,6 +46,10 @@ pub struct GCConfig {
 
     /// Number of epochs for which we keep store data.
     pub gc_num_epochs_to_keep: u64,
+
+    /// How often gc should be run
+    #[serde(with = "near_async::time::serde_duration_as_std")]
+    pub gc_step_period: Duration,
 }
 
 impl Default for GCConfig {
@@ -54,6 +58,7 @@ impl Default for GCConfig {
             gc_blocks_limit: 2,
             gc_fork_clean_step: 100,
             gc_num_epochs_to_keep: DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
+            gc_step_period: Duration::seconds(1),
         }
     }
 }
@@ -472,6 +477,12 @@ pub struct ClientConfig {
     /// We keep only orphan witnesses which are smaller than this size.
     /// This limits the maximum memory usage of OrphanStateWitnessPool.
     pub orphan_state_witness_max_size: ByteSize,
+    /// Save observed instances of ChunkStateWitness to the database in DBCol::LatestChunkStateWitnesses.
+    /// Saving the latest witnesses is useful for analysis and debugging.
+    /// When this option is enabled, the node will save ALL witnesses it oberves, even invalid ones,
+    /// which can cause extra load on the database. This option is not recommended for production use,
+    /// as a large number of incoming witnesses could cause denial of service.
+    pub save_latest_witnesses: bool,
 }
 
 impl ClientConfig {
@@ -488,7 +499,7 @@ impl ClientConfig {
         assert!(
             archive || save_trie_changes,
             "Configuration with archive = false and save_trie_changes = false is not supported \
-            because non-archival nodes must save trie changes in order to do do garbage collection."
+            because non-archival nodes must save trie changes in order to do garbage collection."
         );
 
         Self {
@@ -558,6 +569,7 @@ impl ClientConfig {
             chunk_distribution_network: None,
             orphan_state_witness_pool_size: default_orphan_state_witness_pool_size(),
             orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
+            save_latest_witnesses: false,
         }
     }
 }

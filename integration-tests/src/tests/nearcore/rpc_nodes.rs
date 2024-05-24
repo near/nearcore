@@ -453,7 +453,7 @@ fn test_check_unknown_tx_must_return_error() {
                             .EXPERIMENTAL_tx_status(RpcTransactionStatusRequest {
                                 transaction_info: TransactionInfo::TransactionId {
                                     tx_hash,
-                                    sender_account_id: transaction.transaction.signer_id,
+                                    sender_account_id: transaction.transaction.signer_id().clone(),
                                 },
                                 wait_until: TxExecutionStatus::None,
                             })

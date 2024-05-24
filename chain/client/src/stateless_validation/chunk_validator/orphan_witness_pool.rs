@@ -1,8 +1,8 @@
 use lru::LruCache;
 use near_chain_configs::default_orphan_state_witness_pool_size;
 use near_primitives::hash::CryptoHash;
-use near_primitives::stateless_validation::ChunkStateWitness;
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::stateless_validation::{ChunkProductionKey, ChunkStateWitness};
+use near_primitives::types::BlockHeight;
 
 use metrics_tracker::OrphanWitnessMetricsTracker;
 
@@ -11,7 +11,7 @@ use metrics_tracker::OrphanWitnessMetricsTracker;
 /// shows up before the block is available. In such cases the witness is put in `OrphanStateWitnessPool` until the
 /// required block arrives and the witness can be processed.
 pub struct OrphanStateWitnessPool {
-    witness_cache: LruCache<(ShardId, BlockHeight), CacheEntry>,
+    witness_cache: LruCache<ChunkProductionKey, CacheEntry>,
 }
 
 struct CacheEntry {
@@ -37,18 +37,17 @@ impl OrphanStateWitnessPool {
     /// Add an orphaned chunk state witness to the pool. The witness will be put in a cache and it'll
     /// wait there for the block that's required to process it.
     /// It's expected that this `ChunkStateWitness` has gone through basic validation - including signature,
-    /// shard_id, size and distance from the tip. The pool would still work without it, but without validation
-    /// it'd be possible to fill the whole cache with spam.
+    /// shard_id, size, epoch_id and distance from the tip. The pool would still work without it, but without
+    /// validation it'd be possible to fill the whole cache with spam.
     /// `witness_size` is only used for metrics, it's okay to pass 0 if you don't care about the metrics.
     pub fn add_orphan_state_witness(&mut self, witness: ChunkStateWitness, witness_size: usize) {
         // Insert the new ChunkStateWitness into the cache
-        let chunk_header = &witness.inner.chunk_header;
-        let cache_key = (chunk_header.shard_id(), chunk_header.height_created());
+        let cache_key = witness.chunk_production_key();
         let metrics_tracker = OrphanWitnessMetricsTracker::new(&witness, witness_size);
         let cache_entry = CacheEntry { witness, _metrics_tracker: metrics_tracker };
         if let Some((_, ejected_entry)) = self.witness_cache.push(cache_key, cache_entry) {
             // Another witness has been ejected from the cache due to capacity limit
-            let header = &ejected_entry.witness.inner.chunk_header;
+            let header = &ejected_entry.witness.chunk_header;
             tracing::debug!(
                 target: "client",
                 ejected_witness_height = header.height_created(),
@@ -66,10 +65,10 @@ impl OrphanStateWitnessPool {
         &mut self,
         prev_block: &CryptoHash,
     ) -> Vec<ChunkStateWitness> {
-        let mut to_remove: Vec<(ShardId, BlockHeight)> = Vec::new();
+        let mut to_remove: Vec<ChunkProductionKey> = Vec::new();
         for (cache_key, cache_entry) in self.witness_cache.iter() {
-            if cache_entry.witness.inner.chunk_header.prev_block_hash() == prev_block {
-                to_remove.push(*cache_key);
+            if cache_entry.witness.chunk_header.prev_block_hash() == prev_block {
+                to_remove.push(cache_key.clone());
             }
         }
         let mut result = Vec::new();
@@ -87,16 +86,17 @@ impl OrphanStateWitnessPool {
     /// Orphan witnesses below the final height of the chain won't be needed anymore,
     /// so they can be removed from the pool to free up memory.
     pub fn remove_witnesses_below_final_height(&mut self, final_height: BlockHeight) {
-        let mut to_remove: Vec<(ShardId, BlockHeight)> = Vec::new();
-        for ((witness_shard, witness_height), cache_entry) in self.witness_cache.iter() {
-            if *witness_height < final_height {
-                to_remove.push((*witness_shard, *witness_height));
-                let header = &cache_entry.witness.inner.chunk_header;
+        let mut to_remove: Vec<ChunkProductionKey> = Vec::new();
+        for (cache_key, cache_entry) in self.witness_cache.iter() {
+            let witness_height = cache_key.height_created;
+            if witness_height <= final_height {
+                to_remove.push(cache_key.clone());
+                let header = &cache_entry.witness.chunk_header;
                 tracing::debug!(
                     target: "client",
                     final_height,
-                    ejected_witness_height = *witness_height,
-                    ejected_witness_shard = *witness_shard,
+                    ejected_witness_height = witness_height,
+                    ejected_witness_shard = cache_key.shard_id,
                     ejected_witness_chunk = ?header.chunk_hash(),
                     ejected_witness_prev_block = ?header.prev_block_hash(),
                     "Ejecting an orphaned ChunkStateWitness from the cache because it's below \
@@ -136,7 +136,7 @@ mod metrics_tracker {
             witness: &ChunkStateWitness,
             witness_size: usize,
         ) -> OrphanWitnessMetricsTracker {
-            let shard_id = witness.inner.chunk_header.shard_id().to_string();
+            let shard_id = witness.chunk_header.shard_id().to_string();
             metrics::ORPHAN_CHUNK_STATE_WITNESSES_TOTAL_COUNT
                 .with_label_values(&[shard_id.as_str()])
                 .inc();
@@ -188,9 +188,10 @@ mod tests {
         encoded_length: u64,
     ) -> ChunkStateWitness {
         let mut witness = ChunkStateWitness::new_dummy(height, shard_id, prev_block_hash);
-        match &mut witness.inner.chunk_header {
+        match &mut witness.chunk_header {
             ShardChunkHeader::V3(header) => match &mut header.inner {
                 ShardChunkHeaderInner::V2(inner) => inner.encoded_length = encoded_length,
+                ShardChunkHeaderInner::V3(inner) => inner.encoded_length = encoded_length,
                 _ => unimplemented!(),
             },
             _ => unimplemented!(),
@@ -214,7 +215,7 @@ mod tests {
         expected.sort_by(sort_comparator);
         if observed != expected {
             let print_witness_info = |witness: &ChunkStateWitness| {
-                let header = &witness.inner.chunk_header;
+                let header = &witness.chunk_header;
                 eprintln!(
                     "- height = {}, shard_id = {}, encoded_length: {} prev_block: {}",
                     header.height_created(),
@@ -358,7 +359,7 @@ mod tests {
         let waiting_for_100 = pool.take_state_witnesses_waiting_for_block(&block(100));
         assert_contents(waiting_for_100, vec![witness2]);
 
-        pool.remove_witnesses_below_final_height(103);
+        pool.remove_witnesses_below_final_height(102);
 
         let waiting_for_99 = pool.take_state_witnesses_waiting_for_block(&block(99));
         assert_contents(waiting_for_99, vec![]);

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-defines the LocalTestNeardRunner class meant to to test mocknet itself locally
+defines the LocalTestNeardRunner class meant to test mocknet itself locally
 """
 from argparse import ArgumentParser
 import http.server
@@ -92,7 +92,15 @@ class LocalTestNeardRunner:
         # handled by local_test_setup_cmd()
         return
 
+    def run_cmd(self, cmd, raise_on_fail=False, return_on_fail=False):
+        logger.error(
+            "Does not make sense to run command on local host. The behaviour may not be the desired one."
+        )
+
     def init_python(self):
+        return
+
+    def update_python(self):
         return
 
     def _pid_path(self):
@@ -158,12 +166,46 @@ def prompt_flags(args):
         args.neard_binary_path = sys.stdin.readline().strip()
         assert len(args.neard_binary_path) > 0
 
+    if args.fork_height is not None:
+        if not args.legacy_records:
+            print(
+                '--legacy-records not given. Assuming it based on --fork-height'
+            )
+            args.legacy_records = True
+    elif args.target_home_dir is not None:
+        if args.legacy_records:
+            sys.exit('cannot give --target-home-dir and --legacy-records')
+    elif not args.legacy_records:
+        print(
+            'prepare nodes with fork-network tool instead of genesis records JSON? [yes/no]:'
+        )
+        while True:
+            r = sys.stdin.readline().strip().lower()
+            if r == 'yes':
+                args.legacy_records = False
+                break
+            elif r == 'no':
+                args.legacy_records = True
+                break
+            else:
+                print('please say yes or no')
+
     if args.source_home_dir is None:
-        print('source home dir: ')
+        if args.legacy_records:
+            print('source home dir: ')
+        else:
+            print(
+                'source home dir containing the HEAD block of target home, plus more blocks after that: '
+            )
         args.source_home_dir = sys.stdin.readline().strip()
         assert len(args.source_home_dir) > 0
 
-    if args.fork_height is None:
+    if args.target_home_dir is None and not args.legacy_records:
+        print('target home dir whose HEAD is contained in --source-home-dir: ')
+        args.target_home_dir = sys.stdin.readline().strip()
+        assert len(args.target_home_dir) > 0
+
+    if args.legacy_records and args.fork_height is None:
         print('fork height: ')
         args.fork_height = sys.stdin.readline().strip()
         assert len(args.fork_height) > 0
@@ -202,12 +244,49 @@ def make_records(neard_binary_path, traffic_home_dir, start_height):
     ])
 
 
+def make_legacy_records(neard_binary_path, traffic_generator_home, node_homes,
+                        start_height):
+    make_records(neard_binary_path, traffic_generator_home / '.near',
+                 start_height)
+    for node_home in node_homes:
+        shutil.copyfile(traffic_generator_home / '.near/setup/genesis.json',
+                        node_home / '.near/setup/genesis.json')
+        shutil.copyfile(traffic_generator_home / '.near/setup/records.json',
+                        node_home / '.near/setup/records.json')
+
+
+def fork_db(neard_binary_path, target_home_dir, setup_dir):
+    copy_source_home(target_home_dir, setup_dir)
+
+    run_cmd([
+        neard_binary_path,
+        '--home',
+        setup_dir,
+        'fork-network',
+        'init',
+    ])
+    run_cmd([
+        neard_binary_path,
+        '--home',
+        setup_dir,
+        'fork-network',
+        'amend-access-keys',
+    ])
+    shutil.rmtree(setup_dir / 'data/fork-snapshot')
+
+
+def make_forked_network(neard_binary_path, traffic_generator_setup, node_homes,
+                        source_home_dir, target_home_dir):
+    for setup_dir in [h / '.near/setup' for h in node_homes
+                     ] + [traffic_generator_setup]:
+        fork_db(neard_binary_path, target_home_dir, setup_dir)
+
+
 def mkdirs(local_mocknet_path):
     traffic_generator_home = local_mocknet_path / 'traffic-generator'
     traffic_generator_home.mkdir()
     os.mkdir(traffic_generator_home / 'neard-runner')
     os.mkdir(traffic_generator_home / '.near')
-    os.mkdir(traffic_generator_home / '.near/setup')
     node_homes = []
     for i in range(args.num_nodes):
         node_home = local_mocknet_path / f'node{i}'
@@ -280,14 +359,18 @@ def get_node_homes(local_mocknet_path):
     return [local_mocknet_path / x[0] for x in node_homes]
 
 
+DEFAULT_LOCAL_MOCKNET_DIR = pathlib.Path.home() / '.near/local-mocknet'
+
+
 # return a NodeHandle for each of the neard runner directories in `local_mocknet_path`
-def get_nodes(local_mocknet_path=pathlib.Path.home() / '.near/local-mocknet'):
+def get_nodes(local_mocknet_path=DEFAULT_LOCAL_MOCKNET_DIR):
     runner_port = 3000
     neard_rpc_port = 3040
     neard_protocol_port = 24577
-    traffic_generator = NodeHandle(
-        LocalTestNeardRunner(local_mocknet_path / 'traffic-generator',
-                             runner_port, neard_rpc_port, neard_protocol_port))
+    traffic_generator = NodeHandle(LocalTestNeardRunner(
+        local_mocknet_path / 'traffic-generator', runner_port, neard_rpc_port,
+        neard_protocol_port),
+                                   can_validate=False)
 
     node_homes = get_node_homes(local_mocknet_path)
     nodes = []
@@ -326,8 +409,20 @@ def wait_node_serving(node):
 
 def local_test_setup_cmd(args):
     prompt_flags(args)
+    if args.source_home_dir is None:
+        sys.exit(f'must give --source-home-dir')
+    if args.legacy_records:
+        if args.target_home_dir is not None:
+            sys.exit(f'cannot give --target-home-dir with --legacy-records')
+        if args.fork_height is None:
+            sys.exit('must give --fork-height with --legacy-records')
+    else:
+        if args.target_home_dir is None:
+            sys.exit(f'must give --target-home-dir')
+        if args.fork_height is not None:
+            sys.exit('cannot give --fork-height without --legacy-records')
 
-    local_mocknet_path = pathlib.Path.home() / '.near/local-mocknet'
+    local_mocknet_path = DEFAULT_LOCAL_MOCKNET_DIR
     if os.path.exists(local_mocknet_path):
         if not args.yes:
             print(
@@ -344,15 +439,21 @@ def local_test_setup_cmd(args):
     os.mkdir(local_mocknet_path)
     traffic_generator_home, node_homes = mkdirs(local_mocknet_path)
 
-    copy_source_home(source_home_dir, traffic_generator_home / '.near')
-    make_records(neard_binary_path, traffic_generator_home / '.near',
-                 args.fork_height)
-    for node_home in node_homes:
-        shutil.copyfile(traffic_generator_home / '.near/setup/genesis.json',
-                        node_home / '.near/setup/genesis.json')
-        shutil.copyfile(traffic_generator_home / '.near/setup/records.json',
-                        node_home / '.near/setup/records.json')
-
+    if args.legacy_records:
+        setup_dir = traffic_generator_home / '.near/setup'
+        setup_dir.mkdir()
+        copy_source_home(source_home_dir, traffic_generator_home / '.near')
+        make_legacy_records(neard_binary_path, traffic_generator_home,
+                            node_homes, args.fork_height)
+    else:
+        source_dir = traffic_generator_home / '.near/source'
+        source_dir.mkdir()
+        setup_dir = traffic_generator_home / '.near/target/setup'
+        setup_dir.mkdir(parents=True)
+        copy_source_home(source_home_dir, source_dir)
+        target_home_dir = pathlib.Path(args.target_home_dir)
+        make_forked_network(neard_binary_path, setup_dir, node_homes,
+                            source_home_dir, target_home_dir)
     # now set up an HTTP server to serve the binary that each neard_runner.py will request
     binaries_path = make_binaries_dir(local_mocknet_path, neard_binary_path)
     binaries_server_addr = 'localhost'
@@ -428,6 +529,16 @@ if __name__ == '__main__':
     way to get machine-readable valid heights in a near data directory, but for now this flag must be given manually.
     ''')
     local_test_setup_parser.add_argument('--yes', action='store_true')
+    local_test_setup_parser.add_argument('--legacy-records',
+                                         action='store_true',
+                                         help='''
+    If given, setup a records.json file with forked state instead of using the neard fork-network command
+    ''')
+    local_test_setup_parser.add_argument('--target-home-dir',
+                                         type=str,
+                                         help='''
+    todo
+    ''')
     local_test_setup_parser.set_defaults(func=local_test_setup_cmd)
 
     args = parser.parse_args()

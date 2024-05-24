@@ -43,6 +43,8 @@ struct RunCmd {
     /// this height in the source chain
     #[clap(long)]
     stop_height: Option<BlockHeight>,
+    #[clap(long)]
+    config_path: Option<PathBuf>,
 }
 
 impl RunCmd {
@@ -80,6 +82,7 @@ impl RunCmd {
                     secret,
                     self.stop_height,
                     self.online_source,
+                    self.config_path,
                 ))
                 .await
             })

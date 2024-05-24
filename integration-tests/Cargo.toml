@@ -27,6 +27,7 @@ once_cell.workspace = true
 parking_lot.workspace = true
 primitive-types.workspace = true
 rand.workspace = true
+reed-solomon-erasure.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 smart-default.workspace = true
@@ -67,10 +68,14 @@ testlib.workspace = true
 
 [dev-dependencies]
 assert_matches.workspace = true
+aurora-engine-transactions.workspace = true
+aurora-engine-types.workspace = true
 derive-enum-from-into.workspace = true
+ethabi.workspace = true
 insta.workspace = true
 near-undo-block.workspace = true
 rlp.workspace = true
+sha3.workspace = true
 
 [features]
 performance_stats = [
@@ -78,7 +83,11 @@ performance_stats = [
   "near-network/performance_stats",
 ]
 expensive_tests = []
-test_features = ["nearcore/test_features", "near-store/test_features"]
+test_features = [
+  "nearcore/test_features",
+  "near-store/test_features",
+  "near-vm-runner/test_features",
+]
 protocol_feature_fix_contract_loading_cost = [
   "nearcore/protocol_feature_fix_contract_loading_cost",
 ]

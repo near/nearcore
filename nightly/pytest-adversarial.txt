@@ -18,3 +18,6 @@ pytest adversarial/start_from_genesis.py doomslug_off --features nightly
 # working on a fix.
 #pytest adversarial/gc_rollback.py
 #pytest adversarial/gc_rollback.py --features nightly
+
+pytest adversarial/chunk_missing.py
+pytest adversarial/chunk_missing.py --features nightly

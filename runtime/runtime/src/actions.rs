@@ -14,7 +14,9 @@ use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum};
+use near_primitives::receipt::{
+    ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0,
+};
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction,
@@ -57,10 +59,11 @@ fn get_contract_code(
     if checked_feature!("stable", EthImplicitAccounts, protocol_version)
         && account_id.get_account_type() == AccountType::EthImplicitAccount
     {
-        assert!(code_hash == *wallet_contract_magic_bytes().hash());
-        return Ok(Some(wallet_contract()));
+        let chain_id = runtime_ext.chain_id();
+        assert!(&code_hash == wallet_contract_magic_bytes(&chain_id).hash());
+        return Ok(Some(wallet_contract(&chain_id)));
     }
-    runtime_ext.get_code(code_hash).map(|option| option.map(Arc::new))
+    Ok(runtime_ext.get_code(code_hash).map(Arc::new))
 }
 
 /// Runs given function call with given context / apply state.
@@ -114,10 +117,14 @@ pub(crate) fn execute_function_call(
     // the first access time. Although nodes are accessed for other actions as well, we do it only here because we
     // charge only for trie nodes touched during function calls.
     // TODO (#5920): Consider using RAII for switching the state back
+
     let protocol_version = runtime_ext.protocol_version();
     if checked_feature!("stable", ChunkNodesCache, protocol_version) {
         runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingChunk);
     }
+
+    near_vm_runner::reset_metrics();
+
     let result_from_cache = near_vm_runner::run(
         account,
         None,
@@ -156,7 +163,7 @@ pub(crate) fn execute_function_call(
             if checked_feature!("stable", ChunkNodesCache, protocol_version) {
                 runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingChunk);
             }
-            near_vm_runner::run(
+            let r = near_vm_runner::run(
                 account,
                 Some(&code),
                 &function_call.method_name,
@@ -166,10 +173,19 @@ pub(crate) fn execute_function_call(
                 &config.fees,
                 promise_results,
                 apply_state.cache.as_deref(),
-            )
+            );
+            r
         }
         res => res,
     };
+
+    near_vm_runner::report_metrics(
+        &apply_state.shard_id.to_string(),
+        &apply_state
+            .apply_reason
+            .as_ref()
+            .map_or_else(|| String::from("unknown"), |r| r.to_string()),
+    );
 
     if checked_feature!("stable", ChunkNodesCache, protocol_version) {
         runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingShard);
@@ -237,6 +253,7 @@ pub(crate) fn action_function_call(
         )
         .into());
     }
+    state_update.trie.request_code_recording(account_id.clone());
     let mut receipt_manager = ReceiptManager::default();
     let mut runtime_ext = RuntimeExt::new(
         state_update,
@@ -253,7 +270,7 @@ pub(crate) fn action_function_call(
         apply_state,
         &mut runtime_ext,
         account,
-        &receipt.predecessor_id,
+        receipt.predecessor_id(),
         action_receipt,
         promise_results,
         function_call,
@@ -348,7 +365,7 @@ pub(crate) fn action_function_call(
                     actions: receipt.actions,
                 };
 
-                Receipt {
+                Receipt::V0(ReceiptV0 {
                     predecessor_id: account_id.clone(),
                     receiver_id: receipt.receiver_id,
                     // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
@@ -359,7 +376,7 @@ pub(crate) fn action_function_call(
                     } else {
                         ReceiptEnum::Action(new_action_receipt)
                     },
-                }
+                })
             })
             .collect();
 
@@ -367,7 +384,7 @@ pub(crate) fn action_function_call(
         new_receipts.extend(receipt_manager.data_receipts.into_iter().map(|receipt| {
             let new_data_receipt = DataReceipt { data_id: receipt.data_id, data: receipt.data };
 
-            Receipt {
+            Receipt::V0(ReceiptV0 {
                 predecessor_id: account_id.clone(),
                 receiver_id: account_id.clone(),
                 // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
@@ -378,7 +395,7 @@ pub(crate) fn action_function_call(
                 } else {
                     ReceiptEnum::Data(new_data_receipt)
                 },
-            }
+            })
         }));
 
         // Commit metadata for yielded promises queue
@@ -561,6 +578,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
     block_height: BlockHeight,
     current_protocol_version: ProtocolVersion,
     nonrefundable_storage_transfer: bool,
+    epoch_info_provider: &dyn EpochInfoProvider,
 ) {
     *actor_id = account_id.clone();
 
@@ -607,10 +625,12 @@ pub(crate) fn action_implicit_account_creation_transfer(
         // It holds because in the only calling site, we've checked the permissions before.
         AccountType::EthImplicitAccount => {
             if checked_feature!("stable", EthImplicitAccounts, current_protocol_version) {
+                let chain_id = epoch_info_provider.chain_id();
+
                 // We deploy "near[wallet contract hash]" magic bytes as the contract code,
                 // to mark that this is a neard-defined contract. It will not be used on a function call.
                 // Instead, neard-defined Wallet Contract implementation will be used.
-                let magic_bytes = wallet_contract_magic_bytes();
+                let magic_bytes = wallet_contract_magic_bytes(&chain_id);
 
                 let storage_usage = fee_config.storage_usage_config.num_bytes_account
                     + magic_bytes.code().len() as u64
@@ -630,7 +650,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
                 // Note this contract is shared among ETH-implicit accounts and `precompile_contract`
                 // is a no-op if the contract was already compiled.
                 precompile_contract(
-                    &wallet_contract(),
+                    &wallet_contract(&chain_id),
                     &apply_state.config.wasm_config,
                     apply_state.cache.as_deref(),
                 )
@@ -708,12 +728,14 @@ pub(crate) fn action_delete_account(
     // We use current amount as a pay out to beneficiary.
     let account_balance = account.as_ref().unwrap().amount();
     if account_balance > 0 {
-        result
-            .new_receipts
-            .push(Receipt::new_balance_refund(&delete_account.beneficiary_id, account_balance));
+        result.new_receipts.push(Receipt::new_balance_refund(
+            &delete_account.beneficiary_id,
+            account_balance,
+            ReceiptPriority::NoPriority,
+        ));
     }
     remove_account(state_update, account_id)?;
-    *actor_id = receipt.predecessor_id.clone();
+    *actor_id = receipt.predecessor_id().clone();
     *account = None;
     Ok(())
 }
@@ -808,6 +830,7 @@ pub(crate) fn apply_delegate_action(
     sender_id: &AccountId,
     signed_delegate_action: &SignedDelegateAction,
     result: &mut ActionResult,
+    _priority: ReceiptPriority,
 ) -> Result<(), RuntimeError> {
     let delegate_action = &signed_delegate_action.delegate_action;
 
@@ -836,7 +859,7 @@ pub(crate) fn apply_delegate_action(
     }
 
     // Generate a new receipt from DelegateAction.
-    let new_receipt = Receipt {
+    let new_receipt = Receipt::V0(ReceiptV0 {
         predecessor_id: sender_id.clone(),
         receiver_id: delegate_action.receiver_id.clone(),
         receipt_id: CryptoHash::default(),
@@ -849,7 +872,7 @@ pub(crate) fn apply_delegate_action(
             input_data_ids: vec![],
             actions: delegate_action.get_actions(),
         }),
-    };
+    });
 
     // Note, Relayer prepaid all fees and all things required by actions: attached deposits and attached gas.
     // If something goes wrong, deposit is refunded to the predecessor, this is sender_id/Sender in DelegateAction.
@@ -874,13 +897,13 @@ pub(crate) fn apply_delegate_action(
 
 /// Returns Gas amount is required to execute Receipt and all actions it contains
 fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<Gas, RuntimeError> {
-    Ok(match &receipt.receipt {
+    Ok(match receipt.receipt() {
         ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
             let mut required_gas = safe_add_gas(
                 total_prepaid_exec_fees(
                     &apply_state.config,
                     &action_receipt.actions,
-                    &receipt.receiver_id,
+                    receipt.receiver_id(),
                 )?,
                 total_prepaid_gas(&action_receipt.actions)?,
             )?;
@@ -1180,6 +1203,7 @@ mod tests {
     use near_primitives_core::version::PROTOCOL_VERSION;
     use near_store::set_account;
     use near_store::test_utils::TestTriesBuilder;
+    use std::collections::HashMap;
     use std::sync::Arc;
 
     fn test_action_create_account(
@@ -1291,7 +1315,11 @@ mod tests {
             Some(Account::new(100, 0, 0, *code_hash, storage_usage, PROTOCOL_VERSION));
         let mut actor_id = account_id.clone();
         let mut action_result = ActionResult::default();
-        let receipt = Receipt::new_balance_refund(&"alice.near".parse().unwrap(), 0);
+        let receipt = Receipt::new_balance_refund(
+            &"alice.near".parse().unwrap(),
+            0,
+            ReceiptPriority::NoPriority,
+        );
         let res = action_delete_account(
             state_update,
             &mut account,
@@ -1400,9 +1428,11 @@ mod tests {
 
     fn create_apply_state(block_height: BlockHeight) -> ApplyState {
         ApplyState {
+            apply_reason: None,
             block_height,
             prev_block_hash: CryptoHash::default(),
             block_hash: CryptoHash::default(),
+            shard_id: ShardUId::single_shard().shard_id(),
             epoch_id: EpochId::default(),
             epoch_height: 3,
             gas_price: 2,
@@ -1415,6 +1445,7 @@ mod tests {
             is_new_chunk: false,
             migration_data: Arc::default(),
             migration_flags: MigrationFlags::default(),
+            congestion_info: HashMap::new(),
         }
     }
 
@@ -1462,13 +1493,14 @@ mod tests {
             &sender_id,
             &signed_delegate_action,
             &mut result,
+            ReceiptPriority::NoPriority,
         )
         .expect("Expect ok");
 
         assert!(result.result.is_ok(), "Result error: {:?}", result.result.err());
         assert_eq!(
             result.new_receipts,
-            vec![Receipt {
+            vec![Receipt::V0(ReceiptV0 {
                 predecessor_id: sender_id.clone(),
                 receiver_id: signed_delegate_action.delegate_action.receiver_id.clone(),
                 receipt_id: CryptoHash::default(),
@@ -1479,8 +1511,8 @@ mod tests {
                     output_data_receivers: Vec::new(),
                     input_data_ids: Vec::new(),
                     actions: signed_delegate_action.delegate_action.get_actions(),
-                })
-            }]
+                }),
+            })]
         );
     }
 
@@ -1506,6 +1538,7 @@ mod tests {
             &sender_id,
             &signed_delegate_action,
             &mut result,
+            ReceiptPriority::NoPriority,
         )
         .expect("Expect ok");
 
@@ -1532,6 +1565,7 @@ mod tests {
             &sender_id,
             &signed_delegate_action,
             &mut result,
+            ReceiptPriority::NoPriority,
         )
         .expect("Expect ok");
 
@@ -1558,6 +1592,7 @@ mod tests {
             &"www.test.near".parse().unwrap(),
             &signed_delegate_action,
             &mut result,
+            ReceiptPriority::NoPriority,
         )
         .expect("Expect ok");
 

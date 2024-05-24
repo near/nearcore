@@ -47,7 +47,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "ACTION_COST",
             cost: "FUNCTION_CALL_BASE",
-            gas_used: 20878753500000,
+            gas_used: 1800000000000,
         },
         CostGasUsed {
             cost_category: "ACTION_COST",

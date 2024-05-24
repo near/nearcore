@@ -92,6 +92,27 @@ fn get_git_version() -> Result<String> {
     }
 }
 
+/// Get features enabled using the --features flag.
+fn get_enabled_features() -> String {
+    let mut features: Vec<String> = Vec::new();
+
+    // Every enabled feature has a corresponding environment variable that is set to 1
+    // For example:
+    // CARGO_FEATURE_JSON_RPC=1
+    // CARGO_FEATURE_ROSETTA_RPC=1
+    // ..
+
+    let feature_start = "CARGO_FEATURE_";
+    for (variable, value) in std::env::vars() {
+        if variable.starts_with(feature_start) && value == "1" {
+            features.push(variable[feature_start.len()..].to_string().to_lowercase());
+        }
+    }
+    features.sort();
+
+    features.join(", ")
+}
+
 fn main() {
     if let Err(err) = try_main() {
         eprintln!("{}", err);
@@ -113,6 +134,8 @@ fn try_main() -> Result<()> {
     println!("cargo:rustc-env=NEARD_BUILD={}", get_git_version()?);
 
     println!("cargo:rustc-env=NEARD_RUSTC_VERSION={}", rustc_version::version()?);
+
+    println!("cargo:rustc-env=NEARD_FEATURES={}", get_enabled_features());
 
     Ok(())
 }

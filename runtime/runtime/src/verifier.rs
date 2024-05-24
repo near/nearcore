@@ -98,13 +98,17 @@ pub fn validate_transaction(
     verify_signature: bool,
     current_protocol_version: ProtocolVersion,
 ) -> Result<TransactionCost, RuntimeError> {
+    // Don't allow V1 currently. This will be changed when the new protocol version is introduced.
+    if matches!(signed_transaction.transaction, near_primitives::transaction::Transaction::V1(_)) {
+        return Err(InvalidTxError::InvalidTransactionVersion.into());
+    }
     let transaction = &signed_transaction.transaction;
-    let signer_id = &transaction.signer_id;
+    let signer_id = transaction.signer_id();
 
     if verify_signature
         && !signed_transaction
             .signature
-            .verify(signed_transaction.get_hash().as_ref(), &transaction.public_key)
+            .verify(signed_transaction.get_hash().as_ref(), transaction.public_key())
     {
         return Err(InvalidTxError::InvalidSignature.into());
     }
@@ -121,14 +125,14 @@ pub fn validate_transaction(
 
     validate_actions(
         &config.wasm_config.limit_config,
-        &transaction.actions,
+        transaction.actions(),
         current_protocol_version,
     )
     .map_err(InvalidTxError::ActionsValidation)?;
 
-    let sender_is_receiver = &transaction.receiver_id == signer_id;
+    let sender_is_receiver = transaction.receiver_id() == signer_id;
 
-    tx_cost(&config, transaction, gas_price, sender_is_receiver)
+    tx_cost(&config, transaction, gas_price, sender_is_receiver, current_protocol_version)
         .map_err(|_| InvalidTxError::CostOverflow.into())
 }
 
@@ -143,6 +147,7 @@ pub fn verify_and_charge_transaction(
     block_height: Option<BlockHeight>,
     current_protocol_version: ProtocolVersion,
 ) -> Result<VerificationResult, RuntimeError> {
+    let _span = tracing::debug_span!(target: "runtime", "verify_and_charge_transaction").entered();
     let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
         validate_transaction(
             config,
@@ -151,8 +156,9 @@ pub fn verify_and_charge_transaction(
             verify_signature,
             current_protocol_version,
         )?;
+
     let transaction = &signed_transaction.transaction;
-    let signer_id = &transaction.signer_id;
+    let signer_id = transaction.signer_id();
 
     let mut signer = match get_account(state_update, signer_id)? {
         Some(signer) => signer,
@@ -160,22 +166,22 @@ pub fn verify_and_charge_transaction(
             return Err(InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() }.into());
         }
     };
-    let mut access_key = match get_access_key(state_update, signer_id, &transaction.public_key)? {
+    let mut access_key = match get_access_key(state_update, signer_id, transaction.public_key())? {
         Some(access_key) => access_key,
         None => {
             return Err(InvalidTxError::InvalidAccessKeyError(
                 InvalidAccessKeyError::AccessKeyNotFound {
                     account_id: signer_id.clone(),
-                    public_key: transaction.public_key.clone().into(),
+                    public_key: transaction.public_key().clone().into(),
                 },
             )
             .into());
         }
     };
 
-    if transaction.nonce <= access_key.nonce {
+    if transaction.nonce() <= access_key.nonce {
         return Err(InvalidTxError::InvalidNonce {
-            tx_nonce: transaction.nonce,
+            tx_nonce: transaction.nonce(),
             ak_nonce: access_key.nonce,
         }
         .into());
@@ -184,9 +190,9 @@ pub fn verify_and_charge_transaction(
         if let Some(height) = block_height {
             let upper_bound =
                 height * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
-            if transaction.nonce >= upper_bound {
+            if transaction.nonce() >= upper_bound {
                 return Err(InvalidTxError::NonceTooLarge {
-                    tx_nonce: transaction.nonce,
+                    tx_nonce: transaction.nonce(),
                     upper_bound,
                 }
                 .into());
@@ -194,7 +200,7 @@ pub fn verify_and_charge_transaction(
         }
     };
 
-    access_key.nonce = transaction.nonce;
+    access_key.nonce = transaction.nonce();
 
     signer.set_amount(signer.amount().checked_sub(total_cost).ok_or_else(|| {
         InvalidTxError::NotEnoughBalance {
@@ -211,7 +217,7 @@ pub fn verify_and_charge_transaction(
             *allowance = allowance.checked_sub(total_cost).ok_or_else(|| {
                 InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::NotEnoughAllowance {
                     account_id: signer_id.clone(),
-                    public_key: transaction.public_key.clone().into(),
+                    public_key: transaction.public_key().clone().into(),
                     allowance: *allowance,
                     cost: total_cost,
                 })
@@ -234,23 +240,23 @@ pub fn verify_and_charge_transaction(
     };
 
     if let AccessKeyPermission::FunctionCall(ref function_call_permission) = access_key.permission {
-        if transaction.actions.len() != 1 {
+        if transaction.actions().len() != 1 {
             return Err(InvalidTxError::InvalidAccessKeyError(
                 InvalidAccessKeyError::RequiresFullAccess,
             )
             .into());
         }
-        if let Some(Action::FunctionCall(ref function_call)) = transaction.actions.get(0) {
+        if let Some(Action::FunctionCall(ref function_call)) = transaction.actions().get(0) {
             if function_call.deposit > 0 {
                 return Err(InvalidTxError::InvalidAccessKeyError(
                     InvalidAccessKeyError::DepositWithFunctionCall,
                 )
                 .into());
             }
-            if transaction.receiver_id != function_call_permission.receiver_id {
+            if transaction.receiver_id() != &function_call_permission.receiver_id {
                 return Err(InvalidTxError::InvalidAccessKeyError(
                     InvalidAccessKeyError::ReceiverMismatch {
-                        tx_receiver: transaction.receiver_id.clone(),
+                        tx_receiver: transaction.receiver_id().clone(),
                         ak_receiver: function_call_permission.receiver_id.clone(),
                     },
                 )
@@ -277,7 +283,7 @@ pub fn verify_and_charge_transaction(
         }
     };
 
-    set_access_key(state_update, signer_id.clone(), transaction.public_key.clone(), &access_key);
+    set_access_key(state_update, signer_id.clone(), transaction.public_key().clone(), &access_key);
     set_account(state_update, signer_id.clone(), &signer);
 
     Ok(VerificationResult { gas_burnt, gas_remaining, receipt_gas_price, burnt_amount })
@@ -292,16 +298,16 @@ pub(crate) fn validate_receipt(
     // We retain these checks here as to maintain backwards compatibility
     // with AccountId validation since we illegally parse an AccountId
     // in near-vm-logic/logic.rs#fn(VMLogic::read_and_parse_account_id)
-    AccountId::validate(receipt.predecessor_id.as_ref()).map_err(|_| {
+    AccountId::validate(receipt.predecessor_id().as_ref()).map_err(|_| {
         ReceiptValidationError::InvalidPredecessorId {
-            account_id: receipt.predecessor_id.to_string(),
+            account_id: receipt.predecessor_id().to_string(),
         }
     })?;
-    AccountId::validate(receipt.receiver_id.as_ref()).map_err(|_| {
-        ReceiptValidationError::InvalidReceiverId { account_id: receipt.receiver_id.to_string() }
+    AccountId::validate(receipt.receiver_id().as_ref()).map_err(|_| {
+        ReceiptValidationError::InvalidReceiverId { account_id: receipt.receiver_id().to_string() }
     })?;
 
-    match &receipt.receipt {
+    match receipt.receipt() {
         ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
             validate_action_receipt(limit_config, action_receipt, current_protocol_version)
         }
@@ -573,6 +579,7 @@ mod tests {
     use near_primitives::account::{AccessKey, FunctionCallPermission};
     use near_primitives::action::delegate::{DelegateAction, NonDelegateAction};
     use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::receipt::ReceiptPriority;
     use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{
         CreateAccountAction, DeleteAccountAction, DeleteKeyAction, StakeAction, TransferAction,
@@ -960,6 +967,7 @@ mod tests {
                     deposit: 0,
                 }))],
                 CryptoHash::default(),
+                0,
             ),
             RuntimeError::InvalidTxError(InvalidTxError::ActionsValidation(
                 ActionsValidationError::TotalPrepaidGasExceeded {
@@ -1054,6 +1062,29 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_transaction_invalid_transaction_version() {
+        let config = RuntimeConfig::test();
+        let (signer, mut state_update, gas_price) =
+            setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
+
+        assert_err_both_validations(
+            &config,
+            &mut state_update,
+            gas_price,
+            &SignedTransaction::from_actions_v1(
+                1,
+                alice_account(),
+                bob_account(),
+                &*signer,
+                vec![Action::Transfer(TransferAction { deposit: 100 })],
+                CryptoHash::default(),
+                1,
+            ),
+            RuntimeError::InvalidTxError(InvalidTxError::InvalidTransactionVersion),
+        );
+    }
+
+    #[test]
     fn test_validate_transaction_invalid_not_enough_balance() {
         let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) =
@@ -1122,6 +1153,7 @@ mod tests {
                     deposit: 0,
                 }))],
                 CryptoHash::default(),
+                0,
             ),
             true,
             None,
@@ -1257,6 +1289,7 @@ mod tests {
                         Action::CreateAccount(CreateAccountAction {})
                     ],
                     CryptoHash::default(),
+                    0
                 ),
                 true,
                 None,
@@ -1280,6 +1313,7 @@ mod tests {
                     &*signer,
                     vec![],
                     CryptoHash::default(),
+                    0
                 ),
                 true,
                 None,
@@ -1303,6 +1337,7 @@ mod tests {
                     &*signer,
                     vec![Action::CreateAccount(CreateAccountAction {})],
                     CryptoHash::default(),
+                    0
                 ),
                 true,
                 None,
@@ -1348,6 +1383,7 @@ mod tests {
                         deposit: 0,
                     })),],
                     CryptoHash::default(),
+                    0
                 ),
                 true,
                 None,
@@ -1396,6 +1432,7 @@ mod tests {
                         deposit: 0,
                     })),],
                     CryptoHash::default(),
+                    0
                 ),
                 true,
                 None,
@@ -1441,6 +1478,7 @@ mod tests {
                         deposit: 100,
                     })),],
                     CryptoHash::default(),
+                    0
                 ),
                 true,
                 None,
@@ -1465,6 +1503,7 @@ mod tests {
             &*signer,
             vec![Action::DeployContract(DeployContractAction { code: vec![1; 5] })],
             CryptoHash::default(),
+            0,
         );
         let transaction_size = transaction.get_size();
 
@@ -1509,7 +1548,7 @@ mod tests {
         let limit_config = test_limit_config();
         validate_receipt(
             &limit_config,
-            &Receipt::new_balance_refund(&alice_account(), 10),
+            &Receipt::new_balance_refund(&alice_account(), 10, ReceiptPriority::NoPriority),
             PROTOCOL_VERSION,
         )
         .expect("valid receipt");

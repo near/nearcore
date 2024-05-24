@@ -6,6 +6,7 @@ use crate::types::{
 use near_async::time::Clock;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
@@ -128,6 +129,7 @@ pub(crate) fn process_shard_update(
 ) -> Result<ShardUpdateResult, Error> {
     Ok(match shard_update_reason {
         ShardUpdateReason::NewChunk(data) => ShardUpdateResult::NewChunk(apply_new_chunk(
+            ApplyChunkReason::UpdateTrackedShard,
             parent_span,
             data,
             shard_context,
@@ -135,6 +137,7 @@ pub(crate) fn process_shard_update(
             epoch_manager,
         )?),
         ShardUpdateReason::OldChunk(data) => ShardUpdateResult::OldChunk(apply_old_chunk(
+            ApplyChunkReason::UpdateTrackedShard,
             parent_span,
             data,
             shard_context,
@@ -154,6 +157,7 @@ pub(crate) fn process_shard_update(
 /// Applies new chunk, which includes applying transactions from chunk and
 /// receipts filtered from outgoing receipts from previous chunks.
 pub fn apply_new_chunk(
+    apply_reason: ApplyChunkReason,
     parent_span: &tracing::Span,
     data: NewChunkData,
     shard_context: ShardContext,
@@ -173,7 +177,7 @@ pub fn apply_new_chunk(
     let _span = tracing::debug_span!(
         target: "chain",
         parent: parent_span,
-        "new_chunk",
+        "apply_new_chunk",
         shard_id)
     .entered();
     let gas_limit = chunk_header.gas_limit();
@@ -187,6 +191,7 @@ pub fn apply_new_chunk(
     };
     match runtime.apply_chunk(
         storage_config,
+        apply_reason,
         ApplyChunkShardContext {
             shard_id,
             last_validator_proposals: chunk_header.prev_validator_proposals(),
@@ -225,6 +230,7 @@ pub fn apply_new_chunk(
 /// (logunov) From what I know, the state update may include only validator
 /// accounts update on epoch start.
 pub fn apply_old_chunk(
+    apply_reason: ApplyChunkReason,
     parent_span: &tracing::Span,
     data: OldChunkData,
     shard_context: ShardContext,
@@ -236,7 +242,7 @@ pub fn apply_old_chunk(
     let _span = tracing::debug_span!(
         target: "chain",
         parent: parent_span,
-        "existing_chunk",
+        "apply_old_chunk",
         shard_id)
     .entered();
 
@@ -248,6 +254,7 @@ pub fn apply_old_chunk(
     };
     match runtime.apply_chunk(
         storage_config,
+        apply_reason,
         ApplyChunkShardContext {
             shard_id,
             last_validator_proposals: prev_chunk_extra.validator_proposals(),
@@ -295,7 +302,7 @@ fn apply_resharding(
     let _span = tracing::debug_span!(
         target: "chain",
         parent: parent_span,
-        "resharding",
+        "apply_resharding",
         shard_id,
         ?shard_uid)
     .entered();
@@ -329,6 +336,7 @@ fn apply_resharding_state_changes(
     let state_changes = StateChangesForResharding::from_raw_state_changes(
         apply_result.trie_changes.state_changes(),
         apply_result.processed_delayed_receipts.clone(),
+        apply_result.processed_yield_timeouts.clone(),
     );
     let next_epoch_id = epoch_manager.get_next_epoch_id_from_prev_block(&block.prev_block_hash)?;
     let next_shard_layout = epoch_manager.get_shard_layout(&next_epoch_id)?;

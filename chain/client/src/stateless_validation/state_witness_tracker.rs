@@ -5,6 +5,7 @@ use lru::LruCache;
 use near_async::time::Clock;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::stateless_validation::{ChunkStateWitness, ChunkStateWitnessAck};
+use s3::creds::time::ext::InstantExt as _;
 use std::hash::Hash;
 
 /// Limit to the number of witnesses tracked.
@@ -24,7 +25,7 @@ struct ChunkStateWitnessKey {
 
 impl ChunkStateWitnessKey {
     pub fn new(witness: &ChunkStateWitness) -> Self {
-        Self { chunk_hash: witness.inner.chunk_header.chunk_hash() }
+        Self { chunk_hash: witness.chunk_header.chunk_hash() }
     }
 }
 
@@ -101,7 +102,9 @@ impl ChunkStateWitnessTracker {
         if received_time > record.sent_timestamp {
             metrics::CHUNK_STATE_WITNESS_NETWORK_ROUNDTRIP_TIME
                 .with_label_values(&[witness_size_bucket(record.witness_size)])
-                .observe((received_time - record.sent_timestamp).as_seconds_f64());
+                .observe(
+                    (received_time.signed_duration_since(record.sent_timestamp)).as_seconds_f64(),
+                );
         }
     }
 

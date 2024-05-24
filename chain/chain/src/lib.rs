@@ -1,4 +1,4 @@
-pub use block_processing_utils::{BlockProcessingArtifact, DoneApplyChunkCallback};
+pub use block_processing_utils::BlockProcessingArtifact;
 pub use chain::{check_known, collect_receipts, Chain};
 pub use chain_update::ChainUpdate;
 pub use doomslug::{Doomslug, DoomslugBlockProductionReadiness, DoomslugThresholdMode};

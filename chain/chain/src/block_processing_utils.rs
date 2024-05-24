@@ -68,13 +68,6 @@ pub struct BlockProcessingArtifact {
     pub invalid_chunks: Vec<ShardChunkHeader>,
 }
 
-/// This struct defines the callback function that will be called after apply chunks are finished
-/// for each block. Multiple functions that might trigger the start processing of new blocks has
-/// this as an argument. Caller of these functions must note that this callback can be called multiple
-/// times, for different blocks, because these functions may trigger the processing of more than
-/// one block.
-pub type DoneApplyChunkCallback = Arc<dyn Fn(CryptoHash) -> () + Send + Sync + 'static>;
-
 #[derive(Debug)]
 pub struct BlockNotInPoolError;
 

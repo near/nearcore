@@ -12,10 +12,12 @@ use near_chain_configs::{
 };
 use near_crypto::PublicKey;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
-use near_parameters::{ActionCosts, ExtCosts, RuntimeConfigStore};
+use near_parameters::{ActionCosts, ExtCosts, RuntimeConfig, RuntimeConfigStore};
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::checked_feature;
+use near_primitives::congestion_info::{CongestionControl, ExtendedCongestionInfo};
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
@@ -31,7 +33,7 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
     ShardId, StateChangeCause, StateChangesForResharding, StateRoot, StateRootNode,
 };
-use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, ContractCodeView, QueryRequest, QueryResponse,
     QueryResponseKind, ViewApplyState, ViewStateResult,
@@ -246,6 +248,7 @@ impl NightshadeRuntime {
     fn process_state_update(
         &self,
         trie: Trie,
+        apply_reason: ApplyChunkReason,
         chunk: ApplyChunkShardContext,
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],
@@ -260,6 +263,7 @@ impl NightshadeRuntime {
             gas_price,
             challenges_result,
             random_seed,
+            congestion_info,
         } = block;
         let ApplyChunkShardContext {
             shard_id,
@@ -360,9 +364,11 @@ impl NightshadeRuntime {
         );
 
         let apply_state = ApplyState {
+            apply_reason: Some(apply_reason),
             block_height,
             prev_block_hash: *prev_block_hash,
             block_hash,
+            shard_id,
             epoch_id,
             epoch_height,
             gas_price,
@@ -378,6 +384,7 @@ impl NightshadeRuntime {
                 is_first_block_of_version,
                 is_first_block_with_chunk_of_version,
             },
+            congestion_info,
         };
 
         let instant = Instant::now();
@@ -414,12 +421,12 @@ impl NightshadeRuntime {
             apply_result.outcomes.iter().map(|tx_result| tx_result.outcome.gas_burnt).sum();
         metrics::APPLY_CHUNK_DELAY
             .with_label_values(&[&format_total_gas_burnt(total_gas_burnt)])
-            .observe(elapsed.as_seconds_f64());
+            .observe(elapsed.as_secs_f64());
         let shard_label = shard_id.to_string();
         metrics::DELAYED_RECEIPTS_COUNT
             .with_label_values(&[&shard_label])
             .set(apply_result.delayed_receipts_count as i64);
-        if let Some(metrics) = apply_result.metrics {
+        if let Some(mut metrics) = apply_result.metrics {
             metrics.report(&shard_label);
         }
 
@@ -451,7 +458,9 @@ impl NightshadeRuntime {
             total_balance_burnt,
             proof: apply_result.proof,
             processed_delayed_receipts: apply_result.processed_delayed_receipts,
+            processed_yield_timeouts: apply_result.processed_yield_timeouts,
             applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
+            congestion_info: apply_result.congestion_info,
         };
 
         Ok(result)
@@ -639,7 +648,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         if let Some(state_root) = state_root {
             let shard_uid =
-                self.account_id_to_shard_uid(&transaction.transaction.signer_id, epoch_id)?;
+                self.account_id_to_shard_uid(transaction.transaction.signer_id(), epoch_id)?;
             let mut state_update = self.tries.new_trie_update(shard_uid, state_root);
 
             match verify_and_charge_transaction(
@@ -692,8 +701,15 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<PreparedTransactions, Error> {
         let start_time = std::time::Instant::now();
         let PrepareTransactionsChunkContext { shard_id, gas_limit } = chunk;
+
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block.block_hash)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+
+        let next_epoch_id =
+            self.epoch_manager.get_next_epoch_id_from_prev_block(&(&prev_block.block_hash))?;
+        let next_protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
+
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
         // While the height of the next block that includes the chunk might not be prev_height + 1,
         // using it will result in a more conservative check and will not accidentally allow
@@ -710,7 +726,11 @@ impl RuntimeAdapter for NightshadeRuntime {
                 storage_config.use_flat_storage,
             ),
         };
-        if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION)
+        // We need to start recording reads if the stateless validation is
+        // enabled in the next epoch. We need to save the state transition data
+        // in the current epoch to be able to produce the state witness in the
+        // next epoch.
+        if checked_feature!("stable", StateWitnessSizeLimit, next_protocol_version)
             || cfg!(feature = "shadow_chunk_validation")
         {
             trie = trie.recording_reads();
@@ -720,16 +740,18 @@ impl RuntimeAdapter for NightshadeRuntime {
         // Total amount of gas burnt for converting transactions towards receipts.
         let mut total_gas_burnt = 0;
         let mut total_size = 0u64;
-        // TODO: Update gas limit for transactions
-        let transactions_gas_limit = gas_limit / 2;
+
+        let runtime_config = self.runtime_config_store.get_config(protocol_version);
+
+        let transactions_gas_limit =
+            chunk_tx_gas_limit(protocol_version, runtime_config, &prev_block, shard_id, gas_limit);
+
         let mut result = PreparedTransactions {
             transactions: Vec::new(),
             limited_by: None,
             storage_proof: None,
         };
         let mut num_checked_transactions = 0;
-
-        let runtime_config = self.runtime_config_store.get_config(protocol_version);
 
         // To avoid limiting the throughput of the network, we want to include enough receipts to
         // saturate the capacity of the chunk even in case when all of these receipts end up using
@@ -765,6 +787,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         let size_limit = transactions_gas_limit
             / (runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::storage_write_value_byte)
                 + runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::storage_read_value_byte));
+        // for metrics only
+        let mut rejected_due_to_congestion = 0;
+        let mut rejected_invalid_tx = 0;
+        let mut rejected_invalid_for_chain = 0;
 
         // Add new transactions to the result until some limit is hit or the transactions run out.
         loop {
@@ -776,10 +802,17 @@ impl RuntimeAdapter for NightshadeRuntime {
                 result.limited_by = Some(PrepareTransactionsLimit::Size);
                 break;
             }
-            if result.transactions.len() >= new_receipt_count_limit {
-                result.limited_by = Some(PrepareTransactionsLimit::ReceiptCount);
-                break;
+            if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
+                // Keep this for the upgrade phase, afterwards it can be
+                // removed. It does not need to be kept because it does not
+                // affect replayability.
+                // TODO: remove at release CongestionControl + 1 or later
+                if result.transactions.len() >= new_receipt_count_limit {
+                    result.limited_by = Some(PrepareTransactionsLimit::ReceiptCount);
+                    break;
+                }
             }
+
             if let Some(time_limit) = &time_limit {
                 if start_time.elapsed() >= *time_limit {
                     result.limited_by = Some(PrepareTransactionsLimit::Time);
@@ -790,9 +823,33 @@ impl RuntimeAdapter for NightshadeRuntime {
             if let Some(iter) = transaction_groups.next() {
                 while let Some(tx) = iter.next() {
                     num_checked_transactions += 1;
+
+                    if ProtocolFeature::CongestionControl.enabled(protocol_version) {
+                        let receiving_shard = EpochManagerAdapter::account_id_to_shard_id(
+                            self.epoch_manager.as_ref(),
+                            tx.transaction.receiver_id(),
+                            &epoch_id,
+                        )?;
+                        if let Some(congestion_info) =
+                            prev_block.congestion_info.get(&receiving_shard)
+                        {
+                            let congestion_control = CongestionControl::new(
+                                runtime_config.congestion_control_config,
+                                congestion_info.congestion_info,
+                                congestion_info.missed_chunks_count,
+                            );
+                            if !congestion_control.shard_accepts_transactions() {
+                                tracing::trace!(target: "runtime", tx=?tx.get_hash(), "discarding transaction due to congestion");
+                                rejected_due_to_congestion += 1;
+                                continue;
+                            }
+                        }
+                    }
+
                     // Verifying the transaction is on the same chain and hasn't expired yet.
                     if !chain_validate(&tx) {
                         tracing::trace!(target: "runtime", tx=?tx.get_hash(), "discarding transaction that failed chain validation");
+                        rejected_invalid_for_chain += 1;
                         continue;
                     }
 
@@ -816,6 +873,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         }
                         Err(RuntimeError::InvalidTxError(err)) => {
                             tracing::trace!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction that is invalid");
+                            rejected_invalid_tx += 1;
                             state_update.rollback();
                         }
                         Err(RuntimeError::StorageError(err)) => {
@@ -830,9 +888,21 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
         }
         debug!(target: "runtime", "Transaction filtering results {} valid out of {} pulled from the pool", result.transactions.len(), num_checked_transactions);
-        metrics::PREPARE_TX_SIZE
-            .with_label_values(&[&shard_id.to_string()])
-            .observe(total_size as f64);
+        let shard_label = shard_id.to_string();
+        metrics::PREPARE_TX_SIZE.with_label_values(&[&shard_label]).observe(total_size as f64);
+        metrics::PREPARE_TX_REJECTED
+            .with_label_values(&[&shard_label, "congestion"])
+            .observe(rejected_due_to_congestion as f64);
+        metrics::PREPARE_TX_REJECTED
+            .with_label_values(&[&shard_label, "invalid_tx"])
+            .observe(rejected_invalid_tx as f64);
+        metrics::PREPARE_TX_REJECTED
+            .with_label_values(&[&shard_label, "invalid_block_hash"])
+            .observe(rejected_invalid_for_chain as f64);
+        metrics::PREPARE_TX_GAS.with_label_values(&[&shard_label]).observe(total_gas_burnt as f64);
+        metrics::CONGESTION_PREPARE_TX_GAS_LIMIT
+            .with_label_values(&[&shard_label])
+            .set(i64::try_from(transactions_gas_limit).unwrap_or(i64::MAX));
         result.storage_proof = state_update.trie.recorded_storage().map(|s| s.nodes);
         Ok(result)
     }
@@ -852,6 +922,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn apply_chunk(
         &self,
         storage_config: RuntimeStorageConfig,
+        apply_reason: ApplyChunkReason,
         chunk: ApplyChunkShardContext,
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],
@@ -874,7 +945,16 @@ impl RuntimeAdapter for NightshadeRuntime {
                 storage_config.use_flat_storage,
             ),
         };
-        if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION)
+        let next_epoch_id =
+            self.epoch_manager.get_next_epoch_id_from_prev_block(&block.prev_block_hash)?;
+        let next_protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
+
+        // We need to start recording reads if the stateless validation is
+        // enabled in the next epoch. We need to save the state transition data
+        // in the current epoch to be able to produce the state witness in the
+        // next epoch.
+        if checked_feature!("stable", StateWitnessSizeLimit, next_protocol_version)
             || cfg!(feature = "shadow_chunk_validation")
         {
             trie = trie.recording_reads();
@@ -882,6 +962,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         match self.process_state_update(
             trie,
+            apply_reason,
             chunk,
             block,
             receipts,
@@ -1073,7 +1154,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let is_ok = if res.is_ok() { "ok" } else { "error" };
         metrics::STATE_SYNC_OBTAIN_PART_DELAY
             .with_label_values(&[&shard_id.to_string(), is_ok])
-            .observe(elapsed.as_seconds_f64());
+            .observe(elapsed.as_secs_f64());
         res
     }
 
@@ -1242,31 +1323,38 @@ impl RuntimeAdapter for NightshadeRuntime {
         let epoch_manager = self.epoch_manager.read();
         Ok(epoch_manager.will_shard_layout_change(parent_hash)?)
     }
+}
 
-    fn load_mem_tries_on_startup(&self, tracked_shards: &[ShardUId]) -> Result<(), StorageError> {
-        self.tries.load_mem_tries_for_enabled_shards(tracked_shards)
-    }
-
-    fn load_mem_trie_on_catchup(
-        &self,
-        shard_uid: &ShardUId,
-        state_root: &StateRoot,
-    ) -> Result<(), StorageError> {
-        if !self.get_tries().trie_config().load_mem_tries_for_tracked_shards {
-            return Ok(());
+/// How much gas of the next chunk we want to spend on converting new
+/// transactions to receipts.
+fn chunk_tx_gas_limit(
+    protocol_version: u32,
+    runtime_config: &RuntimeConfig,
+    prev_block: &PrepareTransactionsBlockContext,
+    shard_id: u64,
+    gas_limit: u64,
+) -> u64 {
+    if ProtocolFeature::CongestionControl.enabled(protocol_version) {
+        if let Some(own_congestion) = prev_block.congestion_info.get(&shard_id) {
+            let congestion_control = CongestionControl::new(
+                runtime_config.congestion_control_config,
+                own_congestion.congestion_info,
+                own_congestion.missed_chunks_count,
+            );
+            congestion_control.process_tx_limit()
+        } else {
+            // When a new shard is created, or when the feature is just being enabled.
+            // Using the default (no congestion) is a reasonable choice in this case.
+            let own_congestion = ExtendedCongestionInfo::default();
+            let congestion_control = CongestionControl::new(
+                runtime_config.congestion_control_config,
+                own_congestion.congestion_info,
+                own_congestion.missed_chunks_count,
+            );
+            congestion_control.process_tx_limit()
         }
-        // It should not happen that memtrie is already loaded for a shard
-        // for which we just did state sync.
-        debug_assert!(!self.tries.is_mem_trie_loaded(shard_uid));
-        self.tries.load_mem_trie(shard_uid, Some(*state_root))
-    }
-
-    fn retain_mem_tries(&self, shard_uids: &[ShardUId]) {
-        self.tries.retain_mem_tries(shard_uids)
-    }
-
-    fn unload_mem_trie(&self, shard_uid: &ShardUId) {
-        self.tries.unload_mem_trie(shard_uid)
+    } else {
+        gas_limit / 2
     }
 }
 
@@ -1310,6 +1398,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
     ) -> Result<Vec<u8>, node_runtime::state_viewer::errors::CallFunctionError> {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         let view_state = ViewApplyState {
+            shard_id: shard_uid.shard_id(),
             block_height: height,
             prev_block_hash: *prev_block_hash,
             block_hash: *block_hash,

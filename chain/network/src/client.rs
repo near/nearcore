@@ -6,9 +6,7 @@ use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::stateless_validation::{
-    ChunkEndorsement, ChunkStateWitness, ChunkStateWitnessAck,
-};
+use near_primitives::stateless_validation::{ChunkEndorsement, SignedEncodedChunkStateWitness};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
@@ -116,11 +114,7 @@ pub struct AnnounceAccountRequest(pub Vec<(AnnounceAccount, Option<EpochId>)>);
 
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]
-pub struct ChunkStateWitnessMessage(pub ChunkStateWitness);
-
-#[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
-#[rtype(result = "()")]
-pub struct ChunkStateWitnessAckMessage(pub ChunkStateWitnessAck);
+pub struct ChunkStateWitnessMessage(pub SignedEncodedChunkStateWitness);
 
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]
@@ -148,6 +142,5 @@ pub struct ClientSenderForNetwork {
     pub announce_account:
         AsyncSender<AnnounceAccountRequest, Result<Vec<AnnounceAccount>, ReasonForBan>>,
     pub chunk_state_witness: AsyncSender<ChunkStateWitnessMessage, ()>,
-    pub chunk_state_witness_ack: AsyncSender<ChunkStateWitnessAckMessage, ()>,
     pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, ()>,
 }

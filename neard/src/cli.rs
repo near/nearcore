@@ -555,7 +555,7 @@ impl RunCmd {
             let nearcore::NearNode {
                 rpc_servers,
                 cold_store_loop_handle,
-                state_sync_dump_handle,
+                mut state_sync_dumper,
                 flat_state_migration_handle,
                 resharding_handle,
                 ..
@@ -581,9 +581,7 @@ impl RunCmd {
             if let Some(handle) = cold_store_loop_handle {
                 handle.stop()
             }
-            if let Some(handle) = state_sync_dump_handle {
-                handle.stop()
-            }
+            state_sync_dumper.stop();
             resharding_handle.stop();
             flat_state_migration_handle.stop();
             futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
@@ -593,8 +591,7 @@ impl RunCmd {
             .await;
             actix::System::current().stop();
             // Disable the subscriber to properly shutdown the tracer.
-            near_o11y::reload(Some("error"), None, Some(near_o11y::OpenTelemetryLevel::OFF))
-                .unwrap();
+            near_o11y::reload(Some("error"), None, Some("off")).unwrap();
         });
         sys.run().unwrap();
         info!(target: "neard", "Waiting for RocksDB to gracefully shutdown");

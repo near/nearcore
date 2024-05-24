@@ -53,13 +53,13 @@ use near_primitives::test_utils::create_test_signer;
 use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::transaction::{
     Action, DeployContractAction, ExecutionStatus, FunctionCallAction, SignedTransaction,
-    Transaction,
+    Transaction, TransactionV0,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion};
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
@@ -163,6 +163,7 @@ pub(crate) fn deploy_test_contract_with_protocol_version(
         &signer,
         vec![Action::DeployContract(DeployContractAction { code: wasm_code.to_vec() })],
         *block.hash(),
+        0,
     );
     assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     produce_blocks_from_height_with_protocol_version(env, epoch_length, height, protocol_version)
@@ -214,6 +215,7 @@ pub(crate) fn prepare_env_with_congestion(
             code: near_test_contracts::backwards_compatible_rs_contract().to_vec(),
         })],
         *genesis_block.hash(),
+        0,
     );
     assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     for i in 1..3 {
@@ -248,6 +250,7 @@ pub(crate) fn prepare_env_with_congestion(
                 deposit: 0,
             }))],
             *genesis_block.hash(),
+            0,
         );
         tx_hashes.push(signed_transaction.get_hash());
         assert_eq!(
@@ -1025,14 +1028,14 @@ fn test_process_invalid_tx() {
     let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test0");
     let tx = SignedTransaction::new(
         Signature::empty(KeyType::ED25519),
-        Transaction {
+        Transaction::V0(TransactionV0 {
             signer_id: "test".parse().unwrap(),
             public_key: signer.public_key(),
             nonce: 0,
             receiver_id: "test".parse().unwrap(),
             block_hash: *env.clients[0].chain.genesis().hash(),
             actions: vec![],
-        },
+        }),
     );
     for i in 1..12 {
         env.produce_block(0, i);
@@ -1043,14 +1046,14 @@ fn test_process_invalid_tx() {
     );
     let tx2 = SignedTransaction::new(
         Signature::empty(KeyType::ED25519),
-        Transaction {
+        Transaction::V0(TransactionV0 {
             signer_id: "test".parse().unwrap(),
             public_key: signer.public_key(),
             nonce: 0,
             receiver_id: "test".parse().unwrap(),
             block_hash: hash(&[1]),
             actions: vec![],
-        },
+        }),
     );
     assert_eq!(
         env.clients[0].process_tx(tx2, false, false),
@@ -1169,6 +1172,7 @@ fn test_bad_orphan() {
             match &mut chunk.inner {
                 ShardChunkHeaderInner::V1(inner) => inner.prev_outcome_root = CryptoHash([1; 32]),
                 ShardChunkHeaderInner::V2(inner) => inner.prev_outcome_root = CryptoHash([1; 32]),
+                ShardChunkHeaderInner::V3(inner) => inner.prev_outcome_root = CryptoHash([1; 32]),
             }
             chunk.hash = ShardChunkHeaderV3::compute_hash(&chunk.inner);
         }
@@ -1645,8 +1649,7 @@ fn test_gc_after_state_sync() {
     assert_eq!(env.clients[1].runtime_adapter.get_gc_stop_height(&sync_hash), 0);
     // mimic what we do in possible_targets
     assert!(env.clients[1].epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash).is_ok());
-    let tries = env.clients[1].runtime_adapter.get_tries();
-    env.clients[1].chain.clear_data(tries, &Default::default()).unwrap();
+    env.clients[1].chain.clear_data(&Default::default()).unwrap();
 }
 
 #[test]
@@ -1885,7 +1888,7 @@ fn test_gc_tail_update() {
             &None,
             *sync_block.hash(),
             &mut BlockProcessingArtifact::default(),
-            Arc::new(|_| {}),
+            None,
         )
         .unwrap();
     env.process_block(1, blocks.pop().unwrap(), Provenance::NONE);
@@ -2193,6 +2196,7 @@ fn test_validate_chunk_extra() {
             code: near_test_contracts::rs_contract().to_vec(),
         })],
         *genesis_block.hash(),
+        0,
     );
     assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     let mut last_block = genesis_block;
@@ -2215,6 +2219,7 @@ fn test_validate_chunk_extra() {
             deposit: 0,
         }))],
         *last_block.hash(),
+        0,
     );
     assert_eq!(
         env.clients[0].process_tx(function_call_tx, false, false),
@@ -2285,7 +2290,7 @@ fn test_validate_chunk_extra() {
         .persist_and_distribute_encoded_chunk(encoded_chunk, merkle_paths, receipts, validator_id)
         .unwrap();
     env.clients[0].chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
-    env.clients[0].process_blocks_with_missing_chunks(Arc::new(|_| {}));
+    env.clients[0].process_blocks_with_missing_chunks(None);
     let accepted_blocks = env.clients[0].finish_block_in_processing(block1.hash());
     assert_eq!(accepted_blocks.len(), 1);
     env.resume_block_processing(block2.hash());
@@ -2421,7 +2426,7 @@ fn test_catchup_gas_price_change() {
         }
     });
     env.clients[1].chain.schedule_apply_state_parts(0, sync_hash, num_parts, &f).unwrap();
-    env.clients[1].chain.set_state_finalize(0, sync_hash, Ok(())).unwrap();
+    env.clients[1].chain.set_state_finalize(0, sync_hash).unwrap();
     let chunk_extra_after_sync =
         env.clients[1].chain.get_chunk_extra(blocks[4].hash(), &ShardUId::single_shard()).unwrap();
     let expected_chunk_extra =
@@ -2548,7 +2553,7 @@ fn test_refund_receipts_processing() {
     }
 
     // Make sure all transactions are processed.
-    for i in 3..16 {
+    for i in 1..16 {
         env.produce_block(0, i);
     }
 
@@ -2591,6 +2596,11 @@ fn test_refund_receipts_processing() {
 fn test_delayed_receipt_count_limit() {
     init_test_logger();
 
+    if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
+        // congestion control replaces the delayed receipt count limit, making this test irrelevant
+        return;
+    }
+
     let epoch_length = 5;
     let min_gas_price = 10000;
     let mut genesis = Genesis::test_sharded_new_version(vec!["test0".parse().unwrap()], 1, vec![1]);
@@ -2616,6 +2626,7 @@ fn test_delayed_receipt_count_limit() {
             &signer,
             vec![Action::DeployContract(DeployContractAction { code: vec![92; 10000] })],
             *genesis_block.hash(),
+            0,
         );
         assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     }
@@ -2703,7 +2714,7 @@ fn test_execution_metadata() {
       {
         "cost_category": "WASM_HOST_COST",
         "cost": "CONTRACT_LOADING_BYTES",
-        "gas_used": "18423750"
+        "gas_used": "92590075"
       },
       {
         "cost_category": "WASM_HOST_COST",
@@ -3293,6 +3304,7 @@ fn test_validator_stake_host_function() {
             deposit: 0,
         }))],
         *genesis_block.hash(),
+        0,
     );
     assert_eq!(
         env.clients[0].process_tx(signed_transaction, false, false),
@@ -3483,6 +3495,7 @@ mod contract_precompilation_tests {
             block_height: EPOCH_LENGTH,
             prev_block_hash: *block.header().prev_hash(),
             block_hash: *block.hash(),
+            shard_id: ShardUId::single_shard().shard_id(),
             epoch_id: block.header().epoch_id().clone(),
             epoch_height: 1,
             block_timestamp: block.header().raw_timestamp(),
