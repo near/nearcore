@@ -338,7 +338,9 @@ class NearNodeProxy:
             "id": "dontcare",
             "jsonrpc": "2.0"
         }
-        return self.session.post(url="/", json=j)
+        r = self.session.post(url="/", json=j)
+        r.raise_for_status()
+        return r
 
     @retry(wait_fixed=500,
            stop_max_delay=DEFAULT_TRANSACTION_TTL / timedelta(milliseconds=1),
