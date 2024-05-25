@@ -663,12 +663,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 current_protocol_version,
             ) {
                 Ok(_) => Ok(None),
-                Err(RuntimeError::InvalidTxError(err)) => {
-                    debug!(target: "runtime", "Tx {:?} validation failed: {:?}", transaction, err);
-                    Ok(Some(err))
-                }
-                Err(RuntimeError::StorageError(err)) => Err(Error::StorageError(err)),
-                Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
+                Err(e) => Ok(Some(e))
             }
         } else {
             // Doing basic validation without a state root
@@ -680,12 +675,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 current_protocol_version,
             ) {
                 Ok(_) => Ok(None),
-                Err(RuntimeError::InvalidTxError(err)) => {
-                    debug!(target: "runtime", "Tx {:?} validation failed: {:?}", transaction, err);
-                    Ok(Some(err))
-                }
-                Err(RuntimeError::StorageError(err)) => Err(Error::StorageError(err)),
-                Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
+                Err(e) => Ok(Some(e))
             }
         }
     }
@@ -871,16 +861,11 @@ impl RuntimeAdapter for NightshadeRuntime {
                             result.transactions.push(tx);
                             break;
                         }
-                        Err(RuntimeError::InvalidTxError(err)) => {
+                        Err(err) => {
                             tracing::trace!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction that is invalid");
                             rejected_invalid_tx += 1;
                             state_update.rollback();
                         }
-                        Err(RuntimeError::StorageError(err)) => {
-                            tracing::trace!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction due to storage error");
-                            return Err(Error::StorageError(err));
-                        }
-                        Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
                     }
                 }
             } else {

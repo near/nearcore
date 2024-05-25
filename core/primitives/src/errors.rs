@@ -77,7 +77,7 @@ impl std::fmt::Display for RuntimeError {
 impl std::error::Error for RuntimeError {}
 
 /// Contexts in which `StorageError::MissingTrieValue` error might occur.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize, BorshSerialize, BorshDeserialize)]
 pub enum MissingTrieValueContext {
     /// Missing trie value when reading from TrieIterator.
     TrieIterator,
@@ -91,7 +91,7 @@ pub enum MissingTrieValueContext {
 
 /// Errors which may occur during working with trie storages, storing
 /// trie values (trie nodes and state values) by their hashes.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize, BorshSerialize, BorshDeserialize)]
 pub enum StorageError {
     /// Key-value db internal failure
     StorageInternalError,
@@ -178,6 +178,14 @@ pub enum InvalidTxError {
     TransactionSizeExceeded { size: u64, limit: u64 },
     /// Transaction version is invalid.
     InvalidTransactionVersion,
+    // Error occurred during storage access
+    StorageError(StorageError),
+}
+
+impl From<StorageError> for InvalidTxError {
+    fn from(error: StorageError) -> Self {
+        InvalidTxError::StorageError(error)
+    }
 }
 
 impl std::error::Error for InvalidTxError {}
@@ -575,6 +583,9 @@ impl Display for InvalidTxError {
             }
             InvalidTxError::InvalidTransactionVersion => {
                 write!(f, "Transaction version is invalid")
+            }
+            InvalidTxError::StorageError(error) => {
+                write!(f, "Storage error: {}", error)
             }
         }
     }

@@ -20,7 +20,7 @@ use near_primitives::account::Account;
 use near_primitives::checked_feature;
 use near_primitives::congestion_info::{CongestionInfo, ExtendedCongestionInfo};
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, IntegerOverflowError, RuntimeError, TxExecutionError,
+    ActionError, ActionErrorKind, IntegerOverflowError, InvalidTxError, RuntimeError, TxExecutionError
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
@@ -287,7 +287,7 @@ impl Runtime {
         apply_state: &ApplyState,
         signed_transaction: &SignedTransaction,
         stats: &mut ApplyStats,
-    ) -> Result<(Receipt, ExecutionOutcomeWithId), RuntimeError> {
+    ) -> Result<(Receipt, ExecutionOutcomeWithId), InvalidTxError> {
         let span = tracing::Span::current();
         metrics::TRANSACTION_PROCESSED_TOTAL.inc();
 
@@ -326,7 +326,7 @@ impl Runtime {
                     }),
                 });
                 stats.tx_burnt_amount =
-                    safe_add_balance(stats.tx_burnt_amount, verification_result.burnt_amount)?;
+                    safe_add_balance(stats.tx_burnt_amount, verification_result.burnt_amount).map_err(|_| InvalidTxError::CostOverflow)?;
                 let gas_burnt = verification_result.gas_burnt;
                 let compute_usage = verification_result.gas_burnt;
                 let outcome = ExecutionOutcomeWithId {
