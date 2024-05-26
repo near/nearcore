@@ -2,13 +2,14 @@ use crate::key_conversion::convert_secret_key;
 use crate::key_file::KeyFile;
 use crate::{KeyType, PublicKey, SecretKey, Signature};
 use near_account_id::AccountId;
+use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug};
 use std::io;
 use std::path::Path;
 use std::sync::Arc;
 
 /// Generic signer trait, that can sign with some subset of supported curves.
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum Signer {
     Empty(EmptySigner),
     InMemory(InMemorySigner),
@@ -63,7 +64,7 @@ impl From<InMemorySigner> for Signer {
 }
 
 // Signer that returns empty signature. Used for transaction testing.
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct EmptySigner {}
 
 impl EmptySigner {
@@ -81,7 +82,7 @@ impl EmptySigner {
 }
 
 /// Signer that keeps secret key in memory.
-#[derive(Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct InMemorySigner {
     pub account_id: AccountId,
     pub public_key: PublicKey,

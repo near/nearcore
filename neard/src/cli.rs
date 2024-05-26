@@ -572,7 +572,7 @@ impl RunCmd {
                 if sig == "SIGHUP" {
                     let maybe_updateable_configs =
                         nearcore::dyn_config::read_updateable_configs(home_dir);
-                    updateable_config_loader.reload(maybe_updateable_configs);    
+                    updateable_config_loader.reload(maybe_updateable_configs);
                 } else {
                     break sig;
                 }

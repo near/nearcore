@@ -1218,10 +1218,10 @@ impl From<NodeKeyFile> for KeyFile {
     }
 }
 
-pub fn load_validator_key(validator_file: &Path) -> anyhow::Result<Option<Arc<dyn ValidatorSigner>>> {
+pub fn load_validator_key(validator_file: &Path) -> anyhow::Result<Option<Arc<ValidatorSigner>>> {
     if validator_file.exists() {
         match InMemoryValidatorSigner::from_file(&validator_file) {
-            Ok(signer) => Ok(Some(Arc::new(signer) as Arc<dyn ValidatorSigner>)),
+            Ok(signer) => Ok(Some(Arc::new(signer.into()))),
             Err(_) => {
                 let error_message = format!(
                     "Failed initializing validator signer from {}",

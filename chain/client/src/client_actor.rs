@@ -1162,9 +1162,12 @@ impl ClientActorInner {
     pub(crate) fn check_triggers(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) -> Duration {
         let _span = tracing::debug_span!(target: "client", "check_triggers").entered();
         if let Some(config_updater) = &mut self.config_updater {
-            config_updater.try_update(&|updateable_client_config| {
-                self.client.update_client_config(updateable_client_config)
-            });
+            config_updater.try_update(
+                &|updateable_client_config| {
+                    self.client.update_client_config(updateable_client_config)
+                },
+                &|validator_signer| self.client.update_validator_signer(validator_signer),
+            );
         }
 
         // Check block height to trigger expected shutdown

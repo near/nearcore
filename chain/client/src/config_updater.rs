@@ -1,5 +1,6 @@
 use near_chain_configs::UpdateableClientConfig;
 use near_dyn_configs::{UpdateableConfigLoaderError, UpdateableConfigs};
+use near_primitives::validator_signer::ValidatorSigner;
 use std::sync::Arc;
 use tokio::sync::broadcast::Receiver;
 
@@ -21,13 +22,21 @@ impl ConfigUpdater {
 
     /// Check if any of the configs were updated.
     /// If they did, the receiver (rx_config_update) will contain a clone of the new configs.
-    pub fn try_update(&mut self, update_client_config_fn: &dyn Fn(UpdateableClientConfig)) {
+    pub fn try_update(
+        &mut self,
+        update_client_config_fn: &dyn Fn(UpdateableClientConfig),
+        update_validator_signer_fn: &dyn Fn(Arc<ValidatorSigner>),
+    ) {
         while let Ok(maybe_updateable_configs) = self.rx_config_update.try_recv() {
             match maybe_updateable_configs {
                 Ok(updateable_configs) => {
                     if let Some(client_config) = updateable_configs.client_config {
                         update_client_config_fn(client_config);
                         tracing::info!(target: "config", "Updated ClientConfig");
+                    }
+                    if let Some(validator_signer) = updateable_configs.validator_signer {
+                        update_validator_signer_fn(validator_signer);
+                        tracing::info!(target: "config", "Updated validator key");
                     }
                     self.updateable_configs_error = None;
                 }
