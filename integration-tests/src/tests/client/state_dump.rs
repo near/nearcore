@@ -144,7 +144,8 @@ fn run_state_sync_with_dumped_parts(
             .nightshade_runtimes(&genesis)
             .build();
 
-        let signer: Signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
+        let signer: Signer =
+            InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
         let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
         let genesis_hash = *genesis_block.hash();
 

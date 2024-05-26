@@ -71,11 +71,7 @@ fn test1() -> AccountId {
     "test1".parse().unwrap()
 }
 
-fn create_tx_send_money(
-    nonce: u64,
-    signer: &Signer,
-    block_hash: CryptoHash,
-) -> SignedTransaction {
+fn create_tx_send_money(nonce: u64, signer: &Signer, block_hash: CryptoHash) -> SignedTransaction {
     SignedTransaction::send_money(nonce, test0(), test1(), signer, 1, block_hash)
 }
 

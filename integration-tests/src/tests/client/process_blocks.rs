@@ -202,7 +202,8 @@ pub(crate) fn prepare_env_with_congestion(
     }
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
+    let signer =
+        InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
 
     // Deploy contract to test0.
     let tx = SignedTransaction::from_actions(
@@ -1599,7 +1600,8 @@ fn test_gc_execution_outcome() {
     genesis.config.epoch_length = epoch_length;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_hash = *env.clients[0].chain.genesis().hash();
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
+    let signer =
+        InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
     let tx = SignedTransaction::send_money(
         1,
         "test0".parse().unwrap(),
@@ -1788,7 +1790,8 @@ fn test_tx_forward_around_epoch_boundary() {
         .nightshade_runtimes(&genesis)
         .build();
     let genesis_hash = *env.clients[0].chain.genesis().hash();
-    let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1").into();
+    let signer =
+        InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1").into();
     let tx = SignedTransaction::stake(
         1,
         "test1".parse().unwrap(),
@@ -1917,7 +1920,8 @@ fn test_gas_price_change() {
 
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let genesis_hash = *genesis_block.hash();
-    let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1").into();
+    let signer =
+        InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1").into();
     let tx = SignedTransaction::send_money(
         1,
         "test1".parse().unwrap(),
@@ -1961,7 +1965,8 @@ fn test_gas_price_overflow() {
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let genesis_hash = *genesis_block.hash();
-    let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1").into();
+    let signer =
+        InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1").into();
     for i in 1..100 {
         let tx = SignedTransaction::send_money(
             i,
@@ -2185,7 +2190,8 @@ fn test_validate_chunk_extra() {
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let genesis_height = genesis_block.header().height();
 
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
+    let signer =
+        InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
     let tx = SignedTransaction::from_actions(
         1,
         "test0".parse().unwrap(),
@@ -2354,7 +2360,8 @@ fn test_catchup_gas_price_change() {
         env.process_block(0, block.clone(), Provenance::PRODUCED);
         env.process_block(1, block, Provenance::NONE);
     }
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
+    let signer =
+        InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
     for i in 0..3 {
         let tx = SignedTransaction::send_money(
             i + 1,
@@ -2446,7 +2453,8 @@ fn test_block_execution_outcomes() {
     genesis.config.gas_limit = 1000000000000;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
+    let signer =
+        InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
     let mut tx_hashes = vec![];
     for i in 0..3 {
         // send transaction to the same account to generate local receipts
@@ -2534,7 +2542,8 @@ fn test_refund_receipts_processing() {
     genesis.config.gas_limit = 100_000_000;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
+    let signer =
+        InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
     let mut tx_hashes = vec![];
     // Send transactions to a non-existing account to generate refunds.
     for i in 0..3 {
@@ -2614,7 +2623,8 @@ fn test_delayed_receipt_count_limit() {
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
+    let signer =
+        InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
     // Send enough transactions to saturate delayed receipts capacity.
     let total_tx_count = 200usize;
     for i in 0..total_tx_count {

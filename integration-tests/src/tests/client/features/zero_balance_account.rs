@@ -55,7 +55,8 @@ fn test_zero_balance_account_creation() {
 
     let new_account_id: AccountId = "hello.test0".parse().unwrap();
     let signer0_account_id: AccountId = "test0".parse().unwrap();
-    let signer0 = InMemorySigner::from_seed(signer0_account_id.clone(), KeyType::ED25519, "test0").into();
+    let signer0 =
+        InMemorySigner::from_seed(signer0_account_id.clone(), KeyType::ED25519, "test0").into();
     let new_signer =
         InMemorySigner::from_seed(new_account_id.clone(), KeyType::ED25519, "hello.test0");
 
@@ -136,7 +137,8 @@ fn test_zero_balance_account_add_key() {
 
     let new_account_id: AccountId = "hello.test0".parse().unwrap();
     let signer0_account_id: AccountId = "test0".parse().unwrap();
-    let signer0 = InMemorySigner::from_seed(signer0_account_id.clone(), KeyType::ED25519, "test0").into();
+    let signer0 =
+        InMemorySigner::from_seed(signer0_account_id.clone(), KeyType::ED25519, "test0").into();
     let new_signer: Signer =
         InMemorySigner::from_seed(new_account_id.clone(), KeyType::ED25519, "hello.test0").into();
 
@@ -255,7 +257,8 @@ fn test_zero_balance_account_upgrade() {
 
     let new_account_id: AccountId = "hello.test0".parse().unwrap();
     let signer0_account_id: AccountId = "test0".parse().unwrap();
-    let signer0: Signer = InMemorySigner::from_seed(signer0_account_id.clone(), KeyType::ED25519, "test0").into();
+    let signer0: Signer =
+        InMemorySigner::from_seed(signer0_account_id.clone(), KeyType::ED25519, "test0").into();
     let new_signer =
         InMemorySigner::from_seed(new_account_id.clone(), KeyType::ED25519, "hello.test0");
 

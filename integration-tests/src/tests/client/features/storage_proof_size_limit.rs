@@ -55,7 +55,8 @@ fn test_storage_proof_size_limit() {
     // that starts at 1 and increases monotonically.
     let mut nonce = 1;
     let signer: Signer =
-        InMemorySigner::from_seed(user_account.clone(), KeyType::ED25519, user_account.as_ref()).into();
+        InMemorySigner::from_seed(user_account.clone(), KeyType::ED25519, user_account.as_ref())
+            .into();
 
     // Write 1MB values under keys 0, 1, 2, 3, ..., 23.
     // 24MB of data in total

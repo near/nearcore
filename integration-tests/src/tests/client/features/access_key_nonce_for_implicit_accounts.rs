@@ -53,7 +53,8 @@ fn test_transaction_hash_collision() {
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
     let signer0 = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-    let signer1 = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1").into();
+    let signer1 =
+        InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1").into();
     let send_money_tx = SignedTransaction::send_money(
         1,
         "test1".parse().unwrap(),
@@ -124,7 +125,8 @@ fn get_status_of_tx_hash_collision_for_near_implicit_account(
     let deposit_for_account_creation = 10u128.pow(23);
     let mut height = 1;
     let blocks_number = 5;
-    let signer1 = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1").into();
+    let signer1 =
+        InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1").into();
     let near_implicit_account_id = near_implicit_account_signer.account_id.clone();
     let near_implicit_account_signer = near_implicit_account_signer.into();
 

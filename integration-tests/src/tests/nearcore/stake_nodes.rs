@@ -372,7 +372,8 @@ fn test_validator_join() {
                     test_nodes[1].account_id.clone(),
                     KeyType::ED25519,
                     test_nodes[1].account_id.as_ref(),
-                ).into(),
+                )
+                .into(),
             );
             let unstake_transaction = SignedTransaction::stake(
                 1,
