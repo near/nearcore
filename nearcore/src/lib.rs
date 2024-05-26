@@ -369,6 +369,7 @@ pub fn start_with_config_and_synchronization(
                 client_adapter_for_partial_witness_actor.as_multi_sender(),
                 my_signer,
                 epoch_manager.clone(),
+                storage.get_hot_store(),
             ));
         (Some(partial_witness_actor), Some(partial_witness_arbiter))
     } else {
