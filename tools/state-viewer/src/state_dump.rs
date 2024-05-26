@@ -401,7 +401,7 @@ mod test {
             "test1".parse().unwrap(),
             &signer,
             TESTING_INIT_STAKE,
-            signer.public_key().clone(),
+            signer.public_key(),
             genesis_hash,
         );
         assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -466,7 +466,7 @@ mod test {
             "test0".parse().unwrap(),
             &signer0,
             TESTING_INIT_STAKE,
-            signer0.public_key().clone(),
+            signer0.public_key(),
             genesis_hash,
         );
         assert_eq!(env.clients[0].process_tx(tx00, false, false), ProcessTxResponse::ValidTx);
@@ -479,7 +479,7 @@ mod test {
             "test1".parse().unwrap(),
             &signer1,
             TESTING_INIT_STAKE,
-            signer1.public_key().clone(),
+            signer1.public_key(),
             genesis_hash,
         );
         assert_eq!(env.clients[0].process_tx(tx1, false, false), ProcessTxResponse::ValidTx);
@@ -543,7 +543,7 @@ mod test {
             "test1".parse().unwrap(),
             &signer,
             TESTING_INIT_STAKE,
-            signer.public_key().clone(),
+            signer.public_key(),
             genesis_hash,
         );
         assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -595,7 +595,7 @@ mod test {
             "test1".parse().unwrap(),
             &signer,
             TESTING_INIT_STAKE,
-            signer.public_key().clone(),
+            signer.public_key(),
             genesis_hash,
         );
         assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -801,7 +801,7 @@ mod test {
             "test1".parse().unwrap(),
             &signer,
             TESTING_INIT_STAKE,
-            signer.public_key().clone(),
+            signer.public_key(),
             genesis_hash,
         );
         assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -869,7 +869,7 @@ mod test {
             "test1".parse().unwrap(),
             &signer,
             TESTING_INIT_STAKE,
-            signer.public_key().clone(),
+            signer.public_key(),
             genesis_hash,
         );
         assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);

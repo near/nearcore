@@ -94,7 +94,7 @@ fn test_protocol_upgrade_under_congestion() {
         contract.to_vec(),
         10 * 10u128.pow(24),
         PublicKey::from_seed(KeyType::ED25519, contract_id.as_str()),
-        &signer,
+        &signer.clone().into(),
         *genesis_block.hash(),
     );
     // this adds the tx to the pool and then produces blocks until the tx result is available
@@ -206,7 +206,7 @@ fn new_fn_call_100tgas(
         nonce,
         signer.account_id.clone(),
         contract_id,
-        signer,
+        &signer.clone().into(),
         deposit,
         // easy way to burn all attached gas
         "loop_forever".to_owned(),

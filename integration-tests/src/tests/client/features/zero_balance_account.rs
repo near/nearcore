@@ -2,7 +2,7 @@ use assert_matches::assert_matches;
 
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
-use near_crypto::{InMemorySigner, KeyType, PublicKey};
+use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_network::client::ProcessTxResponse;
 use near_parameters::{ExtCostsConfig, RuntimeConfig, RuntimeConfigStore, StorageUsageConfig};
 use near_primitives::account::id::AccountId;
@@ -54,14 +54,15 @@ fn test_zero_balance_account_creation() {
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
     let new_account_id: AccountId = "hello.test0".parse().unwrap();
-    let signer0 = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer0_account_id: AccountId = "test0".parse().unwrap();
+    let signer0 = InMemorySigner::from_seed(signer0_account_id.clone(), KeyType::ED25519, "test0").into();
     let new_signer =
         InMemorySigner::from_seed(new_account_id.clone(), KeyType::ED25519, "hello.test0");
 
     // create a valid zero balance account. Transaction should succeed
     let create_account_tx = SignedTransaction::create_account(
         1,
-        signer0.account_id.clone(),
+        signer0_account_id.clone(),
         new_account_id.clone(),
         0,
         new_signer.public_key.clone(),
@@ -83,7 +84,7 @@ fn test_zero_balance_account_creation() {
     let contract = near_test_contracts::sized_contract(ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT as usize);
     let create_account_tx = SignedTransaction::create_contract(
         2,
-        signer0.account_id.clone(),
+        signer0_account_id,
         new_account_id,
         contract.to_vec(),
         0,
@@ -134,17 +135,18 @@ fn test_zero_balance_account_add_key() {
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
     let new_account_id: AccountId = "hello.test0".parse().unwrap();
-    let signer0 = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-    let new_signer =
-        InMemorySigner::from_seed(new_account_id.clone(), KeyType::ED25519, "hello.test0");
+    let signer0_account_id: AccountId = "test0".parse().unwrap();
+    let signer0 = InMemorySigner::from_seed(signer0_account_id.clone(), KeyType::ED25519, "test0").into();
+    let new_signer: Signer =
+        InMemorySigner::from_seed(new_account_id.clone(), KeyType::ED25519, "hello.test0").into();
 
     let amount = 10u128.pow(24);
     let create_account_tx = SignedTransaction::create_account(
         1,
-        signer0.account_id.clone(),
+        signer0_account_id.clone(),
         new_account_id.clone(),
         amount,
-        new_signer.public_key.clone(),
+        new_signer.public_key(),
         &signer0,
         *genesis_block.hash(),
     );
@@ -204,7 +206,7 @@ fn test_zero_balance_account_add_key() {
     let send_money_tx = SignedTransaction::send_money(
         nonce + 10,
         new_account_id.clone(),
-        signer0.account_id,
+        signer0_account_id,
         &new_signer,
         amount,
         *genesis_block.hash(),
@@ -252,14 +254,15 @@ fn test_zero_balance_account_upgrade() {
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
     let new_account_id: AccountId = "hello.test0".parse().unwrap();
-    let signer0 = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer0_account_id: AccountId = "test0".parse().unwrap();
+    let signer0: Signer = InMemorySigner::from_seed(signer0_account_id.clone(), KeyType::ED25519, "test0").into();
     let new_signer =
         InMemorySigner::from_seed(new_account_id.clone(), KeyType::ED25519, "hello.test0");
 
     // before protocol upgrade, should not be possible to create a zero balance account
     let first_create_account_tx = SignedTransaction::create_account(
         1,
-        signer0.account_id.clone(),
+        signer0_account_id.clone(),
         new_account_id.clone(),
         0,
         new_signer.public_key.clone(),
@@ -285,7 +288,7 @@ fn test_zero_balance_account_upgrade() {
 
     let second_create_account_tx = SignedTransaction::create_account(
         2,
-        signer0.account_id.clone(),
+        signer0_account_id,
         new_account_id,
         0,
         new_signer.public_key,

@@ -3,7 +3,7 @@ use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::action::{Action, DeployContractAction, FunctionCallAction};
 use near_primitives::checked_feature;
@@ -54,8 +54,8 @@ fn test_storage_proof_size_limit() {
     // query the access key of the user. It's easier to keep a shared counter
     // that starts at 1 and increases monotonically.
     let mut nonce = 1;
-    let signer =
-        InMemorySigner::from_seed(user_account.clone(), KeyType::ED25519, user_account.as_ref());
+    let signer: Signer =
+        InMemorySigner::from_seed(user_account.clone(), KeyType::ED25519, user_account.as_ref()).into();
 
     // Write 1MB values under keys 0, 1, 2, 3, ..., 23.
     // 24MB of data in total
@@ -69,7 +69,7 @@ fn test_storage_proof_size_limit() {
 
         let tx = SignedTransaction::from_actions(
             nonce,
-            signer.account_id.clone(),
+            user_account.clone(),
             contract_account.clone(),
             &signer,
             vec![action],
@@ -92,7 +92,7 @@ fn test_storage_proof_size_limit() {
         }));
         let tx = SignedTransaction::from_actions(
             nonce,
-            signer.account_id.clone(),
+            user_account.clone(),
             contract_account.clone(),
             &signer,
             vec![action],

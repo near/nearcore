@@ -105,7 +105,7 @@ fn compare_node_counts() {
         1,
     );
 
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
     let tx_node_counts: Vec<TrieNodesCount> = (0..4)
         .map(|i| {
             let touching_trie_node_cost: Gas = 16_101_955_926;

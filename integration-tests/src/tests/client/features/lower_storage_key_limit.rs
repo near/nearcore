@@ -60,7 +60,7 @@ fn protocol_upgrade() {
         env
     };
 
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer: Signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
     let tx = TransactionV0 {
         signer_id: "test0".parse().unwrap(),
         receiver_id: "test0".parse().unwrap(),

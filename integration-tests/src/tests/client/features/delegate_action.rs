@@ -7,7 +7,7 @@ use crate::node::{Node, RuntimeNode};
 use crate::tests::standard_cases::fee_helper;
 use near_chain_configs::{Genesis, NEAR_BASE};
 use near_client::test_utils::TestEnv;
-use near_crypto::{KeyType, PublicKey, Signer};
+use near_crypto::{KeyType, PublicKey};
 use near_parameters::ActionCosts;
 use near_primitives::account::{
     id::AccountType, AccessKey, AccessKeyPermission, FunctionCallPermission,

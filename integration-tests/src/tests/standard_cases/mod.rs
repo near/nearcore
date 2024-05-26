@@ -4,7 +4,7 @@ mod runtime;
 use assert_matches::assert_matches;
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::NEAR_BASE;
-use near_crypto::{InMemorySigner, KeyType, PublicKey};
+use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_parameters::{ActionCosts, ExtCosts};
 use near_primitives::account::{
@@ -47,13 +47,12 @@ fn add_access_key(
     node: &impl Node,
     node_user: &dyn User,
     access_key: &AccessKey,
-    signer2: &InMemorySigner,
+    signer2: &Signer,
 ) -> FinalExecutionOutcomeView {
     let root = node_user.get_state_root();
     let account_id = &node.account_id().unwrap();
-    let transaction_result = node_user
-        .add_key(account_id.clone(), signer2.public_key.clone(), access_key.clone())
-        .unwrap();
+    let transaction_result =
+        node_user.add_key(account_id.clone(), signer2.public_key(), access_key.clone()).unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 1);
     let new_root = node_user.get_state_root();
@@ -737,13 +736,13 @@ pub fn test_swap_key(node: impl Node) {
 
 pub fn test_add_key(node: impl Node) {
     let account_id = &node.account_id().unwrap();
-    let signer2 = InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519);
+    let signer2 = InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519).into();
     let node_user = node.user();
 
     add_access_key(&node, node_user.as_ref(), &AccessKey::full_access(), &signer2);
 
     assert!(node_user.get_access_key(account_id, &node.signer().public_key()).is_ok());
-    assert!(node_user.get_access_key(account_id, &signer2.public_key).is_ok());
+    assert!(node_user.get_access_key(account_id, &signer2.public_key()).is_ok());
 }
 
 pub fn test_add_existing_key(node: impl Node) {
@@ -775,12 +774,12 @@ pub fn test_add_existing_key(node: impl Node) {
 
 pub fn test_delete_key(node: impl Node) {
     let account_id = &node.account_id().unwrap();
-    let signer2 = InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519);
+    let signer2 = InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519).into();
     let node_user = node.user();
     add_access_key(&node, node_user.as_ref(), &AccessKey::full_access(), &signer2);
 
     assert!(node_user.get_access_key(account_id, &node.signer().public_key()).is_ok());
-    assert!(node_user.get_access_key(account_id, &signer2.public_key).is_ok());
+    assert!(node_user.get_access_key(account_id, &signer2.public_key()).is_ok());
 
     let root = node_user.get_state_root();
     let transaction_result =
@@ -791,7 +790,7 @@ pub fn test_delete_key(node: impl Node) {
     assert_ne!(new_root, root);
 
     assert!(node_user.get_access_key(account_id, &node.signer().public_key()).is_err());
-    assert!(node_user.get_access_key(account_id, &signer2.public_key).is_ok());
+    assert!(node_user.get_access_key(account_id, &signer2.public_key()).is_ok());
 }
 
 pub fn test_delete_key_not_owned(node: impl Node) {
@@ -890,12 +889,12 @@ pub fn test_add_access_key_function_call(node: impl Node) {
             method_names: vec![],
         }),
     };
-    let signer2 = InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519);
+    let signer2 = InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519).into();
     let result = add_access_key(&node, node_user.as_ref(), &access_key, &signer2);
 
     assert!(node_user.get_access_key(account_id, &node.signer().public_key()).is_ok());
 
-    let view_access_key = node_user.get_access_key(account_id, &signer2.public_key).unwrap();
+    let view_access_key = node_user.get_access_key(account_id, &signer2.public_key()).unwrap();
     assert_access_key(&access_key, view_access_key, &result, node_user.as_ref());
 }
 
@@ -910,22 +909,22 @@ pub fn test_delete_access_key(node: impl Node) {
             method_names: vec![],
         }),
     };
-    let signer2 = InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519);
+    let signer2 = InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519).into();
     add_access_key(&node, node_user.as_ref(), &access_key, &signer2);
 
     assert!(node_user.get_access_key(account_id, &node.signer().public_key()).is_ok());
-    assert!(node_user.get_access_key(account_id, &signer2.public_key).is_ok());
+    assert!(node_user.get_access_key(account_id, &signer2.public_key()).is_ok());
 
     let root = node_user.get_state_root();
     let transaction_result =
-        node_user.delete_key(account_id.clone(), signer2.public_key.clone()).unwrap();
+        node_user.delete_key(account_id.clone(), signer2.public_key()).unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 1);
     let new_root = node_user.get_state_root();
     assert_ne!(new_root, root);
 
     assert!(node_user.get_access_key(account_id, &node.signer().public_key()).is_ok());
-    assert!(node_user.get_access_key(account_id, &signer2.public_key).is_err());
+    assert!(node_user.get_access_key(account_id, &signer2.public_key()).is_err());
 }
 
 pub fn test_add_access_key_with_allowance(node: impl Node) {
@@ -939,7 +938,7 @@ pub fn test_add_access_key_with_allowance(node: impl Node) {
         }),
     };
     let node_user = node.user();
-    let signer2 = InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519);
+    let signer2 = InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519).into();
     let account = node_user.view_account(account_id).unwrap();
     let initial_balance = account.amount;
     let fee_helper = fee_helper(&node);
@@ -950,7 +949,7 @@ pub fn test_add_access_key_with_allowance(node: impl Node) {
     assert_eq!(account.amount, initial_balance - add_access_key_cost);
 
     assert!(node_user.get_access_key(account_id, &node.signer().public_key()).is_ok());
-    let view_access_key = node_user.get_access_key(account_id, &signer2.public_key).unwrap();
+    let view_access_key = node_user.get_access_key(account_id, &signer2.public_key()).unwrap();
     assert_access_key(&access_key, view_access_key, &result, node_user.as_ref());
 }
 
@@ -965,7 +964,7 @@ pub fn test_delete_access_key_with_allowance(node: impl Node) {
         }),
     };
     let node_user = node.user();
-    let signer2 = InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519);
+    let signer2 = InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519).into();
     let account = node_user.view_account(account_id).unwrap();
     let initial_balance = account.amount;
     let fee_helper = fee_helper(&node);
@@ -973,12 +972,12 @@ pub fn test_delete_access_key_with_allowance(node: impl Node) {
     add_access_key(&node, node_user.as_ref(), &access_key, &signer2);
 
     assert!(node_user.get_access_key(account_id, &node.signer().public_key()).is_ok());
-    assert!(node_user.get_access_key(account_id, &signer2.public_key).is_ok());
+    assert!(node_user.get_access_key(account_id, &signer2.public_key()).is_ok());
 
     let root = node_user.get_state_root();
     let delete_access_key_cost = fee_helper.delete_key_cost();
     let transaction_result =
-        node_user.delete_key(account_id.clone(), signer2.public_key.clone()).unwrap();
+        node_user.delete_key(account_id.clone(), signer2.public_key()).unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 1);
     let new_root = node_user.get_state_root();
@@ -988,7 +987,7 @@ pub fn test_delete_access_key_with_allowance(node: impl Node) {
     assert_eq!(account.amount, initial_balance - add_access_key_cost - delete_access_key_cost);
 
     assert!(node_user.get_access_key(account_id, &node.signer().public_key()).is_ok());
-    assert!(node_user.get_access_key(account_id, &signer2.public_key).is_err());
+    assert!(node_user.get_access_key(account_id, &signer2.public_key()).is_err());
 }
 
 pub fn test_access_key_smart_contract(node: impl Node) {
@@ -1002,7 +1001,8 @@ pub fn test_access_key_smart_contract(node: impl Node) {
     };
     let mut node_user = node.user();
     let account_id = &node.account_id().unwrap();
-    let signer2 = Arc::new(InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519));
+    let signer2 =
+        Arc::new(InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519).into());
     add_access_key(&node, node_user.as_ref(), &access_key, &signer2);
     node_user.set_signer(signer2.clone());
 
@@ -1029,7 +1029,7 @@ pub fn test_access_key_smart_contract(node: impl Node) {
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
 
-    let view_access_key = node_user.get_access_key(account_id, &signer2.public_key).unwrap();
+    let view_access_key = node_user.get_access_key(account_id, &signer2.public_key()).unwrap();
     assert_eq!(
         view_access_key,
         AccessKey {
@@ -1055,7 +1055,7 @@ pub fn test_access_key_smart_contract_reject_method_name(node: impl Node) {
     };
     let mut node_user = node.user();
     let account_id = &node.account_id().unwrap();
-    let signer2 = InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519);
+    let signer2 = InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519).into();
     add_access_key(&node, node_user.as_ref(), &access_key, &signer2);
     node_user.set_signer(Arc::new(signer2));
 
@@ -1083,7 +1083,7 @@ pub fn test_access_key_smart_contract_reject_contract_id(node: impl Node) {
     };
     let mut node_user = node.user();
     let account_id = &node.account_id().unwrap();
-    let signer2 = InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519);
+    let signer2 = InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519).into();
     add_access_key(&node, node_user.as_ref(), &access_key, &signer2);
     node_user.set_signer(Arc::new(signer2));
 
@@ -1119,7 +1119,7 @@ pub fn test_access_key_reject_non_function_call(node: impl Node) {
         }),
     };
     let mut node_user = node.user();
-    let signer2 = InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519);
+    let signer2 = InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519).into();
     add_access_key(&node, node_user.as_ref(), &access_key, &signer2);
     node_user.set_signer(Arc::new(signer2));
 
@@ -1205,11 +1205,9 @@ pub fn test_unstake_while_not_staked(node: impl Node) {
 pub fn test_fail_not_enough_balance_for_storage(node: impl Node) {
     let mut node_user = node.user();
     let account_id = bob_account();
-    let signer = Arc::new(InMemorySigner::from_seed(
-        account_id.clone(),
-        KeyType::ED25519,
-        account_id.as_ref(),
-    ));
+    let signer = Arc::new(
+        InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref()).into(),
+    );
     node_user.set_signer(signer);
     node_user.send_money(account_id, alice_account(), 10).unwrap_err();
 }

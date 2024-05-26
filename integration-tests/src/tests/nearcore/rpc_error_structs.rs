@@ -369,7 +369,7 @@ fn test_tx_invalid_tx_error() {
             1,
             "near.5".parse().unwrap(),
             "near.2".parse().unwrap(),
-            &signer,
+            &signer.into(),
             10000,
             genesis_hash,
         );

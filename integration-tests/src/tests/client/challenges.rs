@@ -23,7 +23,6 @@ use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::AccountId;
-use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Trie;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
@@ -37,7 +36,7 @@ fn test_block_with_challenges() {
     let genesis = env.clients[0].chain.get_block_by_height(0).unwrap();
 
     let mut block = env.clients[0].produce_block(1).unwrap().unwrap();
-    let signer = env.clients[0].validator_signer.get().unwrap().clone();
+    let signer = env.clients[0].validator_signer.get().unwrap();
 
     {
         let challenge_body = ChallengeBody::BlockDoubleSign(BlockDoubleSign {
@@ -239,7 +238,7 @@ fn test_verify_chunk_proofs_malicious_challenge_valid_order_transactions() {
     env.produce_block(0, 1);
 
     let genesis_hash = *env.clients[0].chain.genesis().hash();
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
 
     let (ProduceChunkResult { chunk, .. }, block) = create_chunk_with_transactions(
         &mut env.clients[0],
@@ -275,7 +274,7 @@ fn test_verify_chunk_proofs_challenge_transaction_order() {
     env.produce_block(0, 1);
 
     let genesis_hash = *env.clients[0].chain.genesis().hash();
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
 
     let (ProduceChunkResult { chunk, .. }, block) = create_chunk_with_transactions(
         &mut env.clients[0],
@@ -318,7 +317,7 @@ fn challenge(
             chunk,
             merkle_proof: merkle_paths[shard_id].clone(),
         }),
-        &*env.clients[0].validator_signer.get().unwrap().clone(),
+        &*env.clients[0].validator_signer.get().unwrap(),
     );
     validate_challenge(
         env.clients[0].chain.epoch_manager.as_ref(),
@@ -344,7 +343,7 @@ fn test_verify_chunk_invalid_state_challenge() {
                 1,
                 "test0".parse().unwrap(),
                 "test1".parse().unwrap(),
-                &signer,
+                &signer.into(),
                 1000,
                 genesis_hash,
             ),
@@ -408,7 +407,7 @@ fn test_verify_chunk_invalid_state_challenge() {
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
     block_merkle_tree.insert(*last_block.hash());
 
-    let signer = client.validator_signer.get().unwrap().clone();
+    let signer = client.validator_signer.get().unwrap();
     let endorsement =
         ChunkEndorsement::new(invalid_chunk.cloned_header().chunk_hash(), signer.as_ref());
     let block = Block::produce(
