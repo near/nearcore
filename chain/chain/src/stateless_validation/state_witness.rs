@@ -2,6 +2,7 @@ use crate::chain::{
     apply_new_chunk, apply_old_chunk, NewChunkData, NewChunkResult, OldChunkData, OldChunkResult,
     ShardContext, StorageContext,
 };
+use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::sharding::shuffle_receipt_proofs;
 use crate::types::{
     ApplyChunkBlockContext, ApplyChunkResult, PreparedTransactions, RuntimeAdapter,
@@ -10,6 +11,7 @@ use crate::types::{
 use crate::validate::validate_chunk_with_chunk_extra_and_receipts_root;
 use crate::{Chain, ChainStoreAccess};
 use lru::LruCache;
+use near_async::futures::AsyncComputationSpawnerExt;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_pool::TransactionGroupIteratorWrapper;
@@ -364,7 +366,10 @@ impl Chain {
         runtime_adapter: &dyn RuntimeAdapter,
     ) -> Result<(), Error> {
         let shard_id = witness.chunk_header.shard_id();
+        let height_created = witness.chunk_header.height_created();
         let chunk_hash = witness.chunk_header.chunk_hash();
+        let parent_span = tracing::debug_span!(
+            target: "chain", "shadow_validate", shard_id, height_created);
         let (encoded_witness, raw_witness_size) = {
             let shard_id_label = shard_id.to_string();
             let encode_timer = crate::metrics::CHUNK_STATE_WITNESS_ENCODE_TIME
@@ -388,7 +393,7 @@ impl Chain {
         let pre_validation_result =
             pre_validate_chunk_state_witness(&witness, &self, epoch_manager, runtime_adapter)?;
         tracing::debug!(
-            target: "chain",
+            parent: &parent_span,
             shard_id,
             ?chunk_hash,
             witness_size = encoded_witness.size_bytes(),
@@ -398,7 +403,7 @@ impl Chain {
         );
         let epoch_manager = self.epoch_manager.clone();
         let runtime_adapter = self.runtime_adapter.clone();
-        rayon::spawn(move || {
+        Arc::new(RayonAsyncComputationSpawner).spawn("shadow_validate", move || {
             let validation_start = Instant::now();
             match validate_chunk_state_witness(
                 witness,
@@ -409,7 +414,7 @@ impl Chain {
             ) {
                 Ok(()) => {
                     tracing::debug!(
-                        target: "client",
+                        parent: &parent_span,
                         shard_id,
                         ?chunk_hash,
                         validation_elapsed = ?validation_start.elapsed(),
@@ -419,7 +424,7 @@ impl Chain {
                 Err(err) => {
                     crate::metrics::SHADOW_CHUNK_VALIDATION_FAILED_TOTAL.inc();
                     tracing::error!(
-                        target: "client",
+                        parent: &parent_span,
                         ?err,
                         shard_id,
                         ?chunk_hash,
