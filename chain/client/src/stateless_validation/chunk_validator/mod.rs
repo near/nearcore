@@ -171,7 +171,7 @@ impl ChunkValidator {
                         "Failed to validate chunk using existing chunk extra: {:?}",
                         err
                     );
-                    return Err(err);
+                    panic!("Failed to validate chunk using existing chunk extra: {:?}", err);
                 }
             }
         }
@@ -201,6 +201,7 @@ impl ChunkValidator {
                 }
                 Err(err) => {
                     tracing::error!("Failed to validate chunk: {:?}", err);
+                    panic!("Failed to validate chunk: {:?}", err);
                 }
             }
         });

@@ -317,8 +317,6 @@ impl TrieStorage for TrieMemoryPartialStorage {
             ));
         if result.is_ok() {
             self.visited_nodes.borrow_mut().insert(*hash);
-        } else {
-            result.clone().expect(format!("TrieMemoryPartialStorage::retrieve_raw_bytes failed for {:?}", hash).as_str());
         }
         result
     }
