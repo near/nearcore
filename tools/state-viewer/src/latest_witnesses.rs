@@ -92,7 +92,6 @@ pub struct ValidateWitnessCmd {
 
 impl ValidateWitnessCmd {
     pub(crate) fn run(&self, home_dir: &Path, near_config: NearConfig, store: Store) {
-        near_o11y::testonly::init_integration_logger();
         let encoded_witness: Vec<u8> =
             serde_json::from_reader(BufReader::new(std::fs::File::open(&self.input_file).unwrap()))
                 .unwrap();
