@@ -101,3 +101,20 @@ and has an ability to show memory use over time from different allocation source
 
 I personally found it a bit troublesome to figure out how to open the heaptrack file from the GUI.
 However, `heaptrack myexportedfile` worked perfectly. I recommend opening the file exactly this way.
+
+### Crashes
+
+If the profiled `neard` crashes in your tests, there are a couple things you can try to get past
+it. First, is disabling `jemalloc`. Comment out this piece of code in `neard/src/main.rs`:
+
+```rust
+#[global_allocator]
+static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+```
+
+The other thing you can try is different profilers or different versions of the profilers, although
+I don't have specific recommendations here.
+
+We don't know what exactly it is about neard that leads to it crashing under the profiler as easily
+as it does. I have seen valgrind reporting that we have libraries that are deallocating with a
+wrong size class, so that might be the reason? Do definitely look into this if you have time.
