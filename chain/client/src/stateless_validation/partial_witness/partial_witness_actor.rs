@@ -12,12 +12,10 @@ use near_network::state_witness::{
 };
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_performance_metrics_macros::perf;
-use near_primitives::checked_feature;
 use near_primitives::reed_solomon::reed_solomon_encode;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::{
     ChunkStateWitness, ChunkStateWitnessAck, EncodedChunkStateWitness, PartialEncodedStateWitness,
-    SignedEncodedChunkStateWitness,
 };
 use near_primitives::types::{AccountId, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -143,35 +141,9 @@ impl PartialWitnessActor {
             chunk_validators.len(),
         );
 
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        if !checked_feature!("stable", PartialEncodedStateWitness, protocol_version) {
-            self.send_state_witness(witness_bytes, chunk_validators);
-        } else {
-            self.send_state_witness_parts(epoch_id, chunk_header, witness_bytes, chunk_validators)?;
-        }
+        self.send_state_witness_parts(epoch_id, chunk_header, witness_bytes, chunk_validators)?;
 
         Ok(())
-    }
-
-    // TODO(stateless_validation): Deprecate once we send state witness in parts.
-    // This is the original way of sending out state witness where the chunk producer sends the whole witness
-    // to all chunk validators.
-    fn send_state_witness(
-        &self,
-        witness_bytes: EncodedChunkStateWitness,
-        mut chunk_validators: Vec<AccountId>,
-    ) {
-        // Remove ourselves from the list of chunk validators. Network can't send messages to ourselves.
-        chunk_validators.retain(|validator| validator != self.my_signer.validator_id());
-
-        let signed_witness = SignedEncodedChunkStateWitness {
-            signature: self.my_signer.sign_chunk_state_witness(&witness_bytes),
-            witness_bytes,
-        };
-
-        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::ChunkStateWitness(chunk_validators, signed_witness),
-        ));
     }
 
     // Function to generate the parts of the state witness and return them as a tuple of chunk_validator and part.
