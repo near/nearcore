@@ -17,16 +17,16 @@ use nearcore::NightshadeRuntimeExt;
 #[derive(clap::Subcommand)]
 pub enum StateWitnessCmd {
     /// Prints latest state witnesses saved to DB.
-    LatestWitnesses(LatestWitnessesCmd),
+    Latest(LatestWitnessesCmd),
     /// Validates given state witness and hangs.
-    ValidateWitness(ValidateWitnessCmd),
+    Validate(ValidateWitnessCmd),
 }
 
 impl StateWitnessCmd {
     pub(crate) fn run(&self, home_dir: &Path, near_config: NearConfig, store: Store) {
         match self {
-            StateWitnessCmd::LatestWitnesses(cmd) => cmd.run(near_config, store),
-            StateWitnessCmd::ValidateWitness(cmd) => cmd.run(home_dir, near_config, store),
+            StateWitnessCmd::Latest(cmd) => cmd.run(near_config, store),
+            StateWitnessCmd::Validate(cmd) => cmd.run(home_dir, near_config, store),
         }
     }
 }
