@@ -71,13 +71,15 @@ You will also need a build of your `neard`, once you have that, give it some amb
 necessary for profiling:
 
 ```command
-$ sudo setcap 'CAP_SYS_RESOURCE+ep' neard
+$ sudo sysctl kernel.perf_event_paranoid=0
+$ sudo setcap 'CAP_SYS_ADMIN+ep' /path/to/neard
+$ sudo setcap 'CAP_SYS_ADMIN+ep' /path/to/libbytehound.so
 ```
 
 And finally run the program with the profiler enabled (in this case `neard run` command is used):
 
 ```command
-$ env LD_PRELOAD=/path/to/libbytehound.so neard run
+$ /lib64/ld-linux-x86-64.so.2 --preload /path/to/libbytehound.so /path/to/neard run
 ```
 
 ### Viewing the profile
@@ -92,27 +94,40 @@ load it successfully.
 Once enough profiling data has been gathered, terminate the program. Use the `bytehound` CLI tool
 to operate on the profile. I recommend `bytehound server` over directly converting to e.g. heaptrack
 format using other subcommands as each invocation will read and parse the profile data from
-scratch. This process can take quite some time. `serve` parses the inputs once and makes
+scratch. This process can take quite some time. `server` parses the inputs once and makes
 conversions and other introspection available as interactive steps.
 
-You can use `serve` interface to inspect the profile in one of the few ways, download a flamegraph
+You can use `server` interface to inspect the profile in one of the few ways, download a flamegraph
 or a heaptrack file. Heaptrack in particular provides some interesting additional visualizations
 and has an ability to show memory use over time from different allocation sources.
 
 I personally found it a bit troublesome to figure out how to open the heaptrack file from the GUI.
 However, `heaptrack myexportedfile` worked perfectly. I recommend opening the file exactly this way.
 
-### Crashes
+### Troubleshooting
+
+#### No output file
+
+1. Set a higher profiler logging level. Verify that the profiler gets loaded at all. If you're not
+   seeing any log messages, then something about your working environment is preventing the loader
+   from including the profiler library.
+2. Try specifying an exact output file with e.g. environment variables that the profiler reads.
+
+#### Crashes
 
 If the profiled `neard` crashes in your tests, there are a couple things you can try to get past
-it. First, is disabling `jemalloc`. Comment out this piece of code in `neard/src/main.rs`:
+it. First, makes sure your binary has the necessary ambient capabilities (`setcap` command above
+needs to be executed every time binary is replaced!)
+
+Another thing to try is disabling `jemalloc`. Comment out this code in `neard/src/main.rs`:
 
 ```rust
 #[global_allocator]
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 ```
 
-The other thing you can try is different profilers or different versions of the profilers, although
+The other thing you can try is different profilers, different versions of the profilers or
+different options made available (in particular disabling the shadow stack in bytehound), although
 I don't have specific recommendations here.
 
 We don't know what exactly it is about neard that leads to it crashing under the profiler as easily
