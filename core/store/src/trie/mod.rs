@@ -1674,6 +1674,7 @@ impl<'a> TrieWithReadLock<'a> {
                 };
                 Ok(TrieIterator::Memtrie(MemTrieIterator::new(
                     root,
+                    self.trie,
                     Box::new(|value_ref| self.trie.deref_optimized(&value_ref)),
                 )))
             }
