@@ -1,6 +1,14 @@
 #!/bin/bash
 set -xeo pipefail
 
+# For debugging purposes
+whoami
+date
+
+# Otherwise nearup and cargo don't work even if installed properly
+PATH=/home/ubuntu/.local/bin/:$PATH
+export PATH=$PATH:$HOME/.cargo/bin
+
 # Fetch the latest changes from the remote
 git fetch
 
