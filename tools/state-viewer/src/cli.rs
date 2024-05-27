@@ -3,7 +3,7 @@ use crate::contract_accounts::ContractAccountFilter;
 use crate::rocksdb_stats::get_rocksdb_stats;
 use crate::trie_iteration_benchmark::TrieIterationBenchmarkCmd;
 
-use crate::latest_witnesses::LatestWitnessesCmd;
+use crate::latest_witnesses::StateWitnessCmd;
 use near_chain_configs::{GenesisChangeConfig, GenesisValidationMode};
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
@@ -97,7 +97,8 @@ pub enum StateViewerSubCommand {
     ViewTrie(ViewTrieCmd),
     /// Print observed ChunkStateWitnesses at the given block height (and shard id).
     /// Observed witnesses are only saved when `save_latest_witnesses` is set to true in config.json.
-    LatestWitnesses(LatestWitnessesCmd),
+    #[clap(subcommand)]
+    StateWitness(StateWitnessCmd),
 }
 
 impl StateViewerSubCommand {
@@ -155,7 +156,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
             StateViewerSubCommand::TrieIterationBenchmark(cmd) => cmd.run(near_config, store),
-            StateViewerSubCommand::LatestWitnesses(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::StateWitness(cmd) => cmd.run(home_dir, near_config, store),
         }
     }
 }

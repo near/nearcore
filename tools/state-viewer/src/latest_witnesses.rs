@@ -1,10 +1,35 @@
+use std::io::BufReader;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use clap::Parser;
-use near_chain::ChainStore;
+use near_async::time::Clock;
+use near_chain::runtime::NightshadeRuntime;
+use near_chain::{Chain, ChainGenesis, ChainStore, DoomslugThresholdMode};
+use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
+use near_epoch_manager::EpochManager;
+use near_primitives::stateless_validation::ChunkStateWitness;
 use near_primitives::types::EpochId;
 use near_store::Store;
 use nearcore::NearConfig;
+use nearcore::NightshadeRuntimeExt;
+
+#[derive(clap::Subcommand)]
+pub enum StateWitnessCmd {
+    /// Prints latest state witnesses saved to DB.
+    LatestWitnesses(LatestWitnessesCmd),
+    /// Validates given state witness and hangs.
+    ValidateWitness(ValidateWitnessCmd),
+}
+
+impl StateWitnessCmd {
+    pub(crate) fn run(&self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        match self {
+            StateWitnessCmd::LatestWitnesses(cmd) => cmd.run(near_config, store),
+            StateWitnessCmd::ValidateWitness(cmd) => cmd.run(home_dir, near_config, store),
+        }
+    }
+}
 
 #[derive(Parser)]
 pub struct LatestWitnessesCmd {
@@ -54,6 +79,61 @@ impl LatestWitnessesCmd {
                 println!("{:?}", witness);
             }
             println!("");
+        }
+    }
+}
+
+#[derive(Parser)]
+pub struct ValidateWitnessCmd {
+    /// File with state witness saved as vector in JSON.
+    #[arg(long)]
+    input_file: PathBuf,
+}
+
+impl ValidateWitnessCmd {
+    pub(crate) fn run(&self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        near_o11y::testonly::init_integration_logger();
+        let encoded_witness: Vec<u8> =
+            serde_json::from_reader(BufReader::new(std::fs::File::open(&self.input_file).unwrap()))
+                .unwrap();
+        let witness: ChunkStateWitness = borsh::BorshDeserialize::try_from_slice(&encoded_witness)
+            .expect("Failed to deserialize witness");
+        let chain_genesis = ChainGenesis::new(&near_config.genesis.config);
+        let epoch_manager =
+            EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+        let runtime_adapter = NightshadeRuntime::from_config(
+            home_dir,
+            store.clone(),
+            &near_config,
+            epoch_manager.clone(),
+        )
+        .expect("could not create the transaction runtime");
+        let shard_tracker = ShardTracker::new(
+            TrackedConfig::from_config(&near_config.client_config),
+            epoch_manager.clone(),
+        );
+        // TODO(stateless_validation): consider using `ChainStore` instead of
+        // `Chain`.
+        let chain = Chain::new_for_view_client(
+            Clock::real(),
+            epoch_manager.clone(),
+            shard_tracker,
+            runtime_adapter.clone(),
+            &chain_genesis,
+            DoomslugThresholdMode::TwoThirds,
+            false,
+        )
+        .unwrap();
+        chain
+            .shadow_validate_state_witness(
+                witness,
+                epoch_manager.as_ref(),
+                runtime_adapter.as_ref(),
+            )
+            .unwrap();
+        // Not optimal, but needed to wait for potential `validate_state_witness` failure.
+        loop {
+            std::thread::sleep(core::time::Duration::from_secs(60));
         }
     }
 }
