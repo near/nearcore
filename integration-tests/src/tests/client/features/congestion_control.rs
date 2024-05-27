@@ -2,7 +2,6 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
-use near_parameters::RuntimeConfigStore;
 use near_primitives::account::id::AccountId;
 use near_primitives::congestion_info::CongestionControl;
 use near_primitives::errors::{ActionErrorKind, FunctionCallError, TxExecutionError};
@@ -52,21 +51,23 @@ fn test_protocol_upgrade() {
     let chunks = block.chunks();
     assert!(chunks.len() > 0);
 
-    let config_store = RuntimeConfigStore::new(None);
-    let epoch_id = block.header().epoch_id();
-    let protocol_version =
-        env.clients[0].epoch_manager.get_epoch_protocol_version(epoch_id).unwrap();
-    let runtime_config = config_store.get_config(protocol_version);
-
+    let config = head_congestion_control_config(&env);
     for chunk_header in chunks.iter() {
         let congestion_info = chunk_header
             .congestion_info()
             .expect("chunk header must have congestion info after upgrade");
-        let congestion_control =
-            CongestionControl::new(runtime_config.congestion_control_config, congestion_info, 0);
+        let congestion_control = CongestionControl::new(config, congestion_info, 0);
         assert_eq!(congestion_control.congestion_level(), 0.0);
         assert!(congestion_control.shard_accepts_transactions());
     }
+}
+
+fn head_congestion_control_config(
+    env: &TestEnv,
+) -> near_parameters::config::CongestionControlConfig {
+    let block = env.clients[0].chain.get_head_block().unwrap();
+    let runtime_config = env.get_runtime_config(0, block.header().epoch_id().clone());
+    runtime_config.congestion_control_config
 }
 
 #[test]
@@ -88,7 +89,7 @@ fn test_protocol_upgrade_under_congestion() {
     let contract = near_test_contracts::rs_contract();
     let create_contract_tx = SignedTransaction::create_contract(
         nonce,
-        sender_id.clone(),
+        sender_id,
         contract_id.clone(),
         contract.to_vec(),
         10 * 10u128.pow(24),
@@ -148,38 +149,27 @@ fn test_protocol_upgrade_under_congestion() {
     }
     let tip = env.clients[0].chain.head().unwrap();
 
-    // check sender shard is still sending transactions from the pool
-    let sender_shard_id =
-        env.clients[0].epoch_manager.account_id_to_shard_id(&sender_id, &tip.epoch_id).unwrap();
-    let sender_shard_chunk_header =
-        &chunks.get(sender_shard_id as usize).expect("chunk must be available");
-    let sender_chunk =
-        env.clients[0].chain.get_chunk(&sender_shard_chunk_header.chunk_hash()).unwrap();
-    assert!(
-        !sender_chunk.transactions().is_empty(),
-        "test setup error: sender is out of transactions"
-    );
-    assert!(
-        !sender_chunk.prev_outgoing_receipts().is_empty(),
-        "test setup error: sender is not sending receipts"
-    );
-
-    // check congestion is observed on the contract's shard
+    // Check there is still congestion, which this test is all about.
     let contract_shard_id =
         env.clients[0].epoch_manager.account_id_to_shard_id(&contract_id, &tip.epoch_id).unwrap();
-    assert!(
-        contract_shard_id != sender_shard_id,
-        "test setup error: sender and contract are on the same shard"
-    );
     let contract_shard_chunk_header =
         &chunks.get(contract_shard_id as usize).expect("chunk must be available");
-    let _congestion_info = contract_shard_chunk_header.congestion_info().unwrap();
-    // TODO(congestion_control) - delayed receipts accounting
-    // assert_eq!(
-    //     congestion_info.congestion_level(),
-    //     1.0,
-    //     "contract's shard should be fully congested"
-    // );
+    let congestion_info = contract_shard_chunk_header.congestion_info().unwrap();
+    let config = head_congestion_control_config(&env);
+    assert_eq!(
+        congestion_info.localized_congestion_level(&config),
+        1.0,
+        "contract's shard should be fully congested"
+    );
+
+    // Also check that the congested shard is still making progress.
+    env.produce_block(0, tip.height + 1);
+    let next_block = env.clients[0].chain.get_head_block().unwrap();
+    let next_chunks = next_block.chunks();
+    let next_chunk = &next_chunks.get(contract_shard_id as usize).expect("chunk must be available");
+    let next_congestion_info = next_chunk.congestion_info().unwrap();
+    assert!(congestion_info.delayed_receipts_gas() > next_congestion_info.delayed_receipts_gas());
+    assert!(congestion_info.receipt_bytes() > next_congestion_info.receipt_bytes());
 }
 
 /// Check we are still in the old version and no congestion info is shared.
