@@ -90,7 +90,7 @@ load it successfully.
 </blockquote>
 
 Once enough profiling data has been gathered, terminate the program. Use the `bytehound` CLI tool
-to operate on the profile. I recommend `bytehound serve` over directly converting to e.g. heaptrack
+to operate on the profile. I recommend `bytehound server` over directly converting to e.g. heaptrack
 format using other subcommands as each invocation will read and parse the profile data from
 scratch. This process can take quite some time. `serve` parses the inputs once and makes
 conversions and other introspection available as interactive steps.
