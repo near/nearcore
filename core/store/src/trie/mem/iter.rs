@@ -14,7 +14,7 @@ use super::arena::STArenaMemory;
 use super::node::{MemTrieNodePtr, MemTrieNodeView};
 use crate::{
     trie::{iterator::TrieItem, OptimizedValueRef},
-    NibbleSlice,
+    NibbleSlice, Trie,
 };
 use near_primitives::errors::StorageError;
 
@@ -72,6 +72,7 @@ impl<'a> Crumb<'a> {
 
 pub struct MemTrieIterator<'a> {
     root: Option<MemTrieNodePtr<'a, STArenaMemory>>,
+    trie: &'a Trie,
     trail: Vec<Crumb<'a>>,
     key_nibbles: Vec<u8>,
 
@@ -84,10 +85,16 @@ impl<'a> MemTrieIterator<'a> {
     /// Create a new iterator.
     pub fn new(
         root: Option<MemTrieNodePtr<'a, STArenaMemory>>,
+        trie: &'a Trie,
         value_getter: Box<dyn Fn(OptimizedValueRef) -> Result<Vec<u8>, StorageError> + 'a>,
     ) -> Self {
-        let mut r =
-            MemTrieIterator { root, trail: Vec::new(), key_nibbles: Vec::new(), value_getter };
+        let mut r = MemTrieIterator {
+            root,
+            trie,
+            trail: Vec::new(),
+            key_nibbles: Vec::new(),
+            value_getter,
+        };
         r.descend_into_node(root);
         r
     }
@@ -176,7 +183,15 @@ impl<'a> MemTrieIterator<'a> {
     ///
     /// The node is stored as the last [`Crumb`] in the trail.
     fn descend_into_node(&mut self, ptr: Option<MemTrieNodePtr<'a, STArenaMemory>>) {
-        let node = ptr.map(|ptr| ptr.view());
+        let node = ptr.map(|ptr| {
+            let view = ptr.view();
+            if let Some(recorder) = &self.trie.recorder {
+                let raw_node_serialized =
+                    borsh::to_vec(&view.to_raw_trie_node_with_size()).unwrap();
+                recorder.borrow_mut().record(&view.node_hash(), raw_node_serialized.into());
+            }
+            view
+        });
         self.trail.push(Crumb { status: CrumbStatus::Entering, node, prefix_boundary: false });
     }
 
