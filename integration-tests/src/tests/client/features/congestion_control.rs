@@ -2,6 +2,7 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
+use near_o11y::testonly::init_test_logger;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::account::id::AccountId;
 use near_primitives::congestion_info::{CongestionControl, CongestionInfo};
@@ -83,7 +84,7 @@ fn setup_contract(env: &mut TestEnv) {
 /// Simplest possible upgrade to new protocol with congestion control enabled,
 /// no traffic at all.
 #[test]
-fn test_protocol_upgrade() {
+fn test_protocol_upgrade_simple() {
     // The following only makes sense to test if the feature is enabled in the current build.
     if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
         return;
@@ -150,6 +151,8 @@ fn head_chunk(env: &TestEnv, shard_id: u64) -> Arc<ShardChunk> {
 
 #[test]
 fn test_protocol_upgrade_under_congestion() {
+    init_test_logger();
+
     // The following only makes sense to test if the feature is enabled in the current build.
     if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
         return;
@@ -211,6 +214,17 @@ fn test_protocol_upgrade_under_congestion() {
 
     assert!(congestion_info.delayed_receipts_gas() > next_congestion_info.delayed_receipts_gas());
     assert!(congestion_info.receipt_bytes() > next_congestion_info.receipt_bytes());
+
+    let head_height = block.header().height();
+    for i in 1..head_height {
+        let block = env.clients[0].chain.get_block_by_height(i).unwrap();
+        let epoch_id = block.header().epoch_id().clone();
+        let chunks = block.chunks();
+        for chunk_header in chunks.iter() {
+            let congestion_info = chunk_header.congestion_info();
+            println!("epoch {epoch_id:?} block {i} congestion info {congestion_info:?}");
+        }
+    }
 }
 
 /// Check we are still in the old version and no congestion info is shared.
