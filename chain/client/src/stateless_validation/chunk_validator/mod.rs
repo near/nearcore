@@ -79,6 +79,11 @@ pub struct ChunkValidator {
     orphan_witness_pool: OrphanStateWitnessPool,
     validation_spawner: Arc<dyn AsyncComputationSpawner>,
     main_state_transition_result_cache: MainStateTransitionCache,
+    /// If true, a chunk-witness validation error will lead to a panic.
+    /// This is used for non-production environments, eg. mocknet and localnet,
+    /// to quickly detect issues in validation code, and must NOT be set to true
+    /// for mainnet and testnet.
+    panic_on_validation_error: bool,
 }
 
 impl ChunkValidator {
@@ -90,6 +95,7 @@ impl ChunkValidator {
         chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
         orphan_witness_pool_size: usize,
         validation_spawner: Arc<dyn AsyncComputationSpawner>,
+        panic_on_validation_error: bool,
     ) -> Self {
         Self {
             my_signer,
@@ -100,6 +106,7 @@ impl ChunkValidator {
             orphan_witness_pool: OrphanStateWitnessPool::new(orphan_witness_pool_size),
             validation_spawner,
             main_state_transition_result_cache: MainStateTransitionCache::default(),
+            panic_on_validation_error,
         }
     }
 
@@ -167,10 +174,11 @@ impl ChunkValidator {
                     return Ok(());
                 }
                 Err(err) => {
-                    tracing::error!(
-                        "Failed to validate chunk using existing chunk extra: {:?}",
-                        err
-                    );
+                    if self.panic_on_validation_error {
+                        panic!("Failed to validate chunk using existing chunk extra: {:?}", err);
+                    } else {
+                        log_assert_fail!("Failed to validate chunk using existing chunk extra: {:?}", err);
+                    }
                     return Err(err);
                 }
             }
@@ -200,7 +208,11 @@ impl ChunkValidator {
                     );
                 }
                 Err(err) => {
-                    tracing::error!("Failed to validate chunk: {:?}", err);
+                    if self.panic_on_validation_error {
+                        panic!("Failed to validate chunk: {:?}", err);
+                    } else {
+                        log_assert_fail!("Failed to validate chunk: {:?}", err);
+                    }
                 }
             }
         });
