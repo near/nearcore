@@ -12,7 +12,7 @@
   ],
   "dynamic_resharding": false,
   "epoch_length": 43200,
-  "gas_limit": 2000000000000000,
+  "gas_limit": 3000000000000000,
   "min_gas_price": "1000000000",
   "block_producer_kickout_threshold": 90,
   "chunk_producer_kickout_threshold": 90,
