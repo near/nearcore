@@ -31,6 +31,10 @@ pub struct RuntimeConfig {
     pub storage_proof_size_soft_limit: usize,
     /// The configuration for congestion control.
     pub congestion_control_config: CongestionControlConfig,
+    /// Maxmium size of transactions contained inside ChunkStateWitness.
+    pub max_transactions_size_in_witness: usize,
+    /// Soft size limit of new transactions storage proof inside ChunkStateWitness.
+    pub new_transactions_validation_state_size_soft_limit: usize,
 }
 
 impl RuntimeConfig {
@@ -59,6 +63,9 @@ impl RuntimeConfig {
             account_creation_config: AccountCreationConfig::default(),
             storage_proof_size_soft_limit: usize::MAX,
             congestion_control_config: runtime_config.congestion_control_config,
+            max_transactions_size_in_witness: runtime_config.max_transactions_size_in_witness,
+            new_transactions_validation_state_size_soft_limit: runtime_config
+                .new_transactions_validation_state_size_soft_limit,
         }
     }
 
@@ -75,6 +82,9 @@ impl RuntimeConfig {
             account_creation_config: AccountCreationConfig::default(),
             storage_proof_size_soft_limit: usize::MAX,
             congestion_control_config: runtime_config.congestion_control_config,
+            max_transactions_size_in_witness: runtime_config.max_transactions_size_in_witness,
+            new_transactions_validation_state_size_soft_limit: runtime_config
+                .new_transactions_validation_state_size_soft_limit,
         }
     }
 

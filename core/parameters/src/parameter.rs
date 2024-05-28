@@ -24,6 +24,10 @@ pub enum Parameter {
     StorageProofSizeSoftLimit,
     // Hard per-receipt limit of recorded trie storage proof
     StorageProofSizeReceiptLimit,
+    // Maxmium size of transactions contained inside ChunkStateWitness.
+    MaxTransactionsSizeInWitness,
+    // Soft size limit of new transactions storage proof inside ChunkStateWitness.
+    NewTransactionsValidationStateSizeSoftLimit,
 
     // Account creation config
     MinAllowedTopLevelAccountLength,

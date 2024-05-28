@@ -1,0 +1,3 @@
+max_transaction_size: {old: 4_194_304, new: 1_572_864}
+max_transactions_size_in_witness: {old: 999_999_999_999_999, new: 2_097_152}
+new_transactions_validation_state_size_soft_limit: {old: 999_999_999_999_999, new: 572_864}
