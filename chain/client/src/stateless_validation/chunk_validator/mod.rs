@@ -14,8 +14,8 @@ use near_chain::chain::{
 };
 use near_chain::sharding::shuffle_receipt_proofs;
 use near_chain::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, PreparedTransactions, RuntimeAdapter,
-    RuntimeStorageConfig, StorageDataSource,
+    ApplyChunkBlockContext, ApplyChunkResult, PrepareTransactionsChunkContext,
+    PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig, StorageDataSource,
 };
 use near_chain::validate::{
     validate_chunk_with_chunk_extra, validate_chunk_with_chunk_extra_and_receipts_root,
@@ -214,6 +214,7 @@ pub(crate) fn validate_prepared_transactions(
     chain: &Chain,
     runtime_adapter: &dyn RuntimeAdapter,
     chunk_header: &ShardChunkHeader,
+    prev_chunk_transactions: &[SignedTransaction],
     storage_config: RuntimeStorageConfig,
     transactions: &[SignedTransaction],
 ) -> Result<PreparedTransactions, Error> {
@@ -221,7 +222,11 @@ pub(crate) fn validate_prepared_transactions(
 
     runtime_adapter.prepare_transactions(
         storage_config,
-        chunk_header.into(),
+        PrepareTransactionsChunkContext {
+            shard_id: chunk_header.shard_id(),
+            gas_limit: chunk_header.gas_limit(),
+            prev_chunk_transactions_size: borsh::to_vec(prev_chunk_transactions)?.len(),
+        },
         (&parent_block).into(),
         &mut TransactionGroupIteratorWrapper::new(transactions),
         &mut chain.transaction_validity_check(parent_block.header().clone()),
@@ -319,6 +324,7 @@ pub(crate) fn pre_validate_chunk_state_witness(
             chain,
             runtime_adapter,
             &state_witness.chunk_header,
+            &state_witness.transactions,
             transactions_validation_storage_config,
             &new_transactions,
         ) {

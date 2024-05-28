@@ -898,8 +898,20 @@ impl Client {
             .get_chunk_extra(&prev_block_hash, &shard_uid)
             .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?;
 
+        let prev_shard_id = self.epoch_manager.get_prev_shard_id(prev_block.hash(), shard_id)?;
+        let prev_chunk: Option<Arc<ShardChunk>> = self
+            .chain
+            .get_header_of_last_existing_chunk(
+                *prev_block.hash(),
+                prev_shard_id,
+                self.epoch_manager.as_ref(),
+            )?
+            .map(|chunk_header| self.chain.get_chunk(&chunk_header.chunk_hash()))
+            .transpose()?;
+        let prev_chunk_ref: Option<&ShardChunk> = prev_chunk.as_ref().map(|x| x.as_ref());
+
         let prepared_transactions =
-            self.prepare_transactions(shard_uid, prev_block, chunk_extra.as_ref())?;
+            self.prepare_transactions(shard_uid, prev_block, prev_chunk_ref, chunk_extra.as_ref())?;
         #[cfg(feature = "test_features")]
         let prepared_transactions = Self::maybe_insert_invalid_transaction(
             prepared_transactions,
@@ -1027,11 +1039,11 @@ impl Client {
         &mut self,
         shard_uid: ShardUId,
         prev_block: &Block,
+        prev_chunk_opt: Option<&ShardChunk>,
         chunk_extra: &ChunkExtra,
     ) -> Result<PreparedTransactions, Error> {
         let Self { chain, sharded_tx_pool, runtime_adapter: runtime, .. } = self;
         let shard_id = shard_uid.shard_id as ShardId;
-
         let prepared_transactions = if let Some(mut iter) =
             sharded_tx_pool.get_pool_iterator(shard_uid)
         {
@@ -1041,9 +1053,21 @@ impl Client {
                 source: StorageDataSource::Db,
                 state_patch: Default::default(),
             };
+            let prev_chunk_transactions_size = match prev_chunk_opt {
+                Some(prev_chunk) => borsh::to_vec(prev_chunk.transactions())
+                    .map_err(|e| {
+                        Error::ChunkProducer(format!("Failed to serialize transactions: {e}"))
+                    })?
+                    .len(),
+                None => 0,
+            };
             runtime.prepare_transactions(
                 storage_config,
-                PrepareTransactionsChunkContext { shard_id, gas_limit: chunk_extra.gas_limit() },
+                PrepareTransactionsChunkContext {
+                    shard_id,
+                    gas_limit: chunk_extra.gas_limit(),
+                    prev_chunk_transactions_size,
+                },
                 prev_block.into(),
                 &mut iter,
                 &mut chain.transaction_validity_check(prev_block.header().clone()),

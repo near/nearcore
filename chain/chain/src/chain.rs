@@ -4454,6 +4454,38 @@ impl Chain {
             })
             .collect()
     }
+
+    /// Find the last existing (not missing) chunk on this shard id.
+    pub fn get_header_of_last_existing_chunk(
+        &self,
+        last_block: CryptoHash,
+        shard_id: ShardId,
+        epoch_manager: &dyn EpochManagerAdapter,
+    ) -> Result<Option<ShardChunkHeader>, Error> {
+        let mut cur_block_hash = last_block;
+        let mut shard_id = shard_id;
+        loop {
+            let cur_block_header = self.get_block_header(&cur_block_hash)?;
+            if cur_block_header.is_genesis() {
+                return Ok(None);
+            }
+            if *cur_block_header
+                .chunk_mask()
+                .get(shard_id as usize)
+                .ok_or_else(|| Error::InvalidShardId(shard_id))?
+            {
+                let cur_block = self.get_block(&cur_block_hash)?;
+                let result = cur_block
+                    .chunks()
+                    .get(shard_id as usize)
+                    .ok_or_else(|| Error::InvalidShardId(shard_id))?
+                    .clone();
+                return Ok(Some(result));
+            }
+            cur_block_hash = *cur_block_header.prev_hash();
+            shard_id = epoch_manager.get_prev_shard_id(&cur_block_hash, shard_id)?;
+        }
+    }
 }
 
 /// Sandbox node specific operations

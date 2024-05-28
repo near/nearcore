@@ -700,7 +700,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         time_limit: Option<Duration>,
     ) -> Result<PreparedTransactions, Error> {
         let start_time = std::time::Instant::now();
-        let PrepareTransactionsChunkContext { shard_id, gas_limit } = chunk;
+        let PrepareTransactionsChunkContext { shard_id, gas_limit, .. } = chunk;
 
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block.block_hash)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
@@ -777,23 +777,38 @@ impl RuntimeAdapter for NightshadeRuntime {
             usize::MAX
         };
 
-        // In general, we limit the number of transactions via send_fees.
-        // However, as a second line of defense, we want to limit the byte size
-        // of transaction as well. Rather than introducing a separate config for
-        // the limit, we compute it heuristically from the gas limit and the
-        // cost of roundtripping a byte of data through disk. For today's value
-        // of parameters, this corresponds to about 13megs worth of
-        // transactions.
-        let size_limit = transactions_gas_limit
-            / (runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::storage_write_value_byte)
-                + runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::storage_read_value_byte));
+        let size_limit: u64 =
+            if checked_feature!("stable", WitnessTransactionLimits, protocol_version) {
+                // Sum of transactions in the previous and current chunks should not exceed the limit.
+                // Witness keeps transactions from both previous and current chunk, so we have to limit the sum of both.
+                runtime_config
+                    .max_transactions_size_in_witness
+                    .saturating_sub(chunk.prev_chunk_transactions_size) as u64
+            } else {
+                // In general, we limit the number of transactions via send_fees.
+                // However, as a second line of defense, we want to limit the byte size
+                // of transaction as well. Rather than introducing a separate config for
+                // the limit, we compute it heuristically from the gas limit and the
+                // cost of roundtripping a byte of data through disk. For today's value
+                // of parameters, this corresponds to about 13megs worth of
+                // transactions.
+                transactions_gas_limit
+                    / (runtime_config
+                        .wasm_config
+                        .ext_costs
+                        .gas_cost(ExtCosts::storage_write_value_byte)
+                        + runtime_config
+                            .wasm_config
+                            .ext_costs
+                            .gas_cost(ExtCosts::storage_read_value_byte))
+            };
         // for metrics only
         let mut rejected_due_to_congestion = 0;
         let mut rejected_invalid_tx = 0;
         let mut rejected_invalid_for_chain = 0;
 
         // Add new transactions to the result until some limit is hit or the transactions run out.
-        while let Some(transaction_group_iter) = transaction_groups.next() {
+        'add_txs_loop: while let Some(transaction_group_iter) = transaction_groups.next() {
             if total_gas_burnt >= transactions_gas_limit {
                 result.limited_by = Some(PrepareTransactionsLimit::Gas);
                 break;
@@ -820,8 +835,28 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
 
+            if checked_feature!("stable", WitnessTransactionLimits, protocol_version)
+                && state_update.trie.recorded_storage_size()
+                    > runtime_config.new_transactions_validation_state_size_soft_limit
+            {
+                result.limited_by = Some(PrepareTransactionsLimit::StorageProofSize);
+                break;
+            }
+
             // Take a single transaction from this transaction group
-            while let Some(tx) = transaction_group_iter.next() {
+            while let Some(tx_peek) = transaction_group_iter.peek_next() {
+                // Stop adding transactions if the size limit would be exceeded
+                if checked_feature!("stable", WitnessTransactionLimits, protocol_version)
+                    && total_size.saturating_add(tx_peek.get_size()) > size_limit as u64
+                {
+                    result.limited_by = Some(PrepareTransactionsLimit::Size);
+                    break 'add_txs_loop;
+                }
+
+                // Take the transaction out of the pool
+                let tx = transaction_group_iter
+                    .next()
+                    .expect("peek_next() returned Some, so next() should return Some as well");
                 num_checked_transactions += 1;
 
                 if ProtocolFeature::CongestionControl.enabled(protocol_version) {

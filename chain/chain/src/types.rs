@@ -19,7 +19,6 @@ use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::{PromiseYieldTimeout, Receipt};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
-use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::state_part::PartId;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
@@ -343,6 +342,7 @@ pub enum PrepareTransactionsLimit {
     Size,
     Time,
     ReceiptCount,
+    StorageProofSize,
 }
 
 pub struct PrepareTransactionsBlockContext {
@@ -366,12 +366,7 @@ impl From<&Block> for PrepareTransactionsBlockContext {
 pub struct PrepareTransactionsChunkContext {
     pub shard_id: ShardId,
     pub gas_limit: Gas,
-}
-
-impl From<&ShardChunkHeader> for PrepareTransactionsChunkContext {
-    fn from(header: &ShardChunkHeader) -> Self {
-        Self { shard_id: header.shard_id(), gas_limit: header.gas_limit() }
-    }
+    pub prev_chunk_transactions_size: usize,
 }
 
 /// Bridge between the chain and the runtime.
