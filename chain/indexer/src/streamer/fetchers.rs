@@ -143,6 +143,17 @@ async fn fetch_receipt_by_id(
         .map_err(|err| IndexerError::FailedToFetchData(err.to_string()))
 }
 
+pub(crate) async fn fetch_delayed_receipt_by_id(
+    client: &Addr<near_client::ViewClientActor>,
+    receipt_id: CryptoHash,
+) -> Result<Option<views::ReceiptView>, IndexerError> {
+    tracing::debug!(target: INDEXER, "Fetching delayed receipt by id: {}", receipt_id);
+    client
+        .send(near_client::GetDelayedReceipt { receipt_id }.with_span_context())
+        .await?
+        .map_err(|err| IndexerError::FailedToFetchData(err.to_string()))
+}
+
 /// Fetches single chunk (as `near_primitives::views::ChunkView`) by provided
 /// chunk hash.
 async fn fetch_single_chunk(

@@ -15,7 +15,7 @@ use near_primitives::epoch_manager::epoch_sync::EpochSyncInfo;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
-use near_primitives::receipt::Receipt;
+use near_primitives::receipt::{Receipt, TrieQueueIndices};
 use near_primitives::shard_layout::account_id_to_shard_id;
 use near_primitives::shard_layout::{get_block_shard_uid, ShardLayout, ShardUId};
 use near_primitives::sharding::{
@@ -318,6 +318,16 @@ pub trait ChainStoreAccess {
     /// database.
     fn get_receipt(&self, receipt_id: &CryptoHash) -> Result<Option<Arc<Receipt>>, Error>;
 
+    /// Fetch a delayed receipt if it is stored in the store.
+    ///
+    /// This method is created to handle the case when an indexer cannot find a receipt
+    /// because is it _local_ delayed receipt.
+    /// Normally, such receipts are not stored in the store. And they are expected to be there
+    /// only after dumping the state into a new genesis [records] file.
+    ///
+    /// And the indexer started from the re-genesis fails to find the receipt.
+    fn get_delayed_receipt(&self, receipt_id: &CryptoHash) -> Result<Option<Arc<Receipt>>, Error>;
+
     fn get_genesis_height(&self) -> BlockHeight;
 
     fn get_block_merkle_tree(
@@ -443,6 +453,8 @@ pub struct ChainStore {
     pub(crate) transactions: CellLruCache<Vec<u8>, Arc<SignedTransaction>>,
     /// Receipts
     pub(crate) receipts: CellLruCache<Vec<u8>, Arc<Receipt>>,
+    /// Delayed receipts
+    pub(crate) delayed_receipts: CellLruCache<Vec<u8>, Arc<Receipt>>,
     /// Cache with Block Refcounts
     pub(crate) block_refcounts: CellLruCache<Vec<u8>, u64>,
     /// Cache of block hash -> block merkle tree at the current block
@@ -494,6 +506,7 @@ impl ChainStore {
             receipt_id_to_shard_id: CellLruCache::new(CHUNK_CACHE_SIZE),
             transactions: CellLruCache::new(CHUNK_CACHE_SIZE),
             receipts: CellLruCache::new(CHUNK_CACHE_SIZE),
+            delayed_receipts: CellLruCache::new(CHUNK_CACHE_SIZE),
             block_merkle_tree: CellLruCache::new(CACHE_SIZE),
             block_ordinal_to_hash: CellLruCache::new(CACHE_SIZE),
             processed_block_heights: CellLruCache::new(CACHE_SIZE),
@@ -1364,6 +1377,32 @@ impl ChainStoreAccess for ChainStore {
             .map_err(|e| e.into())
     }
 
+    fn get_delayed_receipt(&self, receipt_id: &CryptoHash) -> Result<Option<Arc<Receipt>>, Error> {
+        let delayed_receipts_indices: Option<TrieQueueIndices> =
+            self.store.get_ser(DBCol::State, &TrieKey::DelayedReceiptIndices.to_vec())?;
+
+        if let Some(indices) = delayed_receipts_indices {
+            for index in indices.first_index..indices.next_available_index {
+                let key = TrieKey::DelayedReceipt { index };
+                let delayed_receipt: Option<Receipt> =
+                    self.store.get_ser(DBCol::State, &key.to_vec())?;
+                // Put the receipt into the cache
+                if let Some(receipt) = delayed_receipt {
+                    let deleyed_receipt_id = match &receipt {
+                        Receipt::V0(innter_receipt) => innter_receipt.receipt_id.as_bytes(),
+                        Receipt::V1(innter_receipt) => innter_receipt.receipt_id.as_bytes(),
+                    };
+                    self.delayed_receipts
+                        .put(deleyed_receipt_id.to_vec(), Arc::new(receipt.clone()));
+                    if deleyed_receipt_id == receipt_id.as_ref() {
+                        return Ok(Some(Arc::new(receipt)));
+                    }
+                }
+            }
+        }
+        Ok(None)
+    }
+
     fn get_genesis_height(&self) -> BlockHeight {
         self.genesis_height
     }
@@ -1771,6 +1810,10 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         } else {
             self.chain_store.get_receipt(receipt_id)
         }
+    }
+
+    fn get_delayed_receipt(&self, receipt_id: &CryptoHash) -> Result<Option<Arc<Receipt>>, Error> {
+        self.chain_store.get_delayed_receipt(receipt_id)
     }
 
     fn get_genesis_height(&self) -> BlockHeight {

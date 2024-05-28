@@ -192,20 +192,31 @@ pub async fn build_streamer_message(
                     // Receipt was found in cache
                     receipt
                 } else {
-                    // Receipt not found in cache or failed to acquire lock, proceed to look it up
-                    // in the history of blocks (up to 1000 blocks back)
-                    tracing::warn!(
-                        target: INDEXER,
-                        "Receipt {} is missing in block and in DELAYED_LOCAL_RECEIPTS_CACHE, looking for it in up to 1000 blocks back in time",
-                        execution_outcome.id,
-                    );
-                    lookup_delayed_local_receipt_in_previous_blocks(
-                        &client,
-                        &runtime_config,
-                        block.clone(),
-                        execution_outcome.id,
-                    )
-                    .await?
+                    // Receipt not found in cache or failed to acquire lock
+                    // Local Delayed receipt might be in the RocksDB of the node
+                    // if this node has started from genesis (forknet/mocknet)
+                    match fetchers::fetch_delayed_receipt_by_id(&client, execution_outcome.id)
+                        .await?
+                    {
+                        Some(receipt) => receipt,
+                        None => {
+                            // Receipt not found in the RocksDB of the node
+                            // or failed to fetch it from the RocksDB
+                            // proceed to look it up in the history of blocks (up to 1000 blocks back)
+                            tracing::warn!(
+                                target: INDEXER,
+                                "Receipt {} is missing in block and in DELAYED_LOCAL_RECEIPTS_CACHE, looking for it in up to 1000 blocks back in time",
+                                execution_outcome.id,
+                            );
+                            lookup_delayed_local_receipt_in_previous_blocks(
+                                &client,
+                                &runtime_config,
+                                block.clone(),
+                                execution_outcome.id,
+                            )
+                            .await?
+                        }
+                    }
                 }
             };
             receipt_execution_outcomes
@@ -289,7 +300,16 @@ async fn lookup_delayed_local_receipt_in_previous_blocks(
         }
         let prev_block = match fetch_block(&client, prev_block_hash).await {
             Ok(block) => block,
-            Err(err) => panic!("Unable to get previous block: {:?}", err),
+            Err(err) => {
+                tracing::warn!(
+                    target: INDEXER,
+                    "Failed to fetch block {} while looking for receipt {}. Error: {:?}",
+                    prev_block_hash,
+                    receipt_id,
+                    err
+                );
+                return Err(errors::IndexerError::LocalDelayedReceiptNotFound { receipt_id });
+            }
         };
 
         prev_block_hash = prev_block.header.prev_hash;
