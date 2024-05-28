@@ -38,6 +38,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::ShardId;
 use near_primitives::validator_signer::ValidatorSigner;
+use near_o11y::log_assert_fail;
 use near_store::{PartialStorage, ShardUId};
 use near_vm_runner::logic::ProtocolVersion;
 use orphan_witness_pool::OrphanStateWitnessPool;
@@ -153,7 +154,8 @@ impl ChunkValidator {
             chunk_header.shard_id(),
         )?;
         let shard_uid = epoch_manager.shard_id_to_uid(last_header.shard_id(), &epoch_id)?;
-
+        let panic_on_validation_error = self.panic_on_validation_error;
+        
         if let Ok(prev_chunk_extra) = chain.get_chunk_extra(prev_block_hash, &shard_uid) {
             match validate_chunk_with_chunk_extra(
                 chain.chain_store(),
@@ -174,7 +176,7 @@ impl ChunkValidator {
                     return Ok(());
                 }
                 Err(err) => {
-                    if self.panic_on_validation_error {
+                    if panic_on_validation_error {
                         panic!("Failed to validate chunk using existing chunk extra: {:?}", err);
                     } else {
                         log_assert_fail!("Failed to validate chunk using existing chunk extra: {:?}", err);
@@ -208,7 +210,7 @@ impl ChunkValidator {
                     );
                 }
                 Err(err) => {
-                    if self.panic_on_validation_error {
+                    if panic_on_validation_error {
                         panic!("Failed to validate chunk: {:?}", err);
                     } else {
                         log_assert_fail!("Failed to validate chunk: {:?}", err);

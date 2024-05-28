@@ -360,10 +360,10 @@ impl Client {
         );
         let chunk_endorsement_tracker =
             Arc::new(ChunkEndorsementTracker::new(epoch_manager.clone()));
-        /// Chunk validator should panic if there is a validator error in non-production chains (eg. mocket and localnet).
-        let panic_on_validation_error = self.config.chain_id != near_primitives::chains::MAINNET
-            && self.config.chain_id != near_primitives::chains::TESTNET
-            && self.config.chain_id != near_primitives::chains::STATELESSNET;
+        // Chunk validator should panic if there is a validator error in non-production chains (eg. mocket and localnet).
+        let panic_on_validation_error = config.chain_id != near_primitives::chains::MAINNET
+            && config.chain_id != near_primitives::chains::TESTNET
+            && config.chain_id != near_primitives::chains::STATELESSNET;
         let chunk_validator = ChunkValidator::new(
             validator_signer.clone(),
             epoch_manager.clone(),
