@@ -47,7 +47,7 @@ class ComputeSum(base.Transaction):
         self.sender = sender
         self.usage_tgas = usage_tgas
 
-    def sign_and_serialize(self, block_hash) -> bytes:
+    def sign(self, block_hash) -> transaction.SignedTransaction:
         return transaction.sign_function_call_tx(
             self.sender.key,
             self.contract_account_id,

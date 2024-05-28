@@ -57,7 +57,7 @@ class InitSocialDB(Transaction):
         super().__init__()
         self.contract = contract
 
-    def sign_and_serialize(self, block_hash) -> bytes:
+    def sign(self, block_hash) -> transaction.SignedTransaction:
         # Call the #[init] function, no arguments
         call_new_action = create_function_call_action("new", "", 100 * TGAS, 0)
 
@@ -69,7 +69,7 @@ class InitSocialDB(Transaction):
         # Batch the two actions above into one transaction
         nonce = self.contract.use_nonce()
         key = self.contract.key
-        return transaction.sign_and_serialize_transaction(
+        return transaction.sign_transaction(
             key.account_id, nonce, [call_new_action, call_set_status_action],
             block_hash, key.account_id, key.decoded_pk(), key.decoded_sk())
 
