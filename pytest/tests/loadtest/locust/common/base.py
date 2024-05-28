@@ -92,10 +92,10 @@ class Transaction:
         self.transaction_id = None
 
     @abc.abstractmethod
-    def sign_and_serialize(self, block_hash) -> bytes:
+    def sign(self, block_hash) -> transaction.SignedTransaction:
         """
-        Each transaction class is supposed to define this method to serialize and
-        sign the transaction and return the raw message to be sent.
+        Each transaction class is supposed to define this method to create and return the signed
+        transaction. Transaction needs to be serialized before being sent.
         """
 
     @abc.abstractmethod
@@ -128,8 +128,8 @@ class FunctionCall(Transaction):
         Return a single dict for `FunctionCall` but a list of dict for `MultiFunctionCall`.
         """
 
-    def sign_and_serialize(self, block_hash) -> bytes:
-        return transaction.sign_function_call_tx(
+    def sign(self, block_hash) -> transaction.SignedTransaction:
+        return transaction.sign_function_call_transaction(
             self.sender.key, self.receiver_id, self.method,
             json.dumps(self.args()).encode('utf-8'), 300 * TGAS, self.balance,
             self.sender.use_nonce(), block_hash)
@@ -150,7 +150,7 @@ class MultiFunctionCall(FunctionCall):
                  balance: int = 0):
         super().__init__(sender, receiver_id, method, balance=balance)
 
-    def sign_and_serialize(self, block_hash) -> bytes:
+    def sign(self, block_hash) -> transaction.SignedTransaction:
         all_args = self.args()
         gas = 300 * TGAS // len(all_args)
 
@@ -160,10 +160,12 @@ class MultiFunctionCall(FunctionCall):
                 json.dumps(args).encode('utf-8'), gas, int(self.balance))
 
         actions = [create_action(args) for args in all_args]
-        return transaction.sign_and_serialize_transaction(
-            self.receiver_id, self.sender.use_nonce(), actions, block_hash,
-            self.sender.key.account_id, self.sender.key.decoded_pk(),
-            self.sender.key.decoded_sk())
+        return transaction.sign_transaction(self.receiver_id,
+                                            self.sender.use_nonce(), actions,
+                                            block_hash,
+                                            self.sender.key.account_id,
+                                            self.sender.key.decoded_pk(),
+                                            self.sender.key.decoded_sk())
 
 
 class Deploy(Transaction):
@@ -174,13 +176,12 @@ class Deploy(Transaction):
         self.contract = contract
         self.name = name
 
-    def sign_and_serialize(self, block_hash) -> bytes:
+    def sign(self, block_hash) -> transaction.SignedTransaction:
         account = self.account
         logger.info(f"deploying {self.name} to {account.key.account_id}")
         wasm_binary = utils.load_binary_file(self.contract)
-        return transaction.sign_deploy_contract_tx(account.key, wasm_binary,
-                                                   account.use_nonce(),
-                                                   block_hash)
+        return transaction.sign_deploy_contract_transaction(
+            account.key, wasm_binary, account.use_nonce(), block_hash)
 
     def sender_account(self) -> Account:
         return self.account
@@ -194,11 +195,11 @@ class CreateSubAccount(Transaction):
         self.sub_key = sub_key
         self.balance = balance
 
-    def sign_and_serialize(self, block_hash) -> bytes:
+    def sign(self, block_hash) -> transaction.SignedTransaction:
         sender = self.sender
         sub = self.sub_key
         logger.debug(f"creating {sub.account_id}")
-        return transaction.sign_create_account_with_full_access_key_and_balance_tx(
+        return transaction.sign_create_account_with_full_access_key_and_balance_transaction(
             sender.key, sub.account_id, sub, int(self.balance * 1E24),
             sender.use_nonce(), block_hash)
 
@@ -213,13 +214,15 @@ class AddFullAccessKey(Transaction):
         self.sender = parent
         self.new_key = new_key
 
-    def sign_and_serialize(self, block_hash) -> bytes:
+    def sign(self, block_hash) -> transaction.SignedTransaction:
         action = transaction.create_full_access_key_action(
             self.new_key.decoded_pk())
-        return transaction.sign_and_serialize_transaction(
-            self.sender.key.account_id, self.sender.use_nonce(),
-            [action], block_hash, self.sender.key.account_id,
-            self.sender.key.decoded_pk(), self.sender.key.decoded_sk())
+        return transaction.sign_transaction(self.sender.key.account_id,
+                                            self.sender.use_nonce(), [action],
+                                            block_hash,
+                                            self.sender.key.account_id,
+                                            self.sender.key.decoded_pk(),
+                                            self.sender.key.decoded_sk())
 
     def sender_account(self) -> Account:
         return self.sender
@@ -268,7 +271,8 @@ class NearNodeProxy:
         Send a transaction and return the result, no retry attempted.
         """
         block_hash = self.final_block_hash()
-        signed_tx = tx.sign_and_serialize(block_hash)
+        signed_tx = tx.sign(block_hash)
+        serialized_tx = transaction.serialize_transaction(signed_tx)
 
         meta = self.new_locust_metadata(locust_name)
         start_perf_counter = time.perf_counter()
@@ -278,7 +282,7 @@ class NearNodeProxy:
                 # To get proper errors on invalid transaction, we need to use sync api first
                 result = self.post_json(
                     "broadcast_tx_commit",
-                    [base64.b64encode(signed_tx).decode('utf8')])
+                    [base64.b64encode(serialized_tx).decode('utf8')])
                 evaluate_rpc_result(result.json())
             except TxUnknownError as err:
                 # This means we time out in one way or another.
@@ -286,7 +290,7 @@ class NearNodeProxy:
                 # successful, we can now use async API without missing errors.
                 submit_raw_response = self.post_json(
                     "broadcast_tx_async",
-                    [base64.b64encode(signed_tx).decode('utf8')])
+                    [base64.b64encode(serialized_tx).decode('utf8')])
                 meta["response_length"] = len(submit_raw_response.text)
                 submit_response = submit_raw_response.json()
                 # extract transaction ID from response, it should be "{ "result": "id...." }"
@@ -425,10 +429,11 @@ class NearNodeProxy:
             for account in to_create:
                 meta = self.new_locust_metadata(msg)
                 tx = CreateSubAccount(parent, account.key, balance=balance)
-                signed_tx = tx.sign_and_serialize(block_hash)
+                signed_tx = tx.sign(block_hash)
+                serialized_tx = transaction.serialize_transaction(signed_tx)
                 submit_raw_response = self.post_json(
                     "broadcast_tx_async",
-                    [base64.b64encode(signed_tx).decode('utf8')])
+                    [base64.b64encode(serialized_tx).decode('utf8')])
                 meta["response_length"] = len(submit_raw_response.text)
                 submit_response = submit_raw_response.json()
                 if not "result" in submit_response:
