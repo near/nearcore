@@ -703,6 +703,7 @@ def init_account_generator(parsed_options):
     if parsed_options.shard_layout_file is not None:
         with open(parsed_options.shard_layout_file, 'r') as f:
             shard_layout = json.load(f)
+        shard_layout_version = "V1" if "V1" in shard_layout else "V0"
     elif parsed_options.shard_layout_chain_id is not None:
         if parsed_options.shard_layout_chain_id not in ['mainnet', 'testnet']:
             sys.exit(
@@ -718,8 +719,32 @@ def init_account_generator(parsed_options):
                 "shards_split_map": [[0, 1, 2, 3]],
                 "to_parent_shard_map": [0, 0, 0, 0],
                 "version": 1
+            },
+            "V2": {
+                "fixed_shards": [],
+                "boundary_accounts": [
+                    "aurora", "aurora-0", "kkuuue2akv_1630967379.near",
+                    "tge-lockup.sweat"
+                ],
+                "shards_split_map": [[0, 1, 2, 3, 4]],
+                "to_parent_shard_map": [0, 0, 0, 0, 0],
+                "version": 2
+            },
+            "V3": {
+                "fixed_shards": [],
+                "boundary_accounts": [
+                    "aurora",
+                    "aurora-0",
+                    "game.hot.tg",
+                    "kkuuue2akv_1630967379.near",
+                    "tge-lockup.sweat",
+                ],
+                "shards_split_map": [[0, 1, 2, 3, 4, 5]],
+                "to_parent_shard_map": [0, 0, 0, 0, 0, 0],
+                "version": 3
             }
         }
+        shard_layout_version = parsed_options.shard_layout_version.upper()
     else:
         shard_layout = {
             "V0": {
@@ -727,8 +752,8 @@ def init_account_generator(parsed_options):
                 "version": 0,
             },
         }
-
-    return AccountGenerator(shard_layout)
+        shard_layout_version = "V0"
+    return AccountGenerator(shard_layout, shard_layout_version)
 
 
 # called once per process before user initialization
@@ -810,6 +835,12 @@ def _(parser):
         required=False,
         help=
         "chain ID whose shard layout we should consult when generating account IDs. Convenience option to avoid using --shard-layout-file for mainnet and testnet"
+    )
+    parser.add_argument(
+        "--shard-layout-version",
+        required=False,
+        help=
+        "Version of the shard layout. Only works with --shard-layout-chain-id. Should be one of V0, V1, V2, or V3."
     )
     parser.add_argument(
         "--run-id",
