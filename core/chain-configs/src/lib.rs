@@ -44,7 +44,7 @@ pub const PROTOCOL_TREASURY_ACCOUNT: &str = "near";
 pub const PROTOCOL_UPGRADE_STAKE_THRESHOLD: Rational32 = Rational32::new_raw(4, 5);
 
 /// Initial gas limit.
-pub const INITIAL_GAS_LIMIT: Gas = 1_000_000_000_000_000;
+pub const INITIAL_GAS_LIMIT: Gas = 1_500_000_000_000_000;
 
 /// Criterion for kicking out block producers.
 pub const BLOCK_PRODUCER_KICKOUT_THRESHOLD: u8 = 90;
