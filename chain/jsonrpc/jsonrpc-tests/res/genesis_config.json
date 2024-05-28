@@ -16,7 +16,7 @@
     5
   ],
   "epoch_length": 500,
-  "gas_limit": 1000000000000000,
+  "gas_limit": 1500000000000000,
   "min_gas_price": "100000000",
   "max_gas_price": "10000000000000000000000",
   "block_producer_kickout_threshold": 90,
