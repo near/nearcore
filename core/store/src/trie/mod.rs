@@ -1675,7 +1675,17 @@ impl<'a> TrieWithReadLock<'a> {
                 Ok(TrieIterator::Memtrie(MemTrieIterator::new(
                     root,
                     self.trie,
-                    Box::new(|value_ref| self.trie.deref_optimized(&value_ref)),
+                    Box::new(|value_ref| {
+                        let value = self.trie.deref_optimized(&value_ref);
+                        if let Ok(value) = &value {
+                            if let Some(recorder) = &self.trie.recorder {
+                                let arc_value: Arc<[u8]> = value.clone().into();
+                                // Not happy about SHA operation, but don't see how to avoid.
+                                recorder.borrow_mut().record(&hash(value), arc_value);
+                            }
+                        }
+                        value
+                    }),
                 )))
             }
             None => Ok(TrieIterator::Disk(DiskTrieIterator::new(self.trie, None)?)),
