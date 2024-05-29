@@ -296,10 +296,15 @@ class NearNodeProxy:
                         "wait_until":
                             "EXECUTED_OPTIMISTIC"
                     })
+
                 if hasattr(result, 'json'):
                     evaluate_rpc_result(result.json())
                 else:
-                    result.raise_for_status()
+                    try:
+                        result.raise_for_status()
+                    except Exception as e:
+                        raise RpcError(details=e)
+
             except TxUnknownError as err:
                 # This means we time out in one way or another.
                 # In that case, the stateless transaction validation was
