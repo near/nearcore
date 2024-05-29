@@ -31,6 +31,8 @@ import utils
 DEFAULT_TRANSACTION_TTL = timedelta(minutes=30)
 logger = new_logger(level=logging.WARN)
 
+INIT_DONE = threading.Event()
+
 
 def is_key_error(exception):
     return isinstance(exception, KeyError)
@@ -512,14 +514,16 @@ class NearUser(FastHttpUser):
         assert self.host is not None, "Near user requires the RPC node address"
         self.node = NearNodeProxy(environment, self)
         self.id = NearUser.get_next_id()
-        user_suffix = f"{self.id}_run{environment.parsed_options.run_id}"
-        self.account_id = NearUser.generate_account_id(
-            environment.account_generator, user_suffix)
+        self.user_suffix = f"{self.id}_run{environment.parsed_options.run_id}"
+        self.account_generator = environment.account_generator
 
     def on_start(self):
         """
         Called once per user, creating the account on chain
         """
+        INIT_DONE.wait()
+        self.account_id = NearUser.generate_account_id(self.account_generator,
+                                                       self.user_suffix)
         self.account = Account(key.Key.from_random(self.account_id))
         if not self.node.account_exists(self.account_id):
             self.send_tx_retry(
@@ -802,9 +806,6 @@ def do_on_locust_init(environment):
 
     NearUser.funding_account = funding_account
     environment.master_funding_account = master_funding_account
-
-
-INIT_DONE = threading.Event()
 
 
 @events.init.add_listener
