@@ -178,6 +178,9 @@ pub enum InvalidTxError {
     TransactionSizeExceeded { size: u64, limit: u64 },
     /// Transaction version is invalid.
     InvalidTransactionVersion,
+    /// The receiver shard of the transaction is too congestion to accept new
+    /// transactions at the moment.
+    ShardCongested { shard_id: u32 },
 }
 
 impl std::error::Error for InvalidTxError {}
@@ -575,6 +578,9 @@ impl Display for InvalidTxError {
             }
             InvalidTxError::InvalidTransactionVersion => {
                 write!(f, "Transaction version is invalid")
+            }
+            InvalidTxError::ShardCongested { shard_id } => {
+                write!(f, "Shard {shard_id} is currently congested and rejects new transactions.")
             }
         }
     }
