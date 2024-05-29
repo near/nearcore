@@ -464,7 +464,14 @@ impl ClientActorInner {
                                 chunk.chunk_hash().0,
                             )
                             .map(|s| s.whole_milliseconds() as u64),
-                            congestion_info: chunk.congestion_info(),
+                            delayed_receipts_gas: chunk
+                                .congestion_info()
+                                .map(|info| info.delayed_receipts_gas()),
+                            buffered_receipts_gas: chunk
+                                .congestion_info()
+                                .map(|info| info.buffered_receipts_gas()),
+                            receipt_bytes: chunk.congestion_info().map(|info| info.receipt_bytes()),
+                            allowed_shard: chunk.congestion_info().map(|info| info.allowed_shard()),
                         })
                         .collect(),
                     None => vec![],

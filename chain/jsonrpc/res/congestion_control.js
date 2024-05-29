@@ -7,21 +7,21 @@ function sortBlocks(blocks) {
 }
 
 function toTgas(gas) {
-    if (!gas) {
+    if (!gas && gas !== 0) {
         return "N/A"
     }
     return (gas / (1024 * 1024 * 1024 * 1024)).toFixed(2)
 }
 
 function toMiB(bytes) {
-    if (!bytes) {
+    if (!bytes && bytes !== 0) {
         return "N/A"
     }
     return (bytes / (1024 * 1024)).toFixed(2)
 }
 
 function toShardIndex(shard) {
-    if (!shard) {
+    if (!shard && shard !== 0) {
         return "N/A"
     }
     return shard
@@ -48,10 +48,10 @@ function BlocksTable({ rows }) {
         const chunkCells = [];
         row.chunks.forEach((chunk, shardId) => {
             chunkCells.push(<React.Fragment key={shardId}>
-                <td>{toTgas(chunk.congestion_info.delayed_receipts_gas)}</td>
-                <td>{toTgas(chunk.congestion_info.buffered_receipts_gas)}</td>
-                <td>{toMiB(chunk.congestion_info.receipt_bytes)}</td>
-                <td>{toShardIndex(chunk.congestion_info.allowed_shard)}</td>
+                <td>{toTgas(chunk.delayed_receipts_gas)}</td>
+                <td>{toTgas(chunk.buffered_receipts_gas)}</td>
+                <td>{toMiB(chunk.receipt_bytes)}</td>
+                <td>{toShardIndex(chunk.allowed_shard)}</td>
             </React.Fragment>);
         });
 
