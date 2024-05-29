@@ -780,7 +780,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let size_limit: u64 = calculate_transactions_size_limit(
             protocol_version,
             &runtime_config,
-            chunk.prev_chunk_transactions_size,
+            chunk.last_chunk_transactions_size,
             transactions_gas_limit,
         );
         // for metrics only
@@ -1374,7 +1374,7 @@ fn chunk_tx_gas_limit(
 fn calculate_transactions_size_limit(
     protocol_version: ProtocolVersion,
     runtime_config: &RuntimeConfig,
-    prev_chunk_transactions_size: usize,
+    last_chunk_transactions_size: usize,
     transactions_gas_limit: Gas,
 ) -> u64 {
     if checked_feature!("stable", WitnessTransactionLimits, protocol_version) {
@@ -1382,7 +1382,7 @@ fn calculate_transactions_size_limit(
         // Witness keeps transactions from both previous and current chunk, so we have to limit the sum of both.
         runtime_config
             .max_transactions_size_in_witness
-            .saturating_sub(prev_chunk_transactions_size)
+            .saturating_sub(last_chunk_transactions_size)
             .try_into()
             .expect("Can't convert usize to u64!")
     } else {

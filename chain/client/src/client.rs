@@ -899,19 +899,19 @@ impl Client {
             .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?;
 
         let prev_shard_id = self.epoch_manager.get_prev_shard_id(prev_block.hash(), shard_id)?;
-        let prev_chunk_header: Option<ShardChunkHeader> =
+        let last_chunk_header: Option<ShardChunkHeader> =
             self.chain.get_header_of_last_existing_chunk(
                 *prev_block.hash(),
                 prev_shard_id,
                 self.epoch_manager.as_ref(),
             )?;
-        let prev_chunk: Option<Arc<ShardChunk>> = prev_chunk_header
+        let last_chunk: Option<Arc<ShardChunk>> = last_chunk_header
             .map(|header| self.chain.get_chunk(&header.chunk_hash()))
             .transpose()?;
-        let prev_chunk_ref: Option<&ShardChunk> = prev_chunk.as_ref().map(|x| x.as_ref());
+        let last_chunk_ref: Option<&ShardChunk> = last_chunk.as_ref().map(|x| x.as_ref());
 
         let prepared_transactions =
-            self.prepare_transactions(shard_uid, prev_block, prev_chunk_ref, chunk_extra.as_ref())?;
+            self.prepare_transactions(shard_uid, prev_block, last_chunk_ref, chunk_extra.as_ref())?;
         #[cfg(feature = "test_features")]
         let prepared_transactions = Self::maybe_insert_invalid_transaction(
             prepared_transactions,
@@ -1039,7 +1039,7 @@ impl Client {
         &mut self,
         shard_uid: ShardUId,
         prev_block: &Block,
-        prev_chunk_opt: Option<&ShardChunk>,
+        last_chunk_opt: Option<&ShardChunk>,
         chunk_extra: &ChunkExtra,
     ) -> Result<PreparedTransactions, Error> {
         let Self { chain, sharded_tx_pool, runtime_adapter: runtime, .. } = self;
@@ -1053,7 +1053,7 @@ impl Client {
                 source: StorageDataSource::Db,
                 state_patch: Default::default(),
             };
-            let prev_chunk_transactions_size = match prev_chunk_opt {
+            let last_chunk_transactions_size = match last_chunk_opt {
                 Some(prev_chunk) => borsh::to_vec(prev_chunk.transactions())
                     .map_err(|e| {
                         Error::ChunkProducer(format!("Failed to serialize transactions: {e}"))
@@ -1066,7 +1066,7 @@ impl Client {
                 PrepareTransactionsChunkContext {
                     shard_id,
                     gas_limit: chunk_extra.gas_limit(),
-                    prev_chunk_transactions_size,
+                    last_chunk_transactions_size,
                 },
                 prev_block.into(),
                 &mut iter,

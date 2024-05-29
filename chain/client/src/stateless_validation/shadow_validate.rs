@@ -53,7 +53,7 @@ impl Client {
         let shard_id = chunk.shard_id();
         let chunk_hash = chunk.chunk_hash();
         let chunk_header = chunk.cloned_header();
-        let prev_chunk = self.chain.get_chunk(&prev_chunk_header.chunk_hash())?;
+        let last_chunk = self.chain.get_chunk(&prev_chunk_header.chunk_hash())?;
 
         let transactions_validation_storage_config = RuntimeStorageConfig {
             state_root: chunk_header.prev_state_root(),
@@ -68,7 +68,7 @@ impl Client {
             &self.chain,
             self.runtime_adapter.as_ref(),
             &chunk_header,
-            prev_chunk.transactions(),
+            last_chunk.transactions(),
             transactions_validation_storage_config,
             chunk.transactions(),
         ) else {

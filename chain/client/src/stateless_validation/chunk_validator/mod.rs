@@ -214,7 +214,7 @@ pub(crate) fn validate_prepared_transactions(
     chain: &Chain,
     runtime_adapter: &dyn RuntimeAdapter,
     chunk_header: &ShardChunkHeader,
-    prev_chunk_transactions: &[SignedTransaction],
+    last_chunk_transactions: &[SignedTransaction],
     storage_config: RuntimeStorageConfig,
     transactions: &[SignedTransaction],
 ) -> Result<PreparedTransactions, Error> {
@@ -225,7 +225,7 @@ pub(crate) fn validate_prepared_transactions(
         PrepareTransactionsChunkContext {
             shard_id: chunk_header.shard_id(),
             gas_limit: chunk_header.gas_limit(),
-            prev_chunk_transactions_size: borsh::to_vec(prev_chunk_transactions)?.len(),
+            last_chunk_transactions_size: borsh::to_vec(last_chunk_transactions)?.len(),
         },
         (&parent_block).into(),
         &mut TransactionGroupIteratorWrapper::new(transactions),

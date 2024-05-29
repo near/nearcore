@@ -366,7 +366,7 @@ impl From<&Block> for PrepareTransactionsBlockContext {
 pub struct PrepareTransactionsChunkContext {
     pub shard_id: ShardId,
     pub gas_limit: Gas,
-    pub prev_chunk_transactions_size: usize,
+    pub last_chunk_transactions_size: usize,
 }
 
 /// Bridge between the chain and the runtime.
