@@ -102,8 +102,7 @@ expression: config_view
     "pessimistic_gas_price_inflation_ratio": [
       103,
       100
-    ],
-    "storage_proof_size_soft_limit": 999999999999999
+    ]
   },
   "wasm_config": {
     "ext_costs": {
@@ -221,5 +220,10 @@ expression: config_view
   "account_creation_config": {
     "min_allowed_top_level_account_length": 32,
     "registrar_account_id": "registrar"
+  },
+  "witness_config": {
+    "storage_proof_size_soft_limit": 999999999999999,
+    "max_transactions_size_in_witness": 999999999999999,
+    "new_transactions_validation_state_size_soft_limit": 999999999999999
   }
 }

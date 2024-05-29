@@ -818,7 +818,9 @@ impl RuntimeAdapter for NightshadeRuntime {
 
             if checked_feature!("stable", WitnessTransactionLimits, protocol_version)
                 && state_update.trie.recorded_storage_size()
-                    > runtime_config.new_transactions_validation_state_size_soft_limit
+                    > runtime_config
+                        .witness_config
+                        .new_transactions_validation_state_size_soft_limit
             {
                 result.limited_by = Some(PrepareTransactionsLimit::StorageProofSize);
                 break;
@@ -1381,6 +1383,7 @@ fn calculate_transactions_size_limit(
         // Sum of transactions in the previous and current chunks should not exceed the limit.
         // Witness keeps transactions from both previous and current chunk, so we have to limit the sum of both.
         runtime_config
+            .witness_config
             .max_transactions_size_in_witness
             .saturating_sub(last_chunk_transactions_size)
             .try_into()

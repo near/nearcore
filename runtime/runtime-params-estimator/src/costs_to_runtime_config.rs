@@ -38,11 +38,8 @@ pub fn costs_to_runtime_config(cost_table: &CostTable) -> anyhow::Result<Runtime
             ..latest_runtime_config.wasm_config
         },
         account_creation_config: AccountCreationConfig::default(),
-        storage_proof_size_soft_limit: usize::MAX,
         congestion_control_config: latest_runtime_config.congestion_control_config,
-        max_transactions_size_in_witness: latest_runtime_config.max_transactions_size_in_witness,
-        new_transactions_validation_state_size_soft_limit: latest_runtime_config
-            .new_transactions_validation_state_size_soft_limit,
+        witness_config: latest_runtime_config.witness_config,
     };
     Ok(res)
 }

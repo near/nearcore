@@ -1548,7 +1548,7 @@ impl Runtime {
         let compute_limit = apply_state.gas_limit.unwrap_or(Gas::max_value());
         let proof_size_limit =
             if checked_feature!("stable", StateWitnessSizeLimit, protocol_version) {
-                Some(apply_state.config.storage_proof_size_soft_limit)
+                Some(apply_state.config.witness_config.storage_proof_size_soft_limit)
             } else {
                 None
             };
@@ -3138,7 +3138,7 @@ mod tests {
         // Change storage_proof_size_soft_limit to a smaller value
         // The value of 500 is small enough to let the first receipt go through but not the second
         let mut runtime_config = RuntimeConfig::test();
-        runtime_config.storage_proof_size_soft_limit = 5000;
+        runtime_config.witness_config.storage_proof_size_soft_limit = 5000;
         apply_state.config = Arc::new(runtime_config);
 
         let create_acc_fn = |account_id| {
