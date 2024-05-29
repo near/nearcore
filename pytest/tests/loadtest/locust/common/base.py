@@ -242,7 +242,7 @@ class NearNodeProxy:
         self.session = FastHttpSession(environment,
                                        base_url="http://%s:%s" % (url, port),
                                        user=user,
-                                       connection_timeout=3.0,
+                                       connection_timeout=6.0,
                                        network_timeout=9.0,
                                        max_retries=3)
         self.node = cluster.RpcNode(url, port, session=self.session)
