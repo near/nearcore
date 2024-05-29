@@ -719,7 +719,10 @@ fn pure_deploy_bytes(ctx: &mut EstimatorContext) -> GasCost {
     let config_store = RuntimeConfigStore::new(None);
     let vm_config = config_store.get_config(PROTOCOL_VERSION).wasm_config.clone();
     let small_code = generate_data_only_contract(0, &vm_config);
-    let large_code = generate_data_only_contract(bytesize::kb(1500u64) as usize, &vm_config);
+    let large_code = generate_data_only_contract(
+        vm_config.limit_config.max_transaction_size as usize - 2000,
+        &vm_config,
+    );
     let small_code_len = small_code.len();
     let large_code_len = large_code.len();
     let cost_empty = deploy_contract_cost(ctx, small_code, Some(b"main"));
