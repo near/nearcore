@@ -108,6 +108,7 @@ impl<'a> NibbleSlice<'a> {
 
     /// Return object which represents a view on to this slice (further) offset by `i` nibbles.
     pub fn mid(&self, i: usize) -> Self {
+        debug_assert!(i <= self.len());
         NibbleSlice { data: self.data, offset: self.offset + i }
     }
 

@@ -18,12 +18,12 @@ pub fn load_memtrie_in_parallel(
     store: Store,
     shard_uid: ShardUId,
     root: StateRoot,
-    subtree_size: usize,
+    num_subtrees_desired: usize,
     name: String,
 ) -> Result<(STArena, MemTrieNodeId), StorageError> {
-    let reader = ParallelMemTrieLoader::new(store, shard_uid, root, subtree_size);
+    let reader = ParallelMemTrieLoader::new(store, shard_uid, root, num_subtrees_desired);
     let plan = reader.make_loading_plan()?;
-    println!("Loading {} subtrees in parallel", plan.subtrees_to_load.len());
+    tracing::info!("Loading {} subtrees in parallel", plan.subtrees_to_load.len());
     reader.load_in_parallel(plan, name)
 }
 
@@ -45,19 +45,29 @@ pub struct ParallelMemTrieLoader {
     store: Store,
     shard_uid: ShardUId,
     root: StateRoot,
-    subtree_size: usize,
+    num_subtrees_desired: usize,
 }
 
 impl ParallelMemTrieLoader {
-    pub fn new(store: Store, shard_uid: ShardUId, root: StateRoot, subtree_size: usize) -> Self {
-        Self { store, shard_uid, root, subtree_size }
+    pub fn new(
+        store: Store,
+        shard_uid: ShardUId,
+        root: StateRoot,
+        num_subtrees_desired: usize,
+    ) -> Self {
+        Self { store, shard_uid, root, num_subtrees_desired }
     }
 
     /// Implements stage 1; recursively expanding the trie until all subtrees are small enough.
     fn make_loading_plan(&self) -> Result<PartialTrieLoadingPlan, StorageError> {
-        let mut specs = Vec::new();
-        let root = self.make_loading_plan_recursive(self.root, NibblePrefix::new(), &mut specs)?;
-        Ok(PartialTrieLoadingPlan { root, subtrees_to_load: specs })
+        let mut subtrees_to_load = Vec::new();
+        let root = self.make_loading_plan_recursive(
+            self.root,
+            NibblePrefix::new(),
+            &mut subtrees_to_load,
+            None,
+        )?;
+        Ok(PartialTrieLoadingPlan { root, subtrees_to_load })
     }
 
     /// Helper function to implement stage 1, visiting a single node identified by this hash,
@@ -68,6 +78,7 @@ impl ParallelMemTrieLoader {
         hash: CryptoHash,
         mut prefix: NibblePrefix,
         subtrees_to_load: &mut Vec<NibblePrefix>,
+        max_subtree_size: Option<u64>,
     ) -> Result<TrieLoadingPlanNode, StorageError> {
         // Read the node from the State column.
         let mut key = [0u8; 40];
@@ -83,8 +94,11 @@ impl ParallelMemTrieLoader {
         )
         .map_err(|e| StorageError::StorageInconsistentState(e.to_string()))?;
 
+        let max_subtree_size = max_subtree_size
+            .unwrap_or_else(|| node.memory_usage / self.num_subtrees_desired as u64);
+
         // If subtree is small enough, add it to the list of subtrees to load, and we're done.
-        if node.memory_usage <= self.subtree_size as u64 {
+        if node.memory_usage <= max_subtree_size {
             subtrees_to_load.push(prefix);
             return Ok(TrieLoadingPlanNode::Load { subtree_id: subtrees_to_load.len() - 1 });
         }
@@ -117,8 +131,12 @@ impl ParallelMemTrieLoader {
                     if let Some(child_hash) = children_hashes[i] {
                         let mut prefix = prefix.clone();
                         prefix.push(i as u8);
-                        let child =
-                            self.make_loading_plan_recursive(child_hash, prefix, subtrees_to_load)?;
+                        let child = self.make_loading_plan_recursive(
+                            child_hash,
+                            prefix,
+                            subtrees_to_load,
+                            Some(max_subtree_size),
+                        )?;
                         children.push((i as u8, Box::new(child)));
                     }
                 }
@@ -142,8 +160,12 @@ impl ParallelMemTrieLoader {
                     if let Some(child_hash) = children_hashes[i] {
                         let mut prefix = prefix.clone();
                         prefix.push(i as u8);
-                        let child =
-                            self.make_loading_plan_recursive(child_hash, prefix, subtrees_to_load)?;
+                        let child = self.make_loading_plan_recursive(
+                            child_hash,
+                            prefix,
+                            subtrees_to_load,
+                            Some(max_subtree_size),
+                        )?;
                         children.push((i as u8, Box::new(child)));
                     }
                 }
@@ -152,7 +174,12 @@ impl ParallelMemTrieLoader {
             RawTrieNode::Extension(extension, child) => {
                 let nibbles = NibbleSlice::from_encoded(&extension).0;
                 prefix.append(&nibbles);
-                let child = self.make_loading_plan_recursive(child, prefix, subtrees_to_load)?;
+                let child = self.make_loading_plan_recursive(
+                    child,
+                    prefix,
+                    subtrees_to_load,
+                    Some(max_subtree_size),
+                )?;
                 Ok(TrieLoadingPlanNode::Extension {
                     extension: extension.into_boxed_slice(),
                     child: Box::new(child),
@@ -180,7 +207,16 @@ impl ParallelMemTrieLoader {
             })?;
             // Since we're constructing a subtree under a prefix, ignore the prefix part of the key.
             // (The first 8 bytes of the key is the ShardUId).
-            let key = NibbleSlice::new(&key[8..]).mid(subtree_to_load.prefix.len());
+            if subtree_to_load.num_nibbles() + 16 > key.len() * 2 {
+                panic!(
+                    "Key too short: prefix: {:?}, key: {}; start: {}, end: {}",
+                    subtree_to_load,
+                    hex::encode(&key),
+                    hex::encode(&start),
+                    hex::encode(&end)
+                );
+            }
+            let key = NibbleSlice::new(&key[8..]).mid(subtree_to_load.num_nibbles());
             let value = FlatStateValue::try_from_slice(&value).map_err(|err| {
                 FlatStorageError::StorageInternalError(format!(
                     "invalid FlatState value format: {err}"
@@ -266,7 +302,7 @@ impl TrieLoadingPlanNode {
                 let input = InputMemTrieNode::Leaf { extension: &extension, value: &value };
                 MemTrieNodeId::new(arena, input)
             }
-            TrieLoadingPlanNode::Load { subtree_id: spec_id } => subtree_roots[spec_id],
+            TrieLoadingPlanNode::Load { subtree_id } => subtree_roots[subtree_id],
         }
     }
 }
@@ -310,6 +346,10 @@ impl NibblePrefix {
         Self { prefix: Vec::new(), odd: false }
     }
 
+    pub fn num_nibbles(&self) -> usize {
+        self.prefix.len() * 2 - if self.odd { 1 } else { 0 }
+    }
+
     pub fn push(&mut self, nibble: u8) {
         debug_assert!(nibble < 16, "nibble must be less than 16");
         if self.odd {
@@ -326,7 +366,7 @@ impl NibblePrefix {
         }
     }
 
-    /// Converts the nibble prefix to an equivalent range of keys.
+    /// Converts the nibble prefix to an equivalent range of FlatState keys.
     ///
     /// If the number of nibbles is even, this is straight-forward; the keys will be in the form of
     /// e.g. 0x123456 - 0x123457. If the number of nibbles is odd, the keys will cover the whole
@@ -338,49 +378,45 @@ impl NibblePrefix {
             .chain(self.prefix.clone().into_iter())
             .collect::<Vec<u8>>();
         // The end key should always exist because we have a shard UID prefix to absorb the overflow.
-        let end = increment_vec_as_num(&start, if self.odd { 16 } else { 1 })
-            .expect("Should not overflow");
+        let end =
+            calculate_end_key(&start, if self.odd { 16 } else { 1 }).expect("Should not overflow");
         (start, end)
     }
 }
 
-/// Generic function to add the given increment to the last byte of the vector, pretending that
-/// the vector is a big-endian encoding of a big number. If the increment causes an overflow within
-/// the given number of bytes, return None.
-fn increment_vec_as_num(orig: &Vec<u8>, by: u8) -> Option<Vec<u8>> {
-    let mut v = orig.clone();
-    let mut carry = by;
+/// Calculates the end key of a lexically ordered key range where all the keys start with `start_key`
+/// except that the i-th byte may be within [b, b + last_byte_increment), where i == start_key.len() - 1,
+/// and b == start_key[i]. Returns None is the end key is unbounded.
+fn calculate_end_key(start_key: &Vec<u8>, last_byte_increment: u8) -> Option<Vec<u8>> {
+    let mut v = start_key.clone();
+    let mut carry = last_byte_increment;
     for i in (0..v.len()).rev() {
-        let (new_val, new_carry) = v[i].overflowing_add(carry);
-        v[i] = new_val;
-        if new_carry {
+        let (new_val, overflowing) = v[i].overflowing_add(carry);
+        if overflowing {
             carry = 1;
+            v.pop();
         } else {
-            carry = 0;
-            break;
+            v[i] = new_val;
+            return Some(v);
         }
     }
-    if carry != 0 {
-        None
-    } else {
-        Some(v)
-    }
+    return None;
 }
 
 #[cfg(test)]
 mod tests {
     use super::NibblePrefix;
-    use crate::trie::mem::parallel_loader::increment_vec_as_num;
+    use crate::trie::mem::parallel_loader::calculate_end_key;
     use crate::NibbleSlice;
     use near_primitives::shard_layout::ShardUId;
 
     #[test]
     fn test_increment_vec_as_num() {
-        assert_eq!(increment_vec_as_num(&vec![0, 0, 0], 1), Some(vec![0, 0, 1]));
-        assert_eq!(increment_vec_as_num(&vec![0, 0, 255], 1), Some(vec![0, 1, 0]));
-        assert_eq!(increment_vec_as_num(&vec![0, 5, 255], 1), Some(vec![0, 6, 0]));
-        assert_eq!(increment_vec_as_num(&vec![0, 255, 255], 1), Some(vec![1, 0, 0]));
-        assert_eq!(increment_vec_as_num(&vec![255, 255, 254], 2), None);
+        assert_eq!(calculate_end_key(&vec![0, 0, 0], 1), Some(vec![0, 0, 1]));
+        assert_eq!(calculate_end_key(&vec![0, 0, 255], 1), Some(vec![0, 1]));
+        assert_eq!(calculate_end_key(&vec![0, 5, 255], 1), Some(vec![0, 6]));
+        assert_eq!(calculate_end_key(&vec![0, 255, 255], 1), Some(vec![1]));
+        assert_eq!(calculate_end_key(&vec![255, 255, 254], 2), None);
     }
 
     #[test]
@@ -409,12 +445,12 @@ mod tests {
 
         prefix.append(&NibbleSlice::new(&hex::decode("ff").unwrap()));
         assert_eq!(format!("{:?}", prefix), "4f123ff");
-        assert_eq!(iter_range(&prefix), "02000000030000004f123ff0..02000000030000004f124000");
+        assert_eq!(iter_range(&prefix), "02000000030000004f123ff0..02000000030000004f1240");
 
         let mut prefix = NibblePrefix::new();
         prefix.push(15);
         prefix.push(15);
         assert_eq!(format!("{:?}", prefix), "ff");
-        assert_eq!(iter_range(&prefix), "0200000003000000ff..020000000300000100");
+        assert_eq!(iter_range(&prefix), "0200000003000000ff..0200000003000001");
     }
 }
