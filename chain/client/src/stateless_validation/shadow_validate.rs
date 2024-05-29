@@ -68,9 +68,9 @@ impl Client {
             &self.chain,
             self.runtime_adapter.as_ref(),
             &chunk_header,
-            last_chunk.transactions(),
             transactions_validation_storage_config,
             chunk.transactions(),
+            last_chunk.transactions(),
         ) else {
             return Err(Error::Other(
                 "Could not produce storage proof for new transactions".to_owned(),

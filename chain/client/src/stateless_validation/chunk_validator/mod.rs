@@ -214,9 +214,9 @@ pub(crate) fn validate_prepared_transactions(
     chain: &Chain,
     runtime_adapter: &dyn RuntimeAdapter,
     chunk_header: &ShardChunkHeader,
-    last_chunk_transactions: &[SignedTransaction],
     storage_config: RuntimeStorageConfig,
     transactions: &[SignedTransaction],
+    last_chunk_transactions: &[SignedTransaction],
 ) -> Result<PreparedTransactions, Error> {
     let parent_block = chain.chain_store().get_block(chunk_header.prev_block_hash())?;
 
@@ -324,9 +324,9 @@ pub(crate) fn pre_validate_chunk_state_witness(
             chain,
             runtime_adapter,
             &state_witness.chunk_header,
-            &state_witness.transactions,
             transactions_validation_storage_config,
             &new_transactions,
+            &state_witness.transactions,
         ) {
             Ok(result) => {
                 if result.transactions.len() != new_transactions.len() {
