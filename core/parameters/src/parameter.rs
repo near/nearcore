@@ -25,6 +25,8 @@ pub enum Parameter {
     // Hard per-receipt limit of recorded trie storage proof
     StorageProofSizeReceiptLimit,
     // Maxmium size of transactions contained inside ChunkStateWitness.
+    // A witness contains transactions from both the previous chunk and the current one.
+    // This parameter limits the sum of sizes of transactions from both chunks.
     MaxTransactionsSizeInWitness,
     // Soft size limit of new transactions storage proof inside ChunkStateWitness.
     NewTransactionsValidationStateSizeSoftLimit,
