@@ -24,7 +24,6 @@ use near_chain::{Block, Chain, ChainStoreAccess};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
-use near_o11y::log_assert_fail;
 use near_pool::TransactionGroupIteratorWrapper;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::hash::{hash, CryptoHash};
@@ -179,7 +178,7 @@ impl ChunkValidator {
                     if panic_on_validation_error {
                         panic!("Failed to validate chunk using existing chunk extra: {:?}", err);
                     } else {
-                        log_assert_fail!(
+                        tracing::error!(
                             "Failed to validate chunk using existing chunk extra: {:?}",
                             err
                         );
@@ -216,7 +215,7 @@ impl ChunkValidator {
                     if panic_on_validation_error {
                         panic!("Failed to validate chunk: {:?}", err);
                     } else {
-                        log_assert_fail!("Failed to validate chunk: {:?}", err);
+                        tracing::error!("Failed to validate chunk: {:?}", err);
                     }
                 }
             }
