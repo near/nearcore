@@ -900,11 +900,7 @@ impl Client {
 
         let prev_shard_id = self.epoch_manager.get_prev_shard_id(prev_block.hash(), shard_id)?;
         let last_chunk_header: Option<ShardChunkHeader> =
-            self.chain.get_header_of_last_existing_chunk(
-                *prev_block.hash(),
-                prev_shard_id,
-                self.epoch_manager.as_ref(),
-            )?;
+            prev_block.chunks().get(prev_shard_id as usize).cloned();
         let last_chunk: Option<Arc<ShardChunk>> = last_chunk_header
             .map(|header| self.chain.get_chunk(&header.chunk_hash()))
             .transpose()?;
