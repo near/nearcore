@@ -214,17 +214,6 @@ fn test_protocol_upgrade_under_congestion() {
 
     assert!(congestion_info.delayed_receipts_gas() > next_congestion_info.delayed_receipts_gas());
     assert!(congestion_info.receipt_bytes() > next_congestion_info.receipt_bytes());
-
-    let head_height = block.header().height();
-    for i in 1..head_height {
-        let block = env.clients[0].chain.get_block_by_height(i).unwrap();
-        let epoch_id = block.header().epoch_id().clone();
-        let chunks = block.chunks();
-        for chunk_header in chunks.iter() {
-            let congestion_info = chunk_header.congestion_info();
-            println!("epoch {epoch_id:?} block {i} congestion info {congestion_info:?}");
-        }
-    }
 }
 
 /// Check we are still in the old version and no congestion info is shared.
