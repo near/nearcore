@@ -723,9 +723,9 @@ fn pure_deploy_bytes(ctx: &mut EstimatorContext) -> GasCost {
     let small_code_len = small_code.len();
     let large_code_len = large_code.len();
     let cost_empty = deploy_contract_cost(ctx, small_code, Some(b"main"));
-    let cost_15mb = deploy_contract_cost(ctx, large_code, Some(b"main"));
+    let cost_max = deploy_contract_cost(ctx, large_code, Some(b"main"));
 
-    (cost_15mb - cost_empty) / (large_code_len - small_code_len) as u64
+    (cost_max - cost_empty) / (large_code_len - small_code_len) as u64
 }
 
 /// Base cost for a fn call action, without receipt creation or contract loading.
