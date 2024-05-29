@@ -366,6 +366,8 @@ impl From<&Block> for PrepareTransactionsBlockContext {
 pub struct PrepareTransactionsChunkContext {
     pub shard_id: ShardId,
     pub gas_limit: Gas,
+    /// Size of transactions added in the last existing chunk.
+    /// Used to calculate the allowed size of transactions in a newly produced chunk.
     pub last_chunk_transactions_size: usize,
 }
 
