@@ -193,6 +193,13 @@ impl ChunkInclusionTracker {
             .ok_or(Error::Other(format!("missing key {:?} in ChunkInclusionTracker", chunk_hash)))
     }
 
+    pub fn get_chunk_endorsements_state(
+        &self,
+        chunk_hash: &ChunkHash,
+    ) -> Result<&ChunkEndorsementsState, Error> {
+        Ok(&self.get_chunk_info(chunk_hash)?.endorsements)
+    }
+
     pub fn get_chunk_header_and_endorsements(
         &self,
         chunk_hash: &ChunkHash,

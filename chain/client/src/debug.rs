@@ -447,24 +447,38 @@ impl ClientActorInner {
                     Some(block) => block
                         .chunks()
                         .iter()
-                        .map(|chunk| DebugChunkStatus {
-                            shard_id: chunk.shard_id(),
-                            chunk_hash: chunk.chunk_hash(),
-                            chunk_producer: self
+                        .map(|chunk| {
+                            let endorsement_ratio = match self
                                 .client
-                                .epoch_manager
-                                .get_chunk_producer(
-                                    block_header.epoch_id(),
-                                    block_header.height(),
-                                    chunk.shard_id(),
+                                .chunk_inclusion_tracker
+                                .get_chunk_endorsements_state(&chunk.chunk_hash())
+                            {
+                                Ok(state) => state.stats().map(|stats| {
+                                    stats.endorsed_stake as f64 / stats.total_stake as f64
+                                }),
+                                Err(_) => None,
+                            };
+                            DebugChunkStatus {
+                                shard_id: chunk.shard_id(),
+                                chunk_hash: chunk.chunk_hash(),
+                                chunk_producer: self
+                                    .client
+                                    .epoch_manager
+                                    .get_chunk_producer(
+                                        block_header.epoch_id(),
+                                        block_header.height(),
+                                        chunk.shard_id(),
+                                    )
+                                    .ok(),
+                                gas_used: chunk.prev_gas_used(),
+                                processing_time_ms: CryptoHashTimer::get_timer_value(
+                                    chunk.chunk_hash().0,
                                 )
-                                .ok(),
-                            gas_used: chunk.prev_gas_used(),
-                            processing_time_ms: CryptoHashTimer::get_timer_value(
-                                chunk.chunk_hash().0,
-                            )
-                            .map(|s| s.whole_milliseconds() as u64),
-                            congestion_info: chunk.congestion_info(),
+                                .map(|s| s.whole_milliseconds() as u64),
+                                congestion_info: chunk.congestion_info(),
+                                    .map(|s| s.whole_milliseconds() as u64),
+                                }
+                                endorsement_ratio,
                         })
                         .collect(),
                     None => vec![],
