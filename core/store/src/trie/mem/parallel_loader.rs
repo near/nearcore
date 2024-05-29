@@ -205,17 +205,6 @@ impl ParallelMemTrieLoader {
                     "Error iterating over FlatState: {err}"
                 ))
             })?;
-            // Since we're constructing a subtree under a prefix, ignore the prefix part of the key.
-            // (The first 8 bytes of the key is the ShardUId).
-            if subtree_to_load.num_nibbles() + 16 > key.len() * 2 {
-                panic!(
-                    "Key too short: prefix: {:?}, key: {}; start: {}, end: {}",
-                    subtree_to_load,
-                    hex::encode(&key),
-                    hex::encode(&start),
-                    hex::encode(&end)
-                );
-            }
             let key = NibbleSlice::new(&key[8..]).mid(subtree_to_load.num_nibbles());
             let value = FlatStateValue::try_from_slice(&value).map_err(|err| {
                 FlatStorageError::StorageInternalError(format!(
