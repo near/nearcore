@@ -20,15 +20,15 @@ pub enum Parameter {
     BurntGasReward,
     PessimisticGasPriceInflation,
 
-    // Stateless validation config
+    /// Stateless validation config
     StorageProofSizeSoftLimit,
-    // Hard per-receipt limit of recorded trie storage proof
+    /// Hard per-receipt limit of recorded trie storage proof
     StorageProofSizeReceiptLimit,
-    // Maximum size of transactions contained inside ChunkStateWitness.
-    // A witness contains transactions from both the previous chunk and the current one.
-    // This parameter limits the sum of sizes of transactions from both chunks.
+    /// Maximum size of transactions contained inside ChunkStateWitness.
+    /// A witness contains transactions from both the previous chunk and the current one.
+    /// This parameter limits the sum of sizes of transactions from both chunks.
     MaxTransactionsSizeInWitness,
-    // Soft size limit of new transactions storage proof inside ChunkStateWitness.
+    /// Soft size limit of new transactions storage proof inside ChunkStateWitness.
     NewTransactionsValidationStateSizeSoftLimit,
 
     // Account creation config
