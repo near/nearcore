@@ -223,6 +223,14 @@ impl ChunkValidator {
         });
         Ok(())
     }
+
+    /// TESTING ONLY: Used to override the value of panic_on_validation_error, for example,
+    /// when the chunks validation errors are expected when testing adversarial behavior and
+    /// the test should not panic for the invalid chunks witnesses.
+    #[cfg(feature = "test_features")]
+    pub fn set_should_panic_on_validation_error(&mut self, value: bool) {
+        self.panic_on_validation_error = value;
+    }
 }
 
 /// Checks that proposed `transactions` are valid for a chunk with `chunk_header`.

@@ -362,6 +362,7 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk() {
     init_test_logger();
     let mut test = AdversarialBehaviorTestData::new();
     test.env.clients[7].produce_invalid_chunks = true;
+    test.env.clients[7].chunk_validator.set_should_panic_on_validation_error(false);
     test_banning_chunk_producer_when_seeing_invalid_chunk_base(test);
 }
 
@@ -371,5 +372,6 @@ fn test_banning_chunk_producer_when_seeing_invalid_tx_in_chunk() {
     init_test_logger();
     let mut test = AdversarialBehaviorTestData::new();
     test.env.clients[7].produce_invalid_tx_in_chunks = true;
+    test.env.clients[7].chunk_validator.set_should_panic_on_validation_error(false);
     test_banning_chunk_producer_when_seeing_invalid_chunk_base(test);
 }
