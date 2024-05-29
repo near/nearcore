@@ -6,7 +6,7 @@ burnt_gas_reward                        3 / 10
 pessimistic_gas_price_inflation         103 / 100
 storage_proof_size_soft_limit            999_999_999_999_999
 storage_proof_size_receipt_limit         999_999_999_999_999
-max_transactions_size_in_witness         999_999_999_999_999
+combined_transactions_size_limit         999_999_999_999_999
 new_transactions_validation_state_size_soft_limit 999_999_999_999_999
 min_allowed_top_level_account_length                      65
 registrar_account_id                    registrar

@@ -618,7 +618,7 @@ pub struct WitnessConfigView {
     /// Maximum size of transactions contained inside ChunkStateWitness.
     /// A witness contains transactions from both the previous chunk and the current one.
     /// This parameter limits the sum of sizes of transactions from both chunks.
-    pub max_transactions_size_in_witness: usize,
+    pub combined_transactions_size_limit: usize,
     /// Soft size limit of new transactions storage proof inside ChunkStateWitness.
     pub new_transactions_validation_state_size_soft_limit: usize,
 }
@@ -627,7 +627,7 @@ impl From<WitnessConfig> for WitnessConfigView {
     fn from(config: WitnessConfig) -> Self {
         Self {
             storage_proof_size_soft_limit: config.storage_proof_size_soft_limit,
-            max_transactions_size_in_witness: config.max_transactions_size_in_witness,
+            combined_transactions_size_limit: config.combined_transactions_size_limit,
             new_transactions_validation_state_size_soft_limit: config
                 .new_transactions_validation_state_size_soft_limit,
         }

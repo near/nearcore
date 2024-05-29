@@ -217,7 +217,7 @@ pub struct WitnessConfig {
     /// Maximum size of transactions contained inside ChunkStateWitness.
     /// A witness contains transactions from both the previous chunk and the current one.
     /// This parameter limits the sum of sizes of transactions from both chunks.
-    pub max_transactions_size_in_witness: usize,
+    pub combined_transactions_size_limit: usize,
     /// Soft size limit of new transactions storage proof inside ChunkStateWitness.
     pub new_transactions_validation_state_size_soft_limit: usize,
 }

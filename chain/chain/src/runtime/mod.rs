@@ -1384,7 +1384,7 @@ fn calculate_transactions_size_limit(
         // Witness keeps transactions from both previous and current chunk, so we have to limit the sum of both.
         runtime_config
             .witness_config
-            .max_transactions_size_in_witness
+            .combined_transactions_size_limit
             .saturating_sub(last_chunk_transactions_size)
             .try_into()
             .expect("Can't convert usize to u64!")
