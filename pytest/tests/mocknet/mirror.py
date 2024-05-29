@@ -429,8 +429,14 @@ def start_traffic_cmd(args, traffic_generator, nodes):
 
 
 def update_binaries_cmd(args, traffic_generator, nodes):
-    pmap(lambda node: node.neard_runner_update_binaries(),
-         nodes + to_list(traffic_generator))
+    if (args.neard_binary_url is not None or args.update_epoch_height is not None
+       ) and (args.neard_binary_url is None or args.update_epoch_height is None):
+        logger.warning(f'specify both neard_binary_url and update_epoch_height')
+        return
+    pmap(
+        lambda node: node.neard_runner_update_binaries(
+            args.neard_binary_url, args.update_epoch_height),
+        nodes + to_list(traffic_generator))
 
 
 def run_remote_cmd(args, traffic_generator, nodes):
@@ -608,7 +614,9 @@ if __name__ == '__main__':
         'update-binaries',
         help=
         'Update the neard binaries by re-downloading them. The same urls are used.'
-    )
+        + ' Add or override the URLs with --neard-binary-url.')
+    update_binaries_parser.add_argument('--neard-binary-url', type=str)
+    update_binaries_parser.add_argument('--update-epoch-height', type=int)
     update_binaries_parser.set_defaults(func=update_binaries_cmd)
 
     run_cmd_parser = subparsers.add_parser('run-cmd',

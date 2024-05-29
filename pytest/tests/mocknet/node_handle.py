@@ -140,8 +140,15 @@ class NodeHandle:
         return self.neard_runner_jsonrpc('reset',
                                          params={'backup_id': backup_id})
 
-    def neard_runner_update_binaries(self):
-        return self.neard_runner_jsonrpc('update_binaries')
+    def neard_runner_update_binaries(self,
+                                     neard_binary_url=None,
+                                     update_epoch_height=None):
+        return self.neard_runner_jsonrpc(
+            'update_binaries',
+            params={
+                'neard_binary_url': neard_binary_url,
+                'update_epoch_height': update_epoch_height,
+            })
 
     def neard_update_config(self, key_value):
         return self.neard_runner_jsonrpc(

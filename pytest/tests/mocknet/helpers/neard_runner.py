@@ -245,7 +245,11 @@ class NeardRunner:
 
     def save_data(self):
         with open(self.home_path('data.json'), 'w') as f:
-            json.dump(self.data, f)
+            json.dump(self.data, f, indent=2)
+
+    def save_config(self):
+        with open(self.home_path('config.json'), 'w') as f:
+            json.dump(self.config, f, indent=2)
 
     def parse_binaries_config(self):
         if 'binaries' not in self.config:
@@ -665,9 +669,34 @@ class NeardRunner:
         with self.lock:
             return self.data.get('backups', {})
 
-    def do_update_binaries(self):
+    # Updates the URL for the given epoch height or adds a new one if the epoch height does not exit
+    def update_binaries_url(self, neard_binary_url, update_epoch_height):
+        if 'binaries' not in self.config:
+            self.config['binaries'] = []
+
+        if not isinstance(self.config['binaries'], list):
+            self.config['binaries'] = []
+
+        binary = next((b for b in self.config['binaries']
+                       if b['epoch_height'] == update_epoch_height), None)
+        if binary:
+            binary['url'] = neard_binary_url
+        else:
+            self.config['binaries'].append({
+                'url': neard_binary_url,
+                'epoch_height': update_epoch_height
+            })
+
+    def do_update_binaries(self, neard_binary_url, update_epoch_height):
         with self.lock:
             logging.info('update binaries')
+
+            if neard_binary_url is not None and update_epoch_height is not None:
+                logging.info(
+                    f'adding new binary url: {neard_binary_url} for epoch {update_epoch_height}'
+                )
+                self.update_binaries_url(neard_binary_url, update_epoch_height)
+                self.save_config()
             try:
                 self.download_binaries(force=True)
             except ValueError as e:
