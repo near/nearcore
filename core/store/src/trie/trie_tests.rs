@@ -491,8 +491,7 @@ mod trie_storage_tests {
             TestTriesBuilder::new().with_flat_storage(true).with_in_memory_tries(true).build();
         let shard_uid = ShardUId::single_shard();
 
-        let state_root =
-            test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, base_changes.clone());
+        let state_root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, base_changes);
 
         let iter_prefix = vec![7];
         let expected_iter_results =
