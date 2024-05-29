@@ -899,14 +899,14 @@ impl Client {
             .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?;
 
         let prev_shard_id = self.epoch_manager.get_prev_shard_id(prev_block.hash(), shard_id)?;
-        let prev_chunk: Option<Arc<ShardChunk>> = self
-            .chain
-            .get_header_of_last_existing_chunk(
+        let prev_chunk_header: Option<ShardChunkHeader> =
+            self.chain.get_header_of_last_existing_chunk(
                 *prev_block.hash(),
                 prev_shard_id,
                 self.epoch_manager.as_ref(),
-            )?
-            .map(|chunk_header| self.chain.get_chunk(&chunk_header.chunk_hash()))
+            )?;
+        let prev_chunk: Option<Arc<ShardChunk>> = prev_chunk_header
+            .map(|header| self.chain.get_chunk(&header.chunk_hash()))
             .transpose()?;
         let prev_chunk_ref: Option<&ShardChunk> = prev_chunk.as_ref().map(|x| x.as_ref());
 
