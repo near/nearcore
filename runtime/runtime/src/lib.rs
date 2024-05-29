@@ -4,6 +4,7 @@ use crate::config::{
     exec_fee, safe_add_balance, safe_add_compute, safe_add_gas, safe_gas_to_balance, total_deposit,
     total_prepaid_exec_fees, total_prepaid_gas,
 };
+use crate::congestion_control::DelayedReceiptQueueWrapper;
 use crate::prefetch::TriePrefetcher;
 use crate::verifier::{check_storage_stake, validate_receipt, StorageStakingError};
 pub use crate::verifier::{
@@ -47,7 +48,7 @@ use near_primitives::utils::{
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives_core::apply::ApplyChunkReason;
-use near_store::trie::receipts_column_helper::{DelayedReceiptQueue, TrieQueue};
+use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::{
     get, get_account, get_postponed_receipt, get_promise_yield_receipt, get_received_data,
     has_received_data, remove_postponed_receipt, remove_promise_yield_receipt, set, set_access_key,
@@ -1393,7 +1394,8 @@ impl Runtime {
             receipts_to_restore.as_slice()
         };
 
-        let mut delayed_receipts = DelayedReceiptQueue::load(&state_update)?;
+        let delayed_receipts_queue = DelayedReceiptQueue::load(&state_update)?;
+        let mut delayed_receipts = DelayedReceiptQueueWrapper::new(delayed_receipts_queue);
         let mut own_congestion_info =
             apply_state.own_congestion_info(protocol_version, &state_update)?;
 
@@ -1563,7 +1565,7 @@ impl Runtime {
                     state_update.trie.recorded_storage_size_upper_bound() > limit
                 })
             {
-                delayed_receipts.push(&mut state_update, receipt)?;
+                delayed_receipts.push(&mut state_update, receipt, &apply_state.config)?;
             } else {
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
                 // the `verify_and_charge_transaction`.
@@ -1589,7 +1591,9 @@ impl Runtime {
                 break;
             }
             delayed_receipt_count += 1;
-            let receipt = delayed_receipts.pop(&mut state_update)?.expect("queue is not empty");
+            let receipt = delayed_receipts
+                .pop(&mut state_update, &apply_state.config)?
+                .expect("queue is not empty");
 
             if let Some(prefetcher) = &mut prefetcher {
                 // Prefetcher is allowed to fail
@@ -1639,7 +1643,7 @@ impl Runtime {
                     state_update.trie.recorded_storage_size_upper_bound() > limit
                 })
             {
-                delayed_receipts.push(&mut state_update, receipt)?;
+                delayed_receipts.push(&mut state_update, receipt, &apply_state.config)?;
             } else {
                 process_receipt(receipt, &mut state_update, &mut total)?;
             }
@@ -1752,7 +1756,10 @@ impl Runtime {
 
         // Congestion info needs a final touch to select an allowed shard if
         // this shard is fully congested.
+
+        let delayed_receipts_count = delayed_receipts.len();
         if let Some(congestion_info) = &mut own_congestion_info {
+            delayed_receipts.apply_congestion_changes(congestion_info)?;
             let other_shards = apply_state
                 .congestion_info
                 .keys()
@@ -1830,7 +1837,7 @@ impl Runtime {
             processed_delayed_receipts,
             processed_yield_timeouts,
             proof,
-            delayed_receipts_count: delayed_receipts.len(),
+            delayed_receipts_count,
             metrics: Some(metrics),
             congestion_info: own_congestion_info,
         })
@@ -1988,6 +1995,8 @@ mod tests {
     use near_store::{set_access_key, ShardTries};
     use near_vm_runner::FilesystemContractRuntimeCache;
     use testlib::runtime_utils::{alice_account, bob_account};
+
+    use crate::congestion_control::{receipt_congestion_gas, receipt_size};
 
     use super::*;
 
@@ -2187,7 +2196,7 @@ mod tests {
         let initial_locked = to_yocto(500_000);
         let small_transfer = to_yocto(10_000);
         let gas_limit = 1;
-        let (runtime, tries, mut root, apply_state, _, epoch_info_provider) =
+        let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) =
             setup_runtime(initial_balance, initial_locked, gas_limit);
 
         let n = 10;
@@ -2207,13 +2216,7 @@ mod tests {
                     Default::default(),
                 )
                 .unwrap();
-            let mut store_update = tries.store_update();
-            root = tries.apply_all(
-                &apply_result.trie_changes,
-                ShardUId::single_shard(),
-                &mut store_update,
-            );
-            store_update.commit().unwrap();
+            root = commit_apply_result(&apply_result, &mut apply_state, &tries);
             let state = tries.new_trie_update(ShardUId::single_shard(), root);
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
             let capped_i = std::cmp::min(i, n);
@@ -2232,7 +2235,7 @@ mod tests {
         let initial_locked = to_yocto(500_000);
         let small_transfer = to_yocto(10_000);
         let gas_limit = 1;
-        let (runtime, tries, mut root, apply_state, _, epoch_info_provider) =
+        let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) =
             setup_runtime(initial_balance, initial_locked, gas_limit);
 
         let n = 10;
@@ -2252,13 +2255,8 @@ mod tests {
                     Default::default(),
                 )
                 .unwrap();
-            let mut store_update = tries.store_update();
-            root = tries.apply_all(
-                &apply_result.trie_changes,
-                ShardUId::single_shard(),
-                &mut store_update,
-            );
-            store_update.commit().unwrap();
+            root = commit_apply_result(&apply_result, &mut apply_state, &tries);
+
             let state = tries.new_trie_update(ShardUId::single_shard(), root);
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
             let capped_i = std::cmp::min(i, n);
@@ -2302,14 +2300,7 @@ mod tests {
                     Default::default(),
                 )
                 .unwrap();
-            let mut store_update = tries.store_update();
-            let new_root = tries.apply_all(
-                &apply_result.trie_changes,
-                ShardUId::single_shard(),
-                &mut store_update,
-            );
-            root = new_root;
-            store_update.commit().unwrap();
+            root = commit_apply_result(&apply_result, &mut apply_state, &tries);
             let state = tries.new_trie_update(ShardUId::single_shard(), root);
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
             let capped_i = std::cmp::min(i * 3, n);
@@ -2362,13 +2353,7 @@ mod tests {
                     Default::default(),
                 )
                 .unwrap();
-            let mut store_update = tries.store_update();
-            root = tries.apply_all(
-                &apply_result.trie_changes,
-                ShardUId::single_shard(),
-                &mut store_update,
-            );
-            store_update.commit().unwrap();
+            root = commit_apply_result(&apply_result, &mut apply_state, &tries);
             let state = tries.new_trie_update(ShardUId::single_shard(), root);
             num_receipts_processed += apply_result.outcomes.len() as u64;
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
@@ -2489,7 +2474,7 @@ mod tests {
         let initial_balance = to_yocto(1_000_000);
         let initial_locked = to_yocto(500_000);
         let small_transfer = to_yocto(10_000);
-        let (runtime, tries, root, mut apply_state, signer, epoch_info_provider) =
+        let (runtime, tries, mut root, mut apply_state, signer, epoch_info_provider) =
             setup_runtime(initial_balance, initial_locked, 1);
 
         let receipt_exec_gas_fee = 1000;
@@ -2532,13 +2517,7 @@ mod tests {
                 Default::default(),
             )
             .unwrap();
-        let mut store_update = tries.store_update();
-        let root = tries.apply_all(
-            &apply_result.trie_changes,
-            ShardUId::single_shard(),
-            &mut store_update,
-        );
-        store_update.commit().unwrap();
+        root = commit_apply_result(&apply_result, &mut apply_state, &tries);
 
         assert_eq!(
             apply_result.outcomes.iter().map(|o| o.id).collect::<Vec<_>>(),
@@ -3014,7 +2993,7 @@ mod tests {
 
     #[test]
     fn test_compute_usage_limit() {
-        let (runtime, tries, root, mut apply_state, signer, epoch_info_provider) =
+        let (runtime, tries, mut root, mut apply_state, signer, epoch_info_provider) =
             setup_runtime(to_yocto(1_000_000), to_yocto(500_000), 1);
 
         let mut free_config = RuntimeConfig::free();
@@ -3072,13 +3051,7 @@ mod tests {
                 Default::default(),
             )
             .unwrap();
-        let mut store_update = tries.store_update();
-        let root = tries.apply_all(
-            &apply_result.trie_changes,
-            ShardUId::single_shard(),
-            &mut store_update,
-        );
-        store_update.commit().unwrap();
+        root = commit_apply_result(&apply_result, &mut apply_state, &tries);
 
         // Only first two receipts should fit into the chunk due to the compute usage limit.
         assert_matches!(&apply_result.outcomes[..], [first, second] => {
@@ -3273,6 +3246,44 @@ mod tests {
         assert_eq!(root_before, root_after, "state root changed for applying empty receipts");
     }
 
+    /// Test that delayed receipts are accounted for in the congestion info of
+    /// the ApplyResult.
+    #[test]
+    fn test_congestion_delayed_receipts_accounting() {
+        let initial_balance = to_yocto(10);
+        let initial_locked = to_yocto(0);
+        let deposit = to_yocto(1);
+        let gas_limit = 1;
+        let (runtime, tries, root, apply_state, _, epoch_info_provider) =
+            setup_runtime(initial_balance, initial_locked, gas_limit);
+
+        let n = 10;
+        let receipts = generate_receipts(deposit, n);
+
+        let apply_result = runtime
+            .apply(
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
+                &None,
+                &apply_state,
+                &receipts,
+                &[],
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap();
+
+        assert_eq!(n - 1, apply_result.delayed_receipts_count);
+        if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
+            let congestion = apply_result.congestion_info.unwrap();
+            let expected_delayed_gas =
+                (n - 1) * receipt_congestion_gas(&receipts[0], &apply_state.config).unwrap();
+            let expected_receipts_bytes = (n - 1) * receipt_size(&receipts[0]).unwrap() as u64;
+
+            assert_eq!(expected_delayed_gas as u128, congestion.delayed_receipts_gas());
+            assert_eq!(expected_receipts_bytes, congestion.receipt_bytes());
+        }
+    }
+
     /// Test that the outgoing receipts buffer works as intended.
     ///
     /// Specifically, we want to check that
@@ -3403,14 +3414,7 @@ mod tests {
                     Default::default(),
                 )
                 .unwrap();
-            if let Some(congestion_info) = apply_result.congestion_info {
-                apply_state
-                    .congestion_info
-                    .insert(local_shard, ExtendedCongestionInfo::new(congestion_info, 0));
-            }
-            let mut store_update = tries.store_update();
-            root = tries.apply_all(&apply_result.trie_changes, local_shard_uid, &mut store_update);
-            store_update.commit().unwrap();
+            root = commit_apply_result(&apply_result, &mut apply_state, &tries);
 
             let state = tries.get_trie_for_shard(local_shard_uid, root);
             let buffers = ShardsOutgoingReceiptBuffer::load(&state).unwrap();
@@ -3431,6 +3435,27 @@ mod tests {
                 assert_eq!(expected_forwarded as usize, apply_result.outgoing_receipts.len());
             }
         }
+    }
+
+    // Apply trie changes in `ApplyResult` and update `ApplyState` with new
+    // congestion info for the next call to apply().
+    fn commit_apply_result(
+        apply_result: &ApplyResult,
+        apply_state: &mut ApplyState,
+        tries: &ShardTries,
+    ) -> CryptoHash {
+        // congestion control requires an update on
+        let shard_id = apply_state.shard_id;
+        let shard_uid = ShardUId { version: 0, shard_id: shard_id as u32 };
+        if let Some(congestion_info) = apply_result.congestion_info {
+            apply_state
+                .congestion_info
+                .insert(shard_id, ExtendedCongestionInfo::new(congestion_info, 0));
+        }
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(&apply_result.trie_changes, shard_uid, &mut store_update);
+        store_update.commit().unwrap();
+        return root;
     }
 
     impl ApplyState {
