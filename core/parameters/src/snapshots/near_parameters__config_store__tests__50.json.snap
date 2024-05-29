@@ -215,7 +215,7 @@ expression: config_view
       "account_id_validity_rules_version": 0,
       "yield_timeout_length_in_blocks": 200,
       "max_yield_payload_size": 1024,
-      "storage_proof_size_receipt_limit": 999999999999999
+      "per_receipt_storage_proof_size_limit": 999999999999999
     }
   },
   "account_creation_config": {
@@ -223,7 +223,7 @@ expression: config_view
     "registrar_account_id": "registrar"
   },
   "witness_config": {
-    "storage_proof_size_soft_limit": 999999999999999,
+    "main_storage_proof_size_soft_limit": 999999999999999,
     "combined_transactions_size_limit": 999999999999999,
     "new_transactions_validation_state_size_soft_limit": 999999999999999
   }

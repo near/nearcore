@@ -613,20 +613,21 @@ impl From<ExtCostsConfigView> for crate::ExtCostsConfig {
 /// Configuration specific to ChunkStateWitness.
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct WitnessConfigView {
-    /// The maximum size of the storage proof in state witness after which we defer execution of any new receipts.
-    pub storage_proof_size_soft_limit: usize,
-    /// Maximum size of transactions contained inside ChunkStateWitness.
+    /// Size limit for storage proof generated while executing receipts in a chunk.
+    /// After this limit is reached we defer execution of any new receipts.
+    pub main_storage_proof_size_soft_limit: usize,
+    // Maximum size of transactions contained inside ChunkStateWitness.
     /// A witness contains transactions from both the previous chunk and the current one.
-    /// This parameter limits the sum of sizes of transactions from both chunks.
+    /// This parameter limits the sum of sizes of transactions from both of those chunks.
     pub combined_transactions_size_limit: usize,
-    /// Soft size limit of new transactions storage proof inside ChunkStateWitness.
+    /// Soft size limit of storage proof used to validate new transactions in ChunkStateWitness.
     pub new_transactions_validation_state_size_soft_limit: usize,
 }
 
 impl From<WitnessConfig> for WitnessConfigView {
     fn from(config: WitnessConfig) -> Self {
         Self {
-            storage_proof_size_soft_limit: config.storage_proof_size_soft_limit,
+            main_storage_proof_size_soft_limit: config.main_storage_proof_size_soft_limit,
             combined_transactions_size_limit: config.combined_transactions_size_limit,
             new_transactions_validation_state_size_soft_limit: config
                 .new_transactions_validation_state_size_soft_limit,

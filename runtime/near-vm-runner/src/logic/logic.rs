@@ -155,7 +155,7 @@ impl<'a> VMLogic<'a> {
         );
         let recorded_storage_counter = RecordedStorageCounter::new(
             ext.get_recorded_storage_size(),
-            config.limit_config.storage_proof_size_receipt_limit,
+            config.limit_config.per_receipt_storage_proof_size_limit,
         );
         Self {
             ext,

@@ -335,9 +335,10 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
             },
             congestion_control_config: get_congestion_control_config(params)?,
             witness_config: WitnessConfig {
-                storage_proof_size_soft_limit: params.get(Parameter::StorageProofSizeSoftLimit)?,
+                main_storage_proof_size_soft_limit: params
+                    .get(Parameter::MainStorageProofSizeSoftLimit)?,
                 combined_transactions_size_limit: params
-                    .get(Parameter::MaxTransactionsSizeInWitness)?,
+                    .get(Parameter::CombinedTransactionsSizeLimit)?,
                 new_transactions_validation_state_size_soft_limit: params
                     .get(Parameter::NewTransactionsValidationStateSizeSoftLimit)?,
             },
