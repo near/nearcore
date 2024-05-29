@@ -4,7 +4,7 @@ use std::sync::Arc;
 use lru::LruCache;
 use near_async::messaging::CanSend;
 use near_async::time::{Duration, Instant};
-use near_chain::chain::ProcessChunkStateWitnessMessage;
+use near_chain::chain::ChunkStateWitnessMessage;
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::reed_solomon::reed_solomon_decode;
@@ -200,7 +200,7 @@ impl PartialEncodedStateWitnessTracker {
                 .with_label_values(&[entry.shard_id.to_string().as_str()])
                 .observe(entry.duration_to_last_part.as_seconds_f64());
 
-            self.client_sender.send(ProcessChunkStateWitnessMessage(encoded_witness));
+            self.client_sender.send(ChunkStateWitnessMessage(encoded_witness));
         }
         self.record_total_parts_cache_size_metric();
         Ok(())
