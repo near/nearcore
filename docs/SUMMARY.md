@@ -42,6 +42,7 @@
   - [Run Gas Estimations](./practices/workflows/gas_estimations.md)
   - [Localnet on many machines](./practices/workflows/localnet_on_many_machines.md)
   - [IO tracing](./practices/workflows/io_trace.md)
+  - [Profiling](./practices/workflows/profiling.md)
   - [Working with OpenTelemetry Traces](./practices/workflows/otel_traces.md)
 - [Code Style](./practices/style.md)
 - [Documentation](./practices/docs.md)
