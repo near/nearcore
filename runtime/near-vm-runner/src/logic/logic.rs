@@ -1213,14 +1213,19 @@ impl<'a> VMLogic<'a> {
         self.gas(opcodes as u64 * self.config.regular_op_cost as u64)
     }
 
+    /// An alias for [`VMLogic::gas`].
+    pub fn burn_gas(&mut self, gas: Gas) -> Result<()> {
+        self.gas(gas)
+    }
+
     /// This is the function that is exposed to WASM contracts under the name `gas`.
     ///
     /// For now it is consuming the gas for `gas` opcodes. When we switch to finite-wasm it’ll
     /// be made to be a no-op.
     ///
     /// This function might be intrinsified.
-    pub fn gas_seen_from_wasm(&mut self, gas: u32) -> Result<()> {
-        self.gas_opcodes(gas)
+    pub fn gas_seen_from_wasm(&mut self, opcodes: u32) -> Result<()> {
+        self.gas_opcodes(opcodes)
     }
 
     #[cfg(feature = "test_features")]

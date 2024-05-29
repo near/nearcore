@@ -170,7 +170,7 @@ extern "C" {
     fn storage_iter_prefix(prefix_len: u64, prefix_ptr: u64) -> u64;
     fn storage_iter_range(start_len: u64, start_ptr: u64, end_len: u64, end_ptr: u64) -> u64;
     fn storage_iter_next(iterator_id: u64, key_register_id: u64, value_register_id: u64) -> u64;
-    fn gas(ops: u32);
+    fn gas(opcodes: u32);
     // #################
     // # Validator API #
     // #################
@@ -193,6 +193,9 @@ extern "C" {
 
     #[cfg(feature = "test_features")]
     fn sleep_nanos(nanos: u64);
+
+    #[cfg(feature = "test_features")]
+    fn burn_gas(gas: u64);
 }
 
 macro_rules! ext_test {
@@ -410,6 +413,22 @@ pub unsafe fn sleep() {
     log_utf8(data.len() as u64, data.as_ptr() as _);
 
     sleep_nanos(nanos);
+}
+
+#[cfg(feature = "test_features")]
+#[no_mangle]
+pub unsafe fn burn_gas_raw() {
+    const U64_SIZE: usize = size_of::<u64>();
+    let data = [0u8; U64_SIZE];
+
+    input(0);
+    assert!(register_len(0) == U64_SIZE as u64);
+    read_register(0, data.as_ptr() as u64);
+    let amount = u64::from_le_bytes(data);
+
+    println!("Burning {} gas", amount);
+
+    burn_gas(amount);
 }
 
 #[no_mangle]
