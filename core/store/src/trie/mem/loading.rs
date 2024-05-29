@@ -33,7 +33,7 @@ pub fn load_trie_from_flat_state(
     parallelize: bool,
 ) -> Result<MemTries, StorageError> {
     if parallelize && state_root != CryptoHash::default() {
-        const NUM_PARALLEL_SUBTREES_DESIRED: usize = 512;
+        const NUM_PARALLEL_SUBTREES_DESIRED: usize = 256;
         let load_start = Instant::now();
         let (arena, root_id) = load_memtrie_in_parallel(
             store.clone(),

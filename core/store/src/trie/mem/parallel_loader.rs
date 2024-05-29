@@ -3,6 +3,7 @@ use super::arena::{Arena, STArena};
 use super::construction::TrieConstructor;
 use super::node::{InputMemTrieNode, MemTrieNodeId};
 use crate::flat::FlatStorageError;
+use crate::trie::Children;
 use crate::{DBCol, NibbleSlice, RawTrieNode, RawTrieNodeWithSize, Store};
 use borsh::BorshDeserialize;
 use near_primitives::errors::{MissingTrieValueContext, StorageError};
@@ -12,6 +13,7 @@ use near_primitives::state::FlatStateValue;
 use near_primitives::types::StateRoot;
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 use std::fmt::Debug;
+use std::sync::Mutex;
 
 /// Top-level entry function to load a memtrie in parallel.
 pub fn load_memtrie_in_parallel(
@@ -60,14 +62,17 @@ impl ParallelMemTrieLoader {
 
     /// Implements stage 1; recursively expanding the trie until all subtrees are small enough.
     fn make_loading_plan(&self) -> Result<PartialTrieLoadingPlan, StorageError> {
-        let mut subtrees_to_load = Vec::new();
+        let subtrees_to_load = Mutex::new(Vec::new());
         let root = self.make_loading_plan_recursive(
             self.root,
             NibblePrefix::new(),
-            &mut subtrees_to_load,
+            &subtrees_to_load,
             None,
         )?;
-        Ok(PartialTrieLoadingPlan { root, subtrees_to_load })
+        Ok(PartialTrieLoadingPlan {
+            root,
+            subtrees_to_load: subtrees_to_load.into_inner().unwrap(),
+        })
     }
 
     /// Helper function to implement stage 1, visiting a single node identified by this hash,
@@ -77,7 +82,7 @@ impl ParallelMemTrieLoader {
         &self,
         hash: CryptoHash,
         mut prefix: NibblePrefix,
-        subtrees_to_load: &mut Vec<NibblePrefix>,
+        subtrees_to_load: &Mutex<Vec<NibblePrefix>>,
         max_subtree_size: Option<u64>,
     ) -> Result<TrieLoadingPlanNode, StorageError> {
         // Read the node from the State column.
@@ -99,8 +104,10 @@ impl ParallelMemTrieLoader {
 
         // If subtree is small enough, add it to the list of subtrees to load, and we're done.
         if node.memory_usage <= max_subtree_size {
-            subtrees_to_load.push(prefix);
-            return Ok(TrieLoadingPlanNode::Load { subtree_id: subtrees_to_load.len() - 1 });
+            let mut lock = subtrees_to_load.lock().unwrap();
+            let subtree_id = lock.len();
+            lock.push(prefix);
+            return Ok(TrieLoadingPlanNode::Load { subtree_id });
         }
 
         match node.node {
@@ -126,20 +133,13 @@ impl ParallelMemTrieLoader {
             }
             RawTrieNode::BranchNoValue(children_hashes) => {
                 // If we visit a branch, recursively visit all children.
-                let mut children = Vec::new();
-                for i in 0..16 {
-                    if let Some(child_hash) = children_hashes[i] {
-                        let mut prefix = prefix.clone();
-                        prefix.push(i as u8);
-                        let child = self.make_loading_plan_recursive(
-                            child_hash,
-                            prefix,
-                            subtrees_to_load,
-                            Some(max_subtree_size),
-                        )?;
-                        children.push((i as u8, Box::new(child)));
-                    }
-                }
+                let children = self.make_children_plans_in_parallel(
+                    children_hashes,
+                    &prefix,
+                    subtrees_to_load,
+                    max_subtree_size,
+                )?;
+
                 Ok(TrieLoadingPlanNode::Branch { children, value: None })
             }
             RawTrieNode::BranchWithValue(value_ref, children_hashes) => {
@@ -155,20 +155,13 @@ impl ParallelMemTrieLoader {
                     ))?;
                 let flat_value = FlatStateValue::on_disk(&value);
 
-                let mut children = Vec::new();
-                for i in 0..16 {
-                    if let Some(child_hash) = children_hashes[i] {
-                        let mut prefix = prefix.clone();
-                        prefix.push(i as u8);
-                        let child = self.make_loading_plan_recursive(
-                            child_hash,
-                            prefix,
-                            subtrees_to_load,
-                            Some(max_subtree_size),
-                        )?;
-                        children.push((i as u8, Box::new(child)));
-                    }
-                }
+                let children = self.make_children_plans_in_parallel(
+                    children_hashes,
+                    &prefix,
+                    subtrees_to_load,
+                    max_subtree_size,
+                )?;
+
                 Ok(TrieLoadingPlanNode::Branch { children, value: Some(flat_value) })
             }
             RawTrieNode::Extension(extension, child) => {
@@ -186,6 +179,31 @@ impl ParallelMemTrieLoader {
                 })
             }
         }
+    }
+
+    fn make_children_plans_in_parallel(
+        &self,
+        children_hashes: Children,
+        prefix: &NibblePrefix,
+        subtrees_to_load: &Mutex<Vec<NibblePrefix>>,
+        max_subtree_size: u64,
+    ) -> Result<Vec<(u8, Box<TrieLoadingPlanNode>)>, StorageError> {
+        let existing_children = children_hashes.iter().collect::<Vec<_>>();
+        let children = existing_children
+            .into_par_iter()
+            .map(|(i, child_hash)| -> Result<_, StorageError> {
+                let mut prefix = prefix.clone();
+                prefix.push(i as u8);
+                let node = self.make_loading_plan_recursive(
+                    *child_hash,
+                    prefix,
+                    subtrees_to_load,
+                    Some(max_subtree_size),
+                )?;
+                Ok((i, Box::new(node)))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(children)
     }
 
     /// This implements the loading of each subtree in stage 2.

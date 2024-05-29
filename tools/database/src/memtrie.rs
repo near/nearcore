@@ -61,10 +61,14 @@ impl LoadMemTrieCommand {
             .context("could not create the transaction runtime")?;
 
         println!("Loading memtries for shards {:?}...", selected_shard_uids);
+        let start_time = std::time::Instant::now();
         runtime
             .get_tries()
             .load_mem_tries_for_enabled_shards(&selected_shard_uids, !self.no_parallel)?;
-        println!("Finished loading memtries, press Ctrl-C to exit.");
+        println!(
+            "Finished loading memtries, took {:?}, press Ctrl-C to exit.",
+            start_time.elapsed()
+        );
         std::thread::sleep(Duration::from_secs(10_000_000_000));
         Ok(())
     }
