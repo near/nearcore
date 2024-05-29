@@ -777,31 +777,12 @@ impl RuntimeAdapter for NightshadeRuntime {
             usize::MAX
         };
 
-        let size_limit: u64 =
-            if checked_feature!("stable", WitnessTransactionLimits, protocol_version) {
-                // Sum of transactions in the previous and current chunks should not exceed the limit.
-                // Witness keeps transactions from both previous and current chunk, so we have to limit the sum of both.
-                runtime_config
-                    .max_transactions_size_in_witness
-                    .saturating_sub(chunk.prev_chunk_transactions_size) as u64
-            } else {
-                // In general, we limit the number of transactions via send_fees.
-                // However, as a second line of defense, we want to limit the byte size
-                // of transaction as well. Rather than introducing a separate config for
-                // the limit, we compute it heuristically from the gas limit and the
-                // cost of roundtripping a byte of data through disk. For today's value
-                // of parameters, this corresponds to about 13megs worth of
-                // transactions.
-                transactions_gas_limit
-                    / (runtime_config
-                        .wasm_config
-                        .ext_costs
-                        .gas_cost(ExtCosts::storage_write_value_byte)
-                        + runtime_config
-                            .wasm_config
-                            .ext_costs
-                            .gas_cost(ExtCosts::storage_read_value_byte))
-            };
+        let size_limit: u64 = calculate_transactions_size_limit(
+            protocol_version,
+            &runtime_config,
+            chunk.prev_chunk_transactions_size,
+            transactions_gas_limit,
+        );
         // for metrics only
         let mut rejected_due_to_congestion = 0;
         let mut rejected_invalid_tx = 0;
@@ -1387,6 +1368,35 @@ fn chunk_tx_gas_limit(
         }
     } else {
         gas_limit / 2
+    }
+}
+
+fn calculate_transactions_size_limit(
+    protocol_version: ProtocolVersion,
+    runtime_config: &RuntimeConfig,
+    prev_chunk_transactions_size: usize,
+    transactions_gas_limit: Gas,
+) -> u64 {
+    if checked_feature!("stable", WitnessTransactionLimits, protocol_version) {
+        // Sum of transactions in the previous and current chunks should not exceed the limit.
+        // Witness keeps transactions from both previous and current chunk, so we have to limit the sum of both.
+        runtime_config
+            .max_transactions_size_in_witness
+            .saturating_sub(prev_chunk_transactions_size)
+            .try_into()
+            .expect("Can't convert usize to u64!")
+    } else {
+        // In general, we limit the number of transactions via send_fees.
+        // However, as a second line of defense, we want to limit the byte size
+        // of transaction as well. Rather than introducing a separate config for
+        // the limit, we compute it heuristically from the gas limit and the
+        // cost of roundtripping a byte of data through disk. For today's value
+        // of parameters, this corresponds to about 13megs worth of
+        // transactions.
+        let roundtripping_cost =
+            runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::storage_write_value_byte)
+                + runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::storage_read_value_byte);
+        transactions_gas_limit / roundtripping_cost
     }
 }
 
