@@ -31,7 +31,7 @@ pub struct RuntimeConfig {
     pub storage_proof_size_soft_limit: usize,
     /// The configuration for congestion control.
     pub congestion_control_config: CongestionControlConfig,
-    /// Maxmium size of transactions contained inside ChunkStateWitness.
+    /// Maximum size of transactions contained inside ChunkStateWitness.
     /// A witness contains transactions from both the previous chunk and the current one.
     /// This parameter limits the sum of sizes of transactions from both chunks.
     pub max_transactions_size_in_witness: usize,
