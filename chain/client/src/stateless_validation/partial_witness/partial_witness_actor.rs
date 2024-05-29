@@ -339,7 +339,7 @@ impl PartialWitnessActor {
         }
 
         // TODO(https://github.com/near/nearcore/issues/11301): replace these direct DB accesses with messages
-        // sent to the client actor
+        // sent to the client actor. for a draft, see https://github.com/near/nearcore/commit/e186dc7c0b467294034c60758fe555c78a31ef2d
         let head = self.store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?;
         let final_head = self.store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?;
 
