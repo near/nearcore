@@ -30,6 +30,16 @@ impl ChunkInfo {
     fn is_endorsed(&self) -> bool {
         matches!(self.endorsements, ChunkEndorsementsState::Endorsed(_, _))
     }
+
+    // yeah maybe.....
+    fn is_incomplete(&self) -> bool {
+        if let ChunkEndorsementsState::NotEnoughStake(stats) = &self.endorsements {
+            if let Some(stats) = stats {
+                return stats.endorsed_validators_count <= 1;
+            }
+        }
+        return false;
+    }
 }
 
 pub struct ChunkInclusionTracker {
@@ -176,6 +186,31 @@ impl ChunkInclusionTracker {
         prev_block_hash: &CryptoHash,
     ) -> usize {
         self.get_chunk_headers_ready_for_inclusion(epoch_id, prev_block_hash).len()
+    }
+
+    pub fn chunks_to_request(
+        &self,
+        epoch_id: &EpochId,
+        prev_block_hash: &CryptoHash,
+    ) -> Vec<ShardChunkHeader> {
+        let Some(entry) = self.prev_block_to_chunk_hash_ready.peek(prev_block_hash) else {
+            return vec![];
+        };
+
+        let mut res = vec![];
+        for (_, chunk_hash) in entry {
+            let chunk_info = self.chunk_hash_to_chunk_info.get(chunk_hash).unwrap();
+            if chunk_info.is_incomplete() {
+                tracing::debug!(
+                    target: "client",
+                    chunk_hash = ?chunk_info.chunk_header.chunk_hash(),
+                    chunk_producer = ?chunk_info.chunk_producer,
+                    "REQUESTING INCOMPLETE CHUNK"
+                );
+                res.push(chunk_info.chunk_header.clone());
+            }
+        }
+        res
     }
 
     pub fn get_banned_chunk_producers(&self) -> Vec<(EpochId, Vec<AccountId>)> {

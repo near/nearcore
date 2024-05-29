@@ -165,6 +165,12 @@ impl Test {
 
         let view_client = connectors.write().unwrap()[0].view_client_actor.clone();
         let view_client_loop = view_client.clone();
+        let view_clients_debug = connectors
+            .write()
+            .unwrap()
+            .iter()
+            .map(|c| c.view_client_actor.clone())
+            .collect::<Vec<_>>();
 
         let actor = view_client.send(GetBlock::latest().with_span_context());
         let actor = actor.then(move |res| {
@@ -221,6 +227,21 @@ impl Test {
             };
 
             while current_height < stop_height {
+                let mut heads = vec![];
+                for v in view_clients_debug.iter() {
+                    loop {
+                        let Ok(block) =
+                            v.send(GetBlock::latest().with_span_context()).await.unwrap()
+                        else {
+                            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                            continue;
+                        };
+                        heads.push(block.header.height);
+                        break;
+                    }
+                }
+                println!("HEADS: {:?}", heads);
+
                 let Ok(block) = view_client_loop
                     .send(
                         GetBlock(BlockReference::BlockId(BlockId::Height(current_height)))
@@ -247,7 +268,7 @@ impl Test {
 
                 let block_producer = block.author;
                 println!(
-                    "[{:?}]: BLOCK {} PRODUCER {} HEIGHT {}; CHUNK HEADER HEIGHTS: {} / {} / {} / {};\nAPPROVALS: {:?}",
+                    "[{:?}]: BLOCK {} PRODUCER {} HEIGHT {}; CHUNK HEADER HEIGHTS: {} / {} / {} / {}\nAPPROVALS: {:?}",
                     Instant::now(),
                     block.header.hash,
                     block_producer,

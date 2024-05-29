@@ -1439,13 +1439,6 @@ impl Client {
         shard_chunk: Option<ShardChunk>,
         apply_chunks_done_sender: Option<Sender<ApplyChunksDoneMessage>>,
     ) {
-        let me = self.validator_signer.as_ref().unwrap().validator_id().clone();
-        println!(
-            "{me} on_chunk_completed {:?} H={} S={}",
-            partial_chunk.chunk_hash(),
-            partial_chunk.height_created(),
-            partial_chunk.shard_id()
-        );
         let chunk_header = partial_chunk.cloned_header();
         self.chain.blocks_delay_tracker.mark_chunk_completed(&chunk_header);
         self.block_production_info
@@ -1558,6 +1551,10 @@ impl Client {
                 next_bp = ?next_block_producer,
                 target_height = approval.target_height,
                 "Sending an approval");
+            if let ApprovalInner::Skip(_) = approval.inner {
+                return Ok(());
+            }
+
             let approval_message = ApprovalMessage::new(approval, next_block_producer);
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::Approval { approval_message },

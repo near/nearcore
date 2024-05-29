@@ -57,7 +57,7 @@ use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, BlockHeightDelta, EpochId, NumBlocks, NumSeats};
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::test_utils::create_test_store;
 use near_telemetry::TelemetryActor;
 use num_rational::Ratio;
@@ -761,7 +761,12 @@ fn process_network_message_default(
         NetworkRequests::ChunkEndorsement(account, endorsement) => {
             for (i, name) in validators_clone2.iter().enumerate() {
                 if name == account {
-                    println!("ChunkEndorsement from {:?} to {:?}", endorsement.account_id, account);
+                    println!(
+                        "ChunkEndorsement for {:?} from {:?} to {:?}",
+                        endorsement.chunk_hash(),
+                        endorsement.account_id,
+                        account
+                    );
                     connectors1[i]
                         .client_actor
                         .do_send(ChunkEndorsementMessage(endorsement.clone()).with_span_context());

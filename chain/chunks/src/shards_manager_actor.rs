@@ -2082,9 +2082,11 @@ impl ShardsManagerActor {
     }
 
     pub fn handle_client_request(&mut self, request: ShardsManagerRequestFromClient) {
+        let me = self.me.as_ref().map_or(String::new(), |me| me.to_string());
         let _span = tracing::debug_span!(
             target: "chunks",
             "shards_manager_request_from_client",
+            me,
             "type" = <&'static str>::from(&request)
         )
         .entered();
@@ -2148,9 +2150,11 @@ impl ShardsManagerActor {
     }
 
     pub fn handle_network_request(&mut self, request: ShardsManagerRequestFromNetwork) {
+        let me = self.me.as_ref().map_or(String::new(), |me| me.to_string());
         let _span = tracing::debug_span!(
             target: "chunks",
             "shards_manager_request_from_network",
+            me,
             "type" = <&'static str>::from(&request)
         )
         .entered();

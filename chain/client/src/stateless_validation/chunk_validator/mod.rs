@@ -200,6 +200,7 @@ impl ChunkValidator {
                     );
                 }
                 Err(err) => {
+                    println!("CHUNK VALIDATION FAILED!!!!!!!!!!!!!");
                     tracing::error!("Failed to validate chunk: {:?}", err);
                 }
             }

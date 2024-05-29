@@ -31,6 +31,12 @@ impl ChunkEndorsementsState {
     }
 }
 
+#[derive(Clone)]
+pub enum PendingEndorsements {
+    NoChunk(HashMap<AccountId, ChunkEndorsement>),
+    FoundChunk,
+}
+
 /// Module to track chunk endorsements received from chunk validators.
 pub struct ChunkEndorsementTracker {
     epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -41,7 +47,7 @@ pub struct ChunkEndorsementTracker {
     /// We store chunk endorsements to be processed later because we did not have
     /// chunks ready at the time we received that endorsements from validators.
     /// This is keyed on chunk_hash and account_id of validator to avoid duplicates.
-    pending_chunk_endorsements: SyncLruCache<ChunkHash, HashMap<AccountId, ChunkEndorsement>>,
+    pending_chunk_endorsements: SyncLruCache<ChunkHash, PendingEndorsements>,
 }
 
 impl Client {
@@ -87,9 +93,15 @@ impl ChunkEndorsementTracker {
         let chunk_hash = &chunk_header.chunk_hash();
         let chunk_endorsements = {
             let mut guard = self.pending_chunk_endorsements.lock();
-            guard.pop(chunk_hash)
+            let e = guard.pop(chunk_hash);
+            // looks fiiiine even for lru cache...
+            guard.push(chunk_hash.clone(), PendingEndorsements::FoundChunk);
+            e
         };
         let Some(chunk_endorsements) = chunk_endorsements else {
+            return;
+        };
+        let PendingEndorsements::NoChunk(chunk_endorsements) = chunk_endorsements else {
             return;
         };
         tracing::debug!(target: "client", ?chunk_hash, "Processing pending chunk endorsements.");
@@ -135,19 +147,28 @@ impl ChunkEndorsementTracker {
         let chunk_hash = endorsement.chunk_hash();
         let account_id = &endorsement.account_id;
 
-        let endorsement_cache = if chunk_header.is_some() {
-            &self.chunk_endorsements
-        } else {
-            &self.pending_chunk_endorsements
-        };
-
         // If we have already processed this chunk endorsement, return early.
-        if endorsement_cache
-            .get(chunk_hash)
-            .is_some_and(|existing_endorsements| existing_endorsements.contains_key(account_id))
-        {
-            tracing::debug!(target: "client", ?endorsement, "Already received chunk endorsement.");
-            return Ok(());
+        if chunk_header.is_some() {
+            if self
+                .chunk_endorsements
+                .get(chunk_hash)
+                .is_some_and(|existing_endorsements| existing_endorsements.contains_key(account_id))
+            {
+                tracing::debug!(target: "client", ?endorsement, "Already received chunk endorsement.");
+                return Ok(());
+            }
+        } else {
+            if self.pending_chunk_endorsements.get(chunk_hash).is_some_and(
+                |existing_endorsements| match existing_endorsements {
+                    PendingEndorsements::NoChunk(existing_endorsements) => {
+                        existing_endorsements.contains_key(account_id)
+                    }
+                    PendingEndorsements::FoundChunk => false,
+                },
+            ) {
+                tracing::debug!(target: "client", ?endorsement, "Already received chunk endorsement.");
+                return Ok(());
+            }
         }
 
         println!(
@@ -177,12 +198,33 @@ impl ChunkEndorsementTracker {
         // Maybe add check to ensure we don't accept endorsements from chunks already included in some block?
         // Maybe add check to ensure we don't accept endorsements from chunks that have too old height_created?
         tracing::debug!(target: "client", ?endorsement, "Received and saved chunk endorsement.");
-        let mut guard = endorsement_cache.lock();
-        guard.get_or_insert(chunk_hash.clone(), || HashMap::new());
-        let chunk_endorsements = guard.get_mut(chunk_hash).unwrap();
-        chunk_endorsements.insert(account_id.clone(), endorsement);
-
-        println!("{me} endorsement_cache_len = {}", guard.len());
+        let put_to_existing = if chunk_header.is_none() {
+            let mut guard = self.pending_chunk_endorsements.lock();
+            if guard.get(chunk_hash).is_none() {
+                guard.push(chunk_hash.clone(), PendingEndorsements::NoChunk(HashMap::new()));
+            }
+            let e = guard.get_mut(chunk_hash).unwrap();
+            match e {
+                PendingEndorsements::NoChunk(chunk_endorsements) => {
+                    chunk_endorsements.insert(account_id.clone(), endorsement.clone());
+                    false
+                }
+                PendingEndorsements::FoundChunk => true,
+            }
+        } else {
+            true
+        };
+        if put_to_existing {
+            let mut guard = self.chunk_endorsements.lock();
+            guard.get_or_insert(chunk_hash.clone(), || HashMap::new());
+            let chunk_endorsements = guard.get_mut(chunk_hash).unwrap();
+            chunk_endorsements.insert(account_id.clone(), endorsement.clone());
+            tracing::debug!(
+                "CHUNK {} endorsement_cache_len = {}",
+                chunk_hash.0.to_string().split_at(8).0,
+                guard.get(chunk_hash).map_or(0, |e| e.len())
+            );
+        }
         Ok(())
     }
 
@@ -218,9 +260,10 @@ impl ChunkEndorsementTracker {
         let e = self.chunk_endorsements.get(&chunk_header.chunk_hash());
         if let Some(e) = e {
             println!(
-                "ENDORSEMENTS FOR H={}, S={}: {:?}",
+                "ENDORSEMENTS FOR H={}, S={}, hash={}: {:?}",
                 chunk_header.height_created(),
                 chunk_header.shard_id(),
+                chunk_header.chunk_hash().0.to_string().split_at(8).0,
                 e.keys().collect::<Vec<_>>()
             );
         }

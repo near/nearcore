@@ -295,7 +295,12 @@ impl messaging::Actor for ClientActorInner {
         f: impl FnOnce(&mut Self, M, &mut dyn DelayedActionRunner<Self>) -> M::Result,
     ) -> M::Result {
         self.check_triggers(ctx);
-        let _span = tracing::debug_span!(target: "client", "NetworkClientMessage").entered();
+        let me = self
+            .client
+            .validator_signer
+            .as_ref()
+            .map_or(String::new(), |s| s.validator_id().to_string());
+        let _span = tracing::debug_span!(target: "client", "NetworkClientMessage", me).entered();
         let msg_type = std::any::type_name::<M>();
         metrics::CLIENT_MESSAGES_COUNT.with_label_values(&[msg_type]).inc();
         let timer =
@@ -1114,6 +1119,17 @@ impl ClientActorInner {
                     .client
                     .chunk_inclusion_tracker
                     .num_chunk_headers_ready_for_inclusion(&epoch_id, &head.last_block_hash);
+                let missing_chunks = self
+                    .client
+                    .chunk_inclusion_tracker
+                    .chunks_to_request(&epoch_id, &head.last_block_hash);
+                self.client.request_missing_chunks(
+                    vec![near_chain::chain::BlockMissingChunks {
+                        prev_hash: head.last_block_hash,
+                        missing_chunks,
+                    }],
+                    vec![],
+                );
                 let have_all_chunks = head.height == 0
                     || num_chunks == self.client.epoch_manager.shard_ids(&epoch_id).unwrap().len();
 
@@ -1159,7 +1175,12 @@ impl ClientActorInner {
     /// Returns the delay before the next time `check_triggers` should be called, which is
     /// min(time until the closest trigger, 1 second).
     pub(crate) fn check_triggers(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) -> Duration {
-        let _span = tracing::debug_span!(target: "client", "check_triggers").entered();
+        let me = self
+            .client
+            .validator_signer
+            .as_ref()
+            .map_or(String::new(), |s| s.validator_id().to_string());
+        let _span = tracing::debug_span!(target: "client", "check_triggers", me).entered();
         if let Some(config_updater) = &mut self.config_updater {
             config_updater.try_update(&|updateable_client_config| {
                 self.client.update_client_config(updateable_client_config)
@@ -1453,7 +1474,8 @@ impl ClientActorInner {
             }
         } else {
             if highest_height > head.height + self.client.config.sync_height_threshold {
-                Ok(SyncRequirement::SyncNeeded { peer_id, highest_height, head })
+                Ok(SyncRequirement::AlreadyCaughtUp { peer_id, highest_height, head })
+                // Ok(SyncRequirement::SyncNeeded { peer_id, highest_height, head })
             } else {
                 Ok(SyncRequirement::AlreadyCaughtUp { peer_id, highest_height, head })
             }
@@ -1489,6 +1511,12 @@ impl ClientActorInner {
         if self.network_info.num_connected_peers < self.client.config.min_num_peers
             && !self.client.config.skip_sync_wait
         {
+            println!(
+                "STARTING SYNC!!!!!!!!!! {} {} {}",
+                self.network_info.num_connected_peers,
+                self.client.config.min_num_peers,
+                self.client.config.skip_sync_wait
+            );
             ctx.run_later(
                 "ClientActor start_sync",
                 self.client.config.sync_step_period,
