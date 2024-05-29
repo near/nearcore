@@ -924,6 +924,11 @@ impl Client {
         let gas_used = chunk_extra.gas_used();
         #[cfg(feature = "test_features")]
         let gas_used = if self.produce_invalid_chunks { gas_used + 1 } else { gas_used };
+
+        // The congestion info is set to default if it is not present. If the
+        // congestion control feature is not enabled the congestion info will be
+        // stripped from the chunk header anyway. In the first chunk where
+        // feature is enabled the header will contain the default congestion info.
         let congestion_info = chunk_extra.congestion_info().unwrap_or_default();
         let (encoded_chunk, merkle_paths) = ShardsManagerActor::create_encoded_shard_chunk(
             prev_block_hash,

@@ -21,10 +21,17 @@ import node_config
 import remote_node
 
 
-def prompt_setup_flags(args):
+def prompt_setup_flags(args, dumper_node_names):
     if not args.yes:
         print(
             'this will reset all nodes\' home dirs and initialize them with new state. continue? [yes/no]'
+        )
+        if sys.stdin.readline().strip() != 'yes':
+            sys.exit()
+
+    if not args.gcs_state_sync and len(dumper_node_names) > 0:
+        print(
+            f'--gcs-state-sync not provided, but there are state dumper nodes: {dumper_node_names}. continue with dumper nodes as normal RPC nodes? [yes/no]'
         )
         if sys.stdin.readline().strip() != 'yes':
             sys.exit()
@@ -216,17 +223,17 @@ def _apply_config_changes(node, state_sync_location):
                 }
             }
         }
-    if node.want_state_dump:
-        changes['state_sync.dump.location'] = state_sync_location
-        changes[
-            'store.state_snapshot_config.state_snapshot_type'] = 'EveryEpoch'
-        changes['store.state_snapshot_enabled'] = True
+        if node.want_state_dump:
+            changes['state_sync.dump.location'] = state_sync_location
+            changes[
+                'store.state_snapshot_config.state_snapshot_type'] = 'EveryEpoch'
+            changes['store.state_snapshot_enabled'] = True
     for key, change in changes.items():
         do_update_config(node, f'{key}={json.dumps(change)}')
 
 
 def new_test_cmd(args, traffic_generator, nodes):
-    prompt_setup_flags(args)
+    prompt_setup_flags(args, [n.name() for n in nodes if n.want_state_dump])
 
     if args.epoch_length <= 0:
         sys.exit(f'--epoch-length should be positive')

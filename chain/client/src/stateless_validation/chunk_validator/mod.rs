@@ -675,6 +675,7 @@ pub(crate) fn validate_chunk_state_witness(
         &chunk_extra,
         &state_witness.chunk_header,
         &outgoing_receipts_root,
+        protocol_version,
     )?;
 
     Ok(())
