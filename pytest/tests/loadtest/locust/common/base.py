@@ -242,9 +242,9 @@ class NearNodeProxy:
         self.session = FastHttpSession(environment,
                                        base_url="http://%s:%s" % (url, port),
                                        user=user,
-                                       connection_timeout=3.0,
+                                       connection_timeout=6.0,
                                        network_timeout=9.0,
-                                       max_retries=3)
+                                       max_retries=6)
         self.node = cluster.RpcNode(url, port, session=self.session)
 
     def send_tx_retry(self, tx: Transaction, locust_name) -> dict:
@@ -296,7 +296,10 @@ class NearNodeProxy:
                         "wait_until":
                             "EXECUTED_OPTIMISTIC"
                     })
-                evaluate_rpc_result(result.json())
+                if hasattr(result, 'json'):
+                    evaluate_rpc_result(result.json())
+                else:
+                    result.raise_for_status()
             except TxUnknownError as err:
                 # This means we time out in one way or another.
                 # In that case, the stateless transaction validation was
@@ -390,9 +393,7 @@ class NearNodeProxy:
             "id": "dontcare",
             "jsonrpc": "2.0"
         }
-        r = self.session.post(url="/", json=j)
-        r.raise_for_status()
-        return r
+        return self.session.post(url="/", json=j)
 
     @retry(wait_fixed=500,
            stop_max_delay=DEFAULT_TRANSACTION_TTL / timedelta(milliseconds=1),
