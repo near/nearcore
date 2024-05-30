@@ -426,8 +426,6 @@ pub unsafe fn burn_gas_raw() {
     read_register(0, data.as_ptr() as u64);
     let amount = u64::from_le_bytes(data);
 
-    println!("Burning {} gas", amount);
-
     burn_gas(amount);
 }
 

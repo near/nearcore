@@ -215,8 +215,8 @@ class CongestionControlTest(unittest.TestCase):
                 self.txs.append((sender_account.account_id, tx_hash))
 
             # This sleep here is more a formality, the call_contract call is
-            # slower. This is also the reason for having sending transactions
-            # from multiple threads.
+            # slower. This is also the reason for sending transactions from
+            # multiple threads.
             time.sleep(0.1)
 
         logger.debug(
@@ -353,11 +353,6 @@ class CongestionControlTest(unittest.TestCase):
 
             status = result['result']['status']
             self.assertIn('SuccessValue', status)
-
-    def __get_chunks(self, node, block_hash):
-        block = node.json_rpc("block", {"block_id": block_hash})
-        self.assertIn('result', block, block)
-        return block['result']['chunks']
 
     def __get_chunk(self, node, block_hash, shard_id):
         result = node.json_rpc("chunk", {
