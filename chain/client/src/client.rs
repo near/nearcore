@@ -360,6 +360,9 @@ impl Client {
         );
         let chunk_endorsement_tracker =
             Arc::new(ChunkEndorsementTracker::new(epoch_manager.clone()));
+        // Chunk validator should panic if there is a validator error in non-production chains (eg. mocket and localnet).
+        let panic_on_validation_error = config.chain_id != near_primitives::chains::MAINNET
+            && config.chain_id != near_primitives::chains::TESTNET;
         let chunk_validator = ChunkValidator::new(
             validator_signer.clone(),
             epoch_manager.clone(),
@@ -368,6 +371,7 @@ impl Client {
             chunk_endorsement_tracker.clone(),
             config.orphan_state_witness_pool_size,
             async_computation_spawner,
+            panic_on_validation_error,
         );
         let chunk_distribution_network = ChunkDistributionNetwork::from_config(&config);
         Ok(Self {
@@ -919,6 +923,11 @@ impl Client {
         let gas_used = chunk_extra.gas_used();
         #[cfg(feature = "test_features")]
         let gas_used = if self.produce_invalid_chunks { gas_used + 1 } else { gas_used };
+
+        // The congestion info is set to default if it is not present. If the
+        // congestion control feature is not enabled the congestion info will be
+        // stripped from the chunk header anyway. In the first chunk where
+        // feature is enabled the header will contain the default congestion info.
         let congestion_info = chunk_extra.congestion_info().unwrap_or_default();
         let (encoded_chunk, merkle_paths) = ShardsManagerActor::create_encoded_shard_chunk(
             prev_block_hash,

@@ -46,7 +46,6 @@ impl tcp::Tier {
     pub(crate) fn is_allowed_routed(self, body: &RoutedMessageBody) -> bool {
         match body {
             RoutedMessageBody::BlockApproval(..)
-            | RoutedMessageBody::ChunkStateWitness(..)
             | RoutedMessageBody::ChunkEndorsement(..)
             | RoutedMessageBody::VersionedPartialEncodedChunk(..) => true,
             _ => self == tcp::Tier::T2,
