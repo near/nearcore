@@ -719,13 +719,16 @@ fn pure_deploy_bytes(ctx: &mut EstimatorContext) -> GasCost {
     let config_store = RuntimeConfigStore::new(None);
     let vm_config = config_store.get_config(PROTOCOL_VERSION).wasm_config.clone();
     let small_code = generate_data_only_contract(0, &vm_config);
-    let large_code = generate_data_only_contract(bytesize::mb(4u64) as usize, &vm_config);
+    let large_code = generate_data_only_contract(
+        vm_config.limit_config.max_transaction_size as usize - 2000,
+        &vm_config,
+    );
     let small_code_len = small_code.len();
     let large_code_len = large_code.len();
     let cost_empty = deploy_contract_cost(ctx, small_code, Some(b"main"));
-    let cost_4mb = deploy_contract_cost(ctx, large_code, Some(b"main"));
+    let cost_max = deploy_contract_cost(ctx, large_code, Some(b"main"));
 
-    (cost_4mb - cost_empty) / (large_code_len - small_code_len) as u64
+    (cost_max - cost_empty) / (large_code_len - small_code_len) as u64
 }
 
 /// Base cost for a fn call action, without receipt creation or contract loading.
@@ -749,7 +752,7 @@ fn action_function_call_per_byte(ctx: &mut EstimatorContext) -> GasCost {
     // X values below 1M have a rather high variance. Therefore, use one small X
     // value and two larger values to fit a curve that gets the slope about
     // right.
-    let xs = [1, 1_000_000, 4_000_000];
+    let xs = [1, 1_000_000, 1_500_000];
     let ys: Vec<GasCost> = xs
         .iter()
         .map(|&arg_len| inner_action_function_call_per_byte(ctx, arg_len as usize))
@@ -800,7 +803,7 @@ fn function_call_per_storage_byte(ctx: &mut EstimatorContext) -> GasCost {
     let small_code = generate_data_only_contract(0, &vm_config);
     let small_cost = fn_cost_in_contract(ctx, "main", &small_code, n_actions);
 
-    let large_code = generate_data_only_contract(4_000_000, &vm_config);
+    let large_code = generate_data_only_contract(1_500_000, &vm_config);
     let large_cost = fn_cost_in_contract(ctx, "main", &large_code, n_actions);
 
     large_cost.saturating_sub(&small_cost, &NonNegativeTolerance::PER_MILLE)

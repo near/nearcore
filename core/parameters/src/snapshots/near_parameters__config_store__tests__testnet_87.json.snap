@@ -1,6 +1,6 @@
 ---
-source: core/parameters/src/view.rs
-expression: "&view"
+source: core/parameters/src/config_store.rs
+expression: config_view
 ---
 {
   "storage_amount_per_byte": "10000000000000000000",
@@ -205,7 +205,7 @@ expression: "&view"
       "max_arguments_length": 4194304,
       "max_length_returned_data": 4194304,
       "max_contract_size": 4194304,
-      "max_transaction_size": 4194304,
+      "max_transaction_size": 1572864,
       "max_length_storage_key": 2048,
       "max_length_storage_value": 4194304,
       "max_promises_per_function_call_action": 1024,
@@ -216,7 +216,7 @@ expression: "&view"
       "account_id_validity_rules_version": 1,
       "yield_timeout_length_in_blocks": 200,
       "max_yield_payload_size": 1024,
-      "per_receipt_storage_proof_size_limit": 999999999999999
+      "per_receipt_storage_proof_size_limit": 4000000
     }
   },
   "account_creation_config": {
@@ -224,8 +224,8 @@ expression: "&view"
     "registrar_account_id": "registrar"
   },
   "witness_config": {
-    "main_storage_proof_size_soft_limit": 999999999999999,
-    "combined_transactions_size_limit": 999999999999999,
-    "new_transactions_validation_state_size_soft_limit": 999999999999999
+    "main_storage_proof_size_soft_limit": 3000000,
+    "combined_transactions_size_limit": 2097152,
+    "new_transactions_validation_state_size_soft_limit": 572864
   }
 }
