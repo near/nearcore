@@ -446,13 +446,13 @@ def run_env_cmd(args, traffic_generator, nodes):
 
 
 def filter_hosts(args, traffic_generator, nodes):
-    if args.filter is not None:
+    if args.host_filter is not None:
         if not re.search(args.filter, traffic_generator.name()):
             traffic_generator = None
         nodes = [h for h in nodes if re.search(args.filter, h.name())]
-    if args.type not in ['all', 'traffic']:
+    if args.host_type not in ['all', 'traffic']:
         traffic_generator = None
-    if args.type not in ['all', 'nodes']:
+    if args.host_type not in ['all', 'nodes']:
         nodes = []
 
     if len(nodes) == 0 and traffic_generator == None:
@@ -468,12 +468,12 @@ if __name__ == '__main__':
     parser.add_argument('--start-height', type=int)
     parser.add_argument('--unique-id', type=str)
     parser.add_argument('--local-test', action='store_true')
-    parser.add_argument('--type',
+    parser.add_argument('--host-type',
                         type=str,
                         choices=['all', 'nodes', 'traffic'],
                         default='all',
                         help='Type of hosts to select')
-    parser.add_argument('--filter',
+    parser.add_argument('--host-filter',
                         type=str,
                         help='Filter through the selected nodes using regex.')
 
