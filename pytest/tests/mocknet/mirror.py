@@ -610,13 +610,27 @@ if __name__ == '__main__':
     # nearcore-release buildkite and urls in the following format without commit
     # but only with the branch name:
     # https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/<branch-name>/neard"
-    update_binaries_parser = subparsers.add_parser(
-        'update-binaries',
-        help=
-        'Update the neard binaries by re-downloading them. The same urls are used.'
-        + ' Add or override the URLs with --neard-binary-url.')
-    update_binaries_parser.add_argument('--neard-binary-url', type=str)
-    update_binaries_parser.add_argument('--update-epoch-height', type=int)
+    update_binaries_parser = subparsers.add_parser('update-binaries',
+                                                   help='''
+        Update the neard binaries by re-downloading them. The same urls are used.
+        Add or override the URLs with --neard-binary-url by specifying the epoch height.
+        If the network was started with 2 urls, the upgrade epoch height can be randomly assigned
+        on each host. Use caution when specifying --update-epoch-height so that it will not interlace
+        with the random upgrade window for neard1.
+        ''')
+    update_binaries_parser.add_argument('--neard-binary-url',
+                                        type=str,
+                                        help='''
+        If you plan to restart the network multiple times, it is recommended to use
+        URLs that only depend on the branch name. This way, every time you build,
+        you will not need to update the URL but just run update-binaries.
+        ''')
+    update_binaries_parser.add_argument('--update-epoch-height',
+                                        type=int,
+                                        help='''
+        The epoch height where this binary will begin to run.
+        If a binary already exists on the host for this epoch height, the old one will be replaced.
+        ''')
     update_binaries_parser.set_defaults(func=update_binaries_cmd)
 
     run_cmd_parser = subparsers.add_parser('run-cmd',
