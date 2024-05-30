@@ -252,7 +252,7 @@ pub trait Database: Sync + Send {
     ) -> anyhow::Result<()>;
 
     /// If this is a test database, return a copy of the entire database.
-    /// Otherwise return null.
+    /// Otherwise return None.
     fn copy_if_test(&self) -> Option<Arc<dyn Database>> {
         None
     }

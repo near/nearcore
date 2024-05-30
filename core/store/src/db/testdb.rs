@@ -146,7 +146,7 @@ impl Database for TestDB {
                     new_col.insert(key.clone(), value.clone());
                 }
             }
-            *copy.stats.write().unwrap() = self.stats.read().unwrap().clone();
+            copy.stats.write().unwrap().clone_from(&self.stats.read().unwrap());
         }
         Some(Arc::new(copy))
     }
