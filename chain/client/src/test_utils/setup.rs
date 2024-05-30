@@ -35,8 +35,7 @@ use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::{
     AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
-    BlockResponse, ChunkEndorsementMessage, ChunkStateWitnessMessage, SetNetworkInfo,
-    StateRequestHeader, StateRequestPart,
+    BlockResponse, ChunkEndorsementMessage, SetNetworkInfo, StateRequestHeader, StateRequestPart,
 };
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::{
@@ -57,7 +56,7 @@ use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, BlockHeightDelta, EpochId, NumBlocks, NumSeats};
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 use near_telemetry::TelemetryActor;
 use num_rational::Ratio;
@@ -116,31 +115,6 @@ pub fn setup(
         epoch_length,
         protocol_version: PROTOCOL_VERSION,
     };
-    let doomslug_threshold_mode = if enable_doomslug {
-        DoomslugThresholdMode::TwoThirds
-    } else {
-        DoomslugThresholdMode::NoApprovals
-    };
-    let chain = Chain::new(
-        clock.clone(),
-        epoch_manager.clone(),
-        shard_tracker.clone(),
-        runtime.clone(),
-        &chain_genesis,
-        doomslug_threshold_mode,
-        ChainConfig {
-            save_trie_changes: true,
-            background_migration_threads: 1,
-            resharding_config: MutableConfigValue::new(
-                ReshardingConfig::default(),
-                "resharding_config",
-            ),
-        },
-        None,
-        Arc::new(RayonAsyncComputationSpawner),
-        None,
-    )
-    .unwrap();
 
     let signer = Arc::new(create_test_signer(account_id.as_str()));
     let telemetry = ActixWrapper::new(TelemetryActor::default()).start();
@@ -954,7 +928,7 @@ pub fn setup_mock_all_validators(
     }
     hash_to_height.write().unwrap().insert(CryptoHash::default(), 0);
     connectors.set(ret.clone()).ok().unwrap();
-    ((), ret, block_stats)
+    (ret, block_stats)
 }
 
 /// Sets up ClientActor and ViewClientActor without network.
