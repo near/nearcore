@@ -366,7 +366,20 @@ impl PartialWitnessActor {
                     head.height,
                 )));
             }
+
+            let possible_epochs = self
+                .epoch_manager
+                .possible_epochs_of_height_around_tip(&head, partial_witness.height_created())?;
+            if !possible_epochs.contains(&partial_witness.epoch_id()) {
+                return Err(Error::InvalidPartialChunkStateWitness(format!(
+                    "EpochId {:?} in PartialEncodedStateWitness at height {} is not in the possible list of epochs {:?}",
+                    partial_witness.epoch_id(),
+                    partial_witness.height_created(),
+                    possible_epochs
+                )));
+            }
         }
+
         if !self.epoch_manager.verify_partial_witness_signature(&partial_witness)? {
             return Err(Error::InvalidPartialChunkStateWitness("Invalid signature".to_string()));
         }
