@@ -221,6 +221,7 @@ impl ProtocolFeature {
             ProtocolFeature::StateWitnessSizeLimit => 83,
             ProtocolFeature::PerReceiptHardStorageProofLimit => 85,
             ProtocolFeature::PartialEncodedStateWitness => 86,
+            ProtocolFeature::CongestionControl => 87,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
@@ -232,7 +233,6 @@ impl ProtocolFeature {
             ProtocolFeature::EthImplicitAccounts => 138,
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
             ProtocolFeature::NonrefundableStorage => 140,
-            ProtocolFeature::CongestionControl => 142,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
@@ -252,7 +252,7 @@ const STABLE_PROTOCOL_VERSION: ProtocolVersion = 67;
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "statelessnet_protocol") {
     // Current StatelessNet protocol version.
-    86
+    87
 } else if cfg!(feature = "nightly_protocol") {
     // On nightly, pick big enough version to support all features.
     143
