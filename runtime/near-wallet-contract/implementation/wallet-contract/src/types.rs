@@ -86,10 +86,33 @@ impl ExecutionContext {
     }
 }
 
+/// The `target` of the transaction (set by the relayer)
+/// is one of the following: the current account, another eth-implicit account
+/// (i.e. another wallet contract) or some other Near account. This distinction
+/// is important because the only kind of transaction that can be sent to another
+/// eth-implicit account is a base token transfer (EOAs are not contracts on Ethereum).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[must_use]
-pub enum TransactionValidationOutcome {
-    Validated,
-    AddressCheckRequired(Address),
+pub enum TargetKind<'a> {
+    CurrentAccount,
+    EthImplicit(Address),
+    OtherNearAccount(&'a AccountId),
+}
+
+/// A transaction can either contain an ABI-encoded Near action
+/// or it can be a normal Ethereum transaction who's behaviour
+/// we are trying to emulate.
+#[must_use]
+pub enum TransactionKind {
+    NearNativeAction,
+    EthEmulation(EthEmulationKind),
+}
+
+#[must_use]
+pub enum EthEmulationKind {
+    EOABaseTokenTransfer { address_check: Option<Address> },
+    ERC20Balance,
+    ERC20Transfer,
 }
 
 /// The Near protocol actions represented in a form that is suitable for the

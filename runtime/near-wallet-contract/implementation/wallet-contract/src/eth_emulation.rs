@@ -5,7 +5,7 @@
 use crate::{
     error::{Error, UserError},
     ethabi_utils,
-    types::{Action, ExecutionContext},
+    types::{Action, EthEmulationKind, ExecutionContext},
 };
 use aurora_engine_transactions::NormalizedEthTransaction;
 use ethabi::{Address, ParamType};
@@ -26,7 +26,7 @@ pub fn try_emulation(
     target: &AccountId,
     tx: &NormalizedEthTransaction,
     context: &ExecutionContext,
-) -> Result<Action, Error> {
+) -> Result<(Action, EthEmulationKind), Error> {
     if tx.data.len() < 4 {
         return Err(Error::User(UserError::InvalidAbiEncodedData));
     }
@@ -52,13 +52,16 @@ pub fn try_emulation(
             // assumed to all be deployed to the same namespace so that they will all have the
             // same suffix.
             let args = format!(r#"{{"account_id": "0x{}{}"}}"#, hex::encode(address), suffix);
-            Ok(Action::FunctionCall {
-                receiver_id: target.to_string(),
-                method_name: "ft_balance_of".into(),
-                args: args.into_bytes(),
-                gas: FIVE_TERA_GAS,
-                yocto_near: 0,
-            })
+            Ok((
+                Action::FunctionCall {
+                    receiver_id: target.to_string(),
+                    method_name: "ft_balance_of".into(),
+                    args: args.into_bytes(),
+                    gas: FIVE_TERA_GAS,
+                    yocto_near: 0,
+                },
+                EthEmulationKind::ERC20Balance,
+            ))
         }
         ERC20_TRANSFER_SELECTOR => {
             // We intentionally map to `u128` instead of `U256` because the NEP-141 standard
@@ -71,13 +74,16 @@ pub fn try_emulation(
                 suffix,
                 value
             );
-            Ok(Action::FunctionCall {
-                receiver_id: target.to_string(),
-                method_name: "ft_transfer".into(),
-                args: args.into_bytes(),
-                gas: 2 * FIVE_TERA_GAS,
-                yocto_near: 1,
-            })
+            Ok((
+                Action::FunctionCall {
+                    receiver_id: target.to_string(),
+                    method_name: "ft_transfer".into(),
+                    args: args.into_bytes(),
+                    gas: 2 * FIVE_TERA_GAS,
+                    yocto_near: 1,
+                },
+                EthEmulationKind::ERC20Transfer,
+            ))
         }
         _ => Err(Error::User(UserError::UnknownFunctionSelector)),
     }

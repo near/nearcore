@@ -10,7 +10,7 @@ use near_sdk::{
     near_bindgen, AccountId, Allowance, Gas, GasWeight, NearToken, Promise, PromiseOrValue,
     PromiseResult,
 };
-use types::TransactionValidationOutcome;
+use types::{EthEmulationKind, TransactionKind};
 
 pub mod error;
 pub mod eth_emulation;
@@ -176,14 +176,12 @@ fn inner_rlp_execute(
         env::attached_deposit(),
     )?;
 
-    let (action, validation_outcome) =
+    let (action, transaction_kind) =
         internal::parse_rlp_tx_to_action(&tx_bytes_b64, &target, &context, nonce)?;
-    let promise = match validation_outcome {
-        TransactionValidationOutcome::Validated => {
-            let ext = WalletContract::ext(current_account_id).with_unused_gas_weight(1);
-            action_to_promise(target, action)?.then(ext.rlp_execute_callback())
-        }
-        TransactionValidationOutcome::AddressCheckRequired(address) => {
+    let promise = match transaction_kind {
+        TransactionKind::EthEmulation(EthEmulationKind::EOABaseTokenTransfer {
+            address_check: Some(address),
+        }) => {
             let ext = WalletContract::ext(current_account_id).with_unused_gas_weight(1);
             let address_registrar = {
                 let account_id = ADDRESS_REGISTRAR_ACCOUNT_ID
@@ -194,6 +192,10 @@ fn inner_rlp_execute(
             };
             let address = format!("0x{}", hex::encode(address));
             address_registrar.lookup(address).then(ext.address_check_callback(target, action))
+        }
+        _ => {
+            let ext = WalletContract::ext(current_account_id).with_unused_gas_weight(1);
+            action_to_promise(target, action)?.then(ext.rlp_execute_callback())
         }
     };
     Ok(promise)
