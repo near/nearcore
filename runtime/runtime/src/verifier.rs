@@ -159,13 +159,12 @@ pub fn verify_and_charge_transaction(
     let transaction = &signed_transaction.transaction;
     let signer_id = transaction.signer_id();
 
-    let mut signer =
-        match get_account(state_update, signer_id)? {
-            Some(signer) => signer,
-            None => {
-                return Err(InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() });
-            }
-        };
+    let mut signer = match get_account(state_update, signer_id)? {
+        Some(signer) => signer,
+        None => {
+            return Err(InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() });
+        }
+    };
     let mut access_key = match get_access_key(state_update, signer_id, transaction.public_key())? {
         Some(access_key) => access_key,
         None => {

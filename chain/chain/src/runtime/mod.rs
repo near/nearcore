@@ -663,7 +663,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 current_protocol_version,
             ) {
                 Ok(_) => Ok(None),
-                Err(e) => Ok(Some(e))
+                Err(e) => Ok(Some(e)),
             }
         } else {
             // Doing basic validation without a state root
@@ -675,7 +675,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 current_protocol_version,
             ) {
                 Ok(_) => Ok(None),
-                Err(e) => Ok(Some(e))
+                Err(e) => Ok(Some(e)),
             }
         }
     }

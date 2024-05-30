@@ -357,7 +357,9 @@ fn test_invalid_transactions() {
         vec!["test0".parse().unwrap(), "test1".parse().unwrap(), "test2".parse().unwrap()];
     let signers: Vec<_> = accounts
         .iter()
-        .map(|account_id: &AccountId| create_user_test_signer(AccountIdRef::new(account_id.as_str()).unwrap()))
+        .map(|account_id: &AccountId| {
+            create_user_test_signer(AccountIdRef::new(account_id.as_str()).unwrap())
+        })
         .collect();
     let genesis = Genesis::test(accounts.clone(), 2);
     let mut env = TestEnv::builder(&genesis.config)
@@ -397,13 +399,13 @@ fn test_invalid_transactions() {
             &new_signer,
             ONE_NEAR,
             tip.last_block_hash,
-        )
+        ),
     ];
     // Need to create a valid transaction with the same accounts touched in order to have some state witness generated
     let valid_tx = SignedTransaction::send_money(
         1,
-        sender_account.clone(),
-        receiver_account.clone(),
+        sender_account,
+        receiver_account,
         &signers[0],
         ONE_NEAR,
         tip.last_block_hash,
@@ -414,18 +416,14 @@ fn test_invalid_transactions() {
             let tip = env.clients[0].chain.head().unwrap();
             let chunk_producer = env.get_chunk_producer_at_offset(&tip, 1, 0);
             let block_producer = env.get_block_producer_at_offset(&tip, 1);
-    
+
             let client = env.client(&chunk_producer);
-            let transactions = if height == start_height {
-                vec![tx.clone()]
-            } else {
-                vec![]
-            };
+            let transactions = if height == start_height { vec![tx.clone()] } else { vec![] };
             if height == start_height {
                 let res = client.process_tx(valid_tx.clone(), false, false);
                 assert!(matches!(res, ProcessTxResponse::ValidTx))
             }
-    
+
             let (
                 ProduceChunkResult {
                     chunk,
@@ -435,7 +433,7 @@ fn test_invalid_transactions() {
                 },
                 _,
             ) = create_chunk_with_transactions(client, transactions);
-    
+
             let shard_chunk = client
                 .persist_and_distribute_encoded_chunk(
                     chunk,
@@ -463,7 +461,7 @@ fn test_invalid_transactions() {
                     transactions_storage_proof,
                 )
                 .unwrap();
-    
+
             env.process_partial_encoded_chunks();
             for i in 0..env.clients.len() {
                 env.process_shards_manager_responses(i);
@@ -472,7 +470,10 @@ fn test_invalid_transactions() {
             let block = env.client(&block_producer).produce_block(height).unwrap().unwrap();
             for client in env.clients.iter_mut() {
                 client
-                    .process_block_test_no_produce_chunk_allow_errors(block.clone().into(), Provenance::NONE)
+                    .process_block_test_no_produce_chunk_allow_errors(
+                        block.clone().into(),
+                        Provenance::NONE,
+                    )
                     .unwrap();
             }
         }
