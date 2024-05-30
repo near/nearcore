@@ -3,6 +3,7 @@ use crate::{
     types::{ExecuteResponse, ExecutionContext},
 };
 use error::{UnsupportedAction, UserError};
+use near_contract_standards::storage_management::StorageBalance;
 use near_sdk::{
     borsh::{BorshDeserialize, BorshSerialize},
     env,
@@ -23,6 +24,15 @@ pub mod types;
 mod tests;
 
 const ADDRESS_REGISTRAR_ACCOUNT_ID: &str = std::include_str!("ADDRESS_REGISTRAR_ACCOUNT_ID");
+/// This storage deposit value is the one used by the standard NEP-141 implementation,
+/// which essentially all tokens use. Therefore we hard-code it here instead of doing
+/// the extra on-chain call to `storage_balance_bounds`. This also prevents malicious
+/// token contracts with very high `storage_balance_bounds` from taking lots of $NEAR
+/// from eth-wallet-contract users.
+const NEP_141_STORAGE_DEPOSIT_AMOUNT: NearToken =
+    NearToken::from_yoctonear(1_250_000_000_000_000_000_000);
+const NEP_141_STORAGE_DEPOSIT_GAS: Gas = Gas::from_tgas(5);
+const NEP_141_STORAGE_BALANCE_OF_GAS: Gas = Gas::from_tgas(5);
 
 #[near_bindgen]
 #[derive(Default, BorshDeserialize, BorshSerialize)]
@@ -132,6 +142,71 @@ impl WalletContract {
     }
 
     #[private]
+    pub fn nep_141_storage_balance_callback(
+        &mut self,
+        token_id: AccountId,
+        receiver_id: AccountId,
+        action: near_action::Action,
+    ) -> PromiseOrValue<ExecuteResponse> {
+        let maybe_storage_balance: Option<StorageBalance> = match env::promise_result(0) {
+            PromiseResult::Failed => {
+                return PromiseOrValue::Value(ExecuteResponse {
+                    success: false,
+                    success_value: None,
+                    error: Some(format!("Call to NEP-141 {token_id}::storage_balance_of failed")),
+                });
+            }
+            PromiseResult::Successful(value) => {
+                serde_json::from_slice(&value).unwrap_or_else(|_| {
+                    env::panic_str("Unexpected response from NEP-141 storage_balance_of")
+                })
+            }
+        };
+        let current_account_id = env::current_account_id();
+        let ext = WalletContract::ext(current_account_id).with_unused_gas_weight(1);
+        let promise = match maybe_storage_balance {
+            Some(_) => {
+                // receiver_id is registered so we can send the transfer
+                // without additional actions.
+                match action_to_promise(token_id, action)
+                    .map(|p| p.then(ext.rlp_execute_callback()))
+                {
+                    Ok(p) => p,
+                    Err(e) => {
+                        return PromiseOrValue::Value(e.into());
+                    }
+                }
+            }
+            None => {
+                // receiver_id is not registered so we must call `storage_deposit` first.
+                let storage_deposit_args =
+                    format!(r#"{{"account_id": "{receiver_id}"}}"#).into_bytes();
+                let transfer_function_call = match action {
+                    near_action::Action::FunctionCall(x) => x,
+                    _ => {
+                        env::panic_str("Expected function call action to perform NEP-141 transfer")
+                    }
+                };
+                Promise::new(token_id)
+                    .function_call(
+                        "storage_deposit".into(),
+                        storage_deposit_args,
+                        NEP_141_STORAGE_DEPOSIT_AMOUNT,
+                        NEP_141_STORAGE_DEPOSIT_GAS,
+                    )
+                    .function_call(
+                        transfer_function_call.method_name,
+                        transfer_function_call.args,
+                        transfer_function_call.deposit,
+                        transfer_function_call.gas,
+                    )
+                    .then(ext.rlp_execute_callback())
+            }
+        };
+        PromiseOrValue::Promise(promise)
+    }
+
+    #[private]
     pub fn rlp_execute_callback(&mut self) -> ExecuteResponse {
         let n = env::promise_results_count();
         let mut success_value = None;
@@ -192,6 +267,26 @@ fn inner_rlp_execute(
             };
             let address = format!("0x{}", hex::encode(address));
             address_registrar.lookup(address).then(ext.address_check_callback(target, action))
+        }
+        TransactionKind::EthEmulation(EthEmulationKind::ERC20Transfer { receiver_id }) => {
+            // In the case of the emulated ERC-20 transfer, the receiving account
+            // might not be registered with the NEP-141 contract (per the NEP-145)
+            // storage standard. Therefore we must create a multi-step promise where
+            // first we check if the receiver is registered and then if not call
+            // `storage_deposit` in addition to `ft_transfer`.
+            let token_id = target;
+            let ext: WalletContractExt =
+                WalletContract::ext(current_account_id).with_unused_gas_weight(1);
+            let storage_balance_args =
+                format!(r#"{{"account_id": "{}"}}"#, receiver_id.as_str()).into_bytes();
+            Promise::new(token_id.clone())
+                .function_call(
+                    "storage_balance_of".into(),
+                    storage_balance_args,
+                    NearToken::from_yoctonear(0),
+                    NEP_141_STORAGE_BALANCE_OF_GAS,
+                )
+                .then(ext.nep_141_storage_balance_callback(token_id, receiver_id, action))
         }
         _ => {
             let ext = WalletContract::ext(current_account_id).with_unused_gas_weight(1);

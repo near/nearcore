@@ -102,10 +102,11 @@ async fn test_erc20_emulation() -> anyhow::Result<()> {
     let balance: U128 = serde_json::from_slice(result.success_value.as_ref().unwrap())?;
     assert_eq!(balance.0, token_contract.ft_balance_of(wallet_contract.inner.id()).await?);
 
-    // Do a transfer to another account
+    // Do a transfer to another account. Note that the other account has never
+    // held this token before so it will require a storage deposit, but this is
+    // handled automatically by the wallet contract.
     let (other_wallet, other_address) =
         TestContext::deploy_wallet(&worker, &wallet_contract_bytes).await?;
-    token_contract.mint(other_wallet.inner.id(), MINT_AMOUNT.as_yoctonear()).await?;
     let transaction = aurora_engine_transactions::eip_2930::Transaction2930 {
         nonce: 1.into(),
         gas_price: 0.into(),
@@ -137,8 +138,54 @@ async fn test_erc20_emulation() -> anyhow::Result<()> {
         token_contract.ft_balance_of(wallet_contract.inner.id()).await?
     );
     assert_eq!(
-        MINT_AMOUNT.as_yoctonear() + TRANSFER_AMOUNT.as_yoctonear(),
+        TRANSFER_AMOUNT.as_yoctonear(),
         token_contract.ft_balance_of(other_wallet.inner.id()).await?
+    );
+
+    // Now send a second transfer. This time the storage deposit is not needed
+    // and this case is still handled well by the wallet contract.
+    let transaction = aurora_engine_transactions::eip_2930::Transaction2930 {
+        nonce: 2.into(),
+        gas_price: 0.into(),
+        gas_limit: 0.into(),
+        to: Some(Address::new(account_id_to_address(
+            &token_contract.contract.id().as_str().parse().unwrap(),
+        ))),
+        value: Wei::zero(),
+        data: [
+            crate::eth_emulation::ERC20_TRANSFER_SELECTOR.to_vec(),
+            ethabi::encode(&[
+                ethabi::Token::Address(other_address),
+                ethabi::Token::Uint(TRANSFER_AMOUNT.as_yoctonear().into()),
+            ]),
+        ]
+        .concat(),
+        chain_id: CHAIN_ID,
+        access_list: Vec::new(),
+    };
+    let signed_transaction = crypto::sign_transaction(transaction, &wallet_sk);
+
+    let result = wallet_contract
+        .rlp_execute(token_contract.contract.id().as_str(), &signed_transaction)
+        .await?;
+
+    assert!(result.success);
+    assert_eq!(
+        MINT_AMOUNT.as_yoctonear() - (2 * TRANSFER_AMOUNT.as_yoctonear()),
+        token_contract.ft_balance_of(wallet_contract.inner.id()).await?
+    );
+    assert_eq!(
+        2 * TRANSFER_AMOUNT.as_yoctonear(),
+        token_contract.ft_balance_of(other_wallet.inner.id()).await?
+    );
+    assert_eq!(
+        nep141::STORAGE_DEPOSIT_AMOUNT,
+        token_contract
+            .storage_balance_of(other_wallet.inner.id())
+            .await?
+            .unwrap()
+            .total
+            .as_yoctonear(),
     );
 
     Ok(())

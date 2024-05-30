@@ -9,7 +9,7 @@ use crate::{
 };
 use aurora_engine_transactions::NormalizedEthTransaction;
 use ethabi::{Address, ParamType};
-use near_sdk::AccountId;
+use near_sdk::{env, AccountId};
 
 const FIVE_TERA_GAS: u64 = near_sdk::Gas::from_tgas(5).as_gas();
 
@@ -68,10 +68,12 @@ pub fn try_emulation(
             // is to use u128.
             let (to, value): (Address, u128) =
                 ethabi_utils::abi_decode(&ERC20_TRANSFER_SIGNATURE, &tx.data[4..])?;
+            let receiver_id: AccountId = format!("0x{}{}", hex::encode(to), suffix)
+                .parse()
+                .unwrap_or_else(|_| env::panic_str("eth-implicit accounts are valid account ids"));
             let args = format!(
-                r#"{{"receiver_id": "0x{}{}", "amount": "{}", "memo": null}}"#,
-                hex::encode(to),
-                suffix,
+                r#"{{"receiver_id": "{}", "amount": "{}", "memo": null}}"#,
+                receiver_id.as_str(),
                 value
             );
             Ok((
@@ -82,7 +84,7 @@ pub fn try_emulation(
                     gas: 2 * FIVE_TERA_GAS,
                     yocto_near: 1,
                 },
-                EthEmulationKind::ERC20Transfer,
+                EthEmulationKind::ERC20Transfer { receiver_id },
             ))
         }
         _ => Err(Error::User(UserError::UnknownFunctionSelector)),

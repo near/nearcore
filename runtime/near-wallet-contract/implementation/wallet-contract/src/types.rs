@@ -112,7 +112,7 @@ pub enum TransactionKind {
 pub enum EthEmulationKind {
     EOABaseTokenTransfer { address_check: Option<Address> },
     ERC20Balance,
-    ERC20Transfer,
+    ERC20Transfer { receiver_id: AccountId },
 }
 
 /// The Near protocol actions represented in a form that is suitable for the

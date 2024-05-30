@@ -1,7 +1,8 @@
+use near_contract_standards::storage_management::StorageBalance;
 use near_sdk::json_types::U128;
 use near_workspaces::{network::Sandbox, types::NearToken, AccountId, Contract, Worker};
 
-const STORAGE_DEPOSIT_AMOUNT: u128 = 1_250_000_000_000_000_000_000;
+pub const STORAGE_DEPOSIT_AMOUNT: u128 = 1_250_000_000_000_000_000_000;
 
 pub struct Nep141 {
     pub contract: Contract,
@@ -63,5 +64,20 @@ impl Nep141 {
             .await?
             .json()?;
         Ok(result.0)
+    }
+
+    pub async fn storage_balance_of(
+        &self,
+        account_id: &AccountId,
+    ) -> anyhow::Result<Option<StorageBalance>> {
+        let result: Option<StorageBalance> = self
+            .contract
+            .view("storage_balance_of")
+            .args_json(serde_json::json!({
+                "account_id": account_id.as_str(),
+            }))
+            .await?
+            .json()?;
+        Ok(result)
     }
 }
