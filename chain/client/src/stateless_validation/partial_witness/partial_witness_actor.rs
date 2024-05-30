@@ -12,13 +12,15 @@ use near_network::state_witness::{
 };
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_performance_metrics_macros::perf;
+use near_primitives::block::Tip;
 use near_primitives::reed_solomon::reed_solomon_encode;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::{
     ChunkStateWitness, ChunkStateWitnessAck, EncodedChunkStateWitness, PartialEncodedStateWitness,
 };
-use near_primitives::types::{AccountId, EpochId};
+use near_primitives::types::{AccountId, BlockHeightDelta, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
+use near_store::{DBCol, Store, FINAL_HEAD_KEY, HEAD_KEY};
 
 use crate::client_actor::ClientSenderForPartialWitness;
 use crate::metrics;
@@ -40,7 +42,14 @@ pub struct PartialWitnessActor {
     /// Reed Solomon encoder for encoding state witness parts.
     /// We keep one wrapper for each length of chunk_validators to avoid re-creating the encoder.
     rs_map: RsMap,
+    /// Currently used to find the chain HEAD when validating partial witnesses,
+    /// but should be removed if we implement retrieving this info from the client
+    store: Store,
 }
+
+/// This is taken to be the same value as near_chunks::chunk_cache::MAX_HEIGHTS_AHEAD, and we
+/// reject partial witnesses with height more than this value above the height of our current HEAD
+const MAX_HEIGHTS_AHEAD: BlockHeightDelta = 5;
 
 impl Actor for PartialWitnessActor {}
 
@@ -96,6 +105,7 @@ impl PartialWitnessActor {
         client_sender: ClientSenderForPartialWitness,
         my_signer: Arc<dyn ValidatorSigner>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
+        store: Store,
     ) -> Self {
         let partial_witness_tracker =
             PartialEncodedStateWitnessTracker::new(client_sender, epoch_manager.clone());
@@ -106,6 +116,7 @@ impl PartialWitnessActor {
             partial_witness_tracker,
             state_witness_tracker: ChunkStateWitnessTracker::new(clock),
             rs_map: RsMap::new(),
+            store,
         }
     }
 
@@ -327,6 +338,35 @@ impl PartialWitnessActor {
             )));
         }
 
+        // TODO(https://github.com/near/nearcore/issues/11301): replace these direct DB accesses with messages
+        // sent to the client actor. for a draft, see https://github.com/near/nearcore/commit/e186dc7c0b467294034c60758fe555c78a31ef2d
+        let head = self.store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?;
+        let final_head = self.store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?;
+
+        // Avoid processing state witness for old chunks.
+        // In particular it is impossible for a chunk created at a height
+        // that doesn't exceed the height of the current final block to be
+        // included in the chain. This addresses both network-delayed messages
+        // as well as malicious behavior of a chunk producer.
+        if let Some(final_head) = final_head {
+            if partial_witness.height_created() <= final_head.height {
+                return Err(Error::InvalidPartialChunkStateWitness(format!(
+                    "Height created of {} in PartialEncodedStateWitness not greater than final head height {}",
+                    partial_witness.height_created(),
+                    final_head.height,
+                )));
+            }
+        }
+        if let Some(head) = head {
+            if partial_witness.height_created() > head.height + MAX_HEIGHTS_AHEAD {
+                return Err(Error::InvalidPartialChunkStateWitness(format!(
+                    "Height created of {} in PartialEncodedStateWitness more than {} blocks ahead of head height {}",
+                    partial_witness.height_created(),
+                    MAX_HEIGHTS_AHEAD,
+                    head.height,
+                )));
+            }
+        }
         if !self.epoch_manager.verify_partial_witness_signature(&partial_witness)? {
             return Err(Error::InvalidPartialChunkStateWitness("Invalid signature".to_string()));
         }
