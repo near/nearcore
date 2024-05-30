@@ -6,6 +6,7 @@ use crate::types::{
 };
 use crate::BlockHeader;
 use borsh::{BorshDeserialize, BorshSerialize};
+use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain_configs::{ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chain_primitives::Error;
@@ -1026,7 +1027,18 @@ impl EpochManagerAdapter for MockEpochManager {
         _tip: &Tip,
         _height: BlockHeight,
     ) -> Result<Vec<EpochId>, EpochError> {
-        unimplemented!();
+        // Just collect all known epochs because `MockEpochManager` is used for
+        // tests which lifetime is short.
+        let epochs = self.hash_to_epoch.read().unwrap();
+        let next_epochs = self.hash_to_next_epoch.read().unwrap();
+        let all_epochs = epochs
+            .keys()
+            .chain(next_epochs.keys())
+            .cloned()
+            .map(|c| EpochId(c))
+            .collect::<HashSet<_>>();
+        let vec = all_epochs.into_iter().collect_vec();
+        Ok(vec)
     }
 
     #[cfg(feature = "new_epoch_sync")]

@@ -312,6 +312,7 @@ impl Test {
                     }
                 }
 
+                // Main test assertion: all chunks are included in the block.
                 for shard_id in 0..4 {
                     assert_eq!(
                         h, block.chunks[shard_id].height_created,
