@@ -68,18 +68,6 @@ impl Client {
             return Ok(HandleOrphanWitnessOutcome::TooBig(witness_size));
         }
 
-        // Try to find the EpochId to which this witness will belong based on its height.
-        // It's not always possible to determine the exact epoch_id because the exact
-        // starting height of the next epoch isn't known until it actually starts,
-        // so things can get unclear around epoch boundaries.
-        // Let's collect the epoch_ids in which the witness might possibly be.
-        let possible_epochs =
-            self.epoch_manager.possible_epochs_of_height_around_tip(&chain_head, witness_height)?;
-
-        if !possible_epochs.contains(&witness.epoch_id) {
-            return Ok(HandleOrphanWitnessOutcome::UnsupportedEpochId(witness.epoch_id));
-        }
-
         // Orphan witness is OK, save it to the pool
         tracing::debug!(target: "client", "Saving an orphaned ChunkStateWitness to orphan pool");
         self.chunk_validator.orphan_witness_pool.add_orphan_state_witness(witness, witness_size);
