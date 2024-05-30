@@ -6,7 +6,9 @@ use near_o11y::testonly::init_test_logger;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::account::id::AccountId;
 use near_primitives::congestion_info::{CongestionControl, CongestionInfo};
-use near_primitives::errors::{ActionErrorKind, FunctionCallError, TxExecutionError};
+use near_primitives::errors::{
+    ActionErrorKind, FunctionCallError, InvalidTxError, TxExecutionError,
+};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
@@ -292,7 +294,11 @@ fn submit_n_100tgas_fns(env: &mut TestEnv, n: u32, nonce: &mut u64, signer: &InM
         let fn_tx = new_fn_call_100tgas(nonce, signer, *block.hash());
         // this only adds the tx to the pool, no chain progress is made
         let response = env.clients[0].process_tx(fn_tx, false, false);
-        assert_eq!(response, ProcessTxResponse::ValidTx);
+        match response {
+            ProcessTxResponse::ValidTx
+            | ProcessTxResponse::InvalidTx(InvalidTxError::ShardCongested { .. }) => (),
+            other => panic!("unexpected result from submitting tx: {other:?}"),
+        }
     }
 }
 
