@@ -3,7 +3,7 @@ name: Neard binary and Docker image release
 on:
   # Run when a new release or rc is created
   release:
-    types: [released, prereleased]
+    types: [published]
   push:
     branches: master
 
