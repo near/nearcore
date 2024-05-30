@@ -158,6 +158,7 @@ impl ChunkEndorsementTracker {
         guard.get_or_insert(chunk_hash.clone(), || HashMap::new());
         let chunk_endorsements = guard.get_mut(chunk_hash).unwrap();
         chunk_endorsements.insert(account_id.clone(), endorsement);
+
         Ok(())
     }
 

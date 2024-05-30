@@ -427,26 +427,28 @@ fn send_chunks<T, I, F>(
     }
 }
 
-fn process_network_message_default(
+/// Helper to ensure default processing of network message `msg`.
+/// See comments for `setup_mock_all_validators` for argument definitions.
+fn process_peer_manager_message_default(
     msg: PeerManagerMessageRequest,
     drop_chunks: bool,
     tamper_with_fg: bool,
     check_block_stats: bool,
     account_id: AccountId,
-    validators_clone2: Vec<AccountId>,
+    validators: Vec<AccountId>,
     key_pairs: Vec<PeerInfo>,
     addresses: Vec<CryptoHash>,
     last_height: Arc<RwLock<Vec<u64>>>,
-    block_stats1: Arc<RwLock<BlockStats>>,
-    announced_accounts1: Arc<RwLock<HashSet<(AccountId, EpochId)>>>,
-    largest_endorsed_height1: Arc<RwLock<Vec<u64>>>,
-    largest_skipped_height1: Arc<RwLock<Vec<u64>>>,
+    block_stats: Arc<RwLock<BlockStats>>,
+    announced_accounts: Arc<RwLock<HashSet<(AccountId, EpochId)>>>,
+    largest_endorsed_height: Arc<RwLock<Vec<u64>>>,
+    largest_skipped_height: Arc<RwLock<Vec<u64>>>,
     // Maps block hashes to heights. May not include genesis block.
     hash_to_height: Arc<RwLock<HashMap<CryptoHash, u64>>>,
-    client_sender1: &LateBoundSender<Addr<ActixWrapper<ClientActorInner>>>,
-    connectors1: &[ActorHandlesForTesting],
+    client_sender: &LateBoundSender<Addr<ActixWrapper<ClientActorInner>>>,
+    connectors: &[ActorHandlesForTesting],
 ) {
-    let my_ord = validators_clone2.iter().position(|it| it == &account_id).unwrap();
+    let my_ord = validators.iter().position(|it| it == &account_id).unwrap();
     let my_key_pair = key_pairs[my_ord].clone();
     let my_address = addresses[my_ord];
 
@@ -454,7 +456,7 @@ fn process_network_message_default(
         let last_height = last_height.read().unwrap();
         let peers: Vec<_> = key_pairs
             .iter()
-            .take(connectors1.len())
+            .take(connectors.len())
             .enumerate()
             .map(|(i, peer_info)| ConnectedPeerInfo {
                 full_peer_info: FullPeerInfo {
@@ -495,18 +497,18 @@ fn process_network_message_default(
             tier1_accounts_keys: vec![],
             tier1_accounts_data: vec![],
         };
-        client_sender1.send(SetNetworkInfo(info).with_span_context());
+        client_sender.send(SetNetworkInfo(info).with_span_context());
     }
 
     match msg.as_network_requests_ref() {
         NetworkRequests::Block { block } => {
             if check_block_stats {
-                let block_stats2 = &mut *block_stats1.write().unwrap();
+                let block_stats2 = &mut *block_stats.write().unwrap();
                 block_stats2.add_block(block);
                 block_stats2.check_stats(false);
             }
 
-            for actor_handles in connectors1 {
+            for actor_handles in connectors {
                 actor_handles.client_actor.do_send(
                     BlockResponse {
                         block: block.clone(),
@@ -527,8 +529,8 @@ fn process_network_message_default(
         }
         NetworkRequests::PartialEncodedChunkRequest { target, request, .. } => {
             send_chunks(
-                connectors1,
-                validators_clone2.iter().map(|s| Some(s.clone())).enumerate(),
+                connectors,
+                validators.iter().map(|s| Some(s.clone())).enumerate(),
                 target.account_id.as_ref().map(|s| s.clone()),
                 drop_chunks,
                 |c| {
@@ -540,7 +542,7 @@ fn process_network_message_default(
             );
         }
         NetworkRequests::PartialEncodedChunkResponse { route_back, response } => {
-            send_chunks(connectors1, addresses.iter().enumerate(), route_back, drop_chunks, |c| {
+            send_chunks(connectors, addresses.iter().enumerate(), route_back, drop_chunks, |c| {
                 c.send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
                     partial_encoded_chunk_response: response.clone(),
                     received_time: Instant::now(),
@@ -549,8 +551,8 @@ fn process_network_message_default(
         }
         NetworkRequests::PartialEncodedChunkMessage { account_id, partial_encoded_chunk } => {
             send_chunks(
-                connectors1,
-                validators_clone2.iter().cloned().enumerate(),
+                connectors,
+                validators.iter().cloned().enumerate(),
                 account_id.clone(),
                 drop_chunks,
                 |c| {
@@ -562,8 +564,8 @@ fn process_network_message_default(
         }
         NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
             send_chunks(
-                connectors1,
-                validators_clone2.iter().cloned().enumerate(),
+                connectors,
+                validators.iter().cloned().enumerate(),
                 account_id.clone(),
                 drop_chunks,
                 |c| {
@@ -577,9 +579,9 @@ fn process_network_message_default(
             for (i, peer_info) in key_pairs.iter().enumerate() {
                 let peer_id = peer_id.clone();
                 if peer_info.id == peer_id {
-                    let me = connectors1[my_ord].client_actor.clone();
+                    let me = connectors[my_ord].client_actor.clone();
                     actix::spawn(
-                        connectors1[i]
+                        connectors[i]
                             .view_client_actor
                             .send(BlockRequest(*hash).with_span_context())
                             .then(move |response| {
@@ -607,9 +609,9 @@ fn process_network_message_default(
             for (i, peer_info) in key_pairs.iter().enumerate() {
                 let peer_id = peer_id.clone();
                 if peer_info.id == peer_id {
-                    let me = connectors1[my_ord].client_actor.clone();
+                    let me = connectors[my_ord].client_actor.clone();
                     actix::spawn(
-                        connectors1[i]
+                        connectors[i]
                             .view_client_actor
                             .send(BlockHeadersRequest(hashes.clone()).with_span_context())
                             .then(move |response| {
@@ -630,10 +632,10 @@ fn process_network_message_default(
             }
         }
         NetworkRequests::StateRequestHeader { shard_id, sync_hash, .. } => {
-            for (i, _) in validators_clone2.iter().enumerate() {
-                let me = connectors1[my_ord].client_actor.clone();
+            for (i, _) in validators.iter().enumerate() {
+                let me = connectors[my_ord].client_actor.clone();
                 actix::spawn(
-                    connectors1[i]
+                    connectors[i]
                         .view_client_actor
                         .send(
                             StateRequestHeader { shard_id: *shard_id, sync_hash: *sync_hash }
@@ -653,10 +655,10 @@ fn process_network_message_default(
             }
         }
         NetworkRequests::StateRequestPart { shard_id, sync_hash, part_id, .. } => {
-            for (i, _) in validators_clone2.iter().enumerate() {
-                let me = connectors1[my_ord].client_actor.clone();
+            for (i, _) in validators.iter().enumerate() {
+                let me = connectors[my_ord].client_actor.clone();
                 actix::spawn(
-                    connectors1[i]
+                    connectors[i]
                         .view_client_actor
                         .send(
                             StateRequestPart {
@@ -680,11 +682,11 @@ fn process_network_message_default(
             }
         }
         NetworkRequests::AnnounceAccount(announce_account) => {
-            let mut aa = announced_accounts1.write().unwrap();
+            let mut aa = announced_accounts.write().unwrap();
             let key = (announce_account.account_id.clone(), announce_account.epoch_id.clone());
             if aa.get(&key).is_none() {
                 aa.insert(key);
-                for actor_handles in connectors1 {
+                for actor_handles in connectors {
                     actor_handles.view_client_actor.do_send(
                         AnnounceAccountRequest(vec![(announce_account.clone(), None)])
                             .with_span_context(),
@@ -711,9 +713,9 @@ fn process_network_message_default(
             let approval = approval_message.approval.clone();
 
             if do_propagate {
-                for (i, name) in validators_clone2.iter().enumerate() {
+                for (i, name) in validators.iter().enumerate() {
                     if name == &approval_message.target {
-                        connectors1[i].client_actor.do_send(
+                        connectors[i].client_actor.do_send(
                             BlockApproval(approval.clone(), my_key_pair.id.clone())
                                 .with_span_context(),
                         );
@@ -725,17 +727,17 @@ fn process_network_message_default(
             match approval.inner {
                 ApprovalInner::Endorsement(parent_hash) => {
                     assert!(
-                        approval.target_height > largest_skipped_height1.read().unwrap()[my_ord]
+                        approval.target_height > largest_skipped_height.read().unwrap()[my_ord]
                     );
-                    largest_endorsed_height1.write().unwrap()[my_ord] = approval.target_height;
+                    largest_endorsed_height.write().unwrap()[my_ord] = approval.target_height;
 
                     if let Some(prev_height) = hash_to_height.read().unwrap().get(&parent_hash) {
                         assert_eq!(prev_height + 1, approval.target_height);
                     }
                 }
                 ApprovalInner::Skip(prev_height) => {
-                    largest_skipped_height1.write().unwrap()[my_ord] = approval.target_height;
-                    let e = largest_endorsed_height1.read().unwrap()[my_ord];
+                    largest_skipped_height.write().unwrap()[my_ord] = approval.target_height;
+                    let e = largest_endorsed_height.read().unwrap()[my_ord];
                     // `e` is the *target* height of the last endorsement. `prev_height`
                     // is allowed to be anything >= to the source height, which is e-1.
                     assert!(
@@ -749,19 +751,10 @@ fn process_network_message_default(
                 }
             };
         }
-        NetworkRequests::ChunkStateWitness(accounts, state_witness) => {
-            for (i, name) in validators_clone2.iter().enumerate() {
-                if accounts.contains(name) {
-                    connectors1[i].client_actor.do_send(
-                        ChunkStateWitnessMessage(state_witness.clone()).with_span_context(),
-                    );
-                }
-            }
-        }
         NetworkRequests::ChunkEndorsement(account, endorsement) => {
-            for (i, name) in validators_clone2.iter().enumerate() {
+            for (i, name) in validators.iter().enumerate() {
                 if name == account {
-                    connectors1[i]
+                    connectors[i]
                         .client_actor
                         .do_send(ChunkEndorsementMessage(endorsement.clone()).with_span_context());
                 }
@@ -769,9 +762,9 @@ fn process_network_message_default(
         }
         NetworkRequests::PartialEncodedStateWitness(partial_witnesses) => {
             for (account, partial_witness) in partial_witnesses {
-                for (i, name) in validators_clone2.iter().enumerate() {
+                for (i, name) in validators.iter().enumerate() {
                     if name == account {
-                        connectors1[i]
+                        connectors[i]
                             .partial_witness_sender
                             .send(PartialEncodedStateWitnessMessage(partial_witness.clone()));
                     }
@@ -780,9 +773,9 @@ fn process_network_message_default(
         }
         NetworkRequests::PartialEncodedStateWitnessForward(accounts, partial_witness) => {
             for account in accounts {
-                for (i, name) in validators_clone2.iter().enumerate() {
+                for (i, name) in validators.iter().enumerate() {
                     if name == account {
-                        connectors1[i].partial_witness_sender.send(
+                        connectors[i].partial_witness_sender.send(
                             PartialEncodedStateWitnessForwardMessage(partial_witness.clone()),
                         );
                     }
@@ -832,7 +825,7 @@ fn process_network_message_default(
 ///                   both with enabled doomslug (to test "production" setting) and with disabled
 ///                   doomslug (to test higher forkfullness)
 ///
-/// `network_mock` - the callback that is called for each message sent. The `mock` is called before
+/// `peer_manager_mock` - the callback that is called for each message sent. Called before
 ///                 the default processing. `mock` returns `(response, perform_default)`. If
 ///                 `perform_default` is false, then the message is not processed or broadcasted
 ///                 further and `response` is returned to the requester immediately. Otherwise
@@ -862,7 +855,7 @@ pub fn setup_mock_all_validators(
             &PeerManagerMessageRequest,
         ) -> (PeerManagerMessageResponse, /* perform default */ bool),
     >,
-) -> ((), Vec<ActorHandlesForTesting>, Arc<RwLock<BlockStats>>) {
+) -> (Vec<ActorHandlesForTesting>, Arc<RwLock<BlockStats>>) {
     let peer_manager_mock = Arc::new(RwLock::new(peer_manager_mock));
     let validators = vs.all_validators().cloned().collect::<Vec<_>>();
     let key_pairs = key_pairs;
@@ -909,7 +902,7 @@ pub fn setup_mock_all_validators(
             drop(guard);
 
             if perform_default {
-                process_network_message_default(
+                process_peer_manager_message_default(
                     msg,
                     drop_chunks,
                     tamper_with_fg,

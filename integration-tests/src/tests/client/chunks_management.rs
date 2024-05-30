@@ -103,7 +103,7 @@ impl Test {
         let key_pairs =
             (0..vs.all_validators().count()).map(|_| PeerInfo::random()).collect::<Vec<_>>();
 
-        let (_, conn, _) = setup_mock_all_validators(
+        let (conn, _) = setup_mock_all_validators(
             Clock::real(),
             vs,
             key_pairs,
