@@ -2092,6 +2092,7 @@ impl Handler<ShardsManagerResponse> for ClientActorInner {
                 chunk_header,
                 chunk_producer,
             } => {
+                self.chunk_endorsement_tracker.process_pending_endorsements(&chunk_header);
                 self.client
                     .chunk_inclusion_tracker
                     .mark_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
