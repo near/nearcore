@@ -110,7 +110,7 @@ class CongestionControlTest(unittest.TestCase):
             gas_used = chunk['header']['gas_used']
             self.assertGreaterEqual(gas_used, 1000 * TGAS)
 
-            # Check that the congestion info has no buffered receipts and some deleted receipts.
+            # Check that the congestion info has no buffered receipts and some delayed receipts.
             congestion_info = chunk['header']['congestion_info']
             self.assertEqual(int(congestion_info['buffered_receipts_gas']), 0)
             self.assertGreater(int(congestion_info['delayed_receipts_gas']), 0)
