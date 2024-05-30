@@ -301,7 +301,7 @@ class NearNodeProxy:
                             "NONE"
                     })
                 meta["response_length"] = len(submit_raw_response.text)
-                submit_response = submit_raw_response.json()
+                submit_response = json.loads(submit_raw_response.text)
                 if not "result" in submit_response:
                     meta["exception"] = RpcError(
                         message="Failed to submit transaction",
@@ -342,7 +342,7 @@ class NearNodeProxy:
                         "NONE"
                 })
             meta["response_length"] = len(submit_raw_response.text)
-            submit_response = submit_raw_response.json()
+            submit_response = json.loads(submit_raw_response.text)
             if not "result" in submit_response:
                 meta["exception"] = RpcError(
                     message="Failed to submit transaction",
@@ -398,11 +398,12 @@ class NearNodeProxy:
         result_response = self.post_json("EXPERIMENTAL_tx_status", params)
         # very verbose, but very useful to see what's happening when things are stuck
         logger.debug(
-            f"polling, got: {result_response.status_code} {result_response.json()}"
+            f"polling, got: {result_response.status_code} {json.loads(result_response.text)}"
         )
 
         try:
-            meta["response"] = evaluate_rpc_result(result_response.json())
+            meta["response"] = evaluate_rpc_result(
+                json.loads(result_response.text))
         except:
             # Store raw response to improve error-reporting.
             meta["response"] = result_response.content
@@ -488,7 +489,7 @@ class NearNodeProxy:
                             "NONE"
                     })
                 meta["response_length"] = len(submit_raw_response.text)
-                submit_response = submit_raw_response.json()
+                submit_response = json.loads(submit_raw_response.text)
                 if not "result" in submit_response:
                     # something failed, let's not block, just try again later
                     logger.debug(
