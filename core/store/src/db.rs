@@ -21,6 +21,7 @@ pub use self::splitdb::SplitDB;
 
 pub use self::slice::DBSlice;
 pub use self::testdb::TestDB;
+use std::sync::Arc;
 
 // `DBCol::BlockMisc` keys
 pub const HEAD_KEY: &[u8; 4] = b"HEAD";
@@ -249,6 +250,12 @@ pub trait Database: Sync + Send {
         path: &std::path::Path,
         columns_to_keep: Option<&[DBCol]>,
     ) -> anyhow::Result<()>;
+
+    /// If this is a test database, return a copy of the entire database.
+    /// Otherwise return null.
+    fn copy_if_test(&self) -> Option<Arc<dyn Database>> {
+        None
+    }
 }
 
 fn assert_no_overwrite(col: DBCol, key: &[u8], value: &[u8], old_value: &[u8]) {

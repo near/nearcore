@@ -135,4 +135,19 @@ impl Database for TestDB {
     ) -> anyhow::Result<()> {
         Ok(())
     }
+
+    fn copy_if_test(&self) -> Option<Arc<dyn Database>> {
+        let copy = Self::default();
+        {
+            let mut db = copy.db.write().unwrap();
+            for (col, map) in self.db.read().unwrap().iter() {
+                let new_col = &mut db[col];
+                for (key, value) in map.iter() {
+                    new_col.insert(key.clone(), value.clone());
+                }
+            }
+            *copy.stats.write().unwrap() = self.stats.read().unwrap().clone();
+        }
+        Some(Arc::new(copy))
+    }
 }
