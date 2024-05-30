@@ -105,7 +105,8 @@ pub const CONFIG_FILENAME: &str = "config.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
 pub const VALIDATOR_KEY_FILE: &str = "validator_key.json";
 
-pub const NETWORK_TELEMETRY_URL: &str = "https://explorer.{}.near.org/api/nodes";
+pub const NETWORK_LEGACY_TELEMETRY_URL: &str = "https://explorer.{}.near.org/api/nodes";
+pub const NETWORK_TELEMETRY_URL: &str = "https://telemetry.nearone.org/nodes/{}";
 
 fn default_doomslug_step_period() -> Duration {
     Duration::milliseconds(100)
@@ -861,6 +862,7 @@ pub fn init_configs(
             if test_seed.is_some() {
                 bail!("Test seed is not supported for {chain_id}");
             }
+            config.telemetry.endpoints.push(NETWORK_LEGACY_TELEMETRY_URL.replace("{}", &chain_id));
             config.telemetry.endpoints.push(NETWORK_TELEMETRY_URL.replace("{}", &chain_id));
         }
         _ => {
@@ -1506,7 +1508,10 @@ mod tests {
             assert_eq!(want_gc, config.gc);
 
             assert_eq!(
-                vec!["https://explorer.mainnet.near.org/api/nodes".to_string()],
+                vec![
+                    "https://explorer.mainnet.near.org/api/nodes".to_string(),
+                    "https://telemetry.nearone.org/nodes/mainnet".to_string()
+                ],
                 config.telemetry.endpoints
             );
         }
