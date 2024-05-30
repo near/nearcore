@@ -186,6 +186,7 @@ pub fn setup(
         client_adapter_for_partial_witness_actor.as_multi_sender(),
         signer.clone(),
         epoch_manager.clone(),
+        store.clone(),
     ));
     let partial_witness_adapter = partial_witness_addr.with_auto_span_context();
 

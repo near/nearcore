@@ -1672,10 +1672,7 @@ impl<'a> TrieWithReadLock<'a> {
                         ))
                     })?)
                 };
-                Ok(TrieIterator::Memtrie(MemTrieIterator::new(
-                    root,
-                    Box::new(|value_ref| self.trie.deref_optimized(&value_ref)),
-                )))
+                Ok(TrieIterator::Memtrie(MemTrieIterator::new(root, self.trie)))
             }
             None => Ok(TrieIterator::Disk(DiskTrieIterator::new(self.trie, None)?)),
         }

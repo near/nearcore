@@ -324,7 +324,7 @@ fn test_client_with_multi_test_loop() {
             shard_tracker.clone(),
             builder.sender().for_index(idx).into_sender(),
             builder.sender().for_index(idx).into_sender(),
-            ReadOnlyChunksStore::new(store),
+            ReadOnlyChunksStore::new(store.clone()),
             client.chain.head().unwrap(),
             client.chain.header_head().unwrap(),
             Duration::milliseconds(100),
@@ -362,6 +362,7 @@ fn test_client_with_multi_test_loop() {
                 .into_wrapped_multi_sender::<ClientSenderForPartialWitnessMessage, _>(),
             validator_signer,
             epoch_manager.clone(),
+            store,
         );
 
         let future_spawner = builder.sender().for_index(idx).into_future_spawner();
