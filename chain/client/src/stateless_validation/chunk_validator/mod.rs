@@ -743,25 +743,6 @@ impl Client {
             self.chain.chain_store.save_latest_chunk_state_witness(&witness)?;
         }
 
-        // Avoid processing state witness for old chunks.
-        // In particular it is impossible for a chunk created at a height
-        // that doesn't exceed the height of the current final block to be
-        // included in the chain. This addresses both network-delayed messages
-        // as well as malicious behavior of a chunk producer.
-        if let Ok(final_head) = self.chain.final_head() {
-            if witness.chunk_header.height_created() <= final_head.height {
-                tracing::warn!(
-                    target: "client",
-                    chunk_hash=?witness.chunk_header.chunk_hash(),
-                    shard_id=witness.chunk_header.shard_id(),
-                    witness_height=witness.chunk_header.height_created(),
-                    final_height=final_head.height,
-                    "Skipping state witness below the last final block",
-                );
-                return Ok(());
-            }
-        }
-
         match self.chain.get_block(witness.chunk_header.prev_block_hash()) {
             Ok(block) => self.process_chunk_state_witness_with_prev_block(
                 witness,

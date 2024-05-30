@@ -343,6 +343,11 @@ impl PartialWitnessActor {
         let head = self.store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?;
         let final_head = self.store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?;
 
+        // Avoid processing state witness for old chunks.
+        // In particular it is impossible for a chunk created at a height
+        // that doesn't exceed the height of the current final block to be
+        // included in the chain. This addresses both network-delayed messages
+        // as well as malicious behavior of a chunk producer.
         if let Some(final_head) = final_head {
             if partial_witness.height_created() <= final_head.height {
                 return Err(Error::InvalidPartialChunkStateWitness(format!(
