@@ -306,9 +306,11 @@ impl TestEnv {
                     chunk_header,
                     chunk_producer,
                 } => {
+                    let me =
+                        self.clients[id].validator_signer.as_ref().unwrap().validator_id().clone();
                     self.clients[id]
                         .chunk_endorsement_tracker
-                        .process_pending_endorsements(&chunk_header);
+                        .process_pending_endorsements(&chunk_header, me);
                     self.clients[id]
                         .chunk_inclusion_tracker
                         .mark_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);

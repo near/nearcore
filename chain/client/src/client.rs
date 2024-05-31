@@ -1899,7 +1899,8 @@ impl Client {
             }
         }
 
-        self.chunk_endorsement_tracker.process_pending_endorsements(&chunk_header);
+        let me = self.validator_signer.as_ref().unwrap().validator_id().clone();
+        self.chunk_endorsement_tracker.process_pending_endorsements(&chunk_header, me);
         self.chunk_inclusion_tracker
             .mark_chunk_header_ready_for_inclusion(chunk_header, validator_id);
         self.shards_manager_adapter.send(ShardsManagerRequestFromClient::DistributeEncodedChunk {
