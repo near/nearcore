@@ -24,8 +24,6 @@ from configured_logger import logger
 from key import Key
 from proxy import NodesProxy
 
-from locust.contrib.fasthttp import FastHttpSession
-
 os.environ["ADVERSARY_CONSENT"] = "1"
 
 remote_nodes = []
@@ -141,13 +139,12 @@ class BlockId(typing.NamedTuple):
 
 class BaseNode(object):
 
-    def __init__(self, session: FastHttpSession = None):
+    def __init__(self):
         self._start_proxy = None
         self._proxy_local_stopped = None
         self.proxy = None
         self.store_tests = 0
         self.is_check_store = True
-        self.session = session
 
     def change_config(self, overrides: typing.Dict[str, typing.Any]) -> None:
         """Change client config.json of a node by applying given overrides.
@@ -219,12 +216,9 @@ class BaseNode(object):
             'id': 'dontcare',
             'jsonrpc': '2.0'
         }
-        if self.session is not None:
-            r = self.session.post(url="/", json=j)
-        else:
-            r = requests.post("http://%s:%s" % self.rpc_addr(),
-                              json=j,
-                              timeout=timeout)
+        r = requests.post("http://%s:%s" % self.rpc_addr(),
+                          json=j,
+                          timeout=timeout)
         r.raise_for_status()
         return json.loads(r.content)
 
@@ -241,11 +235,8 @@ class BaseNode(object):
                    check_storage: bool = True,
                    timeout: float = 4,
                    verbose: bool = False):
-        if self.session is not None:
-            r = self.session.get(url="/status")
-        else:
-            r = requests.get("http://%s:%s/status" % self.rpc_addr(),
-                             timeout=timeout)
+        r = requests.get("http://%s:%s/status" % self.rpc_addr(),
+                         timeout=timeout)
         r.raise_for_status()
         status = json.loads(r.content)
         if verbose:
@@ -258,11 +249,8 @@ class BaseNode(object):
         return status
 
     def get_metrics(self, timeout: float = 4):
-        if self.session is not None:
-            r = self.session.get(url="/metrics")
-        else:
-            r = requests.get("http://%s:%s/metrics" % self.rpc_addr(),
-                             timeout=timeout)
+        r = requests.get("http://%s:%s/metrics" % self.rpc_addr(),
+                         timeout=timeout)
         r.raise_for_status()
         return r.content
 
@@ -400,8 +388,8 @@ class BaseNode(object):
 class RpcNode(BaseNode):
     """ A running node only interact by rpc queries """
 
-    def __init__(self, host, rpc_port, session: FastHttpSession = None):
-        super(RpcNode, self).__init__(session)
+    def __init__(self, host, rpc_port):
+        super(RpcNode, self).__init__()
         self.host = host
         self.rpc_port = rpc_port
 
@@ -421,9 +409,8 @@ class LocalNode(BaseNode):
         binary_name=None,
         single_node=False,
         ordinal=None,
-        session: FastHttpSession = None,
     ):
-        super(LocalNode, self).__init__(session)
+        super(LocalNode, self).__init__()
         self.port = port
         self.rpc_port = rpc_port
         self.near_root = str(near_root)
@@ -588,13 +575,7 @@ class LocalNode(BaseNode):
 
 class GCloudNode(BaseNode):
 
-    def __init__(self,
-                 *args,
-                 username=None,
-                 project=None,
-                 ssh_key_path=None,
-                 session: FastHttpSession = None):
-        super(GCloudNode, self).__init__(session)
+    def __init__(self, *args, username=None, project=None, ssh_key_path=None):
         if len(args) == 1:
             name = args[0]
             # Get existing instance assume it's ready to run.
