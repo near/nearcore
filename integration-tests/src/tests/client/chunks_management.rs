@@ -103,7 +103,7 @@ impl Test {
         let key_pairs =
             (0..vs.all_validators().count()).map(|_| PeerInfo::random()).collect::<Vec<_>>();
 
-        let (_, conn, _) = setup_mock_all_validators(
+        let (conn, _) = setup_mock_all_validators(
             Clock::real(),
             vs,
             key_pairs,
@@ -312,6 +312,7 @@ impl Test {
                     }
                 }
 
+                // Main test assertion: all chunks are included in the block.
                 for shard_id in 0..4 {
                     assert_eq!(
                         h, block.chunks[shard_id].height_created,

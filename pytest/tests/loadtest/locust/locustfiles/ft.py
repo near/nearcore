@@ -22,6 +22,8 @@ class FTTransferUser(NearUser):
     Registers itself on an FT contract in the setup phase, then just sends FTs to
     random users.
     """
+    # Each Locust user will try to send one transaction per second.
+    # See https://docs.locust.io/en/stable/api.html#locust.wait_time.constant_throughput.
     wait_time = constant_throughput(1.0)
 
     @task

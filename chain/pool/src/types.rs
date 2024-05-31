@@ -36,4 +36,8 @@ impl TransactionGroup {
             None
         }
     }
+
+    pub fn peek_next(&self) -> Option<&SignedTransaction> {
+        self.transactions.last()
+    }
 }
