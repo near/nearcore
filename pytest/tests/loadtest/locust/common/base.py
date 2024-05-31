@@ -9,7 +9,7 @@ import ctypes
 import logging
 import multiprocessing
 import pathlib
-import requests
+import geventhttpclient as requests
 import sys
 import threading
 import time

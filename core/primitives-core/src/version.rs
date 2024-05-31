@@ -159,6 +159,8 @@ pub enum ProtocolFeature {
     CongestionControl,
     // Stateless validation: Distribute state witness as reed solomon encoded parts
     PartialEncodedStateWitness,
+    /// Size limits for transactions included in a ChunkStateWitness.
+    WitnessTransactionLimits,
 }
 
 impl ProtocolFeature {
@@ -221,7 +223,7 @@ impl ProtocolFeature {
             ProtocolFeature::StateWitnessSizeLimit => 83,
             ProtocolFeature::PerReceiptHardStorageProofLimit => 85,
             ProtocolFeature::PartialEncodedStateWitness => 86,
-            ProtocolFeature::CongestionControl => 87,
+            ProtocolFeature::WitnessTransactionLimits | ProtocolFeature::CongestionControl => 87,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
