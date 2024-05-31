@@ -241,8 +241,8 @@ class NearNodeProxy:
         self.request_event = environment.events.request
         [url, port] = environment.host.rsplit(":", 1)
         self.node = cluster.RpcNode(url, port)
-        self.session = Session(connection_timeout=3,
-                               network_timeout=6,
+        self.session = Session(connection_timeout=6,
+                               network_timeout=9,
                                max_retries=3)
 
     def send_tx_retry(self, tx: Transaction, locust_name) -> dict:
@@ -389,8 +389,11 @@ class NearNodeProxy:
             "id": "dontcare",
             "jsonrpc": "2.0"
         }
-        return self.session.post(url="http://%s:%s" % self.node.rpc_addr(),
-                                 json=j)
+        try:
+            return self.session.post(url="http://%s:%s" % self.node.rpc_addr(),
+                                     json=j)
+        except Exception as e:
+            raise RpcError(details=e)
 
     @retry(wait_fixed=500,
            stop_max_delay=DEFAULT_TRANSACTION_TTL / timedelta(milliseconds=1),

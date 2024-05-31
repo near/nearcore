@@ -31,8 +31,8 @@ remote_nodes_lock = threading.Lock()
 cleanup_remote_nodes_atexit_registered = False
 
 
-def session(timeout=6) -> Session:
-    return Session(connection_timeout=3, network_timeout=timeout, max_retries=3)
+def session(timeout=9) -> Session:
+    return Session(connection_timeout=6, network_timeout=timeout, max_retries=3)
 
 
 class DownloadException(Exception):
@@ -213,7 +213,7 @@ class BaseNode(object):
     def wait_for_rpc(self, timeout=1):
         nretry(lambda: self.get_status(), timeout=timeout)
 
-    def json_rpc(self, method, params, timeout=6):
+    def json_rpc(self, method, params, timeout=9):
         j = {
             'method': method,
             'params': params,
