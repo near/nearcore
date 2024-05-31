@@ -417,9 +417,15 @@ impl ShardTries {
         &self,
         shard_uid: &ShardUId,
         state_root: Option<StateRoot>,
+        parallelize: bool,
     ) -> Result<(), StorageError> {
         info!(target: "memtrie", "Loading trie to memory for shard {:?}...", shard_uid);
-        let mem_tries = load_trie_from_flat_state_and_delta(&self.0.store, *shard_uid, state_root)?;
+        let mem_tries = load_trie_from_flat_state_and_delta(
+            &self.0.store,
+            *shard_uid,
+            state_root,
+            parallelize,
+        )?;
         self.0.mem_tries.write().unwrap().insert(*shard_uid, Arc::new(RwLock::new(mem_tries)));
         info!(target: "memtrie", "Memtrie loading complete for shard {:?}", shard_uid);
         Ok(())
@@ -438,7 +444,7 @@ impl ShardTries {
         // It should not happen that memtrie is already loaded for a shard
         // for which we just did state sync.
         debug_assert!(!self.0.mem_tries.read().unwrap().contains_key(shard_uid));
-        self.load_mem_trie(shard_uid, Some(*state_root))
+        self.load_mem_trie(shard_uid, Some(*state_root), false)
     }
 
     /// Loads in-memory tries upon startup. The given shard_uids are possible candidates to load,
@@ -447,6 +453,7 @@ impl ShardTries {
     pub fn load_mem_tries_for_enabled_shards(
         &self,
         tracked_shards: &[ShardUId],
+        parallelize: bool,
     ) -> Result<(), StorageError> {
         let trie_config = &self.0.trie_config;
         let shard_uids_to_load = tracked_shards
@@ -461,7 +468,7 @@ impl ShardTries {
         info!(target: "memtrie", "Loading tries to memory for shards {:?}...", shard_uids_to_load);
         shard_uids_to_load
             .par_iter()
-            .map(|shard_uid| self.load_mem_trie(shard_uid, None))
+            .map(|shard_uid| self.load_mem_trie(shard_uid, None, parallelize))
             .collect::<Vec<Result<_, _>>>()
             .into_iter()
             .collect::<Result<_, _>>()?;
