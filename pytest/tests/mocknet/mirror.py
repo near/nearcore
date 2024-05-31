@@ -429,13 +429,14 @@ def start_traffic_cmd(args, traffic_generator, nodes):
 
 
 def update_binaries_cmd(args, traffic_generator, nodes):
-    if (args.neard_binary_url is not None or args.update_epoch_height is not None
-       ) and (args.neard_binary_url is None or args.update_epoch_height is None):
-        logger.warning(f'specify both neard_binary_url and update_epoch_height')
-        return
+    pmap(lambda node: node.neard_runner_update_binaries(),
+         nodes + to_list(traffic_generator))
+
+
+def amend_binaries_cmd(args, traffic_generator, nodes):
     pmap(
         lambda node: node.neard_runner_update_binaries(
-            args.neard_binary_url, args.update_epoch_height),
+            args.neard_binary_url, args.epoch_height, args.binary_idx),
         nodes + to_list(traffic_generator))
 
 
@@ -613,25 +614,39 @@ if __name__ == '__main__':
     update_binaries_parser = subparsers.add_parser('update-binaries',
                                                    help='''
         Update the neard binaries by re-downloading them. The same urls are used.
-        Add or override the URLs with --neard-binary-url by specifying the epoch height.
-        If the network was started with 2 urls, the upgrade epoch height can be randomly assigned
-        on each host. Use caution when specifying --update-epoch-height so that it will not interlace
-        with the random upgrade window for neard1.
-        ''')
-    update_binaries_parser.add_argument('--neard-binary-url',
-                                        type=str,
-                                        help='''
         If you plan to restart the network multiple times, it is recommended to use
         URLs that only depend on the branch name. This way, every time you build,
-        you will not need to update the URL but just run update-binaries.
-        ''')
-    update_binaries_parser.add_argument('--update-epoch-height',
-                                        type=int,
-                                        help='''
+        you will not need to amend the URL but just run update-binaries.''')
+    update_binaries_parser.set_defaults(func=update_binaries_cmd)
+
+    amend_binaries_parsers = subparsers.add_parser('amend-binaries',
+                                                   help='''
+        Add or override the neard URLs by specifying the epoch height or index if you have multiple binaries.
+
+        If the network was started with 2 binaries, the epoch height for the second binary can be randomly assigned
+        on each host. Use caution when updating --epoch-height so that it will not add a binary in between the upgrade
+        window for another binary.''')
+
+    amend_binaries_parsers.add_argument('--neard-binary-url',
+                                        type=str,
+                                        required=True,
+                                        help='URL to the neard binary.')
+    group = amend_binaries_parsers.add_mutually_exclusive_group(required=True)
+    group.add_argument('--epoch-height',
+                       type=int,
+                       help='''
         The epoch height where this binary will begin to run.
         If a binary already exists on the host for this epoch height, the old one will be replaced.
+        Otherwise a new binary will be added with this epoch height.
         ''')
-    update_binaries_parser.set_defaults(func=update_binaries_cmd)
+    group.add_argument('--binary_idx',
+                       type=int,
+                       help='''
+        0 based indexing.
+        The index in the binary list that you want to replace.
+        If the index does not exist on the host this operation will not do anything.
+        ''')
+    amend_binaries_parsers.set_defaults(func=amend_binaries_cmd)
 
     run_cmd_parser = subparsers.add_parser('run-cmd',
                                            help='''Run the cmd on the hosts.''')
