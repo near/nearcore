@@ -74,24 +74,24 @@ mod tests {
 
     #[test]
     fn check_mainnet_wallet_contract() {
-        const WALLET_CONTRACT_HASH: &'static str = "8s4DutN2JUjV3grZxBBaQmHC2GUkQ2ct3c8xFwx2qjFd";
-        const MAGIC_BYTES_HASH: &'static str = "JCfTAUw1cP7Tz9KVojffJK7W2ntUbwcHoST3Kk1srDN4";
+        const WALLET_CONTRACT_HASH: &'static str = "J93QKMrr3MgrQWwHGyqLWTBJS33BpxP22jFQ3qPVtKck";
+        const MAGIC_BYTES_HASH: &'static str = "CaTuPJ2BhboJ8uibUFLDfi91fpRCpYj3C8QdmJ1CTTvX";
         check_wallet_contract(MAINNET, WALLET_CONTRACT_HASH);
         check_wallet_contract_magic_bytes(MAINNET, WALLET_CONTRACT_HASH, MAGIC_BYTES_HASH);
     }
 
     #[test]
     fn check_testnet_wallet_contract() {
-        const WALLET_CONTRACT_HASH: &'static str = "FqrTajHhXWqDM3r82kqFjjexneGM7UXwZToYhdDJV6GS";
-        const MAGIC_BYTES_HASH: &'static str = "8Kg3kxmkqjMdG7ESVYaTy8DxpYmZQ5kgKGFHdfbsuiSU";
+        const WALLET_CONTRACT_HASH: &'static str = "BoNhP2NbKviZ2EX3rMZ142T91vCmUdmKY53kXMJZiHCn";
+        const MAGIC_BYTES_HASH: &'static str = "ERA4651iWMi6JWSx5AJuSpXEeBYAS6wtzY4bFrSPzUR";
         check_wallet_contract(TESTNET, WALLET_CONTRACT_HASH);
         check_wallet_contract_magic_bytes(TESTNET, WALLET_CONTRACT_HASH, MAGIC_BYTES_HASH);
     }
 
     #[test]
     fn check_localnet_wallet_contract() {
-        const WALLET_CONTRACT_HASH: &'static str = "9dgTcwK7sq58eyXpNDu7LTKjUxEmgKsLKEEBftBLyiRk";
-        const MAGIC_BYTES_HASH: &'static str = "3hPgipVAbxNteLCKs6cKUUZtX4cxWbkcHFZ4tWqecEqM";
+        const WALLET_CONTRACT_HASH: &'static str = "FHkE3Dfpn4eV1cNjwciapwUpseKxnbqVKT6qkpoDWreE";
+        const MAGIC_BYTES_HASH: &'static str = "63JUamknoyqJbCxCVtfecivD5DFWPJhP4rYZqPALaVAi";
         const LOCALNET: &str = "localnet";
         check_wallet_contract(LOCALNET, WALLET_CONTRACT_HASH);
         check_wallet_contract_magic_bytes(LOCALNET, WALLET_CONTRACT_HASH, MAGIC_BYTES_HASH);
