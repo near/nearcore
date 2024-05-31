@@ -23,7 +23,7 @@ fn scenario_smoke_test() {
         network_config: NetworkConfig { seeds },
         runtime_config: RuntimeConfig {
             max_total_prepaid_gas: 300 * 10u64.pow(12),
-            gas_limit: 1_000_000_000_000_000,
+            gas_limit: 3_000_000_000_000_000,
             epoch_length: 500,
         },
         blocks: Vec::new(),

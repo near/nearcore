@@ -150,7 +150,7 @@ impl TestGenesisBuilder {
     }
 
     pub fn gas_limit_one_petagas(&mut self) -> &mut Self {
-        self.gas_limit = Some(1_000_000_000_000_000);
+        self.gas_limit = Some(3_000_000_000_000_000);
         self
     }
 
@@ -302,7 +302,7 @@ impl TestGenesisBuilder {
             default
         });
         let gas_limit = self.gas_limit.unwrap_or_else(|| {
-            let default = 1_000_000_000_000_000;
+            let default = 3_000_000_000_000_000;
             tracing::warn!("Genesis gas_limit not explicitly set, defaulting to {:?}.", default);
             default
         });
