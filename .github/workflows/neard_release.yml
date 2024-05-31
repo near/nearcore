@@ -3,7 +3,7 @@ name: Neard binary and Docker image release
 on:
   # Run when a new release or rc is created
   release:
-    types: [released, prereleased]
+    types: [published]
   push:
     branches: master
 
@@ -36,11 +36,18 @@ jobs:
         with:
           ref: ${{ github.event.inputs.branch }}
 
-      - name: Checkout nearcore repository
-        if: ${{ github.event_name != 'workflow_dispatch'}}
+      - name: Checkout nearcore release
+        # for release events we need to checkout all branches to be able to determine
+        # later branch name
+        if: ${{ github.event_name != 'workflow_dispatch' && github.event_name == 'release'}}
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Checkout  repository for master branch
+        # In case of master branch we want to checkout with depth 1
+        if: ${{ github.event_name != 'workflow_dispatch' && github.event_name != 'release'}}
+        uses: actions/checkout@v4
 
       - name: Neard binary build and upload to S3
         run: ./scripts/binary_release.sh
@@ -66,11 +73,18 @@ jobs:
         with:
           ref: ${{ github.event.inputs.branch }}
 
-      - name: Checkout nearcore repository
-        if: ${{ github.event_name != 'workflow_dispatch'}}
+      - name: Checkout nearcore release
+        # for release events we need to checkout all branches to be able to determine
+        # later branch name
+        if: ${{ github.event_name != 'workflow_dispatch' && github.event_name == 'release'}}
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Checkout  repository for master branch
+        # In case of master branch we want to checkout with depth 1
+        if: ${{ github.event_name != 'workflow_dispatch' && github.event_name != 'release'}}
+        uses: actions/checkout@v4
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3

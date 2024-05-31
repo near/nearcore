@@ -1,3 +1,12 @@
+
+# State Witness
+
+max_transaction_size: {old: 4_194_304, new: 1_572_864}
+combined_transactions_size_limit: {old: 999_999_999_999_999, new: 2_097_152}
+new_transactions_validation_state_size_soft_limit: {old: 999_999_999_999_999, new: 572_864}
+
+# Congestion Control
+
 # i64::MAX == 9_223_372_036_854_775_807
 # PGAS     ==     1_000_000_000_000_000 GAS
 # TGAS     ==         1_000_000_000_000 GAS
@@ -60,3 +69,4 @@ reject_tx_congestion_threshold: {
   old : { numerator: 1, denominator: 1 },
   new : { numerator: 25, denominator: 100 }
 }
+

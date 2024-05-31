@@ -791,8 +791,8 @@ impl ActionSize {
             // calling "noop" requires 4 bytes
             ActionSize::Min => 4,
             // max_arguments_length: 4_194_304
-            // max_transaction_size: 4_194_304
-            ActionSize::Max => (4_194_304 / 100) - 35,
+            // max_transaction_size: 1_572_864
+            ActionSize::Max => (1_572_864 / 100) - 35,
         }
     }
 
@@ -813,7 +813,7 @@ impl ActionSize {
             // fails with `InvalidTxError(TransactionSizeExceeded`, it could be a
             // protocol change due to the TX limit computation changing.
             // The test `test_deploy_contract_tx_max_size` checks this.
-            ActionSize::Max => 4 * 1024 * 1024 - 182,
+            ActionSize::Max => 1_572_864 - 182,
         }
     }
 }
@@ -827,7 +827,7 @@ mod tests {
     fn test_deploy_contract_tx_max_size() {
         // The size of a transaction constructed from this must be exactly at the limit.
         let deploy_action = deploy_action(ActionSize::Max);
-        let limit = 4_194_304;
+        let limit = 1_572_864;
 
         // We also need some account IDs constructed the same way as in the estimator.
         // Let's try multiple index sizes to ensure this does not affect the length.

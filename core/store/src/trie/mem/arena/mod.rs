@@ -1,4 +1,5 @@
 mod alloc;
+pub mod concurrent;
 mod metrics;
 
 use self::alloc::Allocator;
@@ -153,10 +154,33 @@ impl STArena {
         Self { memory: STArenaMemory::new(), allocator: Allocator::new(name) }
     }
 
+    pub(crate) fn new_from_existing_chunks(
+        name: String,
+        chunks: Vec<Vec<u8>>,
+        active_allocs_bytes: usize,
+        active_allocs_count: usize,
+    ) -> Self {
+        let arena = Self {
+            memory: STArenaMemory { chunks },
+            allocator: Allocator::new_with_initial_stats(
+                name,
+                active_allocs_bytes,
+                active_allocs_count,
+            ),
+        };
+        arena.allocator.update_memory_usage_gauge(&arena.memory);
+        arena
+    }
+
     /// Number of active allocations (alloc calls minus dealloc calls).
     #[cfg(test)]
     pub fn num_active_allocs(&self) -> usize {
         self.allocator.num_active_allocs()
+    }
+
+    #[cfg(test)]
+    pub fn active_allocs_bytes(&self) -> usize {
+        self.allocator.active_allocs_bytes()
     }
 }
 
