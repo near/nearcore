@@ -63,20 +63,22 @@ pub mod adhoc;
 pub mod delay_sender;
 pub mod event_handler;
 pub mod futures;
+pub mod test_loop_sender;
 
 use self::{
     delay_sender::DelaySender,
     event_handler::LoopEventHandler,
     futures::{TestLoopFutureSpawner, TestLoopTask},
 };
-use crate::time;
-use crate::time::{Clock, Duration};
-use ::time::ext::InstantExt as _;
+use crate::messaging::Actor;
+use crate::time::{self, Clock, Duration};
+use ::time::ext::InstantExt;
 use near_o11y::{testonly::init_test_logger, tracing::info};
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::{collections::BinaryHeap, fmt::Debug, sync::Arc};
+use test_loop_sender::{CallbackEvent, TestLoopSender};
 
 /// Main struct for the Test Loop framework.
 /// The `Data` type should contain all the business logic state that is relevant
@@ -236,6 +238,18 @@ impl<Event: Debug + Send + 'static> TestLoopBuilder<Event> {
             self.shutting_down,
             data,
         )
+    }
+}
+
+impl<Event: Debug + Send + 'static> TestLoopBuilder<Event> {
+    pub fn register_actor<A>(&self, actor: A) -> TestLoopSender<A>
+    where
+        A: Actor + 'static,
+        Event: From<CallbackEvent> + 'static,
+    {
+        let mut sender = TestLoopSender::new(actor, self.sender().narrow(), self.shutting_down());
+        sender.queue_start_actor_event();
+        sender
     }
 }
 

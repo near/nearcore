@@ -1,35 +1,22 @@
 use derive_enum_from_into::{EnumFrom, EnumTryInto};
-use near_async::messaging::{noop, IntoMultiSender, IntoSender};
-use near_async::test_loop::adhoc::{handle_adhoc_events, AdhocEvent, AdhocEventSender};
+use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::test_loop::futures::{
-    drive_async_computations, drive_futures, TestLoopAsyncComputationEvent,
-    TestLoopDelayedActionEvent, TestLoopTask,
+    drive_async_computations, drive_futures, TestLoopAsyncComputationEvent, TestLoopTask,
 };
+use near_async::test_loop::test_loop_sender::{callback_event_handler, CallbackEvent};
 use near_async::test_loop::TestLoopBuilder;
 use near_async::time::Duration;
 use near_chain::chunks_store::ReadOnlyChunksStore;
 use near_chain::ChainGenesis;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_chain_configs::ClientConfig;
-use near_chunks::adapter::ShardsManagerRequestFromClient;
-use near_chunks::client::ShardsManagerResponse;
 use near_chunks::shards_manager_actor::ShardsManagerActor;
-use near_chunks::test_loop::forward_client_request_to_shards_manager;
-use near_client::client_actor::{
-    ClientActorInner, ClientSenderForClientMessage, SyncJobsSenderForClientMessage,
-};
-use near_client::sync_jobs_actor::{ClientSenderForSyncJobsMessage, SyncJobsActor};
-use near_client::test_utils::test_loop::client_actor::{
-    forward_client_messages_from_client_to_client_actor,
-    forward_client_messages_from_shards_manager,
-    forward_client_messages_from_sync_jobs_to_client_actor,
-};
-use near_client::test_utils::test_loop::sync_jobs_actor::forward_messages_from_client_to_sync_jobs_actor;
+use near_client::client_actor::ClientActorInner;
+use near_client::sync_jobs_actor::SyncJobsActor;
 use near_client::test_utils::{MAX_BLOCK_PROD_TIME, MIN_BLOCK_PROD_TIME};
-use near_client::{Client, SyncAdapter, SyncMessage};
+use near_client::{Client, SyncAdapter};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
-use near_network::client::ClientSenderForNetworkMessage;
 use near_primitives::network::PeerId;
 
 use near_primitives::test_utils::create_test_signer;
@@ -44,9 +31,6 @@ use std::sync::{Arc, RwLock};
 #[derive(derive_more::AsMut, derive_more::AsRef)]
 struct TestData {
     pub dummy: (),
-    pub client: ClientActorInner,
-    pub sync_jobs: SyncJobsActor,
-    pub shards_manager: ShardsManagerActor,
 }
 
 impl AsMut<TestData> for TestData {
@@ -56,20 +40,10 @@ impl AsMut<TestData> for TestData {
 }
 
 #[derive(EnumTryInto, Debug, EnumFrom)]
-#[allow(clippy::large_enum_variant)]
 enum TestEvent {
+    Callback(CallbackEvent),
     Task(Arc<TestLoopTask>),
-    Adhoc(AdhocEvent<TestData>),
     AsyncComputation(TestLoopAsyncComputationEvent),
-    ClientDelayedActions(TestLoopDelayedActionEvent<ClientActorInner>),
-    SyncJobsDelayedActions(TestLoopDelayedActionEvent<SyncJobsActor>),
-    ClientEventFromNetwork(ClientSenderForNetworkMessage),
-    ClientEventFromClient(ClientSenderForClientMessage),
-    ClientEventFromSyncJobs(ClientSenderForSyncJobsMessage),
-    ClientEventFromShardsManager(ShardsManagerResponse),
-    SyncJobsEventFromClient(SyncJobsSenderForClientMessage),
-    ShardsManagerRequestFromClient(ShardsManagerRequestFromClient),
-    ClientEventFromStateSyncAdapter(SyncMessage),
 }
 
 const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
@@ -77,9 +51,7 @@ const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 #[test]
 fn test_client_with_simple_test_loop() {
     let builder = TestLoopBuilder::<TestEvent>::new();
-    let sync_jobs_actor = SyncJobsActor::new(
-        builder.sender().into_wrapped_multi_sender::<ClientSenderForSyncJobsMessage, _>(),
-    );
+
     let client_config = ClientConfig::test(
         true,
         MIN_BLOCK_PROD_TIME.whole_milliseconds() as u64,
@@ -117,17 +89,27 @@ fn test_client_with_simple_test_loop() {
     let chain_genesis = ChainGenesis::new(&genesis.config);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
     let shard_tracker = ShardTracker::new(TrackedConfig::AllShards, epoch_manager.clone());
-    let state_sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
-        builder.sender().into_sender(),
-        noop().into_sender(),
-        SyncAdapter::actix_actor_maker(),
-    )));
     let runtime_adapter = NightshadeRuntime::test(
         Path::new("."),
         store.clone(),
         &genesis.config,
         epoch_manager.clone(),
     );
+
+    let shards_manager_adapter = LateBoundSender::new();
+    let sync_jobs_adapter = LateBoundSender::new();
+    let client_adapter1 = LateBoundSender::new();
+    let client_adapter2 = LateBoundSender::new();
+    let client_adapter3 = LateBoundSender::new();
+    let client_adapter4 = LateBoundSender::new();
+
+    let sync_jobs_actor = SyncJobsActor::new(client_adapter4.as_multi_sender());
+
+    let state_sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
+        client_adapter1.as_sender(),
+        noop().into_sender(),
+        SyncAdapter::actix_actor_maker(),
+    )));
 
     let client = Client::new(
         builder.clock(),
@@ -138,7 +120,7 @@ fn test_client_with_simple_test_loop() {
         state_sync_adapter,
         runtime_adapter,
         noop().into_multi_sender(),
-        builder.sender().into_sender(),
+        shards_manager_adapter.as_sender(),
         Some(Arc::new(create_test_signer(accounts[0].as_str()))),
         true,
         [0; 32],
@@ -154,7 +136,7 @@ fn test_client_with_simple_test_loop() {
         epoch_manager,
         shard_tracker,
         noop().into_sender(),
-        builder.sender().into_sender(),
+        client_adapter2.as_sender(),
         ReadOnlyChunksStore::new(store),
         client.chain.head().unwrap(),
         client.chain.header_head().unwrap(),
@@ -164,7 +146,7 @@ fn test_client_with_simple_test_loop() {
     let client_actor = ClientActorInner::new(
         builder.clock(),
         client,
-        builder.sender().into_wrapped_multi_sender::<ClientSenderForClientMessage, _>(),
+        client_adapter3.as_multi_sender(),
         client_config,
         PeerId::random(),
         noop().into_multi_sender(),
@@ -173,36 +155,28 @@ fn test_client_with_simple_test_loop() {
         None,
         Default::default(),
         None,
-        builder.sender().into_wrapped_multi_sender::<SyncJobsSenderForClientMessage, _>(),
+        sync_jobs_adapter.as_multi_sender(),
         Box::new(builder.sender().into_future_spawner()),
     )
     .unwrap();
 
-    let data =
-        TestData { dummy: (), client: client_actor, sync_jobs: sync_jobs_actor, shards_manager };
+    let sync_jobs_sender = builder.register_actor(sync_jobs_actor);
+    let shards_manager_sender = builder.register_actor(shards_manager);
+    let client_sender = builder.register_actor(client_actor);
 
+    shards_manager_adapter.bind(shards_manager_sender);
+    sync_jobs_adapter.bind(sync_jobs_sender);
+    client_adapter1.bind(client_sender.clone());
+    client_adapter2.bind(client_sender.clone());
+    client_adapter3.bind(client_sender.clone());
+    client_adapter4.bind(client_sender);
+
+    let data = TestData { dummy: () };
     let mut test = builder.build(data);
-    test.register_handler(forward_client_messages_from_client_to_client_actor().widen());
-    test.register_handler(forward_client_messages_from_sync_jobs_to_client_actor().widen());
-    test.register_handler(forward_client_messages_from_shards_manager().widen());
-    test.register_handler(
-        forward_messages_from_client_to_sync_jobs_actor(
-            test.sender().into_delayed_action_runner(test.shutting_down()),
-        )
-        .widen(),
-    );
+    test.register_handler(callback_event_handler().widen());
     test.register_handler(drive_futures().widen());
-    test.register_handler(handle_adhoc_events::<TestData>().widen());
     test.register_handler(drive_async_computations().widen());
-    test.register_delayed_action_handler::<ClientActorInner>();
-    test.register_handler(forward_client_request_to_shards_manager().widen());
-    // TODO: handle additional events.
 
-    let mut delayed_runner =
-        test.sender().into_delayed_action_runner::<ClientActorInner>(test.shutting_down());
-    test.sender().send_adhoc_event("start_client", move |data| {
-        data.client.start(&mut delayed_runner);
-    });
     test.run_for(Duration::seconds(10));
     test.shutdown_and_drain_remaining_events(Duration::seconds(1));
 }
