@@ -220,8 +220,7 @@ impl<'a, A: Arena> TrieConstructor<'a, A> {
 
     /// Adds a leaf to the trie. The key must be greater than all previous keys
     /// inserted.
-    pub fn add_leaf(&mut self, key: &[u8], value: FlatStateValue) {
-        let mut nibbles = NibbleSlice::new(key);
+    pub fn add_leaf(&mut self, mut nibbles: NibbleSlice, value: FlatStateValue) {
         let mut i = 0;
         // We'll go down the segments to find where our nibbles deviate.
         // If the deviation happens in the middle of a segment, we would split
