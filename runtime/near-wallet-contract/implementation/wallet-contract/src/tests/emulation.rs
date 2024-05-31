@@ -54,6 +54,31 @@ async fn test_base_token_transfer() -> anyhow::Result<()> {
     );
     assert!(diff < NearToken::from_millinear(2));
 
+    // If the relayer adds an account suffix different from the wallet contract,
+    // then it the transaction is rejected.
+    let transaction = aurora_engine_transactions::eip_2930::Transaction2930 {
+        nonce: 1.into(),
+        gas_price: 0.into(),
+        gas_limit: 0.into(),
+        to: Some(Address::new(other_address)),
+        value: Wei::new_u128(TRANSFER_AMOUNT.as_yoctonear() / u128::from(MAX_YOCTO_NEAR)),
+        data: b"A message for the recipient".to_vec(),
+        chain_id: CHAIN_ID,
+        access_list: Vec::new(),
+    };
+    let signed_transaction = crypto::sign_transaction(transaction, &wallet_sk);
+
+    let target = format!("0x{}.wrong.suffix", hex::encode(other_address));
+    wallet_contract.rlp_execute(&target, &signed_transaction).await?;
+
+    let final_other_balance = other_wallet.inner.as_account().view_account().await?.balance;
+
+    // Receiver balance remains unchanged
+    assert_eq!(
+        final_other_balance.as_yoctonear(),
+        initial_other_balance.as_yoctonear() + TRANSFER_AMOUNT.as_yoctonear()
+    );
+
     Ok(())
 }
 

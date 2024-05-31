@@ -30,18 +30,8 @@ pub fn try_emulation(
     if tx.data.len() < 4 {
         return Err(Error::User(UserError::InvalidAbiEncodedData));
     }
-    // In production eth-implicit accounts are top-level, so this suffix will
-    // always be empty. The purpose of finding a suffix is that it allows for
-    // testing environments where the wallet contract is deployed to an address
-    // that is a sub-account. For example, this allows testing on Near testnet
-    // before the eth-implicit accounts feature is stabilized.
-    // The suffix is only needed in testing.
-    let suffix = context
-        .current_account_id
-        .as_str()
-        .find('.')
-        .map(|index| &context.current_account_id.as_str()[index..])
-        .unwrap_or("");
+
+    let suffix = context.current_account_suffix();
     match &tx.data[0..4] {
         ERC20_BALANCE_OF_SELECTOR => {
             let (address,): (Address,) =

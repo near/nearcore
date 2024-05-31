@@ -273,8 +273,13 @@ fn validate_tx_relayer_data<'a>(
 
     // valid targets satisfy `to == target` or `to == hash(target)`
     let is_valid_target = match target_kind {
-        TargetKind::CurrentAccount if to == context.current_address => true,
-        TargetKind::EthImplicit(address) if to == address => true,
+        TargetKind::CurrentAccount if to == context.current_address => {
+            target == &context.current_account_id
+        }
+        TargetKind::EthImplicit(address) if to == address => {
+            target.as_str()
+                == format!("0x{}{}", hex::encode(address), context.current_account_suffix())
+        }
         _ => to == account_id_to_address(target),
     };
 

@@ -84,6 +84,20 @@ impl ExecutionContext {
         let current_address = crate::internal::extract_address(&current_account_id)?;
         Ok(Self { current_address, attached_deposit, predecessor_account_id, current_account_id })
     }
+
+    /// In production eth-implicit accounts are top-level, so this suffix will
+    /// always be empty. The purpose of finding a suffix is that it allows for
+    /// testing environments where the wallet contract is deployed to an address
+    /// that is a sub-account. For example, this allows testing on Near testnet
+    /// before the eth-implicit accounts feature is stabilized.
+    /// The suffix is only needed in testing.
+    pub fn current_account_suffix(&self) -> &str {
+        self.current_account_id
+            .as_str()
+            .find('.')
+            .map(|index| &self.current_account_id.as_str()[index..])
+            .unwrap_or("")
+    }
 }
 
 /// The `target` of the transaction (set by the relayer)
