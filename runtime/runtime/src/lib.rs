@@ -1548,7 +1548,7 @@ impl Runtime {
         let compute_limit = apply_state.gas_limit.unwrap_or(Gas::max_value());
         let proof_size_limit =
             if checked_feature!("stable", StateWitnessSizeLimit, protocol_version) {
-                Some(apply_state.config.storage_proof_size_soft_limit)
+                Some(apply_state.config.witness_config.main_storage_proof_size_soft_limit)
             } else {
                 None
             };
@@ -3128,17 +3128,17 @@ mod tests {
     }
 
     #[test]
-    fn test_storage_proof_size_soft_limit() {
+    fn test_main_storage_proof_size_soft_limit() {
         if !checked_feature!("stable", StateWitnessSizeLimit, PROTOCOL_VERSION) {
             return;
         }
         let (runtime, tries, root, mut apply_state, signer, epoch_info_provider) =
             setup_runtime(to_yocto(1_000_000), to_yocto(500_000), 10u64.pow(15));
 
-        // Change storage_proof_size_soft_limit to a smaller value
+        // Change main_storage_proof_size_soft_limit to a smaller value
         // The value of 500 is small enough to let the first receipt go through but not the second
         let mut runtime_config = RuntimeConfig::test();
-        runtime_config.storage_proof_size_soft_limit = 5000;
+        runtime_config.witness_config.main_storage_proof_size_soft_limit = 5000;
         apply_state.config = Arc::new(runtime_config);
 
         let create_acc_fn = |account_id| {
@@ -3184,7 +3184,7 @@ mod tests {
             )
         };
 
-        // The function call to bob_account should hit the storage_proof_size_soft_limit
+        // The function call to bob_account should hit the main_storage_proof_size_soft_limit
         let apply_result = runtime
             .apply(
                 tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),

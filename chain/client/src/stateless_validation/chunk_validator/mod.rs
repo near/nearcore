@@ -14,8 +14,8 @@ use near_chain::chain::{
 };
 use near_chain::sharding::shuffle_receipt_proofs;
 use near_chain::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, PreparedTransactions, RuntimeAdapter,
-    RuntimeStorageConfig, StorageDataSource,
+    ApplyChunkBlockContext, ApplyChunkResult, PrepareTransactionsChunkContext,
+    PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig, StorageDataSource,
 };
 use near_chain::validate::{
     validate_chunk_with_chunk_extra, validate_chunk_with_chunk_extra_and_receipts_root,
@@ -79,6 +79,11 @@ pub struct ChunkValidator {
     orphan_witness_pool: OrphanStateWitnessPool,
     validation_spawner: Arc<dyn AsyncComputationSpawner>,
     main_state_transition_result_cache: MainStateTransitionCache,
+    /// If true, a chunk-witness validation error will lead to a panic.
+    /// This is used for non-production environments, eg. mocknet and localnet,
+    /// to quickly detect issues in validation code, and must NOT be set to true
+    /// for mainnet and testnet.
+    panic_on_validation_error: bool,
 }
 
 impl ChunkValidator {
@@ -90,6 +95,7 @@ impl ChunkValidator {
         chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
         orphan_witness_pool_size: usize,
         validation_spawner: Arc<dyn AsyncComputationSpawner>,
+        panic_on_validation_error: bool,
     ) -> Self {
         Self {
             my_signer,
@@ -100,6 +106,7 @@ impl ChunkValidator {
             orphan_witness_pool: OrphanStateWitnessPool::new(orphan_witness_pool_size),
             validation_spawner,
             main_state_transition_result_cache: MainStateTransitionCache::default(),
+            panic_on_validation_error,
         }
     }
 
@@ -146,6 +153,7 @@ impl ChunkValidator {
             chunk_header.shard_id(),
         )?;
         let shard_uid = epoch_manager.shard_id_to_uid(last_header.shard_id(), &epoch_id)?;
+        let panic_on_validation_error = self.panic_on_validation_error;
 
         if let Ok(prev_chunk_extra) = chain.get_chunk_extra(prev_block_hash, &shard_uid) {
             match validate_chunk_with_chunk_extra(
@@ -167,10 +175,14 @@ impl ChunkValidator {
                     return Ok(());
                 }
                 Err(err) => {
-                    tracing::error!(
-                        "Failed to validate chunk using existing chunk extra: {:?}",
-                        err
-                    );
+                    if panic_on_validation_error {
+                        panic!("Failed to validate chunk using existing chunk extra: {:?}", err);
+                    } else {
+                        tracing::error!(
+                            "Failed to validate chunk using existing chunk extra: {:?}",
+                            err
+                        );
+                    }
                     return Err(err);
                 }
             }
@@ -200,11 +212,23 @@ impl ChunkValidator {
                     );
                 }
                 Err(err) => {
-                    tracing::error!("Failed to validate chunk: {:?}", err);
+                    if panic_on_validation_error {
+                        panic!("Failed to validate chunk: {:?}", err);
+                    } else {
+                        tracing::error!("Failed to validate chunk: {:?}", err);
+                    }
                 }
             }
         });
         Ok(())
+    }
+
+    /// TESTING ONLY: Used to override the value of panic_on_validation_error, for example,
+    /// when the chunks validation errors are expected when testing adversarial behavior and
+    /// the test should not panic for the invalid chunks witnesses.
+    #[cfg(feature = "test_features")]
+    pub fn set_should_panic_on_validation_error(&mut self, value: bool) {
+        self.panic_on_validation_error = value;
     }
 }
 
@@ -216,12 +240,17 @@ pub(crate) fn validate_prepared_transactions(
     chunk_header: &ShardChunkHeader,
     storage_config: RuntimeStorageConfig,
     transactions: &[SignedTransaction],
+    last_chunk_transactions: &[SignedTransaction],
 ) -> Result<PreparedTransactions, Error> {
     let parent_block = chain.chain_store().get_block(chunk_header.prev_block_hash())?;
-
+    let last_chunk_transactions_size = borsh::to_vec(last_chunk_transactions)?.len();
     runtime_adapter.prepare_transactions(
         storage_config,
-        chunk_header.into(),
+        PrepareTransactionsChunkContext {
+            shard_id: chunk_header.shard_id(),
+            gas_limit: chunk_header.gas_limit(),
+            last_chunk_transactions_size,
+        },
         (&parent_block).into(),
         &mut TransactionGroupIteratorWrapper::new(transactions),
         &mut chain.transaction_validity_check(parent_block.header().clone()),
@@ -321,6 +350,7 @@ pub(crate) fn pre_validate_chunk_state_witness(
             &state_witness.chunk_header,
             transactions_validation_storage_config,
             &new_transactions,
+            &state_witness.transactions,
         ) {
             Ok(result) => {
                 if result.transactions.len() != new_transactions.len() {
@@ -651,6 +681,7 @@ pub(crate) fn validate_chunk_state_witness(
         &chunk_extra,
         &state_witness.chunk_header,
         &outgoing_receipts_root,
+        protocol_version,
     )?;
 
     Ok(())
@@ -741,25 +772,6 @@ impl Client {
 
         if self.config.save_latest_witnesses {
             self.chain.chain_store.save_latest_chunk_state_witness(&witness)?;
-        }
-
-        // Avoid processing state witness for old chunks.
-        // In particular it is impossible for a chunk created at a height
-        // that doesn't exceed the height of the current final block to be
-        // included in the chain. This addresses both network-delayed messages
-        // as well as malicious behavior of a chunk producer.
-        if let Ok(final_head) = self.chain.final_head() {
-            if witness.chunk_header.height_created() <= final_head.height {
-                tracing::warn!(
-                    target: "client",
-                    chunk_hash=?witness.chunk_header.chunk_hash(),
-                    shard_id=witness.chunk_header.shard_id(),
-                    witness_height=witness.chunk_header.height_created(),
-                    final_height=final_head.height,
-                    "Skipping state witness below the last final block",
-                );
-                return Ok(());
-            }
         }
 
         match self.chain.get_block(witness.chunk_header.prev_block_hash()) {
