@@ -53,6 +53,7 @@ impl Client {
         let shard_id = chunk.shard_id();
         let chunk_hash = chunk.chunk_hash();
         let chunk_header = chunk.cloned_header();
+        let last_chunk = self.chain.get_chunk(&prev_chunk_header.chunk_hash())?;
 
         let transactions_validation_storage_config = RuntimeStorageConfig {
             state_root: chunk_header.prev_state_root(),
@@ -69,6 +70,7 @@ impl Client {
             &chunk_header,
             transactions_validation_storage_config,
             chunk.transactions(),
+            last_chunk.transactions(),
         ) else {
             return Err(Error::Other(
                 "Could not produce storage proof for new transactions".to_owned(),

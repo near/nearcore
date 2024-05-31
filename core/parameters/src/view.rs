@@ -1,3 +1,4 @@
+use crate::config::WitnessConfig;
 use crate::{ActionCosts, ExtCosts, Fee, ParameterCost};
 use near_account_id::AccountId;
 use near_primitives_core::serialize::dec_format;
@@ -18,6 +19,8 @@ pub struct RuntimeConfigView {
     pub wasm_config: VMConfigView,
     /// Config that defines rules for account creation.
     pub account_creation_config: AccountCreationConfigView,
+    /// Configuration specific to ChunkStateWitness.
+    pub witness_config: WitnessConfigView,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
@@ -40,9 +43,6 @@ pub struct RuntimeFeesConfigView {
 
     /// Pessimistic gas price inflation ratio.
     pub pessimistic_gas_price_inflation_ratio: Rational32,
-
-    /// The maximum size of the state witness after which we defer execution of any new receipts.
-    pub storage_proof_size_soft_limit: usize,
 }
 
 /// The structure describes configuration for creation of new accounts.
@@ -182,7 +182,6 @@ impl From<crate::RuntimeConfig> for RuntimeConfigView {
                 pessimistic_gas_price_inflation_ratio: config
                     .fees
                     .pessimistic_gas_price_inflation_ratio,
-                storage_proof_size_soft_limit: config.storage_proof_size_soft_limit,
             },
             wasm_config: VMConfigView::from(config.wasm_config),
             account_creation_config: AccountCreationConfigView {
@@ -191,6 +190,7 @@ impl From<crate::RuntimeConfig> for RuntimeConfigView {
                     .min_allowed_top_level_account_length,
                 registrar_account_id: config.account_creation_config.registrar_account_id,
             },
+            witness_config: WitnessConfigView::from(config.witness_config),
         }
     }
 }
@@ -607,6 +607,31 @@ impl From<ExtCostsConfigView> for crate::ExtCostsConfig {
         }
         .map(|_, value| ParameterCost { gas: value, compute: value });
         Self { costs }
+    }
+}
+
+/// Configuration specific to ChunkStateWitness.
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
+pub struct WitnessConfigView {
+    /// Size limit for storage proof generated while executing receipts in a chunk.
+    /// After this limit is reached we defer execution of any new receipts.
+    pub main_storage_proof_size_soft_limit: usize,
+    // Maximum size of transactions contained inside ChunkStateWitness.
+    /// A witness contains transactions from both the previous chunk and the current one.
+    /// This parameter limits the sum of sizes of transactions from both of those chunks.
+    pub combined_transactions_size_limit: usize,
+    /// Soft size limit of storage proof used to validate new transactions in ChunkStateWitness.
+    pub new_transactions_validation_state_size_soft_limit: usize,
+}
+
+impl From<WitnessConfig> for WitnessConfigView {
+    fn from(config: WitnessConfig) -> Self {
+        Self {
+            main_storage_proof_size_soft_limit: config.main_storage_proof_size_soft_limit,
+            combined_transactions_size_limit: config.combined_transactions_size_limit,
+            new_transactions_validation_state_size_soft_limit: config
+                .new_transactions_validation_state_size_soft_limit,
+        }
     }
 }
 

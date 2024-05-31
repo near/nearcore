@@ -742,7 +742,7 @@ class NeardRunner:
         home_path = os.path.expanduser('~')
         env = {
             **os.environ,  # override loaded values with environment variables
-            **dotenv.dotenv_values(self.home_path(home_path, '.secrets')),  # load sensitive variables
+            **dotenv.dotenv_values(os.path.join(home_path, '.secrets')),  # load sensitive variables
             **dotenv.dotenv_values(self.home_path('.env')),  # load neard variables
         }
         logging.info(f'running {" ".join(cmd)}')
