@@ -133,5 +133,4 @@ pub enum HandleOrphanWitnessOutcome {
     SavedToPool,
     TooBig(usize),
     TooFarFromHead { head_height: BlockHeight, witness_height: BlockHeight },
-    UnsupportedEpochId(EpochId),
 }
