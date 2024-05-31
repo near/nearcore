@@ -1,6 +1,5 @@
 from datetime import datetime, timedelta
-from locust import User, events, runners, FastHttpUser
-from locust.contrib.fasthttp import FastHttpSession
+from locust import User, events, runners
 from retrying import retry
 import abc
 import base64
@@ -236,16 +235,11 @@ class NearNodeProxy:
     Wrapper around a RPC node connection that tracks requests on locust.
     """
 
-    def __init__(self, environment, user=None):
+    def __init__(self, environment):
         self.request_event = environment.events.request
         [url, port] = environment.host.rsplit(":", 1)
-        self.session = FastHttpSession(environment,
-                                       base_url="http://%s:%s" % (url, port),
-                                       user=user,
-                                       connection_timeout=6.0,
-                                       network_timeout=9.0,
-                                       max_retries=3)
-        self.node = cluster.RpcNode(url, port, session=self.session)
+        self.node = cluster.RpcNode(url, port)
+        self.session = requests.Session()
 
     def send_tx_retry(self, tx: Transaction, locust_name) -> dict:
         """
@@ -296,14 +290,7 @@ class NearNodeProxy:
                         "wait_until":
                             "EXECUTED_OPTIMISTIC"
                     })
-
-                if hasattr(result, 'json'):
-                    evaluate_rpc_result(result.json())
-                else:
-                    try:
-                        result.raise_for_status()
-                    except Exception as e:
-                        raise RpcError(details=e)
+                evaluate_rpc_result(result.json())
 
             except TxUnknownError as err:
                 # This means we time out in one way or another.
@@ -398,7 +385,8 @@ class NearNodeProxy:
             "id": "dontcare",
             "jsonrpc": "2.0"
         }
-        return self.session.post(url="/", json=j)
+        return self.session.post(url="http://%s:%s" % self.node.rpc_addr(),
+                                 json=j)
 
     @retry(wait_fixed=500,
            stop_max_delay=DEFAULT_TRANSACTION_TTL / timedelta(milliseconds=1),
@@ -537,7 +525,7 @@ class NearNodeProxy:
         logger.info(f"done preparing {len(accounts)} accounts")
 
 
-class NearUser(FastHttpUser):
+class NearUser(User):
     abstract = True
     id_counter = 0
     INIT_BALANCE = 100.0
@@ -556,7 +544,7 @@ class NearUser(FastHttpUser):
     def __init__(self, environment):
         super().__init__(environment)
         assert self.host is not None, "Near user requires the RPC node address"
-        self.node = NearNodeProxy(environment, self)
+        self.node = NearNodeProxy(environment)
         self.id = NearUser.get_next_id()
         self.user_suffix = f"{self.id}_run{environment.parsed_options.run_id}"
         self.account_generator = environment.account_generator

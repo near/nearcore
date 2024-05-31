@@ -279,7 +279,7 @@ def random_account_between(base_name, suffix, lower, upper):
 class AccountGenerator:
 
     def __init__(self, available_shard_layouts, shard_layout_version):
-        assert shard_layout_version in available_shard_layouts, "Please specify a shard-layout version in --shard-layout-version."
+        assert shard_layout_version in available_shard_layouts, "Shard layout version not found in available versions: " + str(available_shard_layouts.keys())
         logger.info(f"Using shard layout version {shard_layout_version}")
 
         self.shard_map = {}
