@@ -241,7 +241,9 @@ class NearNodeProxy:
         self.request_event = environment.events.request
         [url, port] = environment.host.rsplit(":", 1)
         self.node = cluster.RpcNode(url, port)
-        self.session = Session()
+        self.session = Session(connection_timeout=3,
+                               network_timeout=6,
+                               max_retries=3)
 
     def send_tx_retry(self, tx: Transaction, locust_name) -> dict:
         """

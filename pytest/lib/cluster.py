@@ -32,7 +32,7 @@ cleanup_remote_nodes_atexit_registered = False
 
 
 def session(timeout=6) -> Session:
-    return Session(connection_timeout=3, network_timeout=timeout)
+    return Session(connection_timeout=3, network_timeout=timeout, max_retries=3)
 
 
 class DownloadException(Exception):
