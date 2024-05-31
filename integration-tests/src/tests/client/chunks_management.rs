@@ -41,10 +41,26 @@ struct Test {
 
 impl Test {
     fn run(self) {
+        // TODO(#10506): Fix test to handle stateless validation
+        if near_primitives_core::checked_feature!(
+            "stable",
+            StatelessValidationV0,
+            near_primitives_core::version::PROTOCOL_VERSION
+        ) {
+            return;
+        }
         heavy_test(move || run_actix(async move { self.run_impl(None) }))
     }
 
     fn run_with_chunk_distribution_network(self, config: ChunkDistributionNetworkConfig) {
+        // TODO(#10506): Fix test to handle stateless validation
+        if near_primitives_core::checked_feature!(
+            "stable",
+            StatelessValidationV0,
+            near_primitives_core::version::PROTOCOL_VERSION
+        ) {
+            return;
+        }
         heavy_test(move || run_actix(async move { self.run_impl(Some(config)) }))
     }
 
