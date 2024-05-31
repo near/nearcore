@@ -277,7 +277,8 @@ BLOCK_SPAN_OR_EVENT_NAMES = {"send_block_approval", "collect_block_approval",
 
 CHUNK_SPAN_OR_EVENT_NAMES = {"produced_chunk", "produce_chunk", "request_missing_chunk",
                              "process_partial_encoded_chunk_request", "process_partial_encoded_chunk", 
-                             "process_chunk_state_witness", "send_chunk_state_witness", "validate_chunk_state_witness",
+                             "process_chunk_state_witness", "send_chunk_state_witness", "send_chunk_endorsement_from_chunk_producer",
+                             "validate_chunk_state_witness", "send_chunk_endorsement", "process_chunk_endorsement",
                              "apply_new_chunk", "apply_old_chunk"}
 
 
