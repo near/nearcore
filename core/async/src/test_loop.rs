@@ -70,7 +70,7 @@ use self::{
     event_handler::LoopEventHandler,
     futures::{TestLoopFutureSpawner, TestLoopTask},
 };
-use crate::messaging::Actor;
+use crate::messaging::{Actor, LateBoundSender};
 use crate::time::{self, Clock, Duration};
 use ::time::ext::InstantExt;
 use near_o11y::{testonly::init_test_logger, tracing::info};
@@ -239,16 +239,21 @@ impl<Event: Debug + Send + 'static> TestLoopBuilder<Event> {
             data,
         )
     }
-}
 
-impl<Event: Debug + Send + 'static> TestLoopBuilder<Event> {
-    pub fn register_actor<A>(&self, actor: A) -> TestLoopSender<A>
+    pub fn register_actor<A>(
+        &self,
+        actor: A,
+        adapter: Option<Arc<LateBoundSender<TestLoopSender<A>>>>,
+    ) -> TestLoopSender<A>
     where
         A: Actor + 'static,
         Event: From<CallbackEvent> + 'static,
     {
         let mut sender = TestLoopSender::new(actor, self.sender().narrow(), self.shutting_down());
         sender.queue_start_actor_event();
+        if let Some(adapter) = adapter {
+            adapter.bind(sender.clone());
+        }
         sender
     }
 }

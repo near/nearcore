@@ -98,15 +98,12 @@ fn test_client_with_simple_test_loop() {
 
     let shards_manager_adapter = LateBoundSender::new();
     let sync_jobs_adapter = LateBoundSender::new();
-    let client_adapter1 = LateBoundSender::new();
-    let client_adapter2 = LateBoundSender::new();
-    let client_adapter3 = LateBoundSender::new();
-    let client_adapter4 = LateBoundSender::new();
+    let client_adapter = LateBoundSender::new();
 
-    let sync_jobs_actor = SyncJobsActor::new(client_adapter4.as_multi_sender());
+    let sync_jobs_actor = SyncJobsActor::new(client_adapter.as_multi_sender());
 
     let state_sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
-        client_adapter1.as_sender(),
+        client_adapter.as_sender(),
         noop().into_sender(),
         SyncAdapter::actix_actor_maker(),
     )));
@@ -136,7 +133,7 @@ fn test_client_with_simple_test_loop() {
         epoch_manager,
         shard_tracker,
         noop().into_sender(),
-        client_adapter2.as_sender(),
+        client_adapter.as_sender(),
         ReadOnlyChunksStore::new(store),
         client.chain.head().unwrap(),
         client.chain.header_head().unwrap(),
@@ -146,7 +143,7 @@ fn test_client_with_simple_test_loop() {
     let client_actor = ClientActorInner::new(
         builder.clock(),
         client,
-        client_adapter3.as_multi_sender(),
+        client_adapter.as_multi_sender(),
         client_config,
         PeerId::random(),
         noop().into_multi_sender(),
@@ -160,16 +157,9 @@ fn test_client_with_simple_test_loop() {
     )
     .unwrap();
 
-    let sync_jobs_sender = builder.register_actor(sync_jobs_actor);
-    let shards_manager_sender = builder.register_actor(shards_manager);
-    let client_sender = builder.register_actor(client_actor);
-
-    shards_manager_adapter.bind(shards_manager_sender);
-    sync_jobs_adapter.bind(sync_jobs_sender);
-    client_adapter1.bind(client_sender.clone());
-    client_adapter2.bind(client_sender.clone());
-    client_adapter3.bind(client_sender.clone());
-    client_adapter4.bind(client_sender);
+    builder.register_actor(sync_jobs_actor, Some(sync_jobs_adapter));
+    builder.register_actor(shards_manager, Some(shards_manager_adapter));
+    builder.register_actor(client_actor, Some(client_adapter));
 
     let data = TestData { dummy: () };
     let mut test = builder.build(data);
