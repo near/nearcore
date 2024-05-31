@@ -3,10 +3,8 @@ use near_async::futures::FutureSpawner;
 use near_async::messaging::{noop, IntoMultiSender, IntoSender, MessageWithCallback, SendAsync};
 use near_async::test_loop::adhoc::{handle_adhoc_events, AdhocEvent, AdhocEventSender};
 use near_async::test_loop::event_handler::ignore_events;
-use near_async::test_loop::futures::{
-    drive_async_computations, drive_futures, TestLoopAsyncComputationEvent,
-    TestLoopDelayedActionEvent, TestLoopTask,
-};
+use near_async::test_loop::futures::{drive_futures, TestLoopDelayedActionEvent, TestLoopTask};
+use near_async::test_loop::test_loop_sender::{callback_event_handler, CallbackEvent};
 use near_async::test_loop::TestLoopBuilder;
 use near_async::time::Duration;
 use near_chain::chunks_store::ReadOnlyChunksStore;
@@ -115,12 +113,11 @@ impl AsRef<Client> for TestData {
 #[derive(EnumTryInto, Debug, EnumFrom)]
 #[allow(clippy::large_enum_variant)]
 enum TestEvent {
+    Callback(CallbackEvent),
     /// Allows futures to be spawn and executed.
     Task(Arc<TestLoopTask>),
     /// Allows adhoc events to be used for the test (only used inside this file).
     Adhoc(AdhocEvent<TestData>),
-    /// Allows asynchronous computation (chunk application, stateless validation, etc.).
-    AsyncComputation(TestLoopAsyncComputationEvent),
 
     /// Allows delayed actions to be posted, as if ClientActor scheduled them, e.g. timers.
     ClientDelayedActions(TestLoopDelayedActionEvent<ClientActorInner>),
@@ -400,9 +397,9 @@ fn test_client_with_multi_test_loop() {
         test.register_handler(print_basic_client_info_before_each_event(Some(idx)).for_index(idx));
 
         // Futures, adhoc events, async computations.
+        test.register_handler(callback_event_handler().widen().for_index(idx));
         test.register_handler(drive_futures().widen().for_index(idx));
         test.register_handler(handle_adhoc_events::<TestData>().widen().for_index(idx));
-        test.register_handler(drive_async_computations().widen().for_index(idx));
 
         // Delayed actions.
         test.register_delayed_action_handler_for_index::<ClientActorInner>(idx);

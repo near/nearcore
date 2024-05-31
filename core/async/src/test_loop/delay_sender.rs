@@ -1,16 +1,15 @@
 use crate::break_apart::BreakApart;
 use crate::messaging;
 use crate::messaging::{IntoMultiSender, IntoSender};
-use crate::test_loop::futures::{
-    TestLoopAsyncComputationEvent, TestLoopAsyncComputationSpawner, TestLoopDelayedActionEvent,
-    TestLoopDelayedActionRunner,
-};
 use crate::time;
 use crate::time::Duration;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use super::futures::{TestLoopFutureSpawner, TestLoopTask};
+use super::futures::{
+    TestLoopDelayedActionEvent, TestLoopDelayedActionRunner, TestLoopFutureSpawner, TestLoopTask,
+};
+use super::test_loop_sender::{CallbackEvent, TestLoopAsyncComputationSpawner};
 
 /// Interface to send an event with a delay (in virtual time). It can be
 /// converted to a Sender for any message type that can be converted into
@@ -97,10 +96,10 @@ impl<Event> DelaySender<Event> {
         artificial_delay: impl Fn(&str) -> Duration + Send + Sync + 'static,
     ) -> TestLoopAsyncComputationSpawner
     where
-        Event: From<TestLoopAsyncComputationEvent> + 'static,
+        Event: From<CallbackEvent> + 'static,
     {
         TestLoopAsyncComputationSpawner {
-            sender: self.narrow(),
+            pending_events_sender: self.narrow(),
             artificial_delay: Box::new(artificial_delay),
         }
     }

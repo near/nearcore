@@ -1,8 +1,6 @@
 use derive_enum_from_into::{EnumFrom, EnumTryInto};
 use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
-use near_async::test_loop::futures::{
-    drive_async_computations, drive_futures, TestLoopAsyncComputationEvent, TestLoopTask,
-};
+use near_async::test_loop::futures::{drive_futures, TestLoopTask};
 use near_async::test_loop::test_loop_sender::{callback_event_handler, CallbackEvent};
 use near_async::test_loop::TestLoopBuilder;
 use near_async::time::Duration;
@@ -43,7 +41,6 @@ impl AsMut<TestData> for TestData {
 enum TestEvent {
     Callback(CallbackEvent),
     Task(Arc<TestLoopTask>),
-    AsyncComputation(TestLoopAsyncComputationEvent),
 }
 
 const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
@@ -175,7 +172,6 @@ fn test_client_with_simple_test_loop() {
     let mut test = builder.build(data);
     test.register_handler(callback_event_handler().widen());
     test.register_handler(drive_futures().widen());
-    test.register_handler(drive_async_computations().widen());
 
     test.run_for(Duration::seconds(10));
     test.shutdown_and_drain_remaining_events(Duration::seconds(1));

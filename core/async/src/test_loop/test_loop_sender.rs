@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use crate::futures::DelayedActionRunner;
+use crate::futures::{AsyncComputationSpawner, DelayedActionRunner};
 use crate::messaging::{Actor, CanSend, HandlerWithContext, MessageWithCallback};
 use crate::time::Duration;
 
@@ -150,6 +150,21 @@ where
                 callback: Box::new(callback),
             },
             Duration::ZERO,
+        );
+    }
+}
+
+/// AsyncComputationSpawner that spawns the computation in the TestLoop.
+pub struct TestLoopAsyncComputationSpawner {
+    pub(crate) pending_events_sender: DelaySender<CallbackEvent>,
+    pub(crate) artificial_delay: Box<dyn Fn(&str) -> Duration + Send + Sync>,
+}
+
+impl AsyncComputationSpawner for TestLoopAsyncComputationSpawner {
+    fn spawn_boxed(&self, name: &str, f: Box<dyn FnOnce() + Send>) {
+        self.pending_events_sender.send_with_delay(
+            CallbackEvent { description: format!("AsyncComputation {:?}", name), callback: f },
+            (self.artificial_delay)(name),
         );
     }
 }
