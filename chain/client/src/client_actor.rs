@@ -1118,17 +1118,17 @@ impl ClientActorInner {
                     .client
                     .chunk_inclusion_tracker
                     .num_chunk_headers_ready_for_inclusion(&epoch_id, &head.last_block_hash);
-                let missing_chunks = self
-                    .client
-                    .chunk_inclusion_tracker
-                    .chunks_to_request(&epoch_id, &head.last_block_hash);
-                self.client.request_missing_chunks(
-                    vec![near_chain::chain::BlockMissingChunks {
-                        prev_hash: head.last_block_hash,
-                        missing_chunks,
-                    }],
-                    vec![],
-                );
+                // let missing_chunks = self
+                //     .client
+                //     .chunk_inclusion_tracker
+                //     .chunks_to_request(&epoch_id, &head.last_block_hash);
+                // self.client.request_missing_chunks(
+                //     vec![near_chain::chain::BlockMissingChunks {
+                //         prev_hash: head.last_block_hash,
+                //         missing_chunks,
+                //     }],
+                //     vec![],
+                // );
                 let have_all_chunks = head.height == 0
                     || num_chunks == self.client.epoch_manager.shard_ids(&epoch_id).unwrap().len();
 

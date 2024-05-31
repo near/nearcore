@@ -1585,9 +1585,9 @@ impl Client {
                 next_bp = ?next_block_producer,
                 target_height = approval.target_height,
                 "Sending an approval");
-            if let ApprovalInner::Skip(_) = approval.inner {
-                return Ok(());
-            }
+            // if let ApprovalInner::Skip(_) = approval.inner {
+            //     return Ok(());
+            // }
 
             let approval_message = ApprovalMessage::new(approval, next_block_producer);
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
