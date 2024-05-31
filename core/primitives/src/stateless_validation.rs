@@ -340,6 +340,13 @@ impl ChunkStateWitness {
         }
     }
 
+    /// Returns size in bytes of borsh-serialized state witness.
+    /// NOTE: this is potentially expensive operation and should only be
+    /// used in tests.
+    pub fn borsh_size(&self) -> ChunkStateWitnessSize {
+        borsh::to_vec(&self).unwrap().len()
+    }
+
     pub fn chunk_production_key(&self) -> ChunkProductionKey {
         ChunkProductionKey {
             shard_id: self.chunk_header.shard_id(),

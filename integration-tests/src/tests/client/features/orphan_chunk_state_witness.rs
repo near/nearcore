@@ -12,7 +12,7 @@ use near_primitives::sharding::ShardChunkHeaderV3;
 use near_primitives::sharding::{
     ChunkHash, ReceiptProof, ShardChunkHeader, ShardChunkHeaderInner, ShardProof,
 };
-use near_primitives::stateless_validation::EncodedChunkStateWitness;
+use near_primitives::stateless_validation::ChunkStateWitness;
 use near_primitives::types::AccountId;
 use near_primitives_core::checked_feature;
 use near_primitives_core::version::PROTOCOL_VERSION;
@@ -22,7 +22,7 @@ struct OrphanWitnessTestEnv {
     env: TestEnv,
     block1: Block,
     block2: Block,
-    encoded_witness: EncodedChunkStateWitness,
+    witness: ChunkStateWitness,
     excluded_validator: AccountId,
     excluded_validator_idx: usize,
 }
@@ -127,12 +127,12 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
     // and process it on all validators except for `excluded_validator`.
     // The witness isn't processed on `excluded_validator` to give users of
     // `setup_orphan_witness_test()` full control over the events.
-    let mut encoded_witness_opt = None;
+    let mut witness_opt = None;
     let partial_witness_adapter =
         env.partial_witness_adapters[env.get_client_index(&block2_chunk_producer)].clone();
     while let Some(request) = partial_witness_adapter.pop_distribution_request() {
         let DistributeStateWitnessRequest { epoch_id, chunk_header, state_witness } = request;
-        let (encoded_witness, _) = EncodedChunkStateWitness::encode(&state_witness).unwrap();
+        let raw_witness_size = state_witness.borsh_size();
         let chunk_validators = env
             .client(&block2_chunk_producer)
             .epoch_manager
@@ -149,13 +149,17 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
             let processing_done_tracker = ProcessingDoneTracker::new();
             witness_processing_done_waiters.push(processing_done_tracker.make_waiter());
             env.client(&account_id)
-                .process_chunk_state_witness(encoded_witness.clone(), Some(processing_done_tracker))
+                .process_chunk_state_witness(
+                    state_witness.clone(),
+                    raw_witness_size,
+                    Some(processing_done_tracker),
+                )
                 .unwrap();
         }
         for waiter in witness_processing_done_waiters {
             waiter.wait();
         }
-        encoded_witness_opt = Some(encoded_witness);
+        witness_opt = Some(state_witness);
     }
 
     env.propagate_chunk_endorsements(false);
@@ -167,11 +171,8 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
         block2.header().height(),
         "There should be no missing chunks."
     );
-    let encoded_witness = encoded_witness_opt.unwrap();
-    assert_eq!(
-        encoded_witness.decode().unwrap().0.chunk_header.chunk_hash(),
-        block2.chunks()[0].chunk_hash()
-    );
+    let witness = witness_opt.unwrap();
+    assert_eq!(witness.chunk_header.chunk_hash(), block2.chunks()[0].chunk_hash());
 
     for client_idx in clients_without_excluded {
         let blocks_processed = env.clients[client_idx]
@@ -189,7 +190,7 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
         env,
         block1,
         block2,
-        encoded_witness,
+        witness,
         excluded_validator,
         excluded_validator_idx,
     }
@@ -209,7 +210,7 @@ fn test_orphan_witness_valid() {
         mut env,
         block1,
         block2,
-        encoded_witness,
+        witness,
         excluded_validator,
         excluded_validator_idx,
         ..
@@ -217,7 +218,10 @@ fn test_orphan_witness_valid() {
 
     // `excluded_validator` receives witness for chunk belonging to `block2`, but it doesn't have `block1`.
     // The witness should become an orphaned witness and it should be saved to the orphan pool.
-    env.client(&excluded_validator).process_chunk_state_witness(encoded_witness, None).unwrap();
+    let witness_size = witness.borsh_size();
+    env.client(&excluded_validator)
+        .process_chunk_state_witness(witness, witness_size, None)
+        .unwrap();
 
     let block_processed = env
         .client(&excluded_validator)
@@ -240,10 +244,9 @@ fn test_orphan_witness_too_large() {
         return;
     }
 
-    let OrphanWitnessTestEnv { mut env, encoded_witness, excluded_validator, .. } =
+    let OrphanWitnessTestEnv { mut env, witness, excluded_validator, .. } =
         setup_orphan_witness_test();
 
-    let witness = encoded_witness.decode().unwrap().0;
     // The witness should not be saved too the pool, as it's too big
     let outcome = env
         .client(&excluded_validator)
@@ -265,17 +268,16 @@ fn test_orphan_witness_far_from_head() {
         return;
     }
 
-    let OrphanWitnessTestEnv { mut env, mut encoded_witness, block1, excluded_validator, .. } =
+    let OrphanWitnessTestEnv { mut env, mut witness, block1, excluded_validator, .. } =
         setup_orphan_witness_test();
 
     let bad_height = 10000;
-    modify_witness_header_inner(&mut encoded_witness, |header| match &mut header.inner {
+    modify_witness_header_inner(&mut witness, |header| match &mut header.inner {
         ShardChunkHeaderInner::V1(inner) => inner.height_created = bad_height,
         ShardChunkHeaderInner::V2(inner) => inner.height_created = bad_height,
         ShardChunkHeaderInner::V3(inner) => inner.height_created = bad_height,
     });
 
-    let witness = encoded_witness.decode().unwrap().0;
     let outcome =
         env.client(&excluded_validator).handle_orphan_state_witness(witness, 2000).unwrap();
     assert_eq!(
@@ -299,10 +301,9 @@ fn test_orphan_witness_not_fully_validated() {
         return;
     }
 
-    let OrphanWitnessTestEnv { mut env, mut encoded_witness, excluded_validator, .. } =
+    let OrphanWitnessTestEnv { mut env, mut witness, excluded_validator, .. } =
         setup_orphan_witness_test();
 
-    let mut witness = encoded_witness.decode().unwrap().0;
     // Make the witness invalid in a way that won't be detected during orphan witness validation
     witness.source_receipt_proofs.insert(
         ChunkHash::default(),
@@ -311,25 +312,24 @@ fn test_orphan_witness_not_fully_validated() {
             ShardProof { from_shard_id: 100230230, to_shard_id: 383939, proof: vec![] },
         ),
     );
-    encoded_witness = EncodedChunkStateWitness::encode(&witness).unwrap().0;
 
     // The witness should be accepted and saved into the pool, even though it's invalid.
     // There is no way to fully validate an orphan witness, so this is the correct behavior.
     // The witness will later be fully validated when the required block arrives.
-    env.client(&excluded_validator).process_chunk_state_witness(encoded_witness, None).unwrap();
+    let witness_size = witness.borsh_size();
+    env.client(&excluded_validator)
+        .process_chunk_state_witness(witness, witness_size, None)
+        .unwrap();
 }
 
 fn modify_witness_header_inner(
-    encoded_witness: &mut EncodedChunkStateWitness,
+    witness: &mut ChunkStateWitness,
     f: impl FnOnce(&mut ShardChunkHeaderV3),
 ) {
-    let mut witness = encoded_witness.decode().unwrap().0;
-
     match &mut witness.chunk_header {
         ShardChunkHeader::V3(header) => {
             f(header);
         }
-        _ => panic!(),
+        _ => unreachable!(),
     };
-    *encoded_witness = EncodedChunkStateWitness::encode(&witness).unwrap().0;
 }
