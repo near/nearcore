@@ -323,7 +323,6 @@ impl Test {
 
 #[test]
 #[ignore] // TODO: #8855
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn chunks_produced_and_distributed_all_in_all_shards() {
     Test {
         validator_groups: 1,
@@ -427,7 +426,6 @@ fn chunks_produced_and_distributed_chunk_distribution_network_incorrect_get_retu
 
 #[test]
 #[ignore] // TODO: #8853
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn chunks_produced_and_distributed_all_in_all_shards_should_succeed_even_without_forwarding() {
     Test {
         validator_groups: 1,
