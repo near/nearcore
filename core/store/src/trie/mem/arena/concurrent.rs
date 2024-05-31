@@ -15,7 +15,13 @@ use std::sync::Arc;
 /// into a single arena while allowing the pointers (ArenaPos) to still be valid. This is what
 /// allows a memtrie to be loaded in parallel.
 pub struct ConcurrentArena {
-    /// Chunks allocated by
+    /// Chunks allocated by each `ConcurrentArenaForThread` share the same "logical" memory
+    /// space. This counter is used to ensure that each `ConcurrentArenaForThread` gets unique
+    /// chunk positions, so that the allocations made by different threads do not conflict in
+    /// their positions.
+    ///
+    /// The goal here is so that allocations coming from multiple threads can be merged into a
+    /// single arena at the end, without having to alter any arena pointers (ArenaPos).
     next_chunk_pos: Arc<AtomicUsize>,
 }
 
@@ -42,27 +48,24 @@ impl ConcurrentArena {
         name: String,
         threads: Vec<ConcurrentArenaForThread>,
     ) -> STArena {
-        let mut chunks = Vec::new();
+        let mut chunks = vec![Vec::new(); self.next_chunk_pos.load(Ordering::Relaxed)];
         let mut active_allocs_bytes = 0;
         let mut active_allocs_count = 0;
         for thread in threads {
             let memory = thread.memory;
-            let mut chunk_pos = vec![usize::MAX; memory.chunks.len()];
-            for (pos, index) in memory.chunk_pos_to_index.into_iter().enumerate() {
-                if index == usize::MAX {
-                    continue;
-                }
-                chunk_pos[index] = pos;
-            }
-            for (pos, chunk) in chunk_pos.into_iter().zip(memory.chunks.into_iter()) {
-                assert_ne!(pos, usize::MAX, "Not all arena threads have been passed in");
-                while chunks.len() <= pos {
-                    chunks.push(Vec::new());
-                }
+            for (pos, chunk) in memory.chunks.into_iter() {
+                assert!(
+                    chunks[pos].is_empty(),
+                    "Arena threads from the same ConcurrentArena passed in"
+                );
                 chunks[pos] = chunk;
             }
             active_allocs_bytes += thread.allocator.active_allocs_bytes;
             active_allocs_count += thread.allocator.active_allocs_count;
+        }
+        for chunk in &chunks {
+            assert!(!chunks.is_empty(), "Not all arena threads are passed in");
+            assert_eq!(chunk.len(), CHUNK_SIZE); // may as well check this
         }
         STArena::new_from_existing_chunks(name, chunks, active_allocs_bytes, active_allocs_count)
     }
@@ -75,31 +78,37 @@ pub struct ConcurrentArenaForThread {
 }
 
 pub struct ConcurrentArenaMemory {
-    chunks: Vec<Vec<u8>>,
-    chunk_pos_to_index: Vec<usize>,
+    /// Chunks of memory allocated for this thread. The usize is the global chunk position.
+    chunks: Vec<(usize, Vec<u8>)>,
+    /// Index is global chunk position, value is local chunk position.
+    /// For a chunk position that does not belong to the thread, the value is `usize::MAX`.
+    /// This vector is as large as needed to contain the largest global chunk position used
+    /// by this thread, but might not be as large as the total number of chunks allocated
+    /// globally.
+    chunk_pos_global_to_local: Vec<usize>,
 }
 
 impl ConcurrentArenaMemory {
     pub fn new() -> Self {
-        Self { chunks: Vec::new(), chunk_pos_to_index: Vec::new() }
+        Self { chunks: Vec::new(), chunk_pos_global_to_local: Vec::new() }
     }
 
     pub fn add_chunk(&mut self, pos: usize) {
-        while self.chunk_pos_to_index.len() <= pos {
-            self.chunk_pos_to_index.push(usize::MAX);
+        while self.chunk_pos_global_to_local.len() <= pos {
+            self.chunk_pos_global_to_local.push(usize::MAX);
         }
-        self.chunk_pos_to_index[pos] = self.chunks.len();
-        self.chunks.push(vec![0; CHUNK_SIZE]);
+        self.chunk_pos_global_to_local[pos] = self.chunks.len();
+        self.chunks.push((pos, vec![0; CHUNK_SIZE]));
     }
 
     pub fn chunk(&self, pos: usize) -> &[u8] {
-        let index = self.chunk_pos_to_index[pos];
-        &self.chunks[index]
+        let index = self.chunk_pos_global_to_local[pos];
+        &self.chunks[index].1
     }
 
     pub fn chunk_mut(&mut self, pos: usize) -> &mut [u8] {
-        let index = self.chunk_pos_to_index[pos];
-        &mut self.chunks[index]
+        let index = self.chunk_pos_global_to_local[pos];
+        &mut self.chunks[index].1
     }
 }
 
