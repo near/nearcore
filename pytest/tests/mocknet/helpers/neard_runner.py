@@ -677,8 +677,10 @@ class NeardRunner:
                 f'Updating binary list for height:{epoch_height} or idx:{binary_idx} with '
                 f'url: {neard_binary_url}')
         else:
-            logging.error(f'wrong arguments provided')
-            return
+            logging.error(
+                f'Update binaries failed. Wrong params: url: {neard_binary_url}, height:{epoch_height}, idx:{binary_idx}'
+            )
+            raise jsonrpc.exceptions.JSONRPCInvalidParams()
 
         if 'binaries' not in self.config:
             self.config['binaries'] = []
@@ -704,7 +706,10 @@ class NeardRunner:
                 logging.error(
                     f'idx {binary_idx} is out of bounds for the binary list of length {binaries_number}'
                 )
-                return
+                raise jsonrpc.exceptions.JSONRPCInvalidParams(
+                    message=
+                    f'Invalid binary idx. Out of bounds for list of length {binaries_number}'
+                )
             self.config['binaries'][binary_idx]['url'] = neard_binary_url
 
     def do_update_binaries(self, neard_binary_url, epoch_height, binary_idx):

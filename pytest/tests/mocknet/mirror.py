@@ -639,7 +639,7 @@ if __name__ == '__main__':
         If a binary already exists on the host for this epoch height, the old one will be replaced.
         Otherwise a new binary will be added with this epoch height.
         ''')
-    group.add_argument('--binary_idx',
+    group.add_argument('--binary-idx',
                        type=int,
                        help='''
         0 based indexing.
