@@ -28,7 +28,7 @@ use near_async::time::{Duration, Instant};
 use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
 use near_chain::chain::{
     ApplyChunksDoneMessage, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
-    BlockCatchUpResponse, LoadMemtrieRequest, LoadMemtrieResponse, ProcessChunkStateWitnessMessage,
+    BlockCatchUpResponse, ChunkStateWitnessMessage, LoadMemtrieRequest, LoadMemtrieResponse,
 };
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::{ReshardingRequest, ReshardingResponse};
@@ -53,9 +53,8 @@ use near_client_primitives::types::{
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManagerAdapter, RngSeed};
 use near_network::client::{
-    BlockApproval, BlockHeadersResponse, BlockResponse, ChunkEndorsementMessage,
-    ChunkStateWitnessMessage, ProcessTxRequest, ProcessTxResponse, RecvChallenge, SetNetworkInfo,
-    StateResponse,
+    BlockApproval, BlockHeadersResponse, BlockResponse, ChunkEndorsementMessage, ProcessTxRequest,
+    ProcessTxResponse, RecvChallenge, SetNetworkInfo, StateResponse,
 };
 use near_network::types::ReasonForBan;
 use near_network::types::{
@@ -220,7 +219,7 @@ pub struct SyncJobsSenderForClient {
 #[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
 #[multi_send_message_derive(Debug)]
 pub struct ClientSenderForPartialWitness {
-    pub receive_chunk_state_witness: Sender<ProcessChunkStateWitnessMessage>,
+    pub chunk_state_witness: Sender<ChunkStateWitnessMessage>,
 }
 
 // A small helper macro to unwrap a result of some state sync operation. If the
@@ -2148,19 +2147,9 @@ impl Handler<SyncMessage> for ClientActorInner {
 impl Handler<ChunkStateWitnessMessage> for ClientActorInner {
     #[perf]
     fn handle(&mut self, msg: ChunkStateWitnessMessage) {
+<<<<<<< HEAD
         if let Err(err) = self.client.process_signed_chunk_state_witness(msg.0, None) {
             tracing::error!(target: "client", ?err, "Error processing signed chunk state witness");
-        }
-    }
-}
-
-impl Handler<ProcessChunkStateWitnessMessage> for ClientActorInner {
-    #[perf]
-    fn handle(&mut self, msg: ProcessChunkStateWitnessMessage) {
-        let me = self.client.validator_signer.as_ref().unwrap().validator_id().clone();
-        println!("{me} constructed some ProcessChunkStateWitnessMessage");
-        if let Err(err) = self.client.process_chunk_state_witness(msg.0, None) {
-            tracing::error!(target: "client", ?err, "Error processing chunk state witness");
         }
     }
 }

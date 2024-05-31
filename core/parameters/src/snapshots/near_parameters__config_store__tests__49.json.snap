@@ -102,8 +102,7 @@ expression: config_view
     "pessimistic_gas_price_inflation_ratio": [
       103,
       100
-    ],
-    "storage_proof_size_soft_limit": 999999999999999
+    ]
   },
   "wasm_config": {
     "ext_costs": {
@@ -216,11 +215,16 @@ expression: config_view
       "account_id_validity_rules_version": 0,
       "yield_timeout_length_in_blocks": 200,
       "max_yield_payload_size": 1024,
-      "storage_proof_size_receipt_limit": 999999999999999
+      "per_receipt_storage_proof_size_limit": 999999999999999
     }
   },
   "account_creation_config": {
     "min_allowed_top_level_account_length": 32,
     "registrar_account_id": "registrar"
+  },
+  "witness_config": {
+    "main_storage_proof_size_soft_limit": 999999999999999,
+    "combined_transactions_size_limit": 999999999999999,
+    "new_transactions_validation_state_size_soft_limit": 999999999999999
   }
 }

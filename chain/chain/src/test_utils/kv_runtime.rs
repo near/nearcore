@@ -32,7 +32,6 @@ use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::state_part::PartId;
 use near_primitives::stateless_validation::{
     ChunkEndorsement, ChunkValidatorAssignments, PartialEncodedStateWitness,
-    SignedEncodedChunkStateWitness,
 };
 use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
@@ -958,15 +957,6 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(true)
     }
 
-    fn verify_chunk_state_witness_signature(
-        &self,
-        _signed_witness: &SignedEncodedChunkStateWitness,
-        _chunk_producer: &AccountId,
-        _epoch_id: &EpochId,
-    ) -> Result<bool, Error> {
-        Ok(true)
-    }
-
     fn verify_partial_witness_signature(
         &self,
         _partial_witness: &PartialEncodedStateWitness,
@@ -1027,6 +1017,8 @@ impl EpochManagerAdapter for MockEpochManager {
         _tip: &Tip,
         _height: BlockHeight,
     ) -> Result<Vec<EpochId>, EpochError> {
+        // Just collect all known epochs because `MockEpochManager` is used for
+        // tests which lifetime is short.
         let epochs = self.hash_to_epoch.read().unwrap();
         let next_epochs = self.hash_to_next_epoch.read().unwrap();
         let all_epochs = epochs

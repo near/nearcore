@@ -2021,19 +2021,16 @@ fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v3() {
 
 // latest protocol
 
-#[ignore]
 #[test]
 fn test_latest_protocol_missing_chunks_low_missing_prob() {
     test_latest_protocol_missing_chunks(0.1, 25);
 }
 
-#[ignore]
 #[test]
 fn test_latest_protocol_missing_chunks_mid_missing_prob() {
     test_latest_protocol_missing_chunks(0.5, 26);
 }
 
-#[ignore]
 #[test]
 fn test_latest_protocol_missing_chunks_high_missing_prob() {
     test_latest_protocol_missing_chunks(0.9, 27);

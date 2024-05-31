@@ -700,7 +700,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         time_limit: Option<Duration>,
     ) -> Result<PreparedTransactions, Error> {
         let start_time = std::time::Instant::now();
-        let PrepareTransactionsChunkContext { shard_id, gas_limit } = chunk;
+        let PrepareTransactionsChunkContext { shard_id, gas_limit, .. } = chunk;
 
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block.block_hash)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
@@ -777,19 +777,19 @@ impl RuntimeAdapter for NightshadeRuntime {
             usize::MAX
         };
 
-        // In general, we limit the number of transactions via send_fees.
-        // However, as a second line of defense, we want to limit the byte size
-        // of transaction as well. Rather than introducing a separate config for
-        // the limit, we compute it heuristically from the gas limit and the
-        // cost of roundtripping a byte of data through disk. For today's value
-        // of parameters, this corresponds to about 13megs worth of
-        // transactions.
-        let size_limit = transactions_gas_limit
-            / (runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::storage_write_value_byte)
-                + runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::storage_read_value_byte));
+        let size_limit: u64 = calculate_transactions_size_limit(
+            protocol_version,
+            &runtime_config,
+            chunk.last_chunk_transactions_size,
+            transactions_gas_limit,
+        );
+        // for metrics only
+        let mut rejected_due_to_congestion = 0;
+        let mut rejected_invalid_tx = 0;
+        let mut rejected_invalid_for_chain = 0;
 
         // Add new transactions to the result until some limit is hit or the transactions run out.
-        loop {
+        'add_txs_loop: while let Some(transaction_group_iter) = transaction_groups.next() {
             if total_gas_burnt >= transactions_gas_limit {
                 result.limited_by = Some(PrepareTransactionsLimit::Gas);
                 break;
@@ -816,74 +816,108 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
 
-            if let Some(iter) = transaction_groups.next() {
-                while let Some(tx) = iter.next() {
-                    num_checked_transactions += 1;
+            if checked_feature!("stable", WitnessTransactionLimits, protocol_version)
+                && state_update.trie.recorded_storage_size()
+                    > runtime_config
+                        .witness_config
+                        .new_transactions_validation_state_size_soft_limit
+            {
+                result.limited_by = Some(PrepareTransactionsLimit::StorageProofSize);
+                break;
+            }
 
-                    if ProtocolFeature::CongestionControl.enabled(protocol_version) {
-                        let receiving_shard = EpochManagerAdapter::account_id_to_shard_id(
-                            self.epoch_manager.as_ref(),
-                            tx.transaction.receiver_id(),
-                            &epoch_id,
-                        )?;
-                        if let Some(congestion_info) =
-                            prev_block.congestion_info.get(&receiving_shard)
-                        {
-                            let congestion_control = CongestionControl::new(
-                                runtime_config.congestion_control_config,
-                                congestion_info.congestion_info,
-                                congestion_info.missed_chunks_count,
-                            );
-                            if !congestion_control.shard_accepts_transactions() {
-                                tracing::trace!(target: "runtime", tx=?tx.get_hash(), "discarding transaction due to congestion");
-                                continue;
-                            }
-                        }
-                    }
+            // Take a single transaction from this transaction group
+            while let Some(tx_peek) = transaction_group_iter.peek_next() {
+                // Stop adding transactions if the size limit would be exceeded
+                if checked_feature!("stable", WitnessTransactionLimits, protocol_version)
+                    && total_size.saturating_add(tx_peek.get_size()) > size_limit as u64
+                {
+                    result.limited_by = Some(PrepareTransactionsLimit::Size);
+                    break 'add_txs_loop;
+                }
 
-                    // Verifying the transaction is on the same chain and hasn't expired yet.
-                    if !chain_validate(&tx) {
-                        tracing::trace!(target: "runtime", tx=?tx.get_hash(), "discarding transaction that failed chain validation");
-                        continue;
-                    }
+                // Take the transaction out of the pool
+                let tx = transaction_group_iter
+                    .next()
+                    .expect("peek_next() returned Some, so next() should return Some as well");
+                num_checked_transactions += 1;
 
-                    // Verifying the validity of the transaction based on the current state.
-                    match verify_and_charge_transaction(
-                        runtime_config,
-                        &mut state_update,
-                        prev_block.next_gas_price,
-                        &tx,
-                        false,
-                        Some(next_block_height),
-                        protocol_version,
-                    ) {
-                        Ok(verification_result) => {
-                            tracing::trace!(target: "runtime", tx=?tx.get_hash(), "including transaction that passed validation");
-                            state_update.commit(StateChangeCause::NotWritableToDisk);
-                            total_gas_burnt += verification_result.gas_burnt;
-                            total_size += tx.get_size();
-                            result.transactions.push(tx);
-                            break;
+                if ProtocolFeature::CongestionControl.enabled(protocol_version) {
+                    let receiving_shard = EpochManagerAdapter::account_id_to_shard_id(
+                        self.epoch_manager.as_ref(),
+                        tx.transaction.receiver_id(),
+                        &epoch_id,
+                    )?;
+                    if let Some(congestion_info) = prev_block.congestion_info.get(&receiving_shard)
+                    {
+                        let congestion_control = CongestionControl::new(
+                            runtime_config.congestion_control_config,
+                            congestion_info.congestion_info,
+                            congestion_info.missed_chunks_count,
+                        );
+                        if !congestion_control.shard_accepts_transactions() {
+                            tracing::trace!(target: "runtime", tx=?tx.get_hash(), "discarding transaction due to congestion");
+                            rejected_due_to_congestion += 1;
+                            continue;
                         }
-                        Err(RuntimeError::InvalidTxError(err)) => {
-                            tracing::trace!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction that is invalid");
-                            state_update.rollback();
-                        }
-                        Err(RuntimeError::StorageError(err)) => {
-                            tracing::trace!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction due to storage error");
-                            return Err(Error::StorageError(err));
-                        }
-                        Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
                     }
                 }
-            } else {
-                break;
+
+                // Verifying the transaction is on the same chain and hasn't expired yet.
+                if !chain_validate(&tx) {
+                    tracing::trace!(target: "runtime", tx=?tx.get_hash(), "discarding transaction that failed chain validation");
+                    rejected_invalid_for_chain += 1;
+                    continue;
+                }
+
+                // Verifying the validity of the transaction based on the current state.
+                match verify_and_charge_transaction(
+                    runtime_config,
+                    &mut state_update,
+                    prev_block.next_gas_price,
+                    &tx,
+                    false,
+                    Some(next_block_height),
+                    protocol_version,
+                ) {
+                    Ok(verification_result) => {
+                        tracing::trace!(target: "runtime", tx=?tx.get_hash(), "including transaction that passed validation");
+                        state_update.commit(StateChangeCause::NotWritableToDisk);
+                        total_gas_burnt += verification_result.gas_burnt;
+                        total_size += tx.get_size();
+                        result.transactions.push(tx);
+                        // Take one transaction from this group, no more.
+                        break;
+                    }
+                    Err(RuntimeError::InvalidTxError(err)) => {
+                        tracing::trace!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction that is invalid");
+                        rejected_invalid_tx += 1;
+                        state_update.rollback();
+                    }
+                    Err(RuntimeError::StorageError(err)) => {
+                        tracing::trace!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction due to storage error");
+                        return Err(Error::StorageError(err));
+                    }
+                    Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
+                }
             }
         }
         debug!(target: "runtime", "Transaction filtering results {} valid out of {} pulled from the pool", result.transactions.len(), num_checked_transactions);
-        metrics::PREPARE_TX_SIZE
-            .with_label_values(&[&shard_id.to_string()])
-            .observe(total_size as f64);
+        let shard_label = shard_id.to_string();
+        metrics::PREPARE_TX_SIZE.with_label_values(&[&shard_label]).observe(total_size as f64);
+        metrics::PREPARE_TX_REJECTED
+            .with_label_values(&[&shard_label, "congestion"])
+            .observe(rejected_due_to_congestion as f64);
+        metrics::PREPARE_TX_REJECTED
+            .with_label_values(&[&shard_label, "invalid_tx"])
+            .observe(rejected_invalid_tx as f64);
+        metrics::PREPARE_TX_REJECTED
+            .with_label_values(&[&shard_label, "invalid_block_hash"])
+            .observe(rejected_invalid_for_chain as f64);
+        metrics::PREPARE_TX_GAS.with_label_values(&[&shard_label]).observe(total_gas_burnt as f64);
+        metrics::CONGESTION_PREPARE_TX_GAS_LIMIT
+            .with_label_values(&[&shard_label])
+            .set(i64::try_from(transactions_gas_limit).unwrap_or(i64::MAX));
         result.storage_proof = state_update.trie.recorded_storage().map(|s| s.nodes);
         Ok(result)
     }
@@ -1336,6 +1370,36 @@ fn chunk_tx_gas_limit(
         }
     } else {
         gas_limit / 2
+    }
+}
+
+fn calculate_transactions_size_limit(
+    protocol_version: ProtocolVersion,
+    runtime_config: &RuntimeConfig,
+    last_chunk_transactions_size: usize,
+    transactions_gas_limit: Gas,
+) -> u64 {
+    if checked_feature!("stable", WitnessTransactionLimits, protocol_version) {
+        // Sum of transactions in the previous and current chunks should not exceed the limit.
+        // Witness keeps transactions from both previous and current chunk, so we have to limit the sum of both.
+        runtime_config
+            .witness_config
+            .combined_transactions_size_limit
+            .saturating_sub(last_chunk_transactions_size)
+            .try_into()
+            .expect("Can't convert usize to u64!")
+    } else {
+        // In general, we limit the number of transactions via send_fees.
+        // However, as a second line of defense, we want to limit the byte size
+        // of transaction as well. Rather than introducing a separate config for
+        // the limit, we compute it heuristically from the gas limit and the
+        // cost of roundtripping a byte of data through disk. For today's value
+        // of parameters, this corresponds to about 13megs worth of
+        // transactions.
+        let roundtripping_cost =
+            runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::storage_write_value_byte)
+                + runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::storage_read_value_byte);
+        transactions_gas_limit / roundtripping_cost
     }
 }
 
