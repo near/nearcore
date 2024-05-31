@@ -16,7 +16,9 @@ use super::event_handler::LoopEventHandler;
 /// of the actor.
 /// For DelayedActionRunner, we can have a callback that runs the function passed to run_later_boxed.
 pub struct CallbackEvent {
+    /// Description of the event, used for debugging
     description: String,
+    /// Callback to execute in the testloop event loop
     callback: Box<dyn FnOnce() + Send>,
 }
 
@@ -92,13 +94,10 @@ where
         let callback = move || {
             this.actor.lock().unwrap().handle(msg, &mut this.clone());
         };
-        self.pending_events_sender.send_with_delay(
-            CallbackEvent {
-                description: format!("Message {:?}", type_name::<M>()),
-                callback: Box::new(callback),
-            },
-            Duration::ZERO,
-        );
+        self.pending_events_sender.send(CallbackEvent {
+            description: format!("Message {:?}", type_name::<M>()),
+            callback: Box::new(callback),
+        });
     }
 }
 
@@ -115,13 +114,10 @@ where
             let result = this.actor.lock().unwrap().handle(msg, &mut this.clone());
             callback(Ok(result));
         };
-        self.pending_events_sender.send_with_delay(
-            CallbackEvent {
-                description: format!("Message {:?}", type_name::<M>()),
-                callback: Box::new(callback),
-            },
-            Duration::ZERO,
-        );
+        self.pending_events_sender.send(CallbackEvent {
+            description: format!("Message {:?}", type_name::<M>()),
+            callback: Box::new(callback),
+        });
     }
 }
 
@@ -144,13 +140,10 @@ where
     pub fn queue_start_actor_event(&mut self) {
         let this = self.clone();
         let callback = move || this.actor.lock().unwrap().start_actor(&mut this.clone());
-        self.pending_events_sender.send_with_delay(
-            CallbackEvent {
-                description: format!("StartActor {:?}", type_name::<A>()),
-                callback: Box::new(callback),
-            },
-            Duration::ZERO,
-        );
+        self.pending_events_sender.send(CallbackEvent {
+            description: format!("StartActor {:?}", type_name::<A>()),
+            callback: Box::new(callback),
+        });
     }
 }
 
