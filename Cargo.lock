@@ -4115,6 +4115,7 @@ dependencies = [
  "rocksdb",
  "strum",
  "tempfile",
+ "tracing",
  "zstd",
 ]
 
@@ -4209,9 +4210,11 @@ dependencies = [
  "chrono",
  "clap",
  "hex",
+ "indicatif",
  "near-chain",
  "near-chain-configs",
  "near-crypto",
+ "near-database-tool",
  "near-epoch-manager",
  "near-mirror",
  "near-o11y",

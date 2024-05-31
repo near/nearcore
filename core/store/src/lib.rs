@@ -291,6 +291,15 @@ impl Store {
         self.get(column, key)?.as_deref().map(T::try_from_slice).transpose()
     }
 
+    /// Looks up the key in the database, returning the raw data. This ignores any refcount
+    /// logic, so for an rc column this would return the refcount-encoded value.
+    /// This method is a deliberate escape hatch, and shouldn't be used outside
+    /// of auxilary code like migrations which wants to hack on the database
+    /// directly.
+    pub fn get_raw_bytes(&self, column: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
+        self.storage.get_raw_bytes(column, key)
+    }
+
     pub fn exists(&self, column: DBCol, key: &[u8]) -> io::Result<bool> {
         self.get(column, key).map(|value| value.is_some())
     }
