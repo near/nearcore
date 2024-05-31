@@ -360,7 +360,7 @@ impl TestEnv {
                 let DistributeStateWitnessRequest { epoch_id, chunk_header, state_witness } =
                     request;
 
-                let raw_witness_size = state_witness.borsh_size();
+                let raw_witness_size = borsh::to_vec(&state_witness).unwrap().len();
                 let chunk_validators = self.clients[client_idx]
                     .epoch_manager
                     .get_chunk_validator_assignments(

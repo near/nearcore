@@ -13,6 +13,7 @@ use near_primitives::sharding::{
     ChunkHash, ReceiptProof, ShardChunkHeader, ShardChunkHeaderInner, ShardProof,
 };
 use near_primitives::stateless_validation::ChunkStateWitness;
+use near_primitives::stateless_validation::ChunkStateWitnessSize;
 use near_primitives::types::AccountId;
 use near_primitives_core::checked_feature;
 use near_primitives_core::version::PROTOCOL_VERSION;
@@ -132,7 +133,7 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
         env.partial_witness_adapters[env.get_client_index(&block2_chunk_producer)].clone();
     while let Some(request) = partial_witness_adapter.pop_distribution_request() {
         let DistributeStateWitnessRequest { epoch_id, chunk_header, state_witness } = request;
-        let raw_witness_size = state_witness.borsh_size();
+        let raw_witness_size = borsh_size(&state_witness);
         let chunk_validators = env
             .client(&block2_chunk_producer)
             .epoch_manager
@@ -218,7 +219,7 @@ fn test_orphan_witness_valid() {
 
     // `excluded_validator` receives witness for chunk belonging to `block2`, but it doesn't have `block1`.
     // The witness should become an orphaned witness and it should be saved to the orphan pool.
-    let witness_size = witness.borsh_size();
+    let witness_size = borsh_size(&witness);
     env.client(&excluded_validator)
         .process_chunk_state_witness(witness, witness_size, None)
         .unwrap();
@@ -316,7 +317,7 @@ fn test_orphan_witness_not_fully_validated() {
     // The witness should be accepted and saved into the pool, even though it's invalid.
     // There is no way to fully validate an orphan witness, so this is the correct behavior.
     // The witness will later be fully validated when the required block arrives.
-    let witness_size = witness.borsh_size();
+    let witness_size = borsh_size(&witness);
     env.client(&excluded_validator)
         .process_chunk_state_witness(witness, witness_size, None)
         .unwrap();
@@ -332,4 +333,8 @@ fn modify_witness_header_inner(
         }
         _ => unreachable!(),
     };
+}
+
+fn borsh_size(witness: &ChunkStateWitness) -> ChunkStateWitnessSize {
+    borsh::to_vec(&witness).unwrap().len()
 }
