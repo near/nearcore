@@ -9,7 +9,7 @@ use crate::Client;
 use near_chain::Block;
 use near_chain_primitives::Error;
 use near_primitives::stateless_validation::ChunkStateWitness;
-use near_primitives::types::{BlockHeight, EpochId};
+use near_primitives::types::BlockHeight;
 use std::ops::Range;
 
 /// We keep only orphan witnesses that are within this distance of
