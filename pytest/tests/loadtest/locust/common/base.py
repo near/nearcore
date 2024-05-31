@@ -623,6 +623,7 @@ class InvalidNonceError(RpcError):
         )
         self.ak_nonce = ak_nonce
 
+
 class ShardCongestedError(RpcError):
 
     def __init__(
@@ -687,7 +688,8 @@ def evaluate_rpc_result(rpc_result):
                     err_description["InvalidNonce"]["tx_nonce"],
                     err_description["InvalidNonce"]["ak_nonce"])
             elif "ShardCongested" in err_description:
-                raise ShardCongestedError(err_description["ShardCongested"]["shard_id"])
+                raise ShardCongestedError(
+                    err_description["ShardCongested"]["shard_id"])
         raise RpcError(details=rpc_result["error"])
 
     result = rpc_result["result"]
