@@ -8,21 +8,21 @@ function sortBlocks(blocks) {
 
 function toTgas(gas) {
     if (!gas && gas !== 0) {
-        return "N/A"
+        return <span className="not_available">N/A</span>
     }
     return (gas / (1024 * 1024 * 1024 * 1024)).toFixed(2)
 }
 
 function toMiB(bytes) {
     if (!bytes && bytes !== 0) {
-        return "N/A"
+        return <span className="not_available">N/A</span>
     }
     return (bytes / (1024 * 1024)).toFixed(2)
 }
 
 function toShardIndex(shard) {
     if (!shard && shard !== 0) {
-        return "N/A"
+        return <span className="not_available">N/A</span>
     }
     return shard
 }
@@ -37,7 +37,7 @@ function BlocksTable({ rows }) {
     const header = <tr>
         <th>Height</th>
         {[...Array(numShards).keys()].map(i =>
-            <th key={i} colSpan="4">Shard {i} (delayed(Tgas)/buffered(Tgas)/receipt(MiB)/allowed(shards))</th>)}
+            <th key={i} colSpan="4">Shard {i} (delayed(Tgas)/buffered(Tgas)/receipt(MiB)/allowed(shard))</th>)}
     </tr>;
 
     // One 'tr' element per row.
@@ -57,7 +57,7 @@ function BlocksTable({ rows }) {
 
         tableRows.push(
             <tr key={row.block_hash}>
-                <td>
+                <td className="block_height">
                     <span>{row.block_height}</span>
                 </td>
                 {chunkCells}

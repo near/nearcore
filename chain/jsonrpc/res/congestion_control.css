@@ -31,3 +31,13 @@ th {
     padding: 8px;
     background-color: lightgrey;
 }
+
+.block_height {
+    background-color: lightgray;
+    font-weight: bold;
+}
+
+.not_available {
+    font-style: italic;
+    color: lightgray;
+}
