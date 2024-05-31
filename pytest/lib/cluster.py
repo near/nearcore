@@ -4,7 +4,7 @@ import json
 import os
 import pathlib
 import rc
-import requests
+import geventhttpclient as requests
 import shutil
 import signal
 import subprocess
@@ -217,8 +217,7 @@ class BaseNode(object):
             'jsonrpc': '2.0'
         }
         r = requests.post("http://%s:%s" % self.rpc_addr(),
-                          json=j,
-                          timeout=timeout)
+                          json=j)
         r.raise_for_status()
         return json.loads(r.content)
 

@@ -9,7 +9,7 @@ import ctypes
 import logging
 import multiprocessing
 import pathlib
-import geventhttpclient as requests
+from geventhttpclient import Session
 import sys
 import threading
 import time
@@ -30,6 +30,8 @@ import utils
 DEFAULT_TRANSACTION_TTL = timedelta(minutes=30)
 logger = new_logger(level=logging.WARN)
 
+# This is used to make the specific tests wait for the do_on_locust_init function
+# to initialize the funding account, before initializating the users.
 INIT_DONE = threading.Event()
 
 
@@ -239,7 +241,7 @@ class NearNodeProxy:
         self.request_event = environment.events.request
         [url, port] = environment.host.rsplit(":", 1)
         self.node = cluster.RpcNode(url, port)
-        self.session = requests.Session()
+        self.session = Session()
 
     def send_tx_retry(self, tx: Transaction, locust_name) -> dict:
         """
@@ -553,6 +555,7 @@ class NearUser(User):
         """
         Called once per user, creating the account on chain
         """
+        # Wait for NearUser.funding_account to be initialized.
         INIT_DONE.wait()
         self.account_id = NearUser.generate_account_id(self.account_generator,
                                                        self.user_suffix)
