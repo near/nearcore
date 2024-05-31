@@ -78,7 +78,8 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_store::config::StateSnapshotType;
 use near_store::genesis::initialize_genesis_state;
-use near_store::{NodeStorage, StoreConfig, TrieConfig};
+use near_store::test_utils::create_test_store;
+use near_store::{StoreConfig, TrieConfig};
 use near_vm_runner::ContractRuntimeCache;
 use near_vm_runner::FilesystemContractRuntimeCache;
 use nearcore::state_sync::StateSyncDumper;
@@ -235,11 +236,9 @@ fn test_client_with_multi_test_loop() {
         let store_config = StoreConfig {
             path: Some(homedir.clone()),
             load_mem_tries_for_tracked_shards: true,
-            max_open_files: 1000,
             ..Default::default()
         };
-        let opener = NodeStorage::opener(&homedir, false, &store_config, None);
-        let store = opener.open().unwrap().get_hot_store();
+        let store = create_test_store();
         initialize_genesis_state(store.clone(), &genesis, None);
 
         let sync_jobs_actor = SyncJobsActor::new(
