@@ -22,7 +22,7 @@ pub struct CallbackEvent {
 
 impl Debug for CallbackEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CallbackEvent").field("description", &self.description).finish()
+        f.debug_tuple("CallbackEvent").field(&self.description).finish()
     }
 }
 
