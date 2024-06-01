@@ -1,10 +1,12 @@
-use hyper::body::HttpBody;
+use hyper::{body::HttpBody, StatusCode};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::path::{Path, PathBuf};
 use tokio::io::AsyncWriteExt;
 
 #[derive(thiserror::Error, Debug)]
 pub enum FileDownloadError {
+    #[error("Unsuccessful HTTP connection. Return code: {0}")]
+    HttpResponseCode(StatusCode),
     #[error("{0}")]
     HttpError(hyper::Error),
     #[error("Failed to open temporary file")]
@@ -45,6 +47,10 @@ async fn download_file_impl(
     let https_connector = hyper_tls::HttpsConnector::new();
     let client = hyper::Client::builder().build::<_, hyper::Body>(https_connector);
     let mut resp = client.get(uri).await.map_err(FileDownloadError::HttpError)?;
+    let status_code = resp.status();
+    if !status_code.is_success() {
+        return Err(FileDownloadError::HttpResponseCode(status_code));
+    }
     let bar = if let Some(file_size) = resp.size_hint().upper() {
         let bar = ProgressBar::new(file_size);
         bar.set_style(
