@@ -9,7 +9,7 @@ import ctypes
 import logging
 import multiprocessing
 import pathlib
-import requests
+import geventhttpclient as requests
 import sys
 import threading
 import time
@@ -92,10 +92,10 @@ class Transaction:
         self.transaction_id = None
 
     @abc.abstractmethod
-    def sign_and_serialize(self, block_hash) -> bytes:
+    def sign(self, block_hash) -> transaction.SignedTransaction:
         """
-        Each transaction class is supposed to define this method to serialize and
-        sign the transaction and return the raw message to be sent.
+        Each transaction class is supposed to define this method to create and return the signed
+        transaction. Transaction needs to be serialized before being sent.
         """
 
     @abc.abstractmethod
@@ -128,8 +128,8 @@ class FunctionCall(Transaction):
         Return a single dict for `FunctionCall` but a list of dict for `MultiFunctionCall`.
         """
 
-    def sign_and_serialize(self, block_hash) -> bytes:
-        return transaction.sign_function_call_tx(
+    def sign(self, block_hash) -> transaction.SignedTransaction:
+        return transaction.sign_function_call_transaction(
             self.sender.key, self.receiver_id, self.method,
             json.dumps(self.args()).encode('utf-8'), 300 * TGAS, self.balance,
             self.sender.use_nonce(), block_hash)
@@ -150,7 +150,7 @@ class MultiFunctionCall(FunctionCall):
                  balance: int = 0):
         super().__init__(sender, receiver_id, method, balance=balance)
 
-    def sign_and_serialize(self, block_hash) -> bytes:
+    def sign(self, block_hash) -> transaction.SignedTransaction:
         all_args = self.args()
         gas = 300 * TGAS // len(all_args)
 
@@ -160,10 +160,12 @@ class MultiFunctionCall(FunctionCall):
                 json.dumps(args).encode('utf-8'), gas, int(self.balance))
 
         actions = [create_action(args) for args in all_args]
-        return transaction.sign_and_serialize_transaction(
-            self.receiver_id, self.sender.use_nonce(), actions, block_hash,
-            self.sender.key.account_id, self.sender.key.decoded_pk(),
-            self.sender.key.decoded_sk())
+        return transaction.sign_transaction(self.receiver_id,
+                                            self.sender.use_nonce(), actions,
+                                            block_hash,
+                                            self.sender.key.account_id,
+                                            self.sender.key.decoded_pk(),
+                                            self.sender.key.decoded_sk())
 
 
 class Deploy(Transaction):
@@ -174,13 +176,12 @@ class Deploy(Transaction):
         self.contract = contract
         self.name = name
 
-    def sign_and_serialize(self, block_hash) -> bytes:
+    def sign(self, block_hash) -> transaction.SignedTransaction:
         account = self.account
         logger.info(f"deploying {self.name} to {account.key.account_id}")
         wasm_binary = utils.load_binary_file(self.contract)
-        return transaction.sign_deploy_contract_tx(account.key, wasm_binary,
-                                                   account.use_nonce(),
-                                                   block_hash)
+        return transaction.sign_deploy_contract_transaction(
+            account.key, wasm_binary, account.use_nonce(), block_hash)
 
     def sender_account(self) -> Account:
         return self.account
@@ -194,11 +195,11 @@ class CreateSubAccount(Transaction):
         self.sub_key = sub_key
         self.balance = balance
 
-    def sign_and_serialize(self, block_hash) -> bytes:
+    def sign(self, block_hash) -> transaction.SignedTransaction:
         sender = self.sender
         sub = self.sub_key
         logger.debug(f"creating {sub.account_id}")
-        return transaction.sign_create_account_with_full_access_key_and_balance_tx(
+        return transaction.sign_create_account_with_full_access_key_and_balance_transaction(
             sender.key, sub.account_id, sub, int(self.balance * 1E24),
             sender.use_nonce(), block_hash)
 
@@ -213,13 +214,15 @@ class AddFullAccessKey(Transaction):
         self.sender = parent
         self.new_key = new_key
 
-    def sign_and_serialize(self, block_hash) -> bytes:
+    def sign(self, block_hash) -> transaction.SignedTransaction:
         action = transaction.create_full_access_key_action(
             self.new_key.decoded_pk())
-        return transaction.sign_and_serialize_transaction(
-            self.sender.key.account_id, self.sender.use_nonce(),
-            [action], block_hash, self.sender.key.account_id,
-            self.sender.key.decoded_pk(), self.sender.key.decoded_sk())
+        return transaction.sign_transaction(self.sender.key.account_id,
+                                            self.sender.use_nonce(), [action],
+                                            block_hash,
+                                            self.sender.key.account_id,
+                                            self.sender.key.decoded_pk(),
+                                            self.sender.key.decoded_sk())
 
     def sender_account(self) -> Account:
         return self.sender
@@ -268,36 +271,83 @@ class NearNodeProxy:
         Send a transaction and return the result, no retry attempted.
         """
         block_hash = self.final_block_hash()
-        signed_tx = tx.sign_and_serialize(block_hash)
+        signed_tx = tx.sign(block_hash)
+        serialized_tx = transaction.serialize_transaction(signed_tx)
 
         meta = self.new_locust_metadata(locust_name)
         start_perf_counter = time.perf_counter()
 
         try:
             try:
-                # To get proper errors on invalid transaction, we need to use sync api first
+                # To get proper errors on invalid transaction, we need to wait at least for
+                # optimistic execution
                 result = self.post_json(
-                    "broadcast_tx_commit",
-                    [base64.b64encode(signed_tx).decode('utf8')])
+                    "send_tx", {
+                        "signed_tx_base64":
+                            base64.b64encode(serialized_tx).decode('utf8'),
+                        "wait_until":
+                            "EXECUTED_OPTIMISTIC"
+                    })
                 evaluate_rpc_result(result.json())
             except TxUnknownError as err:
                 # This means we time out in one way or another.
                 # In that case, the stateless transaction validation was
                 # successful, we can now use async API without missing errors.
                 submit_raw_response = self.post_json(
-                    "broadcast_tx_async",
-                    [base64.b64encode(signed_tx).decode('utf8')])
+                    "send_tx", {
+                        "signed_tx_base64":
+                            base64.b64encode(serialized_tx).decode('utf8'),
+                        "wait_until":
+                            "NONE"
+                    })
                 meta["response_length"] = len(submit_raw_response.text)
-                submit_response = submit_raw_response.json()
-                # extract transaction ID from response, it should be "{ "result": "id...." }"
+                submit_response = json.loads(submit_raw_response.text)
                 if not "result" in submit_response:
-                    meta["exception"] = RpcError(message="Didn't get a TX ID",
-                                                 details=submit_response)
+                    meta["exception"] = RpcError(
+                        message="Failed to submit transaction",
+                        details=submit_response)
                     meta["response"] = submit_response.content
                 else:
-                    tx.transaction_id = submit_response["result"]
+                    tx.transaction_id = signed_tx.id
                     # using retrying lib here to poll until a response is ready
                     self.poll_tx_result(meta, tx)
+        except NearError as err:
+            logging.warn(f"marking an error {err.message}, {err.details}")
+            meta["exception"] = err
+
+        meta["response_time"] = (time.perf_counter() -
+                                 start_perf_counter) * 1000
+
+        # Track request + response in Locust
+        self.request_event.fire(**meta)
+        return meta
+
+    def send_tx_async(self, tx: Transaction, locust_name: str) -> dict:
+        """
+        Send a transaction, but don't wait until it completes.
+        """
+        block_hash = self.final_block_hash()
+        signed_tx = tx.sign(block_hash)
+        serialized_tx = transaction.serialize_transaction(signed_tx)
+
+        meta = self.new_locust_metadata(locust_name)
+        start_perf_counter = time.perf_counter()
+
+        try:
+            submit_raw_response = self.post_json(
+                "send_tx", {
+                    "signed_tx_base64":
+                        base64.b64encode(serialized_tx).decode('utf8'),
+                    "wait_until":
+                        "NONE"
+                })
+            meta["response_length"] = len(submit_raw_response.text)
+            submit_response = json.loads(submit_raw_response.text)
+            if not "result" in submit_response:
+                meta["exception"] = RpcError(
+                    message="Failed to submit transaction",
+                    details=submit_response)
+                meta["response"] = submit_response.content
         except NearError as err:
             logging.warn(f"marking an error {err.message}, {err.details}")
             meta["exception"] = err
@@ -325,7 +375,7 @@ class NearNodeProxy:
             "exception": None,  # maybe overwritten later
         }
 
-    def post_json(self, method: str, params: typing.List[str]):
+    def post_json(self, method: str, params: typing.Dict[str, str]):
         j = {
             "method": method,
             "params": params,
@@ -339,17 +389,21 @@ class NearNodeProxy:
            stop_max_delay=DEFAULT_TRANSACTION_TTL / timedelta(milliseconds=1),
            retry_on_exception=is_tx_unknown_error)
     def poll_tx_result(self, meta: dict, tx: Transaction):
-        params = [tx.transaction_id, tx.sender_account().key.account_id]
+        params = {
+            "tx_hash": tx.transaction_id,
+            "sender_account_id": tx.sender_account().key.account_id
+        }
         # poll for tx result, using "EXPERIMENTAL_tx_status" which waits for
         # all receipts to finish rather than just the first one, as "tx" would do
         result_response = self.post_json("EXPERIMENTAL_tx_status", params)
         # very verbose, but very useful to see what's happening when things are stuck
         logger.debug(
-            f"polling, got: {result_response.status_code} {result_response.json()}"
+            f"polling, got: {result_response.status_code} {json.loads(result_response.text)}"
         )
 
         try:
-            meta["response"] = evaluate_rpc_result(result_response.json())
+            meta["response"] = evaluate_rpc_result(
+                json.loads(result_response.text))
         except:
             # Store raw response to improve error-reporting.
             meta["response"] = result_response.content
@@ -425,12 +479,17 @@ class NearNodeProxy:
             for account in to_create:
                 meta = self.new_locust_metadata(msg)
                 tx = CreateSubAccount(parent, account.key, balance=balance)
-                signed_tx = tx.sign_and_serialize(block_hash)
+                signed_tx = tx.sign(block_hash)
+                serialized_tx = transaction.serialize_transaction(signed_tx)
                 submit_raw_response = self.post_json(
-                    "broadcast_tx_async",
-                    [base64.b64encode(signed_tx).decode('utf8')])
+                    "send_tx", {
+                        "signed_tx_base64":
+                            base64.b64encode(serialized_tx).decode('utf8'),
+                        "wait_until":
+                            "NONE"
+                    })
                 meta["response_length"] = len(submit_raw_response.text)
-                submit_response = submit_raw_response.json()
+                submit_response = json.loads(submit_raw_response.text)
                 if not "result" in submit_response:
                     # something failed, let's not block, just try again later
                     logger.debug(
@@ -438,7 +497,7 @@ class NearNodeProxy:
                     )
                     try_again.append(account)
                 else:
-                    tx.transaction_id = submit_response["result"]
+                    tx.transaction_id = signed_tx.id
                     inflight.append((tx, meta, account))
             to_create = try_again
 
@@ -505,6 +564,14 @@ class NearUser(User):
         Send a transaction and return the result, no retry attempted.
         """
         return self.node.send_tx(tx, locust_name)["response"]
+
+    def send_tx_async(self,
+                      tx: Transaction,
+                      locust_name="generic send_tx_async"):
+        """
+        Send a transaction, but don't wait until it completes.
+        """
+        return self.node.send_tx_async(tx, locust_name)["response"]
 
     def send_tx_retry(self,
                       tx: Transaction,

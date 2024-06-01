@@ -110,7 +110,6 @@ fn test_basic_extension_node() {
         &mut arena,
         InputMemTrieNode::Extension { extension: &[5, 6, 7, 8, 9], child },
     );
-    node.as_ptr_mut(arena.memory_mut()).compute_hash_recursively();
     let child_ptr = child.as_ptr(arena.memory());
     let node_ptr = node.as_ptr(arena.memory());
     assert_eq!(
@@ -159,7 +158,6 @@ fn test_basic_branch_node() {
         &mut arena,
         InputMemTrieNode::Branch { children: branch_array(vec![(3, child1), (5, child2)]) },
     );
-    node.as_ptr_mut(arena.memory_mut()).compute_hash_recursively();
     let child1_ptr = child1.as_ptr(arena.memory());
     let child2_ptr = child2.as_ptr(arena.memory());
     let node_ptr = node.as_ptr(arena.memory());
@@ -226,8 +224,6 @@ fn test_basic_branch_with_value_node() {
             value: &FlatStateValue::Inlined(vec![3, 4, 5]),
         },
     );
-
-    node.as_ptr_mut(arena.memory_mut()).compute_hash_recursively();
 
     let child1_ptr = child1.as_ptr(arena.memory());
     let child2_ptr = child2.as_ptr(arena.memory());

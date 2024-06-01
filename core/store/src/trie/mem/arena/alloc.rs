@@ -45,11 +45,11 @@ pub struct Allocator {
 const MAX_ALLOC_SIZE: usize = 16 * 1024;
 const ROUND_UP_TO_8_BYTES_UNDER: usize = 256;
 const ROUND_UP_TO_64_BYTES_UNDER: usize = 1024;
-const CHUNK_SIZE: usize = 4 * 1024 * 1024;
+pub(crate) const CHUNK_SIZE: usize = 4 * 1024 * 1024;
 
 /// Calculates the allocation class (an index from 0 to NUM_ALLOCATION_CLASSES)
 /// for the given size that we wish to allocate.
-const fn allocation_class(size: usize) -> usize {
+pub(crate) const fn allocation_class(size: usize) -> usize {
     if size <= ROUND_UP_TO_8_BYTES_UNDER {
         (size + 7) / 8 - 1
     } else if size <= ROUND_UP_TO_64_BYTES_UNDER {
@@ -61,7 +61,7 @@ const fn allocation_class(size: usize) -> usize {
 }
 
 /// Calculates the size of the actual allocation for the given size class.
-const fn allocation_size(size_class: usize) -> usize {
+pub(crate) const fn allocation_size(size_class: usize) -> usize {
     if size_class <= allocation_class(ROUND_UP_TO_8_BYTES_UNDER) {
         (size_class + 1) * 8
     } else if size_class <= allocation_class(ROUND_UP_TO_64_BYTES_UNDER) {
@@ -88,13 +88,30 @@ impl Allocator {
         }
     }
 
+    pub fn new_with_initial_stats(
+        name: String,
+        active_allocs_bytes: usize,
+        active_allocs_count: usize,
+    ) -> Self {
+        let mut allocator = Self::new(name);
+        allocator.active_allocs_bytes = active_allocs_bytes;
+        allocator.active_allocs_count = active_allocs_count;
+        allocator.active_allocs_bytes_gauge.set(active_allocs_bytes as i64);
+        allocator.active_allocs_count_gauge.set(active_allocs_count as i64);
+        allocator
+    }
+
+    pub fn update_memory_usage_gauge(&self, memory: &STArenaMemory) {
+        self.memory_usage_gauge.set(memory.chunks.len() as i64 * CHUNK_SIZE as i64);
+    }
+
     /// Adds a new chunk to the arena, and updates the next_alloc_pos to the beginning of
     /// the new chunk.
     fn new_chunk(&mut self, memory: &mut STArenaMemory) {
         memory.chunks.push(vec![0; CHUNK_SIZE]);
         self.next_alloc_pos =
             ArenaPos { chunk: u32::try_from(memory.chunks.len() - 1).unwrap(), pos: 0 };
-        self.memory_usage_gauge.set(memory.chunks.len() as i64 * CHUNK_SIZE as i64);
+        self.update_memory_usage_gauge(memory);
     }
 
     /// Allocates a slice of the given size in the arena.
@@ -144,6 +161,11 @@ impl Allocator {
     #[cfg(test)]
     pub fn num_active_allocs(&self) -> usize {
         self.active_allocs_count
+    }
+
+    #[cfg(test)]
+    pub fn active_allocs_bytes(&self) -> usize {
+        self.active_allocs_bytes
     }
 }
 

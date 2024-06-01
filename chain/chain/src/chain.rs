@@ -546,7 +546,7 @@ impl Chain {
             })
             .cloned()
             .collect();
-        runtime_adapter.get_tries().load_mem_tries_for_enabled_shards(&tracked_shards)?;
+        runtime_adapter.get_tries().load_mem_tries_for_enabled_shards(&tracked_shards, true)?;
 
         info!(target: "chain", "Init: header head @ #{} {}; block head @ #{} {}",
               header_head.height, header_head.last_block_hash,
@@ -4696,7 +4696,7 @@ pub struct BlockCatchUpResponse {
 
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]
-pub struct ProcessChunkStateWitnessMessage(pub EncodedChunkStateWitness);
+pub struct ChunkStateWitnessMessage(pub EncodedChunkStateWitness);
 
 /// Helper to track blocks catch up
 /// Lifetime of a block_hash is as follows:

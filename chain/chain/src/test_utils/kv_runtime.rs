@@ -6,6 +6,7 @@ use crate::types::{
 };
 use crate::BlockHeader;
 use borsh::{BorshDeserialize, BorshSerialize};
+use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain_configs::{ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chain_primitives::Error;
@@ -31,7 +32,6 @@ use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::state_part::PartId;
 use near_primitives::stateless_validation::{
     ChunkEndorsement, ChunkValidatorAssignments, PartialEncodedStateWitness,
-    SignedEncodedChunkStateWitness,
 };
 use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
@@ -957,15 +957,6 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(true)
     }
 
-    fn verify_chunk_state_witness_signature(
-        &self,
-        _signed_witness: &SignedEncodedChunkStateWitness,
-        _chunk_producer: &AccountId,
-        _epoch_id: &EpochId,
-    ) -> Result<bool, Error> {
-        Ok(true)
-    }
-
     fn verify_partial_witness_signature(
         &self,
         _partial_witness: &PartialEncodedStateWitness,
@@ -1026,7 +1017,18 @@ impl EpochManagerAdapter for MockEpochManager {
         _tip: &Tip,
         _height: BlockHeight,
     ) -> Result<Vec<EpochId>, EpochError> {
-        unimplemented!();
+        // Just collect all known epochs because `MockEpochManager` is used for
+        // tests which lifetime is short.
+        let epochs = self.hash_to_epoch.read().unwrap();
+        let next_epochs = self.hash_to_next_epoch.read().unwrap();
+        let all_epochs = epochs
+            .keys()
+            .chain(next_epochs.keys())
+            .cloned()
+            .map(|c| EpochId(c))
+            .collect::<HashSet<_>>();
+        let vec = all_epochs.into_iter().collect_vec();
+        Ok(vec)
     }
 
     #[cfg(feature = "new_epoch_sync")]
