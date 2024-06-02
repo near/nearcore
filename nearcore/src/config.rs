@@ -312,7 +312,7 @@ pub struct Config {
     pub max_loaded_contracts: usize,
     /// Save observed instances of ChunkStateWitness to the database in DBCol::LatestChunkStateWitnesses.
     /// Saving the latest witnesses is useful for analysis and debugging.
-    /// When this option is enabled, the node will save ALL witnesses it oberves, even invalid ones,
+    /// When this option is enabled, the node will save ALL witnesses it observes, even invalid ones,
     /// which can cause extra load on the database. This option is not recommended for production use,
     /// as a large number of incoming witnesses could cause denial of service.
     pub save_latest_witnesses: bool,
