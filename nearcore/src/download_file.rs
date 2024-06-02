@@ -327,6 +327,41 @@ mod tests {
         check_file_download(payload, Err("Failed to decompress XZ stream: lzma data error")).await;
     }
 
+    #[tokio::test]
+    async fn test_file_download_bad_http_code() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let tmp_file = tempfile::NamedTempFile::new().unwrap();
+
+        tokio::task::spawn(async move {
+            let make_svc = make_service_fn(move |_conn| {
+                let handle_request = move |_: Request<Body>| async move {
+                    Ok::<_, Infallible>(
+                        Response::builder()
+                            .status(StatusCode::NOT_FOUND)
+                            .body(Body::from(""))
+                            .unwrap(),
+                    )
+                };
+                async move { Ok::<_, Infallible>(service_fn(handle_request)) }
+            });
+            let server = Server::from_tcp(listener).unwrap().serve(make_svc);
+            if let Err(e) = server.await {
+                eprintln!("server error: {}", e);
+            }
+        });
+
+        let res = download_file(&format!("http://localhost:{}", port), tmp_file.path())
+            .await
+            .map(|()| std::fs::read(tmp_file.path()).unwrap());
+
+        assert!(
+            matches!(res, Err(FileDownloadError::HttpResponseCode(StatusCode::NOT_FOUND))),
+            "got {:?}",
+            res
+        );
+    }
+
     fn auto_xz_test_write_file(
         buffer: &[u8],
         chunk_size: usize,
