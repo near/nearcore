@@ -12,6 +12,12 @@ pub struct RawTrieNodeWithSize {
     pub(super) memory_usage: u64,
 }
 
+impl RawTrieNodeWithSize {
+    pub fn hash(&self) -> CryptoHash {
+        CryptoHash::hash_bytes(&borsh::to_vec(self).unwrap())
+    }
+}
+
 /// Trie node.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
 #[allow(clippy::large_enum_variant)]

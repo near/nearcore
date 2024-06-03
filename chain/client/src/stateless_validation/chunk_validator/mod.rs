@@ -32,7 +32,6 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
 use near_primitives::stateless_validation::{
     ChunkEndorsement, ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessSize,
-    EncodedChunkStateWitness,
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -754,11 +753,10 @@ impl Client {
     /// you can use the `processing_done_tracker` argument (but it's optional, it's safe to pass None there).
     pub fn process_chunk_state_witness(
         &mut self,
-        encoded_witness: EncodedChunkStateWitness,
+        witness: ChunkStateWitness,
+        raw_witness_size: ChunkStateWitnessSize,
         processing_done_tracker: Option<ProcessingDoneTracker>,
     ) -> Result<(), Error> {
-        let (witness, raw_witness_size) = self.decode_state_witness(&encoded_witness)?;
-
         tracing::debug!(
             target: "client",
             chunk_hash=?witness.chunk_header.chunk_hash(),
@@ -814,22 +812,5 @@ impl Client {
         }
 
         self.chunk_validator.start_validating_chunk(witness, &self.chain, processing_done_tracker)
-    }
-
-    fn decode_state_witness(
-        &self,
-        encoded_witness: &EncodedChunkStateWitness,
-    ) -> Result<(ChunkStateWitness, ChunkStateWitnessSize), Error> {
-        let decode_start = std::time::Instant::now();
-        let (witness, raw_witness_size) = encoded_witness.decode()?;
-        let decode_elapsed_seconds = decode_start.elapsed().as_secs_f64();
-        let witness_shard = witness.chunk_header.shard_id();
-
-        // Record metrics after validating the witness
-        metrics::CHUNK_STATE_WITNESS_DECODE_TIME
-            .with_label_values(&[&witness_shard.to_string()])
-            .observe(decode_elapsed_seconds);
-
-        Ok((witness, raw_witness_size))
     }
 }

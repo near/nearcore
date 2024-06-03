@@ -2094,9 +2094,7 @@ impl Handler<ShardsManagerResponse> for ClientActorInner {
                 chunk_header,
                 chunk_producer,
             } => {
-                self.client
-                    .chunk_inclusion_tracker
-                    .mark_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
+                self.client.mark_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
             }
         }
     }
@@ -2121,7 +2119,8 @@ impl Handler<SyncMessage> for ClientActorInner {
 impl Handler<ChunkStateWitnessMessage> for ClientActorInner {
     #[perf]
     fn handle(&mut self, msg: ChunkStateWitnessMessage) {
-        if let Err(err) = self.client.process_chunk_state_witness(msg.0, None) {
+        let ChunkStateWitnessMessage { witness, raw_witness_size } = msg;
+        if let Err(err) = self.client.process_chunk_state_witness(witness, raw_witness_size, None) {
             tracing::error!(target: "client", ?err, "Error processing chunk state witness");
         }
     }

@@ -35,7 +35,7 @@ pub mod col {
     /// This column id is used when storing:
     /// * the indices of the delayed receipts queue (a singleton per shard)
     /// * the delayed receipts themselves
-    /// The identifier is shared between two different key types for for historical reasons. It
+    /// The identifier is shared between two different key types for historical reasons. It
     /// is valid because the length of `TrieKey::DelayedReceipt` is always greater than
     /// `TrieKey::DelayedReceiptIndices` when serialized to bytes.
     pub const DELAYED_RECEIPT_OR_INDICES: u8 = 7;

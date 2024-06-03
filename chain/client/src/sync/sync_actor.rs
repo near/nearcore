@@ -1,7 +1,6 @@
 use super::adapter::{SyncMessage as ClientSyncMessage, SyncShardInfo};
-use near_async::messaging::Sender;
+use near_async::messaging::{Actor, Handler, Sender};
 use near_network::types::{PeerManagerMessageRequest, StateSyncResponse};
-use near_o11y::{handler_debug_span, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
 use near_store::ShardUId;
@@ -71,43 +70,20 @@ impl SyncActor {
     }
 }
 
-/// Control the flow of the state sync actor
-impl actix::Actor for SyncActor {
-    type Context = actix::Context<Self>;
-
-    fn started(&mut self, _ctx: &mut Self::Context) {
-        info!(target: "sync", shard_id = ?self.shard_uid.shard_id, "Sync actor started.");
-    }
-
-    fn stopped(&mut self, _ctx: &mut Self::Context) {
-        info!(target: "sync", shard_id = ?self.shard_uid.shard_id, "Sync actor stopped.");
-    }
-}
+impl Actor for SyncActor {}
 
 /// Process messages from client
-impl actix::Handler<WithSpanContext<ClientSyncMessage>> for SyncActor {
-    type Result = ();
+impl Handler<ClientSyncMessage> for SyncActor {
     #[perf]
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<ClientSyncMessage>,
-        _ctx: &mut Self::Context,
-    ) -> Self::Result {
-        let (_span, msg) = handler_debug_span!(target: "sync", msg);
+    fn handle(&mut self, msg: ClientSyncMessage) {
         self.handle_client_sync_message(msg);
     }
 }
 
 /// Process messages from network
-impl actix::Handler<WithSpanContext<StateSyncResponse>> for SyncActor {
-    type Result = ();
+impl Handler<StateSyncResponse> for SyncActor {
     #[perf]
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<StateSyncResponse>,
-        _ctx: &mut Self::Context,
-    ) -> Self::Result {
-        let (_span, msg) = handler_debug_span!(target: "sync", msg);
+    fn handle(&mut self, msg: StateSyncResponse) {
         self.handle_network_sync_message(msg);
     }
 }
