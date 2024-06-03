@@ -31,7 +31,7 @@ impl StateWitnessCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 struct LatestWitnessesCmd {
     /// Block height
     #[arg(long)]
@@ -57,12 +57,12 @@ struct LatestWitnessesCmd {
     // binary: bool,
 }
 
-#[derive(Subcommand)]
+#[derive(clap::Subcommand)]
 enum LatestWitnessesMode {
     /// Pretty-print on screen using the "{:#?}" formatting.
     Pretty,
     /// Saves the raw &[u8] of each witness to the given directory.
-    Binary(PathBuf),
+    Binary { output_dir: PathBuf },
 }
 
 impl LatestWitnessesCmd {
@@ -109,7 +109,7 @@ impl LatestWitnessesCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 struct ValidateWitnessCmd {
     /// File with state witness saved as vector in JSON.
     #[arg(long)]
