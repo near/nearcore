@@ -3,6 +3,7 @@ extern crate bencher;
 
 use bencher::{black_box, Bencher};
 
+use borsh::BorshDeserialize;
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_primitives::account::Account;
 use near_primitives::block::{genesis_chunks, Block};

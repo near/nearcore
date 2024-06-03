@@ -130,7 +130,7 @@ backtrace = "0.3"
 base64 = "0.21"
 bencher = "0.1.5"
 bitflags = "1.2"
-blake2 = "0.9.1"
+blake2 = { version = "0.10.6", features = ["reset"] }
 bn = { package = "zeropool-bn", version = "0.5.11", default-features = false }
 # TODO: remove this override when https://github.com/camshaft/bolero/issues/196 is fixed upstream
 # Currently the changes here are: https://github.com/camshaft/bolero/compare/master...Ekleog-NEAR:bolero:reduce-list-tests-run
@@ -353,14 +353,7 @@ test-log = { version = "0.2", default-features = false, features = ["trace"] }
 thiserror = "1.0.30"
 tikv-jemallocator = "0.5.0"
 time = { version = "0.3.9", features = ["parsing", "serde"] }
-tokio = { version = "1.28", features = [
-    "fs",
-    "macros",
-    "net",
-    "rt-multi-thread",
-    "sync",
-    "time",
-] }
+tokio = { version = "1.28", default-features = false }
 tokio-stream = { version = "0.1.2", features = ["net"] }
 tokio-util = { version = "0.7.1", features = ["codec", "io"] }
 toml = "0.5.8"
