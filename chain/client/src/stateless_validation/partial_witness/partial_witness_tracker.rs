@@ -204,7 +204,7 @@ impl PartialEncodedStateWitnessTracker {
             let (witness, raw_witness_size) = self.decode_state_witness(&encoded_witness)?;
             if witness.chunk_production_key() != key {
                 return Err(Error::InvalidPartialChunkStateWitness(format!(
-                    "Decoded witness key {:?} doesn't match partial witness metdata {:?}",
+                    "Decoded witness key {:?} doesn't match partial witness {:?}",
                     witness.chunk_production_key(),
                     key,
                 )));
