@@ -2,7 +2,7 @@ use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use near_async::time::Clock;
 use near_chain::runtime::NightshadeRuntime;
 use near_chain::{Chain, ChainGenesis, ChainStore, DoomslugThresholdMode};
@@ -45,7 +45,7 @@ struct LatestWitnessesCmd {
     #[arg(long)]
     epoch_id: Option<EpochId>,
 
-    #[arg(long)]
+    #[clap(subcommand)]
     /// Save mode.
     mode: LatestWitnessesMode,
     // /// Pretty-print using the "{:#?}" formatting.
@@ -57,11 +57,13 @@ struct LatestWitnessesCmd {
     // binary: bool,
 }
 
-#[derive(Parser)]
+#[derive(Subcommand)]
 enum LatestWitnessesMode {
     /// Pretty-print on screen using the "{:#?}" formatting.
+    #[arg(long)]
     Pretty,
     /// Saves the raw &[u8] of each witness to the given directory.
+    #[arg(long)]
     Binary(PathBuf),
 }
 
