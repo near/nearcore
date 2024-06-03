@@ -4617,7 +4617,7 @@ dependencies = [
  "near-rpc-error-macro",
  "near-stdx",
  "near-time",
- "near-vm-runner-primitives",
+ "near-vm-runner",
  "num-rational 0.3.2",
  "once_cell",
  "primitive-types 0.10.1",
@@ -4962,7 +4962,6 @@ dependencies = [
  "near-vm-compiler",
  "near-vm-compiler-singlepass",
  "near-vm-engine",
- "near-vm-runner-primitives",
  "near-vm-types",
  "near-vm-vm",
  "num-rational 0.3.2",
@@ -5013,33 +5012,6 @@ dependencies = [
  "near-vm-runner",
  "wasm-smith",
  "wasmprinter",
-]
-
-[[package]]
-name = "near-vm-runner-primitives"
-version = "0.0.0"
-dependencies = [
- "borsh 1.0.0",
- "bytesize",
- "ed25519-dalek",
- "enum-map",
- "lru 0.7.8",
- "near-crypto",
- "near-parameters",
- "near-primitives-core",
- "near-stdx",
- "num-rational 0.3.2",
- "once_cell",
- "ripemd",
- "rustix",
- "serde",
- "sha2 0.10.6",
- "sha3",
- "strum",
- "tempfile",
- "thiserror",
- "tracing",
- "zeropool-bn",
 ]
 
 [[package]]
@@ -7087,7 +7059,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e0bccbcf40c8938196944a3da0e133e031a33f4d6b72db3bda3cc556e361905d"
 dependencies = [
  "lazy_static",
- "parking_lot 0.10.2",
+ "parking_lot 0.11.2",
  "serial_test_derive",
 ]
 

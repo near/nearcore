@@ -14,18 +14,18 @@ workspace = true
 
 [dependencies]
 anyhow = { workspace = true, optional = true }
-base64.workspace = true
+base64 = { workspace = true, optional = true }
 bn.workspace = true
 borsh.workspace = true
 ed25519-dalek.workspace = true
 enum-map.workspace = true
 finite-wasm = { workspace = true, features = ["instrument"], optional = true }
 lru = "0.12.3"
-memoffset.workspace = true
+memoffset = { workspace = true, optional = true }
 num-rational.workspace = true
 once_cell.workspace = true
 parity-wasm = { workspace = true, optional = true }
-prefix-sum-vec.workspace = true
+prefix-sum-vec = { workspace = true, optional = true }
 ripemd.workspace = true
 rustix = { workspace = true, features = ["fs"] }
 serde_repr.workspace = true
@@ -37,16 +37,15 @@ strum.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-prometheus.workspace = true
+prometheus = { workspace = true, optional = true }
 wasm-encoder = { workspace = true, optional = true }
 wasmparser = { workspace = true, optional = true }
 wasmtime = { workspace = true, optional = true }
 
 near-crypto.workspace = true
-near-o11y.workspace = true
+near-o11y = { workspace = true, optional = true }
 near-parameters.workspace = true
 near-primitives-core.workspace = true
-near-vm-runner-primitives.workspace = true
 bytesize.workspace = true
 
 # Old versions of pwasm-utils we need to preserve backwards compatibility under
@@ -98,6 +97,7 @@ wasmer2_vm = [
   "wasmer-engine-universal",
   "wasmer-types",
   "wasmer-vm",
+  "memoffset",
   "prepare",
 ]
 near_vm = [
@@ -106,6 +106,7 @@ near_vm = [
   "near-vm-engine",
   "near-vm-types",
   "near-vm-vm",
+  "memoffset",
   "prepare",
 ]
 prepare = [
@@ -115,6 +116,8 @@ prepare = [
   "parity-wasm",
   "parity-wasm_41",
   "pwasm-utils_12",
+  "prefix-sum-vec",
+  "metrics",
 ]
 
 no_cpu_compatibility_checks = []
@@ -125,6 +128,8 @@ protocol_feature_fix_contract_loading_cost = [
   "near-primitives-core/protocol_feature_fix_contract_loading_cost",
 ]
 
+metrics = ["prometheus", "near-o11y"]
+
 nightly = [
   "near-o11y/nightly",
   "near-parameters/nightly",
@@ -133,7 +138,7 @@ nightly = [
   "protocol_feature_fix_contract_loading_cost",
 ]
 sandbox = []
-io_trace = []
+io_trace = ["base64"]
 test_features = []
 
 # Use this feature to enable counting of fees and costs applied.

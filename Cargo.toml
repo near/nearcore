@@ -62,7 +62,6 @@ members = [
     "runtime/near-vm/compiler-test-derive",
     "runtime/near-vm-runner",
     "runtime/near-vm-runner/fuzz",
-    "runtime/near-vm-runner-primitives",
     "runtime/near-wallet-contract",
     "runtime/runtime",
     "runtime/runtime-params-estimator",
@@ -268,7 +267,6 @@ near-vm-compiler-singlepass = { path = "runtime/near-vm/compiler-singlepass" }
 near-vm-compiler-test-derive = { path = "runtime/near-vm/compiler-test-derive" }
 near-vm-engine = { path = "runtime/near-vm/engine" }
 near-vm-runner = { path = "runtime/near-vm-runner" }
-near-vm-runner-primitives = { path = "runtime/near-vm-runner-primitives" }
 near-vm-test-generator = { path = "runtime/near-vm/test-generator" }
 near-vm-types = { path = "runtime/near-vm/types" }
 near-vm-vm = { path = "runtime/near-vm/vm" }

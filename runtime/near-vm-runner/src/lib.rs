@@ -10,6 +10,7 @@ mod instrument;
 pub mod logic;
 #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
 mod memory;
+#[cfg(feature = "metrics")]
 mod metrics;
 #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
 mod near_vm_runner;
@@ -28,13 +29,14 @@ mod wasmer_runner;
 mod wasmtime_runner;
 
 pub use crate::logic::with_ext_cost_counter;
-pub use code::ContractCode;
-pub use metrics::{report_metrics, reset_metrics};
-pub use near_vm_runner_primitives::cache::{
+pub use cache::{
     get_contract_cache_key, precompile_contract, CompiledContract, CompiledContractInfo,
     ContractRuntimeCache, FilesystemContractRuntimeCache, MockContractRuntimeCache,
     NoContractRuntimeCache,
 };
+pub use code::ContractCode;
+#[cfg(feature = "metrics")]
+pub use metrics::{report_metrics, reset_metrics};
 pub use profile::ProfileDataV3;
 pub use runner::{run, VM};
 
