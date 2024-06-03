@@ -30,7 +30,7 @@ where
     }
 
     /// Return the value of they key in the cache otherwise computes the value and inserts it into
-    /// the cache. If the key is already in the cache, they gets gets moved to the head of
+    /// the cache. If the key is already in the cache, they get moved to the head of
     /// the LRU list.
     pub fn get_or_put<F>(&self, key: K, f: F) -> V
     where

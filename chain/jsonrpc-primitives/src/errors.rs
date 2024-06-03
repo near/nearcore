@@ -6,7 +6,7 @@ use std::fmt;
 pub struct RpcParseError(pub String);
 
 /// This struct may be returned from JSON RPC server in case of error
-/// It is expected that that this struct has impls From<_> all other RPC errors
+/// It is expected that this struct has impls From<_> all other RPC errors
 /// like [RpcBlockError](crate::types::blocks::RpcBlockError)
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]

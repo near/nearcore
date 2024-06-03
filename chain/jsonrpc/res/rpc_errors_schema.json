@@ -569,7 +569,8 @@
         "Expired",
         "ActionsValidation",
         "TransactionSizeExceeded",
-        "InvalidTransactionVersion"
+        "InvalidTransactionVersion",
+        "StorageError"
       ],
       "props": {}
     },

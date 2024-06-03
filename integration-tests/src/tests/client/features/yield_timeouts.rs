@@ -74,7 +74,7 @@ fn prepare_env_with_yield(
         "test0".parse().unwrap(),
         &signer,
         vec![Action::DeployContract(DeployContractAction {
-            code: near_test_contracts::nightly_rs_contract().to_vec(),
+            code: near_test_contracts::rs_contract().to_vec(),
         })],
         *genesis_block.hash(),
         0,

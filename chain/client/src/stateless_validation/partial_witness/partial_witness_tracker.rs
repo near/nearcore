@@ -9,7 +9,8 @@ use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::reed_solomon::reed_solomon_decode;
 use near_primitives::stateless_validation::{
-    ChunkProductionKey, EncodedChunkStateWitness, PartialEncodedStateWitness,
+    ChunkProductionKey, ChunkStateWitness, ChunkStateWitnessSize, EncodedChunkStateWitness,
+    PartialEncodedStateWitness,
 };
 use near_primitives::types::ShardId;
 use reed_solomon_erasure::galois_8::ReedSolomon;
@@ -200,7 +201,16 @@ impl PartialEncodedStateWitnessTracker {
                 .with_label_values(&[entry.shard_id.to_string().as_str()])
                 .observe(entry.duration_to_last_part.as_seconds_f64());
 
-            self.client_sender.send(ChunkStateWitnessMessage(encoded_witness));
+            let (witness, raw_witness_size) = self.decode_state_witness(&encoded_witness)?;
+            if witness.chunk_production_key() != key {
+                return Err(Error::InvalidPartialChunkStateWitness(format!(
+                    "Decoded witness key {:?} doesn't match partial witness {:?}",
+                    witness.chunk_production_key(),
+                    key,
+                )));
+            }
+
+            self.client_sender.send(ChunkStateWitnessMessage { witness, raw_witness_size });
         }
         self.record_total_parts_cache_size_metric();
         Ok(())
@@ -264,5 +274,17 @@ impl PartialEncodedStateWitnessTracker {
         let total_size: usize =
             self.parts_cache.iter().map(|(_, entry)| entry.total_parts_size).sum();
         metrics::PARTIAL_WITNESS_CACHE_SIZE.set(total_size as f64);
+    }
+
+    fn decode_state_witness(
+        &self,
+        encoded_witness: &EncodedChunkStateWitness,
+    ) -> Result<(ChunkStateWitness, ChunkStateWitnessSize), Error> {
+        let decode_start = std::time::Instant::now();
+        let (witness, raw_witness_size) = encoded_witness.decode()?;
+        metrics::CHUNK_STATE_WITNESS_DECODE_TIME
+            .with_label_values(&[&witness.chunk_header.shard_id().to_string()])
+            .observe(decode_start.elapsed().as_secs_f64());
+        Ok((witness, raw_witness_size))
     }
 }
