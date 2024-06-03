@@ -57,6 +57,7 @@ struct LatestWitnessesCmd {
     // binary: bool,
 }
 
+#[derive(Parser)]
 enum LatestWitnessesMode {
     /// Pretty-print on screen using the "{:#?}" formatting.
     Pretty,
