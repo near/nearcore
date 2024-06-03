@@ -1,3 +1,4 @@
+use assert_matches::assert_matches;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
@@ -570,4 +571,54 @@ fn measure_tx_limit(
         remote_tx_included_with_congestion,
         local_tx_included_with_congestion,
     )
+}
+
+/// Test that RPC clients stop accepting transactions when the receiver is
+/// congested.
+#[test]
+fn test_rpc_client_rejection() {
+    let sender_id: AccountId = "test0".parse().unwrap();
+    let mut env = setup_runtime(sender_id.clone(), PROTOCOL_VERSION);
+
+    // prepare a contract to call
+    setup_contract(&mut env);
+
+    let signer = InMemorySigner::from_seed(sender_id.clone(), KeyType::ED25519, sender_id.as_str());
+    let mut nonce = 10;
+
+    // Check we can send transactions at the start.
+    let fn_tx = new_fn_call_100tgas(
+        &mut nonce,
+        &signer,
+        *env.clients[0].chain.head_header().unwrap().hash(),
+    );
+    let response = env.clients[0].process_tx(fn_tx, false, false);
+    assert_eq!(response, ProcessTxResponse::ValidTx);
+
+    // Congest the network with a burst of 100 PGas.
+    submit_n_100tgas_fns(&mut env, 1_000, &mut nonce, &signer);
+
+    // Allow transactions to enter the chain and enough receipts to arrive at
+    // the receiver shard for it to become congested.
+    let tip = env.clients[0].chain.head().unwrap();
+    for i in 1..10 {
+        env.produce_block(0, tip.height + i);
+    }
+
+    // Check that congestion control rejects new transactions.
+    let fn_tx = new_fn_call_100tgas(
+        &mut nonce,
+        &signer,
+        *env.clients[0].chain.head_header().unwrap().hash(),
+    );
+    let response = env.clients[0].process_tx(fn_tx, false, false);
+
+    if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
+        assert_matches!(
+            response,
+            ProcessTxResponse::InvalidTx(InvalidTxError::ShardCongested { .. })
+        );
+    } else {
+        assert_eq!(response, ProcessTxResponse::ValidTx);
+    }
 }
