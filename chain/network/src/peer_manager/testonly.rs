@@ -51,7 +51,7 @@ use std::sync::Arc;
 pub(crate) const FDS_PER_PEER: usize = 5;
 
 #[derive(actix::Message)]
-#[rtype("()")]
+#[rtype(result = "()")]
 struct WithNetworkState(
     Box<dyn Send + FnOnce(Arc<NetworkState>) -> Pin<Box<dyn Send + 'static + Future<Output = ()>>>>,
 );

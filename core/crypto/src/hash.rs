@@ -1,9 +1,40 @@
 use crate::util::{Packable, Point, Scalar};
-use blake2::digest::generic_array::typenum::U32;
-use blake2::digest::{FixedOutput, Update};
+use blake2::digest::generic_array::{typenum::U32, GenericArray};
+use blake2::digest::{FixedOutput, OutputSizeUser, Reset, Update, VariableOutput};
+use blake2::Blake2bVar;
 
 pub use blake2::Blake2b512 as Hash512;
-pub use blake2::Blake2s256 as Hash256;
+
+#[derive(Clone)]
+pub struct Hash256(Blake2bVar);
+
+impl Default for Hash256 {
+    fn default() -> Self {
+        Hash256(Blake2bVar::new(32).unwrap())
+    }
+}
+
+impl Update for Hash256 {
+    fn update(&mut self, data: &[u8]) {
+        self.0.update(data);
+    }
+}
+
+impl OutputSizeUser for Hash256 {
+    type OutputSize = U32;
+}
+
+impl FixedOutput for Hash256 {
+    fn finalize_into(self, out: &mut GenericArray<u8, Self::OutputSize>) {
+        self.0.finalize_variable(out).expect("hash output size is correct")
+    }
+}
+
+impl Reset for Hash256 {
+    fn reset(&mut self) {
+        self.0.reset();
+    }
+}
 
 mod hashable_trait {
     pub trait Hashable {
