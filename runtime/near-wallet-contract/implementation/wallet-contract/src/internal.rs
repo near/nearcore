@@ -64,6 +64,25 @@ pub fn parse_rlp_tx_to_action(
         Ok((action, ParsableTransactionKind::NearNativeAction)) => {
             (action, TransactionKind::NearNativeAction)
         }
+        Ok((action, ParsableTransactionKind::SelfNearNativeAction)) => {
+            if let TargetKind::EthImplicit(_) = target_kind {
+                // The calldata was parseable as a Near native action where the target
+                // should be the current account, but the target is some other wallet contract.
+                // This is technically allowed under the Ethereum standard for base token transfers
+                // (where any calldata can be used when sending tokens to another EOA), so we
+                // assume such a transfer must have been the user's intent. No address check is
+                // required in this case because no Near account other than the current account
+                // can be the receiver of these actions.
+                (
+                    Action::Transfer { receiver_id: target.to_string(), yocto_near: 0 },
+                    TransactionKind::EthEmulation(EthEmulationKind::EOABaseTokenTransfer {
+                        address_check: None,
+                    }),
+                )
+            } else {
+                (action, TransactionKind::NearNativeAction)
+            }
+        }
         Ok((action, ParsableTransactionKind::EthEmulation(eth_emulation))) => {
             if let TargetKind::EthImplicit(address) = target_kind {
                 // Even though the action was parsable, the target is another wallet contract,
@@ -233,7 +252,7 @@ fn parse_tx_data(
                     receiver_id,
                     method_names,
                 },
-                ParsableTransactionKind::NearNativeAction,
+                ParsableTransactionKind::SelfNearNativeAction,
             ))
         }
         DELETE_KEY_SELECTOR => {
@@ -241,7 +260,7 @@ fn parse_tx_data(
                 ethabi_utils::abi_decode(&DELETE_KEY_SIGNATURE, &tx.data[4..])?;
             Ok((
                 Action::DeleteKey { public_key_kind, public_key },
-                ParsableTransactionKind::NearNativeAction,
+                ParsableTransactionKind::SelfNearNativeAction,
             ))
         }
         _ => {

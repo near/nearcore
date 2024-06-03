@@ -136,7 +136,13 @@ pub enum EthEmulationKind {
 /// of the transaction, not its data.
 #[must_use]
 pub enum ParsableTransactionKind {
+    /// Near native actions with an explicit receiver
+    /// (i.e. `FunctionCall` and `Transfer`).
     NearNativeAction,
+    /// Near native actions where the receiver should be equal
+    /// to the current account (i.e. `AddKey` and `DeleteKey`).
+    SelfNearNativeAction,
+    /// Emulated Ethereum standards
     EthEmulation(ParsableEthEmulationKind),
 }
 
