@@ -38,7 +38,8 @@ pub fn costs_to_runtime_config(cost_table: &CostTable) -> anyhow::Result<Runtime
             ..latest_runtime_config.wasm_config
         },
         account_creation_config: AccountCreationConfig::default(),
-        storage_proof_size_soft_limit: usize::MAX,
+        congestion_control_config: latest_runtime_config.congestion_control_config,
+        witness_config: latest_runtime_config.witness_config,
     };
     Ok(res)
 }

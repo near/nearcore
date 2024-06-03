@@ -20,6 +20,7 @@ use crate::types::{
     NetworkResponses, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType,
     SetChainInfo, SnapshotHostInfo,
 };
+use ::time::ext::InstantExt as _;
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, AsyncContext as _};
 use anyhow::Context as _;
@@ -841,8 +842,9 @@ impl PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::PartialEncodedChunkRequest { target, request, create_time } => {
-                metrics::PARTIAL_ENCODED_CHUNK_REQUEST_DELAY
-                    .observe((self.clock.now() - create_time.0).as_seconds_f64());
+                metrics::PARTIAL_ENCODED_CHUNK_REQUEST_DELAY.observe(
+                    (self.clock.now().signed_duration_since(create_time)).as_seconds_f64(),
+                );
                 let mut success = false;
 
                 // Make two attempts to send the message. First following the preference of `prefer_peer`,
@@ -969,16 +971,6 @@ impl PeerManagerActor {
                 self.state.tier2.broadcast_message(Arc::new(PeerMessage::Challenge(challenge)));
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::ChunkStateWitness(chunk_validators, state_witness) => {
-                for chunk_validator in chunk_validators {
-                    self.state.send_message_to_account(
-                        &self.clock,
-                        &chunk_validator,
-                        RoutedMessageBody::ChunkStateWitness(state_witness.clone()),
-                    );
-                }
-                NetworkResponses::NoResponse
-            }
             NetworkRequests::ChunkStateWitnessAck(target, ack) => {
                 self.state.send_message_to_account(
                     &self.clock,
@@ -1093,8 +1085,7 @@ impl actix::Handler<WithSpanContext<PeerManagerMessageRequest>> for PeerManagerA
         msg: WithSpanContext<PeerManagerMessageRequest>,
         ctx: &mut Self::Context,
     ) -> Self::Result {
-        let msg_type: &str = (&msg.msg).into();
-        let (_span, msg) = handler_debug_span!(target: "network", msg, msg_type);
+        let (_span, msg) = handler_debug_span!(target: "network", msg);
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
         self.handle_peer_manager_message(msg, ctx)

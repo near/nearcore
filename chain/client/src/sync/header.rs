@@ -59,6 +59,11 @@ pub struct HeaderSync {
 
     /// Expected increase of header head height per second during header sync
     expected_height_per_second: u64,
+
+    /// Not for production use.
+    /// Expected height when node will be automatically shut down, so header
+    /// sync can be stopped.
+    shutdown_height: near_chain_configs::MutableConfigValue<Option<BlockHeight>>,
 }
 
 impl HeaderSync {
@@ -69,6 +74,7 @@ impl HeaderSync {
         progress_timeout: Duration,
         stall_ban_timeout: Duration,
         expected_height_per_second: u64,
+        shutdown_height: near_chain_configs::MutableConfigValue<Option<BlockHeight>>,
     ) -> Self {
         HeaderSync {
             clock: clock.clone(),
@@ -81,10 +87,11 @@ impl HeaderSync {
             },
             syncing_peer: None,
             stalling_ts: None,
-            initial_timeout: initial_timeout,
-            progress_timeout: progress_timeout,
-            stall_ban_timeout: stall_ban_timeout,
+            initial_timeout,
+            progress_timeout,
+            stall_ban_timeout,
             expected_height_per_second,
+            shutdown_height,
         }
     }
 
@@ -98,7 +105,8 @@ impl HeaderSync {
         highest_height: BlockHeight,
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<(), near_chain::Error> {
-        let _span = tracing::debug_span!(target: "sync", "run", sync = "HeaderSync").entered();
+        let _span =
+            tracing::debug_span!(target: "sync", "run_sync", sync_type = "HeaderSync").entered();
         let head = chain.head()?;
         let header_head = chain.header_head()?;
 
@@ -146,8 +154,9 @@ impl HeaderSync {
         self.syncing_peer = None;
         // Pick a new random peer to request the next batch of headers.
         if let Some(peer) = highest_height_peers.choose(&mut thread_rng()).cloned() {
-            // TODO: This condition should always be true, otherwise we can already complete header sync.
-            if peer.highest_block_height > header_head.height {
+            let shutdown_height = self.shutdown_height.get().unwrap_or(u64::MAX);
+            let highest_height = peer.highest_block_height.min(shutdown_height);
+            if highest_height > header_head.height {
                 self.syncing_peer = self.request_headers(chain, peer);
             }
         }
@@ -378,6 +387,7 @@ mod test {
     use near_chain::test_utils::{process_block_sync, setup, setup_with_tx_validity_period};
     use near_chain::types::Tip;
     use near_chain::{BlockProcessingArtifact, Provenance};
+    use near_chain_configs::MutableConfigValue;
     use near_client_primitives::types::SyncStatus;
     use near_crypto::{KeyType, PublicKey};
     use near_network::test_utils::MockPeerManagerAdapter;
@@ -446,6 +456,7 @@ mod test {
             Duration::seconds(2),
             Duration::seconds(120),
             1_000_000_000,
+            MutableConfigValue::new(None, "expected_shutdown"),
         );
         let (mut chain, _, _, signer) = setup(Clock::real());
         for _ in 0..3 {
@@ -533,6 +544,7 @@ mod test {
             Duration::seconds(2),
             Duration::seconds(120),
             1_000_000_000,
+            MutableConfigValue::new(None, "expected_shutdown"),
         );
         let (mut chain, _, _, signer) = setup(Clock::real());
         let (mut chain2, _, _, signer2) = setup(Clock::real());
@@ -644,6 +656,7 @@ mod test {
             Duration::seconds(1),
             Duration::seconds(3),
             25,
+            MutableConfigValue::new(None, "expected_shutdown"),
         );
 
         let set_syncing_peer = |header_sync: &mut HeaderSync| {
@@ -740,6 +753,7 @@ mod test {
             Duration::seconds(2),
             Duration::seconds(120),
             1_000_000_000,
+            MutableConfigValue::new(None, "expected_shutdown"),
         );
 
         let clock = FakeClock::new(Utc::UNIX_EPOCH);

@@ -4,13 +4,17 @@ use std::sync::Arc;
 use lru::LruCache;
 use near_async::messaging::CanSend;
 use near_async::time::{Duration, Instant};
-use near_chain::chain::ProcessChunkStateWitnessMessage;
+use near_chain::chain::ChunkStateWitnessMessage;
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::reed_solomon::reed_solomon_decode;
-use near_primitives::stateless_validation::{EncodedChunkStateWitness, PartialEncodedStateWitness};
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::stateless_validation::{
+    ChunkProductionKey, ChunkStateWitness, ChunkStateWitnessSize, EncodedChunkStateWitness,
+    PartialEncodedStateWitness,
+};
+use near_primitives::types::ShardId;
 use reed_solomon_erasure::galois_8::ReedSolomon;
+use time::ext::InstantExt as _;
 
 use crate::client_actor::ClientSenderForPartialWitness;
 use crate::metrics;
@@ -95,7 +99,7 @@ impl CacheEntry {
         // Check if the part is already present.
         if self.parts[part_ord].is_some() {
             tracing::warn!(
-                target: "stateless_validation",
+                target: "client",
                 ?shard_id,
                 ?height_created,
                 ?part_ord,
@@ -110,7 +114,7 @@ impl CacheEntry {
         self.total_parts_size += part.len();
         self.parts[part_ord] = Some(part);
         self.shard_id = shard_id;
-        self.duration_to_last_part = self.timer.elapsed();
+        self.duration_to_last_part = Instant::now().signed_duration_since(self.timer);
 
         // Check if we have already decoded the state witness.
         if self.is_decoded {
@@ -139,7 +143,7 @@ impl CacheEntry {
                 // We ideally never expect the decoding to fail. In case it does, we received a bad part
                 // from the chunk producer.
                 tracing::error!(
-                    target: "stateless_validation",
+                    target: "client",
                     ?err,
                     ?shard_id,
                     ?height_created,
@@ -160,7 +164,7 @@ pub struct PartialEncodedStateWitnessTracker {
     /// Epoch manager to get the set of chunk validators
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     /// Keeps track of state witness parts received from chunk producers.
-    parts_cache: LruCache<(ShardId, BlockHeight), CacheEntry>,
+    parts_cache: LruCache<ChunkProductionKey, CacheEntry>,
     /// Reed Solomon encoder for decoding state witness parts.
     rs_map: RsMap,
 }
@@ -182,22 +186,31 @@ impl PartialEncodedStateWitnessTracker {
         &mut self,
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
-        tracing::debug!(target: "stateless_validation", ?partial_witness, "store_partial_encoded_state_witness");
+        tracing::debug!(target: "client", ?partial_witness, "store_partial_encoded_state_witness");
 
         self.maybe_insert_new_entry_in_parts_cache(&partial_witness)?;
 
-        let key = (partial_witness.shard_id(), partial_witness.height_created());
+        let key = partial_witness.chunk_production_key();
         let entry = self.parts_cache.get_mut(&key).unwrap();
 
         if let Some(encoded_witness) = entry.insert_in_cache_entry(partial_witness) {
-            tracing::debug!(target: "stateless_validation", ?key, "Sending encoded witness to client.");
+            tracing::debug!(target: "client", ?key, "Sending encoded witness to client.");
 
             // Record the time taken from receiving first part to decoding partial witness.
             metrics::PARTIAL_WITNESS_DECODE_TIME
                 .with_label_values(&[entry.shard_id.to_string().as_str()])
                 .observe(entry.duration_to_last_part.as_seconds_f64());
 
-            self.client_sender.send(ProcessChunkStateWitnessMessage(encoded_witness));
+            let (witness, raw_witness_size) = self.decode_state_witness(&encoded_witness)?;
+            if witness.chunk_production_key() != key {
+                return Err(Error::InvalidPartialChunkStateWitness(format!(
+                    "Decoded witness key {:?} doesn't match partial witness {:?}",
+                    witness.chunk_production_key(),
+                    key,
+                )));
+            }
+
+            self.client_sender.send(ChunkStateWitnessMessage { witness, raw_witness_size });
         }
         self.record_total_parts_cache_size_metric();
         Ok(())
@@ -222,7 +235,7 @@ impl PartialEncodedStateWitnessTracker {
         partial_witness: &PartialEncodedStateWitness,
     ) -> Result<(), Error> {
         // Insert a new entry into the cache for the chunk hash.
-        let key = (partial_witness.shard_id(), partial_witness.height_created());
+        let key = partial_witness.chunk_production_key();
         if self.parts_cache.contains(&key) {
             return Ok(());
         }
@@ -246,7 +259,7 @@ impl PartialEncodedStateWitnessTracker {
             // Check if the evicted entry has been fully decoded and processed.
             if !evicted_entry.is_decoded {
                 tracing::warn!(
-                    target: "stateless_validation",
+                    target: "client",
                     ?evicted_chunk_hash,
                     data_parts_present = ?evicted_entry.data_parts_present,
                     data_parts_required = ?evicted_entry.data_parts_required,
@@ -261,5 +274,17 @@ impl PartialEncodedStateWitnessTracker {
         let total_size: usize =
             self.parts_cache.iter().map(|(_, entry)| entry.total_parts_size).sum();
         metrics::PARTIAL_WITNESS_CACHE_SIZE.set(total_size as f64);
+    }
+
+    fn decode_state_witness(
+        &self,
+        encoded_witness: &EncodedChunkStateWitness,
+    ) -> Result<(ChunkStateWitness, ChunkStateWitnessSize), Error> {
+        let decode_start = std::time::Instant::now();
+        let (witness, raw_witness_size) = encoded_witness.decode()?;
+        metrics::CHUNK_STATE_WITNESS_DECODE_TIME
+            .with_label_values(&[&witness.chunk_header.shard_id().to_string()])
+            .observe(decode_start.elapsed().as_secs_f64());
+        Ok((witness, raw_witness_size))
     }
 }

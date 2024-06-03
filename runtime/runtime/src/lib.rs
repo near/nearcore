@@ -4,13 +4,14 @@ use crate::config::{
     exec_fee, safe_add_balance, safe_add_compute, safe_add_gas, safe_gas_to_balance, total_deposit,
     total_prepaid_exec_fees, total_prepaid_gas,
 };
+use crate::congestion_control::DelayedReceiptQueueWrapper;
 use crate::prefetch::TriePrefetcher;
 use crate::verifier::{check_storage_stake, validate_receipt, StorageStakingError};
 pub use crate::verifier::{
     validate_transaction, verify_and_charge_transaction, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT,
 };
 use config::total_prepaid_send_fees;
-pub use congestion_control::compute_congestion_info;
+pub use congestion_control::bootstrap_congestion_info;
 use congestion_control::ReceiptSink;
 pub use near_crypto;
 use near_parameters::{ActionCosts, RuntimeConfig};
@@ -19,7 +20,7 @@ use near_primitives::account::Account;
 use near_primitives::checked_feature;
 use near_primitives::congestion_info::{CongestionInfo, ExtendedCongestionInfo};
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, ContextError, IntegerOverflowError, RuntimeError,
+    ActionError, ActionErrorKind, IntegerOverflowError, InvalidTxError, RuntimeError,
     TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
@@ -48,12 +49,12 @@ use near_primitives::utils::{
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives_core::apply::ApplyChunkReason;
-use near_store::trie::receipts_column_helper::{DelayedReceiptQueue, TrieQueue};
+use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::{
     get, get_account, get_postponed_receipt, get_promise_yield_receipt, get_received_data,
     has_received_data, remove_postponed_receipt, remove_promise_yield_receipt, set, set_access_key,
     set_account, set_code, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
-    PartialStorage, StorageError, Trie, TrieChanges, TrieUpdate,
+    PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate,
 };
 use near_vm_runner::logic::types::PromiseResult;
 use near_vm_runner::logic::ReturnData;
@@ -121,6 +122,11 @@ pub struct ApplyState {
     /// Flags for migrations indicating whether they can be applied at this block
     pub migration_flags: MigrationFlags,
     /// Congestion level on each shard based on the latest known chunk header of each shard.
+    ///
+    /// The map must be empty if congestion control is disabled in the previous
+    /// chunk. If the next chunks is the first with congestion control enabled,
+    /// the congestion info needs to be computed while applying receipts.
+    /// TODO(congestion_info) - verify performance of initialization when congested
     pub congestion_info: HashMap<ShardId, ExtendedCongestionInfo>,
 }
 
@@ -282,7 +288,7 @@ impl Runtime {
         apply_state: &ApplyState,
         signed_transaction: &SignedTransaction,
         stats: &mut ApplyStats,
-    ) -> Result<(Receipt, ExecutionOutcomeWithId), RuntimeError> {
+    ) -> Result<(Receipt, ExecutionOutcomeWithId), InvalidTxError> {
         let span = tracing::Span::current();
         metrics::TRANSACTION_PROCESSED_TOTAL.inc();
 
@@ -321,7 +327,8 @@ impl Runtime {
                     }),
                 });
                 stats.tx_burnt_amount =
-                    safe_add_balance(stats.tx_burnt_amount, verification_result.burnt_amount)?;
+                    safe_add_balance(stats.tx_burnt_amount, verification_result.burnt_amount)
+                        .map_err(|_| InvalidTxError::CostOverflow)?;
                 let gas_burnt = verification_result.gas_burnt;
                 let compute_usage = verification_result.gas_burnt;
                 let outcome = ExecutionOutcomeWithId {
@@ -367,6 +374,11 @@ impl Runtime {
         actions: &[Action],
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ActionResult, RuntimeError> {
+        let _span = tracing::debug_span!(
+            target: "runtime",
+            "apply_action",
+        )
+        .entered();
         let exec_fees = exec_fee(&apply_state.config, action, receipt.receiver_id());
         let mut result = ActionResult::default();
         result.gas_used = exec_fees;
@@ -537,6 +549,11 @@ impl Runtime {
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
+        let _span = tracing::debug_span!(
+            target: "runtime",
+            "apply_action_receipt",
+        )
+        .entered();
         let action_receipt = match receipt.receipt() {
             ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
                 action_receipt
@@ -1379,8 +1396,10 @@ impl Runtime {
             receipts_to_restore.as_slice()
         };
 
-        let mut delayed_receipts = DelayedReceiptQueue::load(&state_update)?;
-        let mut congestion_info = apply_state.own_congestion_info(protocol_version)?;
+        let delayed_receipts_queue = DelayedReceiptQueue::load(&state_update)?;
+        let mut delayed_receipts = DelayedReceiptQueueWrapper::new(delayed_receipts_queue);
+        let mut own_congestion_info =
+            apply_state.own_congestion_info(protocol_version, &state_update)?;
 
         if !apply_state.is_new_chunk
             && protocol_version >= ProtocolFeature::FixApplyChunks.protocol_version()
@@ -1401,7 +1420,7 @@ impl Runtime {
                 proof,
                 delayed_receipts_count: delayed_receipts.len(),
                 metrics: None,
-                congestion_info: congestion_info.map(ExtendedCongestionInfo::congestion_info),
+                congestion_info: own_congestion_info,
             });
         }
 
@@ -1416,7 +1435,7 @@ impl Runtime {
             protocol_version,
             &state_update.trie,
             apply_state,
-            &mut congestion_info,
+            &mut own_congestion_info,
             &mut outgoing_receipts,
         )?;
 
@@ -1468,7 +1487,6 @@ impl Runtime {
                 receipt_id = %receipt.receipt_id(),
                 predecessor = %receipt.predecessor_id(),
                 receiver = %receipt.receiver_id(),
-                id = %receipt.receipt_id(),
                 gas_burnt = tracing::field::Empty,
                 compute_usage = tracing::field::Empty,
             )
@@ -1532,7 +1550,7 @@ impl Runtime {
         let compute_limit = apply_state.gas_limit.unwrap_or(Gas::max_value());
         let proof_size_limit =
             if checked_feature!("stable", StateWitnessSizeLimit, protocol_version) {
-                Some(apply_state.config.storage_proof_size_soft_limit)
+                Some(apply_state.config.witness_config.main_storage_proof_size_soft_limit)
             } else {
                 None
             };
@@ -1549,7 +1567,7 @@ impl Runtime {
                     state_update.trie.recorded_storage_size_upper_bound() > limit
                 })
             {
-                delayed_receipts.push(&mut state_update, receipt)?;
+                delayed_receipts.push(&mut state_update, receipt, &apply_state.config)?;
             } else {
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
                 // the `verify_and_charge_transaction`.
@@ -1575,7 +1593,9 @@ impl Runtime {
                 break;
             }
             delayed_receipt_count += 1;
-            let receipt = delayed_receipts.pop(&mut state_update)?.expect("queue is not empty");
+            let receipt = delayed_receipts
+                .pop(&mut state_update, &apply_state.config)?
+                .expect("queue is not empty");
 
             if let Some(prefetcher) = &mut prefetcher {
                 // Prefetcher is allowed to fail
@@ -1625,7 +1645,7 @@ impl Runtime {
                     state_update.trie.recorded_storage_size_upper_bound() > limit
                 })
             {
-                delayed_receipts.push(&mut state_update, receipt)?;
+                delayed_receipts.push(&mut state_update, receipt, &apply_state.config)?;
             } else {
                 process_receipt(receipt, &mut state_update, &mut total)?;
             }
@@ -1724,7 +1744,11 @@ impl Runtime {
         );
         // After receipt processing is done, report metrics on outgoing buffers
         // and on congestion indicators.
-        metrics::report_congestion_metrics(&receipt_sink, apply_state.shard_id);
+        metrics::report_congestion_metrics(
+            &receipt_sink,
+            apply_state.shard_id,
+            &apply_state.config.congestion_control_config,
+        );
 
         let _span = tracing::debug_span!(target: "runtime", "apply_commit").entered();
 
@@ -1734,16 +1758,23 @@ impl Runtime {
 
         // Congestion info needs a final touch to select an allowed shard if
         // this shard is fully congested.
-        if let Some(congestion_info) = &mut congestion_info {
+
+        let delayed_receipts_count = delayed_receipts.len();
+        if let Some(congestion_info) = &mut own_congestion_info {
+            delayed_receipts.apply_congestion_changes(congestion_info)?;
+            let other_shards = apply_state
+                .congestion_info
+                .keys()
+                .filter(|&&id| id != apply_state.shard_id)
+                .copied()
+                .collect::<Vec<_>>();
+
+            let congestion_seed = apply_state.block_height;
             congestion_info.finalize_allowed_shard(
                 apply_state.shard_id,
-                &apply_state
-                    .congestion_info
-                    .keys()
-                    .filter(|&&id| id != apply_state.shard_id)
-                    .copied()
-                    .collect::<Vec<_>>(),
-                apply_state.block_height,
+                &other_shards,
+                congestion_seed,
+                &apply_state.config.congestion_control_config,
             );
         }
 
@@ -1808,9 +1839,9 @@ impl Runtime {
             processed_delayed_receipts,
             processed_yield_timeouts,
             proof,
-            delayed_receipts_count: delayed_receipts.len(),
+            delayed_receipts_count,
             metrics: Some(metrics),
-            congestion_info: congestion_info.map(ExtendedCongestionInfo::congestion_info),
+            congestion_info: own_congestion_info,
         })
     }
 
@@ -1847,16 +1878,24 @@ impl ApplyState {
     fn own_congestion_info(
         &self,
         protocol_version: ProtocolVersion,
-    ) -> Result<Option<ExtendedCongestionInfo>, RuntimeError> {
-        if ProtocolFeature::CongestionControl.enabled(protocol_version) {
-            let congestion_info = self
-                .congestion_info
-                .get(&self.shard_id)
-                .ok_or(ContextError::MissingCongestionInfo { shard_id: self.shard_id })?;
-            Ok(Some(*congestion_info))
-        } else {
-            Ok(None)
+        trie: &dyn TrieAccess,
+    ) -> Result<Option<CongestionInfo>, RuntimeError> {
+        if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
+            debug_assert!(self.congestion_info.is_empty());
+            return Ok(None);
         }
+
+        if let Some(congestion_info) = self.congestion_info.get(&self.shard_id) {
+            return Ok(Some(congestion_info.congestion_info));
+        }
+
+        tracing::warn!(target: "runtime", "starting to bootstrap congestion info, this might take a while");
+        let start = std::time::Instant::now();
+        let result = bootstrap_congestion_info(trie, &self.config, self.shard_id);
+        let time = start.elapsed();
+        tracing::warn!(target: "runtime","bootstrapping congestion info done after {time:#.1?}");
+        let computed = result?;
+        Ok(Some(computed))
     }
 }
 
@@ -1940,6 +1979,10 @@ mod tests {
     use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
     use near_parameters::{ExtCosts, ParameterCost, RuntimeConfig};
     use near_primitives::account::AccessKey;
+    use near_primitives::action::delegate::{
+        DelegateAction, NonDelegateAction, SignedDelegateAction,
+    };
+    use near_primitives::congestion_info::CongestionControl;
     use near_primitives::hash::hash;
     use near_primitives::receipt::ReceiptPriority;
     use near_primitives::shard_layout::ShardUId;
@@ -1950,13 +1993,17 @@ mod tests {
     use near_primitives::types::MerkleHash;
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::TestTriesBuilder;
+    use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
     use near_store::{set_access_key, ShardTries};
     use near_vm_runner::FilesystemContractRuntimeCache;
     use testlib::runtime_utils::{alice_account, bob_account};
 
+    use crate::congestion_control::{receipt_congestion_gas, receipt_size};
+
     use super::*;
 
     const GAS_PRICE: Balance = 5000;
+    const MAX_ATTACHED_GAS: Gas = 300 * 10u64.pow(12);
 
     fn to_yocto(near: Balance) -> Balance {
         near * 10u128.pow(24)
@@ -2022,6 +2069,21 @@ mod tests {
         gas_limit: Gas,
     ) -> (Runtime, ShardTries, CryptoHash, ApplyState, Arc<InMemorySigner>, impl EpochInfoProvider)
     {
+        setup_runtime_for_shard(
+            initial_balance,
+            initial_locked,
+            gas_limit,
+            ShardUId::single_shard(),
+        )
+    }
+
+    fn setup_runtime_for_shard(
+        initial_balance: Balance,
+        initial_locked: Balance,
+        gas_limit: Gas,
+        shard_uid: ShardUId,
+    ) -> (Runtime, ShardTries, CryptoHash, ApplyState, Arc<InMemorySigner>, impl EpochInfoProvider)
+    {
         let tries = TestTriesBuilder::new().build();
         let root = MerkleHash::default();
         let runtime = Runtime::new();
@@ -2032,7 +2094,7 @@ mod tests {
             account_id.as_ref(),
         ));
 
-        let mut initial_state = tries.new_trie_update(ShardUId::single_shard(), root);
+        let mut initial_state = tries.new_trie_update(shard_uid, root);
         let mut initial_account = account_new(initial_balance, hash(&[]));
         // For the account and a full access key
         initial_account.set_storage_usage(182);
@@ -2047,17 +2109,21 @@ mod tests {
         initial_state.commit(StateChangeCause::InitialState);
         let trie_changes = initial_state.finalize().unwrap().1;
         let mut store_update = tries.store_update();
-        let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
+        let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         store_update.commit().unwrap();
         let contract_cache = FilesystemContractRuntimeCache::test().unwrap();
         let congestion_info: HashMap<ShardId, ExtendedCongestionInfo> =
-            [(0, ExtendedCongestionInfo::default())].into();
+            if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
+                [(0, ExtendedCongestionInfo::default())].into()
+            } else {
+                [].into()
+            };
         let apply_state = ApplyState {
             apply_reason: None,
             block_height: 1,
             prev_block_hash: Default::default(),
             block_hash: Default::default(),
-            shard_id: ShardUId::single_shard().shard_id(),
+            shard_id: shard_uid.shard_id(),
             epoch_id: Default::default(),
             epoch_height: 0,
             gas_price: GAS_PRICE,
@@ -2132,7 +2198,7 @@ mod tests {
         let initial_locked = to_yocto(500_000);
         let small_transfer = to_yocto(10_000);
         let gas_limit = 1;
-        let (runtime, tries, mut root, apply_state, _, epoch_info_provider) =
+        let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) =
             setup_runtime(initial_balance, initial_locked, gas_limit);
 
         let n = 10;
@@ -2152,13 +2218,7 @@ mod tests {
                     Default::default(),
                 )
                 .unwrap();
-            let mut store_update = tries.store_update();
-            root = tries.apply_all(
-                &apply_result.trie_changes,
-                ShardUId::single_shard(),
-                &mut store_update,
-            );
-            store_update.commit().unwrap();
+            root = commit_apply_result(&apply_result, &mut apply_state, &tries);
             let state = tries.new_trie_update(ShardUId::single_shard(), root);
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
             let capped_i = std::cmp::min(i, n);
@@ -2177,7 +2237,7 @@ mod tests {
         let initial_locked = to_yocto(500_000);
         let small_transfer = to_yocto(10_000);
         let gas_limit = 1;
-        let (runtime, tries, mut root, apply_state, _, epoch_info_provider) =
+        let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) =
             setup_runtime(initial_balance, initial_locked, gas_limit);
 
         let n = 10;
@@ -2197,13 +2257,8 @@ mod tests {
                     Default::default(),
                 )
                 .unwrap();
-            let mut store_update = tries.store_update();
-            root = tries.apply_all(
-                &apply_result.trie_changes,
-                ShardUId::single_shard(),
-                &mut store_update,
-            );
-            store_update.commit().unwrap();
+            root = commit_apply_result(&apply_result, &mut apply_state, &tries);
+
             let state = tries.new_trie_update(ShardUId::single_shard(), root);
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
             let capped_i = std::cmp::min(i, n);
@@ -2247,14 +2302,7 @@ mod tests {
                     Default::default(),
                 )
                 .unwrap();
-            let mut store_update = tries.store_update();
-            let new_root = tries.apply_all(
-                &apply_result.trie_changes,
-                ShardUId::single_shard(),
-                &mut store_update,
-            );
-            root = new_root;
-            store_update.commit().unwrap();
+            root = commit_apply_result(&apply_result, &mut apply_state, &tries);
             let state = tries.new_trie_update(ShardUId::single_shard(), root);
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
             let capped_i = std::cmp::min(i * 3, n);
@@ -2307,13 +2355,7 @@ mod tests {
                     Default::default(),
                 )
                 .unwrap();
-            let mut store_update = tries.store_update();
-            root = tries.apply_all(
-                &apply_result.trie_changes,
-                ShardUId::single_shard(),
-                &mut store_update,
-            );
-            store_update.commit().unwrap();
+            root = commit_apply_result(&apply_result, &mut apply_state, &tries);
             let state = tries.new_trie_update(ShardUId::single_shard(), root);
             num_receipts_processed += apply_result.outcomes.len() as u64;
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
@@ -2374,12 +2416,67 @@ mod tests {
             .collect()
     }
 
+    fn generate_delegate_actions(deposit: u128, n: u64) -> Vec<Receipt> {
+        // Setup_runtime only creates alice_account() in state, hence we use the
+        // id as relayer and sender. This allows the delegate action to execute
+        // successfully. But the inner function call will fail, since the
+        // contract account does not exists.
+        let relayer_id = alice_account();
+        let sender_id = alice_account();
+        let receiver_id = bob_account();
+        let signer = Arc::new(InMemorySigner::from_seed(
+            sender_id.clone(),
+            KeyType::ED25519,
+            sender_id.as_ref(),
+        ));
+        (0..n)
+            .map(|i| {
+                let inner_actions = [Action::FunctionCall(Box::new(FunctionCallAction {
+                    method_name: "foo".to_string(),
+                    args: b"arg".to_vec(),
+                    gas: MAX_ATTACHED_GAS,
+                    deposit,
+                }))];
+
+                let delegate_action = DelegateAction {
+                    sender_id: sender_id.clone(),
+                    receiver_id: receiver_id.clone(),
+                    actions: inner_actions
+                        .iter()
+                        .map(|a| NonDelegateAction::try_from(a.clone()).unwrap())
+                        .collect(),
+                    nonce: 2 + i as u64,
+                    max_block_height: 10000,
+                    public_key: signer.public_key(),
+                };
+                let signed_delegate_action = Action::Delegate(Box::new(SignedDelegateAction {
+                    signature: signer.sign(delegate_action.get_nep461_hash().as_bytes()),
+                    delegate_action,
+                }));
+                let receipt_id = hash(&i.to_le_bytes());
+                Receipt::V0(ReceiptV0 {
+                    predecessor_id: relayer_id.clone(),
+                    receiver_id: alice_account(),
+                    receipt_id,
+                    receipt: ReceiptEnum::Action(ActionReceipt {
+                        signer_id: relayer_id.clone(),
+                        signer_public_key: PublicKey::empty(KeyType::ED25519),
+                        gas_price: GAS_PRICE,
+                        output_data_receivers: vec![],
+                        input_data_ids: vec![],
+                        actions: vec![signed_delegate_action],
+                    }),
+                })
+            })
+            .collect()
+    }
+
     #[test]
     fn test_apply_delayed_receipts_local_tx() {
         let initial_balance = to_yocto(1_000_000);
         let initial_locked = to_yocto(500_000);
         let small_transfer = to_yocto(10_000);
-        let (runtime, tries, root, mut apply_state, signer, epoch_info_provider) =
+        let (runtime, tries, mut root, mut apply_state, signer, epoch_info_provider) =
             setup_runtime(initial_balance, initial_locked, 1);
 
         let receipt_exec_gas_fee = 1000;
@@ -2422,13 +2519,7 @@ mod tests {
                 Default::default(),
             )
             .unwrap();
-        let mut store_update = tries.store_update();
-        let root = tries.apply_all(
-            &apply_result.trie_changes,
-            ShardUId::single_shard(),
-            &mut store_update,
-        );
-        store_update.commit().unwrap();
+        root = commit_apply_result(&apply_result, &mut apply_state, &tries);
 
         assert_eq!(
             apply_result.outcomes.iter().map(|o| o.id).collect::<Vec<_>>(),
@@ -2904,7 +2995,7 @@ mod tests {
 
     #[test]
     fn test_compute_usage_limit() {
-        let (runtime, tries, root, mut apply_state, signer, epoch_info_provider) =
+        let (runtime, tries, mut root, mut apply_state, signer, epoch_info_provider) =
             setup_runtime(to_yocto(1_000_000), to_yocto(500_000), 1);
 
         let mut free_config = RuntimeConfig::free();
@@ -2962,13 +3053,7 @@ mod tests {
                 Default::default(),
             )
             .unwrap();
-        let mut store_update = tries.store_update();
-        let root = tries.apply_all(
-            &apply_result.trie_changes,
-            ShardUId::single_shard(),
-            &mut store_update,
-        );
-        store_update.commit().unwrap();
+        root = commit_apply_result(&apply_result, &mut apply_state, &tries);
 
         // Only first two receipts should fit into the chunk due to the compute usage limit.
         assert_matches!(&apply_result.outcomes[..], [first, second] => {
@@ -3045,17 +3130,17 @@ mod tests {
     }
 
     #[test]
-    fn test_storage_proof_size_soft_limit() {
+    fn test_main_storage_proof_size_soft_limit() {
         if !checked_feature!("stable", StateWitnessSizeLimit, PROTOCOL_VERSION) {
             return;
         }
         let (runtime, tries, root, mut apply_state, signer, epoch_info_provider) =
             setup_runtime(to_yocto(1_000_000), to_yocto(500_000), 10u64.pow(15));
 
-        // Change storage_proof_size_soft_limit to a smaller value
+        // Change main_storage_proof_size_soft_limit to a smaller value
         // The value of 500 is small enough to let the first receipt go through but not the second
         let mut runtime_config = RuntimeConfig::test();
-        runtime_config.storage_proof_size_soft_limit = 5000;
+        runtime_config.witness_config.main_storage_proof_size_soft_limit = 5000;
         apply_state.config = Arc::new(runtime_config);
 
         let create_acc_fn = |account_id| {
@@ -3101,7 +3186,7 @@ mod tests {
             )
         };
 
-        // The function call to bob_account should hit the storage_proof_size_soft_limit
+        // The function call to bob_account should hit the main_storage_proof_size_soft_limit
         let apply_result = runtime
             .apply(
                 tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
@@ -3162,6 +3247,228 @@ mod tests {
         );
         assert_eq!(root_before, root_after, "state root changed for applying empty receipts");
     }
+
+    /// Test that delayed receipts are accounted for in the congestion info of
+    /// the ApplyResult.
+    #[test]
+    fn test_congestion_delayed_receipts_accounting() {
+        let initial_balance = to_yocto(10);
+        let initial_locked = to_yocto(0);
+        let deposit = to_yocto(1);
+        let gas_limit = 1;
+        let (runtime, tries, root, apply_state, _, epoch_info_provider) =
+            setup_runtime(initial_balance, initial_locked, gas_limit);
+
+        let n = 10;
+        let receipts = generate_receipts(deposit, n);
+
+        let apply_result = runtime
+            .apply(
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
+                &None,
+                &apply_state,
+                &receipts,
+                &[],
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap();
+
+        assert_eq!(n - 1, apply_result.delayed_receipts_count);
+        if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
+            let congestion = apply_result.congestion_info.unwrap();
+            let expected_delayed_gas =
+                (n - 1) * receipt_congestion_gas(&receipts[0], &apply_state.config).unwrap();
+            let expected_receipts_bytes = (n - 1) * receipt_size(&receipts[0]).unwrap() as u64;
+
+            assert_eq!(expected_delayed_gas as u128, congestion.delayed_receipts_gas());
+            assert_eq!(expected_receipts_bytes, congestion.receipt_bytes());
+        }
+    }
+
+    /// Test that the outgoing receipts buffer works as intended.
+    ///
+    /// Specifically, we want to check that
+    ///   (a) receipts to congested shards are held back in outgoing buffers
+    ///   (b) receipts in the outgoing buffer are drained when possible
+    ///   (c) drained receipts are forwarded
+    ///
+    /// The test uses receipts with balances attached, which also tests
+    /// necessary changes to the balance checker.
+    #[test]
+    fn test_congestion_buffering() {
+        if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
+            return;
+        }
+        // In the test setup with he MockEpochInfoProvider, all accounts are on
+        // shard 0. Hence all receipts will be forwarded to shard 0. We don't
+        // want local forwarding in the test, hence we need to use a different
+        // shard id.
+        let local_shard = 1 as ShardId;
+        let local_shard_uid = ShardUId { version: 0, shard_id: local_shard as u32 };
+        let receiver_shard = 0 as ShardId;
+
+        let initial_balance = to_yocto(1_000_000);
+        let initial_locked = to_yocto(500_000);
+        let deposit = to_yocto(10_000);
+        // execute a single receipt per chunk
+        let gas_limit = 1;
+        let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) =
+            setup_runtime_for_shard(initial_balance, initial_locked, gas_limit, local_shard_uid);
+
+        apply_state.shard_id = local_shard;
+
+        // Mark shard 0 as congested. Which method we use doesn't matter, this
+        // test only checks that receipt buffering works. Unit tests
+        // congestion_info.rs test that the congestion level is picked up for
+        // all possible congestion conditions.
+        let max_congestion_incoming_gas: Gas =
+            apply_state.config.congestion_control_config.max_congestion_incoming_gas;
+        apply_state
+            .congestion_info
+            .get_mut(&0)
+            .unwrap()
+            .congestion_info
+            .add_delayed_receipt_gas(max_congestion_incoming_gas)
+            .unwrap();
+        // set allowed shard of shard 0 to 0 to prevent shard 1 from forwarding
+        apply_state.congestion_info.get_mut(&0).unwrap().congestion_info.set_allowed_shard(0);
+        apply_state.congestion_info.insert(1, Default::default());
+
+        // We need receipts that produce an outgoing receipt. Function calls and
+        // delegate actions are currently the two only choices. We use delegate
+        // actions because this doesn't require a contract setup.
+        let n = 10;
+        let receipts = generate_delegate_actions(deposit, n);
+
+        // Checking n receipts delayed by 1 + 3 extra
+        for i in 1..=n + 3 {
+            let prev_receipts: &[Receipt] = if i == 1 { &receipts } else { &[] };
+            let apply_result = runtime
+                .apply(
+                    tries.get_trie_for_shard(local_shard_uid, root),
+                    &None,
+                    &apply_state,
+                    prev_receipts,
+                    &[],
+                    &epoch_info_provider,
+                    Default::default(),
+                )
+                .unwrap();
+            if let Some(congestion_info) = apply_result.congestion_info {
+                apply_state
+                    .congestion_info
+                    .insert(local_shard, ExtendedCongestionInfo::new(congestion_info, 0));
+            }
+            let mut store_update = tries.store_update();
+            root = tries.apply_all(&apply_result.trie_changes, local_shard_uid, &mut store_update);
+            store_update.commit().unwrap();
+
+            // (a) check receipts are held back in buffer
+            let state = tries.get_trie_for_shard(local_shard_uid, root);
+            let buffers = ShardsOutgoingReceiptBuffer::load(&state).unwrap();
+            let capped_i = std::cmp::min(i, n);
+            assert_eq!(0, apply_result.outgoing_receipts.len());
+            assert_eq!(capped_i, buffers.buffer_len(receiver_shard).unwrap());
+            let congestion = apply_result.congestion_info.unwrap();
+            assert!(congestion.buffered_receipts_gas() > 0);
+            assert!(congestion.receipt_bytes() > 0);
+        }
+
+        // Check congestion is 1.0
+        let congestion = apply_state.congestion_control(receiver_shard, 0);
+        assert_eq!(congestion.congestion_level(), 1.0);
+        assert_eq!(congestion.outgoing_limit(local_shard), 0);
+
+        // release congestion to just below 1.0, which should allow one receipt
+        // to be forwarded per round
+        apply_state
+            .congestion_info
+            .get_mut(&0)
+            .unwrap()
+            .congestion_info
+            .remove_delayed_receipt_gas(10)
+            .unwrap();
+
+        let min_outgoing_gas: Gas = apply_state.config.congestion_control_config.min_outgoing_gas;
+        // Check congestion is less than 1.0
+        let congestion = apply_state.congestion_control(receiver_shard, 0);
+        assert!(congestion.congestion_level() < 1.0);
+        // this exact number does not matter but if it changes the test setup
+        // needs to adapt to ensure the number of forwarded receipts is as expected
+        assert!(
+            congestion.outgoing_limit(local_shard) - min_outgoing_gas < 100 * 10u64.pow(9),
+            "allowed forwarding must be less than 100 GGas away from MIN_OUTGOING_GAS"
+        );
+
+        // Checking n receipts delayed by 1 + 3 extra
+        let forwarded_per_chunk = min_outgoing_gas / MAX_ATTACHED_GAS;
+        for i in 1..=n + 3 {
+            let prev_receipts = &[];
+            let apply_result = runtime
+                .apply(
+                    tries.get_trie_for_shard(local_shard_uid, root),
+                    &None,
+                    &apply_state,
+                    prev_receipts,
+                    &[],
+                    &epoch_info_provider,
+                    Default::default(),
+                )
+                .unwrap();
+            root = commit_apply_result(&apply_result, &mut apply_state, &tries);
+
+            let state = tries.get_trie_for_shard(local_shard_uid, root);
+            let buffers = ShardsOutgoingReceiptBuffer::load(&state).unwrap();
+
+            // (b) check receipts are removed from the buffer
+            let max_forwarded = i * forwarded_per_chunk;
+            let expected_num_in_buffer = n.saturating_sub(max_forwarded);
+            assert_eq!(expected_num_in_buffer, buffers.buffer_len(receiver_shard).unwrap());
+
+            let prev_max_forwarded = (i - 1) * forwarded_per_chunk;
+            if prev_max_forwarded >= n {
+                // no receipts left to forward
+                assert_eq!(0, apply_result.outgoing_receipts.len());
+            } else {
+                let expected_forwarded =
+                    std::cmp::min(forwarded_per_chunk, n.saturating_sub(prev_max_forwarded));
+                // (c) check the right number of receipts are forwarded
+                assert_eq!(expected_forwarded as usize, apply_result.outgoing_receipts.len());
+            }
+        }
+    }
+
+    // Apply trie changes in `ApplyResult` and update `ApplyState` with new
+    // congestion info for the next call to apply().
+    fn commit_apply_result(
+        apply_result: &ApplyResult,
+        apply_state: &mut ApplyState,
+        tries: &ShardTries,
+    ) -> CryptoHash {
+        // congestion control requires an update on
+        let shard_id = apply_state.shard_id;
+        let shard_uid = ShardUId { version: 0, shard_id: shard_id as u32 };
+        if let Some(congestion_info) = apply_result.congestion_info {
+            apply_state
+                .congestion_info
+                .insert(shard_id, ExtendedCongestionInfo::new(congestion_info, 0));
+        }
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(&apply_result.trie_changes, shard_uid, &mut store_update);
+        store_update.commit().unwrap();
+        return root;
+    }
+
+    impl ApplyState {
+        fn congestion_control(&self, shard_id: ShardId, missed_chunks: u64) -> CongestionControl {
+            CongestionControl::new(
+                self.config.congestion_control_config,
+                self.congestion_info[&shard_id].congestion_info,
+                missed_chunks,
+            )
+        }
+    }
 }
 
 /// Interface provided for gas cost estimations.
@@ -3169,7 +3476,7 @@ pub mod estimator {
     use super::{ReceiptSink, Runtime};
     use crate::congestion_control::ReceiptSinkV2;
     use crate::{ApplyState, ApplyStats};
-    use near_primitives::congestion_info::ExtendedCongestionInfo;
+    use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::errors::RuntimeError;
     use near_primitives::receipt::Receipt;
     use near_primitives::transaction::ExecutionOutcomeWithId;
@@ -3188,15 +3495,13 @@ pub mod estimator {
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
-        // For the estimator, create a limitless receipt sink that always
-        // forwards. This captures congestion accounting overhead but does not
-        // create unexpected congestion in estimations.
-        let mut congestion_info = ExtendedCongestionInfo::default();
+        // TODO(congestion_control - edit runtime config parameters for limitless estimator runs
+        let mut congestion_info = CongestionInfo::default();
         // no limits set for any shards => limitless
         let outgoing_limit = HashMap::new();
 
         let mut receipt_sink = ReceiptSink::V2(ReceiptSinkV2 {
-            congestion_info: &mut congestion_info,
+            own_congestion_info: &mut congestion_info,
             outgoing_limit: outgoing_limit,
             outgoing_buffers: ShardsOutgoingReceiptBuffer::load(&state_update.trie)?,
             outgoing_receipts,

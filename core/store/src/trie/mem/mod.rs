@@ -1,4 +1,4 @@
-use self::arena::Arena;
+use self::arena::{Arena, STArena, STArenaMemory};
 use self::metrics::MEM_TRIE_NUM_ROOTS;
 use self::node::{MemTrieNodeId, MemTrieNodePtr};
 use self::updating::MemTrieUpdate;
@@ -11,11 +11,13 @@ use std::collections::{BTreeMap, HashMap};
 mod arena;
 mod construction;
 pub(crate) mod flexible_data;
+mod freelist;
 pub mod iter;
 pub mod loading;
 pub mod lookup;
 pub mod metrics;
 pub mod node;
+mod parallel_loader;
 pub mod updating;
 
 /// Check this, because in the code we conveniently assume usize is 8 bytes.
@@ -29,7 +31,7 @@ compile_error!("In-memory trie requires a 64 bit platform");
 /// its children nodes. The `roots` field of this struct logically
 /// holds an Rc of the root of each trie.
 pub struct MemTries {
-    arena: Arena,
+    arena: STArena,
     /// Maps a state root to a list of nodes that have the same root hash.
     /// The reason why this is a list is because we do not have a node
     /// deduplication mechanism so we can't guarantee that nodes of the
@@ -48,11 +50,23 @@ pub struct MemTries {
 impl MemTries {
     pub fn new(shard_uid: ShardUId) -> Self {
         Self {
-            arena: Arena::new(shard_uid.to_string()),
+            arena: STArena::new(shard_uid.to_string()),
             roots: HashMap::new(),
             heights: Default::default(),
             shard_uid,
         }
+    }
+
+    pub fn new_from_arena_and_root(
+        shard_uid: ShardUId,
+        block_height: BlockHeight,
+        arena: STArena,
+        root: MemTrieNodeId,
+    ) -> Self {
+        let mut tries =
+            Self { arena, roots: HashMap::new(), heights: Default::default(), shard_uid };
+        tries.insert_root(root.as_ptr(tries.arena.memory()).view().node_hash(), root, block_height);
+        tries
     }
 
     /// Inserts a new root into the trie. The given function should perform
@@ -61,7 +75,7 @@ impl MemTries {
     pub fn construct_root<Error>(
         &mut self,
         block_height: BlockHeight,
-        f: impl FnOnce(&mut Arena) -> Result<Option<MemTrieNodeId>, Error>,
+        f: impl FnOnce(&mut STArena) -> Result<Option<MemTrieNodeId>, Error>,
     ) -> Result<CryptoHash, Error> {
         let root = f(&mut self.arena)?;
         if let Some(root) = root {
@@ -82,7 +96,7 @@ impl MemTries {
         assert_ne!(state_root, CryptoHash::default());
         let heights = self.heights.entry(block_height).or_default();
         heights.push(state_root);
-        let new_ref = mem_root.add_ref(&mut self.arena);
+        let new_ref = mem_root.add_ref(self.arena.memory_mut());
         if new_ref == 1 {
             self.roots.entry(state_root).or_default().push(mem_root);
         }
@@ -92,7 +106,7 @@ impl MemTries {
     }
 
     /// Returns a root node corresponding to the given state root.
-    pub fn get_root<'a>(&'a self, state_root: &CryptoHash) -> Option<MemTrieNodePtr<'a>> {
+    pub fn get_root(&self, state_root: &CryptoHash) -> Option<MemTrieNodePtr<STArenaMemory>> {
         assert_ne!(state_root, &CryptoHash::default());
         self.roots.get(state_root).map(|ids| ids[0].as_ptr(self.arena.memory()))
     }
@@ -173,6 +187,7 @@ impl MemTries {
 mod tests {
     use super::node::{InputMemTrieNode, MemTrieNodeId};
     use super::MemTries;
+    use crate::trie::mem::arena::Arena;
     use crate::NibbleSlice;
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardUId;
@@ -224,16 +239,12 @@ mod tests {
                                 let root = MemTrieNodeId::new(
                                     arena,
                                     InputMemTrieNode::Leaf {
-                                        value: FlatStateValue::Inlined(
+                                        value: &FlatStateValue::Inlined(
                                             format!("{}", height).into_bytes(),
                                         ),
-                                        extension: NibbleSlice::new(&[])
-                                            .encoded(true)
-                                            .to_vec()
-                                            .into_boxed_slice(),
+                                        extension: &NibbleSlice::new(&[]).encoded(true),
                                     },
                                 );
-                                root.as_ptr_mut(arena.memory_mut()).compute_hash_recursively();
                                 Ok(Some(root))
                             })
                             .unwrap();

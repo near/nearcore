@@ -20,10 +20,18 @@ pub enum Parameter {
     BurntGasReward,
     PessimisticGasPriceInflation,
 
-    // Stateless validation config
-    StorageProofSizeSoftLimit,
-    // Hard per-receipt limit of recorded trie storage proof
-    StorageProofSizeReceiptLimit,
+    /// Stateless validation config
+    /// Size limit for storage proof generated while executing receipts in a chunk.
+    /// After this limit is reached we defer execution of any new receipts.
+    MainStorageProofSizeSoftLimit,
+    /// Hard limit on the size of storage proof generated while executing a single receipt.
+    PerReceiptStorageProofSizeLimit,
+    /// Soft size limit of storage proof used to validate new transactions in ChunkStateWitness.
+    NewTransactionsValidationStateSizeSoftLimit,
+    /// Maximum size of transactions contained inside ChunkStateWitness.
+    /// A witness contains transactions from both the previous chunk and the current one.
+    /// This parameter limits the sum of sizes of transactions from both of those chunks.
+    CombinedTransactionsSizeLimit,
 
     // Account creation config
     MinAllowedTopLevelAccountLength,
@@ -169,6 +177,19 @@ pub enum Parameter {
     VmKind,
     EthImplicitAccounts,
     YieldResume,
+
+    // Congestion Control
+    MaxCongestionIncomingGas,
+    MaxCongestionOutgoingGas,
+    MaxCongestionMemoryConsumption,
+    MaxCongestionMissedChunks,
+
+    MaxOutgoingGas,
+    MinOutgoingGas,
+    AllowedShardOutgoingGas,
+    MaxTxGas,
+    MinTxGas,
+    RejectTxCongestionThreshold,
 }
 
 #[derive(
@@ -236,7 +257,7 @@ impl Parameter {
             Parameter::AccountIdValidityRulesVersion,
             Parameter::YieldTimeoutLengthInBlocks,
             Parameter::MaxYieldPayloadSize,
-            Parameter::StorageProofSizeReceiptLimit,
+            Parameter::PerReceiptStorageProofSizeLimit,
         ]
         .iter()
     }

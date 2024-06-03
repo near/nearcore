@@ -1,4 +1,4 @@
-use super::arena::{ArenaSlice, ArenaSliceMut};
+use super::arena::{ArenaMemory, ArenaSlice, ArenaSliceMut};
 
 pub mod children;
 pub mod encoding;
@@ -28,10 +28,10 @@ pub mod value;
 /// with multiple flexibly-sized parts with relative ease.
 pub trait FlexibleDataHeader {
     /// The type of the original form of data to be used for encoding.
-    type InputData;
+    type InputData: ?Sized;
     /// The type of a view of the decoded data, which may reference the memory
     /// that we are decoding from, and therefore having a lifetime.
-    type View<'a>;
+    type View<'a, M: ArenaMemory>;
 
     /// Derives the header (fixed-size part) from the original data.
     fn from_input(data: &Self::InputData) -> Self;
@@ -45,7 +45,11 @@ pub trait FlexibleDataHeader {
     /// slice. This function must be implemented in a way that writes
     /// exactly `self.flexible_data_length()` bytes to the given memory
     /// slice. The caller must ensure that the memory slice is large enough.
-    fn encode_flexible_data(&self, data: Self::InputData, target: &mut ArenaSliceMut<'_>);
+    fn encode_flexible_data<M: ArenaMemory>(
+        &self,
+        data: &Self::InputData,
+        target: &mut ArenaSliceMut<M>,
+    );
 
     /// Decodes the flexibly-sized part of the data from the given memory
     /// slice. This function must be implemented in a consistent manner
@@ -54,5 +58,8 @@ pub trait FlexibleDataHeader {
     /// and the caller must ensure that the memory slice is the same one
     /// that was used to encode the data. The returned View has the same
     /// lifetime as the memory slice, and so may reference data from it.
-    fn decode_flexible_data<'a>(&self, source: &ArenaSlice<'a>) -> Self::View<'a>;
+    fn decode_flexible_data<'a, M: ArenaMemory>(
+        &self,
+        source: &ArenaSlice<'a, M>,
+    ) -> Self::View<'a, M>;
 }

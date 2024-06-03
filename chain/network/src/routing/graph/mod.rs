@@ -4,6 +4,7 @@ use crate::network_protocol::{Edge, EdgeState};
 use crate::routing::bfs;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
+use ::time::ext::InstantExt as _;
 use arc_swap::ArcSwap;
 use near_async::time;
 use near_primitives::network::PeerId;
@@ -55,15 +56,9 @@ fn has(set: &im::HashMap<EdgeKey, Edge>, edge: &Edge) -> bool {
 impl Inner {
     /// Adds an edge without validating the signatures. O(1).
     /// Returns true, iff <edge> was newer than an already known version of this edge.
-    fn update_edge(&mut self, now: time::Utc, edge: Edge) -> bool {
+    fn update_edge(&mut self, edge: Edge) -> bool {
         if has(&self.edges, &edge) {
             return false;
-        }
-        if let Some(prune_edges_after) = self.config.prune_edges_after {
-            // Don't add edges that are older than the limit.
-            if edge.is_edge_older_than(now - prune_edges_after) {
-                return false;
-            }
         }
         let key = edge.key();
         // Add the edge.
@@ -152,7 +147,21 @@ impl Inner {
         edges = Edge::deduplicate(edges);
 
         // Retain only new edges.
-        edges.retain(|e| !has(&self.edges, e));
+        let now = clock.now_utc();
+        edges.retain(|e| {
+            if has(&self.edges, e) {
+                return false;
+            }
+
+            if let Some(prune_edges_after) = self.config.prune_edges_after {
+                // Don't add edges that are older than the limit.
+                if e.is_edge_older_than(now - prune_edges_after) {
+                    return false;
+                }
+            }
+
+            return true;
+        });
 
         // Verify the edges in parallel on rayon.
         // Stop at first invalid edge.
@@ -167,7 +176,7 @@ impl Inner {
         });
 
         // Add the verified edges to the graph.
-        edges.retain(|e| self.update_edge(clock.now_utc(), e.clone()));
+        edges.retain(|e| self.update_edge(e.clone()));
         (edges, ok)
     }
 
@@ -201,7 +210,8 @@ impl Inner {
         for peer in next_hops.keys() {
             self.peer_reachable_at.insert(peer.clone(), now);
         }
-        if let Some(unreachable_since) = now.checked_sub(self.config.prune_unreachable_peers_after)
+        if let Some(unreachable_since) =
+            now.checked_sub_signed(self.config.prune_unreachable_peers_after)
         {
             self.prune_unreachable_peers(unreachable_since);
         }

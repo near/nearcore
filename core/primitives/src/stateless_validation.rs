@@ -31,7 +31,7 @@ type SignatureDifferentiator = String;
 #[derive(Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct PartialEncodedStateWitness {
     inner: PartialEncodedStateWitnessInner,
-    signature: Signature,
+    pub signature: Signature,
 }
 
 impl Debug for PartialEncodedStateWitness {
@@ -63,6 +63,14 @@ impl PartialEncodedStateWitness {
         );
         let signature = signer.sign_partial_encoded_state_witness(&inner);
         Self { inner, signature }
+    }
+
+    pub fn chunk_production_key(&self) -> ChunkProductionKey {
+        ChunkProductionKey {
+            shard_id: self.shard_id(),
+            epoch_id: self.epoch_id().clone(),
+            height_created: self.height_created(),
+        }
     }
 
     pub fn verify(&self, public_key: &PublicKey) -> bool {
@@ -204,16 +212,6 @@ impl EncodedChunkStateWitness {
     }
 }
 
-// TODO(stateless_validation): Deprecate once we send state witness in parts.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct SignedEncodedChunkStateWitness {
-    /// The content of the witness. It is convenient have it as bytes in order
-    /// to perform signature verification along with decoding.
-    pub witness_bytes: EncodedChunkStateWitness,
-    /// Signature corresponds to `witness_bytes.as_slice()` signed by the chunk producer
-    pub signature: Signature,
-}
-
 /// An acknowledgement sent from the chunk producer upon receiving the state witness to
 /// the originator of the witness (chunk producer).
 ///
@@ -339,6 +337,14 @@ impl ChunkStateWitness {
             new_transactions,
             new_transactions_validation_state,
             signature_differentiator: "ChunkStateWitness".to_owned(),
+        }
+    }
+
+    pub fn chunk_production_key(&self) -> ChunkProductionKey {
+        ChunkProductionKey {
+            shard_id: self.chunk_header.shard_id(),
+            epoch_id: self.epoch_id.clone(),
+            height_created: self.chunk_header.height_created(),
         }
     }
 
@@ -475,6 +481,15 @@ impl EndorsementStats {
     pub fn required_stake(&self) -> Balance {
         self.total_stake * 2 / 3 + 1
     }
+}
+
+/// This struct contains combination of fields that uniquely identify chunk production.
+/// It means that for a given instance only one chunk could be produced.
+#[derive(Debug, Hash, PartialEq, Eq, Clone)]
+pub struct ChunkProductionKey {
+    pub shard_id: ShardId,
+    pub epoch_id: EpochId,
+    pub height_created: BlockHeight,
 }
 
 #[derive(Debug, Default)]

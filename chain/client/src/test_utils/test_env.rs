@@ -27,7 +27,7 @@ use near_primitives::epoch_manager::RngSeed;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
-use near_primitives::stateless_validation::{ChunkEndorsement, EncodedChunkStateWitness};
+use near_primitives::stateless_validation::{ChunkEndorsement, ChunkStateWitness};
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, NumSeats, ShardId};
@@ -42,6 +42,7 @@ use near_vm_runner::logic::ProtocolVersion;
 use once_cell::sync::OnceCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
+use time::ext::InstantExt as _;
 
 use super::mock_partial_witness_adapter::MockPartialWitnessAdapter;
 use super::setup::setup_client_with_runtime;
@@ -306,7 +307,6 @@ impl TestEnv {
                     chunk_producer,
                 } => {
                     self.clients[id]
-                        .chunk_inclusion_tracker
                         .mark_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
                 }
             }
@@ -328,9 +328,8 @@ impl TestEnv {
     }
 
     fn found_differing_post_state_root_due_to_state_transitions(
-        encoded_witness: &EncodedChunkStateWitness,
+        witness: &ChunkStateWitness,
     ) -> bool {
-        let witness = encoded_witness.decode().unwrap().0;
         let mut post_state_roots = HashSet::from([witness.main_state_transition.post_state_root]);
         post_state_roots.extend(witness.implicit_transitions.iter().map(|t| t.post_state_root));
         post_state_roots.len() >= 2
@@ -351,7 +350,7 @@ impl TestEnv {
         // clients. Ideally the route should have been the following:
         // [client] ----(DistributeStateWitnessRequest)----> [partial_witness_actor]
         // [partial_witness_actor] ----(PartialEncodedStateWitness + Forward)----> [partial_witness_actor]
-        // [partial_witness_actor] ----(ProcessChunkStateWitnessMessage)----> [client]
+        // [partial_witness_actor] ----(ChunkStateWitnessMessage)----> [client]
         // But we go directly from processing DistributeStateWitnessRequest to sending it to all the chunk validators.
         // Validation of state witness is done in the partial_witness_actor which should be tested by test_loop.
         let partial_witness_adapters = self.partial_witness_adapters.clone();
@@ -359,8 +358,8 @@ impl TestEnv {
             while let Some(request) = partial_witness_adapter.pop_distribution_request() {
                 let DistributeStateWitnessRequest { epoch_id, chunk_header, state_witness } =
                     request;
-                let (encoded_witness, _) =
-                    EncodedChunkStateWitness::encode(&state_witness).unwrap();
+
+                let raw_witness_size = borsh::to_vec(&state_witness).unwrap().len();
                 let chunk_validators = self.clients[client_idx]
                     .epoch_manager
                     .get_chunk_validator_assignments(
@@ -376,7 +375,8 @@ impl TestEnv {
                     witness_processing_done_waiters.push(processing_done_tracker.make_waiter());
 
                     let processing_result = self.client(&account_id).process_chunk_state_witness(
-                        encoded_witness.clone(),
+                        state_witness.clone(),
+                        raw_witness_size,
                         Some(processing_done_tracker),
                     );
                     if !allow_errors {
@@ -386,9 +386,7 @@ impl TestEnv {
 
                 // Update output.
                 output.found_differing_post_state_root_due_to_state_transitions |=
-                    Self::found_differing_post_state_root_due_to_state_transitions(
-                        &encoded_witness,
-                    );
+                    Self::found_differing_post_state_root_due_to_state_transitions(&state_witness);
             }
         }
 
@@ -455,7 +453,7 @@ impl TestEnv {
                 return Ok(endorsement);
             }
 
-            let elapsed_since_start = start_time.elapsed();
+            let elapsed_since_start = Instant::now().signed_duration_since(start_time);
             if elapsed_since_start > CHUNK_ENDORSEMENTS_TIMEOUT {
                 return Err(TimeoutError(elapsed_since_start));
             }

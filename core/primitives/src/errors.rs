@@ -66,8 +66,6 @@ pub enum RuntimeError {
     ReceiptValidationError(ReceiptValidationError),
     /// Error when accessing validator information. Happens inside epoch manager.
     ValidatorError(EpochError),
-    /// The context provided  to the runtime is inconsistent.
-    ContextError(ContextError),
 }
 
 impl std::fmt::Display for RuntimeError {
@@ -79,7 +77,16 @@ impl std::fmt::Display for RuntimeError {
 impl std::error::Error for RuntimeError {}
 
 /// Contexts in which `StorageError::MissingTrieValue` error might occur.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    serde::Deserialize,
+    serde::Serialize,
+    BorshSerialize,
+    BorshDeserialize,
+)]
 pub enum MissingTrieValueContext {
     /// Missing trie value when reading from TrieIterator.
     TrieIterator,
@@ -93,7 +100,16 @@ pub enum MissingTrieValueContext {
 
 /// Errors which may occur during working with trie storages, storing
 /// trie values (trie nodes and state values) by their hashes.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    serde::Deserialize,
+    serde::Serialize,
+    BorshSerialize,
+    BorshDeserialize,
+)]
 pub enum StorageError {
     /// Key-value db internal failure
     StorageInternalError,
@@ -141,15 +157,27 @@ pub enum InvalidTxError {
     /// Happens if a wrong AccessKey used or AccessKey has not enough permissions
     InvalidAccessKeyError(InvalidAccessKeyError),
     /// TX signer_id is not a valid [`AccountId`]
-    InvalidSignerId { signer_id: String },
+    InvalidSignerId {
+        signer_id: String,
+    },
     /// TX signer_id is not found in a storage
-    SignerDoesNotExist { signer_id: AccountId },
+    SignerDoesNotExist {
+        signer_id: AccountId,
+    },
     /// Transaction nonce must be `account[access_key].nonce + 1`.
-    InvalidNonce { tx_nonce: Nonce, ak_nonce: Nonce },
+    InvalidNonce {
+        tx_nonce: Nonce,
+        ak_nonce: Nonce,
+    },
     /// Transaction nonce is larger than the upper bound given by the block height
-    NonceTooLarge { tx_nonce: Nonce, upper_bound: Nonce },
+    NonceTooLarge {
+        tx_nonce: Nonce,
+        upper_bound: Nonce,
+    },
     /// TX receiver_id is not a valid AccountId
-    InvalidReceiverId { receiver_id: String },
+    InvalidReceiverId {
+        receiver_id: String,
+    },
     /// TX signature is not valid
     InvalidSignature,
     /// Account does not have enough balance to cover TX cost
@@ -177,9 +205,20 @@ pub enum InvalidTxError {
     /// An error occurred while validating actions of a Transaction.
     ActionsValidation(ActionsValidationError),
     /// The size of serialized transaction exceeded the limit.
-    TransactionSizeExceeded { size: u64, limit: u64 },
+    TransactionSizeExceeded {
+        size: u64,
+        limit: u64,
+    },
     /// Transaction version is invalid.
     InvalidTransactionVersion,
+    // Error occurred during storage access
+    StorageError(StorageError),
+}
+
+impl From<StorageError> for InvalidTxError {
+    fn from(error: StorageError) -> Self {
+        InvalidTxError::StorageError(error)
+    }
 }
 
 impl std::error::Error for InvalidTxError {}
@@ -577,6 +616,9 @@ impl Display for InvalidTxError {
             }
             InvalidTxError::InvalidTransactionVersion => {
                 write!(f, "Transaction version is invalid")
+            }
+            InvalidTxError::StorageError(error) => {
+                write!(f, "Storage error: {}", error)
             }
         }
     }
@@ -982,19 +1024,6 @@ impl Debug for EpochError {
 impl From<std::io::Error> for EpochError {
     fn from(error: std::io::Error) -> Self {
         EpochError::IOErr(error.to_string())
-    }
-}
-
-#[derive(Eq, PartialEq, Clone, thiserror::Error, Debug)]
-
-pub enum ContextError {
-    #[error("No congestion info for shard {shard_id} in the runtime context")]
-    MissingCongestionInfo { shard_id: u64 },
-}
-
-impl From<ContextError> for RuntimeError {
-    fn from(other: ContextError) -> Self {
-        RuntimeError::ContextError(other)
     }
 }
 

@@ -21,6 +21,7 @@ import threading
 import time
 import http
 import http.server
+import dotenv
 
 
 def get_lock(home):
@@ -56,6 +57,10 @@ class JSONHandler(http.server.BaseHTTPRequestHandler):
                                    name="make_backup")
         self.dispatcher.add_method(server.neard_runner.do_ls_backups,
                                    name="ls_backups")
+        self.dispatcher.add_method(server.neard_runner.do_clear_env,
+                                   name="clear_env")
+        self.dispatcher.add_method(server.neard_runner.do_add_env,
+                                   name="add_env")
         super().__init__(request, client_address, server)
 
     def do_GET(self):
@@ -240,7 +245,11 @@ class NeardRunner:
 
     def save_data(self):
         with open(self.home_path('data.json'), 'w') as f:
-            json.dump(self.data, f)
+            json.dump(self.data, f, indent=2)
+
+    def save_config(self):
+        with open(self.home_path('config.json'), 'w') as f:
+            json.dump(self.config, f, indent=2)
 
     def parse_binaries_config(self):
         if 'binaries' not in self.config:
@@ -660,9 +669,58 @@ class NeardRunner:
         with self.lock:
             return self.data.get('backups', {})
 
-    def do_update_binaries(self):
+    # Updates the URL for the given epoch height or binary idx. adds a new one if the epoch height does not exit
+    def update_binaries_url(self, neard_binary_url, epoch_height, binary_idx):
+        if neard_binary_url is not None and ((epoch_height is None)
+                                             != (binary_idx is None)):
+            logging.info(
+                f'Updating binary list for height:{epoch_height} or idx:{binary_idx} with '
+                f'url: {neard_binary_url}')
+        else:
+            logging.error(
+                f'Update binaries failed. Wrong params: url: {neard_binary_url}, height:{epoch_height}, idx:{binary_idx}'
+            )
+            raise jsonrpc.exceptions.JSONRPCInvalidParams()
+
+        if 'binaries' not in self.config:
+            self.config['binaries'] = []
+
+        if not isinstance(self.config['binaries'], list):
+            self.config['binaries'] = []
+
+        if epoch_height is not None:
+            binary = next((b for b in self.config['binaries']
+                           if b['epoch_height'] == epoch_height), None)
+            if binary:
+                binary['url'] = neard_binary_url
+            else:
+                self.config['binaries'].append({
+                    'url': neard_binary_url,
+                    'epoch_height': epoch_height
+                })
+                self.config['binaries'].sort(
+                    key=lambda binary: binary['epoch_height'])
+        if binary_idx is not None:
+            binaries_number = len(self.config['binaries'])
+            if binary_idx >= binaries_number:
+                logging.error(
+                    f'idx {binary_idx} is out of bounds for the binary list of length {binaries_number}'
+                )
+                raise jsonrpc.exceptions.JSONRPCInvalidParams(
+                    message=
+                    f'Invalid binary idx. Out of bounds for list of length {binaries_number}'
+                )
+            self.config['binaries'][binary_idx]['url'] = neard_binary_url
+
+    def do_update_binaries(self, neard_binary_url, epoch_height, binary_idx):
         with self.lock:
             logging.info('update binaries')
+            if any(arg is not None
+                   for arg in [neard_binary_url, epoch_height, binary_idx]):
+                self.update_binaries_url(neard_binary_url, epoch_height,
+                                         binary_idx)
+                self.save_config()
+
             try:
                 self.download_binaries(force=True)
             except ValueError as e:
@@ -684,6 +742,22 @@ class NeardRunner:
         with self.lock:
             state = self.get_state()
             return state == TestState.RUNNING or state == TestState.STOPPED
+
+    def do_clear_env(self):
+        with self.lock:
+            env_file_path = self.home_path('.env')
+            open(env_file_path, 'w').close()
+            print(f'File {env_file_path} has been successfully cleared.')
+
+    def do_add_env(self, key_values):
+        with self.lock:
+            env_file_path = self.home_path('.env')
+            # Create the file if it does not exit
+            open(env_file_path, 'a').close()
+            for key_value in key_values:
+                logging.info(f'Updating env with {key_value}')
+                [key, value] = key_value.split("=", 1)
+                dotenv.set_key(env_file_path, key, value)
 
     # check the current epoch height, and return the binary path that we should
     # be running given the epoch heights specified in config.json
@@ -718,9 +792,12 @@ class NeardRunner:
     def run_neard(self, cmd, out_file=None):
         assert (self.neard is None)
         assert (self.data['neard_process'] is None)
-        env = os.environ.copy()
-        if 'RUST_LOG' not in env:
-            env['RUST_LOG'] = 'actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn,indexer=info,debug'
+        home_path = os.path.expanduser('~')
+        env = {
+            **os.environ,  # override loaded values with environment variables
+            **dotenv.dotenv_values(os.path.join(home_path, '.secrets')),  # load sensitive variables
+            **dotenv.dotenv_values(self.home_path('.env')),  # load neard variables
+        }
         logging.info(f'running {" ".join(cmd)}')
         self.neard = subprocess.Popen(
             cmd,
@@ -824,8 +901,12 @@ class NeardRunner:
                     self.source_near_home_path(),
                     '--target-home',
                     self.target_near_home_path(),
-                    '--no-secret',
                 ]
+                if os.path.exists(self.setup_path('mirror-secret.json')):
+                    cmd.append('--secret-file')
+                    cmd.append(self.setup_path('mirror-secret.json'))
+                else:
+                    cmd.append('--no-secret')
                 if batch_interval_millis is not None:
                     with open(self.target_near_home_path('mirror-config.json'),
                               'w') as f:
@@ -847,6 +928,20 @@ class NeardRunner:
                     self.data['current_neard_path'], '--log-span-events',
                     '--home', self.neard_home, '--unsafe-fast-startup', 'run'
                 ]
+
+            # Save logs config file to control the level of rust and opentelemetry logs.
+            # Default config sets level to DEBUG for "client" and "chain" logs, WARN for tokio+actix, and INFO for everything else.
+            default_log_filter = 'client=debug,chain=debug,actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn,info'
+            with open(self.target_near_home_path('log_config.json'),
+                      'w') as log_config_file:
+                json.dump(
+                    {
+                        'opentelemetry': default_log_filter,
+                        'rust_log': default_log_filter,
+                    },
+                    log_config_file,
+                    indent=2)
+
             self.run_neard(
                 cmd,
                 out_file=out,
@@ -951,6 +1046,8 @@ class NeardRunner:
                 str(n['epoch_length']),
                 '--num-seats',
                 str(n['num_seats']),
+                '--protocol-reward-rate',
+                '1/10',
             ]
             if n['protocol_version'] is not None:
                 cmd.append('--protocol-version')

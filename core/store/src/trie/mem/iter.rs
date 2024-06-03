@@ -10,17 +10,18 @@
 //!    column.
 //!
 //! Testing of the `MemTrieIterator` is done together by tests of `DiskTrieIterator`.
+use super::arena::STArenaMemory;
 use super::node::{MemTrieNodePtr, MemTrieNodeView};
 use crate::{
     trie::{iterator::TrieItem, OptimizedValueRef},
-    NibbleSlice,
+    NibbleSlice, Trie,
 };
 use near_primitives::errors::StorageError;
 
 /// Crumb is a piece of trie iteration state. It describes a node on the trail and processing status of that node.
 #[derive(Debug)]
 struct Crumb<'a> {
-    node: Option<MemTrieNodeView<'a>>,
+    node: Option<MemTrieNodeView<'a, STArenaMemory>>,
     status: CrumbStatus,
     prefix_boundary: bool,
 }
@@ -70,23 +71,16 @@ impl<'a> Crumb<'a> {
 /// will add only a single item to the trail but may add multiple nibbles to the key_nibbles.
 
 pub struct MemTrieIterator<'a> {
-    root: Option<MemTrieNodePtr<'a>>,
+    root: Option<MemTrieNodePtr<'a, STArenaMemory>>,
+    trie: &'a Trie,
     trail: Vec<Crumb<'a>>,
     key_nibbles: Vec<u8>,
-
-    /// Memtrie does not store large values, so we need to fetch them from the State column.
-    /// This function allows us to do that.
-    value_getter: Box<dyn Fn(OptimizedValueRef) -> Result<Vec<u8>, StorageError> + 'a>,
 }
 
 impl<'a> MemTrieIterator<'a> {
     /// Create a new iterator.
-    pub fn new(
-        root: Option<MemTrieNodePtr<'a>>,
-        value_getter: Box<dyn Fn(OptimizedValueRef) -> Result<Vec<u8>, StorageError> + 'a>,
-    ) -> Self {
-        let mut r =
-            MemTrieIterator { root, trail: Vec::new(), key_nibbles: Vec::new(), value_getter };
+    pub fn new(root: Option<MemTrieNodePtr<'a, STArenaMemory>>, trie: &'a Trie) -> Self {
+        let mut r = MemTrieIterator { root, trie, trail: Vec::new(), key_nibbles: Vec::new() };
         r.descend_into_node(root);
         r
     }
@@ -101,7 +95,7 @@ impl<'a> MemTrieIterator<'a> {
         &mut self,
         mut key: NibbleSlice<'_>,
         is_prefix_seek: bool,
-    ) -> Option<MemTrieNodePtr<'a>> {
+    ) -> Option<MemTrieNodePtr<'a, STArenaMemory>> {
         self.trail.clear();
         self.key_nibbles.clear();
         // Checks if a key in an extension or leaf matches our search query.
@@ -128,7 +122,7 @@ impl<'a> MemTrieIterator<'a> {
             match &node {
                 None => break,
                 Some(MemTrieNodeView::Leaf { extension, .. }) => {
-                    let existing_key = NibbleSlice::from_encoded(extension.raw_slice()).0;
+                    let existing_key = NibbleSlice::from_encoded(extension).0;
                     if !check_ext_key(&key, &existing_key) {
                         self.key_nibbles.extend(existing_key.iter());
                         *status = CrumbStatus::Exiting;
@@ -152,7 +146,7 @@ impl<'a> MemTrieIterator<'a> {
                     }
                 }
                 Some(MemTrieNodeView::Extension { extension, child, .. }) => {
-                    let existing_key = NibbleSlice::from_encoded(extension.raw_slice()).0;
+                    let existing_key = NibbleSlice::from_encoded(extension).0;
                     if key.starts_with(&existing_key) {
                         key = key.mid(existing_key.len());
                         ptr = Some(*child);
@@ -174,8 +168,16 @@ impl<'a> MemTrieIterator<'a> {
     /// Fetches node by its ptr and adds it to the trail.
     ///
     /// The node is stored as the last [`Crumb`] in the trail.
-    fn descend_into_node(&mut self, ptr: Option<MemTrieNodePtr<'a>>) {
-        let node = ptr.map(|ptr| ptr.view());
+    fn descend_into_node(&mut self, ptr: Option<MemTrieNodePtr<'a, STArenaMemory>>) {
+        let node = ptr.map(|ptr| {
+            let view = ptr.view();
+            if let Some(recorder) = &self.trie.recorder {
+                let raw_node_serialized =
+                    borsh::to_vec(&view.to_raw_trie_node_with_size()).unwrap();
+                recorder.borrow_mut().record(&view.node_hash(), raw_node_serialized.into());
+            }
+            view
+        });
         self.trail.push(Crumb { status: CrumbStatus::Entering, node, prefix_boundary: false });
     }
 
@@ -196,7 +198,7 @@ impl<'a> MemTrieIterator<'a> {
                 match n {
                     Some(MemTrieNodeView::Leaf { extension, .. })
                     | Some(MemTrieNodeView::Extension { extension, .. }) => {
-                        let existing_key = NibbleSlice::from_encoded(extension.raw_slice()).0;
+                        let existing_key = NibbleSlice::from_encoded(extension).0;
                         let l = self.key_nibbles.len();
                         self.key_nibbles.truncate(l - existing_key.len());
                     }
@@ -213,12 +215,12 @@ impl<'a> MemTrieIterator<'a> {
             }
             (CrumbStatus::At, Some(MemTrieNodeView::Branch { .. })) => IterStep::Continue,
             (CrumbStatus::At, Some(MemTrieNodeView::Leaf { extension, value })) => {
-                let key = NibbleSlice::from_encoded(extension.raw_slice()).0;
+                let key = NibbleSlice::from_encoded(extension).0;
                 self.key_nibbles.extend(key.iter());
                 IterStep::Value(value.to_optimized_value_ref())
             }
             (CrumbStatus::At, Some(MemTrieNodeView::Extension { extension, child, .. })) => {
-                let key = NibbleSlice::from_encoded(extension.raw_slice()).0;
+                let key = NibbleSlice::from_encoded(extension).0;
                 self.key_nibbles.extend(key.iter());
                 IterStep::Descend(*child)
             }
@@ -245,7 +247,7 @@ impl<'a> MemTrieIterator<'a> {
 enum IterStep<'a> {
     Continue,
     PopTrail,
-    Descend(MemTrieNodePtr<'a>),
+    Descend(MemTrieNodePtr<'a, STArenaMemory>),
     Value(OptimizedValueRef),
 }
 
@@ -265,7 +267,14 @@ impl<'a> Iterator for MemTrieIterator<'a> {
                     self.descend_into_node(Some(ptr));
                 }
                 IterStep::Value(value_ref) => {
-                    return Some((self.value_getter)(value_ref).map(|value| (self.key(), value)))
+                    let value = self.trie.deref_optimized(&value_ref);
+                    if let Ok(value) = &value {
+                        if let Some(recorder) = &self.trie.recorder {
+                            let value_hash = value_ref.into_value_ref().hash;
+                            recorder.borrow_mut().record(&value_hash, value.clone().into());
+                        }
+                    }
+                    return Some(value.map(|value| (self.key(), value)));
                 }
             }
         }

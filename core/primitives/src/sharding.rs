@@ -428,6 +428,7 @@ impl ShardChunkHeader {
         }
     }
 
+    /// Congestion info, if the feature is enabled on the chunk, `None` otherwise.
     #[inline]
     pub fn congestion_info(&self) -> Option<CongestionInfo> {
         match self {

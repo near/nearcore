@@ -42,11 +42,14 @@ impl Client {
         block: MaybeValidated<Block>,
         provenance: Provenance,
         should_produce_chunk: bool,
+        allow_errors: bool,
     ) -> Result<Vec<CryptoHash>, near_chain::Error> {
         self.start_process_block(block, provenance, None)?;
         wait_for_all_blocks_in_processing(&mut self.chain);
         let (accepted_blocks, errors) = self.postprocess_ready_blocks(None, should_produce_chunk);
-        assert!(errors.is_empty(), "unexpected errors when processing blocks: {errors:#?}");
+        if !allow_errors {
+            assert!(errors.is_empty(), "unexpected errors when processing blocks: {errors:#?}");
+        }
         Ok(accepted_blocks)
     }
 
@@ -55,7 +58,7 @@ impl Client {
         block: MaybeValidated<Block>,
         provenance: Provenance,
     ) -> Result<Vec<CryptoHash>, near_chain::Error> {
-        self.process_block_sync_with_produce_chunk_options(block, provenance, true)
+        self.process_block_sync_with_produce_chunk_options(block, provenance, true, false)
     }
 
     pub fn process_block_test_no_produce_chunk(
@@ -63,7 +66,15 @@ impl Client {
         block: MaybeValidated<Block>,
         provenance: Provenance,
     ) -> Result<Vec<CryptoHash>, near_chain::Error> {
-        self.process_block_sync_with_produce_chunk_options(block, provenance, false)
+        self.process_block_sync_with_produce_chunk_options(block, provenance, false, false)
+    }
+
+    pub fn process_block_test_no_produce_chunk_allow_errors(
+        &mut self,
+        block: MaybeValidated<Block>,
+        provenance: Provenance,
+    ) -> Result<Vec<CryptoHash>, near_chain::Error> {
+        self.process_block_sync_with_produce_chunk_options(block, provenance, false, true)
     }
 
     /// This function finishes processing all blocks that started being processed.
@@ -128,7 +139,7 @@ fn create_chunk_on_height_for_shard(
     let last_block_hash = client.chain.head().unwrap().last_block_hash;
     let last_block = client.chain.get_block(&last_block_hash).unwrap();
     client
-        .produce_chunk(
+        .try_produce_chunk(
             &last_block,
             &client.epoch_manager.get_epoch_id_from_prev_block(&last_block_hash).unwrap(),
             Chain::get_prev_chunk_header(client.epoch_manager.as_ref(), &last_block, shard_id)
@@ -166,7 +177,7 @@ pub fn create_chunk(
         receipts,
         transactions_storage_proof,
     } = client
-        .produce_chunk(
+        .try_produce_chunk(
             &last_block,
             last_block.header().epoch_id(),
             last_block.chunks()[0].clone(),

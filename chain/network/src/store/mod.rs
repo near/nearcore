@@ -10,7 +10,7 @@ mod schema;
 
 /// Opaque error type representing storage errors.
 ///
-/// Invariant: any store error is a critical operational operational error
+/// Invariant: any store error is a critical operational error
 /// which signals about data corruption. It wouldn't be wrong to replace all places /// where the error originates with outright panics.
 ///
 /// If you have an error condition which needs to be handled somehow, it should be

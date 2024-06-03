@@ -1,8 +1,8 @@
 use super::sync_actor::SyncActor;
-use actix::{Actor, Message};
-use actix_rt::Arbiter;
+use actix::Message;
 use core::fmt::Debug;
 use near_async::actix::AddrWithAutoSpanContextExt;
+use near_async::actix_wrapper::spawn_actix_actor;
 use near_async::messaging::{IntoSender, Sender};
 use near_network::types::{PeerManagerMessageRequest, StateSyncResponse};
 use near_primitives::hash::CryptoHash;
@@ -81,14 +81,11 @@ impl SyncAdapter {
             + Sync,
     > {
         Arc::new(|shard_uid, client_sender, network_sender| {
-            let arbiter = Arbiter::new();
-            let arbiter_handle = arbiter.handle();
-            let sync_actor = SyncActor::start_in_arbiter(&arbiter_handle, move |_ctx| {
-                SyncActor::new(shard_uid, client_sender, network_sender)
-            });
+            let (sync_actor_addr, arbiter) =
+                spawn_actix_actor(SyncActor::new(shard_uid, client_sender, network_sender));
             SyncActorHandler {
-                client_sender: sync_actor.clone().with_auto_span_context().into_sender(),
-                network_sender: sync_actor.with_auto_span_context().into_sender(),
+                client_sender: sync_actor_addr.clone().with_auto_span_context().into_sender(),
+                network_sender: sync_actor_addr.with_auto_span_context().into_sender(),
                 shutdown: Mutex::new(Box::new(move || {
                     arbiter.stop();
                 })),

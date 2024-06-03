@@ -183,7 +183,7 @@ pub enum StateChangeCause {
     /// Updated delayed receipts queue in the state.
     /// We either processed previously delayed receipts or added more receipts to the delayed queue.
     UpdatedDelayedReceipts,
-    /// State change that happens when we update validator accounts. Not associated with with any
+    /// State change that happens when we update validator accounts. Not associated with any
     /// specific transaction or receipt.
     ValidatorAccountsUpdate,
     /// State change that is happens due to migration that happens in first block of an epoch
@@ -522,7 +522,7 @@ pub struct ApprovalStake {
 pub mod validator_stake {
     use crate::types::ApprovalStake;
     use borsh::{BorshDeserialize, BorshSerialize};
-    use near_crypto::PublicKey;
+    use near_crypto::{KeyType, PublicKey};
     use near_primitives_core::types::{AccountId, Balance};
     use serde::Serialize;
 
@@ -598,6 +598,10 @@ pub mod validator_stake {
 
         pub fn new(account_id: AccountId, public_key: PublicKey, stake: Balance) -> Self {
             Self::new_v1(account_id, public_key, stake)
+        }
+
+        pub fn test(account_id: AccountId) -> Self {
+            Self::new_v1(account_id, PublicKey::empty(KeyType::ED25519), 0)
         }
 
         pub fn into_v1(self) -> ValidatorStakeV1 {
@@ -785,8 +789,7 @@ pub mod chunk_extra {
         pub gas_limit: Gas,
         /// Total balance burnt after processing the current chunk.
         pub balance_burnt: Balance,
-        /// Congestion info. This field should be set to None for chunks before
-        /// the congestion control protocol version and Some otherwise.
+        /// Congestion info about this shard after the chunk was applied.
         congestion_info: CongestionInfo,
     }
 

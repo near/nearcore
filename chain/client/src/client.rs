@@ -76,18 +76,19 @@ use near_primitives::sharding::{
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, NumBlocks, ShardId};
-use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{CatchupStatusView, DroppedReason};
+use near_primitives::{checked_feature, unwrap_or_return};
 use near_store::ShardUId;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::RwLock;
-use tracing::{debug, debug_span, error, info, trace, warn};
+use time::ext::InstantExt as _;
+use tracing::{debug, debug_span, error, info, instrument, trace, warn};
 
 #[cfg(feature = "test_features")]
 use crate::client_actor::AdvProduceChunksMode;
@@ -311,6 +312,7 @@ impl Client {
             config.header_sync_progress_timeout,
             config.header_sync_stall_ban_timeout,
             config.header_sync_expected_height_per_second,
+            config.expected_shutdown.clone(),
         );
         let block_sync = BlockSync::new(
             clock.clone(),
@@ -358,6 +360,9 @@ impl Client {
         );
         let chunk_endorsement_tracker =
             Arc::new(ChunkEndorsementTracker::new(epoch_manager.clone()));
+        // Chunk validator should panic if there is a validator error in non-production chains (eg. mocket and localnet).
+        let panic_on_validation_error = config.chain_id != near_primitives::chains::MAINNET
+            && config.chain_id != near_primitives::chains::TESTNET;
         let chunk_validator = ChunkValidator::new(
             validator_signer.clone(),
             epoch_manager.clone(),
@@ -366,6 +371,7 @@ impl Client {
             chunk_endorsement_tracker.clone(),
             config.orphan_state_witness_pool_size,
             async_computation_spawner,
+            panic_on_validation_error,
         );
         let chunk_distribution_network = ChunkDistributionNetwork::from_config(&config);
         Ok(Self {
@@ -820,7 +826,7 @@ impl Client {
         Ok(Some(block))
     }
 
-    pub fn produce_chunk(
+    pub fn try_produce_chunk(
         &mut self,
         prev_block: &Block,
         epoch_id: &EpochId,
@@ -828,13 +834,6 @@ impl Client {
         next_height: BlockHeight,
         shard_id: ShardId,
     ) -> Result<Option<ProduceChunkResult>, Error> {
-        let timer = Instant::now();
-        let _timer =
-            metrics::PRODUCE_CHUNK_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
-        let _span = tracing::debug_span!(target: "client", "produce_chunk", next_height, shard_id, ?epoch_id).entered();
-
-        let prev_block_hash = *prev_block.hash();
-
         let validator_signer = self
             .validator_signer
             .as_ref()
@@ -852,6 +851,37 @@ impl Client {
                 "Not producing chunk. Not chunk producer for next chunk.");
             return Ok(None);
         }
+
+        self.produce_chunk(
+            prev_block,
+            epoch_id,
+            last_header,
+            next_height,
+            shard_id,
+            validator_signer,
+        )
+    }
+
+    #[instrument(target = "client", level = "debug", "produce_chunk", skip_all, fields(
+        height = next_height,
+        shard_id,
+        ?epoch_id,
+        chunk_hash = tracing::field::Empty,
+    ))]
+    pub fn produce_chunk(
+        &mut self,
+        prev_block: &Block,
+        epoch_id: &EpochId,
+        last_header: ShardChunkHeader,
+        next_height: BlockHeight,
+        shard_id: ShardId,
+        validator_signer: Arc<dyn ValidatorSigner>,
+    ) -> Result<Option<ProduceChunkResult>, Error> {
+        let span = tracing::Span::current();
+        let timer = Instant::now();
+        let _timer =
+            metrics::PRODUCE_CHUNK_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
+        let prev_block_hash = *prev_block.hash();
         if self.epoch_manager.is_next_block_epoch_start(&prev_block_hash)? {
             let prev_prev_hash = *self.chain.get_block_header(&prev_block_hash)?.prev_hash();
             if !self.chain.prev_block_is_caught_up(&prev_prev_hash, &prev_block_hash)? {
@@ -872,8 +902,17 @@ impl Client {
             .get_chunk_extra(&prev_block_hash, &shard_uid)
             .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?;
 
+        let prev_shard_id = self.epoch_manager.get_prev_shard_id(prev_block.hash(), shard_id)?;
+        let last_chunk_header =
+            prev_block.chunks().get(prev_shard_id as usize).cloned().ok_or_else(|| {
+                Error::ChunkProducer(format!(
+                    "No last chunk in prev_block_hash {:?}, prev_shard_id: {}",
+                    prev_block_hash, prev_shard_id
+                ))
+            })?;
+        let last_chunk = self.chain.get_chunk(&last_chunk_header.chunk_hash())?;
         let prepared_transactions =
-            self.prepare_transactions(shard_uid, prev_block, chunk_extra.as_ref())?;
+            self.prepare_transactions(shard_uid, prev_block, &last_chunk, chunk_extra.as_ref())?;
         #[cfg(feature = "test_features")]
         let prepared_transactions = Self::maybe_insert_invalid_transaction(
             prepared_transactions,
@@ -893,6 +932,11 @@ impl Client {
         let gas_used = chunk_extra.gas_used();
         #[cfg(feature = "test_features")]
         let gas_used = if self.produce_invalid_chunks { gas_used + 1 } else { gas_used };
+
+        // The congestion info is set to default if it is not present. If the
+        // congestion control feature is not enabled the congestion info will be
+        // stripped from the chunk header anyway. In the first chunk where
+        // feature is enabled the header will contain the default congestion info.
         let congestion_info = chunk_extra.congestion_info().unwrap_or_default();
         let (encoded_chunk, merkle_paths) = ShardsManagerActor::create_encoded_shard_chunk(
             prev_block_hash,
@@ -914,6 +958,7 @@ impl Client {
             protocol_version,
         )?;
 
+        span.record("chunk_hash", tracing::field::debug(encoded_chunk.chunk_hash()));
         debug!(target: "client",
             me = %validator_signer.validator_id(),
             chunk_hash = ?encoded_chunk.chunk_hash(),
@@ -928,7 +973,8 @@ impl Client {
             ChunkProduction {
                 chunk_production_time: Some(self.clock.now_utc()),
                 chunk_production_duration_millis: Some(
-                    (self.clock.now() - timer).whole_milliseconds().max(0) as u64,
+                    (self.clock.now().signed_duration_since(timer)).whole_milliseconds().max(0)
+                        as u64,
                 ),
             },
         );
@@ -978,7 +1024,7 @@ impl Client {
         if insert {
             txs.transactions.push(SignedTransaction::new(
                 near_crypto::Signature::empty(near_crypto::KeyType::ED25519),
-                near_primitives::transaction::Transaction::new(
+                near_primitives::transaction::Transaction::new_v1(
                     "test".parse().unwrap(),
                     near_crypto::PublicKey::empty(near_crypto::KeyType::SECP256K1),
                     "other".parse().unwrap(),
@@ -999,11 +1045,11 @@ impl Client {
         &mut self,
         shard_uid: ShardUId,
         prev_block: &Block,
+        last_chunk: &ShardChunk,
         chunk_extra: &ChunkExtra,
     ) -> Result<PreparedTransactions, Error> {
         let Self { chain, sharded_tx_pool, runtime_adapter: runtime, .. } = self;
         let shard_id = shard_uid.shard_id as ShardId;
-
         let prepared_transactions = if let Some(mut iter) =
             sharded_tx_pool.get_pool_iterator(shard_uid)
         {
@@ -1013,9 +1059,25 @@ impl Client {
                 source: StorageDataSource::Db,
                 state_patch: Default::default(),
             };
+            let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block.hash())?;
+            let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+            let last_chunk_transactions_size =
+                if checked_feature!("stable", WitnessTransactionLimits, protocol_version) {
+                    borsh::to_vec(last_chunk.transactions())
+                        .map_err(|e| {
+                            Error::ChunkProducer(format!("Failed to serialize transactions: {e}"))
+                        })?
+                        .len()
+                } else {
+                    0
+                };
             runtime.prepare_transactions(
                 storage_config,
-                PrepareTransactionsChunkContext { shard_id, gas_limit: chunk_extra.gas_limit() },
+                PrepareTransactionsChunkContext {
+                    shard_id,
+                    gas_limit: chunk_extra.gas_limit(),
+                    last_chunk_transactions_size,
+                },
                 prev_block.into(),
                 &mut iter,
                 &mut chain.transaction_validity_check(prev_block.header().clone()),
@@ -1759,7 +1821,13 @@ impl Client {
                 .with_label_values(&[&shard_id.to_string()])
                 .start_timer();
             let last_header = Chain::get_prev_chunk_header(epoch_manager, block, shard_id).unwrap();
-            match self.produce_chunk(block, &epoch_id, last_header.clone(), next_height, shard_id) {
+            match self.try_produce_chunk(
+                block,
+                &epoch_id,
+                last_header.clone(),
+                next_height,
+                shard_id,
+            ) {
                 Ok(Some(result)) => {
                     let shard_chunk = self
                         .persist_and_distribute_encoded_chunk(
@@ -1785,6 +1853,18 @@ impl Client {
                 }
             }
         }
+    }
+
+    pub fn mark_chunk_header_ready_for_inclusion(
+        &mut self,
+        chunk_header: ShardChunkHeader,
+        chunk_producer: AccountId,
+    ) {
+        // If endorsement was received before chunk header, we can process it
+        // only now.
+        self.chunk_endorsement_tracker.process_pending_endorsements(&chunk_header);
+        self.chunk_inclusion_tracker
+            .mark_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
     }
 
     pub fn persist_and_distribute_encoded_chunk(
@@ -1820,8 +1900,7 @@ impl Client {
             }
         }
 
-        self.chunk_inclusion_tracker
-            .mark_chunk_header_ready_for_inclusion(chunk_header, validator_id);
+        self.mark_chunk_header_ready_for_inclusion(chunk_header, validator_id);
         self.shards_manager_adapter.send(ShardsManagerRequestFromClient::DistributeEncodedChunk {
             partial_chunk,
             encoded_chunk,

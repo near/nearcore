@@ -332,7 +332,7 @@ impl ForkNetworkCommand {
         let runtime =
             NightshadeRuntime::from_config(home_dir, store.clone(), &near_config, epoch_manager)
                 .context("could not create the transaction runtime")?;
-        runtime.get_tries().load_mem_tries_for_enabled_shards(&all_shard_uids).unwrap();
+        runtime.get_tries().load_mem_tries_for_enabled_shards(&all_shard_uids, true).unwrap();
 
         let make_storage_mutator: MakeSingleShardStorageMutatorFn =
             Arc::new(move |prev_state_root| {
@@ -824,6 +824,8 @@ impl ForkNetworkCommand {
             use_production_config: original_config.use_production_config,
             num_chunk_producer_seats: original_config.num_chunk_producer_seats,
             num_chunk_validator_seats: original_config.num_chunk_validator_seats,
+            chunk_producer_assignment_changes_limit: original_config
+                .chunk_producer_assignment_changes_limit,
         };
 
         let genesis = Genesis::new_from_state_roots(new_config, new_state_roots);

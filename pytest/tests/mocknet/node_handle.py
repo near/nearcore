@@ -33,6 +33,7 @@ class NodeHandle:
 
     def upload_neard_runner(self):
         self.node.upload_neard_runner()
+        self.node.update_python()
 
     def run_cmd(self, cmd, raise_on_fail=False, return_on_fail=False):
         return self.node.run_cmd(cmd, raise_on_fail, return_on_fail)
@@ -139,8 +140,17 @@ class NodeHandle:
         return self.neard_runner_jsonrpc('reset',
                                          params={'backup_id': backup_id})
 
-    def neard_runner_update_binaries(self):
-        return self.neard_runner_jsonrpc('update_binaries')
+    def neard_runner_update_binaries(self,
+                                     neard_binary_url=None,
+                                     epoch_height=None,
+                                     binary_idx=None):
+        return self.neard_runner_jsonrpc(
+            'update_binaries',
+            params={
+                'neard_binary_url': neard_binary_url,
+                'epoch_height': epoch_height,
+                'binary_idx': binary_idx,
+            })
 
     def neard_update_config(self, key_value):
         return self.neard_runner_jsonrpc(
@@ -149,3 +159,14 @@ class NodeHandle:
                 "key_value": key_value,
             },
         )
+
+    def neard_update_env(self, key_value):
+        return self.neard_runner_jsonrpc(
+            'add_env',
+            params={
+                "key_values": key_value,
+            },
+        )
+
+    def neard_clear_env(self):
+        return self.neard_runner_jsonrpc('clear_env')

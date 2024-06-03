@@ -122,7 +122,7 @@ impl ShardedTransactionPool {
     /// transactions back to the pool with the new shard uids.
     pub fn reshard(&mut self, old_shard_layout: &ShardLayout, new_shard_layout: &ShardLayout) {
         tracing::debug!(
-            target: "client",
+            target: "resharding",
             old_shard_layout_version = old_shard_layout.version(),
             new_shard_layout_version = new_shard_layout.version(),
             "resharding the transaction pool"

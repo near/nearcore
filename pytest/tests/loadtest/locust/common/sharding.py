@@ -187,7 +187,7 @@ def finish_upper(lower, upper, prefix, free_chars, free_length):
 # alphanumeric character or one of ['-', '.', '_'] followed by an alphanumeric character,
 # choosing one of the ones that keeps us between the bounds each time.
 # See https://github.com/near/nearcore/pull/9194#pullrequestreview-1488492798
-def random_prefix_between(lower, upper, free_length=6):
+def random_prefix_between(lower, upper, free_length):
     assert lower is None or upper is None or lower < upper, (lower, upper)
 
     # 1 shard case
@@ -256,7 +256,19 @@ def random_prefix_between(lower, upper, free_length=6):
     return prefix
 
 
-def random_account_between(base_name, suffix, lower, upper, free_length=6):
+# Maximum length of AccountIds (https://nomicon.io/DataStructures/Account).
+MAX_NEAR_ACCOUNT_ID_LENGTH = 64
+
+# Maximum length of the random prefix to be included in the account id.
+MAX_RANDOM_PREFIX_LENGTH = 6
+
+
+def random_account_between(base_name, suffix, lower, upper):
+    free_length = min(
+        MAX_RANDOM_PREFIX_LENGTH,
+        MAX_NEAR_ACCOUNT_ID_LENGTH - len(base_name) - len(suffix) - 1)
+    assert free_length > 0, f"""No space left for random prefix. Check base_name={
+        base_name} and suffix={suffix}"""
     prefix = random_prefix_between(lower, upper, free_length)
     return f'{prefix}{suffix}.{base_name}'
 
@@ -314,8 +326,6 @@ class AccountGenerator:
 
     # generate a valid subaccount ID of `base_name`` between lower and upper, with the first part of
     # the account ID ending with `suffix`
-    # TODO: check the resulting length somewhere. Right now it's not checked and could be too large
-    # if `base_name` is large
     def random_account_id(self, base_name, suffix):
         if len(self.shard_map) == 0:
             return random_account_between(base_name, suffix, None, None)
@@ -327,9 +337,10 @@ class AccountGenerator:
 
 class TestRandomAccount(unittest.TestCase):
 
+    ACCOUNT_REGEX = re.compile(
+        r'^(([a-z\d]+[-_])*[a-z\d]+\.)*([a-z\d]+[-_])*[a-z\d]+$')
+
     def test_random_account(self):
-        account_regex = re.compile(
-            r'^(([a-z\d]+[-_])*[a-z\d]+\.)*([a-z\d]+[-_])*[a-z\d]+$')
         test_cases = [
             (None, None),
             ('aa', None),
@@ -346,16 +357,22 @@ class TestRandomAccount(unittest.TestCase):
         for (lower, upper) in test_cases:
             # sanity check the test case itself
             if lower is not None:
-                assert account_regex.fullmatch(lower) is not None
+                assert TestRandomAccount.ACCOUNT_REGEX.fullmatch(
+                    lower) is not None
             if upper is not None:
-                assert account_regex.fullmatch(upper) is not None
+                assert TestRandomAccount.ACCOUNT_REGEX.fullmatch(
+                    upper) is not None
 
-            for _ in range(10):
-                account_id = random_account_between('foo.near', '_ft', lower,
-                                                    upper)
-                assert account_regex.fullmatch(account_id) is not None, (
-                    account_id, lower, upper)
-                if lower is not None:
-                    assert account_id >= lower, (account_id, lower, upper)
-                if upper is not None:
-                    assert account_id < upper, (account_id, lower, upper)
+            for (base_name,
+                 suffix) in (('foo.near', '_ft'),
+                             ('mocknet-mainnet-123456789-forknet-abcdefgh.near',
+                              '_user4321_run')):
+                for _ in range(10):
+                    account_id = random_account_between(base_name, suffix,
+                                                        lower, upper)
+                    assert TestRandomAccount.ACCOUNT_REGEX.fullmatch(
+                        account_id) is not None, (account_id, lower, upper)
+                    if lower is not None:
+                        assert account_id >= lower, (account_id, lower, upper)
+                    if upper is not None:
+                        assert account_id < upper, (account_id, lower, upper)

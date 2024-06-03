@@ -164,6 +164,7 @@ curve25519-dalek = { version = "4.1.1", default-features = false, features = [
 ] }
 derive-enum-from-into = "0.1.1"
 derive_more = "0.99.9"
+derive-where = "1.2.7"
 dirs = "4"
 dynasm = "2.0"
 dynasmrt = "2.0"
@@ -172,7 +173,6 @@ ed25519-dalek = { version = "2.1.0", default-features = false, features = [
     "hazmat",
     "rand_core",
 ] }
-elastic-array = "0.11"
 enum-map = "2.1.0"
 enumset = "1.0"
 ethabi = "18"

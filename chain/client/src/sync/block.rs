@@ -72,7 +72,8 @@ impl BlockSync {
         highest_height: BlockHeight,
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<bool, near_chain::Error> {
-        let _span = tracing::debug_span!(target: "sync", "run", sync = "BlockSync").entered();
+        let _span =
+            tracing::debug_span!(target: "sync", "run_sync", sync_type = "BlockSync").entered();
         let head = chain.head()?;
         let header_head = chain.header_head()?;
 
@@ -443,7 +444,7 @@ mod test {
         let requested_block_hashes = collect_hashes_from_network_adapter(&network_adapter);
         assert!(requested_block_hashes.is_empty(), "{:?}", requested_block_hashes);
 
-        // Now finish paused processing processing and sanity check that we
+        // Now finish paused processing and sanity check that we
         // still are fully synced.
         env.resume_block_processing(blocks[4 * MAX_BLOCK_REQUESTS - 1].hash());
         wait_for_all_blocks_in_processing(&mut env.clients[1].chain);
