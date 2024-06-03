@@ -1,4 +1,3 @@
-use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -45,15 +44,8 @@ pub struct LatestWitnessesCmd {
     epoch_id: Option<EpochId>,
 
     #[clap(subcommand)]
-    /// Save mode.
+    /// Save mode
     mode: LatestWitnessesMode,
-    // /// Pretty-print using the "{:#?}" formatting.
-    // #[arg(long)]
-    // pretty: bool,
-    //
-    // /// Print the raw &[u8], can be pasted into rust code
-    // #[arg(long)]
-    // binary: bool,
 }
 
 #[derive(clap::Subcommand)]
