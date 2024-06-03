@@ -212,21 +212,23 @@ fn validate_congestion_info(
         (None, None) => Ok(()),
         // If the congestion control is enabled in the previous chunk then it should
         // also be enabled in the current chunk.
-        (Some(_), None) => {
-            Err(Error::InvalidCongestionInfo("Congestion Information disappeared.".to_string()))
-        }
+        (Some(info), None) => Err(Error::InvalidCongestionInfo(format!(
+            "Congestion Information disappeared. {:?}.",
+            info
+        ))),
         // At the epoch boundary where congestion control was enabled the chunk
         // extra does not have the congestion control enabled and the header does
         // have it enabled. The chunk extra of the previous chunk does not have
         // congestion info so the congestion info in the current chunk header should
         // be set to the default one.
-        (None, Some(_)) => {
-            if header_congestion_info == &Some(CongestionInfo::default()) {
+        (None, Some(info)) => {
+            if info == &CongestionInfo::default() {
                 Ok(())
             } else {
-                Err(Error::InvalidCongestionInfo(
-                    "Congestion Information invalid after protocol upgrade.".to_string(),
-                ))
+                Err(Error::InvalidCongestionInfo(format!(
+                    "Congestion Information invalid after protocol upgrade. {:?}",
+                    info
+                )))
             }
         }
         // Congestion Info is present in both the extra and the header. Validate it.
