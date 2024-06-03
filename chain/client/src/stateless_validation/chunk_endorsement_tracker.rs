@@ -33,6 +33,7 @@ impl ChunkEndorsementsState {
 
 /// Module to track chunk endorsements received from chunk validators.
 pub struct ChunkEndorsementTracker {
+    epoch_manager: Arc<dyn EpochManagerAdapter>,
     inner: Mutex<ChunkEndorsementTrackerInner>,
 }
 
@@ -74,6 +75,7 @@ impl Client {
 impl ChunkEndorsementTracker {
     pub fn new(epoch_manager: Arc<dyn EpochManagerAdapter>) -> Self {
         Self {
+            epoch_manager: epoch_manager.clone(),
             inner: Mutex::new(ChunkEndorsementTrackerInner {
                 epoch_manager,
                 chunk_endorsements: LruCache::new(NUM_CHUNKS_IN_CHUNK_ENDORSEMENTS_CACHE),
@@ -94,7 +96,7 @@ impl ChunkEndorsementTracker {
         &self,
         endorsement: ChunkEndorsement,
     ) -> Result<(), Error> {
-        self.inner.lock().unwrap().process_chunk_endorsement_impl(endorsement, None)
+        self.inner.lock().unwrap().process_chunk_endorsement_impl(endorsement, None, false)
     }
 
     /// Function to process an incoming chunk endorsement from chunk validators.
@@ -106,7 +108,17 @@ impl ChunkEndorsementTracker {
         endorsement: ChunkEndorsement,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "client", "process_chunk_endorsement", chunk_hash=?chunk_header.chunk_hash()).entered();
-        self.inner.lock().unwrap().process_chunk_endorsement_impl(endorsement, Some(chunk_header))
+
+        // Validate the endorsement before locking the mutex to improve performance.
+        if !self.epoch_manager.verify_chunk_endorsement(&chunk_header, &endorsement)? {
+            tracing::error!(target: "client", ?endorsement, "Invalid chunk endorsement.");
+            return Err(Error::InvalidChunkEndorsement);
+        }
+        self.inner.lock().unwrap().process_chunk_endorsement_impl(
+            endorsement,
+            Some(chunk_header),
+            true,
+        )
     }
 
     /// Called by block producer.
@@ -136,7 +148,7 @@ impl ChunkEndorsementTrackerInner {
         tracing::debug!(target: "client", ?chunk_hash, "Processing pending chunk endorsements.");
         for endorsement in chunk_endorsements.values() {
             if let Err(error) =
-                self.process_chunk_endorsement_impl(endorsement.clone(), Some(chunk_header))
+                self.process_chunk_endorsement_impl(endorsement.clone(), Some(chunk_header), false)
             {
                 tracing::debug!(target: "client", ?endorsement, ?error, "Error processing pending chunk endorsement");
             }
@@ -149,6 +161,7 @@ impl ChunkEndorsementTrackerInner {
         &mut self,
         endorsement: ChunkEndorsement,
         chunk_header: Option<&ShardChunkHeader>,
+        already_validated: bool,
     ) -> Result<(), Error> {
         let chunk_hash = endorsement.chunk_hash();
         let account_id = &endorsement.account_id;
@@ -176,7 +189,9 @@ impl ChunkEndorsementTrackerInner {
         let header = chunk_header.or_else(|| existing_entry.map(|(header, _)| header));
 
         if let Some(chunk_header) = header {
-            if !self.epoch_manager.verify_chunk_endorsement(&chunk_header, &endorsement)? {
+            if !already_validated
+                && !self.epoch_manager.verify_chunk_endorsement(&chunk_header, &endorsement)?
+            {
                 tracing::error!(target: "client", ?endorsement, "Invalid chunk endorsement.");
                 return Err(Error::InvalidChunkEndorsement);
             }
