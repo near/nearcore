@@ -307,10 +307,6 @@ impl TestEnv {
                     chunk_producer,
                 } => {
                     self.clients[id]
-                        .chunk_endorsement_tracker
-                        .process_pending_endorsements(&chunk_header);
-                    self.clients[id]
-                        .chunk_inclusion_tracker
                         .mark_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
                 }
             }
