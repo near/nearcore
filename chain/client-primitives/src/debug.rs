@@ -2,6 +2,7 @@
 //! without backwards compatibility of JSON encoding.
 use crate::types::StatusError;
 use near_async::time::Utc;
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::types::EpochId;
 use near_primitives::views::{
     CatchupStatusView, ChainProcessingInfo, EpochValidatorInfo, RequestedStatePartsView,
@@ -43,13 +44,7 @@ pub struct DebugChunkStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub processing_time_ms: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub delayed_receipts_gas: Option<u128>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub buffered_receipts_gas: Option<u128>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub receipt_bytes: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub allowed_shard: Option<u16>,
+    pub congestion_info: Option<CongestionInfo>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]

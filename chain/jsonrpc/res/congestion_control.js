@@ -1,30 +1,17 @@
 function sortBlocks(blocks) {
     function sortingKey(row) {
-        return row.block_height + (row.block_timestamp / 1e12 % 1);
+        return row.block_height + row.block_timestamp / 1e12;
     }
     blocks.sort((a, b) => sortingKey(b) - sortingKey(a));
     return blocks;
 }
 
 function toTgas(gas) {
-    if (!gas && gas !== 0) {
-        return <span className="not_available">N/A</span>
-    }
     return (gas / (1024 * 1024 * 1024 * 1024)).toFixed(2)
 }
 
 function toMiB(bytes) {
-    if (!bytes && bytes !== 0) {
-        return <span className="not_available">N/A</span>
-    }
     return (bytes / (1024 * 1024)).toFixed(2)
-}
-
-function toShardIndex(shard) {
-    if (!shard && shard !== 0) {
-        return <span className="not_available">N/A</span>
-    }
-    return shard
 }
 
 function BlocksTable({ rows }) {
@@ -47,12 +34,22 @@ function BlocksTable({ rows }) {
 
         const chunkCells = [];
         row.chunks.forEach((chunk, shardId) => {
-            chunkCells.push(<React.Fragment key={shardId}>
-                <td>{toTgas(chunk.delayed_receipts_gas)}</td>
-                <td>{toTgas(chunk.buffered_receipts_gas)}</td>
-                <td>{toMiB(chunk.receipt_bytes)}</td>
-                <td>{toShardIndex(chunk.allowed_shard)}</td>
-            </React.Fragment>);
+            if (chunk.congestion_info) {
+                const info = chunk.congestion_info.V1;
+                chunkCells.push(<React.Fragment key={shardId}>
+                    <td>{toTgas(info.delayed_receipts_gas)}</td>
+                    <td>{toTgas(info.buffered_receipts_gas)}</td>
+                    <td>{toMiB(info.receipt_bytes)}</td>
+                    <td>{info.allowed_shard}</td>
+                </React.Fragment>);
+            } else {
+                chunkCells.push(<React.Fragment key={shardId}>
+                    <td className="not_available">N/A</td>
+                    <td className="not_available">N/A</td>
+                    <td className="not_available">N/A</td>
+                    <td className="not_available">N/A</td>
+                </React.Fragment>);
+            }
         });
 
         tableRows.push(
