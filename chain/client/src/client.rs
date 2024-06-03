@@ -1855,6 +1855,18 @@ impl Client {
         }
     }
 
+    pub fn mark_chunk_header_ready_for_inclusion(
+        &mut self,
+        chunk_header: ShardChunkHeader,
+        chunk_producer: AccountId,
+    ) {
+        // If endorsement was received before chunk header, we can process it
+        // only now.
+        self.chunk_endorsement_tracker.process_pending_endorsements(&chunk_header);
+        self.chunk_inclusion_tracker
+            .mark_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
+    }
+
     pub fn persist_and_distribute_encoded_chunk(
         &mut self,
         encoded_chunk: EncodedShardChunk,
@@ -1888,8 +1900,7 @@ impl Client {
             }
         }
 
-        self.chunk_inclusion_tracker
-            .mark_chunk_header_ready_for_inclusion(chunk_header, validator_id);
+        self.mark_chunk_header_ready_for_inclusion(chunk_header, validator_id);
         self.shards_manager_adapter.send(ShardsManagerRequestFromClient::DistributeEncodedChunk {
             partial_chunk,
             encoded_chunk,

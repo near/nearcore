@@ -570,6 +570,7 @@
         "ActionsValidation",
         "TransactionSizeExceeded",
         "InvalidTransactionVersion",
+        "StorageError",
         "ShardCongested"
       ],
       "props": {}
