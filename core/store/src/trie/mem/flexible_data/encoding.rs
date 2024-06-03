@@ -1,5 +1,5 @@
 use super::FlexibleDataHeader;
-use crate::trie::mem::arena::{Arena, ArenaMemory, ArenaPtr, ArenaPtrMut, ArenaSliceMut};
+use crate::trie::mem::arena::{Arena, ArenaMemory, ArenaPtr, ArenaSliceMut};
 use borsh::{BorshDeserialize, BorshSerialize};
 use std::io::Write;
 
@@ -101,39 +101,5 @@ impl<'a, M: ArenaMemory> RawDecoder<'a, M> {
         let view = header.decode_flexible_data(&self.data.slice(self.pos, length));
         self.pos += length;
         view
-    }
-}
-
-/// Provides ability to decode, but also to overwrite some data.
-pub struct RawDecoderMut<'a, M: ArenaMemory> {
-    data: ArenaPtrMut<'a, M>,
-    pos: usize,
-}
-
-impl<'a, M: ArenaMemory> RawDecoderMut<'a, M> {
-    pub fn new(data: ArenaPtrMut<'a, M>) -> Self {
-        RawDecoderMut { data, pos: 0 }
-    }
-
-    /// Same with `RawDecoder::decode`.
-    pub fn decode<T: BorshDeserialize + BorshFixedSize>(&mut self) -> T {
-        let slice = self.data.slice(self.pos, T::SERIALIZED_SIZE);
-        let result = T::try_from_slice(slice.raw_slice()).unwrap();
-        self.pos += T::SERIALIZED_SIZE;
-        result
-    }
-
-    /// Same with `RawDecoder::peek`.
-    pub fn peek<T: BorshDeserialize + BorshFixedSize>(&mut self) -> T {
-        let slice = self.data.slice(self.pos, T::SERIALIZED_SIZE);
-        T::try_from_slice(slice.raw_slice()).unwrap()
-    }
-
-    /// Overwrites the data at the current position with the given data,
-    /// and advances the position by the size of the data.
-    pub fn overwrite<T: BorshSerialize + BorshFixedSize>(&mut self, data: T) {
-        let mut slice = self.data.slice_mut(self.pos, T::SERIALIZED_SIZE);
-        data.serialize(&mut slice.raw_slice_mut()).unwrap();
-        self.pos += T::SERIALIZED_SIZE;
     }
 }

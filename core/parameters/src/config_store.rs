@@ -41,12 +41,11 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (67, include_config!("67.yaml")),
     (83, include_config!("83.yaml")),
     (85, include_config!("85.yaml")),
+    // Congestion Control & State Witness size limit
     (87, include_config!("87.yaml")),
     (129, include_config!("129.yaml")),
     // Introduce ETH-implicit accounts.
     (138, include_config!("138.yaml")),
-    // Congestion Control
-    (142, include_config!("142.yaml")),
 ];
 
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters
@@ -331,10 +330,14 @@ mod tests {
         );
     }
 
-    /// Use snapshot testing to check that the JSON representation of the
-    /// configurations of each version is unchanged.
-    /// If tests fail after an intended change, run `cargo insta review` accept
-    /// the new snapshot if it looks right.
+    /// Use snapshot testing to check that the JSON representation of the configurations of each version is unchanged.
+    /// If tests fail after an intended change, follow the steps below to update the config files:
+    /// 1) Run the following to run tests with cargo insta so it generates all the file differences:
+    ///    cargo insta test  -p near-parameters -- tests::test_json_unchanged
+    /// 2) Run the following to examine the diffs at each file and see if the changes make sense:
+    ///    cargo insta review
+    ///    If the changes make sense, accept the changes per file (by responding to the prompts from the command).
+    /// Alternatively, add --accept to the first command so that it automatically does step 2.
     #[test]
     #[cfg(not(feature = "nightly"))]
     #[cfg(not(feature = "statelessnet_protocol"))]
