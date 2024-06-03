@@ -5,7 +5,7 @@ use std::collections::HashSet;
 /// the KeyValue runtime.
 ///
 /// In the real runtime, we use complex algorithm based on randomness and stake
-/// to select the validators. For for tests though, we just want to select them
+/// to select the validators. For tests though, we just want to select them
 /// by fiat.
 ///
 /// Conventional short name for `ValidatorSchedule` is `vs`.

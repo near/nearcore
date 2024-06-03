@@ -245,7 +245,11 @@ class NeardRunner:
 
     def save_data(self):
         with open(self.home_path('data.json'), 'w') as f:
-            json.dump(self.data, f)
+            json.dump(self.data, f, indent=2)
+
+    def save_config(self):
+        with open(self.home_path('config.json'), 'w') as f:
+            json.dump(self.config, f, indent=2)
 
     def parse_binaries_config(self):
         if 'binaries' not in self.config:
@@ -665,9 +669,58 @@ class NeardRunner:
         with self.lock:
             return self.data.get('backups', {})
 
-    def do_update_binaries(self):
+    # Updates the URL for the given epoch height or binary idx. adds a new one if the epoch height does not exit
+    def update_binaries_url(self, neard_binary_url, epoch_height, binary_idx):
+        if neard_binary_url is not None and ((epoch_height is None)
+                                             != (binary_idx is None)):
+            logging.info(
+                f'Updating binary list for height:{epoch_height} or idx:{binary_idx} with '
+                f'url: {neard_binary_url}')
+        else:
+            logging.error(
+                f'Update binaries failed. Wrong params: url: {neard_binary_url}, height:{epoch_height}, idx:{binary_idx}'
+            )
+            raise jsonrpc.exceptions.JSONRPCInvalidParams()
+
+        if 'binaries' not in self.config:
+            self.config['binaries'] = []
+
+        if not isinstance(self.config['binaries'], list):
+            self.config['binaries'] = []
+
+        if epoch_height is not None:
+            binary = next((b for b in self.config['binaries']
+                           if b['epoch_height'] == epoch_height), None)
+            if binary:
+                binary['url'] = neard_binary_url
+            else:
+                self.config['binaries'].append({
+                    'url': neard_binary_url,
+                    'epoch_height': epoch_height
+                })
+                self.config['binaries'].sort(
+                    key=lambda binary: binary['epoch_height'])
+        if binary_idx is not None:
+            binaries_number = len(self.config['binaries'])
+            if binary_idx >= binaries_number:
+                logging.error(
+                    f'idx {binary_idx} is out of bounds for the binary list of length {binaries_number}'
+                )
+                raise jsonrpc.exceptions.JSONRPCInvalidParams(
+                    message=
+                    f'Invalid binary idx. Out of bounds for list of length {binaries_number}'
+                )
+            self.config['binaries'][binary_idx]['url'] = neard_binary_url
+
+    def do_update_binaries(self, neard_binary_url, epoch_height, binary_idx):
         with self.lock:
             logging.info('update binaries')
+            if any(arg is not None
+                   for arg in [neard_binary_url, epoch_height, binary_idx]):
+                self.update_binaries_url(neard_binary_url, epoch_height,
+                                         binary_idx)
+                self.save_config()
+
             try:
                 self.download_binaries(force=True)
             except ValueError as e:
@@ -742,7 +795,7 @@ class NeardRunner:
         home_path = os.path.expanduser('~')
         env = {
             **os.environ,  # override loaded values with environment variables
-            **dotenv.dotenv_values(self.home_path(home_path, '.secrets')),  # load sensitive variables
+            **dotenv.dotenv_values(os.path.join(home_path, '.secrets')),  # load sensitive variables
             **dotenv.dotenv_values(self.home_path('.env')),  # load neard variables
         }
         logging.info(f'running {" ".join(cmd)}')

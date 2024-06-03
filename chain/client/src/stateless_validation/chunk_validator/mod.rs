@@ -8,7 +8,6 @@ use itertools::Itertools;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{CanSend, Sender};
 use near_chain::stateless_validation::chunk_validation;
-use near_chain::stateless_validation::chunk_validation::MainStateTransitionCache;
 use near_chain::types::RuntimeAdapter;
 use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{Block, Chain};
@@ -18,7 +17,6 @@ use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::{
     ChunkEndorsement, ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessSize,
-    EncodedChunkStateWitness,
 };
 use near_primitives::validator_signer::ValidatorSigner;
 use orphan_witness_pool::OrphanStateWitnessPool;
@@ -45,7 +43,12 @@ pub struct ChunkValidator {
     chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
     orphan_witness_pool: OrphanStateWitnessPool,
     validation_spawner: Arc<dyn AsyncComputationSpawner>,
-    main_state_transition_result_cache: MainStateTransitionCache,
+    main_state_transition_result_cache: chunk_validation::MainStateTransitionCache,
+    /// If true, a chunk-witness validation error will lead to a panic.
+    /// This is used for non-production environments, eg. mocknet and localnet,
+    /// to quickly detect issues in validation code, and must NOT be set to true
+    /// for mainnet and testnet.
+    panic_on_validation_error: bool,
 }
 
 impl ChunkValidator {
@@ -57,6 +60,7 @@ impl ChunkValidator {
         chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
         orphan_witness_pool_size: usize,
         validation_spawner: Arc<dyn AsyncComputationSpawner>,
+        panic_on_validation_error: bool,
     ) -> Self {
         Self {
             my_signer,
@@ -66,7 +70,9 @@ impl ChunkValidator {
             chunk_endorsement_tracker,
             orphan_witness_pool: OrphanStateWitnessPool::new(orphan_witness_pool_size),
             validation_spawner,
-            main_state_transition_result_cache: MainStateTransitionCache::default(),
+            main_state_transition_result_cache: chunk_validation::MainStateTransitionCache::default(
+            ),
+            panic_on_validation_error,
         }
     }
 
@@ -113,6 +119,7 @@ impl ChunkValidator {
             chunk_header.shard_id(),
         )?;
         let shard_uid = epoch_manager.shard_id_to_uid(last_header.shard_id(), &epoch_id)?;
+        let panic_on_validation_error = self.panic_on_validation_error;
 
         if let Ok(prev_chunk_extra) = chain.get_chunk_extra(prev_block_hash, &shard_uid) {
             match validate_chunk_with_chunk_extra(
@@ -134,10 +141,14 @@ impl ChunkValidator {
                     return Ok(());
                 }
                 Err(err) => {
-                    tracing::error!(
-                        "Failed to validate chunk using existing chunk extra: {:?}",
-                        err
-                    );
+                    if panic_on_validation_error {
+                        panic!("Failed to validate chunk using existing chunk extra: {:?}", err);
+                    } else {
+                        tracing::error!(
+                            "Failed to validate chunk using existing chunk extra: {:?}",
+                            err
+                        );
+                    }
                     return Err(err);
                 }
             }
@@ -167,11 +178,23 @@ impl ChunkValidator {
                     );
                 }
                 Err(err) => {
-                    tracing::error!("Failed to validate chunk: {:?}", err);
+                    if panic_on_validation_error {
+                        panic!("Failed to validate chunk: {:?}", err);
+                    } else {
+                        tracing::error!("Failed to validate chunk: {:?}", err);
+                    }
                 }
             }
         });
         Ok(())
+    }
+
+    /// TESTING ONLY: Used to override the value of panic_on_validation_error, for example,
+    /// when the chunks validation errors are expected when testing adversarial behavior and
+    /// the test should not panic for the invalid chunks witnesses.
+    #[cfg(feature = "test_features")]
+    pub fn set_should_panic_on_validation_error(&mut self, value: bool) {
+        self.panic_on_validation_error = value;
     }
 }
 
@@ -223,11 +246,10 @@ impl Client {
     /// you can use the `processing_done_tracker` argument (but it's optional, it's safe to pass None there).
     pub fn process_chunk_state_witness(
         &mut self,
-        encoded_witness: EncodedChunkStateWitness,
+        witness: ChunkStateWitness,
+        raw_witness_size: ChunkStateWitnessSize,
         processing_done_tracker: Option<ProcessingDoneTracker>,
     ) -> Result<(), Error> {
-        let (witness, raw_witness_size) = self.decode_state_witness(&encoded_witness)?;
-
         tracing::debug!(
             target: "client",
             chunk_hash=?witness.chunk_header.chunk_hash(),
@@ -242,25 +264,6 @@ impl Client {
 
         if self.config.save_latest_witnesses {
             self.chain.chain_store.save_latest_chunk_state_witness(&witness)?;
-        }
-
-        // Avoid processing state witness for old chunks.
-        // In particular it is impossible for a chunk created at a height
-        // that doesn't exceed the height of the current final block to be
-        // included in the chain. This addresses both network-delayed messages
-        // as well as malicious behavior of a chunk producer.
-        if let Ok(final_head) = self.chain.final_head() {
-            if witness.chunk_header.height_created() <= final_head.height {
-                tracing::warn!(
-                    target: "client",
-                    chunk_hash=?witness.chunk_header.chunk_hash(),
-                    shard_id=witness.chunk_header.shard_id(),
-                    witness_height=witness.chunk_header.height_created(),
-                    final_height=final_head.height,
-                    "Skipping state witness below the last final block",
-                );
-                return Ok(());
-            }
         }
 
         match self.chain.get_block(witness.chunk_header.prev_block_hash()) {
@@ -302,22 +305,5 @@ impl Client {
         }
 
         self.chunk_validator.start_validating_chunk(witness, &self.chain, processing_done_tracker)
-    }
-
-    fn decode_state_witness(
-        &self,
-        encoded_witness: &EncodedChunkStateWitness,
-    ) -> Result<(ChunkStateWitness, ChunkStateWitnessSize), Error> {
-        let decode_start = std::time::Instant::now();
-        let (witness, raw_witness_size) = encoded_witness.decode()?;
-        let decode_elapsed_seconds = decode_start.elapsed().as_secs_f64();
-        let witness_shard = witness.chunk_header.shard_id();
-
-        // Record metrics after validating the witness
-        near_chain::stateless_validation::metrics::CHUNK_STATE_WITNESS_DECODE_TIME
-            .with_label_values(&[&witness_shard.to_string()])
-            .observe(decode_elapsed_seconds);
-
-        Ok((witness, raw_witness_size))
     }
 }

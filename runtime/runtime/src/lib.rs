@@ -20,7 +20,8 @@ use near_primitives::account::Account;
 use near_primitives::checked_feature;
 use near_primitives::congestion_info::{CongestionInfo, ExtendedCongestionInfo};
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, IntegerOverflowError, RuntimeError, TxExecutionError,
+    ActionError, ActionErrorKind, IntegerOverflowError, InvalidTxError, RuntimeError,
+    TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
@@ -287,7 +288,7 @@ impl Runtime {
         apply_state: &ApplyState,
         signed_transaction: &SignedTransaction,
         stats: &mut ApplyStats,
-    ) -> Result<(Receipt, ExecutionOutcomeWithId), RuntimeError> {
+    ) -> Result<(Receipt, ExecutionOutcomeWithId), InvalidTxError> {
         let span = tracing::Span::current();
         metrics::TRANSACTION_PROCESSED_TOTAL.inc();
 
@@ -326,7 +327,8 @@ impl Runtime {
                     }),
                 });
                 stats.tx_burnt_amount =
-                    safe_add_balance(stats.tx_burnt_amount, verification_result.burnt_amount)?;
+                    safe_add_balance(stats.tx_burnt_amount, verification_result.burnt_amount)
+                        .map_err(|_| InvalidTxError::CostOverflow)?;
                 let gas_burnt = verification_result.gas_burnt;
                 let compute_usage = verification_result.gas_burnt;
                 let outcome = ExecutionOutcomeWithId {
@@ -1548,7 +1550,7 @@ impl Runtime {
         let compute_limit = apply_state.gas_limit.unwrap_or(Gas::max_value());
         let proof_size_limit =
             if checked_feature!("stable", StateWitnessSizeLimit, protocol_version) {
-                Some(apply_state.config.storage_proof_size_soft_limit)
+                Some(apply_state.config.witness_config.main_storage_proof_size_soft_limit)
             } else {
                 None
             };
@@ -3128,17 +3130,17 @@ mod tests {
     }
 
     #[test]
-    fn test_storage_proof_size_soft_limit() {
+    fn test_main_storage_proof_size_soft_limit() {
         if !checked_feature!("stable", StateWitnessSizeLimit, PROTOCOL_VERSION) {
             return;
         }
         let (runtime, tries, root, mut apply_state, signer, epoch_info_provider) =
             setup_runtime(to_yocto(1_000_000), to_yocto(500_000), 10u64.pow(15));
 
-        // Change storage_proof_size_soft_limit to a smaller value
+        // Change main_storage_proof_size_soft_limit to a smaller value
         // The value of 500 is small enough to let the first receipt go through but not the second
         let mut runtime_config = RuntimeConfig::test();
-        runtime_config.storage_proof_size_soft_limit = 5000;
+        runtime_config.witness_config.main_storage_proof_size_soft_limit = 5000;
         apply_state.config = Arc::new(runtime_config);
 
         let create_acc_fn = |account_id| {
@@ -3184,7 +3186,7 @@ mod tests {
             )
         };
 
-        // The function call to bob_account should hit the storage_proof_size_soft_limit
+        // The function call to bob_account should hit the main_storage_proof_size_soft_limit
         let apply_result = runtime
             .apply(
                 tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),

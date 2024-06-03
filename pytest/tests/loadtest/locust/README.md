@@ -54,11 +54,23 @@ hundred of users.
 In the Locust UI, check the "Workers" tab to see CPU and memory usage. If this
 approaches anything close to 100%, you should use more workers.
 
-Luckily, locust has the ability to swarm the load generation across many processes.
-To use it, start one process with the `--master` argument and as many as you
-like with `--worker`. (If they run on different machines, you also need to
-provide `--master-host` and `--master-port`, if running on the same machine it
-will work automagically.)
+Luckily, Locust has the ability to swarm the load generation across many processes.
+
+The simplest way to do this on a single machine is to use `--processes` argument:
+```sh
+locust -H 127.0.0.1:3030 \
+  -f locustfiles/ft.py \
+  --funding-key=$KEY \
+  --processes 8
+```
+
+This will spawn 8 Locust Python processes, each capable of fully utilizing one CPU core.
+According to the current measurements, Locust on a single CPU core can send 500 transactions per
+second, and this number linearly scales with the number of processes. 
+
+To scale further to multiple machines, start one process with the `--master` argument and as many as
+you like with `--worker`. (If they run on different machines, you also need to provide
+`--master-host` and `--master-port`, if running on the same machine it will work automagically.)
 
 Start the master:
 

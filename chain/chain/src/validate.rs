@@ -8,12 +8,14 @@ use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, ChunkState, MaybeEncodedShardChunk,
 };
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::merklize;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, Nonce};
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 
 use crate::types::RuntimeAdapter;
 use crate::{byzantine_assert, Chain};
@@ -124,10 +126,14 @@ pub fn validate_chunk_with_chunk_extra(
     };
     let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
 
+    let header_epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
+    let header_protocol_version = epoch_manager.get_epoch_protocol_version(&header_epoch_id)?;
+
     validate_chunk_with_chunk_extra_and_receipts_root(
         prev_chunk_extra,
         chunk_header,
         &outgoing_receipts_root,
+        header_protocol_version,
     )
 }
 
@@ -136,6 +142,7 @@ pub fn validate_chunk_with_chunk_extra_and_receipts_root(
     prev_chunk_extra: &ChunkExtra,
     chunk_header: &ShardChunkHeader,
     outgoing_receipts_root: &CryptoHash,
+    header_protocol_version: ProtocolVersion,
 ) -> Result<(), Error> {
     if *prev_chunk_extra.state_root() != chunk_header.prev_state_root() {
         return Err(Error::InvalidStateRoot);
@@ -176,7 +183,66 @@ pub fn validate_chunk_with_chunk_extra_and_receipts_root(
         return Err(Error::InvalidGasLimit);
     }
 
+    validate_congestion_info(
+        &prev_chunk_extra.congestion_info(),
+        &chunk_header.congestion_info(),
+        header_protocol_version,
+    )?;
+
     Ok(())
+}
+
+/// Validate the congestion info propagation from the chunk extra of the previous
+/// chunk to the chunk header of the current chunk. The extra congestion info is
+/// trusted as it is the result of verified computation. The header congestion
+/// info is being validated.
+fn validate_congestion_info(
+    extra_congestion_info: &Option<CongestionInfo>,
+    header_congestion_info: &Option<CongestionInfo>,
+    header_protocol_version: ProtocolVersion,
+) -> Result<(), Error> {
+    // The congestion info should be Some iff the congestion control features is enabled.
+    let enabled = ProtocolFeature::CongestionControl.enabled(header_protocol_version);
+    if header_congestion_info.is_some() != enabled {
+        return Err(Error::InvalidCongestionInfo("Congestion Information is missing.".to_string()));
+    }
+
+    match (extra_congestion_info, header_congestion_info) {
+        // If both are none then there is no congestion info to validate.
+        (None, None) => Ok(()),
+        // If the congestion control is enabled in the previous chunk then it should
+        // also be enabled in the current chunk.
+        (Some(info), None) => Err(Error::InvalidCongestionInfo(format!(
+            "Congestion Information disappeared. {:?}.",
+            info
+        ))),
+        // At the epoch boundary where congestion control was enabled the chunk
+        // extra does not have the congestion control enabled and the header does
+        // have it enabled. The chunk extra of the previous chunk does not have
+        // congestion info so the congestion info in the current chunk header should
+        // be set to the default one.
+        (None, Some(info)) => {
+            if info == &CongestionInfo::default() {
+                Ok(())
+            } else {
+                Err(Error::InvalidCongestionInfo(format!(
+                    "Congestion Information invalid after protocol upgrade. {:?}",
+                    info
+                )))
+            }
+        }
+        // Congestion Info is present in both the extra and the header. Validate it.
+        (Some(extra), Some(header)) => {
+            if !CongestionInfo::validate_extra_and_header(extra, header) {
+                Err(Error::InvalidCongestionInfo(format!(
+                    "Congestion Information mismatch. extra: {:?}, header: {:?}",
+                    extra, header
+                )))
+            } else {
+                Ok(())
+            }
+        }
+    }
 }
 
 /// Validates a double sign challenge.
