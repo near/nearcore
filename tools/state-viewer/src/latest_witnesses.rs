@@ -14,50 +14,52 @@ use nearcore::NearConfig;
 use nearcore::NightshadeRuntimeExt;
 
 #[derive(clap::Subcommand)]
+/// Tools for manually validating state witnesses.
+/// First, dump some of the latest stored state witnesses to a directory using
+/// the `dump` command. Pretty-printing on screen is also supported.
+/// Second, validate a particular state witness from a file using the
+/// `validate` command.
 pub enum StateWitnessCmd {
     /// Prints latest state witnesses saved to DB.
-    Latest(LatestWitnessesCmd),
-    /// Validates given state witness and hangs.
+    Dump(DumpWitnessesCmd),
+    /// Validates given state witness.
     Validate(ValidateWitnessCmd),
 }
 
 impl StateWitnessCmd {
     pub(crate) fn run(&self, home_dir: &Path, near_config: NearConfig, store: Store) {
         match self {
-            StateWitnessCmd::Latest(cmd) => cmd.run(near_config, store),
+            StateWitnessCmd::Dump(cmd) => cmd.run(near_config, store),
             StateWitnessCmd::Validate(cmd) => cmd.run(home_dir, near_config, store),
         }
     }
 }
 
 #[derive(clap::Parser)]
-pub struct LatestWitnessesCmd {
-    /// Block height
+pub struct DumpWitnessesCmd {
+    /// Select received witnesses only with given block height.
     #[arg(long)]
     height: Option<u64>,
-
-    /// Shard id
+    /// Select only witnesses for given shard id.
     #[arg(long)]
     shard_id: Option<u64>,
-
-    /// Epoch Id
+    /// Select only witnesses for given epoch.
     #[arg(long)]
     epoch_id: Option<EpochId>,
-
     #[clap(subcommand)]
-    /// Save mode
-    mode: LatestWitnessesMode,
+    /// Mode of dumping state witnesses.
+    mode: DumpWitnessesMode,
 }
 
 #[derive(clap::Subcommand)]
-enum LatestWitnessesMode {
+enum DumpWitnessesMode {
     /// Pretty-print on screen using the "{:#?}" formatting.
     Pretty,
     /// Saves the raw &[u8] of each witness to the given directory.
     Binary { output_dir: PathBuf },
 }
 
-impl LatestWitnessesCmd {
+impl DumpWitnessesCmd {
     pub(crate) fn run(&self, near_config: NearConfig, store: Store) {
         let chain_store =
             Rc::new(ChainStore::new(store, near_config.genesis.config.genesis_height, false));
@@ -66,7 +68,7 @@ impl LatestWitnessesCmd {
             .get_latest_witnesses(self.height, self.shard_id, self.epoch_id.clone())
             .unwrap();
         println!("Found {} witnesses:", witnesses.len());
-        if let LatestWitnessesMode::Binary { ref output_dir } = self.mode {
+        if let DumpWitnessesMode::Binary { ref output_dir } = self.mode {
             if !output_dir.exists() {
                 std::fs::create_dir_all(output_dir).unwrap();
             }
@@ -81,16 +83,17 @@ impl LatestWitnessesCmd {
                 witness.epoch_id
             );
             match self.mode {
-                LatestWitnessesMode::Pretty => {
+                DumpWitnessesMode::Pretty => {
                     println!("{:#?}", witness);
                     println!("");
                 }
-                LatestWitnessesMode::Binary { ref output_dir } => {
+                DumpWitnessesMode::Binary { ref output_dir } => {
                     let file_name = format!(
-                        "witness_{}_{}_{}.bin",
+                        "witness_{}_{}_{}_{}.bin",
                         witness.chunk_header.height_created(),
                         witness.chunk_header.shard_id(),
-                        witness.epoch_id.0
+                        witness.epoch_id.0,
+                        i
                     );
                     let file_path = output_dir.join(file_name);
                     std::fs::write(&file_path, borsh::to_vec(witness).unwrap()).unwrap();
@@ -147,5 +150,6 @@ impl ValidateWitnessCmd {
             )
             .unwrap();
         waiter.wait();
+        println!("Validation finished. Use `RUST_LOG=debug` to see validation result");
     }
 }
