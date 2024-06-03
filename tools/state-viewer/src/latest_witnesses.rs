@@ -45,6 +45,7 @@ struct LatestWitnessesCmd {
     #[arg(long)]
     epoch_id: Option<EpochId>,
 
+    #[arg(long)]
     /// Save mode.
     mode: LatestWitnessesMode,
     // /// Pretty-print using the "{:#?}" formatting.
