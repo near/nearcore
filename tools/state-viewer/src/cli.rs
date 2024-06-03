@@ -10,6 +10,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::trie_key::col;
 use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives_core::types::EpochHeight;
 use near_store::{Mode, NodeStorage, Store, Temperature};
 use nearcore::{load_config, NearConfig};
 use std::path::{Path, PathBuf};
@@ -65,6 +66,9 @@ pub enum StateViewerSubCommand {
     /// Print `EpochInfo` of an epoch given by `--epoch_id` or by `--epoch_height`.
     #[clap(alias = "epoch_info")]
     EpochInfo(EpochInfoCmd),
+    /// Epoch analysis
+    #[clap(alias = "epoch_analysis")]
+    EpochAnalysis(EpochAnalysisCmd),
     /// Looks up a certain partial chunk.
     #[clap(alias = "partial_chunks")]
     PartialChunks(PartialChunksCmd),
@@ -143,6 +147,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::DumpStateRedis(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpTx(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::EpochInfo(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::EpochAnalysis(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::PartialChunks(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::Receipts(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::Replay(cmd) => cmd.run(near_config, store),
@@ -483,6 +488,19 @@ impl EpochInfoCmd {
             near_config,
             store,
         );
+    }
+}
+
+#[derive(clap::Args)]
+pub struct EpochAnalysisCmd {
+    /// The height of the epoch to analyze.
+    #[clap(long)]
+    height: EpochHeight,
+}
+
+impl EpochAnalysisCmd {
+    pub fn run(self, near_config: NearConfig, store: Store) {
+        print_epoch_analysis(self.height, near_config, store);
     }
 }
 
