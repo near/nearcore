@@ -185,12 +185,17 @@ pub fn validate_prepared_transactions(
     chunk_header: &ShardChunkHeader,
     storage_config: RuntimeStorageConfig,
     transactions: &[SignedTransaction],
+    last_chunk_transactions: &[SignedTransaction],
 ) -> Result<PreparedTransactions, Error> {
     let parent_block = chain.chain_store().get_block(chunk_header.prev_block_hash())?;
-
+    let last_chunk_transactions_size = borsh::to_vec(last_chunk_transactions)?.len();
     runtime_adapter.prepare_transactions(
         storage_config,
-        chunk_header.into(),
+        crate::types::PrepareTransactionsChunkContext {
+            shard_id: chunk_header.shard_id(),
+            gas_limit: chunk_header.gas_limit(),
+            last_chunk_transactions_size,
+        },
         (&parent_block).into(),
         &mut TransactionGroupIteratorWrapper::new(transactions),
         &mut chain.transaction_validity_check(parent_block.header().clone()),
@@ -290,6 +295,7 @@ pub fn pre_validate_chunk_state_witness(
             &state_witness.chunk_header,
             transactions_validation_storage_config,
             &new_transactions,
+            &state_witness.transactions,
         ) {
             Ok(result) => {
                 if result.transactions.len() != new_transactions.len() {
@@ -587,6 +593,7 @@ pub fn validate_chunk_state_witness(
         &chunk_extra,
         &state_witness.chunk_header,
         &outgoing_receipts_root,
+        protocol_version,
     )?;
 
     Ok(())
