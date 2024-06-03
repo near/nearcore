@@ -660,7 +660,7 @@ pub fn display_sync_status(
                     / ((highest_height - start_height) as f64)
             };
             format!(
-                "#{:>8} Downloading blocks {:.2}% ({} left; at {})",
+                "#{:>8} CUSTOM BINARY Downloading blocks {:.2}% ({} left; at {})",
                 head.height,
                 percent,
                 highest_height - current_height,
