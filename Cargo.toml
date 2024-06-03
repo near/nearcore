@@ -45,6 +45,7 @@ members = [
     "core/primitives",
     "core/primitives-core",
     "core/store",
+    "core/time",
     "genesis-tools/genesis-csv-to-json",
     "genesis-tools/genesis-populate",
     "genesis-tools/keypair-generator",
@@ -61,6 +62,7 @@ members = [
     "runtime/near-vm/compiler-test-derive",
     "runtime/near-vm-runner",
     "runtime/near-vm-runner/fuzz",
+    "runtime/near-vm-runner-primitives",
     "runtime/near-wallet-contract",
     "runtime/runtime",
     "runtime/runtime-params-estimator",
@@ -94,9 +96,7 @@ members = [
     "utils/near-cache",
     "utils/stdx",
 ]
-exclude = [
-    "tracing",
-]
+exclude = ["tracing"]
 
 [workspace.lints.clippy]
 all = { level = "allow", priority = -100 }
@@ -114,7 +114,7 @@ unnecessary_lazy_evaluations = "deny"
 
 
 [workspace.dependencies]
-actix = "0.13.0"
+actix = { version = "0.13.0", default-features = false, features = ["macros"] }
 actix-cors = "0.6.1"
 actix-http = "3.6"
 actix-rt = "2"
@@ -260,6 +260,7 @@ near-state-viewer = { path = "tools/state-viewer", package = "state-viewer" }
 near-store = { path = "core/store" }
 near-telemetry = { path = "chain/telemetry" }
 near-test-contracts = { path = "runtime/near-test-contracts" }
+near-time = { path = "core/time" }
 near-undo-block = { path = "tools/undo-block" }
 near-vm-test-api = { path = "runtime/near-vm/test-api" }
 near-vm-compiler = { path = "runtime/near-vm/compiler" }
@@ -267,6 +268,7 @@ near-vm-compiler-singlepass = { path = "runtime/near-vm/compiler-singlepass" }
 near-vm-compiler-test-derive = { path = "runtime/near-vm/compiler-test-derive" }
 near-vm-engine = { path = "runtime/near-vm/engine" }
 near-vm-runner = { path = "runtime/near-vm-runner" }
+near-vm-runner-primitives = { path = "runtime/near-vm-runner-primitives" }
 near-vm-test-generator = { path = "runtime/near-vm/test-generator" }
 near-vm-types = { path = "runtime/near-vm/types" }
 near-vm-vm = { path = "runtime/near-vm/vm" }

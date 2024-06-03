@@ -25,14 +25,8 @@ near-async.workspace = true
 near-o11y.workspace = true
 near-performance-metrics.workspace = true
 near-performance-metrics-macros.workspace = true
+near-time.workspace = true
 
 [features]
-nightly = [
-  "near-async/nightly",
-  "near-o11y/nightly",
-  "nightly_protocol",
-]
-nightly_protocol = [
-  "near-async/nightly_protocol",
-  "near-o11y/nightly_protocol",
-]
+nightly = ["near-async/nightly", "near-o11y/nightly", "nightly_protocol"]
+nightly_protocol = ["near-async/nightly_protocol", "near-o11y/nightly_protocol"]

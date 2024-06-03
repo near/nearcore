@@ -1,5 +1,5 @@
-use crate::time;
 use derive_enum_from_into::{EnumFrom, EnumTryInto};
+use near_time;
 
 use crate::{
     messaging::{CanSend, IntoSender},
@@ -57,7 +57,7 @@ fn test_simple() {
     test.sender().send(SumRequest::Number(5));
     test.sender().send(SumRequest::GetSum);
 
-    test.run_for(time::Duration::milliseconds(1));
+    test.run_for(near_time::Duration::milliseconds(1));
     assert_eq!(test.data.sums, vec![ReportSumMsg(3), ReportSumMsg(12)]);
 }
 

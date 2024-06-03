@@ -27,7 +27,7 @@ once_cell.workspace = true
 parity-wasm = { workspace = true, optional = true }
 prefix-sum-vec.workspace = true
 ripemd.workspace = true
-rustix = { workspace = true, features = [ "fs" ] }
+rustix = { workspace = true, features = ["fs"] }
 serde_repr.workspace = true
 serde.workspace = true
 sha2.workspace = true
@@ -46,6 +46,7 @@ near-crypto.workspace = true
 near-o11y.workspace = true
 near-parameters.workspace = true
 near-primitives-core.workspace = true
+near-vm-runner-primitives.workspace = true
 bytesize.workspace = true
 
 # Old versions of pwasm-utils we need to preserve backwards compatibility under
@@ -88,33 +89,40 @@ nightly_protocol = [
   "near-parameters/nightly_protocol",
   "near-primitives-core/nightly_protocol",
 ]
-wasmer0_vm = [ "wasmer-runtime", "wasmer-runtime-core", "prepare" ]
-wasmtime_vm = [ "wasmtime", "anyhow", "prepare" ]
+wasmer0_vm = ["wasmer-runtime", "wasmer-runtime-core", "prepare"]
+wasmtime_vm = ["wasmtime", "anyhow", "prepare"]
 wasmer2_vm = [
-    "wasmer-compiler",
-    "wasmer-compiler-singlepass",
-    "wasmer-engine",
-    "wasmer-engine-universal",
-    "wasmer-types",
-    "wasmer-vm",
-    "prepare",
+  "wasmer-compiler",
+  "wasmer-compiler-singlepass",
+  "wasmer-engine",
+  "wasmer-engine-universal",
+  "wasmer-types",
+  "wasmer-vm",
+  "prepare",
 ]
 near_vm = [
-    "near-vm-compiler",
-    "near-vm-compiler-singlepass",
-    "near-vm-engine",
-    "near-vm-types",
-    "near-vm-vm",
-    "prepare",
+  "near-vm-compiler",
+  "near-vm-compiler-singlepass",
+  "near-vm-engine",
+  "near-vm-types",
+  "near-vm-vm",
+  "prepare",
 ]
-prepare = [ "finite-wasm", "wasm-encoder", "wasmparser", "parity-wasm", "parity-wasm_41", "pwasm-utils_12" ]
+prepare = [
+  "finite-wasm",
+  "wasm-encoder",
+  "wasmparser",
+  "parity-wasm",
+  "parity-wasm_41",
+  "pwasm-utils_12",
+]
 
 no_cpu_compatibility_checks = []
 
 no_cache = []
 
 protocol_feature_fix_contract_loading_cost = [
-    "near-primitives-core/protocol_feature_fix_contract_loading_cost",
+  "near-primitives-core/protocol_feature_fix_contract_loading_cost",
 ]
 
 nightly = [

@@ -3,8 +3,8 @@ mod metrics;
 use awc::{Client, Connector};
 use futures::FutureExt;
 use near_async::messaging::{Actor, Handler};
-use near_async::time::{Duration, Instant};
 use near_performance_metrics_macros::perf;
+use near_time::{Duration, Instant};
 use std::ops::Sub;
 
 /// Timeout for establishing connection.

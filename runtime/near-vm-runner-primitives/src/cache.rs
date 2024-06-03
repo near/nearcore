@@ -1,10 +1,12 @@
 use crate::errors::ContractPrecompilatonResult;
-use crate::logic::errors::{CacheError, CompilationError};
-use crate::logic::Config;
+use crate::logic::errors::{CacheError, CompilationError, VMRunnerError};
+use crate::logic::types::PromiseResult;
+use crate::logic::{External, VMContext, VMOutcome};
 use crate::runner::VMKindExt;
 use crate::ContractCode;
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_parameters::vm::VMKind;
+use near_parameters::vm::{Config, VMKind};
+use near_parameters::RuntimeFeesConfig;
 use near_primitives_core::hash::CryptoHash;
 use std::any::Any;
 use std::collections::HashMap;
@@ -391,7 +393,7 @@ impl AnyCache {
     fn new(size: usize) -> Self {
         Self {
             cache: if let Some(size) = NonZeroUsize::new(size) {
-                Some(Mutex::new(lru::LruCache::new(size)))
+                Some(Mutex::new(lru::LruCache::new(size.into())))
             } else {
                 None
             },

@@ -25,16 +25,12 @@ tracing.workspace = true
 near-async-derive.workspace = true
 near-o11y.workspace = true
 near-performance-metrics.workspace = true
+near-time.workspace = true
 
 [dev-dependencies]
 derive-enum-from-into.workspace = true
 tokio-util.workspace = true
 
 [features]
-nightly = [
-  "near-o11y/nightly",
-  "nightly_protocol",
-]
-nightly_protocol = [
-  "near-o11y/nightly_protocol",
-]
+nightly = ["near-o11y/nightly", "nightly_protocol"]
+nightly_protocol = ["near-o11y/nightly_protocol"]

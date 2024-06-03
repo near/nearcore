@@ -244,13 +244,13 @@ dependencies = [
 
 [[package]]
 name = "actix_derive"
-version = "0.6.0"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d44b8fee1ced9671ba043476deddef739dd0959bf77030b26b738cc591737a7"
+checksum = "7c7db3d5a9718568e4cf4a537cfd7070e6e6ff7481510d0237fb529ac850f6d3"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 1.0.103",
+ "syn 2.0.32",
 ]
 
 [[package]]
@@ -3822,6 +3822,7 @@ dependencies = [
  "near-async-derive",
  "near-o11y",
  "near-performance-metrics",
+ "near-time",
  "once_cell",
  "serde",
  "serde_json",
@@ -4605,19 +4606,18 @@ dependencies = [
  "chrono",
  "derive_more",
  "easy-ext",
- "enum-map",
  "expect-test",
  "hex",
  "insta",
  "itertools",
- "near-async",
  "near-crypto",
  "near-fmt",
  "near-parameters",
  "near-primitives-core",
  "near-rpc-error-macro",
  "near-stdx",
- "near-vm-runner",
+ "near-time",
+ "near-vm-runner-primitives",
  "num-rational 0.3.2",
  "once_cell",
  "primitive-types 0.10.1",
@@ -4627,7 +4627,6 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
- "serde_yaml",
  "sha3",
  "smart-default",
  "strum",
@@ -4817,6 +4816,7 @@ dependencies = [
  "near-o11y",
  "near-performance-metrics",
  "near-performance-metrics-macros",
+ "near-time",
  "once_cell",
  "openssl",
  "serde",
@@ -4834,6 +4834,17 @@ dependencies = [
  "wasm-encoder 0.27.0",
  "wasm-smith",
  "wat",
+]
+
+[[package]]
+name = "near-time"
+version = "0.0.0"
+dependencies = [
+ "once_cell",
+ "serde",
+ "serde_json",
+ "time",
+ "tokio",
 ]
 
 [[package]]
@@ -4951,6 +4962,7 @@ dependencies = [
  "near-vm-compiler",
  "near-vm-compiler-singlepass",
  "near-vm-engine",
+ "near-vm-runner-primitives",
  "near-vm-types",
  "near-vm-vm",
  "num-rational 0.3.2",
@@ -5001,6 +5013,33 @@ dependencies = [
  "near-vm-runner",
  "wasm-smith",
  "wasmprinter",
+]
+
+[[package]]
+name = "near-vm-runner-primitives"
+version = "0.0.0"
+dependencies = [
+ "borsh 1.0.0",
+ "bytesize",
+ "ed25519-dalek",
+ "enum-map",
+ "lru 0.7.8",
+ "near-crypto",
+ "near-parameters",
+ "near-primitives-core",
+ "near-stdx",
+ "num-rational 0.3.2",
+ "once_cell",
+ "ripemd",
+ "rustix",
+ "serde",
+ "sha2 0.10.6",
+ "sha3",
+ "strum",
+ "tempfile",
+ "thiserror",
+ "tracing",
+ "zeropool-bn",
 ]
 
 [[package]]

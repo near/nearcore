@@ -28,13 +28,13 @@ mod wasmer_runner;
 mod wasmtime_runner;
 
 pub use crate::logic::with_ext_cost_counter;
-pub use cache::{
+pub use code::ContractCode;
+pub use metrics::{report_metrics, reset_metrics};
+pub use near_vm_runner_primitives::cache::{
     get_contract_cache_key, precompile_contract, CompiledContract, CompiledContractInfo,
     ContractRuntimeCache, FilesystemContractRuntimeCache, MockContractRuntimeCache,
     NoContractRuntimeCache,
 };
-pub use code::ContractCode;
-pub use metrics::{report_metrics, reset_metrics};
 pub use profile::ProfileDataV3;
 pub use runner::{run, VM};
 
