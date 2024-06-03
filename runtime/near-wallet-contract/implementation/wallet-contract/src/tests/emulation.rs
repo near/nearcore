@@ -71,13 +71,14 @@ async fn test_base_token_transfer() -> anyhow::Result<()> {
     let target = format!("0x{}.wrong.suffix", hex::encode(other_address));
     wallet_contract.rlp_execute(&target, &signed_transaction).await?;
 
-    let final_other_balance = other_wallet.inner.as_account().view_account().await?.balance;
+    let initial_wallet_balance = final_wallet_balance;
+    let final_wallet_balance = wallet_contract.inner.as_account().view_account().await?.balance;
 
-    // Receiver balance remains unchanged
-    assert_eq!(
-        final_other_balance.as_yoctonear(),
-        initial_other_balance.as_yoctonear() + TRANSFER_AMOUNT.as_yoctonear()
+    // Sender balance does not decrease (other than the gas spent to execute the transaction)
+    let diff = NearToken::from_yoctonear(
+        initial_wallet_balance.as_yoctonear() - final_wallet_balance.as_yoctonear(),
     );
+    assert!(diff < NearToken::from_millinear(2));
 
     Ok(())
 }
