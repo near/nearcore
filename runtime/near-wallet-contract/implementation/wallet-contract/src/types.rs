@@ -129,6 +129,35 @@ pub enum EthEmulationKind {
     ERC20Transfer { receiver_id: AccountId },
 }
 
+/// Describes a kind of transaction that is directly parsable
+/// from an Ethereum-formatted transaction's calldata. Notably
+/// `EthEmulationKind::EOABaseTokenTransfer` is missing because
+/// on Ethereum base token transfers are inferred from the target
+/// of the transaction, not its data.
+#[must_use]
+pub enum ParsableTransactionKind {
+    NearNativeAction,
+    EthEmulation(ParsableEthEmulationKind),
+}
+
+/// See docs for `ParsableTransactionKind`.
+#[must_use]
+pub enum ParsableEthEmulationKind {
+    ERC20Balance,
+    ERC20Transfer { receiver_id: AccountId },
+}
+
+impl From<ParsableEthEmulationKind> for EthEmulationKind {
+    fn from(value: ParsableEthEmulationKind) -> Self {
+        match value {
+            ParsableEthEmulationKind::ERC20Balance => Self::ERC20Balance,
+            ParsableEthEmulationKind::ERC20Transfer { receiver_id } => {
+                Self::ERC20Transfer { receiver_id }
+            }
+        }
+    }
+}
+
 /// The Near protocol actions represented in a form that is suitable for the
 /// Solidity ABI. This allows them to be encoded into the `data` field of an
 /// Ethereum transaction in a way that can be parsed by Ethereum tooling.

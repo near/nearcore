@@ -2,9 +2,10 @@ use crate::{
     error::{AccountIdError, CallerError, Error, RelayerError, UserError},
     eth_emulation, ethabi_utils, near_action,
     types::{
-        Action, EthEmulationKind, ExecutionContext, TargetKind, TransactionKind, ADD_KEY_SELECTOR,
-        ADD_KEY_SIGNATURE, DELETE_KEY_SELECTOR, DELETE_KEY_SIGNATURE, FUNCTION_CALL_SELECTOR,
-        FUNCTION_CALL_SIGNATURE, TRANSFER_SELECTOR, TRANSFER_SIGNATURE,
+        Action, EthEmulationKind, ExecutionContext, ParsableTransactionKind, TargetKind,
+        TransactionKind, ADD_KEY_SELECTOR, ADD_KEY_SIGNATURE, DELETE_KEY_SELECTOR,
+        DELETE_KEY_SIGNATURE, FUNCTION_CALL_SELECTOR, FUNCTION_CALL_SIGNATURE, TRANSFER_SELECTOR,
+        TRANSFER_SIGNATURE,
     },
 };
 use aurora_engine_transactions::{EthTransactionKind, NormalizedEthTransaction};
@@ -60,14 +61,14 @@ pub fn parse_rlp_tx_to_action(
     // we only need to check the registrar if the payload is parseable as an Ethereum emulation.
 
     let (action, transaction_kind) = match parse_tx_data(target, &tx, context) {
-        Ok((action, TransactionKind::NearNativeAction)) => {
+        Ok((action, ParsableTransactionKind::NearNativeAction)) => {
             (action, TransactionKind::NearNativeAction)
         }
-        Ok((action, TransactionKind::EthEmulation(eth_emulation))) => {
+        Ok((action, ParsableTransactionKind::EthEmulation(eth_emulation))) => {
             if let TargetKind::EthImplicit(address) = target_kind {
                 // Even though the action was parsable, the target is another wallet contract,
                 // so the action _must_ still be a base token transfer, but we need
-                // to check if the target is not registered (otherwise the relyer is faulty).
+                // to check if the target is not registered (otherwise the relayer is faulty).
                 (
                     Action::Transfer { receiver_id: target.to_string(), yocto_near: 0 },
                     TransactionKind::EthEmulation(EthEmulationKind::EOABaseTokenTransfer {
@@ -75,7 +76,7 @@ pub fn parse_rlp_tx_to_action(
                     }),
                 )
             } else {
-                (action, TransactionKind::EthEmulation(eth_emulation))
+                (action, TransactionKind::EthEmulation(eth_emulation.into()))
             }
         }
         Err(
@@ -177,7 +178,7 @@ fn parse_tx_data(
     target: &AccountId,
     tx: &NormalizedEthTransaction,
     context: &ExecutionContext,
-) -> Result<(Action, TransactionKind), Error> {
+) -> Result<(Action, ParsableTransactionKind), Error> {
     if tx.data.len() < 4 {
         return Err(Error::User(UserError::InvalidAbiEncodedData));
     }
@@ -193,7 +194,7 @@ fn parse_tx_data(
             }
             Ok((
                 Action::FunctionCall { receiver_id, method_name, args, gas, yocto_near },
-                TransactionKind::NearNativeAction,
+                ParsableTransactionKind::NearNativeAction,
             ))
         }
         TRANSFER_SELECTOR => {
@@ -205,7 +206,10 @@ fn parse_tx_data(
             if yocto_near > MAX_YOCTO_NEAR {
                 return Err(Error::User(UserError::ExcessYoctoNear));
             }
-            Ok((Action::Transfer { receiver_id, yocto_near }, TransactionKind::NearNativeAction))
+            Ok((
+                Action::Transfer { receiver_id, yocto_near },
+                ParsableTransactionKind::NearNativeAction,
+            ))
         }
         ADD_KEY_SELECTOR => {
             let (
@@ -229,7 +233,7 @@ fn parse_tx_data(
                     receiver_id,
                     method_names,
                 },
-                TransactionKind::NearNativeAction,
+                ParsableTransactionKind::NearNativeAction,
             ))
         }
         DELETE_KEY_SELECTOR => {
@@ -237,12 +241,12 @@ fn parse_tx_data(
                 ethabi_utils::abi_decode(&DELETE_KEY_SIGNATURE, &tx.data[4..])?;
             Ok((
                 Action::DeleteKey { public_key_kind, public_key },
-                TransactionKind::NearNativeAction,
+                ParsableTransactionKind::NearNativeAction,
             ))
         }
         _ => {
             let (action, emulation_kind) = eth_emulation::try_emulation(target, tx, context)?;
-            Ok((action, TransactionKind::EthEmulation(emulation_kind)))
+            Ok((action, ParsableTransactionKind::EthEmulation(emulation_kind)))
         }
     }
 }

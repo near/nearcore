@@ -5,7 +5,7 @@
 use crate::{
     error::{Error, UserError},
     ethabi_utils,
-    types::{Action, EthEmulationKind, ExecutionContext},
+    types::{Action, ExecutionContext, ParsableEthEmulationKind},
 };
 use aurora_engine_transactions::NormalizedEthTransaction;
 use ethabi::{Address, ParamType};
@@ -26,7 +26,7 @@ pub fn try_emulation(
     target: &AccountId,
     tx: &NormalizedEthTransaction,
     context: &ExecutionContext,
-) -> Result<(Action, EthEmulationKind), Error> {
+) -> Result<(Action, ParsableEthEmulationKind), Error> {
     if tx.data.len() < 4 {
         return Err(Error::User(UserError::InvalidAbiEncodedData));
     }
@@ -50,7 +50,7 @@ pub fn try_emulation(
                     gas: FIVE_TERA_GAS,
                     yocto_near: 0,
                 },
-                EthEmulationKind::ERC20Balance,
+                ParsableEthEmulationKind::ERC20Balance,
             ))
         }
         ERC20_TRANSFER_SELECTOR => {
@@ -74,7 +74,7 @@ pub fn try_emulation(
                     gas: 2 * FIVE_TERA_GAS,
                     yocto_near: 1,
                 },
-                EthEmulationKind::ERC20Transfer { receiver_id },
+                ParsableEthEmulationKind::ERC20Transfer { receiver_id },
             ))
         }
         _ => Err(Error::User(UserError::UnknownFunctionSelector)),
