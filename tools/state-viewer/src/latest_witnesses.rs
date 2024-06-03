@@ -31,7 +31,7 @@ impl StateWitnessCmd {
 }
 
 #[derive(clap::Parser)]
-struct LatestWitnessesCmd {
+pub struct LatestWitnessesCmd {
     /// Block height
     #[arg(long)]
     height: Option<u64>,
@@ -109,8 +109,8 @@ impl LatestWitnessesCmd {
 }
 
 #[derive(clap::Parser)]
-struct ValidateWitnessCmd {
-    /// File with state witness saved as vector in JSON.
+pub struct ValidateWitnessCmd {
+    /// File with state witness saved as raw &[u8].
     #[arg(long)]
     input_file: PathBuf,
 }
@@ -118,8 +118,7 @@ struct ValidateWitnessCmd {
 impl ValidateWitnessCmd {
     pub(crate) fn run(&self, home_dir: &Path, near_config: NearConfig, store: Store) {
         let encoded_witness: Vec<u8> =
-            serde_json::from_reader(BufReader::new(std::fs::File::open(&self.input_file).unwrap()))
-                .unwrap();
+            std::fs::read(&self.input_file).expect("Failed to read file");
         let witness: ChunkStateWitness = borsh::BorshDeserialize::try_from_slice(&encoded_witness)
             .expect("Failed to deserialize witness");
         let chain_genesis = ChainGenesis::new(&near_config.genesis.config);
