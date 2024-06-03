@@ -314,7 +314,7 @@ impl Client {
         let witness_shard = witness.chunk_header.shard_id();
 
         // Record metrics after validating the witness
-        near_chain::metrics::CHUNK_STATE_WITNESS_DECODE_TIME
+        near_chain::stateless_validation::metrics::CHUNK_STATE_WITNESS_DECODE_TIME
             .with_label_values(&[&witness_shard.to_string()])
             .observe(decode_elapsed_seconds);
 

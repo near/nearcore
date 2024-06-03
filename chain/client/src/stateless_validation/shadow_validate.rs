@@ -25,7 +25,8 @@ impl Client {
             if let Err(err) =
                 self.shadow_validate_chunk(prev_block.header(), prev_chunk_header, &chunk)
             {
-                near_chain::metrics::SHADOW_CHUNK_VALIDATION_FAILED_TOTAL.inc();
+                near_chain::stateless_validation::metrics::SHADOW_CHUNK_VALIDATION_FAILED_TOTAL
+                    .inc();
                 tracing::error!(
                     target: "client",
                     ?err,

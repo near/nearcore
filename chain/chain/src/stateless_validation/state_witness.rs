@@ -372,19 +372,21 @@ impl Chain {
             target: "chain", "shadow_validate", shard_id, height_created);
         let (encoded_witness, raw_witness_size) = {
             let shard_id_label = shard_id.to_string();
-            let encode_timer = crate::metrics::CHUNK_STATE_WITNESS_ENCODE_TIME
-                .with_label_values(&[shard_id_label.as_str()])
-                .start_timer();
+            let encode_timer =
+                crate::stateless_validation::metrics::CHUNK_STATE_WITNESS_ENCODE_TIME
+                    .with_label_values(&[shard_id_label.as_str()])
+                    .start_timer();
             let (encoded_witness, raw_witness_size) = EncodedChunkStateWitness::encode(&witness)?;
             encode_timer.observe_duration();
-            crate::metrics::record_witness_size_metrics(
+            crate::stateless_validation::metrics::record_witness_size_metrics(
                 raw_witness_size,
                 encoded_witness.size_bytes(),
                 &witness,
             );
-            let decode_timer = crate::metrics::CHUNK_STATE_WITNESS_DECODE_TIME
-                .with_label_values(&[shard_id_label.as_str()])
-                .start_timer();
+            let decode_timer =
+                crate::stateless_validation::metrics::CHUNK_STATE_WITNESS_DECODE_TIME
+                    .with_label_values(&[shard_id_label.as_str()])
+                    .start_timer();
             encoded_witness.decode()?;
             decode_timer.observe_duration();
             (encoded_witness, raw_witness_size)
@@ -422,7 +424,8 @@ impl Chain {
                     );
                 }
                 Err(err) => {
-                    crate::metrics::SHADOW_CHUNK_VALIDATION_FAILED_TOTAL.inc();
+                    crate::stateless_validation::metrics::SHADOW_CHUNK_VALIDATION_FAILED_TOTAL
+                        .inc();
                     tracing::error!(
                         parent: &parent_span,
                         ?err,
@@ -462,7 +465,7 @@ pub fn validate_chunk_state_witness(
     runtime_adapter: &dyn RuntimeAdapter,
     main_state_transition_cache: &MainStateTransitionCache,
 ) -> Result<(), Error> {
-    let _timer = crate::metrics::CHUNK_STATE_WITNESS_VALIDATION_TIME
+    let _timer = crate::stateless_validation::metrics::CHUNK_STATE_WITNESS_VALIDATION_TIME
         .with_label_values(&[&state_witness.chunk_header.shard_id().to_string()])
         .start_timer();
     let span = tracing::debug_span!(target: "client", "validate_chunk_state_witness").entered();
