@@ -76,7 +76,7 @@ use near_primitives::state_sync::{
     get_num_state_parts, BitArray, CachedParts, ReceiptProofResponse, RootProof,
     ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV2, StateHeaderKey, StatePartKey,
 };
-use near_primitives::stateless_validation::EncodedChunkStateWitness;
+use near_primitives::stateless_validation::{ChunkStateWitness, ChunkStateWitnessSize};
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
@@ -4696,7 +4696,10 @@ pub struct BlockCatchUpResponse {
 
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]
-pub struct ChunkStateWitnessMessage(pub EncodedChunkStateWitness);
+pub struct ChunkStateWitnessMessage {
+    pub witness: ChunkStateWitness,
+    pub raw_witness_size: ChunkStateWitnessSize,
+}
 
 /// Helper to track blocks catch up
 /// Lifetime of a block_hash is as follows:
