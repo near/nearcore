@@ -14,10 +14,10 @@ use rand::seq::IteratorRandom;
 use tracing::{debug, warn};
 
 /// Maximum number of block requested at once in BlockSync
-const MAX_BLOCK_REQUESTS: usize = 15;
+const MAX_BLOCK_REQUESTS: usize = 25;
 
 /// Expect to receive the requested block in this time.
-const BLOCK_REQUEST_TIMEOUT_MS: i64 = 4_000;
+const BLOCK_REQUEST_TIMEOUT_MS: i64 = 6_000;
 
 #[derive(Clone)]
 pub struct BlockSyncRequest {
