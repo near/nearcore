@@ -227,8 +227,11 @@ class BlockHistory:
 
 
 @dataclass
-class ChunkHistory:
+class ShardHistory:
     shard_id: ShardId
+    # NOTE: We currently combine all chunk spans/events together under the same shard id.
+    # This may change in the future to separate the lifespan of individual chunks, in that case
+    # the events/spans that belong to a chunk would  be collected under a new class like ChunkHistory.
     spans: list[ChunkSpan]
 
 
@@ -239,7 +242,7 @@ class ChunkHistory:
 class ChainHistory:
     start_time: datetime
     block_histories: dict[BlockId, BlockHistory] = field(default_factory=dict)
-    chunk_histories: dict[ShardId, ChunkHistory] = field(default_factory=dict)
+    shard_histories: dict[ShardId, ShardHistory] = field(default_factory=dict)
 
     def add_block_span(self, block_id: BlockId, span: BlockSpan):
         if block_id in self.block_histories:
@@ -248,10 +251,10 @@ class ChainHistory:
             self.block_histories[block_id] = BlockHistory(block_id, [span])
 
     def add_chunk_span(self, shard_id: ShardId, span: ChunkSpan):
-        if shard_id in self.chunk_histories:
-            self.chunk_histories[shard_id].spans.append(span)
+        if shard_id in self.shard_histories:
+            self.shard_histories[shard_id].spans.append(span)
         else:
-            self.chunk_histories[shard_id] = ChunkHistory(shard_id, [span])
+            self.shard_histories[shard_id] = ShardHistory(shard_id, [span])
 
 
 BLOCK_SPAN_OR_EVENT_NAMES = {"send_block_approval", "collect_block_approval",

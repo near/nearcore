@@ -97,7 +97,7 @@ def generate_from_chain_schema(chain_history: ChainHistory):
         thread.string_array = strings_builder.strings
         threads.append(thread)
 
-    for shard_id, chunk_history in chain_history.chunk_histories.items():
+    for shard_id, shard_history in chain_history.shard_histories.items():
         thread_name = f"Chunk(shard={shard_id.shard_id})"
         category_id = next(category_generator(name=thread_name))
 
@@ -113,7 +113,7 @@ def generate_from_chain_schema(chain_history: ChainHistory):
         )
 
         strings_builder = StringTableBuilder()
-        for span in chunk_history.spans:
+        for span in shard_history.spans:
             thread.markers.add_interval_marker(strings_builder=strings_builder,
                                                name=span.name,
                                                start_time=span.start_time - global_start_time,
