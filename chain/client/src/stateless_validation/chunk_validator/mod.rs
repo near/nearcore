@@ -7,8 +7,8 @@ use crate::Client;
 use itertools::Itertools;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{CanSend, Sender};
-use near_chain::stateless_validation::state_witness;
-use near_chain::stateless_validation::state_witness::MainStateTransitionCache;
+use near_chain::stateless_validation::chunk_validation;
+use near_chain::stateless_validation::chunk_validation::MainStateTransitionCache;
 use near_chain::types::RuntimeAdapter;
 use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{Block, Chain};
@@ -90,7 +90,7 @@ impl ChunkValidator {
             )));
         }
 
-        let pre_validation_result = state_witness::pre_validate_chunk_state_witness(
+        let pre_validation_result = chunk_validation::pre_validate_chunk_state_witness(
             &state_witness,
             chain,
             self.epoch_manager.as_ref(),
@@ -150,7 +150,7 @@ impl ChunkValidator {
             let _processing_done_tracker_capture: Option<ProcessingDoneTracker> =
                 processing_done_tracker;
 
-            match state_witness::validate_chunk_state_witness(
+            match chunk_validation::validate_chunk_state_witness(
                 state_witness,
                 pre_validation_result,
                 epoch_manager.as_ref(),

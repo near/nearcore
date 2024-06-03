@@ -1,4 +1,4 @@
-use near_chain::stateless_validation::state_witness::validate_prepared_transactions;
+use near_chain::stateless_validation::chunk_validation::validate_prepared_transactions;
 use near_chain::types::{RuntimeStorageConfig, StorageDataSource};
 use near_chain::{Block, BlockHeader};
 use near_chain_primitives::Error;
