@@ -978,8 +978,8 @@ pub(crate) fn print_epoch_analysis(
         *cps_mut = prev_cps.clone();
 
         let epoch_info = near_epoch_manager::proposals_to_epoch_info(
-            &epoch_config_last,
-            // &epoch_config_t1,
+            // &epoch_config_last,
+            &epoch_config_t1,
             rng_seed,
             epoch_info_t1.as_ref(),
             epoch_summary_t.all_proposals.clone(),
@@ -987,8 +987,8 @@ pub(crate) fn print_epoch_analysis(
             epoch_info_t2.validator_reward().clone(),
             epoch_info_t2.minted_amount(),
             epoch_info_t.protocol_version(),
-            PROTOCOL_VERSION,
-            // epoch_summary_t.next_version.clone(),
+            // PROTOCOL_VERSION,
+            epoch_summary_t.next_version.clone(),
         )
         .unwrap();
 
@@ -1015,8 +1015,8 @@ pub(crate) fn print_epoch_analysis(
             }
         }
 
-        println!("{: >5} {state_syncs}", epoch_height);
-        // assert_eq!(epoch_info_t2.as_ref(), &epoch_info);
+        // println!("{: >5} {state_syncs}", epoch_height);
+        assert_eq!(epoch_info_t2.as_ref(), &epoch_info);
     }
 }
 

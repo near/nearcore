@@ -493,14 +493,14 @@ impl EpochInfoCmd {
 
 #[derive(clap::Args)]
 pub struct EpochAnalysisCmd {
-    /// The height of the epoch to analyze.
+    /// Start height of the epochs to analyse.
     #[clap(long)]
-    height: EpochHeight,
+    start_height: EpochHeight,
 }
 
 impl EpochAnalysisCmd {
     pub fn run(self, near_config: NearConfig, store: Store) {
-        print_epoch_analysis(self.height, near_config, store);
+        print_epoch_analysis(self.start_height, near_config, store);
     }
 }
 
