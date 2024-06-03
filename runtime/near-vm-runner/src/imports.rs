@@ -268,7 +268,7 @@ imports! {
     storage_iter_range<[start_len: u64, start_ptr: u64, end_len: u64, end_ptr: u64] -> [u64]>,
     storage_iter_next<[iterator_id: u64, key_register_id: u64, value_register_id: u64] -> [u64]>,
     // Function for the injected gas counter. Automatically called by the gas meter.
-    @as gas: gas_seen_from_wasm<[gas_amount: u32] -> []>,
+    @as gas: gas_seen_from_wasm<[opcodes: u32] -> []>,
     // ###############
     // # Validator API #
     // ###############
@@ -290,6 +290,11 @@ imports! {
     // takes a lot of time to execute. It must always be gated behind a feature
     // flag and it must never be released to production.
     ##["test_features"] sleep_nanos<[duration: u64] -> []>,
+
+    // Burn the given amount of gas. This is the ultimate overcharging function
+    // as it doesn't take almost any resources to execute but burns a lot of
+    // gas.
+    ##["test_features"] burn_gas<[gas: u64] -> []>,
 }
 
 #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]

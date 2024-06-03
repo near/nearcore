@@ -68,7 +68,7 @@ fn test_consensus_with_epoch_switches() {
         let largest_block_height = Arc::new(RwLock::new(0u64));
         let delayed_blocks = Arc::new(RwLock::new(vec![]));
 
-        let (_, conn, _) = setup_mock_all_validators(
+        let (conn, _) = setup_mock_all_validators(
             Clock::real(),
             vs,
             key_pairs.clone(),

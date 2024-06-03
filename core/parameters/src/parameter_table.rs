@@ -1,5 +1,5 @@
 use super::config::{AccountCreationConfig, RuntimeConfig};
-use crate::config::CongestionControlConfig;
+use crate::config::{CongestionControlConfig, WitnessConfig};
 use crate::cost::{
     ActionCosts, ExtCostsConfig, Fee, ParameterCost, RuntimeFeesConfig, StorageUsageConfig,
 };
@@ -333,8 +333,15 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     .get(Parameter::MinAllowedTopLevelAccountLength)?,
                 registrar_account_id: params.get(Parameter::RegistrarAccountId)?,
             },
-            storage_proof_size_soft_limit: params.get(Parameter::StorageProofSizeSoftLimit)?,
             congestion_control_config: get_congestion_control_config(params)?,
+            witness_config: WitnessConfig {
+                main_storage_proof_size_soft_limit: params
+                    .get(Parameter::MainStorageProofSizeSoftLimit)?,
+                combined_transactions_size_limit: params
+                    .get(Parameter::CombinedTransactionsSizeLimit)?,
+                new_transactions_validation_state_size_soft_limit: params
+                    .get(Parameter::NewTransactionsValidationStateSizeSoftLimit)?,
+            },
         })
     }
 }

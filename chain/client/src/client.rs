@@ -76,11 +76,11 @@ use near_primitives::sharding::{
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, NumBlocks, ShardId};
-use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{CatchupStatusView, DroppedReason};
+use near_primitives::{checked_feature, unwrap_or_return};
 use near_store::ShardUId;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::cmp::max;
@@ -902,8 +902,17 @@ impl Client {
             .get_chunk_extra(&prev_block_hash, &shard_uid)
             .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?;
 
+        let prev_shard_id = self.epoch_manager.get_prev_shard_id(prev_block.hash(), shard_id)?;
+        let last_chunk_header =
+            prev_block.chunks().get(prev_shard_id as usize).cloned().ok_or_else(|| {
+                Error::ChunkProducer(format!(
+                    "No last chunk in prev_block_hash {:?}, prev_shard_id: {}",
+                    prev_block_hash, prev_shard_id
+                ))
+            })?;
+        let last_chunk = self.chain.get_chunk(&last_chunk_header.chunk_hash())?;
         let prepared_transactions =
-            self.prepare_transactions(shard_uid, prev_block, chunk_extra.as_ref())?;
+            self.prepare_transactions(shard_uid, prev_block, &last_chunk, chunk_extra.as_ref())?;
         #[cfg(feature = "test_features")]
         let prepared_transactions = Self::maybe_insert_invalid_transaction(
             prepared_transactions,
@@ -1036,11 +1045,11 @@ impl Client {
         &mut self,
         shard_uid: ShardUId,
         prev_block: &Block,
+        last_chunk: &ShardChunk,
         chunk_extra: &ChunkExtra,
     ) -> Result<PreparedTransactions, Error> {
         let Self { chain, sharded_tx_pool, runtime_adapter: runtime, .. } = self;
         let shard_id = shard_uid.shard_id as ShardId;
-
         let prepared_transactions = if let Some(mut iter) =
             sharded_tx_pool.get_pool_iterator(shard_uid)
         {
@@ -1050,9 +1059,25 @@ impl Client {
                 source: StorageDataSource::Db,
                 state_patch: Default::default(),
             };
+            let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block.hash())?;
+            let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+            let last_chunk_transactions_size =
+                if checked_feature!("stable", WitnessTransactionLimits, protocol_version) {
+                    borsh::to_vec(last_chunk.transactions())
+                        .map_err(|e| {
+                            Error::ChunkProducer(format!("Failed to serialize transactions: {e}"))
+                        })?
+                        .len()
+                } else {
+                    0
+                };
             runtime.prepare_transactions(
                 storage_config,
-                PrepareTransactionsChunkContext { shard_id, gas_limit: chunk_extra.gas_limit() },
+                PrepareTransactionsChunkContext {
+                    shard_id,
+                    gas_limit: chunk_extra.gas_limit(),
+                    last_chunk_transactions_size,
+                },
                 prev_block.into(),
                 &mut iter,
                 &mut chain.transaction_validity_check(prev_block.header().clone()),
@@ -1830,6 +1855,18 @@ impl Client {
         }
     }
 
+    pub fn mark_chunk_header_ready_for_inclusion(
+        &mut self,
+        chunk_header: ShardChunkHeader,
+        chunk_producer: AccountId,
+    ) {
+        // If endorsement was received before chunk header, we can process it
+        // only now.
+        self.chunk_endorsement_tracker.process_pending_endorsements(&chunk_header);
+        self.chunk_inclusion_tracker
+            .mark_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
+    }
+
     pub fn persist_and_distribute_encoded_chunk(
         &mut self,
         encoded_chunk: EncodedShardChunk,
@@ -1863,8 +1900,7 @@ impl Client {
             }
         }
 
-        self.chunk_inclusion_tracker
-            .mark_chunk_header_ready_for_inclusion(chunk_header, validator_id);
+        self.mark_chunk_header_ready_for_inclusion(chunk_header, validator_id);
         self.shards_manager_adapter.send(ShardsManagerRequestFromClient::DistributeEncodedChunk {
             partial_chunk,
             encoded_chunk,

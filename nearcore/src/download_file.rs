@@ -1,10 +1,12 @@
-use hyper::body::HttpBody;
+use hyper::{body::HttpBody, StatusCode};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::path::{Path, PathBuf};
 use tokio::io::AsyncWriteExt;
 
 #[derive(thiserror::Error, Debug)]
 pub enum FileDownloadError {
+    #[error("Unsuccessful HTTP connection. Return code: {0}")]
+    HttpResponseCode(StatusCode),
     #[error("{0}")]
     HttpError(hyper::Error),
     #[error("Failed to open temporary file")]
@@ -45,6 +47,10 @@ async fn download_file_impl(
     let https_connector = hyper_tls::HttpsConnector::new();
     let client = hyper::Client::builder().build::<_, hyper::Body>(https_connector);
     let mut resp = client.get(uri).await.map_err(FileDownloadError::HttpError)?;
+    let status_code = resp.status();
+    if !status_code.is_success() {
+        return Err(FileDownloadError::HttpResponseCode(status_code));
+    }
     let bar = if let Some(file_size) = resp.size_hint().upper() {
         let bar = ProgressBar::new(file_size);
         bar.set_style(
@@ -319,6 +325,41 @@ mod tests {
 
         let payload = b"\xfd\x37\x7a\x58\x5a\x00A quick brown fox";
         check_file_download(payload, Err("Failed to decompress XZ stream: lzma data error")).await;
+    }
+
+    #[tokio::test]
+    async fn test_file_download_bad_http_code() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let tmp_file = tempfile::NamedTempFile::new().unwrap();
+
+        tokio::task::spawn(async move {
+            let make_svc = make_service_fn(move |_conn| {
+                let handle_request = move |_: Request<Body>| async move {
+                    Ok::<_, Infallible>(
+                        Response::builder()
+                            .status(StatusCode::NOT_FOUND)
+                            .body(Body::from(""))
+                            .unwrap(),
+                    )
+                };
+                async move { Ok::<_, Infallible>(service_fn(handle_request)) }
+            });
+            let server = Server::from_tcp(listener).unwrap().serve(make_svc);
+            if let Err(e) = server.await {
+                eprintln!("server error: {}", e);
+            }
+        });
+
+        let res = download_file(&format!("http://localhost:{}", port), tmp_file.path())
+            .await
+            .map(|()| std::fs::read(tmp_file.path()).unwrap());
+
+        assert!(
+            matches!(res, Err(FileDownloadError::HttpResponseCode(StatusCode::NOT_FOUND))),
+            "got {:?}",
+            res
+        );
     }
 
     fn auto_xz_test_write_file(

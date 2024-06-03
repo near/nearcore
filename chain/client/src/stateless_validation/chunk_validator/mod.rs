@@ -14,8 +14,8 @@ use near_chain::chain::{
 };
 use near_chain::sharding::shuffle_receipt_proofs;
 use near_chain::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, PreparedTransactions, RuntimeAdapter,
-    RuntimeStorageConfig, StorageDataSource,
+    ApplyChunkBlockContext, ApplyChunkResult, PrepareTransactionsChunkContext,
+    PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig, StorageDataSource,
 };
 use near_chain::validate::{
     validate_chunk_with_chunk_extra, validate_chunk_with_chunk_extra_and_receipts_root,
@@ -32,7 +32,6 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
 use near_primitives::stateless_validation::{
     ChunkEndorsement, ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessSize,
-    EncodedChunkStateWitness,
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -240,12 +239,17 @@ pub(crate) fn validate_prepared_transactions(
     chunk_header: &ShardChunkHeader,
     storage_config: RuntimeStorageConfig,
     transactions: &[SignedTransaction],
+    last_chunk_transactions: &[SignedTransaction],
 ) -> Result<PreparedTransactions, Error> {
     let parent_block = chain.chain_store().get_block(chunk_header.prev_block_hash())?;
-
+    let last_chunk_transactions_size = borsh::to_vec(last_chunk_transactions)?.len();
     runtime_adapter.prepare_transactions(
         storage_config,
-        chunk_header.into(),
+        PrepareTransactionsChunkContext {
+            shard_id: chunk_header.shard_id(),
+            gas_limit: chunk_header.gas_limit(),
+            last_chunk_transactions_size,
+        },
         (&parent_block).into(),
         &mut TransactionGroupIteratorWrapper::new(transactions),
         &mut chain.transaction_validity_check(parent_block.header().clone()),
@@ -345,6 +349,7 @@ pub(crate) fn pre_validate_chunk_state_witness(
             &state_witness.chunk_header,
             transactions_validation_storage_config,
             &new_transactions,
+            &state_witness.transactions,
         ) {
             Ok(result) => {
                 if result.transactions.len() != new_transactions.len() {
@@ -747,11 +752,10 @@ impl Client {
     /// you can use the `processing_done_tracker` argument (but it's optional, it's safe to pass None there).
     pub fn process_chunk_state_witness(
         &mut self,
-        encoded_witness: EncodedChunkStateWitness,
+        witness: ChunkStateWitness,
+        raw_witness_size: ChunkStateWitnessSize,
         processing_done_tracker: Option<ProcessingDoneTracker>,
     ) -> Result<(), Error> {
-        let (witness, raw_witness_size) = self.decode_state_witness(&encoded_witness)?;
-
         tracing::debug!(
             target: "client",
             chunk_hash=?witness.chunk_header.chunk_hash(),
@@ -807,22 +811,5 @@ impl Client {
         }
 
         self.chunk_validator.start_validating_chunk(witness, &self.chain, processing_done_tracker)
-    }
-
-    fn decode_state_witness(
-        &self,
-        encoded_witness: &EncodedChunkStateWitness,
-    ) -> Result<(ChunkStateWitness, ChunkStateWitnessSize), Error> {
-        let decode_start = std::time::Instant::now();
-        let (witness, raw_witness_size) = encoded_witness.decode()?;
-        let decode_elapsed_seconds = decode_start.elapsed().as_secs_f64();
-        let witness_shard = witness.chunk_header.shard_id();
-
-        // Record metrics after validating the witness
-        metrics::CHUNK_STATE_WITNESS_DECODE_TIME
-            .with_label_values(&[&witness_shard.to_string()])
-            .observe(decode_elapsed_seconds);
-
-        Ok((witness, raw_witness_size))
     }
 }
