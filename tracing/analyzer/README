@@ -1,0 +1,38 @@
+This file contains python scripts to generate Firefox profiler inputs from the telemetry traces.
+
+Instructions:
+
+- Get raw traces from the `raw_trace` endpoint. Update the host and post to point to the tracing server. Example:
+
+```
+START_TIME=<Unix milliseconds>
+END_TIME=<Unix milliseconds>
+curl -X POST http://127.0.0.1:8080/raw_trace  \
+    -H 'Content-Type: application/json' \
+    -d "{\"start_timestamp_unix_ms\": $START_TIME, \"end_timestamp_unix_ms\": $END_TIME, \"filter\": {\"nodes\": [], \"threads\": []}}" \
+    -o traces.json
+```
+
+- Run analyzer on the downloaded json file. Example:
+
+```
+cd ./tracing/analyzer/
+python3 analyzer.py --input-json=traces.json --output-json=profiler.json 
+```
+
+- Fetch the Firefox profiler fork from https://github.com/robin-near/profiler.
+
+- Install and use Node 18.
+
+```
+nvm install 18
+nvm use 18
+```
+
+- Start Firefox profiler from the root directory of the fork.
+
+```
+npm start
+```
+
+- Go to http://localhost:4242 and upload the `profiler.json` generated.

@@ -32,6 +32,7 @@ random.shuffle(html_colors)
 
 
 def category_generator(name: str):
+    """Generator that yields a new category with a random color. Adds the new category to the categories list."""
     for color in html_colors:
         index = len(categories)
         categories.append(Category(
@@ -53,7 +54,7 @@ def span_payload(span: ChainSpan):
 def event_payload(event: ChainEvent):
     payload = {
         "name": event.name,
-        "type": "event",
+        "type": "span",
     }
     payload.update(event.fields.payload())
     return payload
@@ -96,16 +97,16 @@ def generate_from_chain_schema(chain_history: ChainHistory):
         thread.string_array = strings_builder.strings
         threads.append(thread)
 
-    for chunk_id, chunk_history in chain_history.chunk_histories.items():
-        thread_name = f"Chunk(shard={chunk_id.shard_id})"
+    for shard_id, chunk_history in chain_history.chunk_histories.items():
+        thread_name = f"Chunk(shard={shard_id.shard_id})"
         category_id = next(category_generator(name=thread_name))
 
         thread = Thread(
-            name=str(chunk_id),
+            name=str(shard_id),
             process_name=thread_name,
             process_type="default",
-            tid=chunk_id.shard_id,
-            pid=chunk_id.shard_id,
+            tid=shard_id.shard_id,
+            pid=shard_id.shard_id,
             is_main_thread=True,
             process_startup_time=global_start_time_ms,
             show_markers_in_timeline=True

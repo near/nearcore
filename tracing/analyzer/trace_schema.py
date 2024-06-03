@@ -1,5 +1,6 @@
-#!/usr/bin/env python3
-
+"""
+Data structures for representing a collection of telemetry spans retrieved from the collector.
+"""
 import datetime
 import json
 import re
@@ -9,28 +10,29 @@ from typing import ClassVar
 from dataclasses import dataclass, field
 
 
+# Field names that we do not need, so can be skipped when creating a Fields instance
+# from the attributes in a span or event.
 SKIP_FIELDS = {"code.filepath", "code.namespace", "code.lineno", "level",
-               'was_requested', 'hash',
-               'block_producers', 'approval_inner', 'sync_status',
-               'new_chunks_count', 'blocks_missing_chunks', 'me',
-               'endorsement', 'num_outgoing_receipts',
-               'num_filtered_transactions',
+               'was_requested', 'hash', 'block_producers', 'approval_inner', 'sync_status',
+               'new_chunks_count', 'blocks_missing_chunks', 'me', 'endorsement',
+               'num_outgoing_receipts', 'num_filtered_transactions',
                'should_produce_chunk', 'peer_id', 'orphans_missing_chunks',
                'err', 'provenance', 'busy_ns', 'num_blocks', 'validator',
-               'new_chunks', 'skip_produce_chunk', 'next_bp',
-               'pool_size', 'is_syncing', 'prev_block_hash', 'status', 'thread.name',
+               'new_chunks', 'skip_produce_chunk', 'next_bp', 'pool_size',
+               'is_syncing', 'prev_block_hash', 'status', 'thread.name',
                'idle_ns', 'header_head_height'}
 
 
 @dataclass(repr=False)
 class Fields:
+    """Represents the common fields attached to the spans and events."""
     node_id: str | None = None
     account_id: str | None = None
     chain_id: str | None = None
     service_name: str | None = None
     target: str | None = None
     thread_id: int | None = None
-    shard_id: int | None = None
+    shard_id: str | None = None
     epoch_id: str | None = None
     height: int | None = None
     height_included: int | None = None
@@ -38,8 +40,10 @@ class Fields:
     block_hash: str | None = None
     prev_hash: str | None = None
     chunk_hash: str | None = None
-
-    unknown_fields: ClassVar[set] = set()
+    
+    # Used for debugging purposes to collect the field names that
+    # we are not handling and not explicitly skipping.
+    all_unknown_fields: ClassVar[set] = set()
 
     def payload(self):
         return {k: v for k, v in self.__dict__.items() if v is not None}
@@ -52,6 +56,9 @@ class Fields:
 
     @staticmethod
     def load(attributes: dict):
+        """Creates a Fields object from the attributes included in a span or event.
+        Some types of attributes are mapped to different attribute names in code,
+        (eg. heigth, target_height, block_height) so we map them to the same field."""
         fields = Fields()
         for attribute in attributes:
             if attribute['key'] in SKIP_FIELDS:
@@ -68,8 +75,8 @@ class Fields:
                 fields.target = attribute['value']['stringValue']
             elif attribute['key'] in {'thread_id', 'thread.id'}:
                 fields.thread_id = attribute['value']['intValue']
-            elif attribute['key'] == 'shard_id':
-                fields.shard_id = int(attribute['value']['stringValue'])
+            elif attribute['key'] in {'shard_id', 'shard_uid'}:
+                fields.shard_id = attribute['value']['stringValue']
             elif attribute['key'] == 'epoch_id':
                 fields.epoch_id = attribute['value']['stringValue']
             elif attribute['key'] in {'height', 'block_height', 'next_height', 'prev_height', 'target_height'}:
@@ -85,7 +92,14 @@ class Fields:
             elif attribute['key'] == 'chunk_hash':
                 fields.chunk_hash = attribute['value']['stringValue']
             else:
-                Fields.unknown_fields.add(attribute['key'])
+                # Record unknown field and add it as a generic attribute of the object.
+                Fields.all_unknown_fields.add(attribute['key'])
+                if 'stringValue' in attribute['value']:
+                    setattr(fields, attribute['key'], attribute['value']['stringValue'])
+                elif 'intValue' in attribute['value']:
+                    setattr(fields, attribute['key'], str(attribute['value']['intValue']))
+                else:
+                    setattr(fields, attribute['key'], str(attribute['value']))
         return fields
 
 
@@ -121,13 +135,14 @@ class ResourceSpan:
 
 @dataclass
 class TraceInput:
+    """Contains all the spans loaded from a telemetry raw trace file."""
     start_time: datetime
     end_time: datetime
     resource_spans: list[ResourceSpan]
 
     @staticmethod
     def parse(json_file_path) -> "TraceInput":
-        json_file_path = sys.argv[1]
+        """Creates a TraceInput instance from a JSON file containing the raw traces from telemetry."""
         with open(json_file_path, 'r') as json_file:
             traces_json = json.load(json_file)
 
@@ -169,6 +184,6 @@ class TraceInput:
                 resource_spans.append(ResourceSpan(fields=Fields.load(resource_span_json['resource']['attributes']),
                                                    spans=spans))
         print("Processed %d spans and %s events" % (num_spans, num_events))
-        print("Unknown fields: %s" % str(Fields.unknown_fields))
+        print("Unknown fields detected (not in the skip list): %s" % str(Fields.all_unknown_fields))
 
         return TraceInput(start_time=datetime.datetime.fromtimestamp(min_timestamp), end_time=datetime.datetime.fromtimestamp(max_timestamp), resource_spans=resource_spans)

@@ -1,3 +1,6 @@
+"""
+Data structures for representing input to Firefox profiler.
+"""
 from dataclasses import dataclass, field
 from datetime import timedelta
 
