@@ -14,13 +14,8 @@ use nearcore::NearConfig;
 use nearcore::NightshadeRuntimeExt;
 
 #[derive(clap::Subcommand)]
-/// Tools for manually validating state witnesses.
-/// First, dump some of the latest stored state witnesses to a directory using
-/// the `dump` command. Pretty-printing on screen is also supported.
-/// Second, validate a particular state witness from a file using the
-/// `validate` command.
 pub enum StateWitnessCmd {
-    /// Prints latest state witnesses saved to DB.
+    /// Dumps some of the latest stored state witnesses.
     Dump(DumpWitnessesCmd),
     /// Validates given state witness.
     Validate(ValidateWitnessCmd),
