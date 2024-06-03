@@ -32,7 +32,7 @@ impl StateWitnessCmd {
 }
 
 #[derive(Parser)]
-pub struct LatestWitnessesCmd {
+struct LatestWitnessesCmd {
     /// Block height
     #[arg(long)]
     height: Option<u64>,
@@ -45,13 +45,22 @@ pub struct LatestWitnessesCmd {
     #[arg(long)]
     epoch_id: Option<EpochId>,
 
-    /// Pretty-print using the "{:#?}" formatting.
-    #[arg(long)]
-    pretty: bool,
+    /// Save mode.
+    mode: LatestWitnessesMode,
+    // /// Pretty-print using the "{:#?}" formatting.
+    // #[arg(long)]
+    // pretty: bool,
+    //
+    // /// Print the raw &[u8], can be pasted into rust code
+    // #[arg(long)]
+    // binary: bool,
+}
 
-    /// Print the raw &[u8], can be pasted into rust code
-    #[arg(long)]
-    binary: bool,
+enum LatestWitnessesMode {
+    /// Pretty-print on screen using the "{:#?}" formatting.
+    Pretty,
+    /// Saves the raw &[u8] of each witness to the given directory.
+    Binary(PathBuf),
 }
 
 impl LatestWitnessesCmd {
@@ -63,28 +72,43 @@ impl LatestWitnessesCmd {
             .get_latest_witnesses(self.height, self.shard_id, self.epoch_id.clone())
             .unwrap();
         println!("Found {} witnesses:", witnesses.len());
+        if let LatestWitnessesMode::Binary(ref dir) = self.mode {
+            if !dir.exists() {
+                std::fs::create_dir_all(dir).unwrap();
+            }
+        }
+
         for (i, witness) in witnesses.iter().enumerate() {
             println!(
-                "#{} (height: {}, shard_id: {}, epoch_id: {:?}):",
+                "#{} (height: {}, shard_id: {}, epoch_id: {:?})",
                 i,
                 witness.chunk_header.height_created(),
                 witness.chunk_header.shard_id(),
                 witness.epoch_id
             );
-            if self.pretty {
-                println!("{:#?}", witness);
-            } else if self.binary {
-                println!("{:?}", borsh::to_vec(witness).unwrap());
-            } else {
-                println!("{:?}", witness);
+            match self.mode {
+                LatestWitnessesMode::Pretty => {
+                    println!("{:#?}", witness);
+                    println!("");
+                }
+                LatestWitnessesMode::Binary(ref dir) => {
+                    let file_name = format!(
+                        "witness_{}_{}_{}.bin",
+                        witness.chunk_header.height_created(),
+                        witness.chunk_header.shard_id(),
+                        witness.epoch_id.0
+                    );
+                    let file_path = dir.join(file_name);
+                    std::fs::write(&file_path, borsh::to_vec(witness).unwrap()).unwrap();
+                    println!("Saved to {:?}", file_path);
+                }
             }
-            println!("");
         }
     }
 }
 
 #[derive(Parser)]
-pub struct ValidateWitnessCmd {
+struct ValidateWitnessCmd {
     /// File with state witness saved as vector in JSON.
     #[arg(long)]
     input_file: PathBuf,
