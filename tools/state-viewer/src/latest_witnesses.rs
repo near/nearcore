@@ -60,10 +60,8 @@ struct LatestWitnessesCmd {
 #[derive(Subcommand)]
 enum LatestWitnessesMode {
     /// Pretty-print on screen using the "{:#?}" formatting.
-    #[arg(long)]
     Pretty,
     /// Saves the raw &[u8] of each witness to the given directory.
-    #[arg(long)]
     Binary(PathBuf),
 }
 
