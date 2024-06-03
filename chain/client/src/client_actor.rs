@@ -2092,9 +2092,7 @@ impl Handler<ShardsManagerResponse> for ClientActorInner {
                 chunk_header,
                 chunk_producer,
             } => {
-                self.client
-                    .chunk_inclusion_tracker
-                    .mark_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
+                self.client.mark_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
             }
         }
     }
