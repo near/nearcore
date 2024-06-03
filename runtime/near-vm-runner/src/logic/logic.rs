@@ -1248,8 +1248,8 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     ///
     /// This is a convenience function that encapsulates several costs:
-    /// `burnt_gas := dispatch cost of the receipt + base dispatch cost  cost of the data receipt`
-    /// `used_gas := burnt_gas + exec cost of the receipt + base exec cost  cost of the data receipt`
+    /// `burnt_gas := dispatch cost of the receipt + base dispatch cost of the data receipt`
+    /// `used_gas := burnt_gas + exec cost of the receipt + base exec cost of the data receipt`
     /// Notice that we prepay all base cost upon the creation of the data dependency, we are going to
     /// pay for the content transmitted through the dependency upon the actual creation of the
     /// DataReceipt.
@@ -2914,7 +2914,7 @@ impl<'a> VMLogic<'a> {
     /// * If `iterator_id` does not correspond to an existing iterator returns `InvalidIteratorId`;
     /// * If between the creation of the iterator and calling `storage_iter_next` the range over
     ///   which it iterates was modified returns `IteratorWasInvalidated`. Specifically, if
-    ///   `storage_write` or `storage_remove` was invoked on the key key such that:
+    ///   `storage_write` or `storage_remove` was invoked on the key such that:
     ///   * in case of `storage_iter_prefix`. `key` has the given prefix and:
     ///     * Iterator was not called next yet.
     ///     * `next` was already called on the iterator and it is currently pointing at the `key`
