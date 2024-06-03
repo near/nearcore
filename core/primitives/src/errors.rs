@@ -178,7 +178,7 @@ pub enum InvalidTxError {
     TransactionSizeExceeded { size: u64, limit: u64 },
     /// Transaction version is invalid.
     InvalidTransactionVersion,
-    /// The receiver shard of the transaction is too congestion to accept new
+    /// The receiver shard of the transaction is too congested to accept new
     /// transactions at the moment.
     ShardCongested { shard_id: u32 },
 }
