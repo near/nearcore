@@ -1,6 +1,9 @@
 function sortBlocks(blocks) {
     function sortingKey(row) {
-        return row.block_height + row.block_timestamp / 1e12;
+        // Note: using the expression `row.block_timestamp / 1e12 % 1` reduces the timestamp
+        // to a number between 0 and 1, making block_timestamp strictly weaker than block_height
+        // in this comparison.
+        return row.block_height + (row.block_timestamp / 1e12 % 1);
     }
     blocks.sort((a, b) => sortingKey(b) - sortingKey(a));
     return blocks;
