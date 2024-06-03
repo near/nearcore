@@ -41,7 +41,7 @@ use near_chain::{
     byzantine_assert, near_chain_primitives, Block, BlockHeader, BlockProcessingArtifact,
     ChainGenesis, Provenance,
 };
-use near_chain_configs::{ClientConfig, LogSummaryStyle, ReshardingHandle};
+use near_chain_configs::{ClientConfig, LogSummaryStyle, MutableConfigValue, ReshardingHandle};
 use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
@@ -135,7 +135,7 @@ pub fn start_client(
     state_sync_adapter: Arc<RwLock<SyncAdapter>>,
     network_adapter: PeerManagerAdapter,
     shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
-    validator_signer: Option<Arc<ValidatorSigner>>,
+    validator_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
     telemetry_sender: Sender<TelemetryEvent>,
     snapshot_callbacks: Option<SnapshotCallbacks>,
     sender: Option<broadcast::Sender<()>>,
@@ -314,7 +314,7 @@ impl ClientActorInner {
         config: ClientConfig,
         node_id: PeerId,
         network_adapter: PeerManagerAdapter,
-        validator_signer: Option<Arc<ValidatorSigner>>,
+        validator_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
         telemetry_sender: Sender<TelemetryEvent>,
         shutdown_signal: Option<broadcast::Sender<()>>,
         adv: crate::adversarial::Controls,
@@ -322,7 +322,7 @@ impl ClientActorInner {
         sync_jobs_sender: SyncJobsSenderForClient,
         state_parts_future_spawner: Box<dyn FutureSpawner>,
     ) -> Result<Self, Error> {
-        if let Some(vs) = &validator_signer {
+        if let Some(vs) = &validator_signer.get() {
             info!(target: "client", "Starting validator node: {}", vs.validator_id());
         }
         let info_helper =
@@ -1166,7 +1166,9 @@ impl ClientActorInner {
                 &|updateable_client_config| {
                     self.client.update_client_config(updateable_client_config)
                 },
-                &|validator_signer| self.client.update_validator_signer(validator_signer),
+                &|validator_signer| {
+                    self.client.update_validator_signer(validator_signer);
+                }
             );
         }
 

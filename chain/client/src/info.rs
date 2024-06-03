@@ -4,7 +4,7 @@ use itertools::Itertools;
 use lru::LruCache;
 use near_async::messaging::Sender;
 use near_async::time::{Clock, Instant};
-use near_chain_configs::{ClientConfig, LogSummaryStyle, SyncConfig};
+use near_chain_configs::{ClientConfig, LogSummaryStyle, MutableConfigValue, SyncConfig};
 use near_client_primitives::types::StateSyncStatus;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::NetworkInfo;
@@ -59,7 +59,7 @@ pub struct InfoHelper {
     /// Total gas used during period.
     gas_used: u64,
     /// Sign telemetry with block producer key if available.
-    validator_signer: Option<Arc<ValidatorSigner>>,
+    validator_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
     /// Telemetry event sender.
     telemetry_sender: Sender<TelemetryEvent>,
     /// Log coloring enabled.
@@ -81,7 +81,7 @@ impl InfoHelper {
         clock: Clock,
         telemetry_sender: Sender<TelemetryEvent>,
         client_config: &ClientConfig,
-        validator_signer: Option<Arc<ValidatorSigner>>,
+        validator_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
     ) -> Self {
         set_open_files_limit(0);
         metrics::export_version(&client_config.version);
@@ -562,7 +562,7 @@ impl InfoHelper {
             },
             chain: TelemetryChainInfo {
                 node_id: node_id.to_string(),
-                account_id: self.validator_signer.as_ref().map(|bp| bp.validator_id().clone()),
+                account_id: self.validator_signer.get().map(|bp| bp.validator_id().clone()),
                 is_validator,
                 status: sync_status.as_variant_name().to_string(),
                 latest_block_hash: head.last_block_hash,
@@ -582,7 +582,7 @@ impl InfoHelper {
             extra_info: serde_json::to_string(&extra_telemetry_info(client_config)).unwrap(),
         };
         // Sign telemetry if there is a signer present.
-        if let Some(vs) = self.validator_signer.as_ref() {
+        if let Some(vs) = self.validator_signer.get() {
             vs.sign_telemetry(&info)
         } else {
             serde_json::to_value(&info).expect("Telemetry must serialize to json")

@@ -5,6 +5,7 @@ use near_async::messaging::{Actor, CanSend, Handler, Sender};
 use near_async::time::Clock;
 use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
 use near_chain::Error;
+use near_chain_configs::MutableConfigValue;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::state_witness::{
     ChunkStateWitnessAckMessage, PartialEncodedStateWitnessForwardMessage,
@@ -32,7 +33,7 @@ pub struct PartialWitnessActor {
     /// Adapter to send messages to the network.
     network_adapter: PeerManagerAdapter,
     /// Validator signer to sign the state witness.
-    my_signer: Arc<ValidatorSigner>,
+    my_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
     /// Epoch manager to get the set of chunk validators
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     /// Tracks the parts of the state witness sent from chunk producers to chunk validators.
@@ -96,7 +97,7 @@ impl PartialWitnessActor {
         clock: Clock,
         network_adapter: PeerManagerAdapter,
         client_sender: ClientSenderForPartialWitness,
-        my_signer: Arc<ValidatorSigner>,
+        my_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
     ) -> Self {
         let partial_witness_tracker =
@@ -162,10 +163,10 @@ impl PartialWitnessActor {
         mut chunk_validators: Vec<AccountId>,
     ) {
         // Remove ourselves from the list of chunk validators. Network can't send messages to ourselves.
-        chunk_validators.retain(|validator| validator != self.my_signer.validator_id());
+        chunk_validators.retain(|validator| validator != self.my_signer.get().unwrap().validator_id());
 
         let signed_witness = SignedEncodedChunkStateWitness {
-            signature: self.my_signer.sign_chunk_state_witness(&witness_bytes),
+            signature: self.my_signer.get().unwrap().sign_chunk_state_witness(&witness_bytes),
             witness_bytes,
         };
 
@@ -207,7 +208,7 @@ impl PartialWitnessActor {
                     part_ord,
                     part.unwrap().to_vec(),
                     encoded_length,
-                    self.my_signer.as_ref(),
+                    &*self.my_signer.get().unwrap(),
                 );
                 (chunk_validator.clone(), partial_witness)
             })
@@ -241,7 +242,7 @@ impl PartialWitnessActor {
         // message for our part.
         if let Some((_, partial_witness)) = validator_witness_tuple
             .iter()
-            .find(|(validator, _)| validator == self.my_signer.validator_id())
+            .find(|(validator, _)| validator == self.my_signer.get().unwrap().validator_id())
         {
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::PartialEncodedStateWitnessForward(
@@ -342,7 +343,7 @@ impl PartialWitnessActor {
             partial_witness.shard_id(),
             partial_witness.height_created(),
         )?;
-        if !chunk_validator_assignments.contains(self.my_signer.validator_id()) {
+        if !chunk_validator_assignments.contains(self.my_signer.get().unwrap().validator_id()) {
             return Err(Error::NotAChunkValidator);
         }
 

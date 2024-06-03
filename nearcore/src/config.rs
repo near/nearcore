@@ -503,7 +503,7 @@ pub struct NearConfig {
     pub rosetta_rpc_config: Option<RosettaRpcConfig>,
     pub telemetry_config: TelemetryConfig,
     pub genesis: Genesis,
-    pub validator_signer: Option<Arc<ValidatorSigner>>,
+    pub validator_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
 }
 
 impl NearConfig {
@@ -511,7 +511,7 @@ impl NearConfig {
         config: Config,
         genesis: Genesis,
         network_key_pair: KeyFile,
-        validator_signer: Option<Arc<ValidatorSigner>>,
+        validator_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
     ) -> anyhow::Result<Self> {
         Ok(NearConfig {
             config: config.clone(),
@@ -617,7 +617,7 @@ impl NearConfig {
 
         self.config.write_to_file(&dir.join(CONFIG_FILENAME)).expect("Error writing config");
 
-        if let Some(validator_signer) = &self.validator_signer {
+        if let Some(validator_signer) = &self.validator_signer.get() {
             validator_signer
                 .write_to_file(&dir.join(&self.config.validator_key_file))
                 .expect("Error writing validator key file");
@@ -1315,7 +1315,7 @@ pub fn load_config(
         config,
         genesis.unwrap(),
         network_signer.unwrap().into(),
-        validator_signer,
+        MutableConfigValue::new(validator_signer, "validator_signer"),
     )?;
     Ok(near_config)
 }
@@ -1338,7 +1338,7 @@ pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -
         let validator_signer = Arc::new(create_test_signer(seed)) as Arc<ValidatorSigner>;
         (signer, Some(validator_signer))
     };
-    NearConfig::new(config, genesis, signer.into(), validator_signer).unwrap()
+    NearConfig::new(config, genesis, signer.into(), MutableConfigValue::new(validator_signer, "validator_signer")).unwrap()
 }
 
 #[cfg(test)]

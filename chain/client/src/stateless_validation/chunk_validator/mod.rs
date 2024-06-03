@@ -21,6 +21,7 @@ use near_chain::validate::{
     validate_chunk_with_chunk_extra, validate_chunk_with_chunk_extra_and_receipts_root,
 };
 use near_chain::{Block, Chain, ChainStoreAccess};
+use near_chain_configs::MutableConfigValue;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
@@ -71,7 +72,7 @@ pub type MainStateTransitionCache =
 /// so that the chunk can be included in the block.
 pub struct ChunkValidator {
     /// The signer for our own node, if we are a validator. If not, this is None.
-    my_signer: Option<Arc<ValidatorSigner>>,
+    my_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     network_sender: Sender<PeerManagerMessageRequest>,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
@@ -83,7 +84,7 @@ pub struct ChunkValidator {
 
 impl ChunkValidator {
     pub fn new(
-        my_signer: Option<Arc<ValidatorSigner>>,
+        my_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         network_sender: Sender<PeerManagerMessageRequest>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
@@ -132,7 +133,7 @@ impl ChunkValidator {
 
         let chunk_header = state_witness.chunk_header.clone();
         let network_sender = self.network_sender.clone();
-        let signer = self.my_signer.as_ref().ok_or(Error::NotAValidator)?.clone();
+        let signer = self.my_signer.get().ok_or(Error::NotAValidator)?.clone();
         let chunk_endorsement_tracker = self.chunk_endorsement_tracker.clone();
         let epoch_manager = self.epoch_manager.clone();
         // If we have the chunk extra for the previous block, we can validate the chunk without state witness.
@@ -865,7 +866,7 @@ impl Client {
 
         // Reject witnesses for chunks for which this node isn't a validator.
         // It's an error, as chunk producer shouldn't send the witness to a non-validator node.
-        let my_signer = self.chunk_validator.my_signer.as_ref().ok_or(Error::NotAValidator)?;
+        let my_signer = self.chunk_validator.my_signer.get().ok_or(Error::NotAValidator)?;
         let chunk_validator_assignments = self.epoch_manager.get_chunk_validator_assignments(
             &witness.epoch_id,
             witness_shard,

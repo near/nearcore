@@ -331,7 +331,7 @@ pub fn start_with_config_and_synchronization(
 
     let view_client_addr = ViewClientActorInner::spawn_actix_actor(
         Clock::real(),
-        config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
+        config.validator_signer.get().map(|signer| signer.validator_id().clone()),
         chain_genesis.clone(),
         view_epoch_manager.clone(),
         view_shard_tracker,
@@ -361,8 +361,8 @@ pub fn start_with_config_and_synchronization(
     let snapshot_callbacks = SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
 
     let (partial_witness_actor, partial_witness_arbiter) =
-        if config.validator_signer.as_ref().is_some() {
-            let my_signer = config.validator_signer.clone().unwrap();
+        if config.validator_signer.get().is_some() {
+            let my_signer = config.validator_signer.clone();
             let (partial_witness_actor, partial_witness_arbiter) =
                 spawn_actix_actor(PartialWitnessActor::new(
                     Clock::real(),
@@ -419,7 +419,7 @@ pub fn start_with_config_and_synchronization(
         shard_tracker.clone(),
         network_adapter.as_sender(),
         client_adapter_for_shards_manager.as_sender(),
-        config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
+        config.validator_signer.get().map(|signer| signer.validator_id().clone()),
         split_store.unwrap_or_else(|| storage.get_hot_store()),
         config.client_config.chunk_request_retry_period,
     );
@@ -439,7 +439,7 @@ pub fn start_with_config_and_synchronization(
         epoch_manager,
         shard_tracker,
         runtime,
-        account_id: config.validator_signer.map(|signer| signer.validator_id().clone()),
+        account_id: config.validator_signer.get().map(|signer| signer.validator_id().clone()),
         dump_future_runner: StateSyncDumper::arbiter_dump_future_runner(),
         handle: None,
     };

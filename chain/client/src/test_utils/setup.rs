@@ -132,7 +132,10 @@ pub fn setup(
     .unwrap();
     let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
 
-    let signer = Arc::new(create_test_signer(account_id.as_str()));
+    let signer = MutableConfigValue::new(
+        Some(Arc::new(create_test_signer(account_id.as_str()))),
+        "validator_signer",
+    );
     let telemetry = ActixWrapper::new(TelemetryActor::default()).start();
     let config = {
         let mut base = ClientConfig::test(
@@ -153,7 +156,7 @@ pub fn setup(
 
     let view_client_addr = ViewClientActorInner::spawn_actix_actor(
         clock.clone(),
-        Some(signer.validator_id().clone()),
+        signer.get().map(|signer| signer.validator_id().clone()),
         chain_genesis.clone(),
         epoch_manager.clone(),
         shard_tracker.clone(),
@@ -190,7 +193,7 @@ pub fn setup(
         state_sync_adapter,
         network_adapter.clone(),
         shards_manager_adapter_for_client.as_sender(),
-        Some(signer),
+        signer,
         telemetry.with_auto_span_context().into_sender(),
         None,
         None,
@@ -987,7 +990,10 @@ pub fn setup_client_with_runtime(
         runtime,
         network_adapter,
         shards_manager_adapter.into_sender(),
-        Some(validator_signer),
+        MutableConfigValue::new(
+            Some(validator_signer),
+            "validator_signer",
+        ),
         enable_doomslug,
         rng_seed,
         snapshot_callbacks,

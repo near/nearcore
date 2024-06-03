@@ -9,6 +9,7 @@ use crate::tcp;
 use crate::types::ROUTED_MESSAGE_TTL;
 use anyhow::Context;
 use near_async::time;
+use near_chain_configs::MutableConfigValue;
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
@@ -213,7 +214,7 @@ impl NetworkConfig {
     pub fn new(
         cfg: crate::config_json::Config,
         node_key: SecretKey,
-        validator_signer: Option<Arc<ValidatorSigner>>,
+        validator_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
         archive: bool,
     ) -> anyhow::Result<Self> {
         if cfg.public_addrs.len() > MAX_PEER_ADDRS {
@@ -249,7 +250,7 @@ impl NetworkConfig {
         }
         let mut this = Self {
             node_key,
-            validator: validator_signer.map(|signer| ValidatorConfig {
+            validator: validator_signer.get().map(|signer| ValidatorConfig {
                 signer,
                 proxies: if !cfg.public_addrs.is_empty() {
                     ValidatorProxies::Static(cfg.public_addrs)

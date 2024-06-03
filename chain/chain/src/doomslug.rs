@@ -1,6 +1,7 @@
 use crate::doomslug::trackable::TrackableBlockHeightValue;
 use crate::metrics;
 use near_async::time::{Clock, Duration, Instant, Utc};
+use near_chain_configs::MutableConfigValue;
 use near_client_primitives::debug::{ApprovalAtHeightStatus, ApprovalHistoryEntry};
 use near_crypto::Signature;
 use near_primitives::block::{Approval, ApprovalInner};
@@ -138,7 +139,7 @@ pub struct Doomslug {
     endorsement_pending: bool,
     /// Information to track the timer (see `start_timer` routine in the paper)
     timer: DoomslugTimer,
-    signer: Option<Arc<ValidatorSigner>>,
+    signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
     /// How many approvals to have before producing a block. In production should be always `HalfStake`,
     ///    but for many tests we use `NoApprovals` to invoke more forkfulness
     threshold_mode: DoomslugThresholdMode,
@@ -362,7 +363,7 @@ impl Doomslug {
         min_delay: Duration,
         delay_step: Duration,
         max_delay: Duration,
-        signer: Option<Arc<ValidatorSigner>>,
+        signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
         threshold_mode: DoomslugThresholdMode,
     ) -> Self {
         Doomslug {
@@ -542,8 +543,8 @@ impl Doomslug {
     }
 
     fn create_approval(&self, target_height: BlockHeight) -> Option<Approval> {
-        self.signer.as_ref().map(|signer| {
-            Approval::new(self.tip.block_hash, self.tip.height, target_height, &**signer)
+        self.signer.get().map(|signer| {
+            Approval::new(self.tip.block_hash, self.tip.height, target_height, &*signer)
         })
     }
 

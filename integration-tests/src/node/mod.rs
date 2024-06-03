@@ -6,6 +6,7 @@ pub use crate::node::runtime_node::RuntimeNode;
 pub use crate::node::thread_node::ThreadNode;
 use crate::user::{AsyncUser, User};
 use near_chain_configs::Genesis;
+use near_chain_configs::MutableConfigValue;
 use near_crypto::{InMemorySigner, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_primitives::num_rational::Ratio;
@@ -133,7 +134,10 @@ fn near_configs_to_node_configs(
                 configs[i].clone(),
                 genesis.clone(),
                 (&network_signers[i]).into(),
-                Some(Arc::new(validator_signers[i].clone())),
+                MutableConfigValue::new(
+                    Some(Arc::new(validator_signers[i].clone())),
+                    "validator_signer",
+                ),
             )
             .unwrap(),
         ))

@@ -255,7 +255,7 @@ impl Client {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         network_adapter: PeerManagerAdapter,
         shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
-        validator_signer: Option<Arc<ValidatorSigner>>,
+        validator_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
         enable_doomslug: bool,
         rng_seed: RngSeed,
         snapshot_callbacks: Option<SnapshotCallbacks>,
@@ -282,7 +282,7 @@ impl Client {
             chain_config.clone(),
             snapshot_callbacks,
             async_computation_spawner.clone(),
-            validator_signer.as_ref().map(|x| x.validator_id()),
+            validator_signer.get().map(|x| x.validator_id().clone()).as_ref(),
         )?;
         // Create flat storage or initiate migration to flat storage.
         let flat_storage_creator = FlatStorageCreator::new(
@@ -399,7 +399,7 @@ impl Client {
             shards_manager_adapter,
             sharded_tx_pool,
             network_adapter,
-            validator_signer: MutableConfigValue::new(validator_signer, "validator_signer"),
+            validator_signer,
             pending_approvals: lru::LruCache::new(num_block_producer_seats),
             catchup_state_syncs: HashMap::new(),
             epoch_sync,

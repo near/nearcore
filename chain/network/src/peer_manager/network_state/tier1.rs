@@ -195,6 +195,7 @@ impl super::NetworkState {
         // Early exit in case this node is not a TIER1 node any more.
         let new_data = new_data?;
         // Advertise the new_data.
+
         self.tier2.broadcast_message(Arc::new(PeerMessage::SyncAccountsData(SyncAccountsData {
             incremental: true,
             requesting_full_sync: false,
