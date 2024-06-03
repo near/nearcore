@@ -113,7 +113,7 @@ unnecessary_lazy_evaluations = "deny"
 
 
 [workspace.dependencies]
-actix = { version = "0.13.0", default-features = false, features = ["macros"] }
+actix = "0.13.0"
 actix-cors = "0.6.1"
 actix-http = "3.6"
 actix-rt = "2"

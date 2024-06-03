@@ -5,7 +5,6 @@ use crate::test_loop::futures::{
     TestLoopAsyncComputationEvent, TestLoopAsyncComputationSpawner, TestLoopDelayedActionEvent,
     TestLoopDelayedActionRunner,
 };
-use near_time;
 use near_time::Duration;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;

@@ -4816,7 +4816,6 @@ dependencies = [
  "near-o11y",
  "near-performance-metrics",
  "near-performance-metrics-macros",
- "near-time",
  "once_cell",
  "openssl",
  "serde",
