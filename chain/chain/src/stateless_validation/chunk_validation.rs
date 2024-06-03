@@ -72,112 +72,6 @@ pub type MainStateTransitionCache =
 /// This number needs to be small because result contains outgoing receipts, which can be large.
 const NUM_WITNESS_RESULT_CACHE_ENTRIES: usize = 20;
 
-fn validate_receipt_proof(
-    receipt_proof: &ReceiptProof,
-    from_chunk: &ShardChunkHeader,
-    target_chunk_shard_id: ShardId,
-) -> Result<(), Error> {
-    // Validate that from_shard_id is correct. The receipts must match the outgoing receipt root
-    // for this shard, so it's impossible to fake it.
-    if receipt_proof.1.from_shard_id != from_chunk.shard_id() {
-        return Err(Error::InvalidChunkStateWitness(format!(
-            "Receipt proof for chunk {:?} is from shard {}, expected shard {}",
-            from_chunk.chunk_hash(),
-            receipt_proof.1.from_shard_id,
-            from_chunk.shard_id(),
-        )));
-    }
-    // Validate that to_shard_id is correct. to_shard_id is also encoded in the merkle tree,
-    // so it's impossible to fake it.
-    if receipt_proof.1.to_shard_id != target_chunk_shard_id {
-        return Err(Error::InvalidChunkStateWitness(format!(
-            "Receipt proof for chunk {:?} is for shard {}, expected shard {}",
-            from_chunk.chunk_hash(),
-            receipt_proof.1.to_shard_id,
-            target_chunk_shard_id
-        )));
-    }
-    // Verify that (receipts, to_shard_id) belongs to the merkle tree of outgoing receipts in from_chunk.
-    if !receipt_proof.verify_against_receipt_root(from_chunk.prev_outgoing_receipts_root()) {
-        return Err(Error::InvalidChunkStateWitness(format!(
-            "Receipt proof for chunk {:?} has invalid merkle path, doesn't match outgoing receipts root",
-            from_chunk.chunk_hash()
-        )));
-    }
-    Ok(())
-}
-
-/// Validate that receipt proofs contain the receipts that should be applied during the
-/// transition proven by ChunkStateWitness. The receipts are extracted from the proofs
-/// and arranged in the order in which they should be applied during the transition.
-/// TODO(resharding): Handle resharding properly. If the receipts were sent from before
-/// a resharding boundary, we should first validate the proof using the pre-resharding
-/// target_shard_id and then extract the receipts that are targeted at this half of a split shard.
-fn validate_source_receipt_proofs(
-    source_receipt_proofs: &HashMap<ChunkHash, ReceiptProof>,
-    receipt_source_blocks: &[Block],
-    target_chunk_shard_id: ShardId,
-) -> Result<Vec<Receipt>, Error> {
-    if receipt_source_blocks.iter().any(|block| block.header().is_genesis()) {
-        if receipt_source_blocks.len() != 1 {
-            return Err(Error::Other(
-                "Invalid chain state: receipt_source_blocks should not have any blocks alongside genesis".to_owned()
-            ));
-        }
-        if !source_receipt_proofs.is_empty() {
-            return Err(Error::InvalidChunkStateWitness(format!(
-                "genesis source_receipt_proofs should be empty, actual len is {}",
-                source_receipt_proofs.len()
-            )));
-        }
-        return Ok(vec![]);
-    }
-
-    let mut receipts_to_apply = Vec::new();
-    let mut expected_proofs_len = 0;
-
-    // Iterate over blocks between last_chunk_block (inclusive) and last_last_chunk_block (exclusive),
-    // from the newest blocks to the oldest.
-    for block in receipt_source_blocks {
-        // Collect all receipts coming from this block.
-        let mut block_receipt_proofs = Vec::new();
-
-        for chunk in block.chunks().iter() {
-            if !chunk.is_new_chunk(block.header().height()) {
-                continue;
-            }
-
-            // Collect receipts coming from this chunk and validate that they are correct.
-            let Some(receipt_proof) = source_receipt_proofs.get(&chunk.chunk_hash()) else {
-                return Err(Error::InvalidChunkStateWitness(format!(
-                    "Missing source receipt proof for chunk {:?}",
-                    chunk.chunk_hash()
-                )));
-            };
-            validate_receipt_proof(receipt_proof, chunk, target_chunk_shard_id)?;
-
-            expected_proofs_len += 1;
-            block_receipt_proofs.push(receipt_proof);
-        }
-
-        // Arrange the receipts in the order in which they should be applied.
-        shuffle_receipt_proofs(&mut block_receipt_proofs, block.hash());
-        for proof in block_receipt_proofs {
-            receipts_to_apply.extend(proof.0.iter().cloned());
-        }
-    }
-
-    // Check that there are no extraneous proofs in source_receipt_proofs.
-    if source_receipt_proofs.len() != expected_proofs_len {
-        return Err(Error::InvalidChunkStateWitness(format!(
-            "source_receipt_proofs contains too many proofs. Expected {} proofs, found {}",
-            expected_proofs_len,
-            source_receipt_proofs.len()
-        )));
-    }
-    Ok(receipts_to_apply)
-}
-
 /// Checks that proposed `transactions` are valid for a chunk with `chunk_header`.
 /// Uses `storage_config` to possibly record reads or use recorded storage.
 pub fn validate_prepared_transactions(
@@ -365,110 +259,110 @@ pub fn pre_validate_chunk_state_witness(
     })
 }
 
-impl Chain {
-    pub fn shadow_validate_state_witness(
-        &self,
-        witness: ChunkStateWitness,
-        epoch_manager: &dyn EpochManagerAdapter,
-        runtime_adapter: &dyn RuntimeAdapter,
-        processing_done_tracker: Option<ProcessingDoneTracker>,
-    ) -> Result<(), Error> {
-        let shard_id = witness.chunk_header.shard_id();
-        let height_created = witness.chunk_header.height_created();
-        let chunk_hash = witness.chunk_header.chunk_hash();
-        let parent_span = tracing::debug_span!(
-            target: "chain", "shadow_validate", shard_id, height_created);
-        let (encoded_witness, raw_witness_size) = {
-            let shard_id_label = shard_id.to_string();
-            let encode_timer =
-                crate::stateless_validation::metrics::CHUNK_STATE_WITNESS_ENCODE_TIME
-                    .with_label_values(&[shard_id_label.as_str()])
-                    .start_timer();
-            let (encoded_witness, raw_witness_size) = EncodedChunkStateWitness::encode(&witness)?;
-            encode_timer.observe_duration();
-            crate::stateless_validation::metrics::record_witness_size_metrics(
-                raw_witness_size,
-                encoded_witness.size_bytes(),
-                &witness,
-            );
-            let decode_timer =
-                crate::stateless_validation::metrics::CHUNK_STATE_WITNESS_DECODE_TIME
-                    .with_label_values(&[shard_id_label.as_str()])
-                    .start_timer();
-            encoded_witness.decode()?;
-            decode_timer.observe_duration();
-            (encoded_witness, raw_witness_size)
-        };
-        let pre_validation_start = Instant::now();
-        let pre_validation_result =
-            pre_validate_chunk_state_witness(&witness, &self, epoch_manager, runtime_adapter)?;
-        tracing::debug!(
-            parent: &parent_span,
-            shard_id,
-            ?chunk_hash,
-            witness_size = encoded_witness.size_bytes(),
-            raw_witness_size,
-            pre_validation_elapsed = ?pre_validation_start.elapsed(),
-            "completed shadow chunk pre-validation"
-        );
-        let epoch_manager = self.epoch_manager.clone();
-        let runtime_adapter = self.runtime_adapter.clone();
-        Arc::new(RayonAsyncComputationSpawner).spawn("shadow_validate", move || {
-            // processing_done_tracker must survive until the processing is finished.
-            let _processing_done_tracker_capture: Option<ProcessingDoneTracker> =
-                processing_done_tracker;
-
-            let validation_start = Instant::now();
-
-            match validate_chunk_state_witness(
-                witness,
-                pre_validation_result,
-                epoch_manager.as_ref(),
-                runtime_adapter.as_ref(),
-                &MainStateTransitionCache::default(),
-            ) {
-                Ok(()) => {
-                    tracing::debug!(
-                        parent: &parent_span,
-                        shard_id,
-                        ?chunk_hash,
-                        validation_elapsed = ?validation_start.elapsed(),
-                        "completed shadow chunk validation"
-                    );
-                }
-                Err(err) => {
-                    crate::stateless_validation::metrics::SHADOW_CHUNK_VALIDATION_FAILED_TOTAL
-                        .inc();
-                    tracing::error!(
-                        parent: &parent_span,
-                        ?err,
-                        shard_id,
-                        ?chunk_hash,
-                        "shadow chunk validation failed"
-                    );
-                }
-            }
-        });
-        Ok(())
+/// Validate that receipt proofs contain the receipts that should be applied during the
+/// transition proven by ChunkStateWitness. The receipts are extracted from the proofs
+/// and arranged in the order in which they should be applied during the transition.
+/// TODO(resharding): Handle resharding properly. If the receipts were sent from before
+/// a resharding boundary, we should first validate the proof using the pre-resharding
+/// target_shard_id and then extract the receipts that are targeted at this half of a split shard.
+fn validate_source_receipt_proofs(
+    source_receipt_proofs: &HashMap<ChunkHash, ReceiptProof>,
+    receipt_source_blocks: &[Block],
+    target_chunk_shard_id: ShardId,
+) -> Result<Vec<Receipt>, Error> {
+    if receipt_source_blocks.iter().any(|block| block.header().is_genesis()) {
+        if receipt_source_blocks.len() != 1 {
+            return Err(Error::Other(
+                "Invalid chain state: receipt_source_blocks should not have any blocks alongside genesis".to_owned()
+            ));
+        }
+        if !source_receipt_proofs.is_empty() {
+            return Err(Error::InvalidChunkStateWitness(format!(
+                "genesis source_receipt_proofs should be empty, actual len is {}",
+                source_receipt_proofs.len()
+            )));
+        }
+        return Ok(vec![]);
     }
+
+    let mut receipts_to_apply = Vec::new();
+    let mut expected_proofs_len = 0;
+
+    // Iterate over blocks between last_chunk_block (inclusive) and last_last_chunk_block (exclusive),
+    // from the newest blocks to the oldest.
+    for block in receipt_source_blocks {
+        // Collect all receipts coming from this block.
+        let mut block_receipt_proofs = Vec::new();
+
+        for chunk in block.chunks().iter() {
+            if !chunk.is_new_chunk(block.header().height()) {
+                continue;
+            }
+
+            // Collect receipts coming from this chunk and validate that they are correct.
+            let Some(receipt_proof) = source_receipt_proofs.get(&chunk.chunk_hash()) else {
+                return Err(Error::InvalidChunkStateWitness(format!(
+                    "Missing source receipt proof for chunk {:?}",
+                    chunk.chunk_hash()
+                )));
+            };
+            validate_receipt_proof(receipt_proof, chunk, target_chunk_shard_id)?;
+
+            expected_proofs_len += 1;
+            block_receipt_proofs.push(receipt_proof);
+        }
+
+        // Arrange the receipts in the order in which they should be applied.
+        shuffle_receipt_proofs(&mut block_receipt_proofs, block.hash());
+        for proof in block_receipt_proofs {
+            receipts_to_apply.extend(proof.0.iter().cloned());
+        }
+    }
+
+    // Check that there are no extraneous proofs in source_receipt_proofs.
+    if source_receipt_proofs.len() != expected_proofs_len {
+        return Err(Error::InvalidChunkStateWitness(format!(
+            "source_receipt_proofs contains too many proofs. Expected {} proofs, found {}",
+            expected_proofs_len,
+            source_receipt_proofs.len()
+        )));
+    }
+    Ok(receipts_to_apply)
 }
 
-pub fn apply_result_to_chunk_extra(
-    protocol_version: ProtocolVersion,
-    apply_result: ApplyChunkResult,
-    chunk: &ShardChunkHeader,
-) -> ChunkExtra {
-    let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
-    ChunkExtra::new(
-        protocol_version,
-        &apply_result.new_root,
-        outcome_root,
-        apply_result.validator_proposals,
-        apply_result.total_gas_burnt,
-        chunk.gas_limit(),
-        apply_result.total_balance_burnt,
-        apply_result.congestion_info,
-    )
+fn validate_receipt_proof(
+    receipt_proof: &ReceiptProof,
+    from_chunk: &ShardChunkHeader,
+    target_chunk_shard_id: ShardId,
+) -> Result<(), Error> {
+    // Validate that from_shard_id is correct. The receipts must match the outgoing receipt root
+    // for this shard, so it's impossible to fake it.
+    if receipt_proof.1.from_shard_id != from_chunk.shard_id() {
+        return Err(Error::InvalidChunkStateWitness(format!(
+            "Receipt proof for chunk {:?} is from shard {}, expected shard {}",
+            from_chunk.chunk_hash(),
+            receipt_proof.1.from_shard_id,
+            from_chunk.shard_id(),
+        )));
+    }
+    // Validate that to_shard_id is correct. to_shard_id is also encoded in the merkle tree,
+    // so it's impossible to fake it.
+    if receipt_proof.1.to_shard_id != target_chunk_shard_id {
+        return Err(Error::InvalidChunkStateWitness(format!(
+            "Receipt proof for chunk {:?} is for shard {}, expected shard {}",
+            from_chunk.chunk_hash(),
+            receipt_proof.1.to_shard_id,
+            target_chunk_shard_id
+        )));
+    }
+    // Verify that (receipts, to_shard_id) belongs to the merkle tree of outgoing receipts in from_chunk.
+    if !receipt_proof.verify_against_receipt_root(from_chunk.prev_outgoing_receipts_root()) {
+        return Err(Error::InvalidChunkStateWitness(format!(
+            "Receipt proof for chunk {:?} has invalid merkle path, doesn't match outgoing receipts root",
+            from_chunk.chunk_hash()
+        )));
+    }
+    Ok(())
 }
 
 pub fn validate_chunk_state_witness(
@@ -604,4 +498,110 @@ pub fn validate_chunk_state_witness(
     )?;
 
     Ok(())
+}
+
+pub fn apply_result_to_chunk_extra(
+    protocol_version: ProtocolVersion,
+    apply_result: ApplyChunkResult,
+    chunk: &ShardChunkHeader,
+) -> ChunkExtra {
+    let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
+    ChunkExtra::new(
+        protocol_version,
+        &apply_result.new_root,
+        outcome_root,
+        apply_result.validator_proposals,
+        apply_result.total_gas_burnt,
+        chunk.gas_limit(),
+        apply_result.total_balance_burnt,
+        apply_result.congestion_info,
+    )
+}
+
+impl Chain {
+    pub fn shadow_validate_state_witness(
+        &self,
+        witness: ChunkStateWitness,
+        epoch_manager: &dyn EpochManagerAdapter,
+        runtime_adapter: &dyn RuntimeAdapter,
+        processing_done_tracker: Option<ProcessingDoneTracker>,
+    ) -> Result<(), Error> {
+        let shard_id = witness.chunk_header.shard_id();
+        let height_created = witness.chunk_header.height_created();
+        let chunk_hash = witness.chunk_header.chunk_hash();
+        let parent_span = tracing::debug_span!(
+            target: "chain", "shadow_validate", shard_id, height_created);
+        let (encoded_witness, raw_witness_size) = {
+            let shard_id_label = shard_id.to_string();
+            let encode_timer =
+                crate::stateless_validation::metrics::CHUNK_STATE_WITNESS_ENCODE_TIME
+                    .with_label_values(&[shard_id_label.as_str()])
+                    .start_timer();
+            let (encoded_witness, raw_witness_size) = EncodedChunkStateWitness::encode(&witness)?;
+            encode_timer.observe_duration();
+            crate::stateless_validation::metrics::record_witness_size_metrics(
+                raw_witness_size,
+                encoded_witness.size_bytes(),
+                &witness,
+            );
+            let decode_timer =
+                crate::stateless_validation::metrics::CHUNK_STATE_WITNESS_DECODE_TIME
+                    .with_label_values(&[shard_id_label.as_str()])
+                    .start_timer();
+            encoded_witness.decode()?;
+            decode_timer.observe_duration();
+            (encoded_witness, raw_witness_size)
+        };
+        let pre_validation_start = Instant::now();
+        let pre_validation_result =
+            pre_validate_chunk_state_witness(&witness, &self, epoch_manager, runtime_adapter)?;
+        tracing::debug!(
+            parent: &parent_span,
+            shard_id,
+            ?chunk_hash,
+            witness_size = encoded_witness.size_bytes(),
+            raw_witness_size,
+            pre_validation_elapsed = ?pre_validation_start.elapsed(),
+            "completed shadow chunk pre-validation"
+        );
+        let epoch_manager = self.epoch_manager.clone();
+        let runtime_adapter = self.runtime_adapter.clone();
+        Arc::new(RayonAsyncComputationSpawner).spawn("shadow_validate", move || {
+            // processing_done_tracker must survive until the processing is finished.
+            let _processing_done_tracker_capture: Option<ProcessingDoneTracker> =
+                processing_done_tracker;
+
+            let validation_start = Instant::now();
+
+            match validate_chunk_state_witness(
+                witness,
+                pre_validation_result,
+                epoch_manager.as_ref(),
+                runtime_adapter.as_ref(),
+                &MainStateTransitionCache::default(),
+            ) {
+                Ok(()) => {
+                    tracing::debug!(
+                        parent: &parent_span,
+                        shard_id,
+                        ?chunk_hash,
+                        validation_elapsed = ?validation_start.elapsed(),
+                        "completed shadow chunk validation"
+                    );
+                }
+                Err(err) => {
+                    crate::stateless_validation::metrics::SHADOW_CHUNK_VALIDATION_FAILED_TOTAL
+                        .inc();
+                    tracing::error!(
+                        parent: &parent_span,
+                        ?err,
+                        shard_id,
+                        ?chunk_hash,
+                        "shadow chunk validation failed"
+                    );
+                }
+            }
+        });
+        Ok(())
+    }
 }
