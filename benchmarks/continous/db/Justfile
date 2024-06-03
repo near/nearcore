@@ -1,4 +1,10 @@
 sql_dialect := "postgres"
+
+# The following parameters are defined by the `crt-benchmark` Cloud SQL instance in the
+# `nearone-crt` project on GCP. They can be viewed and in some cases changed via:
+#
+# - GCP website: https://console.cloud.google.com/sql/instances/crt-benchmarks/overview?project=nearone-crt
+# - `gcloud` CLI
 db_host := "34.90.190.128"
 db_name := "benchmarks"
 db_port := "5432"
