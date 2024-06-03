@@ -34,7 +34,7 @@ impl ChunkEndorsementsState {
 #[derive(Clone)]
 pub enum PendingEndorsements {
     NoChunk(HashMap<AccountId, ChunkEndorsement>),
-    FoundChunk,
+    FoundChunk(ShardChunkHeader),
 }
 
 /// Module to track chunk endorsements received from chunk validators.
@@ -95,7 +95,7 @@ impl ChunkEndorsementTracker {
             let mut guard = self.pending_chunk_endorsements.lock();
             let e = guard.pop(chunk_hash);
             // looks fiiiine even for lru cache...
-            guard.push(chunk_hash.clone(), PendingEndorsements::FoundChunk);
+            guard.push(chunk_hash.clone(), PendingEndorsements::FoundChunk(chunk_header.clone()));
             e
         };
         let Some(chunk_endorsements) = chunk_endorsements else {
@@ -163,7 +163,7 @@ impl ChunkEndorsementTracker {
                     PendingEndorsements::NoChunk(existing_endorsements) => {
                         existing_endorsements.contains_key(account_id)
                     }
-                    PendingEndorsements::FoundChunk => false,
+                    PendingEndorsements::FoundChunk(_) => false,
                 },
             ) {
                 tracing::debug!(target: "client", ?endorsement, "Already received chunk endorsement.");
@@ -209,7 +209,12 @@ impl ChunkEndorsementTracker {
                     chunk_endorsements.insert(account_id.clone(), endorsement.clone());
                     false
                 }
-                PendingEndorsements::FoundChunk => true,
+                PendingEndorsements::FoundChunk(c) => {
+                    if c.height_created() >= 5 {
+                        // panic!("HAHAAHAHAHAHAAHAHAHHAAH");
+                    }
+                    true
+                }
             }
         } else {
             true
