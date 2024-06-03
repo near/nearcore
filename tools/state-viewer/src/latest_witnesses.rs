@@ -2,7 +2,6 @@ use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use clap::{Parser, Subcommand};
 use near_async::time::Clock;
 use near_chain::runtime::NightshadeRuntime;
 use near_chain::{Chain, ChainGenesis, ChainStore, DoomslugThresholdMode};
@@ -74,9 +73,9 @@ impl LatestWitnessesCmd {
             .get_latest_witnesses(self.height, self.shard_id, self.epoch_id.clone())
             .unwrap();
         println!("Found {} witnesses:", witnesses.len());
-        if let LatestWitnessesMode::Binary(ref dir) = self.mode {
-            if !dir.exists() {
-                std::fs::create_dir_all(dir).unwrap();
+        if let LatestWitnessesMode::Binary { ref output_dir } = self.mode {
+            if !output_dir.exists() {
+                std::fs::create_dir_all(output_dir).unwrap();
             }
         }
 
@@ -93,14 +92,14 @@ impl LatestWitnessesCmd {
                     println!("{:#?}", witness);
                     println!("");
                 }
-                LatestWitnessesMode::Binary(ref dir) => {
+                LatestWitnessesMode::Binary { ref output_dir } => {
                     let file_name = format!(
                         "witness_{}_{}_{}.bin",
                         witness.chunk_header.height_created(),
                         witness.chunk_header.shard_id(),
                         witness.epoch_id.0
                     );
-                    let file_path = dir.join(file_name);
+                    let file_path = output_dir.join(file_name);
                     std::fs::write(&file_path, borsh::to_vec(witness).unwrap()).unwrap();
                     println!("Saved to {:?}", file_path);
                 }
