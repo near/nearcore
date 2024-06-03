@@ -1803,12 +1803,16 @@ impl<'a> VMLogic<'a> {
             self.config.implicit_account_creation,
             self.config.eth_implicit_accounts,
             receiver_id.get_account_type(),
+            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+            false,
         );
         let exec_fee = transfer_exec_fee(
             self.fees_config,
             self.config.implicit_account_creation,
             self.config.eth_implicit_accounts,
             receiver_id.get_account_type(),
+            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+            false,
         );
         let burn_gas = send_fee;
         let use_gas = burn_gas.checked_add(exec_fee).ok_or(HostError::IntegerOverflow)?;

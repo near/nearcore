@@ -725,6 +725,14 @@ pub enum Cost {
     /// `promise_yield_resume` host function.
     YieldResumeByte,
 
+    /// Estimates `action_creation_config.transfer_cost` which is charged for
+    /// every `Action::Transfer`, the same value for sending and executing.
+    ///
+    /// Estimation: Measure a transaction with only a transfer and subtract the
+    /// base cost of creating a receipt.
+    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+    ActionNonrefundableStorageTransfer,
+
     __Count,
 }
 

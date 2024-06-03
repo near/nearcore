@@ -101,6 +101,8 @@ use gas_metering::gas_metering_cost;
 use near_crypto::{KeyType, SecretKey};
 use near_parameters::{ExtCosts, RuntimeConfigStore, RuntimeFeesConfig};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
+#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+use near_primitives::action::NonrefundableStorageTransferAction;
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, SignedTransaction, StakeAction, TransferAction,
@@ -132,6 +134,8 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::ActionTransferSendSir, action_costs::transfer_send_sir),
     (Cost::ActionTransferSendNotSir, action_costs::transfer_send_not_sir),
     (Cost::ActionTransferExec, action_costs::transfer_exec),
+    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+    (Cost::ActionNonrefundableStorageTransfer, action_nonrefundable_storage_transfer),
     (Cost::ActionCreateAccount, action_create_account),
     (Cost::ActionCreateAccountSendSir, action_costs::create_account_send_sir),
     (Cost::ActionCreateAccountSendNotSir, action_costs::create_account_send_not_sir),
@@ -364,6 +368,29 @@ fn action_transfer(ctx: &mut EstimatorContext) -> GasCost {
             let (sender, receiver) = tb.random_account_pair();
 
             let actions = vec![Action::Transfer(TransferAction { deposit: 1 })];
+            tb.transaction_from_actions(sender, receiver, actions)
+        };
+        let block_size = 100;
+        // Transferring from one account to another may touch two shards, thus executes over two blocks.
+        let block_latency = 1;
+        transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency).0
+    };
+
+    let base_cost = action_receipt_creation(ctx);
+
+    total_cost.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE)
+}
+
+#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+fn action_nonrefundable_storage_transfer(ctx: &mut EstimatorContext) -> GasCost {
+    let total_cost = {
+        let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
+            let (sender, receiver) = tb.random_account_pair();
+
+            let actions =
+                vec![Action::NonrefundableStorageTransfer(NonrefundableStorageTransferAction {
+                    deposit: 1,
+                })];
             tb.transaction_from_actions(sender, receiver, actions)
         };
         let block_size = 100;

@@ -32,9 +32,11 @@ assert_matches.workspace = true
 insta.workspace = true
 
 [features]
+protocol_feature_nonrefundable_transfer_nep491 = []
 nightly = [
   "near-primitives-core/nightly",
   "nightly_protocol",
+  "protocol_feature_nonrefundable_transfer_nep491",
 ]
 nightly_protocol = [
   "near-primitives-core/nightly_protocol",
