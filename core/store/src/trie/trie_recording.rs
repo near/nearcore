@@ -360,7 +360,7 @@ mod trie_recording_tests {
             // Now let's do this again with memtries enabled. Check that counters
             // are the same.
             assert_eq!(MEM_TRIE_NUM_LOOKUPS.get(), mem_trie_lookup_counts_before);
-            tries.load_mem_trie(&shard_uid, None).unwrap();
+            tries.load_mem_trie(&shard_uid, None, false).unwrap();
             // Delete the on-disk state so that we really know we're using
             // in-memory tries.
             destructively_delete_in_memory_state_from_disk(&store, &data_in_trie);
