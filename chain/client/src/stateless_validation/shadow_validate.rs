@@ -85,6 +85,7 @@ impl Client {
             witness,
             self.epoch_manager.as_ref(),
             self.runtime_adapter.as_ref(),
+            None,
         )?;
         Ok(())
     }

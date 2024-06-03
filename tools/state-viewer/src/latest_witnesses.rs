@@ -3,6 +3,7 @@ use std::rc::Rc;
 
 use near_async::time::Clock;
 use near_chain::runtime::NightshadeRuntime;
+use near_chain::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use near_chain::{Chain, ChainGenesis, ChainStore, DoomslugThresholdMode};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
@@ -135,16 +136,16 @@ impl ValidateWitnessCmd {
             false,
         )
         .unwrap();
+        let processing_done_tracker = ProcessingDoneTracker::new();
+        let waiter = processing_done_tracker.make_waiter();
         chain
             .shadow_validate_state_witness(
                 witness,
                 epoch_manager.as_ref(),
                 runtime_adapter.as_ref(),
+                Some(processing_done_tracker),
             )
             .unwrap();
-        // Not optimal, but needed to wait for potential `validate_state_witness` failure.
-        loop {
-            std::thread::sleep(core::time::Duration::from_secs(60));
-        }
+        waiter.wait();
     }
 }

@@ -1,5 +1,8 @@
 use std::collections::HashSet;
 
+use near_chain::stateless_validation::processing_tracker::{
+    ProcessingDoneTracker, ProcessingDoneWaiter,
+};
 use near_chain::{Block, Provenance};
 use near_chain_configs::default_orphan_state_witness_max_size;
 use near_chain_configs::Genesis;

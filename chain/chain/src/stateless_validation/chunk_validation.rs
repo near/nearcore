@@ -4,6 +4,7 @@ use crate::chain::{
 };
 use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::sharding::shuffle_receipt_proofs;
+use crate::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use crate::types::{
     ApplyChunkBlockContext, ApplyChunkResult, PreparedTransactions, RuntimeAdapter,
     RuntimeStorageConfig, StorageDataSource,
@@ -370,6 +371,7 @@ impl Chain {
         witness: ChunkStateWitness,
         epoch_manager: &dyn EpochManagerAdapter,
         runtime_adapter: &dyn RuntimeAdapter,
+        processing_done_tracker: Option<ProcessingDoneTracker>,
     ) -> Result<(), Error> {
         let shard_id = witness.chunk_header.shard_id();
         let height_created = witness.chunk_header.height_created();
@@ -412,7 +414,12 @@ impl Chain {
         let epoch_manager = self.epoch_manager.clone();
         let runtime_adapter = self.runtime_adapter.clone();
         Arc::new(RayonAsyncComputationSpawner).spawn("shadow_validate", move || {
+            // processing_done_tracker must survive until the processing is finished.
+            let _processing_done_tracker_capture: Option<ProcessingDoneTracker> =
+                processing_done_tracker;
+
             let validation_start = Instant::now();
+
             match validate_chunk_state_witness(
                 witness,
                 pre_validation_result,
