@@ -450,29 +450,33 @@ impl ClientActorInner {
                     Some(block) => block
                         .chunks()
                         .iter()
-                        .map(|chunk| DebugChunkStatus {
-                            shard_id: chunk.shard_id(),
-                            chunk_hash: chunk.chunk_hash(),
-                            chunk_producer: self
-                                .client
-                                .epoch_manager
-                                .get_chunk_producer(
-                                    block_header.epoch_id(),
-                                    block_header.height(),
-                                    chunk.shard_id(),
-                                )
-                                .ok(),
-                            gas_used: chunk.prev_gas_used(),
-                            processing_time_ms: CryptoHashTimer::get_timer_value(
-                                chunk.chunk_hash().0,
-                            )
-                            .map(|s| s.whole_milliseconds() as u64),
-                            congestion_info: chunk.congestion_info(),
-                            endorsement_ratio: chunk_endorsements
+                        .map(|chunk| {
+                            let endorsement_ratio = chunk_endorsements
                                 .as_ref()
                                 .map(|chunks| chunks.get(&chunk.chunk_hash()))
                                 .flatten()
-                                .copied(),
+                                .copied();
+
+                            DebugChunkStatus {
+                                shard_id: chunk.shard_id(),
+                                chunk_hash: chunk.chunk_hash(),
+                                chunk_producer: self
+                                    .client
+                                    .epoch_manager
+                                    .get_chunk_producer(
+                                        block_header.epoch_id(),
+                                        block_header.height(),
+                                        chunk.shard_id(),
+                                    )
+                                    .ok(),
+                                gas_used: chunk.prev_gas_used(),
+                                processing_time_ms: CryptoHashTimer::get_timer_value(
+                                    chunk.chunk_hash().0,
+                                )
+                                .map(|s| s.whole_milliseconds() as u64),
+                                congestion_info: chunk.congestion_info(),
+                                endorsement_ratio,
+                            }
                         })
                         .collect(),
                     None => vec![],
@@ -641,79 +645,69 @@ impl ClientActorInner {
         &self,
         block: &Option<Block>,
     ) -> Option<HashMap<ChunkHash, f64>> {
-        match block {
-            Some(block) => {
-                let mut chunk_endorsements = HashMap::new();
-                if block.chunks().len() != block.chunk_endorsements().len() {
-                    return None;
-                }
-                // Get the epoch id.
-                let Ok(epoch_id) = self
-                    .client
-                    .epoch_manager
-                    .get_epoch_id_from_prev_block(block.header().prev_hash())
-                else {
-                    return None;
-                };
-                // Iterate all shards and compute the endorsed stake from the endorsement signatures.
-                for (chunk_header, signatures) in
-                    block.chunks().iter().zip(block.chunk_endorsements())
-                {
-                    // Validation checks.
-                    if chunk_header.height_included() != block.header().height() {
-                        chunk_endorsements.insert(chunk_header.chunk_hash(), 0.0);
-                        continue;
-                    }
-                    let Ok(chunk_validator_assignments) =
-                        self.client.epoch_manager.get_chunk_validator_assignments(
-                            &epoch_id,
-                            chunk_header.shard_id(),
-                            chunk_header.height_created(),
-                        )
-                    else {
-                        chunk_endorsements.insert(chunk_header.chunk_hash(), f64::NAN);
-                        continue;
-                    };
-                    let ordered_chunk_validators =
-                        chunk_validator_assignments.ordered_chunk_validators();
-                    if ordered_chunk_validators.len() != signatures.len() {
-                        chunk_endorsements.insert(chunk_header.chunk_hash(), f64::NAN);
-                        continue;
-                    }
-                    // Compute total stake and endorsed stake.
-                    let mut endorsed_chunk_validators = HashSet::new();
-                    for (account_id, signature) in ordered_chunk_validators.iter().zip(signatures) {
-                        let Some(signature) = signature else { continue };
-                        let Ok((validator, _)) =
-                            self.client.epoch_manager.get_validator_by_account_id(
-                                &epoch_id,
-                                block.header().prev_hash(),
-                                account_id,
-                            )
-                        else {
-                            continue;
-                        };
-                        if !ChunkEndorsement::validate_signature(
-                            chunk_header.chunk_hash(),
-                            signature,
-                            validator.public_key(),
-                        ) {
-                            continue;
-                        }
-                        endorsed_chunk_validators.insert(account_id);
-                    }
-                    let endorsement_stats = chunk_validator_assignments
-                        .compute_endorsement_stats(&endorsed_chunk_validators);
-                    chunk_endorsements.insert(
-                        chunk_header.chunk_hash(),
-                        endorsement_stats.endorsed_stake as f64
-                            / endorsement_stats.total_stake as f64,
-                    );
-                }
-                Some(chunk_endorsements)
-            }
-            None => None,
+        let Some(block) = block else {
+            return None;
+        };
+        let mut chunk_endorsements = HashMap::new();
+        if block.chunks().len() != block.chunk_endorsements().len() {
+            return None;
         }
+        // Get the epoch id.
+        let Ok(epoch_id) =
+            self.client.epoch_manager.get_epoch_id_from_prev_block(block.header().prev_hash())
+        else {
+            return None;
+        };
+        // Iterate all shards and compute the endorsed stake from the endorsement signatures.
+        for (chunk_header, signatures) in block.chunks().iter().zip(block.chunk_endorsements()) {
+            // Validation checks.
+            if chunk_header.height_included() != block.header().height() {
+                chunk_endorsements.insert(chunk_header.chunk_hash(), 0.0);
+                continue;
+            }
+            let Ok(chunk_validator_assignments) =
+                self.client.epoch_manager.get_chunk_validator_assignments(
+                    &epoch_id,
+                    chunk_header.shard_id(),
+                    chunk_header.height_created(),
+                )
+            else {
+                chunk_endorsements.insert(chunk_header.chunk_hash(), f64::NAN);
+                continue;
+            };
+            let ordered_chunk_validators = chunk_validator_assignments.ordered_chunk_validators();
+            if ordered_chunk_validators.len() != signatures.len() {
+                chunk_endorsements.insert(chunk_header.chunk_hash(), f64::NAN);
+                continue;
+            }
+            // Compute total stake and endorsed stake.
+            let mut endorsed_chunk_validators = HashSet::new();
+            for (account_id, signature) in ordered_chunk_validators.iter().zip(signatures) {
+                let Some(signature) = signature else { continue };
+                let Ok((validator, _)) = self.client.epoch_manager.get_validator_by_account_id(
+                    &epoch_id,
+                    block.header().prev_hash(),
+                    account_id,
+                ) else {
+                    continue;
+                };
+                if !ChunkEndorsement::validate_signature(
+                    chunk_header.chunk_hash(),
+                    signature,
+                    validator.public_key(),
+                ) {
+                    continue;
+                }
+                endorsed_chunk_validators.insert(account_id);
+            }
+            let endorsement_stats =
+                chunk_validator_assignments.compute_endorsement_stats(&endorsed_chunk_validators);
+            chunk_endorsements.insert(
+                chunk_header.chunk_hash(),
+                endorsement_stats.endorsed_stake as f64 / endorsement_stats.total_stake as f64,
+            );
+        }
+        Some(chunk_endorsements)
     }
 }
 
