@@ -12,8 +12,8 @@ use near_primitives::stateless_validation::ChunkStateWitness;
 use near_primitives::types::EpochId;
 use near_store::DBCol;
 
+use crate::stateless_validation;
 use crate::ChainStoreAccess;
-use crate::{metrics, stateless_validation};
 
 use super::ChainStore;
 
