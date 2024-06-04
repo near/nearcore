@@ -231,22 +231,23 @@ fn run_chunk_validation_test(
         assert!(found_differing_post_state_root_due_to_state_transitions);
     }
 
-    // print some extra info to easy debugging
-    let genesis_height = genesis.config.genesis_height;
-    for i in 0..blocks_to_produce {
-        let client = &env.clients[0];
-        let height = genesis_height + i as u64;
-        let block = client.chain.get_block_by_height(height);
-        let Ok(block) = block else {
-            tracing::info!(target: "test", "Block {}: missing", height);
-            continue;
-        };
-        let prev_hash = block.header().prev_hash();
-        let epoch_id = client.epoch_manager.get_epoch_id_from_prev_block(prev_hash).unwrap();
-        let protocol_version = client.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
+    let client = &env.clients[0];
 
-        tracing::info!(target: "test", "Block {}-{}: {} -> {}", height, block.hash(), protocol_version, block.header().latest_protocol_version());
-    }
+    let genesis = client.chain.genesis();
+    let genesis_epoch_id = client.epoch_manager.get_epoch_id(genesis.hash()).unwrap();
+    assert_eq!(
+        genesis_protocol_version,
+        client.epoch_manager.get_epoch_protocol_version(&genesis_epoch_id).unwrap()
+    );
+
+    let head = client.chain.head().unwrap();
+    let head_epoch_id = client.epoch_manager.get_epoch_id(&head.last_block_hash).unwrap();
+    assert_eq!(
+        PROTOCOL_VERSION,
+        client.epoch_manager.get_epoch_protocol_version(&head_epoch_id).unwrap()
+    );
+
+    env.print_summary();
 }
 
 #[test]
