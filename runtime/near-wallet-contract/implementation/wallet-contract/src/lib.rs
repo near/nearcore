@@ -23,14 +23,14 @@ pub mod types;
 #[cfg(test)]
 mod tests;
 
+const MICRO_NEAR: u128 = 10_u128.pow(18);
 const ADDRESS_REGISTRAR_ACCOUNT_ID: &str = std::include_str!("ADDRESS_REGISTRAR_ACCOUNT_ID");
 /// This storage deposit value is the one used by the standard NEP-141 implementation,
 /// which essentially all tokens use. Therefore we hard-code it here instead of doing
 /// the extra on-chain call to `storage_balance_bounds`. This also prevents malicious
 /// token contracts with very high `storage_balance_bounds` from taking lots of $NEAR
 /// from eth-wallet-contract users.
-const NEP_141_STORAGE_DEPOSIT_AMOUNT: NearToken =
-    NearToken::from_yoctonear(1_250_000_000_000_000_000_000);
+const NEP_141_STORAGE_DEPOSIT_AMOUNT: NearToken = NearToken::from_yoctonear(1_250 * MICRO_NEAR);
 const NEP_141_STORAGE_DEPOSIT_GAS: Gas = Gas::from_tgas(5);
 const NEP_141_STORAGE_BALANCE_OF_GAS: Gas = Gas::from_tgas(5);
 

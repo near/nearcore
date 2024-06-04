@@ -2,7 +2,7 @@ use near_contract_standards::storage_management::StorageBalance;
 use near_sdk::json_types::U128;
 use near_workspaces::{network::Sandbox, types::NearToken, AccountId, Contract, Worker};
 
-pub const STORAGE_DEPOSIT_AMOUNT: u128 = 1_250_000_000_000_000_000_000;
+pub const STORAGE_DEPOSIT_AMOUNT: u128 = crate::NEP_141_STORAGE_DEPOSIT_AMOUNT.as_yoctonear();
 
 pub struct Nep141 {
     pub contract: Contract,
