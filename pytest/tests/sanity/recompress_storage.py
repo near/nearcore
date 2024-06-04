@@ -94,8 +94,8 @@ class RecompressStorageTestCase(unittest.TestCase):
         time.sleep(5)
         sanity.rpc_tx_status.test_tx_status(self.nodes, nonce_offset=3)
 
-    def _call(self, node: cluster.LocalNode, prefix: str,
-              *args: typing.Union[str, pathlib.Path]) -> None:
+    def _call(self, node: cluster.LocalNode, prefix: str, *args:
+              typing.Union[str, pathlib.Path]) -> None:
         """Calls node’s neard with given arguments."""
         node_dir = pathlib.Path(node.node_dir)
         cmd = [
