@@ -54,11 +54,13 @@ pub fn parse_rlp_tx_to_action(
     // Given this algorithm, the only way to have `TargetKind::EthImplicit` is in the
     // following cases:
     // I)   The Ethereum transaction payload is not parseable as a known action,
-    // II)  The payload is parsable as a Near action and the receiver_id is an implicit account
+    // II)  The payload is parsable as a Near action and the receiver_id is an eth-implicit account
     // III) The payload is parsable as a supported Ethereum emulation but the to address is
     //      not registered in the address registrar.
     // Therefore, to determine if the relayer is honest we must always parse the payload and
     // we only need to check the registrar if the payload is parseable as an Ethereum emulation.
+    // Note: the `TargetKind` is determined in `validate_tx_relayer_data` above, and that function
+    // also confirms that the `target` is compatible with the user's `tx.to`.
 
     let (action, transaction_kind) = match parse_tx_data(target, &tx, context) {
         Ok((action, ParsableTransactionKind::NearNativeAction)) => {

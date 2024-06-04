@@ -167,7 +167,9 @@ impl WalletContract {
         let promise = match maybe_storage_balance {
             Some(_) => {
                 // receiver_id is registered so we can send the transfer
-                // without additional actions.
+                // without additional actions. Note: in the standard NEP-141
+                // implementation it is impossible to have `Some` storage balance,
+                // but have it be insufficient to transact.
                 match action_to_promise(token_id, action)
                     .map(|p| p.then(ext.rlp_execute_callback()))
                 {
