@@ -38,6 +38,12 @@ pub struct BlockResponse {
     pub was_requested: bool,
 }
 
+#[derive(actix::Message, Debug)]
+#[rtype(result = "()")]
+pub struct SetGCBlock {
+    pub block_hash: CryptoHash,
+}
+
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]
 pub struct BlockApproval(pub Approval, pub PeerId);
