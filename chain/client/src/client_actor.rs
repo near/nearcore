@@ -54,7 +54,7 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManagerAdapter, RngSeed};
 use near_network::client::{
     BlockApproval, BlockHeadersResponse, BlockResponse, ChunkEndorsementMessage, ProcessTxRequest,
-    ProcessTxResponse, RecvChallenge, SetNetworkInfo, StateResponse,
+    ProcessTxResponse, RecvChallenge, SetGCBlock, SetNetworkInfo, StateResponse,
 };
 use near_network::types::ReasonForBan;
 use near_network::types::{
@@ -2130,5 +2130,13 @@ impl Handler<ChunkEndorsementMessage> for ClientActorInner {
         if let Err(err) = self.client.process_chunk_endorsement(msg.0) {
             tracing::error!(target: "client", ?err, "Error processing chunk endorsement");
         }
+    }
+}
+
+impl Handler<SetGCBlock> for ClientActorInner {
+    #[perf]
+    fn handle(&mut self, msg: SetGCBlock) {
+        let SetGCBlock { block_hash } = msg;
+        self.client.runtime_adapter.set_gc_stop_block(&block_hash);
     }
 }

@@ -1429,6 +1429,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         true
     }
 
+    fn set_gc_stop_block(&self, _block_hash: &CryptoHash) {}
+
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {
         if !self.no_gc {
             // This code is 'incorrect' - as production one is always setting the GC to the
