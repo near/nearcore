@@ -1,12 +1,14 @@
 use std::collections::HashSet;
 
+use near_chain::stateless_validation::processing_tracker::{
+    ProcessingDoneTracker, ProcessingDoneWaiter,
+};
 use near_chain::{Block, Provenance};
 use near_chain_configs::default_orphan_state_witness_max_size;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::DistributeStateWitnessRequest;
 use near_client::HandleOrphanWitnessOutcome;
-use near_client::{ProcessingDoneTracker, ProcessingDoneWaiter};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::sharding::ShardChunkHeaderV3;
 use near_primitives::sharding::{

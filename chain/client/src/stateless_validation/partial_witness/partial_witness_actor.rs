@@ -397,12 +397,16 @@ impl PartialWitnessActor {
 
 fn compress_witness(witness: &ChunkStateWitness) -> Result<EncodedChunkStateWitness, Error> {
     let shard_id_label = witness.chunk_header.shard_id().to_string();
-    let encode_timer = metrics::CHUNK_STATE_WITNESS_ENCODE_TIME
+    let encode_timer = near_chain::stateless_validation::metrics::CHUNK_STATE_WITNESS_ENCODE_TIME
         .with_label_values(&[shard_id_label.as_str()])
         .start_timer();
     let (witness_bytes, raw_witness_size) = EncodedChunkStateWitness::encode(&witness)?;
     encode_timer.observe_duration();
 
-    metrics::record_witness_size_metrics(raw_witness_size, witness_bytes.size_bytes(), witness);
+    near_chain::stateless_validation::metrics::record_witness_size_metrics(
+        raw_witness_size,
+        witness_bytes.size_bytes(),
+        witness,
+    );
     Ok(witness_bytes)
 }

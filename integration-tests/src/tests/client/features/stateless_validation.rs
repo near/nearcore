@@ -2,6 +2,7 @@ use near_client::{ProcessTxResponse, ProduceChunkResult};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::stateless_validation::ChunkStateWitness;
+use near_primitives::version::ProtocolFeature;
 use near_store::test_utils::create_test_store;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -19,17 +20,21 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountInfo, EpochId};
+use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::FinalExecutionStatus;
 use near_primitives_core::account::{AccessKey, Account};
 use near_primitives_core::checked_feature;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, NumSeats};
-use near_primitives_core::version::PROTOCOL_VERSION;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 
-fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
+fn run_chunk_validation_test(
+    seed: u64,
+    prob_missing_chunk: f64,
+    genesis_protocol_version: ProtocolVersion,
+) {
     init_integration_logger();
 
     if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
@@ -56,7 +61,7 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
     let mut genesis_config = GenesisConfig {
         // Use the latest protocol version. Otherwise, the version may be too
         // old that e.g. blocks don't even store previous heights.
-        protocol_version: PROTOCOL_VERSION,
+        protocol_version: genesis_protocol_version,
         // Some arbitrary starting height. Doesn't matter.
         genesis_height: 10000,
         shard_layout,
@@ -116,7 +121,7 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
                 0,
                 CryptoHash::default(),
                 0,
-                PROTOCOL_VERSION,
+                genesis_protocol_version,
             ),
         });
         records.push(StateRecord::AccessKey {
@@ -225,25 +230,47 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
     if prob_missing_chunk >= 0.8 {
         assert!(found_differing_post_state_root_due_to_state_transitions);
     }
+
+    let client = &env.clients[0];
+
+    let genesis = client.chain.genesis();
+    let genesis_epoch_id = client.epoch_manager.get_epoch_id(genesis.hash()).unwrap();
+    assert_eq!(
+        genesis_protocol_version,
+        client.epoch_manager.get_epoch_protocol_version(&genesis_epoch_id).unwrap()
+    );
+
+    let head = client.chain.head().unwrap();
+    let head_epoch_id = client.epoch_manager.get_epoch_id(&head.last_block_hash).unwrap();
+    assert_eq!(
+        PROTOCOL_VERSION,
+        client.epoch_manager.get_epoch_protocol_version(&head_epoch_id).unwrap()
+    );
+
+    env.print_summary();
 }
 
 #[test]
 fn test_chunk_validation_no_missing_chunks() {
-    run_chunk_validation_test(42, 0.0);
+    run_chunk_validation_test(42, 0.0, PROTOCOL_VERSION);
 }
 
 #[test]
 fn test_chunk_validation_low_missing_chunks() {
-    run_chunk_validation_test(43, 0.3);
+    run_chunk_validation_test(43, 0.3, PROTOCOL_VERSION);
 }
 
-// This test fails because transactions are rejected when there are too many
-// missing chunks in a row.
-// TODO(congestion_control) - make congestion control configurable,
-// disable it here and re-enable this test
 #[test]
 fn test_chunk_validation_high_missing_chunks() {
-    run_chunk_validation_test(44, 0.81);
+    run_chunk_validation_test(44, 0.81, PROTOCOL_VERSION);
+}
+#[test]
+fn test_chunk_validation_protocol_upgrade() {
+    run_chunk_validation_test(
+        42,
+        0.0,
+        ProtocolFeature::StatelessValidationV0.protocol_version() - 1,
+    );
 }
 
 #[test]
