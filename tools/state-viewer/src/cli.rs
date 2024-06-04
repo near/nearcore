@@ -3,7 +3,7 @@ use crate::contract_accounts::ContractAccountFilter;
 use crate::rocksdb_stats::get_rocksdb_stats;
 use crate::trie_iteration_benchmark::TrieIterationBenchmarkCmd;
 
-use crate::latest_witnesses::LatestWitnessesCmd;
+use crate::latest_witnesses::StateWitnessCmd;
 use near_chain_configs::{GenesisChangeConfig, GenesisValidationMode};
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
@@ -95,9 +95,18 @@ pub enum StateViewerSubCommand {
     /// View trie structure.
     #[clap(alias = "view_trie")]
     ViewTrie(ViewTrieCmd),
-    /// Print observed ChunkStateWitnesses at the given block height (and shard id).
-    /// Observed witnesses are only saved when `save_latest_witnesses` is set to true in config.json.
-    LatestWitnesses(LatestWitnessesCmd),
+    /// Tools for manually validating state witnesses.
+    ///
+    /// First, dump some of the latest stored state witnesses to a directory
+    /// using the `dump` command. Supports selecting by given height, shard
+    /// and epoch id, or pretty-printing on screen.
+    /// Note that witnesses are only stored when `save_latest_witnesses` is
+    /// set to true in config.json.
+    ///
+    /// Second, validate a particular state witness from a file using the
+    /// `validate` command.
+    #[clap(subcommand)]
+    StateWitness(StateWitnessCmd),
 }
 
 impl StateViewerSubCommand {
@@ -155,7 +164,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
             StateViewerSubCommand::TrieIterationBenchmark(cmd) => cmd.run(near_config, store),
-            StateViewerSubCommand::LatestWitnesses(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::StateWitness(cmd) => cmd.run(home_dir, near_config, store),
         }
     }
 }

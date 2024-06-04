@@ -139,7 +139,7 @@ impl InfoHelper {
         metrics::FINAL_DOOMSLUG_BLOCK_HEIGHT.set(last_final_ds_block_height as i64);
         metrics::EPOCH_HEIGHT.set(epoch_height as i64);
         if let Some(last_final_block_height_in_epoch) = last_final_block_height_in_epoch {
-            // In rare cases cases the final height isn't updated, for example right after a state sync.
+            // In rare cases the final height isn't updated, for example right after a state sync.
             // Don't update the metric in such cases.
             metrics::FINAL_BLOCK_HEIGHT_IN_EPOCH.set(last_final_block_height_in_epoch as i64);
         }
