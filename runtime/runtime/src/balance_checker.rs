@@ -671,7 +671,7 @@ mod tests {
         );
     }
 
-    /// When adding a receipt to the outgoing buffer, its balance must must be
+    /// When adding a receipt to the outgoing buffer, its balance must be
     /// picked up by the balance checker. Test it by simulating a transfer
     /// action removing some balance from an account and placing the receipt in
     /// the buffer.

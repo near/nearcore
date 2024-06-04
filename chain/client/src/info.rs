@@ -20,7 +20,7 @@ use near_primitives::types::{
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::Version;
+use near_primitives::version::{Version, PROTOCOL_VERSION};
 use near_primitives::views::{
     CatchupStatusView, ChunkProcessingStatus, CurrentEpochValidatorInfo, EpochValidatorInfo,
     ValidatorKickoutView,
@@ -139,7 +139,7 @@ impl InfoHelper {
         metrics::FINAL_DOOMSLUG_BLOCK_HEIGHT.set(last_final_ds_block_height as i64);
         metrics::EPOCH_HEIGHT.set(epoch_height as i64);
         if let Some(last_final_block_height_in_epoch) = last_final_block_height_in_epoch {
-            // In rare cases cases the final height isn't updated, for example right after a state sync.
+            // In rare cases the final height isn't updated, for example right after a state sync.
             // Don't update the metric in such cases.
             metrics::FINAL_BLOCK_HEIGHT_IN_EPOCH.set(last_final_block_height_in_epoch as i64);
         }
@@ -550,6 +550,7 @@ impl InfoHelper {
                 name: "near-rs".to_string(),
                 version: self.nearcore_version.version.clone(),
                 build: self.nearcore_version.build.clone(),
+                protocol_version: PROTOCOL_VERSION,
             },
             system: TelemetrySystemInfo {
                 bandwidth_download: network_info.received_bytes_per_sec,
@@ -559,6 +560,7 @@ impl InfoHelper {
                 boot_time_seconds: self.boot_time_seconds,
             },
             chain: TelemetryChainInfo {
+                chain_id: client_config.chain_id.clone(),
                 node_id: node_id.to_string(),
                 account_id: self.validator_signer.as_ref().map(|bp| bp.validator_id().clone()),
                 is_validator,
