@@ -37,6 +37,7 @@ pub fn forward_sync_actor_messages_from_network(
 }
 
 #[derive(Clone)]
+#[must_use = "Builder should be used to build; otherwise events would not be handled"]
 pub struct LoopSyncActorBuilder {
     pub sync_actors: TestSyncActors,
     pub from_client_stream: LoopStream<(ShardUId, SyncMessage)>,

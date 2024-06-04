@@ -82,6 +82,7 @@ pub fn forward_client_messages_from_sync_adapter() -> LoopEventHandler<ClientAct
 }
 
 #[derive(Clone)]
+#[must_use = "Builder should be used to build; otherwise events would not be handled"]
 pub struct LoopClientActorBuilder {
     pub from_client_stream: LoopStream<ClientSenderForClientMessage>,
     pub from_client: ClientSenderForClient,

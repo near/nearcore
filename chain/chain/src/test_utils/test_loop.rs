@@ -20,6 +20,8 @@ pub fn forward_state_snapshot_messages_from_client(
     })
 }
 
+#[derive(Clone)]
+#[must_use = "Builder should be used to build; otherwise events would not be handled"]
 pub struct LoopStateSnapshotActorBuilder {
     pub from_state_snapshot_stream: LoopStream<StateSnapshotSenderForStateSnapshotMessage>,
     pub from_state_snapshot: StateSnapshotSenderForStateSnapshot,
@@ -27,6 +29,7 @@ pub struct LoopStateSnapshotActorBuilder {
     pub from_client: StateSnapshotSenderForClient,
 }
 
+#[derive(Clone)]
 pub struct LoopStateSnapshotActor {
     pub actor: v2::LoopData<StateSnapshotActor>,
     pub from_state_snapshot: StateSnapshotSenderForStateSnapshot,

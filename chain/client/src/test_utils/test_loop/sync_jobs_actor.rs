@@ -25,6 +25,7 @@ pub fn forward_messages_from_client_to_sync_jobs_actor(
 }
 
 #[derive(Clone)]
+#[must_use = "Builder should be used to build; otherwise events would not be handled"]
 pub struct LoopSyncJobsActorBuilder {
     pub from_client_stream: LoopStream<SyncJobsSenderForClientMessage>,
     pub from_client: SyncJobsSenderForClient,

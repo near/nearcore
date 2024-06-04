@@ -32,6 +32,7 @@ pub fn forward_messages_from_client_to_partial_witness_actor(
 }
 
 #[derive(Clone)]
+#[must_use = "Builder should be used to build; otherwise events would not be handled"]
 pub struct LoopPartialWitnessActorBuilder {
     pub from_client_stream: LoopStream<PartialWitnessSenderForClientMessage>,
     pub from_network_stream: LoopStream<PartialWitnessSenderForNetworkMessage>,

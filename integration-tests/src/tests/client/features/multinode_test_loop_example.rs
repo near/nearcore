@@ -1,21 +1,12 @@
-use derive_enum_from_into::{EnumFrom, EnumTryInto};
 use near_async::futures::FutureSpawner;
-use near_async::messaging::{noop, IntoSender, MessageWithCallback, SendAsync};
-use near_async::test_loop::adhoc::AdhocEvent;
-use near_async::test_loop::futures::{
-    TestLoopAsyncComputationEvent, TestLoopDelayedActionEvent, TestLoopTask,
-};
+use near_async::messaging::{noop, IntoSender, SendAsync};
 use near_async::time::Duration;
 use near_async::v2::{self, AdhocEventSender, LoopData, LoopStream};
 use near_chain::chunks_store::ReadOnlyChunksStore;
 use near_chain::state_snapshot_actor::{
-    get_delete_snapshot_callback, get_make_snapshot_callback, SnapshotCallbacks,
-    StateSnapshotActor, StateSnapshotSenderForClientMessage,
-    StateSnapshotSenderForStateSnapshotMessage,
+    get_delete_snapshot_callback, get_make_snapshot_callback, SnapshotCallbacks, StateSnapshotActor,
 };
-use near_chain::test_utils::test_loop::{
-    loop_state_snapshot_actor_builder, LoopStateSnapshotActor,
-};
+use near_chain::test_utils::test_loop::loop_state_snapshot_actor_builder;
 use near_chain::types::RuntimeAdapter;
 use near_chain::ChainGenesis;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
@@ -23,52 +14,32 @@ use near_chain_configs::{
     ClientConfig, DumpConfig, ExternalStorageConfig, ExternalStorageLocation, StateSyncConfig,
     SyncConfig,
 };
-use near_chunks::adapter::ShardsManagerRequestFromClient;
-use near_chunks::client::ShardsManagerResponse;
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_chunks::test_loop::{
     handle_shards_manager_network_routing, loop_shards_manager_actor_builder,
     LoopShardsManagerActor,
 };
-use near_client::client_actor::{
-    ClientActorInner, ClientSenderForClientMessage, ClientSenderForPartialWitnessMessage,
-    SyncJobsSenderForClientMessage,
-};
-use near_client::sync_jobs_actor::{ClientSenderForSyncJobsMessage, SyncJobsActor};
+use near_client::client_actor::ClientActorInner;
+use near_client::sync_jobs_actor::SyncJobsActor;
 use near_client::test_utils::test_loop::client_actor::{
     loop_client_actor_builder, LoopClientActor,
 };
-use near_client::test_utils::test_loop::partial_witness_actor::{
-    loop_partial_witness_actor_builder, LoopPartialWitnessActor,
-};
-use near_client::test_utils::test_loop::sync_actor::{
-    loop_sync_actor_builder, LoopSyncActor, TestSyncActors,
-};
-use near_client::test_utils::test_loop::sync_jobs_actor::{
-    loop_sync_jobs_actor_builder, LoopSyncJobsActor,
-};
+use near_client::test_utils::test_loop::partial_witness_actor::loop_partial_witness_actor_builder;
+use near_client::test_utils::test_loop::sync_actor::loop_sync_actor_builder;
+use near_client::test_utils::test_loop::sync_jobs_actor::loop_sync_jobs_actor_builder;
 use near_client::test_utils::test_loop::ClientQueries;
 use near_client::test_utils::test_loop::{
     handle_client_network_routing, handle_partial_witness_network_routing, ClientQueriesV2,
 };
-use near_client::{
-    Client, PartialWitnessActor, PartialWitnessSenderForClientMessage, SyncAdapter, SyncMessage,
-};
+use near_client::{Client, PartialWitnessActor, SyncAdapter};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
 use near_network::client::{
     ClientSenderForNetwork, ClientSenderForNetworkMessage, ProcessTxRequest,
 };
-use near_network::shards_manager::ShardsManagerRequestFromNetwork;
-use near_network::state_sync::StateSyncResponse;
-use near_network::state_witness::PartialWitnessSenderForNetworkMessage;
-use near_network::types::{
-    PeerManagerAdapter, PeerManagerAdapterMessage, PeerManagerMessageRequest,
-    PeerManagerMessageResponse, SetChainInfo,
-};
+use near_network::types::{PeerManagerAdapter, PeerManagerAdapterMessage};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::shard_layout::ShardUId;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
@@ -83,103 +54,12 @@ use nearcore::NightshadeRuntime;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-#[derive(derive_more::AsMut, derive_more::AsRef)]
-struct TestData {
-    pub dummy: (),
-    pub account: AccountId,
-    pub client: ClientActorInner,
-    pub sync_jobs: SyncJobsActor,
-    pub shards_manager: ShardsManagerActor,
-    pub partial_witness: PartialWitnessActor,
-    pub sync_actors: TestSyncActors,
-    pub state_sync_dumper: StateSyncDumper,
-    pub state_snapshot: StateSnapshotActor,
-}
-
-impl AsMut<TestData> for TestData {
-    fn as_mut(&mut self) -> &mut Self {
-        self
-    }
-}
-
-impl AsRef<Client> for TestData {
-    fn as_ref(&self) -> &Client {
-        &self.client.client
-    }
-}
-
-#[derive(EnumTryInto, Debug, EnumFrom)]
-#[allow(clippy::large_enum_variant)]
-enum TestEvent {
-    /// Allows futures to be spawn and executed.
-    Task(Arc<TestLoopTask>),
-    /// Allows adhoc events to be used for the test (only used inside this file).
-    Adhoc(AdhocEvent<TestData>),
-    /// Allows asynchronous computation (chunk application, stateless validation, etc.).
-    AsyncComputation(TestLoopAsyncComputationEvent),
-
-    /// Allows delayed actions to be posted, as if ClientActor scheduled them, e.g. timers.
-    ClientDelayedActions(TestLoopDelayedActionEvent<ClientActorInner>),
-    /// Allows delayed actions to be posted, as if ShardsManagerActor scheduled them, e.g. timers.
-    ShardsManagerDelayedActions(TestLoopDelayedActionEvent<ShardsManagerActor>),
-    /// Allows delayed actions to be posted, as if SyncJobsActor scheduled them, e.g. timers.
-    SyncJobsDelayedActions(TestLoopDelayedActionEvent<SyncJobsActor>),
-
-    /// Message that the network layer sends to the client.
-    ClientEventFromNetwork(ClientSenderForNetworkMessage),
-    /// Message that the client sends to the client itself.
-    ClientEventFromClient(ClientSenderForClientMessage),
-    /// Message that the SyncJobs component sends to the client.
-    ClientEventFromSyncJobs(ClientSenderForSyncJobsMessage),
-    /// Message that the ShardsManager component sends to the client.
-    ClientEventFromShardsManager(ShardsManagerResponse),
-    /// Message that the state sync adapter sends to the client.
-    ClientEventFromStateSyncAdapter(SyncMessage),
-
-    /// Message that the client sends to the SyncJobs component.
-    SyncJobsEventFromClient(SyncJobsSenderForClientMessage),
-
-    /// Message that the client sends to the SyncActor component.
-    SyncActorEventFromClient((ShardUId, SyncMessage)),
-    /// Message that the network sends to the SyncActor component.
-    SyncActorEventFromNetwork((ShardUId, StateSyncResponse)),
-
-    /// Message that the client sends to the ShardsManager component.
-    ShardsManagerRequestFromClient(ShardsManagerRequestFromClient),
-    /// Message that the network layer sends to the ShardsManager component.
-    ShardsManagerRequestFromNetwork(ShardsManagerRequestFromNetwork),
-
-    /// Message that the client sends to StateSnapshotActor.
-    StateSnapshotRequestFromClient(StateSnapshotSenderForClientMessage),
-    /// Message that the StateSnapshotActor sends to itself.
-    StateSnapshotRequestFromStateSnapshot(StateSnapshotSenderForStateSnapshotMessage),
-
-    /// Outgoing network message that is sent by any of the components of this node.
-    OutgoingNetworkMessage(PeerManagerMessageRequest),
-    /// Same as OutgoingNetworkMessage, but of the variant that requests a response.
-    OutgoingNetworkMessageForResult(
-        MessageWithCallback<PeerManagerMessageRequest, PeerManagerMessageResponse>,
-    ),
-    /// Calls to the network component to set chain info.
-    SetChainInfo(SetChainInfo),
-    /// Message from Client to PartialWitnessActor.
-    PartialWitnessSenderForClient(PartialWitnessSenderForClientMessage),
-    /// Message from Network to PartialWitnessActor.
-    PartialWitnessSenderForNetwork(PartialWitnessSenderForNetworkMessage),
-    /// Message from PartialWitnessActor to Client.
-    ClientSenderForPartialWitness(ClientSenderForPartialWitnessMessage),
-}
-
 const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 
 struct TestActors {
     account_id: AccountId,
     client: LoopClientActor,
-    sync_jobs: LoopSyncJobsActor,
     shards_manager: LoopShardsManagerActor,
-    partial_witness: LoopPartialWitnessActor,
-    sync_actors: LoopSyncActor,
-    state_snapshot: LoopStateSnapshotActor,
     state_sync_dumper: LoopData<StateSyncDumper>,
     network_stream: LoopStream<PeerManagerAdapterMessage>,
 }
@@ -407,15 +287,14 @@ fn test_client_with_multi_test_loop() {
 
         let client = client_actor_builder.build(&mut test, client_actor);
         client_queries.add_client(client.actor, accounts[idx].clone());
+        sync_jobs_actor_builder.build(&mut test, sync_jobs_actor);
+        partial_witness_actor_builder.build(&mut test, partial_witness_actions);
+        sync_actor_builder.build(&mut test);
+        state_snapshot_actor_builder.build(&mut test, state_snapshot);
         actors.push(TestActors {
             account_id: accounts[idx].clone(),
             client,
-            sync_jobs: sync_jobs_actor_builder.build(&mut test, sync_jobs_actor),
             shards_manager: shards_manager_actor_builder.build(&mut test, shards_manager),
-            partial_witness: partial_witness_actor_builder
-                .build(&mut test, partial_witness_actions),
-            sync_actors: sync_actor_builder.build(&mut test),
-            state_snapshot: state_snapshot_actor_builder.build(&mut test, state_snapshot),
             state_sync_dumper: test.add_data(state_sync_dumper),
             network_stream,
         });
