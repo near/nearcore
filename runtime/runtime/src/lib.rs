@@ -13,6 +13,7 @@ pub use crate::verifier::{
 use config::total_prepaid_send_fees;
 pub use congestion_control::bootstrap_congestion_info;
 use congestion_control::ReceiptSink;
+use metrics::ApplyMetrics;
 pub use near_crypto;
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
@@ -1419,7 +1420,6 @@ impl Runtime {
 
         let mut outgoing_receipts = Vec::new();
         let mut validator_proposals = vec![];
-        let mut local_receipts = vec![];
         let mut outcomes = vec![];
         let mut processed_delayed_receipts = vec![];
         let mut own_congestion_info =
@@ -1436,38 +1436,18 @@ impl Runtime {
         receipt_sink.forward_from_buffer(&mut state_update, apply_state)?;
 
         // Step 3: process transactions.
-        for signed_transaction in transactions {
-            let (receipt, outcome_with_id) = self.process_transaction(
-                &mut state_update,
-                apply_state,
-                signed_transaction,
-                &mut stats,
-            )?;
-            if receipt.receiver_id() == signed_transaction.transaction.signer_id() {
-                local_receipts.push(receipt);
-            } else {
-                receipt_sink.forward_or_buffer_receipt(
-                    receipt,
-                    apply_state,
-                    &mut state_update,
-                    epoch_info_provider,
-                )?;
-            }
-
-            total.add(
-                outcome_with_id.outcome.gas_burnt,
-                outcome_with_id
-                    .outcome
-                    .compute_usage
-                    .expect("`process_transaction` must populate compute usage"),
-            )?;
-            if !checked_feature!("stable", ComputeCosts, protocol_version) {
-                assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
-            }
-
-            outcomes.push(outcome_with_id);
-        }
-        metrics.tx_processing_done(total.gas, total.compute);
+        let local_receipts = self.process_transactions(
+            transactions,
+            protocol_version,
+            apply_state,
+            epoch_info_provider,
+            &mut outcomes,
+            &mut receipt_sink,
+            &mut state_update,
+            &mut stats,
+            &mut total,
+            &mut metrics,
+        )?;
 
         let mut process_receipt = |receipt: &Receipt,
                                    state_update: &mut TrieUpdate,
@@ -1866,6 +1846,56 @@ impl Runtime {
             }
         }
         state_update.commit(StateChangeCause::Migration);
+    }
+
+    /// Processes a collection of transactions and returns the local receipts produced.
+    fn process_transactions(
+        &self,
+        transactions: &[SignedTransaction],
+        protocol_version: ProtocolVersion,
+        apply_state: &ApplyState,
+        epoch_info_provider: &dyn EpochInfoProvider,
+        outcomes: &mut Vec<ExecutionOutcomeWithId>,
+        receipt_sink: &mut ReceiptSink,
+        mut state_update: &mut TrieUpdate,
+        mut stats: &mut ApplyStats,
+        total: &mut TotalResourceGuard,
+        metrics: &mut ApplyMetrics,
+    ) -> Result<Vec<Receipt>, RuntimeError> {
+        let mut local_receipts = vec![];
+        for signed_transaction in transactions {
+            let (receipt, outcome_with_id) = self.process_transaction(
+                &mut state_update,
+                apply_state,
+                signed_transaction,
+                &mut stats,
+            )?;
+            if receipt.receiver_id() == signed_transaction.transaction.signer_id() {
+                local_receipts.push(receipt);
+            } else {
+                receipt_sink.forward_or_buffer_receipt(
+                    receipt,
+                    apply_state,
+                    &mut state_update,
+                    epoch_info_provider,
+                )?;
+            }
+
+            total.add(
+                outcome_with_id.outcome.gas_burnt,
+                outcome_with_id
+                    .outcome
+                    .compute_usage
+                    .expect("`process_transaction` must populate compute usage"),
+            )?;
+            if !checked_feature!("stable", ComputeCosts, protocol_version) {
+                assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
+            }
+
+            outcomes.push(outcome_with_id);
+        }
+        metrics.tx_processing_done(total.gas, total.compute);
+        Ok(local_receipts)
     }
 }
 
