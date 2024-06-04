@@ -19,7 +19,7 @@ impl actix::Actor for Actor {
 }
 
 #[derive(actix::Message)]
-#[rtype(result = "()")]
+#[rtype("()")]
 struct SendFrame(stream::Frame);
 
 impl actix::Handler<SendFrame> for Actor {
