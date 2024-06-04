@@ -1,10 +1,11 @@
 use crate::{
     internal::{account_id_to_address, CHAIN_ID, MAX_YOCTO_NEAR},
     tests::utils::{crypto, nep141, test_context::TestContext},
+    types::ExecuteResponse,
 };
 use aurora_engine_types::types::{Address, Wei};
 use near_sdk::json_types::U128;
-use near_workspaces::types::NearToken;
+use near_workspaces::{result::ValueOrReceiptId, types::NearToken};
 
 // The Wallet Contract should understand that transactions to other Wallet
 // Contract instances are base token transactions.
@@ -69,7 +70,20 @@ async fn test_base_token_transfer() -> anyhow::Result<()> {
     let signed_transaction = crypto::sign_transaction(transaction, &wallet_sk);
 
     let target = format!("0x{}.wrong.suffix", hex::encode(other_address));
-    wallet_contract.rlp_execute(&target, &signed_transaction).await?;
+    let result = wallet_contract.rlp_execute_with_receipts(&target, &signed_transaction).await?;
+
+    // Transaction is rejected for a wrong namespace so there is a faulty relayer error.
+    for r in result.receipt_outcomes() {
+        let response: ExecuteResponse = match r.clone().into_result().unwrap() {
+            ValueOrReceiptId::ReceiptId(_) => continue,
+            ValueOrReceiptId::Value(value) => match value.json() {
+                Err(_) => continue,
+                Ok(x) => x,
+            },
+        };
+        assert!(!response.success, "Expected failure");
+        assert_eq!(response.error.as_deref(), Some("Error: faulty relayer"));
+    }
 
     let initial_wallet_balance = final_wallet_balance;
     let final_wallet_balance = wallet_contract.inner.as_account().view_account().await?.balance;
