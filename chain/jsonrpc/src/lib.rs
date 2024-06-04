@@ -1482,6 +1482,9 @@ async fn display_debug_html(
         "validator" => Some(debug_page_string!("validator.html", handler)),
         "validator.css" => Some(debug_page_string!("validator.css", handler)),
         "split_store" => Some(debug_page_string!("split_store.html", handler)),
+        "congestion_control" => Some(debug_page_string!("congestion_control.html", handler)),
+        "congestion_control.css" => Some(debug_page_string!("congestion_control.css", handler)),
+        "congestion_control.js" => Some(debug_page_string!("congestion_control.js", handler)),
         _ => None,
     };
 

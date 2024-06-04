@@ -131,7 +131,6 @@ extern "C" {
     // ########################
     // # Promise Yield/Resume #
     // ########################
-    #[cfg(feature = "nightly")]
     fn promise_yield_create(
         method_name_len: u64,
         method_name_ptr: u64,
@@ -141,7 +140,6 @@ extern "C" {
         gas_weight: u64,
         register_id: u64,
     ) -> u64;
-    #[cfg(feature = "nightly")]
     fn promise_yield_resume(
         data_id_len: u64,
         data_id_ptr: u64,
@@ -992,7 +990,6 @@ unsafe fn check_promise_result_write_status() {
 /// Call promise_yield_create, specifying `check_promise_result` as the yield callback.
 /// Given input is passed as the argument to the `check_promise_result` function call.
 /// Sets the yield callback's output as the return value.
-#[cfg(feature = "nightly")]
 #[no_mangle]
 pub unsafe fn call_yield_create_return_promise() {
     input(0);
@@ -1021,7 +1018,6 @@ pub unsafe fn call_yield_create_return_promise() {
 /// Call promise_yield_create, specifying `check_promise_result` as the yield callback.
 /// Given input is passed as the argument to the `check_promise_result` function call.
 /// Returns the data id produced by promise_yield_create.
-#[cfg(feature = "nightly")]
 #[no_mangle]
 pub unsafe fn call_yield_create_return_data_id() {
     input(0);
@@ -1053,7 +1049,6 @@ pub unsafe fn call_yield_create_return_data_id() {
 /// Call promise_yield_resume.
 /// Input is the byte array with `data_id` represented by last 32 bytes and `payload`
 /// represented by the first `register_len(0) - 32` bytes.
-#[cfg(feature = "nightly")]
 #[no_mangle]
 pub unsafe fn call_yield_resume() {
     input(0);
@@ -1076,7 +1071,6 @@ pub unsafe fn call_yield_resume() {
 }
 
 /// Call promise_yield_create and promise_yield_resume within the same function.
-#[cfg(feature = "nightly")]
 #[no_mangle]
 pub unsafe fn call_yield_create_and_resume() {
     input(0);

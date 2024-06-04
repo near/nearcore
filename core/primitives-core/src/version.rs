@@ -223,7 +223,7 @@ impl ProtocolFeature {
             ProtocolFeature::StateWitnessSizeLimit => 83,
             ProtocolFeature::PerReceiptHardStorageProofLimit => 85,
             ProtocolFeature::PartialEncodedStateWitness => 86,
-            ProtocolFeature::WitnessTransactionLimits => 87,
+            ProtocolFeature::WitnessTransactionLimits | ProtocolFeature::CongestionControl => 87,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
@@ -235,7 +235,6 @@ impl ProtocolFeature {
             ProtocolFeature::EthImplicitAccounts => 138,
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
             ProtocolFeature::NonrefundableStorage => 140,
-            ProtocolFeature::CongestionControl => 142,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
