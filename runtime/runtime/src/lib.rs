@@ -1360,8 +1360,7 @@ impl Runtime {
         // 2. Apply migrations.
         // 3. Process transactions.
         // 4. Process receipts.
-        // 5. Check balance.
-        // 6. Apply state patch (a collection of changes from the steps 1-4).
+        // 5. Validate and apply the state update.
 
         let protocol_version = apply_state.current_protocol_version;
         let mut prefetcher = TriePrefetcher::new_if_enabled(&trie);
@@ -1472,108 +1471,23 @@ impl Runtime {
             &apply_state.config.congestion_control_config,
         );
 
-        let _span = tracing::debug_span!(target: "runtime", "apply_commit").entered();
-
-        if process_receipts_result.promise_yield_indices
-            != process_receipts_result.initial_promise_yield_indices
-        {
-            set(
-                &mut state_update,
-                TrieKey::PromiseYieldIndices,
-                &process_receipts_result.promise_yield_indices,
-            );
-        }
-
-        // Congestion info needs a final touch to select an allowed shard if
-        // this shard is fully congested.
-
-        let delayed_receipts_count = delayed_receipts.len();
-        if let Some(congestion_info) = &mut own_congestion_info {
-            delayed_receipts.apply_congestion_changes(congestion_info)?;
-            let other_shards = apply_state
-                .congestion_info
-                .keys()
-                .filter(|&&id| id != apply_state.shard_id)
-                .copied()
-                .collect::<Vec<_>>();
-
-            let congestion_seed = apply_state.block_height;
-            congestion_info.finalize_allowed_shard(
-                apply_state.shard_id,
-                &other_shards,
-                congestion_seed,
-                &apply_state.config.congestion_control_config,
-            );
-        }
-
-        // Step 5: check balance.
-        check_balance(
-            &apply_state.config,
-            &state_update,
-            validator_accounts_update,
-            incoming_receipts,
-            &process_receipts_result.timeout_receipts,
-            transactions,
-            &outgoing_receipts,
-            &stats,
-        )?;
-
-        // Step 6: apply state patch.
-        state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
-        self.apply_state_patch(&mut state_update, state_patch);
-        let chunk_recorded_size_upper_bound =
-            state_update.trie.recorded_storage_size_upper_bound() as f64;
-        metrics::CHUNK_RECORDED_SIZE_UPPER_BOUND.observe(chunk_recorded_size_upper_bound);
-        let (trie, trie_changes, state_changes) = state_update.finalize()?;
-
-        if let Some(prefetcher) = &prefetcher {
-            // Only clear the prefetcher queue after finalize is done because as part of receipt
-            // processing we also prefetch account data and access keys that are accessed in
-            // finalize. This data can take a very long time otherwise if not prefetched.
-            //
-            // (This probably results in more data being accessed than strictly necessary and
-            // prefetcher may touch data that is no longer relevant as a result but...)
-            //
-            // In the future it may make sense to have prefetcher have a mode where it has two
-            // queues: one for data that is going to be required soon, and the other that it would
-            // only work when otherwise idle.
-            let discarded_prefetch_requests = prefetcher.clear();
-            tracing::debug!(target: "runtime", discarded_prefetch_requests);
-        }
-
-        // Dedup proposals from the same account.
-        // The order is deterministically changed.
-        let mut unique_proposals = vec![];
-        let mut account_ids = HashSet::new();
-        for proposal in process_receipts_result.validator_proposals.into_iter().rev() {
-            let account_id = proposal.account_id();
-            if !account_ids.contains(account_id) {
-                account_ids.insert(account_id.clone());
-                unique_proposals.push(proposal);
-            }
-        }
-
-        let state_root = trie_changes.new_root;
-        let chunk_recorded_size = trie.recorded_storage_size() as f64;
-        metrics::CHUNK_RECORDED_SIZE.observe(chunk_recorded_size);
-        metrics::CHUNK_RECORDED_SIZE_UPPER_BOUND_RATIO
-            .observe(chunk_recorded_size_upper_bound / f64::max(1.0, chunk_recorded_size));
-        let proof = trie.recorded_storage();
-        Ok(ApplyResult {
-            state_root,
-            trie_changes,
-            validator_proposals: unique_proposals,
-            outgoing_receipts,
+        // Step 5: validate and apply the state update.
+        self.validate_apply_state_update(
+            apply_state,
             outcomes,
-            state_changes,
+            state_update,
             stats,
-            processed_delayed_receipts: process_receipts_result.processed_delayed_receipts,
-            processed_yield_timeouts: process_receipts_result.processed_yield_timeouts,
-            proof,
-            delayed_receipts_count,
-            metrics: Some(metrics),
-            congestion_info: own_congestion_info,
-        })
+            metrics,
+            &mut prefetcher,
+            delayed_receipts,
+            incoming_receipts,
+            process_receipts_result,
+            own_congestion_info,
+            transactions,
+            outgoing_receipts,
+            validator_accounts_update,
+            state_patch,
+        )
     }
 
     fn apply_state_patch(&self, state_update: &mut TrieUpdate, state_patch: SandboxStatePatch) {
@@ -1946,6 +1860,127 @@ impl Runtime {
             validator_proposals,
             processed_delayed_receipts,
             processed_yield_timeouts,
+        })
+    }
+
+    fn validate_apply_state_update(
+        &self,
+        apply_state: &ApplyState,
+        outcomes: Vec<ExecutionOutcomeWithId>,
+        mut state_update: TrieUpdate,
+        stats: ApplyStats,
+        metrics: ApplyMetrics,
+        prefetcher: &mut Option<TriePrefetcher>,
+        delayed_receipts: DelayedReceiptQueueWrapper,
+        incoming_receipts: &[Receipt],
+        process_receipts_result: ProcessReceiptsResult,
+        mut own_congestion_info: Option<CongestionInfo>,
+        transactions: &[SignedTransaction],
+        outgoing_receipts: Vec<Receipt>,
+        validator_accounts_update: &Option<ValidatorAccountsUpdate>,
+        state_patch: SandboxStatePatch,
+    ) -> Result<ApplyResult, RuntimeError> {
+        let _span = tracing::debug_span!(target: "runtime", "apply_commit").entered();
+
+        if process_receipts_result.promise_yield_indices
+            != process_receipts_result.initial_promise_yield_indices
+        {
+            set(
+                &mut state_update,
+                TrieKey::PromiseYieldIndices,
+                &process_receipts_result.promise_yield_indices,
+            );
+        }
+
+        // Congestion info needs a final touch to select an allowed shard if
+        // this shard is fully congested.
+
+        let delayed_receipts_count = delayed_receipts.len();
+        if let Some(congestion_info) = &mut own_congestion_info {
+            delayed_receipts.apply_congestion_changes(congestion_info)?;
+            let other_shards = apply_state
+                .congestion_info
+                .keys()
+                .filter(|&&id| id != apply_state.shard_id)
+                .copied()
+                .collect::<Vec<_>>();
+
+            let congestion_seed = apply_state.block_height;
+            congestion_info.finalize_allowed_shard(
+                apply_state.shard_id,
+                &other_shards,
+                congestion_seed,
+                &apply_state.config.congestion_control_config,
+            );
+        }
+
+        check_balance(
+            &apply_state.config,
+            &state_update,
+            validator_accounts_update,
+            incoming_receipts,
+            &process_receipts_result.timeout_receipts,
+            transactions,
+            &outgoing_receipts,
+            &stats,
+        )?;
+
+        state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
+        self.apply_state_patch(&mut state_update, state_patch);
+        let chunk_recorded_size_upper_bound =
+            state_update.trie.recorded_storage_size_upper_bound() as f64;
+        metrics::CHUNK_RECORDED_SIZE_UPPER_BOUND.observe(chunk_recorded_size_upper_bound);
+        let (trie, trie_changes, state_changes) = state_update.finalize()?;
+
+        if let Some(prefetcher) = &prefetcher {
+            // Only clear the prefetcher queue after finalize is done because as part of receipt
+            // processing we also prefetch account data and access keys that are accessed in
+            // finalize. This data can take a very long time otherwise if not prefetched.
+            //
+            // (This probably results in more data being accessed than strictly necessary and
+            // prefetcher may touch data that is no longer relevant as a result but...)
+            //
+            // In the future it may make sense to have prefetcher have a mode where it has two
+            // queues: one for data that is going to be required soon, and the other that it would
+            // only work when otherwise idle.
+            let discarded_prefetch_requests = prefetcher.clear();
+            tracing::debug!(target: "runtime", discarded_prefetch_requests);
+        }
+
+        // Dedup proposals from the same account.
+        // The order is deterministically changed.
+        let mut unique_proposals = vec![];
+        let mut account_ids = HashSet::new();
+        for proposal in process_receipts_result.validator_proposals.into_iter().rev() {
+            let account_id = proposal.account_id();
+            if !account_ids.contains(account_id) {
+                account_ids.insert(account_id.clone());
+                unique_proposals.push(proposal);
+            }
+        }
+
+        let state_root = trie_changes.new_root;
+        let chunk_recorded_size = trie.recorded_storage_size() as f64;
+        metrics::CHUNK_RECORDED_SIZE.observe(chunk_recorded_size);
+        metrics::CHUNK_RECORDED_SIZE_UPPER_BOUND_RATIO
+            .observe(chunk_recorded_size_upper_bound / f64::max(1.0, chunk_recorded_size));
+        let proof = trie.recorded_storage();
+        let processed_delayed_receipts = process_receipts_result.processed_delayed_receipts;
+        let processed_yield_timeouts = process_receipts_result.processed_yield_timeouts;
+        Ok(ApplyResult {
+            state_root,
+            trie_changes,
+            validator_proposals: unique_proposals,
+            outgoing_receipts,
+            outcomes,
+            state_changes,
+            stats,
+            processed_delayed_receipts,
+            processed_yield_timeouts,
+            proof,
+            delayed_receipts_count,
+            metrics: Some(metrics),
+            congestion_info: own_congestion_info,
         })
     }
 }
