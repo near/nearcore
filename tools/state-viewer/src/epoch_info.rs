@@ -159,7 +159,7 @@ fn get_block_height_range(
 }
 
 // Converts a bunch of optional filtering options into a vector of EpochIds.
-pub(crate) fn get_epoch_ids(
+fn get_epoch_ids(
     epoch_selection: EpochSelection,
     store: Store,
     chain_store: &ChainStore,

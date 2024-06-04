@@ -66,7 +66,7 @@ pub enum StateViewerSubCommand {
     /// Print `EpochInfo` of an epoch given by `--epoch_id` or by `--epoch_height`.
     #[clap(alias = "epoch_info")]
     EpochInfo(EpochInfoCmd),
-    /// Epoch analysis
+    /// Regenerates epoch info based on previous epoch.
     #[clap(alias = "epoch_analysis")]
     EpochAnalysis(EpochAnalysisCmd),
     /// Looks up a certain partial chunk.
@@ -496,11 +496,26 @@ pub struct EpochAnalysisCmd {
     /// Start height of the epochs to analyse.
     #[clap(long)]
     start_height: EpochHeight,
+    /// Epoch analysis mode.
+    #[clap(subcommand)]
+    mode: EpochAnalysisMode,
+}
+
+#[derive(clap::Subcommand)]
+pub enum EpochAnalysisMode {
+    /// Regenerate epoch infos based on previous epoch, assert that epoch info
+    /// generation is replayable.
+    /// TODO (#11476): doesn't work when start epoch height is <= 1053 because
+    /// it will try to generate epoch with height 1055 and fail.
+    CheckConsistency,
+    /// Generate epoch infos as if latest `PROTOCOL_VERSION` was used since the
+    /// start epoch height.
+    Backtest,
 }
 
 impl EpochAnalysisCmd {
     pub fn run(self, near_config: NearConfig, store: Store) {
-        print_epoch_analysis(self.start_height, near_config, store);
+        print_epoch_analysis(self.start_height, self.mode, near_config, store);
     }
 }
 

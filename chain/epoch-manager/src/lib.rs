@@ -1708,9 +1708,16 @@ impl EpochManager {
         Ok(ShardConfig::new(epoch_config))
     }
 
+    pub fn get_config_for_protocol_version(
+        &self,
+        protocol_version: ProtocolVersion,
+    ) -> Result<EpochConfig, EpochError> {
+        Ok(self.config.for_protocol_version(protocol_version))
+    }
+
     pub fn get_epoch_config(&self, epoch_id: &EpochId) -> Result<EpochConfig, EpochError> {
         let protocol_version = self.get_epoch_info(epoch_id)?.protocol_version();
-        Ok(self.config.for_protocol_version(protocol_version))
+        self.get_config_for_protocol_version(protocol_version)
     }
 
     pub fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {

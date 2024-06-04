@@ -51,12 +51,12 @@ pub fn proposals_to_epoch_info(
 ) -> Result<EpochInfo, EpochError> {
     // For this protocol feature, switch happened two epochs after protocol upgrade.
     // Keeping it this way for replayability.
-    if checked_feature!(
+    return if checked_feature!(
         "stable",
         AliasValidatorSelectionAlgorithm,
         prev_prev_epoch_protocol_version
     ) {
-        return crate::validator_selection::proposals_to_epoch_info(
+        crate::validator_selection::proposals_to_epoch_info(
             epoch_config,
             rng_seed,
             prev_epoch_info,
@@ -66,9 +66,9 @@ pub fn proposals_to_epoch_info(
             minted_amount,
             protocol_version,
             use_stable_shard_assignment,
-        );
+        )
     } else {
-        return old_validator_selection::proposals_to_epoch_info(
+        old_validator_selection::proposals_to_epoch_info(
             epoch_config,
             rng_seed,
             prev_epoch_info,
@@ -77,8 +77,8 @@ pub fn proposals_to_epoch_info(
             validator_reward,
             minted_amount,
             protocol_version,
-        );
-    }
+        )
+    };
 }
 
 mod old_validator_selection {

@@ -1,5 +1,5 @@
 use crate::apply_chain_range::apply_chain_range;
-use crate::cli::ApplyRangeMode;
+use crate::cli::{ApplyRangeMode, EpochAnalysisMode};
 use crate::contract_accounts::ContractAccount;
 use crate::contract_accounts::ContractAccountFilter;
 use crate::contract_accounts::Summary;
@@ -27,7 +27,6 @@ use near_primitives::account::id::AccountId;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::{EpochConfig, RngSeed};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
@@ -39,7 +38,7 @@ use near_primitives::trie_key::col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, EpochId, ShardId, StateRoot};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives_core::types::{Balance, EpochHeight, Gas, ProtocolVersion};
+use near_primitives_core::types::{Balance, EpochHeight, Gas};
 use near_store::flat::FlatStorageChunkView;
 use near_store::flat::FlatStorageManager;
 use near_store::test_utils::create_test_store;
@@ -901,6 +900,7 @@ pub(crate) fn print_epoch_info(
 
 pub(crate) fn print_epoch_analysis(
     epoch_height: EpochHeight,
+    mode: EpochAnalysisMode,
     near_config: NearConfig,
     store: Store,
 ) {
@@ -934,89 +934,168 @@ pub(crate) fn print_epoch_analysis(
             }
         }));
 
-    let chain_store = ChainStore::new(
-        store.clone(),
-        near_config.genesis.config.genesis_height,
-        near_config.client_config.save_trie_changes,
-    );
-    let tip_epoch_id = chain_store.head().unwrap().epoch_id;
-    let epoch_config_last = epoch_manager.get_epoch_config(&tip_epoch_id).unwrap();
-    println!(
-        "{:?} {}",
-        epoch_config_last.shard_layout,
-        epoch_config_last.validator_selection_config.num_chunk_producer_seats
-    );
+    // Next epoch info and next next epoch config are going to be used for
+    // next next epoch info generation. For convenience of the code to make
+    // two modes work, we modify them on each iteration.
+    let mut next_epoch_info =
+        epoch_heights_to_infos.get(&min_epoch_height.saturating_add(1)).unwrap().as_ref().clone();
+    let mut next_next_epoch_config =
+        epoch_manager.get_config_for_protocol_version(PROTOCOL_VERSION).unwrap();
 
-    let mut prev_cps = vec![vec![]; epoch_config_last.shard_layout.shard_ids().count()];
-    println!("MAX HEIGHT {max_epoch_height}");
-    for (epoch_height, _) in epoch_heights_to_infos.range(min_epoch_height..=max_epoch_height - 4) {
-        // T = epoch_height
-        // T+1 = next epoch, already generated
-        // T+2 = resulting assignment
-        let epoch_id = epoch_heights_to_ids.get(&epoch_height).unwrap();
-        let epoch_id_t1 = epoch_heights_to_ids.get(&epoch_height.saturating_add(1)).unwrap();
-        let epoch_id_t2 = epoch_heights_to_ids.get(&epoch_height.saturating_add(2)).unwrap();
-        let epoch_summary_t = epoch_heights_to_validator_infos.get(epoch_height).unwrap();
-        let epoch_info_t = epoch_heights_to_infos.get(epoch_height).unwrap();
-        let epoch_info_t1 = epoch_heights_to_infos.get(&epoch_height.saturating_add(1)).unwrap();
-        let epoch_info_t2 = epoch_heights_to_infos.get(&epoch_height.saturating_add(2)).unwrap();
+    // Print data header.
+    match mode {
+        EpochAnalysisMode::CheckConsistency => {
+            println!("HEIGHT | VERSION | STATE SYNCS");
+        }
+        EpochAnalysisMode::Backtest => {
+            println!("epoch_height,original_protocol_version,state_syncs,min_validator_num,diff_validator_num,min_stake,diff_stake,rel_diff_stake");
+            // Start from empty assignment for correct number of shards.
+            *next_epoch_info.chunk_producers_settlement_mut() =
+                vec![vec![]; next_next_epoch_config.shard_layout.shard_ids().collect_vec().len()];
+            // This in fact sets maximal number of validators to 100.
+            // Needed because otherwise generation fails at epoch 1327 with
+            // assertion `stake < threshold` in
+            // chain/epoch-manager/src/validator_selection.rs:227:13.
+            // Probably has something to do with extreme case where all
+            // proposals are selected.
+            next_next_epoch_config.validator_selection_config.num_chunk_validator_seats = 100;
+        }
+    }
 
-        let epoch_config_t = epoch_manager.get_epoch_config(epoch_id).unwrap();
-        let epoch_config_t1 = epoch_manager.get_epoch_config(epoch_id_t1).unwrap();
-        let epoch_config_t2 = epoch_manager.get_epoch_config(epoch_id_t2).unwrap();
-        let rng_seed = epoch_info_t2.rng_seed();
+    // Each iteration will generate and print *next next* epoch info based on
+    // *next* epoch info for `epoch_height`. This follows epoch generation
+    // logic in the protocol.
+    for (epoch_height, epoch_info) in
+        epoch_heights_to_infos.range(min_epoch_height..=max_epoch_height - 4)
+    {
+        let next_epoch_height = epoch_height.saturating_add(1);
+        let next_next_epoch_height = epoch_height.saturating_add(2);
+        let next_epoch_id = epoch_heights_to_ids.get(&next_epoch_height).unwrap();
+        let next_next_epoch_id = epoch_heights_to_ids.get(&next_next_epoch_height).unwrap();
+        let epoch_summary = epoch_heights_to_validator_infos.get(epoch_height).unwrap();
 
-        // if epoch_config_t.shard_layout != epoch_config_t1.shard_layout
-        //     || epoch_config_t1.shard_layout != epoch_config_t2.shard_layout
-        // {
-        //     println!("{: >5} SKIP", epoch_height);
-        //     continue;
-        // }
+        next_epoch_info = match mode {
+            EpochAnalysisMode::CheckConsistency => {
+                // Take stored epoch info.
+                epoch_heights_to_infos.get(&next_epoch_height).unwrap().as_ref().clone()
+            }
+            // In the backtest mode, we use epoch info generated on the
+            // *previous* iteration.
+            EpochAnalysisMode::Backtest => next_epoch_info,
+        };
 
-        let mut epoch_info = epoch_info_t1.as_ref().clone();
-        let mut cps_mut = epoch_info.chunk_producers_settlement_mut();
-        *cps_mut = prev_cps.clone();
+        let next_epoch_config = epoch_manager.get_epoch_config(next_epoch_id).unwrap();
+        next_next_epoch_config = match mode {
+            EpochAnalysisMode::CheckConsistency => {
+                epoch_manager.get_epoch_config(next_next_epoch_id).unwrap()
+            }
+            // In the backtest mode, epoch config is overridden and stays the
+            // same.
+            EpochAnalysisMode::Backtest => next_next_epoch_config,
+        };
 
-        let epoch_info = near_epoch_manager::proposals_to_epoch_info(
-            // &epoch_config_last,
-            &epoch_config_t1,
+        let has_same_shard_layout = match mode {
+            EpochAnalysisMode::CheckConsistency => {
+                next_epoch_config.shard_layout == next_next_epoch_config.shard_layout
+            }
+            // In the backtest mode, shard layout is always the same.
+            EpochAnalysisMode::Backtest => true,
+        };
+
+        let epoch_protocol_version = match mode {
+            EpochAnalysisMode::CheckConsistency => epoch_info.protocol_version(),
+            // In the backtest mode, protocol version is overridden by the latest one.
+            EpochAnalysisMode::Backtest => PROTOCOL_VERSION,
+        };
+        let original_next_next_protocol_version = epoch_summary.next_next_epoch_version.clone();
+        let next_next_protocol_version = match mode {
+            EpochAnalysisMode::CheckConsistency => original_next_next_protocol_version,
+            // In the backtest mode, protocol version is overridden by the latest one.
+            EpochAnalysisMode::Backtest => PROTOCOL_VERSION,
+        };
+
+        // Use "future" information to generate next next epoch which is stored
+        // in DB already. Epoch info generation doesn't modify it.
+        let stored_next_next_epoch_info =
+            epoch_heights_to_infos.get(&next_next_epoch_height).unwrap();
+        let rng_seed = stored_next_next_epoch_info.rng_seed();
+
+        let next_next_epoch_info = near_epoch_manager::proposals_to_epoch_info(
+            &next_next_epoch_config,
             rng_seed,
-            epoch_info_t1.as_ref(),
-            epoch_summary_t.all_proposals.clone(),
-            epoch_summary_t.validator_kickout.clone(),
-            epoch_info_t2.validator_reward().clone(),
-            epoch_info_t2.minted_amount(),
-            epoch_info_t.protocol_version(),
-            // PROTOCOL_VERSION,
-            epoch_summary_t.next_version.clone(),
+            &next_epoch_info,
+            epoch_summary.all_proposals.clone(),
+            epoch_summary.validator_kickout.clone(),
+            stored_next_next_epoch_info.validator_reward().clone(),
+            stored_next_next_epoch_info.minted_amount(),
+            epoch_protocol_version,
+            next_next_protocol_version,
+            has_same_shard_layout,
         )
         .unwrap();
 
-        let prev_assignment = epoch_info_t1.chunk_producers_settlement();
-        let new_assignment = epoch_info.chunk_producers_settlement();
-        prev_cps = new_assignment.to_vec();
+        // Compute difference between chunk producer assignments.
+        let next_assignment = next_epoch_info.chunk_producers_settlement();
+        let next_next_assignment = next_next_epoch_info.chunk_producers_settlement();
 
-        let mut prev_validator_to_shard = HashMap::<AccountId, usize>::default();
-        for (i, validator_ids) in prev_assignment.iter().enumerate() {
+        let mut next_validator_to_shard = HashMap::<AccountId, Vec<usize>>::default();
+        for (i, validator_ids) in next_assignment.iter().enumerate() {
             for validator_id in validator_ids {
-                let validator = epoch_info_t1.get_validator(*validator_id).take_account_id();
-                prev_validator_to_shard.insert(validator, i);
+                let validator = next_epoch_info.get_validator(*validator_id).take_account_id();
+                next_validator_to_shard.entry(validator).or_default().push(i);
             }
         }
         let mut state_syncs = 0;
-        let mut new_validator_to_shard = HashMap::<AccountId, usize>::default();
-        for (i, validator_ids) in new_assignment.iter().enumerate() {
+        let mut next_next_validator_to_shard = HashMap::<AccountId, usize>::default();
+        let mut stakes: HashMap<usize, Balance> = HashMap::default();
+        let mut validator_num: HashMap<usize, usize> = HashMap::default();
+        for (i, validator_ids) in next_next_assignment.iter().enumerate() {
             for validator_id in validator_ids {
-                let validator = epoch_info.get_validator(*validator_id).take_account_id();
-                if prev_validator_to_shard.get(&validator) != Some(&i) {
+                let validator = next_next_epoch_info.get_validator(*validator_id);
+                let account_id = validator.account_id().clone();
+                *stakes.entry(i).or_insert(0) += validator.stake();
+                *validator_num.entry(i).or_insert(0) += 1;
+                if !next_validator_to_shard
+                    .get(&account_id)
+                    .is_some_and(|shards| shards.contains(&i))
+                {
                     state_syncs += 1;
                 }
-                new_validator_to_shard.insert(validator, i);
+                next_next_validator_to_shard.insert(account_id, i);
             }
         }
 
-        // println!("{: >5} {state_syncs}", epoch_height);
-        assert_eq!(epoch_info_t2.as_ref(), &epoch_info);
+        let min_stake = stakes.values().min().unwrap();
+        let max_stake = stakes.values().max().unwrap();
+
+        // Process generated epoch info.
+        match mode {
+            EpochAnalysisMode::CheckConsistency => {
+                // Print stats on screen.
+                println!(
+                    "{next_next_epoch_height: >6} | {original_next_next_protocol_version: >7} | {state_syncs: >11}",
+                );
+                // Check that the generated epoch info is the same as the stored one.
+                assert_eq!(
+                    stored_next_next_epoch_info.as_ref(),
+                    &next_next_epoch_info,
+                    "Unequal epoch info at height {epoch_height}"
+                );
+            }
+            EpochAnalysisMode::Backtest => {
+                // Print csv-style stats on screen.
+                println!(
+                    "{next_next_epoch_height},{original_next_next_protocol_version},{state_syncs},{},{},{},{},{}",
+                    validator_num.values().min().unwrap(),
+                    validator_num.values().max().unwrap() - validator_num.values().min().unwrap(),
+                    min_stake,
+                    max_stake - min_stake,
+                    ((max_stake - min_stake) as f64) / (*max_stake as f64)
+                );
+                // Use the generated epoch info for the next iteration.
+                next_epoch_info = next_next_epoch_info;
+            }
+        }
     }
 }
 
