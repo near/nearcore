@@ -55,7 +55,7 @@ async fn test_base_token_transfer() -> anyhow::Result<()> {
     assert!(diff < NearToken::from_millinear(2));
 
     // If the relayer adds an account suffix different from the wallet contract,
-    // then it the transaction is rejected.
+    // then the transaction is rejected.
     let transaction = aurora_engine_transactions::eip_2930::Transaction2930 {
         nonce: 1.into(),
         gas_price: 0.into(),
