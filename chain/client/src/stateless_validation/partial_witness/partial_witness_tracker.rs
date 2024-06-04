@@ -172,9 +172,12 @@ impl PartialEncodedStateWitnessTracker {
 
         let key = partial_witness.chunk_production_key();
         if self.processed_witnesses.contains(&key) {
-            return Err(Error::InvalidPartialChunkStateWitness(format!(
-                "State witness with key {key:?} was already processed"
-            )));
+            tracing::debug!(
+                target: "client",
+                ?partial_witness,
+                "Received redundant part for already processed witness"
+            );
+            return Ok(());
         }
 
         self.maybe_insert_new_entry_in_parts_cache(&partial_witness)?;
