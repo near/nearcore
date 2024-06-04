@@ -1568,6 +1568,84 @@ impl Runtime {
         Ok(local_receipts)
     }
 
+    /// This function wraps [Runtime::process_receipt]. It adds a tracing span around the latter
+    /// and populates various metrics.
+    fn process_receipt_with_metrics(
+        &self,
+        receipt: &Receipt,
+        state_update: &mut TrieUpdate,
+        total: &mut TotalResourceGuard,
+        protocol_version: ProtocolVersion,
+        apply_state: &ApplyState,
+        epoch_info_provider: &dyn EpochInfoProvider,
+        outcomes: &mut Vec<ExecutionOutcomeWithId>,
+        mut stats: &mut ApplyStats,
+        mut receipt_sink: &mut ReceiptSink,
+        mut validator_proposals: &mut Vec<ValidatorStake>,
+    ) -> Result<(), RuntimeError> {
+        let span = tracing::debug_span!(
+            target: "runtime",
+            "process_receipt",
+            receipt_id = %receipt.receipt_id(),
+            predecessor = %receipt.predecessor_id(),
+            receiver = %receipt.receiver_id(),
+            gas_burnt = tracing::field::Empty,
+            compute_usage = tracing::field::Empty,
+        )
+        .entered();
+        let node_counter_before = state_update.trie().get_trie_nodes_count();
+        let recorded_storage_size_before = state_update.trie().recorded_storage_size();
+        let storage_proof_size_upper_bound_before =
+            state_update.trie().recorded_storage_size_upper_bound();
+        let result = self.process_receipt(
+            state_update,
+            apply_state,
+            receipt,
+            &mut receipt_sink,
+            &mut validator_proposals,
+            &mut stats,
+            epoch_info_provider,
+        );
+        let node_counter_after = state_update.trie().get_trie_nodes_count();
+        tracing::trace!(target: "runtime", ?node_counter_before, ?node_counter_after);
+
+        let recorded_storage_diff = state_update
+            .trie()
+            .recorded_storage_size()
+            .saturating_sub(recorded_storage_size_before)
+            as f64;
+        let recorded_storage_upper_bound_diff = state_update
+            .trie()
+            .recorded_storage_size_upper_bound()
+            .saturating_sub(storage_proof_size_upper_bound_before)
+            as f64;
+        metrics::RECEIPT_RECORDED_SIZE.observe(recorded_storage_diff);
+        metrics::RECEIPT_RECORDED_SIZE_UPPER_BOUND.observe(recorded_storage_upper_bound_diff);
+        let recorded_storage_proof_ratio =
+            recorded_storage_upper_bound_diff / f64::max(1.0, recorded_storage_diff);
+        // Record the ratio only for large receipts, small receipts can have a very high ratio,
+        // but the ratio is not that important for them.
+        if recorded_storage_upper_bound_diff > 100_000. {
+            metrics::RECEIPT_RECORDED_SIZE_UPPER_BOUND_RATIO.observe(recorded_storage_proof_ratio);
+        }
+        if let Some(outcome_with_id) = result? {
+            let gas_burnt = outcome_with_id.outcome.gas_burnt;
+            let compute_usage = outcome_with_id
+                .outcome
+                .compute_usage
+                .expect("`process_receipt` must populate compute usage");
+            total.add(gas_burnt, compute_usage)?;
+            span.record("gas_burnt", gas_burnt);
+            span.record("compute_usage", compute_usage);
+
+            if !checked_feature!("stable", ComputeCosts, protocol_version) {
+                assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
+            }
+            outcomes.push(outcome_with_id);
+        }
+        Ok(())
+    }
+
     /// Processes all receipts (local, delayed and incoming).
     /// Returns a structure containing the result of the processing.
     fn process_receipts(
@@ -1576,9 +1654,9 @@ impl Runtime {
         apply_state: &ApplyState,
         epoch_info_provider: &dyn EpochInfoProvider,
         outcomes: &mut Vec<ExecutionOutcomeWithId>,
-        mut receipt_sink: &mut ReceiptSink,
+        receipt_sink: &mut ReceiptSink,
         mut state_update: &mut TrieUpdate,
-        mut stats: &mut ApplyStats,
+        stats: &mut ApplyStats,
         mut total: &mut TotalResourceGuard,
         metrics: &mut ApplyMetrics,
         mut prefetcher: &mut Option<TriePrefetcher>,
@@ -1588,73 +1666,6 @@ impl Runtime {
     ) -> Result<ProcessReceiptsResult, RuntimeError> {
         let mut validator_proposals = vec![];
         let mut processed_delayed_receipts = vec![];
-        let mut process_receipt = |receipt: &Receipt,
-                                   state_update: &mut TrieUpdate,
-                                   total: &mut TotalResourceGuard|
-         -> Result<_, RuntimeError> {
-            let span = tracing::debug_span!(
-                target: "runtime",
-                "process_receipt",
-                receipt_id = %receipt.receipt_id(),
-                predecessor = %receipt.predecessor_id(),
-                receiver = %receipt.receiver_id(),
-                gas_burnt = tracing::field::Empty,
-                compute_usage = tracing::field::Empty,
-            )
-            .entered();
-            let node_counter_before = state_update.trie().get_trie_nodes_count();
-            let recorded_storage_size_before = state_update.trie().recorded_storage_size();
-            let storage_proof_size_upper_bound_before =
-                state_update.trie().recorded_storage_size_upper_bound();
-            let result = self.process_receipt(
-                state_update,
-                apply_state,
-                receipt,
-                &mut receipt_sink,
-                &mut validator_proposals,
-                &mut stats,
-                epoch_info_provider,
-            );
-            let node_counter_after = state_update.trie().get_trie_nodes_count();
-            tracing::trace!(target: "runtime", ?node_counter_before, ?node_counter_after);
-
-            let recorded_storage_diff = state_update
-                .trie()
-                .recorded_storage_size()
-                .saturating_sub(recorded_storage_size_before)
-                as f64;
-            let recorded_storage_upper_bound_diff = state_update
-                .trie()
-                .recorded_storage_size_upper_bound()
-                .saturating_sub(storage_proof_size_upper_bound_before)
-                as f64;
-            metrics::RECEIPT_RECORDED_SIZE.observe(recorded_storage_diff);
-            metrics::RECEIPT_RECORDED_SIZE_UPPER_BOUND.observe(recorded_storage_upper_bound_diff);
-            let recorded_storage_proof_ratio =
-                recorded_storage_upper_bound_diff / f64::max(1.0, recorded_storage_diff);
-            // Record the ratio only for large receipts, small receipts can have a very high ratio,
-            // but the ratio is not that important for them.
-            if recorded_storage_upper_bound_diff > 100_000. {
-                metrics::RECEIPT_RECORDED_SIZE_UPPER_BOUND_RATIO
-                    .observe(recorded_storage_proof_ratio);
-            }
-            if let Some(outcome_with_id) = result? {
-                let gas_burnt = outcome_with_id.outcome.gas_burnt;
-                let compute_usage = outcome_with_id
-                    .outcome
-                    .compute_usage
-                    .expect("`process_receipt` must populate compute usage");
-                total.add(gas_burnt, compute_usage)?;
-                span.record("gas_burnt", gas_burnt);
-                span.record("compute_usage", compute_usage);
-
-                if !checked_feature!("stable", ComputeCosts, protocol_version) {
-                    assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
-                }
-                outcomes.push(outcome_with_id);
-            }
-            Ok(())
-        };
 
         // TODO(#8859): Introduce a dedicated `compute_limit` for the chunk.
         // For now compute limit always matches the gas limit.
@@ -1682,7 +1693,18 @@ impl Runtime {
             } else {
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
                 // the `verify_and_charge_transaction`.
-                process_receipt(receipt, &mut state_update, &mut total)?;
+                self.process_receipt_with_metrics(
+                    receipt,
+                    &mut state_update,
+                    &mut total,
+                    protocol_version,
+                    apply_state,
+                    epoch_info_provider,
+                    outcomes,
+                    stats,
+                    receipt_sink,
+                    &mut validator_proposals,
+                )?;
             }
         }
         metrics.local_receipts_done(
@@ -1726,7 +1748,18 @@ impl Runtime {
                 ))
             })?;
 
-            process_receipt(&receipt, &mut state_update, &mut total)?;
+            self.process_receipt_with_metrics(
+                &receipt,
+                &mut state_update,
+                &mut total,
+                protocol_version,
+                apply_state,
+                epoch_info_provider,
+                outcomes,
+                stats,
+                receipt_sink,
+                &mut validator_proposals,
+            )?;
             processed_delayed_receipts.push(receipt);
         }
         metrics.delayed_receipts_done(
@@ -1758,7 +1791,18 @@ impl Runtime {
             {
                 delayed_receipts.push(&mut state_update, receipt, &apply_state.config)?;
             } else {
-                process_receipt(receipt, &mut state_update, &mut total)?;
+                self.process_receipt_with_metrics(
+                    receipt,
+                    &mut state_update,
+                    &mut total,
+                    protocol_version,
+                    apply_state,
+                    epoch_info_provider,
+                    outcomes,
+                    stats,
+                    receipt_sink,
+                    &mut validator_proposals,
+                )?;
             }
         }
         metrics.incoming_receipts_done(
