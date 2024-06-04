@@ -135,6 +135,12 @@ pub struct TestLoopDelayedActionRunner<T> {
     pub(crate) shutting_down: Arc<AtomicBool>,
 }
 
+impl<T> Clone for TestLoopDelayedActionRunner<T> {
+    fn clone(&self) -> Self {
+        Self { sender: self.sender.clone(), shutting_down: self.shutting_down.clone() }
+    }
+}
+
 impl<T> DelayedActionRunner<T> for TestLoopDelayedActionRunner<T> {
     fn run_later_boxed(
         &mut self,
@@ -202,9 +208,10 @@ impl Debug for TestLoopAsyncComputationEvent {
 }
 
 /// AsyncComputationSpawner that spawns the computation in the TestLoop.
+#[derive(Clone)]
 pub struct TestLoopAsyncComputationSpawner {
     pub(crate) sender: DelaySender<TestLoopAsyncComputationEvent>,
-    pub(crate) artificial_delay: Box<dyn Fn(&str) -> Duration + Send + Sync>,
+    pub(crate) artificial_delay: Arc<dyn Fn(&str) -> Duration + Send + Sync>,
 }
 
 impl AsyncComputationSpawner for TestLoopAsyncComputationSpawner {

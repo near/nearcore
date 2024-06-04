@@ -1,5 +1,11 @@
+use crate::break_apart::BreakApart;
+use crate::messaging::{CanSend, IntoSender, MultiSenderFrom, Sender};
 use crate::test_loop::delay_sender::DelaySender;
 use crate::test_loop::event_handler::LoopEventHandler;
+use crate::test_loop::futures::{
+    drive_async_computations, drive_delayed_action_runners, drive_futures,
+    TestLoopAsyncComputationSpawner, TestLoopDelayedActionRunner, TestLoopFutureSpawner,
+};
 use crate::time::{Clock, Duration, FakeClock};
 use near_o11y::testonly::init_test_logger;
 use serde::Serialize;
@@ -110,20 +116,20 @@ pub struct TestLoop {
     current_time: Duration,
 }
 
-pub struct TestLoopDataHandle<Data: 'static> {
+pub struct LoopData<Data: 'static> {
     id: usize,
     _phantom: std::marker::PhantomData<fn(Data)>,
 }
 
-impl<Data: 'static> Clone for TestLoopDataHandle<Data> {
+impl<Data: 'static> Clone for LoopData<Data> {
     fn clone(&self) -> Self {
         Self { id: self.id, _phantom: std::marker::PhantomData }
     }
 }
 
-impl<Data: 'static> Copy for TestLoopDataHandle<Data> {}
+impl<Data: 'static> Copy for LoopData<Data> {}
 
-impl<Data: 'static> TestLoopDataHandle<Data> {
+impl<Data: 'static> LoopData<Data> {
     fn new(id: usize) -> Self {
         Self { id, _phantom: std::marker::PhantomData }
     }
@@ -137,13 +143,23 @@ impl<Data: 'static> TestLoopDataHandle<Data> {
     }
 }
 
-pub struct TestLoopEventHandle<Event: 'static> {
+impl TestLoopData {
+    pub fn get<Data: 'static>(&self, handle: LoopData<Data>) -> &Data {
+        handle.get(self)
+    }
+
+    pub fn get_mut<Data: 'static>(&mut self, handle: LoopData<Data>) -> &mut Data {
+        handle.get_mut(self)
+    }
+}
+
+pub struct LoopStream<Event: 'static> {
     stream: usize,
     events: Arc<Mutex<InFlightEvents>>,
     _phantom: std::marker::PhantomData<fn(Event)>,
 }
 
-impl<Event: 'static> Clone for TestLoopEventHandle<Event> {
+impl<Event: 'static> Clone for LoopStream<Event> {
     fn clone(&self) -> Self {
         Self {
             stream: self.stream,
@@ -158,19 +174,19 @@ impl TestLoopData {
         Self { data: Vec::new() }
     }
 
-    pub fn add_data<Data: 'static>(&mut self, data: Data) -> TestLoopDataHandle<Data> {
+    pub fn add_data<Data: 'static>(&mut self, data: Data) -> LoopData<Data> {
         let id = self.data.len();
         self.data.push(Box::new(data));
-        TestLoopDataHandle::new(id)
+        LoopData::new(id)
     }
 }
 
-impl<Event: Send + 'static> TestLoopEventHandle<Event> {
+impl<Event: Send + 'static> LoopStream<Event> {
     fn new(stream: usize, events: Arc<Mutex<InFlightEvents>>) -> Self {
         Self { stream, events, _phantom: std::marker::PhantomData }
     }
 
-    pub fn sender(&self) -> DelaySender<Event> {
+    pub fn delay_sender(&self) -> DelaySender<Event> {
         let id = self.stream;
         let events = self.events.clone();
         DelaySender::new(move |event, delay| {
@@ -178,7 +194,34 @@ impl<Event: Send + 'static> TestLoopEventHandle<Event> {
         })
     }
 
-    pub fn add_handler0(
+    pub fn sender(&self) -> Sender<Event> {
+        self.delay_sender().into_sender()
+    }
+
+    pub fn wrapped_multi_sender<A>(&self) -> A
+    where
+        A: MultiSenderFrom<BreakApart<Event>> + 'static,
+    {
+        self.delay_sender().into_wrapped_multi_sender::<Event, A>()
+    }
+
+    pub fn handle_raw(
+        &self,
+        testloop: &mut TestLoop,
+        mut handler: impl FnMut(Event, &mut TestLoopData) -> Result<(), Event> + 'static,
+    ) {
+        let stream = self.stream;
+        testloop.handlers.push(Box::new(move |event_stream, event, data| {
+            if event_stream == stream {
+                let event = *event.downcast::<Event>().unwrap();
+                handler(event, data).map_err(|event| Box::new(event) as Box<dyn Any>)
+            } else {
+                Err(event)
+            }
+        }));
+    }
+
+    pub fn handle0(
         &self,
         testloop: &mut TestLoop,
         mut handler: impl FnMut(Event) -> Result<(), Event> + 'static,
@@ -194,7 +237,7 @@ impl<Event: Send + 'static> TestLoopEventHandle<Event> {
         }));
     }
 
-    pub fn add_handler0_legacy(
+    pub fn handle0_legacy(
         &self,
         testloop: &mut TestLoop,
         mut handler: LoopEventHandler<(), Event>,
@@ -210,10 +253,10 @@ impl<Event: Send + 'static> TestLoopEventHandle<Event> {
         }));
     }
 
-    pub fn add_handler1<Data: 'static>(
+    pub fn handle1<Data: 'static>(
         &self,
         testloop: &mut TestLoop,
-        data_handle: TestLoopDataHandle<Data>,
+        data_handle: LoopData<Data>,
         mut handler: impl FnMut(Event, &mut Data) -> Result<(), Event> + 'static,
     ) {
         let stream = self.stream;
@@ -228,10 +271,10 @@ impl<Event: Send + 'static> TestLoopEventHandle<Event> {
         }));
     }
 
-    pub fn add_handler1_legacy<Data: 'static>(
+    pub fn handle1_legacy<Data: 'static>(
         &self,
         testloop: &mut TestLoop,
-        data_handle: TestLoopDataHandle<Data>,
+        data_handle: LoopData<Data>,
         mut handler: LoopEventHandler<Data, Event>,
     ) {
         let stream = self.stream;
@@ -246,10 +289,10 @@ impl<Event: Send + 'static> TestLoopEventHandle<Event> {
         }));
     }
 
-    pub fn add_handler1n<Data: 'static>(
+    pub fn handle1n<Data: 'static>(
         &self,
         testloop: &mut TestLoop,
-        data_handles: Vec<TestLoopDataHandle<Data>>,
+        data_handles: Vec<LoopData<Data>>,
         mut handler: impl FnMut(Event, &mut [&mut Data]) -> Result<(), Event> + 'static,
     ) {
         let stream = self.stream;
@@ -280,28 +323,119 @@ impl<Event: Send + 'static> TestLoopEventHandle<Event> {
 }
 
 impl TestLoop {
-    pub fn register_event<Event: Debug + Send + 'static>(&mut self) -> TestLoopEventHandle<Event> {
+    pub fn new_stream<Event: Debug + Send + 'static>(&mut self) -> LoopStream<Event> {
         let stream = self.streams.len();
         let stream_info = StreamInfo {
             debug: Box::new(move |event| format!("{:?}", event.downcast_ref::<Event>().unwrap())),
         };
         self.streams.push(stream_info);
-        TestLoopEventHandle::new(stream, self.pending_events.clone())
+        LoopStream::new(stream, self.pending_events.clone())
     }
 
-    pub fn add_data<Data: 'static>(&mut self, data: Data) -> TestLoopDataHandle<Data> {
+    pub fn add_data<Data: 'static>(&mut self, data: Data) -> LoopData<Data> {
         self.data.add_data(data)
     }
 
-    pub fn data<Data: 'static>(&self, handle: TestLoopDataHandle<Data>) -> &Data {
+    pub fn data<Data: 'static>(&self, handle: LoopData<Data>) -> &Data {
         handle.get(&self.data)
     }
 
-    pub fn data_mut<Data: 'static>(&mut self, handle: TestLoopDataHandle<Data>) -> &mut Data {
+    pub fn data_mut<Data: 'static>(&mut self, handle: LoopData<Data>) -> &mut Data {
         handle.get_mut(&mut self.data)
     }
 }
 
+impl TestLoop {
+    pub fn new_future_spawner(&mut self) -> TestLoopFutureSpawner {
+        let stream = self.new_stream();
+        stream.handle0_legacy(self, drive_futures());
+        stream.delay_sender()
+    }
+
+    pub fn new_async_computation_spawner(
+        &mut self,
+        delay: impl Fn(&str) -> Duration + Send + Sync + 'static,
+    ) -> TestLoopAsyncComputationSpawner {
+        let stream = self.new_stream();
+        stream.handle0_legacy(self, drive_async_computations());
+        TestLoopAsyncComputationSpawner {
+            sender: stream.delay_sender(),
+            artificial_delay: Arc::new(delay),
+        }
+    }
+
+    pub fn new_delayed_actions_runner<Data: 'static>(
+        &mut self,
+        data: LoopData<Data>,
+    ) -> TestLoopDelayedActionRunner<Data> {
+        let stream = self.new_stream();
+        stream.handle1_legacy(
+            self,
+            data,
+            drive_delayed_action_runners(stream.delay_sender(), self.shutting_down.clone()),
+        );
+        TestLoopDelayedActionRunner {
+            sender: stream.delay_sender(),
+            shutting_down: self.shutting_down.clone(),
+        }
+    }
+
+    pub fn new_adhoc_sender(&mut self) -> DelaySender<AdhocEvent> {
+        let stream = self.new_stream::<AdhocEvent>();
+        stream.handle_raw(self, |event, data| {
+            (event.handler)(data);
+            Ok(())
+        });
+        stream.delay_sender()
+    }
+}
+
+pub struct AdhocEvent {
+    pub description: String,
+    pub handler: Box<dyn FnOnce(&mut TestLoopData) + Send + 'static>,
+}
+
+impl Debug for AdhocEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.description)
+    }
+}
+
+/// Allows DelaySender to be used to send or schedule adhoc events.
+pub trait AdhocEventSender {
+    fn send_adhoc_event(
+        &self,
+        description: &str,
+        f: impl FnOnce(&mut TestLoopData) + Send + 'static,
+    );
+    fn schedule_adhoc_event(
+        &self,
+        description: &str,
+        f: impl FnOnce(&mut TestLoopData) + Send + 'static,
+        delay: time::Duration,
+    );
+}
+
+impl AdhocEventSender for DelaySender<AdhocEvent> {
+    fn send_adhoc_event(
+        &self,
+        description: &str,
+        f: impl FnOnce(&mut TestLoopData) + Send + 'static,
+    ) {
+        self.send(AdhocEvent { description: description.to_string(), handler: Box::new(f) })
+    }
+    fn schedule_adhoc_event(
+        &self,
+        description: &str,
+        f: impl FnOnce(&mut TestLoopData) + Send + 'static,
+        delay: time::Duration,
+    ) {
+        self.send_with_delay(
+            AdhocEvent { description: description.to_string(), handler: Box::new(f) }.into(),
+            delay,
+        )
+    }
+}
 /// The log output line that can be used to visualize the execution of a test.
 /// It is only used to serialize into JSON. This is enough data to reconstruct
 /// the event dependency graph, and to segment log messages.

@@ -24,18 +24,18 @@ fn test_multi_instance() {
     let mut all_sums = Vec::new(); // 5 data handles
     let mut remote_requests = Vec::new(); // 5 event handles
     for _ in 0..5 {
-        let report_sum_stream = test.register_event::<ReportSumMsg>();
+        let report_sum_stream = test.new_stream::<ReportSumMsg>();
         let summer =
-            test.add_data(SumNumbersComponent::new(report_sum_stream.sender().into_sender()));
+            test.add_data(SumNumbersComponent::new(report_sum_stream.delay_sender().into_sender()));
         let sums = test.add_data(Vec::<ReportSumMsg>::new());
 
-        report_sum_stream.add_handler1(&mut test, sums, |msg, data| {
+        report_sum_stream.handle1(&mut test, sums, |msg, data| {
             data.push(msg);
             Ok(())
         });
 
-        let sum_request = test.register_event::<SumRequest>();
-        sum_request.add_handler1(&mut test, summer, |msg, data| {
+        let sum_request = test.new_stream::<SumRequest>();
+        sum_request.handle1(&mut test, summer, |msg, data| {
             data.handle(msg);
             Ok(())
         });
@@ -43,25 +43,25 @@ fn test_multi_instance() {
         sum_request_streams.push(sum_request);
         all_sums.push(sums);
 
-        let remote_request = test.register_event::<i64>();
+        let remote_request = test.new_stream::<i64>();
         remote_requests.push(remote_request);
     }
 
     for i in 0..5 {
         let sum_request_senders =
-            sum_request_streams.iter().map(|s| s.sender()).collect::<Vec<_>>();
-        remote_requests[i].add_handler0(&mut test, move |request| {
+            sum_request_streams.iter().map(|s| s.delay_sender()).collect::<Vec<_>>();
+        remote_requests[i].handle0(&mut test, move |request| {
             forward_remote_request_to_other_instances(&sum_request_senders, i, request);
             Ok(())
         });
     }
 
     // Send a RemoteRequest from each instance.
-    remote_requests[0].sender().send(1);
-    remote_requests[1].sender().send(2);
-    remote_requests[2].sender().send(3);
-    remote_requests[3].sender().send(4);
-    remote_requests[4].sender().send(5);
+    remote_requests[0].delay_sender().send(1);
+    remote_requests[1].delay_sender().send(2);
+    remote_requests[2].delay_sender().send(3);
+    remote_requests[3].delay_sender().send(4);
+    remote_requests[4].delay_sender().send(5);
 
     // Then send a GetSum request for each instance; we use a delay so that we can ensure
     // these messages arrive later. (In a real test we wouldn't do this - the component would
@@ -69,7 +69,7 @@ fn test_multi_instance() {
     // contrived test we'll do it manually as a demonstration.)
     for i in 0..5 {
         sum_request_streams[i]
-            .sender()
+            .delay_sender()
             .send_with_delay(SumRequest::GetSum, time::Duration::milliseconds(1));
     }
     test.run_for(time::Duration::milliseconds(2));
