@@ -50,6 +50,7 @@ pub struct GCConfig {
     /// How often gc should be run
     #[serde(with = "near_time::serde_duration_as_std")]
     pub gc_step_period: Duration,
+    pub gc_control: bool,
 }
 
 impl Default for GCConfig {
@@ -59,6 +60,7 @@ impl Default for GCConfig {
             gc_fork_clean_step: 100,
             gc_num_epochs_to_keep: DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
             gc_step_period: Duration::seconds(1),
+            gc_control: false,
         }
     }
 }

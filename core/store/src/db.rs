@@ -38,6 +38,7 @@ pub const GENESIS_CONGESTION_INFO_KEY: &[u8] = b"GENESIS_CONGESTION_INFO_KEY";
 pub const COLD_HEAD_KEY: &[u8; 9] = b"COLD_HEAD";
 pub const STATE_SYNC_DUMP_KEY: &[u8; 15] = b"STATE_SYNC_DUMP";
 pub const STATE_SNAPSHOT_KEY: &[u8; 18] = b"STATE_SNAPSHOT_KEY";
+pub const GC_BLOCK_KEY: &[u8; 8] = b"GC_BLOCK";
 
 // `DBCol::Misc` keys
 pub const FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS_KEY: &[u8] =

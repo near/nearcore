@@ -468,6 +468,8 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Get the block height for which garbage collection should not go over
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight;
 
+    fn set_gc_stop_block(&self, block_hash: &CryptoHash);
+
     /// Apply transactions and receipts to given state root and return store update
     /// and new state root.
     /// Also returns transaction result for each transaction and new receipts.
