@@ -1,10 +1,10 @@
-use crate::stateless_validation::processing_tracker::{
-    ProcessingDoneTracker, ProcessingDoneWaiter,
-};
 use crate::{Client, DistributeStateWitnessRequest};
 use near_async::messaging::{CanSend, IntoMultiSender};
 use near_async::time::Clock;
 use near_async::time::{Duration, Instant};
+use near_chain::stateless_validation::processing_tracker::{
+    ProcessingDoneTracker, ProcessingDoneWaiter,
+};
 use near_chain::test_utils::ValidatorSchedule;
 use near_chain::types::Tip;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
