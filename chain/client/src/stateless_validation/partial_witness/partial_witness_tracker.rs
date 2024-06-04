@@ -20,7 +20,7 @@ use crate::metrics;
 
 /// Max number of chunks to keep in the witness tracker cache. We reach here only after validation
 /// of the partial_witness so the LRU cache size need not be too large.
-const NUM_CHUNKS_IN_WITNESS_TRACKER_CACHE: usize = 200;
+const WITNESS_PARTS_CACHE_SIZE: usize = 200;
 
 /// Number of entries to keep in LRU cache of the processed state witnesses
 /// We only store small amount of data (ChunkProductionKey) per entry there,
@@ -158,7 +158,7 @@ impl PartialEncodedStateWitnessTracker {
         Self {
             client_sender,
             epoch_manager,
-            parts_cache: LruCache::new(NUM_CHUNKS_IN_WITNESS_TRACKER_CACHE),
+            parts_cache: LruCache::new(WITNESS_PARTS_CACHE_SIZE),
             processed_witnesses: LruCache::new(PROCESSED_WITNESSES_CACHE_SIZE),
             rs_map: RsMap::new(),
         }
