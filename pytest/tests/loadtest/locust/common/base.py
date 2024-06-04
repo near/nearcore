@@ -638,6 +638,20 @@ class InvalidNonceError(RpcError):
         self.ak_nonce = ak_nonce
 
 
+class ShardCongestedError(RpcError):
+
+    def __init__(
+        self,
+        shard_id,
+    ):
+        super().__init__(
+            message="Shard congested",
+            details=
+            f"Shard {shard_id} is currently congested and rejects new transactions"
+        )
+        self.shard_id = shard_id
+
+
 class TxError(NearError):
 
     def __init__(self,
@@ -687,6 +701,9 @@ def evaluate_rpc_result(rpc_result):
                 raise InvalidNonceError(
                     err_description["InvalidNonce"]["tx_nonce"],
                     err_description["InvalidNonce"]["ak_nonce"])
+            elif "ShardCongested" in err_description:
+                raise ShardCongestedError(
+                    err_description["ShardCongested"]["shard_id"])
         raise RpcError(details=rpc_result["error"])
 
     result = rpc_result["result"]
