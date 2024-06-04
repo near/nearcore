@@ -1353,6 +1353,15 @@ impl Runtime {
         // the check is not necessary.  It’s defence in depth to make sure any
         // future refactoring won’t break the condition.
         assert!(cfg!(feature = "sandbox") || state_patch.is_empty());
+
+        // What this function does can be broken down conceptually into the following steps:
+        // 1. Update validator accounts.
+        // 2. Apply migrations.
+        // 3. Process transactions.
+        // 4. Process receipts.
+        // 5. Check balance.
+        // 6. Apply state patch (a collection of changes from the steps 1-4).
+
         let protocol_version = apply_state.current_protocol_version;
         let mut prefetcher = TriePrefetcher::new_if_enabled(&trie);
         let mut state_update = TrieUpdate::new(trie);
@@ -1364,14 +1373,14 @@ impl Runtime {
             gas: 0,
             compute: 0,
         };
+        let mut stats = ApplyStats::default();
 
         if let Some(prefetcher) = &mut prefetcher {
             // Prefetcher is allowed to fail
             _ = prefetcher.prefetch_transactions_data(transactions);
         }
 
-        let mut stats = ApplyStats::default();
-
+        // Step 1: update validator accounts.
         if let Some(validator_accounts_update) = validator_accounts_update {
             self.update_validator_accounts(
                 &mut state_update,
@@ -1380,6 +1389,7 @@ impl Runtime {
             )?;
         }
 
+        // Step 2: apply migrations.
         let (gas_used_for_migrations, mut receipts_to_restore) = self
             .apply_migrations(
                 &mut state_update,
@@ -1388,6 +1398,7 @@ impl Runtime {
                 protocol_version,
             )
             .map_err(RuntimeError::StorageError)?;
+        total.add(gas_used_for_migrations, gas_used_for_migrations)?;
         // If we have receipts that need to be restored, prepend them to the list of incoming receipts
         let incoming_receipts = if receipts_to_restore.is_empty() {
             incoming_receipts
@@ -1399,35 +1410,11 @@ impl Runtime {
         let delayed_receipts_queue = DelayedReceiptQueue::load(&state_update)?;
         let mut delayed_receipts = DelayedReceiptQueueWrapper::new(delayed_receipts_queue);
 
+        // If the chunk is missing, exit early and don't process any receipts.
         if !apply_state.is_new_chunk
             && protocol_version >= ProtocolFeature::FixApplyChunks.protocol_version()
         {
-            let (trie, trie_changes, state_changes) = state_update.finalize()?;
-            let proof = trie.recorded_storage();
-
-            // For old chunks, copy the congestion info exactly as it came in,
-            // potentially returning `None` even if the congestion control
-            // feature is enabled for the protocol version.
-            let congestion_info = apply_state
-                .congestion_info
-                .get(&apply_state.shard_id)
-                .map(|extended_info| extended_info.congestion_info);
-
-            return Ok(ApplyResult {
-                state_root: trie_changes.new_root,
-                trie_changes,
-                validator_proposals: vec![],
-                outgoing_receipts: vec![],
-                outcomes: vec![],
-                state_changes,
-                stats,
-                processed_delayed_receipts: vec![],
-                processed_yield_timeouts: vec![],
-                proof,
-                delayed_receipts_count: delayed_receipts.len(),
-                metrics: None,
-                congestion_info,
-            });
+            return missing_chunk_apply_result(&delayed_receipts, stats, state_update, apply_state);
         }
 
         let mut outgoing_receipts = Vec::new();
@@ -1438,7 +1425,6 @@ impl Runtime {
         let mut own_congestion_info =
             apply_state.own_congestion_info(protocol_version, &state_update)?;
         let mut metrics = metrics::ApplyMetrics::default();
-
         let mut receipt_sink = ReceiptSink::new(
             protocol_version,
             &state_update.trie,
@@ -1446,12 +1432,10 @@ impl Runtime {
             &mut own_congestion_info,
             &mut outgoing_receipts,
         )?;
-
         // Forward buffered receipts from previous chunks.
         receipt_sink.forward_from_buffer(&mut state_update, apply_state)?;
 
-        total.add(gas_used_for_migrations, gas_used_for_migrations)?;
-
+        // Step 3: process transactions.
         for signed_transaction in transactions {
             let (receipt, outcome_with_id) = self.process_transaction(
                 &mut state_update,
@@ -1786,6 +1770,7 @@ impl Runtime {
             );
         }
 
+        // Step 5: check balance.
         check_balance(
             &apply_state.config,
             &state_update,
@@ -1797,12 +1782,14 @@ impl Runtime {
             &stats,
         )?;
 
+        // Step 6: apply state patch.
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
         self.apply_state_patch(&mut state_update, state_patch);
         let chunk_recorded_size_upper_bound =
             state_update.trie.recorded_storage_size_upper_bound() as f64;
         metrics::CHUNK_RECORDED_SIZE_UPPER_BOUND.observe(chunk_recorded_size_upper_bound);
         let (trie, trie_changes, state_changes) = state_update.finalize()?;
+
         if let Some(prefetcher) = &prefetcher {
             // Only clear the prefetcher queue after finalize is done because as part of receipt
             // processing we also prefetch account data and access keys that are accessed in
@@ -1958,6 +1945,40 @@ fn action_transfer_or_implicit_account_creation(
             epoch_info_provider,
         );
     })
+}
+
+fn missing_chunk_apply_result(
+    delayed_receipts: &DelayedReceiptQueueWrapper,
+    stats: ApplyStats,
+    state_update: TrieUpdate,
+    apply_state: &ApplyState,
+) -> Result<ApplyResult, RuntimeError> {
+    let (trie, trie_changes, state_changes) = state_update.finalize()?;
+    let proof = trie.recorded_storage();
+
+    // For old chunks, copy the congestion info exactly as it came in,
+    // potentially returning `None` even if the congestion control
+    // feature is enabled for the protocol version.
+    let congestion_info = apply_state
+        .congestion_info
+        .get(&apply_state.shard_id)
+        .map(|extended_info| extended_info.congestion_info);
+
+    return Ok(ApplyResult {
+        state_root: trie_changes.new_root,
+        trie_changes,
+        validator_proposals: vec![],
+        outgoing_receipts: vec![],
+        outcomes: vec![],
+        state_changes,
+        stats,
+        processed_delayed_receipts: vec![],
+        processed_yield_timeouts: vec![],
+        proof,
+        delayed_receipts_count: delayed_receipts.len(),
+        metrics: None,
+        congestion_info,
+    });
 }
 
 struct TotalResourceGuard {
