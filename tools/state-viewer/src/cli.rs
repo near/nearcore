@@ -510,6 +510,8 @@ pub enum EpochAnalysisMode {
     CheckConsistency,
     /// Generate epoch infos as if latest `PROTOCOL_VERSION` was used since the
     /// start epoch height.
+    /// TODO (#11477): doesn't work for start epoch height <= 544 because of
+    /// `EpochOutOfBounds` error.
     Backtest,
 }
 
