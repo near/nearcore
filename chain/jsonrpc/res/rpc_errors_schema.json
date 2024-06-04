@@ -570,7 +570,8 @@
         "ActionsValidation",
         "TransactionSizeExceeded",
         "InvalidTransactionVersion",
-        "StorageError"
+        "StorageError",
+        "ShardCongested"
       ],
       "props": {}
     },
@@ -772,6 +773,13 @@
       "name": "Serialization",
       "subtypes": [],
       "props": {}
+    },
+    "ShardCongested": {
+      "name": "ShardCongested",
+      "subtypes": [],
+      "props": {
+        "shard_id": ""
+      }
     },
     "SignerDoesNotExist": {
       "name": "SignerDoesNotExist",
