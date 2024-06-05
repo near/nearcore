@@ -4613,6 +4613,7 @@ dependencies = [
  "rand",
  "rand_chacha",
  "reed-solomon-erasure",
+ "regex",
  "serde",
  "serde_json",
  "serde_with",

@@ -98,6 +98,7 @@ bencher.workspace = true
 bolero.workspace = true
 insta.workspace = true
 expect-test.workspace = true
+regex.workspace = true
 
 [[bench]]
 name = "serialization"
