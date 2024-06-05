@@ -179,8 +179,7 @@ pub fn route_network_messages_to_client<
                 for (target, partial_witness) in validator_witness_tuple.into_iter() {
                     let other_idx = data.index_for_account(&target);
                     assert_ne!(
-                        other_idx,
-                        idx,
+                        other_idx, idx,
                         "Attempted to send PartialEncodedStateWitness message to self: {:?}",
                         partial_witness
                     );

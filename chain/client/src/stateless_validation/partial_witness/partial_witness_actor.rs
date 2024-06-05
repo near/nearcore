@@ -244,7 +244,7 @@ impl PartialWitnessActor {
     fn forward_state_witness_part(
         &self,
         partial_witness: PartialEncodedStateWitness,
-        mut chunk_validators: Vec<AccountId>,
+        chunk_validators: Vec<AccountId>,
     ) -> Result<(), Error> {
         let chunk_producer = self.epoch_manager.get_chunk_producer(
             partial_witness.epoch_id(),
@@ -253,14 +253,14 @@ impl PartialWitnessActor {
         )?;
         // Forward witness part to chunk validators except for the following:
         // (1) the current validator and (2) validator that produced the chunk and witness.
-        chunk_validators.retain(|validator| {
-            validator != self.my_signer.validator_id() && *validator != chunk_producer
-        });
+        let chunk_validators = chunk_validators
+            .into_iter()
+            .filter(|validator| {
+                validator != self.my_signer.validator_id() && *validator != chunk_producer
+            })
+            .collect();
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::PartialEncodedStateWitnessForward(
-                chunk_validators,
-                partial_witness,
-            ),
+            NetworkRequests::PartialEncodedStateWitnessForward(chunk_validators, partial_witness),
         ));
         Ok(())
     }
