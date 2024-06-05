@@ -6,7 +6,7 @@ use near_parameters::{ActionCosts, RuntimeConfig};
 use near_primitives::congestion_info::{CongestionControl, CongestionInfo, CongestionInfoV1};
 use near_primitives::errors::{IntegerOverflowError, RuntimeError};
 use near_primitives::receipt::{Receipt, ReceiptEnum};
-use near_primitives::types::{EpochInfoProvider, Gas, ShardId};
+use near_primitives::types::{BlockHeight, EpochInfoProvider, Gas, ShardId};
 use near_primitives::version::ProtocolFeature;
 use near_store::trie::receipts_column_helper::{
     DelayedReceiptQueue, ShardsOutgoingReceiptBuffer, TrieQueue,
@@ -42,8 +42,15 @@ pub(crate) struct ReceiptSinkV2<'a> {
     /// used to make forwarding decisions.
     pub(crate) own_congestion_info: &'a mut CongestionInfo,
     pub(crate) outgoing_receipts: &'a mut Vec<Receipt>,
-    pub(crate) outgoing_limit: HashMap<ShardId, Gas>,
+    pub(crate) outgoing_limit: HashMap<ShardId, OutgoingLimit>,
     pub(crate) outgoing_buffers: ShardsOutgoingReceiptBuffer,
+}
+
+/// Limits for outgoing receipts to a shard.
+/// Receipts are sent out until the limit is hit, after that they're buffered.
+pub(crate) struct OutgoingLimit {
+    pub gas: Gas,
+    pub size: usize,
 }
 
 enum ReceiptForwarding {
@@ -82,7 +89,12 @@ impl<'a> ReceiptSink<'a> {
             debug_assert!(ProtocolFeature::CongestionControl.enabled(protocol_version));
             let outgoing_buffers = ShardsOutgoingReceiptBuffer::load(trie)?;
 
-            let outgoing_limit: HashMap<ShardId, Gas> = apply_state
+            // One of the shards is designated as "special". We are allowed to send more receipts to this one "special" shard.
+            let num_shards = apply_state.congestion_info.len();
+            let special_shard: Option<ShardId> =
+                choose_special_shard(apply_state.shard_id, apply_state.block_height, num_shards);
+
+            let outgoing_limit: HashMap<ShardId, OutgoingLimit> = apply_state
                 .congestion_info
                 .iter()
                 .map(|(&shard_id, congestion)| {
@@ -91,8 +103,22 @@ impl<'a> ReceiptSink<'a> {
                         congestion.congestion_info,
                         congestion.missed_chunks_count,
                     );
+                    let mut gas_limit =
+                        other_congestion_control.outgoing_gas_limit(apply_state.shard_id);
+                    if shard_id == apply_state.shard_id {
+                        // No gas limits on receipts that stay on the same shard. Backpressure
+                        // wouldn't help, the receipt takes the same memory if buffered or
+                        // in the delayed receipts queue.
+                        gas_limit = Gas::MAX;
+                    }
 
-                    (shard_id, other_congestion_control.outgoing_gas_limit(apply_state.shard_id))
+                    let size_limit = if special_shard == Some(shard_id) {
+                        apply_state.config.witness_config.outgoing_receipts_big_size_limit
+                    } else {
+                        apply_state.config.witness_config.outgoing_receipts_usual_size_limit
+                    };
+
+                    (shard_id, OutgoingLimit { gas: gas_limit, size: size_limit })
                 })
                 .collect();
 
@@ -216,13 +242,6 @@ impl ReceiptSinkV2<'_> {
     ) -> Result<(), RuntimeError> {
         let shard = epoch_info_provider
             .account_id_to_shard_id(receipt.receiver_id(), &apply_state.epoch_id)?;
-        if shard == apply_state.shard_id {
-            // No limits on receipts that stay on the same shard. Backpressure
-            // wouldn't help, the receipt takes the same memory if buffered or
-            // in the delayed receipts queue.
-            self.outgoing_receipts.push(receipt);
-            return Ok(());
-        }
         match Self::try_forward(
             receipt,
             shard,
@@ -247,7 +266,7 @@ impl ReceiptSinkV2<'_> {
     fn try_forward(
         receipt: Receipt,
         shard: ShardId,
-        outgoing_limit: &mut HashMap<ShardId, Gas>,
+        outgoing_limit: &mut HashMap<ShardId, OutgoingLimit>,
         outgoing_receipts: &mut Vec<Receipt>,
         apply_state: &ApplyState,
     ) -> Result<ReceiptForwarding, RuntimeError> {
@@ -256,12 +275,19 @@ impl ReceiptSinkV2<'_> {
         // could be a special case during resharding events. Or even a bug. In
         // any case, if we cannot know a limit, treating it as literally "no
         // limit" is the safest approach to ensure availability.
-        let forward_limit = outgoing_limit.entry(shard).or_insert(Gas::MAX);
+        // For the size limit, we default to the usual limit that is applied to all (non-special) shards.
+        let forward_limit = outgoing_limit.entry(shard).or_insert(OutgoingLimit {
+            gas: Gas::MAX,
+            size: apply_state.config.witness_config.outgoing_receipts_usual_size_limit,
+        });
         let gas_to_forward = receipt_congestion_gas(&receipt, &apply_state.config)?;
-        if *forward_limit > gas_to_forward {
+        let size_to_forward = receipt_size(&receipt)?;
+
+        if forward_limit.gas > gas_to_forward && forward_limit.size > size_to_forward {
             outgoing_receipts.push(receipt);
-            // underflow impossible: checked forward_limit > gas_to_forward above
-            *forward_limit -= gas_to_forward;
+            // underflow impossible: checked forward_limit > gas/size_to_forward above
+            forward_limit.gas -= gas_to_forward;
+            forward_limit.size -= size_to_forward;
             Ok(ReceiptForwarding::Forwarded)
         } else {
             Ok(ReceiptForwarding::NotForwarded(receipt))
@@ -461,4 +487,33 @@ fn overflow_storage_err() -> StorageError {
 // we use u128 for accumulated gas because congestion may deal with a lot of gas
 fn safe_add_gas_to_u128(a: u128, b: Gas) -> Result<u128, IntegerOverflowError> {
     a.checked_add(b as u128).ok_or(IntegerOverflowError {})
+}
+
+/// Each shard receieves receipts from all other shards, but it could happen
+/// that all of the sender shards sends a lot of data, which would cause
+/// the state witness to be really large. To prevent this, the usual limit
+/// on the size of outgoing receipts is pretty small (outgoing_receipts_usual_size_limit).
+/// However, on each block height, one of the sender shards is allowed to send more data
+/// (outgoing_receipts_big_size_limit) to the receiver shard.
+/// This allows large receipts to be sent when its their turn, without overloading
+/// the receiver shard.
+///
+/// This function is responsible for pairing the sender shard that will be allowed to send
+/// more with the receiver shard that will receive the extra data.
+/// Each sender shard is allowed to send more data to one "special" receiver shard.
+/// Each receiver shard will receive extra data from only one sender shard.
+pub(crate) fn choose_special_shard(
+    sender_shard: ShardId,
+    block_height: BlockHeight,
+    num_shards: usize,
+) -> Option<ShardId> {
+    if num_shards == 0 {
+        return None;
+    }
+
+    // for sender shard `x` the special receiver shard is shard `(x + shift) % num_shards`.
+    let num_shards_u64: u64 = num_shards.try_into().expect("Can't convert usize to u64!");
+    let shift = block_height % num_shards_u64;
+    let special_shard = sender_shard.wrapping_add(shift) % num_shards_u64;
+    Some(special_shard)
 }
