@@ -2490,7 +2490,7 @@ fn test_chunk_producers() {
     );
 }
 
-/// A sanity test for the compute_kickout_info function, tests that
+/// A sanity test for the compute_validators_to_reward_and_kickout function, tests that
 /// the validators that don't meet the block/chunk producer kickout threshold is kicked out
 #[test]
 fn test_validator_kickout_sanity() {
@@ -2514,7 +2514,7 @@ fn test_validator_kickout_sanity() {
         HashMap::new(),
         0,
     );
-    let (kickouts, validator_stats) = EpochManager::compute_kickout_info(
+    let (validator_stats, kickouts) = EpochManager::compute_validators_to_reward_and_kickout(
         &epoch_config,
         &epoch_info,
         &HashMap::from([
@@ -2647,7 +2647,7 @@ fn test_max_kickout_stake_ratio() {
     ]);
     let prev_validator_kickout =
         HashMap::from([("test3".parse().unwrap(), ValidatorKickoutReason::Unstaked)]);
-    let (kickouts, validator_stats) = EpochManager::compute_kickout_info(
+    let (validator_stats, kickouts) = EpochManager::compute_validators_to_reward_and_kickout(
         &epoch_config,
         &epoch_info,
         &block_stats,
@@ -2707,7 +2707,7 @@ fn test_max_kickout_stake_ratio() {
     assert_eq!(validator_stats, wanted_validator_stats,);
     // At most 50% of total stake can be kicked out
     epoch_config.validator_max_kickout_stake_perc = 40;
-    let (kickouts, validator_stats) = EpochManager::compute_kickout_info(
+    let (validator_stats, kickouts) = EpochManager::compute_validators_to_reward_and_kickout(
         &epoch_config,
         &epoch_info,
         &block_stats,
