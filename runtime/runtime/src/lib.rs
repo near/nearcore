@@ -1752,103 +1752,23 @@ impl Runtime {
         );
 
         // Resolve timed-out PromiseYield receipts
-        let mut promise_yield_indices: PromiseYieldIndices =
-            get(state_update, &TrieKey::PromiseYieldIndices)?.unwrap_or_default();
-        let initial_promise_yield_indices = promise_yield_indices.clone();
-        let mut new_receipt_index: usize = 0;
+        let promise_yield_result = resolve_timed_out_promise_yield_receipts(
+            processing_state,
+            receipt_sink,
+            compute_limit,
+            proof_size_limit,
+        )?;
 
-        let mut processed_yield_timeouts = vec![];
-        let mut timeout_receipts = vec![];
-        let yield_processing_start = std::time::Instant::now();
-        while promise_yield_indices.first_index < promise_yield_indices.next_available_index {
-            if total.compute >= compute_limit
-                || proof_size_limit.is_some_and(|limit| {
-                    state_update.trie.recorded_storage_size_upper_bound() > limit
-                })
-            {
-                break;
-            }
-
-            let queue_entry_key =
-                TrieKey::PromiseYieldTimeout { index: promise_yield_indices.first_index };
-
-            let queue_entry = get::<PromiseYieldTimeout>(state_update, &queue_entry_key)?
-                .ok_or_else(|| {
-                    StorageError::StorageInconsistentState(format!(
-                        "PromiseYield timeout queue entry #{} should be in the state",
-                        promise_yield_indices.first_index
-                    ))
-                })?;
-
-            // Queue entries are ordered by expires_at
-            if queue_entry.expires_at > apply_state.block_height {
-                break;
-            }
-
-            // Check if the yielded promise still needs to be resolved
-            let promise_yield_key = TrieKey::PromiseYieldReceipt {
-                receiver_id: queue_entry.account_id.clone(),
-                data_id: queue_entry.data_id,
-            };
-            if state_update.contains_key(&promise_yield_key)? {
-                let new_receipt_id = create_receipt_id_from_receipt_id(
-                    protocol_version,
-                    &queue_entry.data_id,
-                    &apply_state.prev_block_hash,
-                    &apply_state.block_hash,
-                    new_receipt_index,
-                );
-                new_receipt_index += 1;
-
-                // Create a PromiseResume receipt to resolve the timed-out yield.
-                let resume_receipt = Receipt::V0(ReceiptV0 {
-                    predecessor_id: queue_entry.account_id.clone(),
-                    receiver_id: queue_entry.account_id.clone(),
-                    receipt_id: new_receipt_id,
-                    receipt: ReceiptEnum::PromiseResume(DataReceipt {
-                        data_id: queue_entry.data_id,
-                        data: None,
-                    }),
-                });
-
-                // The receipt is destined for the local shard and will be placed in the outgoing
-                // receipts buffer. It is possible that there is already an outgoing receipt resolving
-                // this yield if `yield_resume` was invoked by some receipt which was processed in
-                // the current chunk. The ordering will be maintained because the receipts are
-                // destined for the same shard; the timeout will be processed second and discarded.
-                receipt_sink.forward_or_buffer_receipt(
-                    resume_receipt.clone(),
-                    apply_state,
-                    &mut state_update,
-                    processing_state.epoch_info_provider,
-                )?;
-                timeout_receipts.push(resume_receipt);
-            }
-
-            processed_yield_timeouts.push(queue_entry);
-            state_update.remove(queue_entry_key);
-            // Math checked above: first_index is less than next_available_index
-            promise_yield_indices.first_index += 1;
-        }
-        metrics.yield_timeouts_done(
-            processed_yield_timeouts.len() as u64,
-            yield_processing_start.elapsed(),
-            total.gas,
-            total.compute,
-        );
         Ok(ProcessReceiptsResult {
-            initial_promise_yield_indices,
-            promise_yield_indices,
-            timeout_receipts,
+            promise_yield_result,
             validator_proposals,
             processed_delayed_receipts,
-            processed_yield_timeouts,
         })
     }
 
     fn validate_apply_state_update<'a>(
         &self,
-        mut processing_state: ApplyProcessingReceiptState<'a>,
+        processing_state: ApplyProcessingReceiptState<'a>,
         process_receipts_result: ProcessReceiptsResult,
         mut own_congestion_info: Option<CongestionInfo>,
         validator_accounts_update: &Option<ValidatorAccountsUpdate>,
@@ -1856,25 +1776,27 @@ impl Runtime {
         outgoing_receipts: Vec<Receipt>,
     ) -> Result<ApplyResult, RuntimeError> {
         let _span = tracing::debug_span!(target: "runtime", "apply_commit").entered();
-        let apply_state = &mut processing_state.apply_state;
-        let state_update = &mut processing_state.state_update;
+        let apply_state = processing_state.apply_state;
+        let mut state_update = processing_state.state_update;
+        let delayed_receipts = processing_state.delayed_receipts;
+        let promise_yield_result = process_receipts_result.promise_yield_result;
 
-        if process_receipts_result.promise_yield_indices
-            != process_receipts_result.initial_promise_yield_indices
+        if promise_yield_result.promise_yield_indices
+            != promise_yield_result.initial_promise_yield_indices
         {
             set(
-                state_update,
+                &mut state_update,
                 TrieKey::PromiseYieldIndices,
-                &process_receipts_result.promise_yield_indices,
+                &promise_yield_result.promise_yield_indices,
             );
         }
 
         // Congestion info needs a final touch to select an allowed shard if
         // this shard is fully congested.
 
-        let delayed_receipts_count = processing_state.delayed_receipts.len();
+        let delayed_receipts_count = delayed_receipts.len();
         if let Some(congestion_info) = &mut own_congestion_info {
-            processing_state.delayed_receipts.apply_congestion_changes(congestion_info)?;
+            delayed_receipts.apply_congestion_changes(congestion_info)?;
             let other_shards = apply_state
                 .congestion_info
                 .keys()
@@ -1896,18 +1818,18 @@ impl Runtime {
             &state_update,
             validator_accounts_update,
             processing_state.incoming_receipts,
-            &process_receipts_result.timeout_receipts,
+            &promise_yield_result.timeout_receipts,
             processing_state.transactions,
             &outgoing_receipts,
             &processing_state.stats,
         )?;
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
-        self.apply_state_patch(state_update, state_patch);
+        self.apply_state_patch(&mut state_update, state_patch);
         let chunk_recorded_size_upper_bound =
             state_update.trie.recorded_storage_size_upper_bound() as f64;
         metrics::CHUNK_RECORDED_SIZE_UPPER_BOUND.observe(chunk_recorded_size_upper_bound);
-        let (trie, trie_changes, state_changes) = processing_state.state_update.finalize()?;
+        let (trie, trie_changes, state_changes) = state_update.finalize()?;
 
         if let Some(prefetcher) = &processing_state.prefetcher {
             // Only clear the prefetcher queue after finalize is done because as part of receipt
@@ -1943,7 +1865,7 @@ impl Runtime {
             .observe(chunk_recorded_size_upper_bound / f64::max(1.0, chunk_recorded_size));
         let proof = trie.recorded_storage();
         let processed_delayed_receipts = process_receipts_result.processed_delayed_receipts;
-        let processed_yield_timeouts = process_receipts_result.processed_yield_timeouts;
+        let processed_yield_timeouts = promise_yield_result.processed_yield_timeouts;
         Ok(ApplyResult {
             state_root,
             trie_changes,
@@ -2073,6 +1995,107 @@ fn missing_chunk_apply_result(
     });
 }
 
+fn resolve_timed_out_promise_yield_receipts(
+    processing_state: &mut ApplyProcessingReceiptState,
+    receipt_sink: &mut ReceiptSink,
+    compute_limit: u64,
+    proof_size_limit: Option<usize>,
+) -> Result<ResolvePromiseYieldReceiptsResult, RuntimeError> {
+    let mut state_update = &mut processing_state.state_update;
+    let total = &mut processing_state.total;
+    let apply_state = &processing_state.apply_state;
+
+    let mut promise_yield_indices: PromiseYieldIndices =
+        get(state_update, &TrieKey::PromiseYieldIndices)?.unwrap_or_default();
+    let initial_promise_yield_indices = promise_yield_indices.clone();
+    let mut new_receipt_index: usize = 0;
+
+    let mut processed_yield_timeouts = vec![];
+    let mut timeout_receipts = vec![];
+    let yield_processing_start = std::time::Instant::now();
+    while promise_yield_indices.first_index < promise_yield_indices.next_available_index {
+        if total.compute >= compute_limit
+            || proof_size_limit
+                .is_some_and(|limit| state_update.trie.recorded_storage_size_upper_bound() > limit)
+        {
+            break;
+        }
+
+        let queue_entry_key =
+            TrieKey::PromiseYieldTimeout { index: promise_yield_indices.first_index };
+
+        let queue_entry =
+            get::<PromiseYieldTimeout>(state_update, &queue_entry_key)?.ok_or_else(|| {
+                StorageError::StorageInconsistentState(format!(
+                    "PromiseYield timeout queue entry #{} should be in the state",
+                    promise_yield_indices.first_index
+                ))
+            })?;
+
+        // Queue entries are ordered by expires_at
+        if queue_entry.expires_at > apply_state.block_height {
+            break;
+        }
+
+        // Check if the yielded promise still needs to be resolved
+        let promise_yield_key = TrieKey::PromiseYieldReceipt {
+            receiver_id: queue_entry.account_id.clone(),
+            data_id: queue_entry.data_id,
+        };
+        if state_update.contains_key(&promise_yield_key)? {
+            let new_receipt_id = create_receipt_id_from_receipt_id(
+                processing_state.protocol_version,
+                &queue_entry.data_id,
+                &apply_state.prev_block_hash,
+                &apply_state.block_hash,
+                new_receipt_index,
+            );
+            new_receipt_index += 1;
+
+            // Create a PromiseResume receipt to resolve the timed-out yield.
+            let resume_receipt = Receipt::V0(ReceiptV0 {
+                predecessor_id: queue_entry.account_id.clone(),
+                receiver_id: queue_entry.account_id.clone(),
+                receipt_id: new_receipt_id,
+                receipt: ReceiptEnum::PromiseResume(DataReceipt {
+                    data_id: queue_entry.data_id,
+                    data: None,
+                }),
+            });
+
+            // The receipt is destined for the local shard and will be placed in the outgoing
+            // receipts buffer. It is possible that there is already an outgoing receipt resolving
+            // this yield if `yield_resume` was invoked by some receipt which was processed in
+            // the current chunk. The ordering will be maintained because the receipts are
+            // destined for the same shard; the timeout will be processed second and discarded.
+            receipt_sink.forward_or_buffer_receipt(
+                resume_receipt.clone(),
+                apply_state,
+                &mut state_update,
+                processing_state.epoch_info_provider,
+            )?;
+            timeout_receipts.push(resume_receipt);
+        }
+
+        processed_yield_timeouts.push(queue_entry);
+        state_update.remove(queue_entry_key);
+        // Math checked above: first_index is less than next_available_index
+        promise_yield_indices.first_index += 1;
+    }
+    processing_state.metrics.yield_timeouts_done(
+        processed_yield_timeouts.len() as u64,
+        yield_processing_start.elapsed(),
+        total.gas,
+        total.compute,
+    );
+    Ok(ResolvePromiseYieldReceiptsResult {
+        timeout_receipts,
+        initial_promise_yield_indices,
+        promise_yield_indices,
+        processed_yield_timeouts,
+    })
+}
+
 struct TotalResourceGuard {
     gas: u64,
     compute: u64,
@@ -2095,11 +2118,15 @@ impl TotalResourceGuard {
 }
 
 struct ProcessReceiptsResult {
-    initial_promise_yield_indices: PromiseYieldIndices,
-    promise_yield_indices: PromiseYieldIndices,
-    timeout_receipts: Vec<Receipt>,
+    promise_yield_result: ResolvePromiseYieldReceiptsResult,
     validator_proposals: Vec<ValidatorStake>,
     processed_delayed_receipts: Vec<Receipt>,
+}
+
+struct ResolvePromiseYieldReceiptsResult {
+    timeout_receipts: Vec<Receipt>,
+    initial_promise_yield_indices: PromiseYieldIndices,
+    promise_yield_indices: PromiseYieldIndices,
     processed_yield_timeouts: Vec<PromiseYieldTimeout>,
 }
 
