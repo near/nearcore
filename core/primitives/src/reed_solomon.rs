@@ -12,7 +12,7 @@ pub fn reed_solomon_encode<T: BorshSerialize>(
     let encoded_length = bytes.len();
 
     let data_parts = rs.data_shard_count();
-    let part_length = (encoded_length + data_parts - 1) / data_parts;
+    let part_length = reed_solomon_part_length(encoded_length, data_parts);
 
     // Pad the bytes to be a multiple of `part_length`
     // Convert encoded data into `data_shard_count` number of parts and pad with `parity_shard_count` None values
@@ -51,4 +51,8 @@ pub fn reed_solomon_decode<T: BorshDeserialize>(
         .collect_vec();
 
     T::try_from_slice(&encoded_data)
+}
+
+pub fn reed_solomon_part_length(encoded_length: usize, data_parts: usize) -> usize {
+    (encoded_length + data_parts - 1) / data_parts
 }
