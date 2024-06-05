@@ -637,7 +637,7 @@ fn assert_validator_info(
     for idx in 0..NUM_BLOCK_AND_CHUNK_PRODUCERS {
         let account = &accounts[idx];
         let validator_info = validator_to_info.get(account).unwrap();
-        assert!(0 < validator_info.num_produced_blocks);
+        assert!(validator_info.num_produced_blocks > 0);
         assert!(validator_info.num_produced_blocks <= validator_info.num_expected_blocks);
         assert!(validator_info.num_expected_blocks < EPOCH_LENGTH);
 
@@ -645,7 +645,7 @@ fn assert_validator_info(
         assert!(validator_info.num_produced_chunks <= validator_info.num_expected_chunks);
         assert!(validator_info.num_expected_chunks < EPOCH_LENGTH * NUM_SHARDS);
 
-        assert!(0 < validator_info.num_produced_endorsements);
+        assert!(validator_info.num_produced_endorsements > 0);
         assert!(
             validator_info.num_produced_endorsements <= validator_info.num_expected_endorsements
         );
@@ -663,7 +663,7 @@ fn assert_validator_info(
         assert_eq!(validator_info.num_produced_blocks, 0);
         assert_eq!(validator_info.num_produced_chunks, 0);
 
-        assert!(0 < validator_info.num_produced_endorsements);
+        assert!(validator_info.num_produced_endorsements > 0);
         assert!(
             validator_info.num_produced_endorsements <= validator_info.num_expected_endorsements
         );
