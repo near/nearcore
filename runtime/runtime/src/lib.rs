@@ -1558,7 +1558,9 @@ impl Runtime {
         let compute_limit = apply_state.gas_limit.unwrap_or(Gas::max_value());
         let proof_size_limit =
             if checked_feature!("stable", StateWitnessSizeLimit, protocol_version) {
-                Some(apply_state.config.witness_config.main_storage_proof_size_soft_limit)
+                // DO NOT MERGE TO MASTER!
+                // Some(apply_state.config.witness_config.main_storage_proof_size_soft_limit)
+                None
             } else {
                 None
             };
