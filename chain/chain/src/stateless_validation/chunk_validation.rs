@@ -488,13 +488,17 @@ pub fn validate_chunk_state_witness(
         }
     }
 
+    let parent_hash = state_witness.chunk_header.prev_block_hash();
+    let header_epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
+    let header_protocol_version = epoch_manager.get_epoch_protocol_version(&header_epoch_id)?;
+
     // Finally, verify that the newly proposed chunk matches everything we have computed.
     let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
     validate_chunk_with_chunk_extra_and_receipts_root(
         &chunk_extra,
         &state_witness.chunk_header,
         &outgoing_receipts_root,
-        protocol_version,
+        header_protocol_version,
     )?;
 
     Ok(())
