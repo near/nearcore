@@ -48,7 +48,7 @@ impl RsMap {
         self.rs_map
             .entry(total_parts)
             .or_insert_with(|| {
-                let data_parts = witness_data_parts(total_parts);
+                let data_parts = num_witness_data_parts(total_parts);
                 Arc::new(Some(ReedSolomon::new(data_parts, total_parts - data_parts).unwrap()))
             })
             .clone()
@@ -56,10 +56,10 @@ impl RsMap {
 }
 
 pub fn witness_part_length(encoded_witness_size: usize, total_parts: usize) -> usize {
-    reed_solomon_part_length(encoded_witness_size, witness_data_parts(total_parts))
+    reed_solomon_part_length(encoded_witness_size, num_witness_data_parts(total_parts))
 }
 
-fn witness_data_parts(total_parts: usize) -> usize {
+fn num_witness_data_parts(total_parts: usize) -> usize {
     std::cmp::max((total_parts as f32 * RATIO_DATA_PARTS) as usize, 1)
 }
 

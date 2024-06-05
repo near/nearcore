@@ -97,7 +97,7 @@ impl PartialEncodedStateWitness {
         self.inner.part_ord
     }
 
-    pub fn part_len(&self) -> usize {
+    pub fn part_size(&self) -> usize {
         self.inner.part.len()
     }
 

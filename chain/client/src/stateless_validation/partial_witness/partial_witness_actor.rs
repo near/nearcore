@@ -345,10 +345,10 @@ impl PartialWitnessActor {
 
         let max_part_len =
             witness_part_length(MAX_CHUNK_STATE_WITNESS_SIZE.as_u64() as usize, num_parts);
-        if partial_witness.part_len() > max_part_len {
+        if partial_witness.part_size() > max_part_len {
             return Err(Error::InvalidPartialChunkStateWitness(format!(
                 "Part size {} exceed limit of {} (total parts: {})",
-                partial_witness.part_len(),
+                partial_witness.part_size(),
                 max_part_len,
                 num_parts
             )));
