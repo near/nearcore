@@ -384,9 +384,6 @@ impl JsonRpcHandler {
                 process_method_call(request, |params| self.send_tx_commit(params)).await
             }
             "chunk" => process_method_call(request, |params| self.chunk(params)).await,
-            "congestion_info" => {
-                process_method_call(request, |params| self.congestion_info(params)).await
-            }
             "gas_price" => process_method_call(request, |params| self.gas_price(params)).await,
             "health" => process_method_call(request, |_params: ()| self.health()).await,
             "light_client_proof" => {
@@ -413,6 +410,9 @@ impl JsonRpcHandler {
             }
             "EXPERIMENTAL_changes_in_block" => {
                 process_method_call(request, |params| self.changes_in_block(params)).await
+            }
+            "EXPERIMENTAL_congestion_info" => {
+                process_method_call(request, |params| self.congestion_info(params)).await
             }
             "EXPERIMENTAL_genesis_config" => {
                 process_method_call(request, |_params: ()| async {
