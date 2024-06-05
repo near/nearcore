@@ -182,7 +182,7 @@ pub fn route_network_messages_to_client<
                         other_idx,
                         idx,
                         "Attempted to send PartialEncodedStateWitness message to self: {:?}",
-                        partial_witness.clone()
+                        partial_witness
                     );
                     state_witness_senders[other_idx]
                         .send(PartialEncodedStateWitnessMessage(partial_witness));

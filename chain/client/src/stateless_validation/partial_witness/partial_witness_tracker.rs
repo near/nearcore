@@ -109,7 +109,7 @@ impl CacheEntry {
                 ?shard_id,
                 ?height_created,
                 ?part_ord,
-                "Received duplicate or redundant partial state witness part"
+                "Received duplicate or redundant partial state witness part."
             );
             return None;
         }
