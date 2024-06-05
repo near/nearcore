@@ -179,6 +179,16 @@ def on_locust_init(environment, **kwargs):
         ft_contract = FTContract(ft_account, ft_account, ft_contract_code)
         ft_contract.install(node, funding_account)
         environment.ft_contracts.append(ft_contract)
+        import time
+        start_time = time.time()
+        TOTAL_USERS = 20
+        BATCH_SIZE = 5
+        print(f"Creating {TOTAL_USERS} passive users for contract {i}")
+        for i in range((TOTAL_USERS + BATCH_SIZE - 1) // BATCH_SIZE):
+            ft_contract.create_passive_users(BATCH_SIZE, node, funding_account)
+            print(f"Created {(i + 1) * BATCH_SIZE} users, elapsed: {time.time() - start_time}")
+
+
 
 
 # FT specific CLI args
