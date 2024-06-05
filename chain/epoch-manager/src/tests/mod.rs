@@ -2596,6 +2596,96 @@ fn test_validator_kickout_sanity() {
     );
 }
 
+/// We include some validators that are both block/chunk producers and also chunk validators
+/// as well as some validators that are only chunk validators.
+/// This test does not test kickouts at all.
+#[test]
+fn test_chunk_endorsement_stats() {
+    let epoch_config = epoch_config(5, 2, 4, 0, 90, 80, 0).for_protocol_version(PROTOCOL_VERSION);
+    let accounts = vec![
+        ("test0".parse().unwrap(), 1000),
+        ("test1".parse().unwrap(), 1000),
+        ("test2".parse().unwrap(), 1000),
+        ("test3".parse().unwrap(), 1000),
+    ];
+    let epoch_info = epoch_info(
+        0,
+        accounts,
+        vec![0, 1, 2, 3],
+        vec![vec![0, 1, 2], vec![0, 1, 3]],
+        vec![],
+        vec![],
+        BTreeMap::new(),
+        vec![],
+        HashMap::new(),
+        0,
+    );
+    let (validator_stats, kickouts) = EpochManager::compute_validators_to_reward_and_kickout(
+        &epoch_config,
+        &epoch_info,
+        &HashMap::from([
+            (0, ValidatorStats { produced: 100, expected: 100 }),
+            (1, ValidatorStats { produced: 90, expected: 100 }),
+        ]),
+        &HashMap::from([
+            (
+                0,
+                HashMap::from([
+                    (0, ChunkValidatorStats::new(100, 100, 100, 100)),
+                    (1, ChunkValidatorStats::new(90, 100, 100, 100)),
+                    (2, ChunkValidatorStats::new_with_endorsement(100, 100)),
+                    (3, ChunkValidatorStats::new_with_endorsement(95, 100)),
+                ]),
+            ),
+            (
+                1,
+                HashMap::from([
+                    (0, ChunkValidatorStats::new(95, 100, 100, 100)),
+                    (1, ChunkValidatorStats::new(95, 100, 90, 100)),
+                    (2, ChunkValidatorStats::new_with_endorsement(95, 100)),
+                    (3, ChunkValidatorStats::new_with_endorsement(90, 100)),
+                ]),
+            ),
+        ]),
+        &HashMap::new(),
+        &HashMap::new(),
+    );
+    assert_eq!(kickouts, HashMap::new(),);
+    assert_eq!(
+        validator_stats,
+        HashMap::from([
+            (
+                "test0".parse().unwrap(),
+                BlockChunkValidatorStats {
+                    block_stats: ValidatorStats { produced: 100, expected: 100 },
+                    chunk_stats: ChunkValidatorStats::new(195, 200, 200, 200),
+                }
+            ),
+            (
+                "test1".parse().unwrap(),
+                BlockChunkValidatorStats {
+                    block_stats: ValidatorStats { produced: 90, expected: 100 },
+                    chunk_stats: ChunkValidatorStats::new(185, 200, 190, 200),
+                }
+            ),
+            (
+                "test2".parse().unwrap(),
+                BlockChunkValidatorStats {
+                    block_stats: ValidatorStats { produced: 0, expected: 0 },
+                    chunk_stats: ChunkValidatorStats::new_with_endorsement(195, 200),
+                }
+            ),
+            (
+                "test3".parse().unwrap(),
+                BlockChunkValidatorStats {
+                    block_stats: ValidatorStats { produced: 0, expected: 0 },
+                    chunk_stats: ChunkValidatorStats::new_with_endorsement(185, 200),
+                }
+            ),
+        ])
+    );
+}
+
 #[test]
 /// Test that the stake of validators kicked out in an epoch doesn't exceed the max_kickout_stake_ratio
 fn test_max_kickout_stake_ratio() {

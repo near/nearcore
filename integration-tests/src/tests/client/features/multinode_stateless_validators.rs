@@ -180,13 +180,13 @@ enum TestEvent {
 const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 
 const NUM_ACCOUNTS: usize = 20;
-const NUM_VALIDATORS: usize = 8;
 const NUM_SHARDS: u64 = 4;
 const EPOCH_LENGTH: u64 = 12;
 const NETWORK_DELAY: Duration = Duration::milliseconds(10);
 
 const NUM_BLOCK_AND_CHUNK_PRODUCERS: usize = 4;
 const NUM_CHUNK_VALIDATORS_ONLY: usize = 4;
+const NUM_VALIDATORS: usize = NUM_BLOCK_AND_CHUNK_PRODUCERS + NUM_CHUNK_VALIDATORS_ONLY;
 
 #[test]
 fn test_stateless_validators_with_multi_test_loop() {
@@ -194,8 +194,6 @@ fn test_stateless_validators_with_multi_test_loop() {
         println!("Test not applicable without StatelessValidation enabled");
         return;
     }
-
-    assert_eq!(NUM_VALIDATORS, NUM_BLOCK_AND_CHUNK_PRODUCERS + NUM_CHUNK_VALIDATORS_ONLY);
 
     let builder = TestLoopBuilder::<(usize, TestEvent)>::new();
 
