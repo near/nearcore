@@ -183,7 +183,7 @@ pub enum StateChangeCause {
     /// Updated delayed receipts queue in the state.
     /// We either processed previously delayed receipts or added more receipts to the delayed queue.
     UpdatedDelayedReceipts,
-    /// State change that happens when we update validator accounts. Not associated with with any
+    /// State change that happens when we update validator accounts. Not associated with any
     /// specific transaction or receipt.
     ValidatorAccountsUpdate,
     /// State change that is happens due to migration that happens in first block of an epoch

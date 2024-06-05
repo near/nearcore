@@ -180,8 +180,8 @@ pub enum Error {
     #[error("Invalid Balance Burnt")]
     InvalidBalanceBurnt,
     /// Invalid Congestion Info
-    #[error("Invalid Congestion Info")]
-    InvalidCongestionInfo,
+    #[error("Invalid Congestion Info: {0}")]
+    InvalidCongestionInfo(String),
     /// Invalid shard id
     #[error("Shard id {0} does not exist")]
     InvalidShardId(ShardId),
@@ -302,7 +302,7 @@ impl Error {
             | Error::InvalidGasPrice
             | Error::InvalidGasUsed
             | Error::InvalidBalanceBurnt
-            | Error::InvalidCongestionInfo
+            | Error::InvalidCongestionInfo(_)
             | Error::InvalidShardId(_)
             | Error::InvalidStateRequest(_)
             | Error::InvalidRandomnessBeaconOutput
@@ -378,7 +378,7 @@ impl Error {
             Error::InvalidGasPrice => "invalid_gas_price",
             Error::InvalidGasUsed => "invalid_gas_used",
             Error::InvalidBalanceBurnt => "invalid_balance_burnt",
-            Error::InvalidCongestionInfo => "invalid_congestion_info",
+            Error::InvalidCongestionInfo(_) => "invalid_congestion_info",
             Error::InvalidShardId(_) => "invalid_shard_id",
             Error::InvalidStateRequest(_) => "invalid_state_request",
             Error::InvalidRandomnessBeaconOutput => "invalid_randomness_beacon_output",

@@ -102,7 +102,8 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
                 state_snapshot_type.clone(),
             )
         };
-        let dummy_runtime_configs = vec![RuntimeConfigStore::test(); self.num_clients()];
+        let dummy_runtime_configs =
+            vec![RuntimeConfigStore::test_congestion_control_disabled(); self.num_clients()];
         self.internal_initialize_nightshade_runtimes(
             dummy_runtime_configs,
             trie_configs,

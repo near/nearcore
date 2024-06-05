@@ -1,10 +1,10 @@
-use crate::stateless_validation::processing_tracker::{
-    ProcessingDoneTracker, ProcessingDoneWaiter,
-};
 use crate::{Client, DistributeStateWitnessRequest};
 use near_async::messaging::{CanSend, IntoMultiSender};
 use near_async::time::Clock;
 use near_async::time::{Duration, Instant};
+use near_chain::stateless_validation::processing_tracker::{
+    ProcessingDoneTracker, ProcessingDoneWaiter,
+};
 use near_chain::test_utils::ValidatorSchedule;
 use near_chain::types::Tip;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
@@ -780,6 +780,37 @@ impl TestEnv {
         }))];
         let tx = self.tx_from_actions(actions, &signer, signer.account_id.clone());
         self.execute_tx(tx).unwrap()
+    }
+
+    /// Print a short summary of all the blocks from genesis to head.
+    pub fn print_summary(&self) {
+        let client = &self.clients[0];
+
+        let genesis_height = client.chain.genesis().height();
+        let head_height = client.chain.head().unwrap().height;
+
+        tracing::info!(target: "test", genesis_height, head_height, "printing summary");
+        for height in genesis_height..head_height + 1 {
+            self.print_block_summary(height);
+        }
+    }
+
+    pub fn print_block_summary(&self, height: u64) {
+        let client = &self.clients[0];
+        let block = client.chain.get_block_by_height(height);
+        let Ok(block) = block else {
+            tracing::info!(target: "test", "Block {}: missing", height);
+            return;
+        };
+        let prev_hash = block.header().prev_hash();
+        let epoch_id = client.epoch_manager.get_epoch_id_from_prev_block(prev_hash).unwrap();
+        let protocol_version = client.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
+        let latest_protocol_version = block.header().latest_protocol_version();
+
+        let block_hash = block.hash();
+        let chunk_mask = block.header().chunk_mask();
+
+        tracing::info!(target: "test", height, ?block_hash, ?chunk_mask, protocol_version, latest_protocol_version, "block");
     }
 }
 

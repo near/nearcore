@@ -274,7 +274,7 @@ fn check_action_gas_exceeds_limit(
 /// the arguments.
 ///
 /// This case is more interesting because the burnt gas can be below used gas,
-/// when the prepaid gas was exceeded by burnt burnt + promised gas but not by
+/// when the prepaid gas was exceeded by burnt + promised gas but not by
 /// burnt gas alone.
 ///
 /// Consequently, `num_action_paid` here is even more important to calculate
