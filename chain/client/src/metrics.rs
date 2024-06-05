@@ -804,9 +804,9 @@ pub(crate) static PARTIAL_WITNESS_ENCODE_TIME: Lazy<HistogramVec> = Lazy::new(||
     .unwrap()
 });
 
-pub(crate) static PARTIAL_WITNESS_DECODE_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+pub(crate) static PARTIAL_WITNESS_TIME_TO_LAST_PART: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
-        "near_partial_witness_decode_time",
+        "near_partial_witness_time_to_last_part",
         "Time taken from receiving first partial witness part to receiving enough parts to decode the state witness",
         &["shard_id"],
         Some(exponential_buckets(0.001, 2.0, 13).unwrap()),

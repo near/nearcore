@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use lru::LruCache;
 use near_async::messaging::CanSend;
-use near_async::time::{Duration, Instant};
+use near_async::time::Instant;
 use near_chain::chain::ChunkStateWitnessMessage;
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
@@ -60,8 +60,7 @@ impl RsMap {
 }
 
 struct CacheEntry {
-    pub timer: Instant,
-    pub duration_to_last_part: Duration,
+    pub created_at: Instant,
     pub data_parts_present: usize,
     pub data_parts_required: usize,
     pub parts: Vec<Option<Box<[u8]>>>,
@@ -76,8 +75,7 @@ impl CacheEntry {
             None => (1, 1),
         };
         Self {
-            timer: Instant::now(),
-            duration_to_last_part: Duration::seconds(0),
+            created_at: Instant::now(),
             data_parts_present: 0,
             data_parts_required: data_parts,
             parts: vec![None; total_parts],
@@ -113,7 +111,6 @@ impl CacheEntry {
         self.data_parts_present += 1;
         self.total_parts_size += part.len();
         self.parts[part_ord] = Some(part);
-        self.duration_to_last_part = Instant::now().signed_duration_since(self.timer);
 
         // If we have enough parts, try to decode the state witness.
         if self.data_parts_present < self.data_parts_required {
@@ -185,9 +182,10 @@ impl PartialEncodedStateWitnessTracker {
 
         if let Some(decode_result) = entry.insert_in_cache_entry(partial_witness) {
             // Record the time taken from receiving first part to decoding partial witness.
-            metrics::PARTIAL_WITNESS_DECODE_TIME
+            let time_to_last_part = Instant::now().signed_duration_since(entry.created_at);
+            metrics::PARTIAL_WITNESS_TIME_TO_LAST_PART
                 .with_label_values(&[key.shard_id.to_string().as_str()])
-                .observe(entry.duration_to_last_part.as_seconds_f64());
+                .observe(time_to_last_part.as_seconds_f64());
 
             self.parts_cache.pop(&key);
             self.processed_witnesses.push(key.clone(), ());
