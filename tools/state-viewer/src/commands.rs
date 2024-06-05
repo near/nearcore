@@ -908,7 +908,7 @@ pub(crate) fn print_epoch_analysis(
         EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
             .expect("Failed to start Epoch Manager");
 
-    let epoch_ids = iterate_and_filter(store.clone(), |_| true);
+    let epoch_ids = iterate_and_filter(store, |_| true);
     let epoch_infos: HashMap<EpochId, Arc<EpochInfo>> = HashMap::from_iter(
         epoch_ids
             .into_iter()
@@ -986,7 +986,7 @@ pub(crate) fn print_epoch_analysis(
         let next_next_epoch_id = epoch_heights_to_ids.get(&next_next_epoch_height).unwrap();
         let epoch_summary = epoch_heights_to_validator_infos.get(epoch_height).unwrap();
         let next_epoch_config = epoch_manager.get_epoch_config(next_epoch_id).unwrap();
-        let original_next_next_protocol_version = epoch_summary.next_next_epoch_version.clone();
+        let original_next_next_protocol_version = epoch_summary.next_next_epoch_version;
 
         match mode {
             EpochAnalysisMode::CheckConsistency => {
