@@ -1,10 +1,10 @@
-use crate::stateless_validation::processing_tracker::{
-    ProcessingDoneTracker, ProcessingDoneWaiter,
-};
 use crate::{Client, DistributeStateWitnessRequest};
 use near_async::messaging::{CanSend, IntoMultiSender};
 use near_async::time::Clock;
 use near_async::time::{Duration, Instant};
+use near_chain::stateless_validation::processing_tracker::{
+    ProcessingDoneTracker, ProcessingDoneWaiter,
+};
 use near_chain::test_utils::ValidatorSchedule;
 use near_chain::types::Tip;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
@@ -27,7 +27,7 @@ use near_primitives::epoch_manager::RngSeed;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
-use near_primitives::stateless_validation::{ChunkEndorsement, EncodedChunkStateWitness};
+use near_primitives::stateless_validation::{ChunkEndorsement, ChunkStateWitness};
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, NumSeats, ShardId};
@@ -307,7 +307,6 @@ impl TestEnv {
                     chunk_producer,
                 } => {
                     self.clients[id]
-                        .chunk_inclusion_tracker
                         .mark_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
                 }
             }
@@ -329,9 +328,8 @@ impl TestEnv {
     }
 
     fn found_differing_post_state_root_due_to_state_transitions(
-        encoded_witness: &EncodedChunkStateWitness,
+        witness: &ChunkStateWitness,
     ) -> bool {
-        let witness = encoded_witness.decode().unwrap().0;
         let mut post_state_roots = HashSet::from([witness.main_state_transition.post_state_root]);
         post_state_roots.extend(witness.implicit_transitions.iter().map(|t| t.post_state_root));
         post_state_roots.len() >= 2
@@ -360,8 +358,8 @@ impl TestEnv {
             while let Some(request) = partial_witness_adapter.pop_distribution_request() {
                 let DistributeStateWitnessRequest { epoch_id, chunk_header, state_witness } =
                     request;
-                let (encoded_witness, _) =
-                    EncodedChunkStateWitness::encode(&state_witness).unwrap();
+
+                let raw_witness_size = borsh::to_vec(&state_witness).unwrap().len();
                 let chunk_validators = self.clients[client_idx]
                     .epoch_manager
                     .get_chunk_validator_assignments(
@@ -377,7 +375,8 @@ impl TestEnv {
                     witness_processing_done_waiters.push(processing_done_tracker.make_waiter());
 
                     let processing_result = self.client(&account_id).process_chunk_state_witness(
-                        encoded_witness.clone(),
+                        state_witness.clone(),
+                        raw_witness_size,
                         Some(processing_done_tracker),
                     );
                     if !allow_errors {
@@ -387,9 +386,7 @@ impl TestEnv {
 
                 // Update output.
                 output.found_differing_post_state_root_due_to_state_transitions |=
-                    Self::found_differing_post_state_root_due_to_state_transitions(
-                        &encoded_witness,
-                    );
+                    Self::found_differing_post_state_root_due_to_state_transitions(&state_witness);
             }
         }
 
@@ -783,6 +780,37 @@ impl TestEnv {
         }))];
         let tx = self.tx_from_actions(actions, &signer, signer.account_id.clone());
         self.execute_tx(tx).unwrap()
+    }
+
+    /// Print a short summary of all the blocks from genesis to head.
+    pub fn print_summary(&self) {
+        let client = &self.clients[0];
+
+        let genesis_height = client.chain.genesis().height();
+        let head_height = client.chain.head().unwrap().height;
+
+        tracing::info!(target: "test", genesis_height, head_height, "printing summary");
+        for height in genesis_height..head_height + 1 {
+            self.print_block_summary(height);
+        }
+    }
+
+    pub fn print_block_summary(&self, height: u64) {
+        let client = &self.clients[0];
+        let block = client.chain.get_block_by_height(height);
+        let Ok(block) = block else {
+            tracing::info!(target: "test", "Block {}: missing", height);
+            return;
+        };
+        let prev_hash = block.header().prev_hash();
+        let epoch_id = client.epoch_manager.get_epoch_id_from_prev_block(prev_hash).unwrap();
+        let protocol_version = client.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
+        let latest_protocol_version = block.header().latest_protocol_version();
+
+        let block_hash = block.hash();
+        let chunk_mask = block.header().chunk_mask();
+
+        tracing::info!(target: "test", height, ?block_hash, ?chunk_mask, protocol_version, latest_protocol_version, "block");
     }
 }
 

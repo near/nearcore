@@ -106,7 +106,7 @@ pub const NODE_KEY_FILE: &str = "node_key.json";
 pub const VALIDATOR_KEY_FILE: &str = "validator_key.json";
 
 pub const NETWORK_LEGACY_TELEMETRY_URL: &str = "https://explorer.{}.near.org/api/nodes";
-pub const NETWORK_TELEMETRY_URL: &str = "https://telemetry.nearone.org/nodes/{}";
+pub const NETWORK_TELEMETRY_URL: &str = "https://telemetry.nearone.org/nodes";
 
 fn default_doomslug_step_period() -> Duration {
     Duration::milliseconds(100)
@@ -312,7 +312,7 @@ pub struct Config {
     pub max_loaded_contracts: usize,
     /// Save observed instances of ChunkStateWitness to the database in DBCol::LatestChunkStateWitnesses.
     /// Saving the latest witnesses is useful for analysis and debugging.
-    /// When this option is enabled, the node will save ALL witnesses it oberves, even invalid ones,
+    /// When this option is enabled, the node will save ALL witnesses it observes, even invalid ones,
     /// which can cause extra load on the database. This option is not recommended for production use,
     /// as a large number of incoming witnesses could cause denial of service.
     pub save_latest_witnesses: bool,
@@ -863,7 +863,7 @@ pub fn init_configs(
                 bail!("Test seed is not supported for {chain_id}");
             }
             config.telemetry.endpoints.push(NETWORK_LEGACY_TELEMETRY_URL.replace("{}", &chain_id));
-            config.telemetry.endpoints.push(NETWORK_TELEMETRY_URL.replace("{}", &chain_id));
+            config.telemetry.endpoints.push(NETWORK_TELEMETRY_URL.to_string());
         }
         _ => {
             // Create new configuration, key files and genesis for one validator.
@@ -1510,7 +1510,7 @@ mod tests {
             assert_eq!(
                 vec![
                     "https://explorer.mainnet.near.org/api/nodes".to_string(),
-                    "https://telemetry.nearone.org/nodes/mainnet".to_string()
+                    "https://telemetry.nearone.org/nodes".to_string()
                 ],
                 config.telemetry.endpoints
             );

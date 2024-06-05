@@ -643,8 +643,24 @@ impl RuntimeAdapter for NightshadeRuntime {
         verify_signature: bool,
         epoch_id: &EpochId,
         current_protocol_version: ProtocolVersion,
+        receiver_congestion_info: Option<ExtendedCongestionInfo>,
     ) -> Result<Option<InvalidTxError>, Error> {
         let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
+
+        if let Some(congestion_info) = receiver_congestion_info {
+            let congestion_control = CongestionControl::new(
+                runtime_config.congestion_control_config,
+                congestion_info.congestion_info,
+                congestion_info.missed_chunks_count,
+            );
+            if !congestion_control.shard_accepts_transactions() {
+                let receiver_shard =
+                    self.account_id_to_shard_uid(transaction.transaction.receiver_id(), epoch_id)?;
+                return Ok(Some(InvalidTxError::ShardCongested {
+                    shard_id: receiver_shard.shard_id,
+                }));
+            }
+        }
 
         if let Some(state_root) = state_root {
             let shard_uid =
@@ -663,12 +679,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 current_protocol_version,
             ) {
                 Ok(_) => Ok(None),
-                Err(RuntimeError::InvalidTxError(err)) => {
-                    debug!(target: "runtime", "Tx {:?} validation failed: {:?}", transaction, err);
-                    Ok(Some(err))
-                }
-                Err(RuntimeError::StorageError(err)) => Err(Error::StorageError(err)),
-                Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
+                Err(e) => Ok(Some(e)),
             }
         } else {
             // Doing basic validation without a state root
@@ -680,12 +691,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 current_protocol_version,
             ) {
                 Ok(_) => Ok(None),
-                Err(RuntimeError::InvalidTxError(err)) => {
-                    debug!(target: "runtime", "Tx {:?} validation failed: {:?}", transaction, err);
-                    Ok(Some(err))
-                }
-                Err(RuntimeError::StorageError(err)) => Err(Error::StorageError(err)),
-                Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
+                Err(e) => Ok(Some(e)),
             }
         }
     }
@@ -889,16 +895,11 @@ impl RuntimeAdapter for NightshadeRuntime {
                         // Take one transaction from this group, no more.
                         break;
                     }
-                    Err(RuntimeError::InvalidTxError(err)) => {
+                    Err(err) => {
                         tracing::trace!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction that is invalid");
                         rejected_invalid_tx += 1;
                         state_update.rollback();
                     }
-                    Err(RuntimeError::StorageError(err)) => {
-                        tracing::trace!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction due to storage error");
-                        return Err(Error::StorageError(err));
-                    }
-                    Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
                 }
             }
         }

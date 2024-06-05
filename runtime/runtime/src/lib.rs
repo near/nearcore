@@ -20,7 +20,8 @@ use near_primitives::account::Account;
 use near_primitives::checked_feature;
 use near_primitives::congestion_info::{CongestionInfo, ExtendedCongestionInfo};
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, IntegerOverflowError, RuntimeError, TxExecutionError,
+    ActionError, ActionErrorKind, IntegerOverflowError, InvalidTxError, RuntimeError,
+    TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
@@ -287,7 +288,7 @@ impl Runtime {
         apply_state: &ApplyState,
         signed_transaction: &SignedTransaction,
         stats: &mut ApplyStats,
-    ) -> Result<(Receipt, ExecutionOutcomeWithId), RuntimeError> {
+    ) -> Result<(Receipt, ExecutionOutcomeWithId), InvalidTxError> {
         let span = tracing::Span::current();
         metrics::TRANSACTION_PROCESSED_TOTAL.inc();
 
@@ -326,7 +327,8 @@ impl Runtime {
                     }),
                 });
                 stats.tx_burnt_amount =
-                    safe_add_balance(stats.tx_burnt_amount, verification_result.burnt_amount)?;
+                    safe_add_balance(stats.tx_burnt_amount, verification_result.burnt_amount)
+                        .map_err(|_| InvalidTxError::CostOverflow)?;
                 let gas_burnt = verification_result.gas_burnt;
                 let compute_usage = verification_result.gas_burnt;
                 let outcome = ExecutionOutcomeWithId {
@@ -1396,14 +1398,20 @@ impl Runtime {
 
         let delayed_receipts_queue = DelayedReceiptQueue::load(&state_update)?;
         let mut delayed_receipts = DelayedReceiptQueueWrapper::new(delayed_receipts_queue);
-        let mut own_congestion_info =
-            apply_state.own_congestion_info(protocol_version, &state_update)?;
 
         if !apply_state.is_new_chunk
             && protocol_version >= ProtocolFeature::FixApplyChunks.protocol_version()
         {
             let (trie, trie_changes, state_changes) = state_update.finalize()?;
             let proof = trie.recorded_storage();
+
+            // For old chunks, copy the congestion info exactly as it came in,
+            // potentially returning `None` even if the congestion control
+            // feature is enabled for the protocol version.
+            let congestion_info = apply_state
+                .congestion_info
+                .get(&apply_state.shard_id)
+                .map(|extended_info| extended_info.congestion_info);
 
             return Ok(ApplyResult {
                 state_root: trie_changes.new_root,
@@ -1418,7 +1426,7 @@ impl Runtime {
                 proof,
                 delayed_receipts_count: delayed_receipts.len(),
                 metrics: None,
-                congestion_info: own_congestion_info,
+                congestion_info,
             });
         }
 
@@ -1427,6 +1435,8 @@ impl Runtime {
         let mut local_receipts = vec![];
         let mut outcomes = vec![];
         let mut processed_delayed_receipts = vec![];
+        let mut own_congestion_info =
+            apply_state.own_congestion_info(protocol_version, &state_update)?;
         let mut metrics = metrics::ApplyMetrics::default();
 
         let mut receipt_sink = ReceiptSink::new(
@@ -3435,6 +3445,53 @@ mod tests {
                 assert_eq!(expected_forwarded as usize, apply_result.outgoing_receipts.len());
             }
         }
+    }
+
+    /// Create a scenario where `apply` is called without congestion info but
+    /// cross-shard congestion control is enabled, then check what congestion
+    /// info is in the apply result.
+    fn check_congestion_info_bootstrapping(is_new_chunk: bool, want: Option<CongestionInfo>) {
+        let initial_balance = to_yocto(1_000_000);
+        let initial_locked = to_yocto(500_000);
+        let gas_limit = 10u64.pow(15);
+        let (runtime, tries, root, mut apply_state, _, epoch_info_provider) =
+            setup_runtime(initial_balance, initial_locked, gas_limit);
+
+        // Delete previous congestion info to trigger bootstrapping it.
+        // An empty hash map is what we should see in the first chunk with the feature enabled.
+        apply_state.congestion_info = HashMap::new();
+
+        // Apply test specific settings
+        apply_state.is_new_chunk = is_new_chunk;
+
+        let apply_result = runtime
+            .apply(
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
+                &None,
+                &apply_state,
+                &[],
+                &[],
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap();
+
+        assert_eq!(want, apply_result.congestion_info);
+    }
+
+    /// Test that applying a new chunk triggers bootstrapping the congestion
+    /// info but applying an old chunk doesn't. (We don't want bootstrapping to
+    /// be triggered on missed chunks.)
+    #[test]
+    fn test_congestion_info_bootstrapping() {
+        if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
+            return;
+        }
+        let is_new_chunk = true;
+        check_congestion_info_bootstrapping(is_new_chunk, Some(CongestionInfo::default()));
+
+        let is_new_chunk = false;
+        check_congestion_info_bootstrapping(is_new_chunk, None);
     }
 
     // Apply trie changes in `ApplyResult` and update `ApplyState` with new

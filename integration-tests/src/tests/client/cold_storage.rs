@@ -262,7 +262,9 @@ fn test_cold_db_copy_with_height_skips() {
     let mut genesis = Genesis::test(vec![test0(), test1()], 1);
     genesis.config.epoch_length = epoch_length;
     genesis.config.min_gas_price = 0;
-    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
+    let mut env = TestEnv::builder(&genesis.config)
+        .nightshade_runtimes_congestion_control_disabled(&genesis)
+        .build();
 
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
     let cold_db = storage.cold_db().unwrap();

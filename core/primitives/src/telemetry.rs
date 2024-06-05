@@ -9,6 +9,7 @@ pub struct TelemetryAgentInfo {
     pub name: String,
     pub version: String,
     pub build: String,
+    pub protocol_version: u32,
 }
 
 #[derive(serde::Serialize, Debug)]
@@ -22,6 +23,7 @@ pub struct TelemetrySystemInfo {
 
 #[derive(serde::Serialize, Debug)]
 pub struct TelemetryChainInfo {
+    pub chain_id: String,
     pub node_id: String,
     pub account_id: Option<AccountId>,
     pub is_validator: bool,

@@ -40,7 +40,7 @@
 //!
 //! To run estimations on a non-empty DB with standardised content, we first
 //! dump all records to a `StateDump` written to a file. Then for each
-//! iteration of a an estimation, we first load the records from this dump into
+//! iteration of an estimation, we first load the records from this dump into
 //! a fresh database. Afterwards, it is crucial to run compaction on RocksDB
 //! before starting measurements. Otherwise, the SST file layout can be very
 //! inefficient, as there was no time to restructure them. We assume that in
