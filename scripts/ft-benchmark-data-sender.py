@@ -1,0 +1,148 @@
+import requests
+from prometheus_client.parser import text_string_to_metric_families
+from datetime import datetime
+from time import sleep
+import numpy as np
+import subprocess
+import psycopg2
+from psycopg2 import sql
+from os import getenv
+
+
+# Duration of experiment in hours
+DURATION = 2
+
+# TPS polling interval in seconds
+POLL_INTERVAL = 30
+
+# Maximum failed_tx / total_tx ratio we accept
+EPS = 0.001
+
+
+# Returns the total number of transactions processed by the network at the moment
+def calculate_processed_transactions() -> int:
+    interested_metrics = [
+        "near_transaction_processed_successfully_total",
+        "near_transaction_processed_total",
+    ]
+    metrics_dict = {
+        "near_transaction_processed_successfully_total": None,
+        "near_transaction_processed_total": None,
+    }
+    url = "http://127.0.0.1:3030/metrics"
+    response = requests.get(url)
+    if response.status_code != 200:
+        raise f"Failed to retrieve TPS data. HTTP Status code: {response.status_code}"
+    metrics_data = response.text
+    for family in text_string_to_metric_families(metrics_data):
+        for sample in family.samples:
+            if sample.name in interested_metrics:
+                metrics_dict[sample.name] = sample.value
+    if (
+        metrics_dict["near_transaction_processed_total"]
+        - metrics_dict["near_transaction_processed_successfully_total"]
+    ) / metrics_dict["near_transaction_processed_total"] > EPS:
+        raise "Too much failed transactions"
+    return metrics_dict["near_transaction_processed_successfully_total"]
+
+
+# Returns the number of shards in the network
+def calculate_shards() -> int:
+    payload = {
+        "jsonrpc": "2.0",
+        "id": "dontcare",
+        "method": "EXPERIMENTAL_protocol_config",
+        "params": {"finality": "final"},
+    }
+    url = "http://127.0.0.1:3030"
+    response = requests.post(url, json=payload)
+    if response.status_code != 200:
+        raise f"Failed to retrieve shards amount. HTTP Status code: {response.status_code}"
+    return len(response.json()["result"]["shard_layout"])
+
+
+# Returns a tuple with the commit hash and the commit timestamp
+def get_commit() -> tuple[str, datetime]:
+    payload = {"jsonrpc": "2.0", "id": "dontcare", "method": "status", "params": []}
+    local_url = "http://127.0.0.1:3030"
+    response = requests.post(local_url, json=payload)
+    if response.status_code != 200:
+        raise f"Failed to retrieve commit hash. HTTP Status code: {response.status_code}"
+    version = response.json()["result"]["version"]["build"]
+    short_commit = version.split("-")[2][1:]
+    github_url = f"https://api.github.com/repos/near/nearcore/commits/{short_commit}"
+    response = requests.get(github_url)
+    commit_data = response.json()
+    full_commit_hash = commit_data["sha"]
+    commit_timestamp_str = commit_data["commit"]["author"]["date"]
+    commit_timestamp = datetime.strptime(commit_timestamp_str, "%Y-%m-%dT%H:%M:%SZ")
+    return (full_commit_hash, commit_timestamp)
+
+
+# TODO: Make accesses actually work
+def commit_to_db(data: dict) -> None:
+    with psycopg2.connect(
+        dbname="benchmarks",
+        user="node-data-sender",
+        password=getenv("DB_PASSWORD"),
+        host="34.90.190.128",
+        port="5432",
+    ) as conn:
+        with conn.cursor() as cursor:
+            insert_query = sql.SQL(
+                """
+                INSERT INTO ft_transfer (
+                    time, git_commit_hash, git_commit_time, num_nodes, node_hardware, 
+                    num_traffic_gen_machines, disjoint_workloads, num_shards, 
+                    num_unique_users, size_state_bytes, tps, total_transactions
+                ) VALUES (
+                    %(time)s, %(git_commit_hash)s, %(git_commit_time)s, %(num_nodes)s, 
+                    %(node_hardware)s, %(num_traffic_gen_machines)s, %(disjoint_workloads)s, 
+                    %(num_shards)s, %(num_unique_users)s, %(size_state_bytes)s, 
+                    %(tps)s, %(total_transactions)s
+                )
+                """
+            )
+            cursor.execute(insert_query, data)
+            conn.commit()
+
+
+if __name__ == "__main__":
+    state_size = (
+        int(
+            subprocess.check_output(["du", "-s", "~/.near/localnet/node0/data"])
+            .decode("utf-8")
+            .split()[0]
+        )
+        * 1024
+    )
+    processed_transactions = []
+    time_begin = datetime.now()
+    while True:
+        if (datetime.now() - time_begin).seconds / 3600 > DURATION:
+            break
+        processed_transactions.append(calculate_processed_transactions())
+        print("Added transaction count to list")
+        sleep(POLL_INTERVAL)
+    processed_transactions_deltas = np.diff(processed_transactions)
+    processed_transactions_deltas = np.array(
+        list(map(lambda x: x / POLL_INTERVAL, processed_transactions_deltas))
+    )
+    average_tps = np.mean(processed_transactions_deltas)
+    variance_tps = np.var(processed_transactions_deltas)
+    # TODO: will be good to have all "probably should be filled by terraform" as command line arguments
+    responce = {
+        "time": time_begin,
+        "git_commit_hash": get_commit()[0],
+        "git_commit_time": get_commit()[1],
+        "num_nodes": 1,  # TODO: probably should be filled by terraform
+        "node_hardware": "n1-standard-1",  # TODO: probably should be filled by terraform
+        "num_traffic_gen_machines": 0,  # TODO: probably should be filled by terraform
+        "disjoint_workloads": False,  # TODO: probably should be filled by terraform
+        "num_shards": calculate_shards(),
+        "num_unique_users": 1,  # TODO: probably should be filled by terraform or ft-benchmark.sh
+        "size_state_bytes": state_size,
+        "tps": average_tps,
+        "total_transactions": processed_transactions[-1],
+    }
+    commit_to_db(responce)
