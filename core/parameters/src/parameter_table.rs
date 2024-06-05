@@ -341,6 +341,10 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     .get(Parameter::CombinedTransactionsSizeLimit)?,
                 new_transactions_validation_state_size_soft_limit: params
                     .get(Parameter::NewTransactionsValidationStateSizeSoftLimit)?,
+                outgoing_receipts_usual_size_limit: params
+                    .get(Parameter::OutgoingReceiptsUsualSizeLimit)?,
+                outgoing_receipts_big_size_limit: params
+                    .get(Parameter::OutgoingReceiptsBigSizeLimit)?,
             },
         })
     }

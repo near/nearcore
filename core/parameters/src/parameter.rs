@@ -32,6 +32,8 @@ pub enum Parameter {
     /// A witness contains transactions from both the previous chunk and the current one.
     /// This parameter limits the sum of sizes of transactions from both of those chunks.
     CombinedTransactionsSizeLimit,
+    OutgoingReceiptsUsualSizeLimit,
+    OutgoingReceiptsBigSizeLimit,
 
     // Account creation config
     MinAllowedTopLevelAccountLength,
