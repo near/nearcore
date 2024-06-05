@@ -52,7 +52,7 @@ class FTContract:
         """
         Passive users are only used as receiver, not as signer.
         """
-        node.send_tx_retry(InitFTAccount(self.account, account),
+        node.send_tx_async(InitFTAccount(self.account, account),
                            locust_name="Init FT Account")
         self.registered_users.append(account.key.account_id)
 
@@ -94,11 +94,13 @@ class FTContract:
                               parent,
                               balance=0.3,
                               msg="create passive user")
-        # TODO: this could also be done in parallel, actually in very simple
-        # ways since there are no nonce conflicts (transactions are signed by
-        # different users)
-        for account in accounts:
-            self.register_passive_user(node, account)
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor() as executor:
+            running_tasks = [
+                    executor.submit(self.register_passive_user, node, account)
+                    for account in accounts]
+            for running_task in running_tasks:
+                running_task.result()
 
 
 class TransferFT(FunctionCall):
@@ -181,8 +183,8 @@ def on_locust_init(environment, **kwargs):
         environment.ft_contracts.append(ft_contract)
         import time
         start_time = time.time()
-        TOTAL_USERS = 20
-        BATCH_SIZE = 5
+        TOTAL_USERS = 10000
+        BATCH_SIZE = 1000
         print(f"Creating {TOTAL_USERS} passive users for contract {i}")
         for i in range((TOTAL_USERS + BATCH_SIZE - 1) // BATCH_SIZE):
             ft_contract.create_passive_users(BATCH_SIZE, node, funding_account)
