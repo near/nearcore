@@ -20,7 +20,12 @@ export const SnapshotHostsView = ({ addr }: SnapshotHostsViewProps) => {
     }
 
     let snapshot_hosts = snapshotHosts!.status_response.SnapshotHosts.hosts;
-    snapshot_hosts.sort((a, b) => b.epoch_height - a.epoch_height);
+    snapshot_hosts.sort((a, b) => {
+        if (a.epoch_height != b.epoch_height) {
+            return b.epoch_height - a.epoch_height;
+        }
+        return a.peer_id.localeCompare(b.peer_id);
+    });
 
     return (
         <div className="snapshot-hosts-view">
