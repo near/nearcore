@@ -25,7 +25,7 @@
     "telemetry": {
         "endpoints": [
             "https://explorer.mainnet.near.org/api/nodes",
-            "https://telemetry.nearone.org/nodes/mainnet"
+            "https://telemetry.nearone.org/nodes"
         ]
     },
     "network": {
