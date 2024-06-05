@@ -17,6 +17,7 @@ use near_primitives::reed_solomon::reed_solomon_encode;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::{
     ChunkStateWitness, ChunkStateWitnessAck, EncodedChunkStateWitness, PartialEncodedStateWitness,
+    MAX_CHUNK_STATE_WITNESS_SIZE,
 };
 use near_primitives::types::{AccountId, BlockHeightDelta, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -26,7 +27,9 @@ use crate::client_actor::ClientSenderForPartialWitness;
 use crate::metrics;
 use crate::stateless_validation::state_witness_tracker::ChunkStateWitnessTracker;
 
-use super::partial_witness_tracker::{PartialEncodedStateWitnessTracker, RsMap};
+use super::partial_witness_tracker::{
+    witness_part_length, PartialEncodedStateWitnessTracker, RsMap,
+};
 
 pub struct PartialWitnessActor {
     /// Adapter to send messages to the network.
@@ -347,6 +350,17 @@ impl PartialWitnessActor {
             return Err(Error::InvalidPartialChunkStateWitness(format!(
                 "Invalid part_ord in PartialEncodedStateWitness: {}",
                 partial_witness.part_ord()
+            )));
+        }
+
+        let max_part_len =
+            witness_part_length(MAX_CHUNK_STATE_WITNESS_SIZE.as_u64() as usize, num_parts);
+        if partial_witness.part_size() > max_part_len {
+            return Err(Error::InvalidPartialChunkStateWitness(format!(
+                "Part size {} exceed limit of {} (total parts: {})",
+                partial_witness.part_size(),
+                max_part_len,
+                num_parts
             )));
         }
 

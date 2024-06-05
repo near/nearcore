@@ -16,6 +16,9 @@ use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance, BlockHeight, ShardId};
 use near_primitives_core::version::PROTOCOL_VERSION;
 
+// The value here is the same as NETWORK_MESSAGE_MAX_SIZE_BYTES.
+pub const MAX_CHUNK_STATE_WITNESS_SIZE: ByteSize = ByteSize::mib(512);
+
 /// An arbitrary static string to make sure that this struct cannot be
 /// serialized to look identical to another serialized struct. For chunk
 /// production we are signing a chunk hash, so we need to make sure that
@@ -94,6 +97,10 @@ impl PartialEncodedStateWitness {
         self.inner.part_ord
     }
 
+    pub fn part_size(&self) -> usize {
+        self.inner.part.len()
+    }
+
     /// Decomposes the partial witness to return (part_ord, part, encoded_length)
     pub fn decompose(self) -> (usize, Box<[u8]>, usize) {
         (self.inner.part_ord, self.inner.part, self.inner.encoded_length)
@@ -167,10 +174,7 @@ impl EncodedChunkStateWitness {
     /// Returns decoded witness along with the raw (uncompressed) witness size.
     pub fn decode(&self) -> std::io::Result<(ChunkStateWitness, ChunkStateWitnessSize)> {
         // We want to limit the size of decompressed data to address "Zip bomb" attack.
-        // The value here is the same as NETWORK_MESSAGE_MAX_SIZE_BYTES.
-        const MAX_WITNESS_SIZE: ByteSize = ByteSize::mib(512);
-
-        self.decode_with_limit(MAX_WITNESS_SIZE)
+        self.decode_with_limit(MAX_CHUNK_STATE_WITNESS_SIZE)
     }
 
     /// Decompress and borsh-deserialize encoded witness bytes.
