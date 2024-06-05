@@ -215,7 +215,7 @@ impl PartialWitnessActor {
         let encode_timer = metrics::PARTIAL_WITNESS_ENCODE_TIME
             .with_label_values(&[shard_id_label.as_str()])
             .start_timer();
-        let mut validator_witness_tuple = self.generate_state_witness_parts(
+        let validator_witness_tuple = self.generate_state_witness_parts(
             epoch_id,
             chunk_header,
             witness_bytes,
@@ -278,7 +278,7 @@ impl PartialWitnessActor {
 
         // Store the partial encoded state witness for self.
         self.partial_witness_tracker
-            .store_partial_encoded_state_witness(partial_witness.clone(), false)?;
+            .store_partial_encoded_state_witness(partial_witness.clone())?;
 
         // Forward the part to all the chunk validators.
         let chunk_validators = self
@@ -303,7 +303,7 @@ impl PartialWitnessActor {
         self.validate_partial_encoded_state_witness(&partial_witness)?;
 
         // Store the partial encoded state witness for self.
-        self.partial_witness_tracker.store_partial_encoded_state_witness(partial_witness, true)?;
+        self.partial_witness_tracker.store_partial_encoded_state_witness(partial_witness)?;
 
         Ok(())
     }

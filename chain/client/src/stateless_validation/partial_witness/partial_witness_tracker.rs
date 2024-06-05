@@ -109,7 +109,7 @@ impl CacheEntry {
                 ?shard_id,
                 ?height_created,
                 ?part_ord,
-                "Received duplicate or redundant partial state witness part. Forwarded={is_forwarded}"
+                "Received duplicate or redundant partial state witness part"
             );
             return None;
         }
@@ -172,7 +172,6 @@ impl PartialEncodedStateWitnessTracker {
     pub fn store_partial_encoded_state_witness(
         &mut self,
         partial_witness: PartialEncodedStateWitness,
-        is_forwarded: bool,
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?partial_witness, "store_partial_encoded_state_witness");
 
