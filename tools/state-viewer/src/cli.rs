@@ -10,6 +10,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::trie_key::col;
 use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives_core::types::EpochHeight;
 use near_store::{Mode, NodeStorage, Store, Temperature};
 use nearcore::{load_config, NearConfig};
 use std::path::{Path, PathBuf};
@@ -65,6 +66,9 @@ pub enum StateViewerSubCommand {
     /// Print `EpochInfo` of an epoch given by `--epoch_id` or by `--epoch_height`.
     #[clap(alias = "epoch_info")]
     EpochInfo(EpochInfoCmd),
+    /// Regenerates epoch info based on previous epoch.
+    #[clap(alias = "epoch_analysis")]
+    EpochAnalysis(EpochAnalysisCmd),
     /// Looks up a certain partial chunk.
     #[clap(alias = "partial_chunks")]
     PartialChunks(PartialChunksCmd),
@@ -152,6 +156,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::DumpStateRedis(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpTx(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::EpochInfo(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::EpochAnalysis(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::PartialChunks(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::Receipts(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::Replay(cmd) => cmd.run(near_config, store),
@@ -492,6 +497,36 @@ impl EpochInfoCmd {
             near_config,
             store,
         );
+    }
+}
+
+#[derive(clap::Args)]
+pub struct EpochAnalysisCmd {
+    /// Start height of the epochs to analyse.
+    #[clap(long)]
+    start_height: EpochHeight,
+    /// Epoch analysis mode.
+    #[clap(subcommand)]
+    mode: EpochAnalysisMode,
+}
+
+#[derive(clap::Subcommand)]
+pub enum EpochAnalysisMode {
+    /// Regenerate epoch infos based on previous epoch, assert that epoch info
+    /// generation is replayable.
+    /// TODO (#11476): doesn't work when start epoch height is <= 1053 because
+    /// it will try to generate epoch with height 1055 and fail.
+    CheckConsistency,
+    /// Generate epoch infos as if latest `PROTOCOL_VERSION` was used since the
+    /// start epoch height.
+    /// TODO (#11477): doesn't work for start epoch height <= 544 because of
+    /// `EpochOutOfBounds` error.
+    Backtest,
+}
+
+impl EpochAnalysisCmd {
+    pub fn run(self, near_config: NearConfig, store: Store) {
+        print_epoch_analysis(self.start_height, self.mode, near_config, store);
     }
 }
 
