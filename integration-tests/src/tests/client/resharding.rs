@@ -239,7 +239,7 @@ impl TestReshardingEnv {
             .validator_seats(num_validators)
             .real_stores()
             .epoch_managers_with_test_overrides(epoch_config_test_overrides)
-            .nightshade_runtimes(&genesis)
+            .nightshade_runtimes_congestion_control_disabled(&genesis)
             .track_all_shards()
             .build();
         assert_eq!(env.validators.len(), num_validators);

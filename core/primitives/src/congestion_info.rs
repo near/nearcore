@@ -641,7 +641,11 @@ mod tests {
             return;
         }
 
-        let config = get_config();
+        // The default config is quite restricting, allow more missed chunks for
+        // this test to check the middle cases.
+        let mut config = get_config();
+        config.max_congestion_missed_chunks = 10;
+
         let info = CongestionInfo::default();
 
         // Test missed chunks congestion without any other congestion
@@ -684,7 +688,10 @@ mod tests {
             return;
         }
 
-        let config = get_config();
+        // The default config is quite restricting, allow more missed chunks for
+        // this test to check the middle cases.
+        let mut config = get_config();
+        config.max_congestion_missed_chunks = 10;
 
         // Setup half congested congestion info.
         let mut info = CongestionInfo::default();

@@ -11,6 +11,7 @@ use ethabi::Address;
 use near_sdk::json_types::U64;
 use near_workspaces::{
     network::Sandbox,
+    result::ExecutionFinalResult,
     types::{KeyType, NearToken, PublicKey, SecretKey},
     Account, Contract, Worker,
 };
@@ -30,12 +31,12 @@ pub struct WalletContract {
 }
 
 impl WalletContract {
-    pub async fn rlp_execute(
+    pub async fn rlp_execute_with_receipts(
         &self,
         target: &str,
         tx: &EthTransactionKind,
-    ) -> anyhow::Result<ExecuteResponse> {
-        let result: ExecuteResponse = self
+    ) -> anyhow::Result<ExecutionFinalResult> {
+        let result = self
             .inner
             .call(RLP_EXECUTE)
             .args_json(serde_json::json!({
@@ -44,9 +45,18 @@ impl WalletContract {
             }))
             .max_gas()
             .transact()
-            .await?
-            .into_result()?
-            .json()?;
+            .await?;
+
+        Ok(result)
+    }
+
+    pub async fn rlp_execute(
+        &self,
+        target: &str,
+        tx: &EthTransactionKind,
+    ) -> anyhow::Result<ExecuteResponse> {
+        let result: ExecuteResponse =
+            self.rlp_execute_with_receipts(target, tx).await?.into_result()?.json()?;
 
         Ok(result)
     }

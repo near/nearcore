@@ -282,9 +282,14 @@ impl PartialEncodedStateWitnessTracker {
     ) -> Result<(ChunkStateWitness, ChunkStateWitnessSize), Error> {
         let decode_start = std::time::Instant::now();
         let (witness, raw_witness_size) = encoded_witness.decode()?;
-        metrics::CHUNK_STATE_WITNESS_DECODE_TIME
-            .with_label_values(&[&witness.chunk_header.shard_id().to_string()])
-            .observe(decode_start.elapsed().as_secs_f64());
+        let decode_elapsed_seconds = decode_start.elapsed().as_secs_f64();
+        let witness_shard = witness.chunk_header.shard_id();
+
+        // Record metrics after validating the witness
+        near_chain::stateless_validation::metrics::CHUNK_STATE_WITNESS_DECODE_TIME
+            .with_label_values(&[&witness_shard.to_string()])
+            .observe(decode_elapsed_seconds);
+
         Ok((witness, raw_witness_size))
     }
 }
