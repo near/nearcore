@@ -7,7 +7,7 @@ use near_async::time::{Duration, Instant};
 use near_chain::chain::ChunkStateWitnessMessage;
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
-use near_primitives::reed_solomon::reed_solomon_decode;
+use near_primitives::reed_solomon::{reed_solomon_decode, reed_solomon_part_length};
 use near_primitives::stateless_validation::{
     ChunkProductionKey, ChunkStateWitness, ChunkStateWitnessSize, EncodedChunkStateWitness,
     PartialEncodedStateWitness,
@@ -48,11 +48,19 @@ impl RsMap {
         self.rs_map
             .entry(total_parts)
             .or_insert_with(|| {
-                let data_parts = std::cmp::max((total_parts as f32 * RATIO_DATA_PARTS) as usize, 1);
+                let data_parts = witness_data_parts(total_parts);
                 Arc::new(Some(ReedSolomon::new(data_parts, total_parts - data_parts).unwrap()))
             })
             .clone()
     }
+}
+
+pub fn witness_part_length(encoded_witness_size: usize, total_parts: usize) -> usize {
+    reed_solomon_part_length(encoded_witness_size, witness_data_parts(total_parts))
+}
+
+fn witness_data_parts(total_parts: usize) -> usize {
+    std::cmp::max((total_parts as f32 * RATIO_DATA_PARTS) as usize, 1)
 }
 
 struct CacheEntry {
