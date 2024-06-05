@@ -43,6 +43,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::time::Utc;
 use near_crypto::{PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
+use near_parameters::config::CongestionControlConfig;
+use near_parameters::view::CongestionControlConfigView;
 use near_parameters::{ActionCosts, ExtCosts};
 use near_primitives_core::version::PROTOCOL_VERSION;
 use serde_with::base64::Base64;
@@ -2495,6 +2497,21 @@ impl From<CongestionInfoV1> for CongestionInfoView {
 impl From<CongestionInfoView> for CongestionInfo {
     fn from(_: CongestionInfoView) -> Self {
         CongestionInfo::default()
+    }
+}
+
+impl CongestionInfoView {
+    pub fn congestion_level(&self, config_view: CongestionControlConfigView) -> f64 {
+        let congestion_config = CongestionControlConfig::from(config_view);
+        // Localized means without considering missed chunks congestion. As far
+        // as clients are concerned, this is the only congestion level that
+        // matters.
+        // Missed chunks congestion exists to reduce incoming load after a
+        // number of chunks were missed. It is not a property of a specific
+        // chunk but rather a property that changes over time. It is even a bit
+        // misleading to call it congestion, as it is not a problem with too
+        // much traffic.
+        CongestionInfo::from(self.clone()).localized_congestion_level(&congestion_config)
     }
 }
 
