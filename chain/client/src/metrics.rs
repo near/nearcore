@@ -814,26 +814,6 @@ pub(crate) static PARTIAL_WITNESS_DECODE_TIME: Lazy<HistogramVec> = Lazy::new(||
     .unwrap()
 });
 
-pub(crate) static PARTIAL_WITNESS_TOTAL_TIME: Lazy<HistogramVec> = Lazy::new(|| {
-    try_create_histogram_vec(
-        "near_partial_witness_total_time",
-        "Time taken from receiving first partial witness part to receiving last partial witness part",
-        &["shard_id"],
-        Some(exponential_buckets(0.001, 2.0, 13).unwrap()),
-    )
-    .unwrap()
-});
-
-pub(crate) static PARTIAL_WITNESS_PARTS_RECEIVED_RATIO: Lazy<HistogramVec> = Lazy::new(|| {
-    try_create_histogram_vec(
-        "near_partial_witness_parts_received_ratio",
-        "Ratio (the value is between 0.0 and 1.0) of the number of parts received for the partial state witness",
-        &["shard_id"],
-        Some(linear_buckets(0.0, 0.05, 20).unwrap()),
-    )
-    .unwrap()
-});
-
 pub(crate) static PARTIAL_WITNESS_CACHE_SIZE: Lazy<Gauge> = Lazy::new(|| {
     try_create_gauge(
         "near_partial_witness_cache_size",

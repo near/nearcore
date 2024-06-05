@@ -253,19 +253,6 @@ impl PartialEncodedStateWitnessTracker {
         let rs = self.rs_map.entry(num_parts);
         let new_entry = CacheEntry::new(rs);
         if let Some((evicted_key, evicted_entry)) = self.parts_cache.push(key, new_entry) {
-            // Record the ratio of parts received to parts required for the evicted entry.
-            // Note that this includes the parts received after decoding the state witness.
-            let parts_received_ratio =
-                evicted_entry.data_parts_present as f64 / evicted_entry.data_parts_required as f64;
-            metrics::PARTIAL_WITNESS_PARTS_RECEIVED_RATIO
-                .with_label_values(&[evicted_key.shard_id.to_string().as_str()])
-                .observe(parts_received_ratio);
-
-            // Record the time taken from receiving first part to receiving the last part.
-            metrics::PARTIAL_WITNESS_TOTAL_TIME
-                .with_label_values(&[evicted_key.shard_id.to_string().as_str()])
-                .observe(evicted_entry.duration_to_last_part.as_seconds_f64());
-
             tracing::warn!(
                 target: "client",
                 ?evicted_key,
