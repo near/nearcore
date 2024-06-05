@@ -1777,7 +1777,7 @@ impl Runtime {
                 .copied()
                 .collect::<Vec<_>>();
 
-            let congestion_seed = apply_state.block_height;
+            let congestion_seed = apply_state.block_height.wrapping_add(apply_state.shard_id);
             congestion_info.finalize_allowed_shard(
                 apply_state.shard_id,
                 &other_shards,
