@@ -181,7 +181,7 @@ const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 
 const NUM_ACCOUNTS: usize = 20;
 const NUM_VALIDATORS: usize = 8;
-const NUM_SHARDS: usize = 4;
+const NUM_SHARDS: u64 = 4;
 const EPOCH_LENGTH: u64 = 12;
 const NETWORK_DELAY: Duration = Duration::milliseconds(10);
 
@@ -570,15 +570,14 @@ fn test_stateless_validators_with_multi_test_loop() {
         );
     }
 
-    // Run the chain some time until the following happen both:
-    // 1. All transactions are processed (so we run for some duration).
-    // 2. We transition to a different epoch then prev_epoch_id. (so we run until the epoch id changes)
+    // Run the chain some time to allow transactions be processed.
     test.run_for(Duration::seconds(20));
 
     // Capture the id of the epoch we will check for the correct validator information in assert_validator_info.
     let prev_epoch_id = test.data[0].client.client.chain.head().unwrap().epoch_id;
     assert_ne!(prev_epoch_id, initial_epoch_id);
 
+    // Run the chain until it transitions to a different epoch then prev_epoch_id.
     test.run_until(
         |data| data[0].client.client.chain.head().unwrap().epoch_id != prev_epoch_id,
         Duration::seconds(EPOCH_LENGTH as i64),
@@ -640,16 +639,19 @@ fn assert_validator_info(
     for idx in 0..NUM_BLOCK_AND_CHUNK_PRODUCERS {
         let account = &accounts[idx];
         let validator_info = validator_to_info.get(account).unwrap();
-        assert!(validator_info.num_produced_blocks > 0);
-        assert!(validator_info.num_expected_blocks >= validator_info.num_produced_blocks);
+        assert!(0 < validator_info.num_produced_blocks);
+        assert!(validator_info.num_produced_blocks <= validator_info.num_expected_blocks);
+        assert!(validator_info.num_expected_blocks < EPOCH_LENGTH);
 
-        assert!(validator_info.num_produced_chunks > 0);
-        assert!(validator_info.num_expected_chunks >= validator_info.num_produced_chunks);
+        assert!(0 < validator_info.num_produced_chunks);
+        assert!(validator_info.num_produced_chunks <= validator_info.num_expected_chunks);
+        assert!(validator_info.num_expected_chunks < EPOCH_LENGTH * NUM_SHARDS);
 
-        assert!(validator_info.num_produced_endorsements > 0);
+        assert!(0 < validator_info.num_produced_endorsements);
         assert!(
-            validator_info.num_expected_endorsements >= validator_info.num_produced_endorsements
+            validator_info.num_produced_endorsements <= validator_info.num_expected_endorsements
         );
+        assert!(validator_info.num_expected_endorsements <= EPOCH_LENGTH * NUM_SHARDS);
 
         let initial_validator_info = initial_validator_to_info.get(account).unwrap();
         assert!(initial_validator_info.stake < validator_info.stake);
@@ -663,10 +665,11 @@ fn assert_validator_info(
         assert_eq!(validator_info.num_produced_blocks, 0);
         assert_eq!(validator_info.num_produced_chunks, 0);
 
-        assert!(validator_info.num_produced_endorsements > 0);
+        assert!(0 < validator_info.num_produced_endorsements);
         assert!(
-            validator_info.num_expected_endorsements >= validator_info.num_produced_endorsements
+            validator_info.num_produced_endorsements <= validator_info.num_expected_endorsements
         );
+        assert!(validator_info.num_expected_endorsements <= EPOCH_LENGTH * NUM_SHARDS);
 
         let initial_validator_info = initial_validator_to_info.get(account).unwrap();
         assert!(initial_validator_info.stake < validator_info.stake);
