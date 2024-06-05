@@ -92,7 +92,7 @@ impl<'a> ReceiptSink<'a> {
                         congestion.missed_chunks_count,
                     );
 
-                    (shard_id, other_congestion_control.outgoing_limit(apply_state.shard_id))
+                    (shard_id, other_congestion_control.outgoing_gas_limit(apply_state.shard_id))
                 })
                 .collect();
 
