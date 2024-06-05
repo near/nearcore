@@ -1,5 +1,4 @@
 use crate::metrics::{PROTOCOL_VERSION_NEXT, PROTOCOL_VERSION_VOTES};
-use crate::proposals::proposals_to_epoch_info;
 use crate::types::EpochInfoAggregator;
 use near_cache::SyncLruCache;
 use near_chain_configs::GenesisConfig;
@@ -35,6 +34,7 @@ use tracing::{debug, warn};
 use types::BlockHeaderInfo;
 
 pub use crate::adapter::EpochManagerAdapter;
+pub use crate::proposals::proposals_to_epoch_info;
 pub use crate::reward_calculator::RewardCalculator;
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
 pub use crate::types::RngSeed;
@@ -1714,9 +1714,16 @@ impl EpochManager {
         Ok(ShardConfig::new(epoch_config))
     }
 
+    pub fn get_config_for_protocol_version(
+        &self,
+        protocol_version: ProtocolVersion,
+    ) -> Result<EpochConfig, EpochError> {
+        Ok(self.config.for_protocol_version(protocol_version))
+    }
+
     pub fn get_epoch_config(&self, epoch_id: &EpochId) -> Result<EpochConfig, EpochError> {
         let protocol_version = self.get_epoch_info(epoch_id)?.protocol_version();
-        Ok(self.config.for_protocol_version(protocol_version))
+        self.get_config_for_protocol_version(protocol_version)
     }
 
     pub fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {
