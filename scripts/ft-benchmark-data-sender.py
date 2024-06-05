@@ -107,6 +107,8 @@ def commit_to_db(data: dict) -> None:
             conn.commit()
 
 
+# TODO: send signal to this process if ft-benchmark.sh decided to switch neard to another commit.
+# add handling of this signal to this script
 if __name__ == "__main__":
     state_size = (
         int(
