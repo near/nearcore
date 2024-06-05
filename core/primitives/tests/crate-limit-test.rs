@@ -19,15 +19,12 @@ fn test_crate_count() {
         .output()
         .expect("Failed to execute cargo tree");
 
-    // Check if the command was successful
     assert!(output.status.success(), "Cargo tree failed");
 
-    // Convert the output to a string
     let output_str = str::from_utf8(&output.stdout).expect("Failed to convert output to string");
 
     let re = regex::Regex::new(r"([\w-]+) v([\d.]+(?:-\w+)?)").unwrap();
 
-    // Use a HashSet to track unique crates
     let mut unique_crates = HashSet::new();
 
     for cap in re.captures_iter(output_str) {
@@ -37,10 +34,8 @@ fn test_crate_count() {
         println!("{}", crate_str);
         unique_crates.insert(crate_str);
     }
-    // Count the unique crates
     let crate_count = unique_crates.len();
     println!("Unique crate count: {}", crate_count);
 
-    // Assert that the crate count is less than the threshold
     assert!(crate_count < THRESHOLD, "Crate count is too high: {} > {}", crate_count, THRESHOLD);
 }
