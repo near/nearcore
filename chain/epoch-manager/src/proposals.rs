@@ -51,7 +51,7 @@ pub fn proposals_to_epoch_info(
 ) -> Result<EpochInfo, EpochError> {
     // For this protocol feature, switch happened two epochs after protocol upgrade.
     // Keeping it this way for replayability.
-    return if checked_feature!(
+    if checked_feature!(
         "stable",
         AliasValidatorSelectionAlgorithm,
         prev_prev_epoch_protocol_version
@@ -78,7 +78,7 @@ pub fn proposals_to_epoch_info(
             minted_amount,
             protocol_version,
         )
-    };
+    }
 }
 
 mod old_validator_selection {

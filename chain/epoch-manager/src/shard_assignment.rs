@@ -128,20 +128,13 @@ fn get_initial_chunk_producer_assignment(
         .collect::<HashMap<_, _>>();
 
     let mut assignment = vec![];
-    let mut used_chunk_producers = HashSet::new();
     for validator_stakes in prev_assignment {
         let mut chunk_producers = vec![];
         for validator_stake in validator_stakes {
             let chunk_producer_index = chunk_producer_indices.get(validator_stake.account_id());
-            let Some(&index) = chunk_producer_index else {
-                continue;
-            };
-
-            chunk_producers.push(index);
-            if used_chunk_producers.contains(&index) {
-                return vec![vec![]; num_shards as usize];
+            if let Some(&index) = chunk_producer_index {
+                chunk_producers.push(index);
             }
-            used_chunk_producers.insert(index);
         }
         assignment.push(chunk_producers);
     }
