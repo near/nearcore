@@ -213,6 +213,11 @@ pub enum InvalidTxError {
     InvalidTransactionVersion,
     // Error occurred during storage access
     StorageError(StorageError),
+    /// The receiver shard of the transaction is too congested to accept new
+    /// transactions at the moment.
+    ShardCongested {
+        shard_id: u32,
+    },
 }
 
 impl From<StorageError> for InvalidTxError {
@@ -619,6 +624,9 @@ impl Display for InvalidTxError {
             }
             InvalidTxError::StorageError(error) => {
                 write!(f, "Storage error: {}", error)
+            }
+            InvalidTxError::ShardCongested { shard_id } => {
+                write!(f, "Shard {shard_id} is currently congested and rejects new transactions.")
             }
         }
     }

@@ -2270,7 +2270,8 @@ impl Client {
     ) -> Result<ProcessTxResponse, Error> {
         let head = self.chain.head()?;
         let me = self.validator_signer.as_ref().map(|vs| vs.validator_id());
-        let cur_block_header = self.chain.head_header()?;
+        let cur_block = self.chain.get_head_block()?;
+        let cur_block_header = cur_block.header();
         let transaction_validity_period = self.chain.transaction_validity_period;
         // here it is fine to use `cur_block_header` as it is a best effort estimate. If the transaction
         // were to be included, the block that the chunk points to will have height >= height of
@@ -2285,12 +2286,23 @@ impl Client {
         }
         let gas_price = cur_block_header.next_gas_price();
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash)?;
-
+        let receiver_shard =
+            self.epoch_manager.account_id_to_shard_id(tx.transaction.receiver_id(), &epoch_id)?;
+        let receiver_congestion_info =
+            cur_block.shards_congestion_info().get(&receiver_shard).copied();
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
         if let Some(err) = self
             .runtime_adapter
-            .validate_tx(gas_price, None, tx, true, &epoch_id, protocol_version)
+            .validate_tx(
+                gas_price,
+                None,
+                tx,
+                true,
+                &epoch_id,
+                protocol_version,
+                receiver_congestion_info,
+            )
             .expect("no storage errors")
         {
             debug!(target: "client", tx_hash = ?tx.get_hash(), ?err, "Invalid tx during basic validation");
@@ -2322,7 +2334,15 @@ impl Client {
             };
             if let Some(err) = self
                 .runtime_adapter
-                .validate_tx(gas_price, Some(state_root), tx, false, &epoch_id, protocol_version)
+                .validate_tx(
+                    gas_price,
+                    Some(state_root),
+                    tx,
+                    false,
+                    &epoch_id,
+                    protocol_version,
+                    receiver_congestion_info,
+                )
                 .expect("no storage errors")
             {
                 debug!(target: "client", ?err, "Invalid tx");

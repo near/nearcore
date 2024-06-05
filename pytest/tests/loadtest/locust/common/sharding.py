@@ -5,11 +5,13 @@ Provides tools to generate account names that are distributed evenly across the 
 For account naming rules and conventions see https://nomicon.io/DataStructures/Account
 """
 
-import os
-import sys
+import logging
 import random
 import re
 import unittest
+from configured_logger import new_logger
+
+logger = new_logger(level=logging.WARN)
 
 
 def char_range(lower, upper, upper_inclusive=True):
@@ -276,17 +278,19 @@ def random_account_between(base_name, suffix, lower, upper):
 # Given a shard layout, generates accounts distributed evenly across the shards
 class AccountGenerator:
 
-    def __init__(self, shard_layout):
-        assert len(shard_layout) == 1
-        assert 'V0' in shard_layout or 'V1' in shard_layout
+    def __init__(self, available_shard_layouts, shard_layout_version):
+        assert shard_layout_version in available_shard_layouts, "Shard layout version not found in available versions: " + str(
+            available_shard_layouts.keys())
+        logger.info(f"Using shard layout version {shard_layout_version}")
 
         self.shard_map = {}
 
         # If the shard layout is V0, we can just skip this, and random_account_id()
         # will see an empty self.shard_map and generate a random prefix, which should
         # distribute the accounts evenly across shards in that case
-        shard_layout_v1 = shard_layout.get('V1')
-        if shard_layout_v1 is not None:
+        if shard_layout_version != "V0":
+            selected_shard_layout = available_shard_layouts.get(
+                shard_layout_version)
             # taken from a comment in core/account-id/src/lib.rs
             account_regex = re.compile(
                 r'^(([a-z\d]+[-_])*[a-z\d]+\.)*([a-z\d]+[-_])*[a-z\d]+$')
@@ -294,8 +298,8 @@ class AccountGenerator:
             # picking one at random, and not actually doing anything with the shard ID itself, but
             # add the right offset to the shard IDs below just for cleanliness, and in case we
             # want to print out shard IDs or something
-            shard_offset = len(shard_layout_v1['fixed_shards'])
-            accounts = shard_layout_v1['boundary_accounts']
+            shard_offset = len(selected_shard_layout['fixed_shards'])
+            accounts = selected_shard_layout['boundary_accounts']
             if len(accounts) == 0:
                 self.shard_map[shard_offset] = (None, None)
                 return

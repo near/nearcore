@@ -5,6 +5,13 @@ function ellipsify(str, maxLen) {
     return str;
 }
 
+function toPercentage(number, fractionDigits) {
+    if (isNaN(number)) {
+        return number;
+    }
+    return (number * 100).toFixed(fractionDigits) + '%';
+}
+
 // Makes an element that when clicked, expands or ellipsifies the hash and creator.
 function HashElement({ hashValue, creator, expandAll, knownProducers }) {
     let [expanded, setExpanded] = React.useState(false);
@@ -132,7 +139,7 @@ function BlocksTable({ rows, knownProducers, expandAll, hideMissingHeights }) {
         <th>Block Delay (s)</th>
         <th>Gas price ratio</th>
         {[...Array(numShards).keys()].map(i =>
-            <th key={i} colSpan="3">Shard {i} (hash/gas(Tgas)/time(ms))</th>)}
+            <th key={i} colSpan="4">Shard {i} (hash/gas(Tgas)/time(ms)/endorsement(stake))</th>)}
     </tr>;
 
     // One xarrow element per arrow (from block to block).
@@ -166,6 +173,7 @@ function BlocksTable({ rows, knownProducers, expandAll, hideMissingHeights }) {
                 </td>
                 <td>{(chunk.gas_used / (1024 * 1024 * 1024 * 1024)).toFixed(1)}</td>
                 <td>{chunk.processing_time_ms}</td>
+                <td>{toPercentage(chunk.endorsement_ratio, 1)}</td>
             </React.Fragment>);
         });
 
