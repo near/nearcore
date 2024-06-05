@@ -212,7 +212,7 @@ impl PartialWitnessActor {
         let encode_timer = metrics::PARTIAL_WITNESS_ENCODE_TIME
             .with_label_values(&[shard_id_label.as_str()])
             .start_timer();
-        let validator_witness_tuple = self.generate_state_witness_parts(
+        let mut validator_witness_tuple = self.generate_state_witness_parts(
             epoch_id,
             chunk_header,
             witness_bytes,
@@ -220,34 +220,42 @@ impl PartialWitnessActor {
         );
         encode_timer.observe_duration();
 
-        // Since we can't send network message to ourselves, we need to send the PartialEncodedStateWitnessForward
-        // message for our part.
-        if let Some((_, partial_witness)) = validator_witness_tuple
+        if let Some(index) = validator_witness_tuple
             .iter()
-            .find(|(validator, _)| validator == self.my_signer.validator_id())
+            .position(|(validator, _)| validator == self.my_signer.validator_id())
         {
-            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::PartialEncodedStateWitnessForward(
-                    chunk_validators,
-                    partial_witness.clone(),
-                ),
-            ));
+            // Remove self from the list, since we do not need to send our own part to self.
+            let (_, partial_witness) = validator_witness_tuple.swap_remove(index);
+            self.forward_state_witness_part(&partial_witness, chunk_validators);
         }
 
         // Send the parts to the corresponding chunk validator owners.
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple),
         ));
+
         Ok(())
     }
 
-    /// Handles the state witness ack message from the chunk validator.
-    /// It computes the round-trip time between sending the state witness and receiving
-    /// the ack message and updates the corresponding metric with it.
-    /// Currently we do not raise an error for handling of witness-ack messages,
-    /// as it is used only for tracking some networking metrics.
-    pub fn handle_chunk_state_witness_ack(&mut self, witness_ack: ChunkStateWitnessAck) {
-        self.state_witness_tracker.on_witness_ack_received(witness_ack);
+    /// Sends the witness part to the chunk validators, except for the following:
+    /// 1) The current validator, 2) Chunk producer that originally generated the witness part.
+    fn forward_state_witness_part(
+        &self,
+        partial_witness: &PartialEncodedStateWitness,
+        chunk_validators: Vec<AccountId>,
+    ) {
+        // Forward witness part to chunk validators other than
+        // (1) the current validator and (2) validator that produced the respective chunk.
+        let target_validators = chunk_validators
+            .into_iter()
+            .filter(|validator| validator != self.my_signer.validator_id())
+            .collect();
+        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::PartialEncodedStateWitnessForward(
+                target_validators,
+                partial_witness.clone(),
+            ),
+        ));
     }
 
     /// Function to handle receiving partial_encoded_state_witness message from chunk producer.
@@ -262,7 +270,7 @@ impl PartialWitnessActor {
 
         // Store the partial encoded state witness for self.
         self.partial_witness_tracker
-            .store_partial_encoded_state_witness(partial_witness.clone())?;
+            .store_partial_encoded_state_witness(partial_witness.clone(), false)?;
 
         // Forward the part to all the chunk validators.
         let chunk_validators = self
@@ -273,10 +281,7 @@ impl PartialWitnessActor {
                 partial_witness.height_created(),
             )?
             .ordered_chunk_validators();
-
-        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::PartialEncodedStateWitnessForward(chunk_validators, partial_witness),
-        ));
+        self.forward_state_witness_part(&partial_witness, chunk_validators);
 
         Ok(())
     }
@@ -290,7 +295,7 @@ impl PartialWitnessActor {
         self.validate_partial_encoded_state_witness(&partial_witness)?;
 
         // Store the partial encoded state witness for self.
-        self.partial_witness_tracker.store_partial_encoded_state_witness(partial_witness)?;
+        self.partial_witness_tracker.store_partial_encoded_state_witness(partial_witness, true)?;
 
         Ok(())
     }
@@ -392,6 +397,15 @@ impl PartialWitnessActor {
         }
 
         Ok(())
+    }
+
+    /// Handles the state witness ack message from the chunk validator.
+    /// It computes the round-trip time between sending the state witness and receiving
+    /// the ack message and updates the corresponding metric with it.
+    /// Currently we do not raise an error for handling of witness-ack messages,
+    /// as it is used only for tracking some networking metrics.
+    pub fn handle_chunk_state_witness_ack(&mut self, witness_ack: ChunkStateWitnessAck) {
+        self.state_witness_tracker.on_witness_ack_received(witness_ack);
     }
 }
 

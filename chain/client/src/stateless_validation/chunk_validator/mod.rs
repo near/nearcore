@@ -14,6 +14,7 @@ use near_chain::{Block, Chain};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
+use near_o11y::log_assert_fail;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::{
     ChunkEndorsement, ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessSize,
@@ -282,6 +283,19 @@ impl Client {
     }
 
     fn send_state_witness_ack(&self, witness: &ChunkStateWitness) {
+        // If this validator generated the witness, drop the ack.
+        // This is because the ack mechanism is for measuring the network roundtrip time, so if we handle the ack to self,
+        // it will add small durations to the metric and lead to imprecise calculations about the network time.
+        if let Some(signer) = &self.validator_signer {
+            if signer.validator_id() == &witness.chunk_producer {
+                return;
+            }
+        } else {
+            log_assert_fail!(
+                "Received a chunk state witness but not a validator. Witness={:?}",
+                witness
+            );
+        }
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::ChunkStateWitnessAck(
                 witness.chunk_producer.clone(),

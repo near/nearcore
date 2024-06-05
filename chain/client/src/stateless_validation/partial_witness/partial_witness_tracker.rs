@@ -91,6 +91,7 @@ impl CacheEntry {
     pub fn insert_in_cache_entry(
         &mut self,
         partial_witness: PartialEncodedStateWitness,
+        is_forwarded: bool,
     ) -> Option<EncodedChunkStateWitness> {
         let shard_id = partial_witness.shard_id();
         let height_created = partial_witness.height_created();
@@ -103,7 +104,7 @@ impl CacheEntry {
                 ?shard_id,
                 ?height_created,
                 ?part_ord,
-                "Received duplicate or redundant partial state witness part."
+                "Received duplicate or redundant partial state witness part. Forwarded={is_forwarded}"
             );
             return None;
         }
@@ -185,6 +186,7 @@ impl PartialEncodedStateWitnessTracker {
     pub fn store_partial_encoded_state_witness(
         &mut self,
         partial_witness: PartialEncodedStateWitness,
+        is_forwarded: bool,
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?partial_witness, "store_partial_encoded_state_witness");
 
@@ -193,7 +195,7 @@ impl PartialEncodedStateWitnessTracker {
         let key = partial_witness.chunk_production_key();
         let entry = self.parts_cache.get_mut(&key).unwrap();
 
-        if let Some(encoded_witness) = entry.insert_in_cache_entry(partial_witness) {
+        if let Some(encoded_witness) = entry.insert_in_cache_entry(partial_witness, is_forwarded) {
             tracing::debug!(target: "client", ?key, "Sending encoded witness to client.");
 
             // Record the time taken from receiving first part to decoding partial witness.
