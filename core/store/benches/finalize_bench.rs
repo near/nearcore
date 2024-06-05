@@ -131,7 +131,7 @@ fn create_chunk_header(height: u64, shard_id: u64) -> ShardChunkHeader {
         CryptoHash::default(),
         CryptoHash::default(),
         vec![],
-        CongestionInfo::default(),
+        Some(CongestionInfo::default()),
         &validator_signer(),
     ))
 }
@@ -198,7 +198,7 @@ fn create_encoded_shard_chunk(
         receipts,
         Default::default(),
         Default::default(),
-        CongestionInfo::default(),
+        Some(CongestionInfo::default()),
         &validator_signer(),
         &rs,
         100,

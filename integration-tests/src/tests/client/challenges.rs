@@ -376,7 +376,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         &[],
         last_block.chunks()[0].prev_outgoing_receipts_root(),
         CryptoHash::default(),
-        CongestionInfo::default(),
+        Some(CongestionInfo::default()),
         &validator_signer,
         &rs,
         PROTOCOL_VERSION,

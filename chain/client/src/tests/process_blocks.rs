@@ -80,7 +80,7 @@ fn test_bad_shard_id() {
         outgoing_receipts_root,
         chunk.tx_root(),
         chunk.prev_validator_proposals().collect(),
-        CongestionInfo::default(),
+        Some(CongestionInfo::default()),
         &validator_signer,
     );
     modified_chunk.height_included = 2;
@@ -209,7 +209,7 @@ fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
         chunk.prev_outgoing_receipts_root(),
         chunk.tx_root(),
         chunk.prev_validator_proposals().collect(),
-        congestion_info,
+        Some(congestion_info),
         &validator_signer,
     );
     modified_chunk_header.height_included = 2;

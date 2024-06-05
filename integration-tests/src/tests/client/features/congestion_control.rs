@@ -134,6 +134,8 @@ fn check_congestion_info(env: &TestEnv) {
 /// no traffic at all.
 #[test]
 fn test_protocol_upgrade_simple() {
+    init_test_logger();
+
     // The following only makes sense to test if the feature is enabled in the current build.
     if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
         return;

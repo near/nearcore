@@ -1379,6 +1379,7 @@ impl Runtime {
 
         let mut stats = ApplyStats::default();
 
+        tracing::info!(target: "runtime", "Process validation accounts update");
         if let Some(validator_accounts_update) = validator_accounts_update {
             self.update_validator_accounts(
                 &mut state_update,
@@ -1387,6 +1388,7 @@ impl Runtime {
             )?;
         }
 
+        tracing::info!(target: "runtime", "Process migrations");
         let (gas_used_for_migrations, mut receipts_to_restore) = self
             .apply_migrations(
                 &mut state_update,
@@ -1455,10 +1457,12 @@ impl Runtime {
         )?;
 
         // Forward buffered receipts from previous chunks.
+        tracing::info!(target: "runtime", "Forwarding buffered receipts from previous chunks");
         receipt_sink.forward_from_buffer(&mut state_update, apply_state)?;
 
         total.add(gas_used_for_migrations, gas_used_for_migrations)?;
 
+        tracing::info!(target: "runtime", "Process transactions");
         for signed_transaction in transactions {
             let (receipt, outcome_with_id) = self.process_transaction(
                 &mut state_update,
@@ -1570,6 +1574,7 @@ impl Runtime {
                 None
             };
 
+        tracing::info!(target: "runtime", "Process local receipts");
         // We first process local receipts. They contain staking, local contract calls, etc.
         let local_processing_start = std::time::Instant::now();
         if let Some(prefetcher) = &mut prefetcher {
@@ -1596,6 +1601,7 @@ impl Runtime {
             total.compute,
         );
 
+        tracing::info!(target: "runtime", "Process delayed receipts");
         // Then we process the delayed receipts. It's a backlog of receipts from the past blocks.
         let delayed_processing_start = std::time::Instant::now();
         let mut delayed_receipt_count = 0;
@@ -1640,6 +1646,7 @@ impl Runtime {
             total.compute,
         );
 
+        tracing::info!(target: "runtime", "Process incoming receipts");
         // And then we process the new incoming receipts. These are receipts from other shards.
         let incoming_processing_start = std::time::Instant::now();
         if let Some(prefetcher) = &mut prefetcher {
@@ -1672,6 +1679,7 @@ impl Runtime {
             total.compute,
         );
 
+        tracing::info!(target: "runtime", "Process promise yield timeouts");
         // Resolve timed-out PromiseYield receipts
         let mut promise_yield_indices: PromiseYieldIndices =
             get(&state_update, &TrieKey::PromiseYieldIndices)?.unwrap_or_default();
@@ -1774,6 +1782,7 @@ impl Runtime {
         // Congestion info needs a final touch to select an allowed shard if
         // this shard is fully congested.
 
+        tracing::info!(target: "runtime", "Process congestion info");
         let delayed_receipts_count = delayed_receipts.len();
         if let Some(congestion_info) = &mut own_congestion_info {
             delayed_receipts.apply_congestion_changes(congestion_info)?;
@@ -1896,11 +1905,13 @@ impl ApplyState {
         trie: &dyn TrieAccess,
     ) -> Result<Option<CongestionInfo>, RuntimeError> {
         if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
+            tracing::info!(target: "runtime", "own_congestion_info - Congestion control is disabled");
             debug_assert!(self.congestion_info.is_empty());
             return Ok(None);
         }
 
         if let Some(congestion_info) = self.congestion_info.get(&self.shard_id) {
+            tracing::info!(target: "runtime", "own_congestion_info - using existing congestion info");
             return Ok(Some(congestion_info.congestion_info));
         }
 

@@ -1226,7 +1226,8 @@ impl ShardsManagerActor {
         // Check the hashes match
         if header.chunk_hash() != *chunk_hash {
             byzantine_assert!(false);
-            return Err(Error::InvalidChunkHeader);
+            panic!("chunk hash is different!");
+            // return Err(Error::InvalidChunkHeader);
         }
 
         Ok(header)
@@ -1976,7 +1977,7 @@ impl ShardsManagerActor {
         prev_outgoing_receipts: &[Receipt],
         prev_outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
-        congestion_info: CongestionInfo,
+        congestion_info: Option<CongestionInfo>,
         signer: &dyn ValidatorSigner,
         rs: &ReedSolomon,
         protocol_version: ProtocolVersion,

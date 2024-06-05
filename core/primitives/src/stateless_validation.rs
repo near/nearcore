@@ -368,7 +368,7 @@ impl ChunkStateWitness {
             Default::default(),
             Default::default(),
             Default::default(),
-            CongestionInfo::default(),
+            Some(CongestionInfo::default()),
             &EmptyValidatorSigner::default(),
         ));
         Self::new(

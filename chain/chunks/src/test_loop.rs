@@ -276,7 +276,7 @@ impl MockChainForShardsManager {
             &receipts,
             receipts_root,
             MerkleHash::default(),
-            CongestionInfo::default(),
+            Some(CongestionInfo::default()),
             &signer,
             &rs,
             PROTOCOL_VERSION,
