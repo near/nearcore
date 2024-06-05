@@ -1362,20 +1362,10 @@ impl Runtime {
         // 4. Process receipts.
         // 5. Validate and apply the state update.
 
-        let protocol_version = apply_state.current_protocol_version;
-        let mut prefetcher = TriePrefetcher::new_if_enabled(&trie);
-        let mut state_update = TrieUpdate::new(trie);
-        let mut total = TotalResourceGuard {
-            span: tracing::Span::current(),
-            // This contains the gas "burnt" for refund receipts. Even though we don't actually
-            // charge any gas for refund receipts, we still count the gas use towards the block gas
-            // limit
-            gas: 0,
-            compute: 0,
-        };
-        let mut stats = ApplyStats::default();
+        let mut processing_state =
+            ApplyProcessingState::new(&apply_state, trie, epoch_info_provider, transactions);
 
-        if let Some(prefetcher) = &mut prefetcher {
+        if let Some(prefetcher) = &mut processing_state.prefetcher {
             // Prefetcher is allowed to fail
             _ = prefetcher.prefetch_transactions_data(transactions);
         }
@@ -1383,22 +1373,35 @@ impl Runtime {
         // Step 1: update validator accounts.
         if let Some(validator_accounts_update) = validator_accounts_update {
             self.update_validator_accounts(
-                &mut state_update,
+                &mut processing_state.state_update,
                 validator_accounts_update,
-                &mut stats,
+                &mut processing_state.stats,
             )?;
         }
 
         // Step 2: apply migrations.
         let (gas_used_for_migrations, mut receipts_to_restore) = self
             .apply_migrations(
-                &mut state_update,
+                &mut processing_state.state_update,
                 &apply_state.migration_data,
                 &apply_state.migration_flags,
-                protocol_version,
+                processing_state.protocol_version,
             )
             .map_err(RuntimeError::StorageError)?;
-        total.add(gas_used_for_migrations, gas_used_for_migrations)?;
+        processing_state.total.add(gas_used_for_migrations, gas_used_for_migrations)?;
+
+        let delayed_receipts = DelayedReceiptQueueWrapper::new(DelayedReceiptQueue::load(
+            &processing_state.state_update,
+        )?);
+
+        // If the chunk is missing, exit early and don't process any receipts.
+        if !apply_state.is_new_chunk
+            && processing_state.protocol_version
+                >= ProtocolFeature::FixApplyChunks.protocol_version()
+        {
+            return missing_chunk_apply_result(&delayed_receipts, processing_state);
+        }
+
         // If we have receipts that need to be restored, prepend them to the list of incoming receipts
         let incoming_receipts = if receipts_to_restore.is_empty() {
             incoming_receipts
@@ -1407,61 +1410,29 @@ impl Runtime {
             receipts_to_restore.as_slice()
         };
 
-        let delayed_receipts_queue = DelayedReceiptQueue::load(&state_update)?;
-        let mut delayed_receipts = DelayedReceiptQueueWrapper::new(delayed_receipts_queue);
-
-        // If the chunk is missing, exit early and don't process any receipts.
-        if !apply_state.is_new_chunk
-            && protocol_version >= ProtocolFeature::FixApplyChunks.protocol_version()
-        {
-            return missing_chunk_apply_result(&delayed_receipts, stats, state_update, apply_state);
-        }
-
         let mut outgoing_receipts = Vec::new();
-        let mut outcomes = vec![];
-        let mut own_congestion_info =
-            apply_state.own_congestion_info(protocol_version, &state_update)?;
-        let mut metrics = metrics::ApplyMetrics::default();
+        let mut processing_state =
+            processing_state.into_processing_receipt_state(incoming_receipts, delayed_receipts);
+        let mut own_congestion_info = apply_state.own_congestion_info(
+            processing_state.protocol_version,
+            &processing_state.state_update,
+        )?;
         let mut receipt_sink = ReceiptSink::new(
-            protocol_version,
-            &state_update.trie,
+            processing_state.protocol_version,
+            &processing_state.state_update.trie,
             apply_state,
             &mut own_congestion_info,
             &mut outgoing_receipts,
         )?;
         // Forward buffered receipts from previous chunks.
-        receipt_sink.forward_from_buffer(&mut state_update, apply_state)?;
+        receipt_sink.forward_from_buffer(&mut processing_state.state_update, apply_state)?;
 
         // Step 3: process transactions.
-        let local_receipts = self.process_transactions(
-            transactions,
-            protocol_version,
-            apply_state,
-            epoch_info_provider,
-            &mut outcomes,
-            &mut receipt_sink,
-            &mut state_update,
-            &mut stats,
-            &mut total,
-            &mut metrics,
-        )?;
+        self.process_transactions(&mut processing_state, &mut receipt_sink)?;
 
         // Step 4: process receipts.
-        let process_receipts_result = self.process_receipts(
-            protocol_version,
-            apply_state,
-            epoch_info_provider,
-            &mut outcomes,
-            &mut receipt_sink,
-            &mut state_update,
-            &mut stats,
-            &mut total,
-            &mut metrics,
-            &mut prefetcher,
-            &local_receipts,
-            &mut delayed_receipts,
-            incoming_receipts,
-        )?;
+        let process_receipts_result =
+            self.process_receipts(&mut processing_state, &mut receipt_sink)?;
 
         // After receipt processing is done, report metrics on outgoing buffers
         // and on congestion indicators.
@@ -1473,20 +1444,12 @@ impl Runtime {
 
         // Step 5: validate and apply the state update.
         self.validate_apply_state_update(
-            apply_state,
-            outcomes,
-            state_update,
-            stats,
-            metrics,
-            &mut prefetcher,
-            delayed_receipts,
-            incoming_receipts,
+            processing_state,
             process_receipts_result,
             own_congestion_info,
-            transactions,
-            outgoing_receipts,
             validator_accounts_update,
             state_patch,
+            outgoing_receipts,
         )
     }
 
@@ -1518,39 +1481,33 @@ impl Runtime {
         state_update.commit(StateChangeCause::Migration);
     }
 
-    /// Processes a collection of transactions and returns the local receipts produced.
-    fn process_transactions(
+    /// Processes a collection of transactions.
+    fn process_transactions<'a>(
         &self,
-        transactions: &[SignedTransaction],
-        protocol_version: ProtocolVersion,
-        apply_state: &ApplyState,
-        epoch_info_provider: &dyn EpochInfoProvider,
-        outcomes: &mut Vec<ExecutionOutcomeWithId>,
+        processing_state: &mut ApplyProcessingReceiptState<'a>,
         receipt_sink: &mut ReceiptSink,
-        mut state_update: &mut TrieUpdate,
-        mut stats: &mut ApplyStats,
-        total: &mut TotalResourceGuard,
-        metrics: &mut ApplyMetrics,
-    ) -> Result<Vec<Receipt>, RuntimeError> {
-        let mut local_receipts = vec![];
-        for signed_transaction in transactions {
+    ) -> Result<(), RuntimeError> {
+        let total = &mut processing_state.total;
+        let apply_state = &mut processing_state.apply_state;
+        let state_update = &mut processing_state.state_update;
+
+        for signed_transaction in processing_state.transactions {
             let (receipt, outcome_with_id) = self.process_transaction(
-                &mut state_update,
+                state_update,
                 apply_state,
                 signed_transaction,
-                &mut stats,
+                &mut processing_state.stats,
             )?;
             if receipt.receiver_id() == signed_transaction.transaction.signer_id() {
-                local_receipts.push(receipt);
+                processing_state.local_receipts.push(receipt);
             } else {
                 receipt_sink.forward_or_buffer_receipt(
                     receipt,
                     apply_state,
-                    &mut state_update,
-                    epoch_info_provider,
+                    state_update,
+                    processing_state.epoch_info_provider,
                 )?;
             }
-
             total.add(
                 outcome_with_id.outcome.gas_burnt,
                 outcome_with_id
@@ -1558,14 +1515,13 @@ impl Runtime {
                     .compute_usage
                     .expect("`process_transaction` must populate compute usage"),
             )?;
-            if !checked_feature!("stable", ComputeCosts, protocol_version) {
+            if !checked_feature!("stable", ComputeCosts, processing_state.protocol_version) {
                 assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
             }
-
-            outcomes.push(outcome_with_id);
+            processing_state.outcomes.push(outcome_with_id);
         }
-        metrics.tx_processing_done(total.gas, total.compute);
-        Ok(local_receipts)
+        processing_state.metrics.tx_processing_done(total.gas, total.compute);
+        Ok(())
     }
 
     /// This function wraps [Runtime::process_receipt]. It adds a tracing span around the latter
@@ -1648,24 +1604,40 @@ impl Runtime {
 
     /// Processes all receipts (local, delayed and incoming).
     /// Returns a structure containing the result of the processing.
-    fn process_receipts(
+    fn process_receipts<'a>(
         &self,
-        protocol_version: ProtocolVersion,
-        apply_state: &ApplyState,
-        epoch_info_provider: &dyn EpochInfoProvider,
-        outcomes: &mut Vec<ExecutionOutcomeWithId>,
+        processing_state: &mut ApplyProcessingReceiptState<'a>,
         receipt_sink: &mut ReceiptSink,
-        mut state_update: &mut TrieUpdate,
-        stats: &mut ApplyStats,
-        mut total: &mut TotalResourceGuard,
-        metrics: &mut ApplyMetrics,
-        mut prefetcher: &mut Option<TriePrefetcher>,
-        local_receipts: &[Receipt],
-        delayed_receipts: &mut DelayedReceiptQueueWrapper,
-        incoming_receipts: &[Receipt],
     ) -> Result<ProcessReceiptsResult, RuntimeError> {
         let mut validator_proposals = vec![];
         let mut processed_delayed_receipts = vec![];
+        let protocol_version = processing_state.protocol_version;
+        let total = &mut processing_state.total;
+        let apply_state = &processing_state.apply_state;
+        let mut state_update = &mut processing_state.state_update;
+        let mut prefetcher = &mut processing_state.prefetcher;
+        let metrics = &mut processing_state.metrics;
+        let local_receipts = &processing_state.local_receipts;
+        let delayed_receipts = &mut processing_state.delayed_receipts;
+        let incoming_receipts = &processing_state.incoming_receipts;
+
+        let mut process_receipt_with_metrics = |receipt: &Receipt,
+                                                state_update: &mut TrieUpdate,
+                                                total: &mut TotalResourceGuard|
+         -> Result<_, RuntimeError> {
+            self.process_receipt_with_metrics(
+                receipt,
+                state_update,
+                total,
+                protocol_version,
+                apply_state,
+                processing_state.epoch_info_provider,
+                &mut processing_state.outcomes,
+                &mut processing_state.stats,
+                receipt_sink,
+                &mut validator_proposals,
+            )
+        };
 
         // TODO(#8859): Introduce a dedicated `compute_limit` for the chunk.
         // For now compute limit always matches the gas limit.
@@ -1693,18 +1665,7 @@ impl Runtime {
             } else {
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
                 // the `verify_and_charge_transaction`.
-                self.process_receipt_with_metrics(
-                    receipt,
-                    &mut state_update,
-                    &mut total,
-                    protocol_version,
-                    apply_state,
-                    epoch_info_provider,
-                    outcomes,
-                    stats,
-                    receipt_sink,
-                    &mut validator_proposals,
-                )?;
+                process_receipt_with_metrics(&receipt, state_update, total)?;
             }
         }
         metrics.local_receipts_done(
@@ -1748,18 +1709,7 @@ impl Runtime {
                 ))
             })?;
 
-            self.process_receipt_with_metrics(
-                &receipt,
-                &mut state_update,
-                &mut total,
-                protocol_version,
-                apply_state,
-                epoch_info_provider,
-                outcomes,
-                stats,
-                receipt_sink,
-                &mut validator_proposals,
-            )?;
+            process_receipt_with_metrics(&receipt, state_update, total)?;
             processed_delayed_receipts.push(receipt);
         }
         metrics.delayed_receipts_done(
@@ -1791,18 +1741,7 @@ impl Runtime {
             {
                 delayed_receipts.push(&mut state_update, receipt, &apply_state.config)?;
             } else {
-                self.process_receipt_with_metrics(
-                    receipt,
-                    &mut state_update,
-                    &mut total,
-                    protocol_version,
-                    apply_state,
-                    epoch_info_provider,
-                    outcomes,
-                    stats,
-                    receipt_sink,
-                    &mut validator_proposals,
-                )?;
+                process_receipt_with_metrics(&receipt, state_update, total)?;
             }
         }
         metrics.incoming_receipts_done(
@@ -1881,7 +1820,7 @@ impl Runtime {
                     resume_receipt.clone(),
                     apply_state,
                     &mut state_update,
-                    epoch_info_provider,
+                    processing_state.epoch_info_provider,
                 )?;
                 timeout_receipts.push(resume_receipt);
             }
@@ -1907,30 +1846,24 @@ impl Runtime {
         })
     }
 
-    fn validate_apply_state_update(
+    fn validate_apply_state_update<'a>(
         &self,
-        apply_state: &ApplyState,
-        outcomes: Vec<ExecutionOutcomeWithId>,
-        mut state_update: TrieUpdate,
-        stats: ApplyStats,
-        metrics: ApplyMetrics,
-        prefetcher: &mut Option<TriePrefetcher>,
-        delayed_receipts: DelayedReceiptQueueWrapper,
-        incoming_receipts: &[Receipt],
+        mut processing_state: ApplyProcessingReceiptState<'a>,
         process_receipts_result: ProcessReceiptsResult,
         mut own_congestion_info: Option<CongestionInfo>,
-        transactions: &[SignedTransaction],
-        outgoing_receipts: Vec<Receipt>,
         validator_accounts_update: &Option<ValidatorAccountsUpdate>,
         state_patch: SandboxStatePatch,
+        outgoing_receipts: Vec<Receipt>,
     ) -> Result<ApplyResult, RuntimeError> {
         let _span = tracing::debug_span!(target: "runtime", "apply_commit").entered();
+        let apply_state = &mut processing_state.apply_state;
+        let state_update = &mut processing_state.state_update;
 
         if process_receipts_result.promise_yield_indices
             != process_receipts_result.initial_promise_yield_indices
         {
             set(
-                &mut state_update,
+                state_update,
                 TrieKey::PromiseYieldIndices,
                 &process_receipts_result.promise_yield_indices,
             );
@@ -1939,9 +1872,9 @@ impl Runtime {
         // Congestion info needs a final touch to select an allowed shard if
         // this shard is fully congested.
 
-        let delayed_receipts_count = delayed_receipts.len();
+        let delayed_receipts_count = processing_state.delayed_receipts.len();
         if let Some(congestion_info) = &mut own_congestion_info {
-            delayed_receipts.apply_congestion_changes(congestion_info)?;
+            processing_state.delayed_receipts.apply_congestion_changes(congestion_info)?;
             let other_shards = apply_state
                 .congestion_info
                 .keys()
@@ -1962,21 +1895,21 @@ impl Runtime {
             &apply_state.config,
             &state_update,
             validator_accounts_update,
-            incoming_receipts,
+            processing_state.incoming_receipts,
             &process_receipts_result.timeout_receipts,
-            transactions,
+            processing_state.transactions,
             &outgoing_receipts,
-            &stats,
+            &processing_state.stats,
         )?;
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
-        self.apply_state_patch(&mut state_update, state_patch);
+        self.apply_state_patch(state_update, state_patch);
         let chunk_recorded_size_upper_bound =
             state_update.trie.recorded_storage_size_upper_bound() as f64;
         metrics::CHUNK_RECORDED_SIZE_UPPER_BOUND.observe(chunk_recorded_size_upper_bound);
-        let (trie, trie_changes, state_changes) = state_update.finalize()?;
+        let (trie, trie_changes, state_changes) = processing_state.state_update.finalize()?;
 
-        if let Some(prefetcher) = &prefetcher {
+        if let Some(prefetcher) = &processing_state.prefetcher {
             // Only clear the prefetcher queue after finalize is done because as part of receipt
             // processing we also prefetch account data and access keys that are accessed in
             // finalize. This data can take a very long time otherwise if not prefetched.
@@ -2015,15 +1948,15 @@ impl Runtime {
             state_root,
             trie_changes,
             validator_proposals: unique_proposals,
-            outgoing_receipts,
-            outcomes,
+            outgoing_receipts: outgoing_receipts,
+            outcomes: processing_state.outcomes,
             state_changes,
-            stats,
+            stats: processing_state.stats,
             processed_delayed_receipts,
             processed_yield_timeouts,
             proof,
             delayed_receipts_count,
-            metrics: Some(metrics),
+            metrics: Some(processing_state.metrics),
             congestion_info: own_congestion_info,
         })
     }
@@ -2109,19 +2042,18 @@ fn action_transfer_or_implicit_account_creation(
 
 fn missing_chunk_apply_result(
     delayed_receipts: &DelayedReceiptQueueWrapper,
-    stats: ApplyStats,
-    state_update: TrieUpdate,
-    apply_state: &ApplyState,
+    processing_state: ApplyProcessingState,
 ) -> Result<ApplyResult, RuntimeError> {
-    let (trie, trie_changes, state_changes) = state_update.finalize()?;
+    let (trie, trie_changes, state_changes) = processing_state.state_update.finalize()?;
     let proof = trie.recorded_storage();
 
     // For old chunks, copy the congestion info exactly as it came in,
     // potentially returning `None` even if the congestion control
     // feature is enabled for the protocol version.
-    let congestion_info = apply_state
+    let congestion_info = processing_state
+        .apply_state
         .congestion_info
-        .get(&apply_state.shard_id)
+        .get(&processing_state.apply_state.shard_id)
         .map(|extended_info| extended_info.congestion_info);
 
     return Ok(ApplyResult {
@@ -2131,7 +2063,7 @@ fn missing_chunk_apply_result(
         outgoing_receipts: vec![],
         outcomes: vec![],
         state_changes,
-        stats,
+        stats: processing_state.stats,
         processed_delayed_receipts: vec![],
         processed_yield_timeouts: vec![],
         proof,
@@ -2169,6 +2101,90 @@ struct ProcessReceiptsResult {
     validator_proposals: Vec<ValidatorStake>,
     processed_delayed_receipts: Vec<Receipt>,
     processed_yield_timeouts: Vec<PromiseYieldTimeout>,
+}
+
+/// This struct is a convenient way to hold the processing state during [Runtime::apply].
+struct ApplyProcessingState<'a> {
+    protocol_version: ProtocolVersion,
+    apply_state: &'a ApplyState,
+    prefetcher: Option<TriePrefetcher>,
+    state_update: TrieUpdate,
+    epoch_info_provider: &'a dyn EpochInfoProvider,
+    transactions: &'a [SignedTransaction],
+    total: TotalResourceGuard,
+    stats: ApplyStats,
+}
+
+impl<'a> ApplyProcessingState<'a> {
+    fn new(
+        apply_state: &'a ApplyState,
+        trie: Trie,
+        epoch_info_provider: &'a dyn EpochInfoProvider,
+        transactions: &'a [SignedTransaction],
+    ) -> Self {
+        let protocol_version = apply_state.current_protocol_version;
+        let prefetcher = TriePrefetcher::new_if_enabled(&trie);
+        let state_update = TrieUpdate::new(trie);
+        let total = TotalResourceGuard {
+            span: tracing::Span::current(),
+            // This contains the gas "burnt" for refund receipts. Even though we don't actually
+            // charge any gas for refund receipts, we still count the gas use towards the block gas
+            // limit
+            gas: 0,
+            compute: 0,
+        };
+        let stats = ApplyStats::default();
+        Self {
+            protocol_version,
+            apply_state,
+            prefetcher,
+            state_update,
+            epoch_info_provider,
+            transactions,
+            total,
+            stats,
+        }
+    }
+
+    fn into_processing_receipt_state(
+        self,
+        incoming_receipts: &'a [Receipt],
+        delayed_receipts: DelayedReceiptQueueWrapper,
+    ) -> ApplyProcessingReceiptState<'a> {
+        ApplyProcessingReceiptState {
+            protocol_version: self.protocol_version,
+            apply_state: self.apply_state,
+            prefetcher: self.prefetcher,
+            state_update: self.state_update,
+            epoch_info_provider: self.epoch_info_provider,
+            transactions: self.transactions,
+            total: self.total,
+            stats: self.stats,
+            outcomes: Vec::new(),
+            metrics: metrics::ApplyMetrics::default(),
+            incoming_receipts,
+            local_receipts: Vec::new(),
+            delayed_receipts,
+        }
+    }
+}
+
+/// Similar to [ApplyProcessingState], with the difference that this contains extra state used
+/// by receipt processing.
+struct ApplyProcessingReceiptState<'a> {
+    protocol_version: ProtocolVersion,
+    apply_state: &'a ApplyState,
+    prefetcher: Option<TriePrefetcher>,
+    state_update: TrieUpdate,
+    epoch_info_provider: &'a dyn EpochInfoProvider,
+    transactions: &'a [SignedTransaction],
+    total: TotalResourceGuard,
+    stats: ApplyStats,
+    outcomes: Vec<ExecutionOutcomeWithId>,
+    metrics: ApplyMetrics,
+    incoming_receipts: &'a [Receipt],
+    local_receipts: Vec<Receipt>,
+    delayed_receipts: DelayedReceiptQueueWrapper,
 }
 
 #[cfg(test)]
