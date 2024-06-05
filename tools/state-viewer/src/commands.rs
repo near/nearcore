@@ -949,9 +949,9 @@ pub(crate) fn print_epoch_analysis(
         epoch_heights_to_infos.get(&min_epoch_height.saturating_add(1)).unwrap().as_ref().clone();
     let mut next_next_epoch_config =
         epoch_manager.get_config_for_protocol_version(PROTOCOL_VERSION).unwrap();
-    let mut has_same_shard_layout = true;
-    let mut epoch_protocol_version = PROTOCOL_VERSION;
-    let mut next_next_protocol_version = PROTOCOL_VERSION;
+    let mut has_same_shard_layout;
+    let mut epoch_protocol_version;
+    let mut next_next_protocol_version;
 
     // Print data header.
     match mode {
@@ -988,14 +988,24 @@ pub(crate) fn print_epoch_analysis(
         let next_epoch_config = epoch_manager.get_epoch_config(next_epoch_id).unwrap();
         let original_next_next_protocol_version = epoch_summary.next_next_epoch_version.clone();
 
-        if let EpochAnalysisMode::CheckConsistency = mode {
-            next_epoch_info =
-                epoch_heights_to_infos.get(&next_epoch_height).unwrap().as_ref().clone();
-            next_next_epoch_config = epoch_manager.get_epoch_config(next_next_epoch_id).unwrap();
-            has_same_shard_layout =
-                next_epoch_config.shard_layout == next_next_epoch_config.shard_layout;
-            epoch_protocol_version = epoch_info.protocol_version();
-            next_next_protocol_version = original_next_next_protocol_version;
+        match mode {
+            EpochAnalysisMode::CheckConsistency => {
+                // Retrieve remaining parameters from the stored information
+                // about epochs.
+                next_epoch_info =
+                    epoch_heights_to_infos.get(&next_epoch_height).unwrap().as_ref().clone();
+                next_next_epoch_config =
+                    epoch_manager.get_epoch_config(next_next_epoch_id).unwrap();
+                has_same_shard_layout =
+                    next_epoch_config.shard_layout == next_next_epoch_config.shard_layout;
+                epoch_protocol_version = epoch_info.protocol_version();
+                next_next_protocol_version = original_next_next_protocol_version;
+            }
+            EpochAnalysisMode::Backtest => {
+                has_same_shard_layout = true;
+                epoch_protocol_version = PROTOCOL_VERSION;
+                next_next_protocol_version = PROTOCOL_VERSION;
+            }
         };
 
         // Use "future" information to generate next next epoch which is stored
