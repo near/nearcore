@@ -1411,6 +1411,7 @@ impl Runtime {
         };
 
         let mut outgoing_receipts = Vec::new();
+
         let mut processing_state =
             processing_state.into_processing_receipt_state(incoming_receipts, delayed_receipts);
         let mut own_congestion_info = apply_state.own_congestion_info(
@@ -1428,11 +1429,11 @@ impl Runtime {
         receipt_sink.forward_from_buffer(&mut processing_state.state_update, apply_state)?;
 
         // Step 3: process transactions.
-        self.process_transactions(&mut processing_state, &mut receipt_sink)?;
+        let local_receipts = self.process_transactions(&mut processing_state, &mut receipt_sink)?;
 
         // Step 4: process receipts.
         let process_receipts_result =
-            self.process_receipts(&mut processing_state, &mut receipt_sink)?;
+            self.process_receipts(&mut processing_state, &mut receipt_sink, &local_receipts)?;
 
         // After receipt processing is done, report metrics on outgoing buffers
         // and on congestion indicators.
@@ -1481,15 +1482,16 @@ impl Runtime {
         state_update.commit(StateChangeCause::Migration);
     }
 
-    /// Processes a collection of transactions.
+    /// Processes a collection of transactions. Returns the receipts generated during processing.
     fn process_transactions<'a>(
         &self,
         processing_state: &mut ApplyProcessingReceiptState<'a>,
         receipt_sink: &mut ReceiptSink,
-    ) -> Result<(), RuntimeError> {
+    ) -> Result<Vec<Receipt>, RuntimeError> {
         let total = &mut processing_state.total;
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
+        let mut local_receipts = Vec::new();
 
         for signed_transaction in processing_state.transactions {
             let (receipt, outcome_with_id) = self.process_transaction(
@@ -1499,7 +1501,7 @@ impl Runtime {
                 &mut processing_state.stats,
             )?;
             if receipt.receiver_id() == signed_transaction.transaction.signer_id() {
-                processing_state.local_receipts.push(receipt);
+                local_receipts.push(receipt);
             } else {
                 receipt_sink.forward_or_buffer_receipt(
                     receipt,
@@ -1521,21 +1523,15 @@ impl Runtime {
             processing_state.outcomes.push(outcome_with_id);
         }
         processing_state.metrics.tx_processing_done(total.gas, total.compute);
-        Ok(())
+        Ok(local_receipts)
     }
 
     /// This function wraps [Runtime::process_receipt]. It adds a tracing span around the latter
     /// and populates various metrics.
-    fn process_receipt_with_metrics(
+    fn process_receipt_with_metrics<'a>(
         &self,
         receipt: &Receipt,
-        state_update: &mut TrieUpdate,
-        total: &mut TotalResourceGuard,
-        protocol_version: ProtocolVersion,
-        apply_state: &ApplyState,
-        epoch_info_provider: &dyn EpochInfoProvider,
-        outcomes: &mut Vec<ExecutionOutcomeWithId>,
-        mut stats: &mut ApplyStats,
+        processing_state: &mut ApplyProcessingReceiptState<'a>,
         mut receipt_sink: &mut ReceiptSink,
         mut validator_proposals: &mut Vec<ValidatorStake>,
     ) -> Result<(), RuntimeError> {
@@ -1549,18 +1545,20 @@ impl Runtime {
             compute_usage = tracing::field::Empty,
         )
         .entered();
+        let total = &mut processing_state.total;
+        let state_update = &mut processing_state.state_update;
         let node_counter_before = state_update.trie().get_trie_nodes_count();
         let recorded_storage_size_before = state_update.trie().recorded_storage_size();
         let storage_proof_size_upper_bound_before =
             state_update.trie().recorded_storage_size_upper_bound();
         let result = self.process_receipt(
             state_update,
-            apply_state,
+            processing_state.apply_state,
             receipt,
             &mut receipt_sink,
             &mut validator_proposals,
-            &mut stats,
-            epoch_info_provider,
+            &mut processing_state.stats,
+            processing_state.epoch_info_provider,
         );
         let node_counter_after = state_update.trie().get_trie_nodes_count();
         tracing::trace!(target: "runtime", ?node_counter_before, ?node_counter_after);
@@ -1594,11 +1592,169 @@ impl Runtime {
             span.record("gas_burnt", gas_burnt);
             span.record("compute_usage", compute_usage);
 
-            if !checked_feature!("stable", ComputeCosts, protocol_version) {
+            if !checked_feature!("stable", ComputeCosts, processing_state.protocol_version) {
                 assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
             }
-            outcomes.push(outcome_with_id);
+            processing_state.outcomes.push(outcome_with_id);
         }
+        Ok(())
+    }
+
+    fn process_local_receipts<'a>(
+        &self,
+        mut processing_state: &mut ApplyProcessingReceiptState<'a>,
+        receipt_sink: &mut ReceiptSink,
+        compute_limit: u64,
+        proof_size_limit: Option<usize>,
+        validator_proposals: &mut Vec<ValidatorStake>,
+        local_receipts: &'a [Receipt],
+    ) -> Result<(), RuntimeError> {
+        let local_processing_start = std::time::Instant::now();
+        if let Some(prefetcher) = &mut processing_state.prefetcher {
+            // Prefetcher is allowed to fail
+            _ = prefetcher.prefetch_receipts_data(&local_receipts);
+        }
+        for receipt in local_receipts.iter() {
+            if processing_state.total.compute >= compute_limit
+                || proof_size_limit.is_some_and(|limit| {
+                    processing_state.state_update.trie.recorded_storage_size_upper_bound() > limit
+                })
+            {
+                processing_state.delayed_receipts.push(
+                    &mut processing_state.state_update,
+                    receipt,
+                    &processing_state.apply_state.config,
+                )?;
+            } else {
+                // NOTE: We don't need to validate the local receipt, because it's just validated in
+                // the `verify_and_charge_transaction`.
+                self.process_receipt_with_metrics(
+                    receipt,
+                    &mut processing_state,
+                    receipt_sink,
+                    validator_proposals,
+                )?
+            }
+        }
+        processing_state.metrics.local_receipts_done(
+            local_receipts.len() as u64,
+            local_processing_start.elapsed(),
+            processing_state.total.gas,
+            processing_state.total.compute,
+        );
+        Ok(())
+    }
+
+    fn process_delayed_receipts<'a>(
+        &self,
+        mut processing_state: &mut ApplyProcessingReceiptState<'a>,
+        receipt_sink: &mut ReceiptSink,
+        compute_limit: u64,
+        proof_size_limit: Option<usize>,
+        validator_proposals: &mut Vec<ValidatorStake>,
+    ) -> Result<Vec<Receipt>, RuntimeError> {
+        let delayed_processing_start = std::time::Instant::now();
+        let protocol_version = processing_state.protocol_version;
+        let mut delayed_receipt_count = 0;
+        let mut processed_delayed_receipts = vec![];
+        while processing_state.delayed_receipts.len() > 0 {
+            if processing_state.total.compute >= compute_limit
+                || proof_size_limit.is_some_and(|limit| {
+                    processing_state.state_update.trie.recorded_storage_size_upper_bound() > limit
+                })
+            {
+                break;
+            }
+            delayed_receipt_count += 1;
+            let receipt = processing_state
+                .delayed_receipts
+                .pop(&mut processing_state.state_update, &processing_state.apply_state.config)?
+                .expect("queue is not empty");
+
+            if let Some(prefetcher) = &mut processing_state.prefetcher {
+                // Prefetcher is allowed to fail
+                _ = prefetcher.prefetch_receipts_data(std::slice::from_ref(&receipt));
+            }
+
+            // Validating the delayed receipt. If it fails, it's likely the state is inconsistent.
+            validate_receipt(
+                &processing_state.apply_state.config.wasm_config.limit_config,
+                &receipt,
+                protocol_version,
+            )
+            .map_err(|e| {
+                StorageError::StorageInconsistentState(format!(
+                    "Delayed receipt {:?} in the state is invalid: {}",
+                    receipt, e
+                ))
+            })?;
+
+            self.process_receipt_with_metrics(
+                &receipt,
+                &mut processing_state,
+                receipt_sink,
+                validator_proposals,
+            )?;
+            processed_delayed_receipts.push(receipt);
+        }
+        processing_state.metrics.delayed_receipts_done(
+            delayed_receipt_count,
+            delayed_processing_start.elapsed(),
+            processing_state.total.gas,
+            processing_state.total.compute,
+        );
+
+        Ok(processed_delayed_receipts)
+    }
+
+    fn process_incoming_receipts<'a>(
+        &self,
+        mut processing_state: &mut ApplyProcessingReceiptState<'a>,
+        receipt_sink: &mut ReceiptSink,
+        compute_limit: u64,
+        proof_size_limit: Option<usize>,
+        validator_proposals: &mut Vec<ValidatorStake>,
+    ) -> Result<(), RuntimeError> {
+        let incoming_processing_start = std::time::Instant::now();
+        let protocol_version = processing_state.protocol_version;
+        if let Some(prefetcher) = &mut processing_state.prefetcher {
+            // Prefetcher is allowed to fail
+            _ = prefetcher.prefetch_receipts_data(&processing_state.incoming_receipts);
+        }
+        for receipt in processing_state.incoming_receipts.iter() {
+            // Validating new incoming no matter whether we have available gas or not. We don't
+            // want to store invalid receipts in state as delayed.
+            validate_receipt(
+                &processing_state.apply_state.config.wasm_config.limit_config,
+                receipt,
+                protocol_version,
+            )
+            .map_err(RuntimeError::ReceiptValidationError)?;
+            if processing_state.total.compute >= compute_limit
+                || proof_size_limit.is_some_and(|limit| {
+                    processing_state.state_update.trie.recorded_storage_size_upper_bound() > limit
+                })
+            {
+                processing_state.delayed_receipts.push(
+                    &mut processing_state.state_update,
+                    receipt,
+                    &processing_state.apply_state.config,
+                )?;
+            } else {
+                self.process_receipt_with_metrics(
+                    &receipt,
+                    &mut processing_state,
+                    receipt_sink,
+                    validator_proposals,
+                )?;
+            }
+        }
+        processing_state.metrics.incoming_receipts_done(
+            processing_state.incoming_receipts.len() as u64,
+            incoming_processing_start.elapsed(),
+            processing_state.total.gas,
+            processing_state.total.compute,
+        );
         Ok(())
     }
 
@@ -1608,36 +1764,11 @@ impl Runtime {
         &self,
         processing_state: &mut ApplyProcessingReceiptState<'a>,
         receipt_sink: &mut ReceiptSink,
+        local_receipts: &'a [Receipt],
     ) -> Result<ProcessReceiptsResult, RuntimeError> {
         let mut validator_proposals = vec![];
-        let mut processed_delayed_receipts = vec![];
         let protocol_version = processing_state.protocol_version;
-        let total = &mut processing_state.total;
         let apply_state = &processing_state.apply_state;
-        let mut state_update = &mut processing_state.state_update;
-        let mut prefetcher = &mut processing_state.prefetcher;
-        let metrics = &mut processing_state.metrics;
-        let local_receipts = &processing_state.local_receipts;
-        let delayed_receipts = &mut processing_state.delayed_receipts;
-        let incoming_receipts = &processing_state.incoming_receipts;
-
-        let mut process_receipt_with_metrics = |receipt: &Receipt,
-                                                state_update: &mut TrieUpdate,
-                                                total: &mut TotalResourceGuard|
-         -> Result<_, RuntimeError> {
-            self.process_receipt_with_metrics(
-                receipt,
-                state_update,
-                total,
-                protocol_version,
-                apply_state,
-                processing_state.epoch_info_provider,
-                &mut processing_state.outcomes,
-                &mut processing_state.stats,
-                receipt_sink,
-                &mut validator_proposals,
-            )
-        };
 
         // TODO(#8859): Introduce a dedicated `compute_limit` for the chunk.
         // For now compute limit always matches the gas limit.
@@ -1650,106 +1781,32 @@ impl Runtime {
             };
 
         // We first process local receipts. They contain staking, local contract calls, etc.
-        let local_processing_start = std::time::Instant::now();
-        if let Some(prefetcher) = &mut prefetcher {
-            // Prefetcher is allowed to fail
-            _ = prefetcher.prefetch_receipts_data(&local_receipts);
-        }
-        for receipt in local_receipts.iter() {
-            if total.compute >= compute_limit
-                || proof_size_limit.is_some_and(|limit| {
-                    state_update.trie.recorded_storage_size_upper_bound() > limit
-                })
-            {
-                delayed_receipts.push(&mut state_update, receipt, &apply_state.config)?;
-            } else {
-                // NOTE: We don't need to validate the local receipt, because it's just validated in
-                // the `verify_and_charge_transaction`.
-                process_receipt_with_metrics(&receipt, state_update, total)?;
-            }
-        }
-        metrics.local_receipts_done(
-            local_receipts.len() as u64,
-            local_processing_start.elapsed(),
-            total.gas,
-            total.compute,
-        );
+        self.process_local_receipts(
+            processing_state,
+            receipt_sink,
+            compute_limit,
+            proof_size_limit,
+            &mut validator_proposals,
+            local_receipts,
+        )?;
 
         // Then we process the delayed receipts. It's a backlog of receipts from the past blocks.
-        let delayed_processing_start = std::time::Instant::now();
-        let mut delayed_receipt_count = 0;
-        while delayed_receipts.len() > 0 {
-            if total.compute >= compute_limit
-                || proof_size_limit.is_some_and(|limit| {
-                    state_update.trie.recorded_storage_size_upper_bound() > limit
-                })
-            {
-                break;
-            }
-            delayed_receipt_count += 1;
-            let receipt = delayed_receipts
-                .pop(&mut state_update, &apply_state.config)?
-                .expect("queue is not empty");
-
-            if let Some(prefetcher) = &mut prefetcher {
-                // Prefetcher is allowed to fail
-                _ = prefetcher.prefetch_receipts_data(std::slice::from_ref(&receipt));
-            }
-
-            // Validating the delayed receipt. If it fails, it's likely the state is inconsistent.
-            validate_receipt(
-                &apply_state.config.wasm_config.limit_config,
-                &receipt,
-                protocol_version,
-            )
-            .map_err(|e| {
-                StorageError::StorageInconsistentState(format!(
-                    "Delayed receipt {:?} in the state is invalid: {}",
-                    receipt, e
-                ))
-            })?;
-
-            process_receipt_with_metrics(&receipt, state_update, total)?;
-            processed_delayed_receipts.push(receipt);
-        }
-        metrics.delayed_receipts_done(
-            delayed_receipt_count,
-            delayed_processing_start.elapsed(),
-            total.gas,
-            total.compute,
-        );
+        let processed_delayed_receipts = self.process_delayed_receipts(
+            processing_state,
+            receipt_sink,
+            compute_limit,
+            proof_size_limit,
+            &mut validator_proposals,
+        )?;
 
         // And then we process the new incoming receipts. These are receipts from other shards.
-        let incoming_processing_start = std::time::Instant::now();
-        if let Some(prefetcher) = &mut prefetcher {
-            // Prefetcher is allowed to fail
-            _ = prefetcher.prefetch_receipts_data(&incoming_receipts);
-        }
-        for receipt in incoming_receipts.iter() {
-            // Validating new incoming no matter whether we have available gas or not. We don't
-            // want to store invalid receipts in state as delayed.
-            validate_receipt(
-                &apply_state.config.wasm_config.limit_config,
-                receipt,
-                protocol_version,
-            )
-            .map_err(RuntimeError::ReceiptValidationError)?;
-            if total.compute >= compute_limit
-                || proof_size_limit.is_some_and(|limit| {
-                    state_update.trie.recorded_storage_size_upper_bound() > limit
-                })
-            {
-                delayed_receipts.push(&mut state_update, receipt, &apply_state.config)?;
-            } else {
-                process_receipt_with_metrics(&receipt, state_update, total)?;
-            }
-        }
-        metrics.incoming_receipts_done(
-            incoming_receipts.len() as u64,
-            incoming_processing_start.elapsed(),
-            total.gas,
-            total.compute,
-        );
+        self.process_incoming_receipts(
+            processing_state,
+            receipt_sink,
+            compute_limit,
+            proof_size_limit,
+            &mut validator_proposals,
+        )?;
 
         // Resolve timed-out PromiseYield receipts
         let promise_yield_result = resolve_timed_out_promise_yield_receipts(
@@ -2190,7 +2247,6 @@ impl<'a> ApplyProcessingState<'a> {
             outcomes: Vec::new(),
             metrics: metrics::ApplyMetrics::default(),
             incoming_receipts,
-            local_receipts: Vec::new(),
             delayed_receipts,
         }
     }
@@ -2210,7 +2266,6 @@ struct ApplyProcessingReceiptState<'a> {
     outcomes: Vec<ExecutionOutcomeWithId>,
     metrics: ApplyMetrics,
     incoming_receipts: &'a [Receipt],
-    local_receipts: Vec<Receipt>,
     delayed_receipts: DelayedReceiptQueueWrapper,
 }
 
