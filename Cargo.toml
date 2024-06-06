@@ -96,6 +96,7 @@ members = [
 ]
 exclude = [
     "tracing",
+    "benchmarks"
 ]
 
 [workspace.lints.clippy]
