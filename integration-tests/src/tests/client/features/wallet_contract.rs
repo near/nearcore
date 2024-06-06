@@ -65,7 +65,7 @@ fn view_request(env: &TestEnv, request: QueryRequest) -> QueryResponse {
         .unwrap()
 }
 
-fn view_balance(env: &TestEnv, account: &AccountIdRef) -> u128 {
+pub fn view_balance(env: &TestEnv, account: &AccountIdRef) -> u128 {
     let request = QueryRequest::ViewAccount { account_id: account.into() };
     match view_request(&env, request).kind {
         QueryResponseKind::ViewAccount(view) => view.amount,
@@ -333,7 +333,7 @@ fn test_wallet_contract_interaction() {
     assert!(wallet_balance_diff - transfer_amount < NEAR_BASE / 500);
 }
 
-fn create_rlp_execute_tx(
+pub fn create_rlp_execute_tx(
     target: &AccountIdRef,
     mut action: Action,
     nonce: u64,
@@ -402,9 +402,9 @@ fn create_rlp_execute_tx(
     )
 }
 
-struct NearSigner<'a> {
-    account_id: &'a AccountIdRef,
-    signer: InMemorySigner,
+pub struct NearSigner<'a> {
+    pub account_id: &'a AccountIdRef,
+    pub signer: InMemorySigner,
 }
 
 fn abi_encode(target: String, action: Action) -> Vec<u8> {
