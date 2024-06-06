@@ -145,7 +145,6 @@ impl CongestionInfo {
                 extra.delayed_receipts_gas == header.delayed_receipts_gas
                     && extra.buffered_receipts_gas == header.buffered_receipts_gas
                     && extra.receipt_bytes == header.receipt_bytes
-                    && extra.allowed_shard == header.allowed_shard
             }
         }
     }
