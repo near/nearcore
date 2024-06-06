@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 mod chunk_validator_stats;
 
-pub use chunk_validator_stats::ChunkValidatorStats;
+pub use chunk_validator_stats::ChunkStats;
 
 /// Hash used by to store state root.
 pub type StateRoot = CryptoHash;
@@ -996,10 +996,18 @@ pub struct ValidatorStats {
     pub expected: NumBlocks,
 }
 
+impl ValidatorStats {
+    /// Compare stats with threshold which is an expected percentage from 0 to
+    /// 100.
+    pub fn less_than(&self, threshold: u8) -> bool {
+        self.produced * 100 < u64::from(threshold) * self.expected
+    }
+}
+
 #[derive(Debug, BorshSerialize, BorshDeserialize, PartialEq, Eq)]
 pub struct BlockChunkValidatorStats {
     pub block_stats: ValidatorStats,
-    pub chunk_stats: ChunkValidatorStats,
+    pub chunk_stats: ChunkStats,
 }
 
 #[derive(serde::Deserialize, Debug, arbitrary::Arbitrary, PartialEq, Eq)]

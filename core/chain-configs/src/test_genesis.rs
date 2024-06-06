@@ -233,18 +233,6 @@ impl TestGenesisBuilder {
         self
     }
 
-    pub fn kickouts(
-        &mut self,
-        block_producer_kickout_threshold: u8,
-        chunk_producer_kickout_threshold: u8,
-    ) -> &mut Self {
-        self.kickouts_config = Some(KickoutsConfig {
-            block_producer_kickout_threshold,
-            chunk_producer_kickout_threshold,
-        });
-        self
-    }
-
     pub fn add_user_account_simple(
         &mut self,
         account_id: AccountId,
