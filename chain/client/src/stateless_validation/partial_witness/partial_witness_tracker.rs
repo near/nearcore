@@ -20,7 +20,9 @@ use crate::metrics;
 
 /// Max number of chunks to keep in the witness tracker cache. We reach here only after validation
 /// of the partial_witness so the LRU cache size need not be too large.
-const WITNESS_PARTS_CACHE_SIZE: usize = 200;
+/// This effectively limits memory usage to the size of the cache multiplied by
+/// MAX_COMPRESSED_STATE_WITNESS_SIZE, currently 40 * 32MiB = 1280MiB
+const WITNESS_PARTS_CACHE_SIZE: usize = 40;
 
 /// Number of entries to keep in LRU cache of the processed state witnesses
 /// We only store small amount of data (ChunkProductionKey) per entry there,

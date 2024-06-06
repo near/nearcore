@@ -17,7 +17,7 @@ use near_primitives::reed_solomon::reed_solomon_encode;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::{
     ChunkStateWitness, ChunkStateWitnessAck, EncodedChunkStateWitness, PartialEncodedStateWitness,
-    MAX_CHUNK_STATE_WITNESS_SIZE,
+    MAX_COMPRESSED_STATE_WITNESS_SIZE,
 };
 use near_primitives::types::{AccountId, BlockHeightDelta, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -344,7 +344,7 @@ impl PartialWitnessActor {
         }
 
         let max_part_len =
-            witness_part_length(MAX_CHUNK_STATE_WITNESS_SIZE.as_u64() as usize, num_parts);
+            witness_part_length(MAX_COMPRESSED_STATE_WITNESS_SIZE.as_u64() as usize, num_parts);
         if partial_witness.part_size() > max_part_len {
             return Err(Error::InvalidPartialChunkStateWitness(format!(
                 "Part size {} exceed limit of {} (total parts: {})",
