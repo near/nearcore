@@ -178,7 +178,7 @@ impl TrieUpdate {
         // This only applies to removals performed by the contracts. Removals performed
         // by the runtime are assumed to be non-malicious and we don't charge extra for them.
         if let Some(recorder) = &self.trie.recorder {
-            if matches!(trie_key, TrieKey::ContractCode { .. }) {
+            if matches!(trie_key, TrieKey::ContractData { .. }) {
                 recorder.borrow_mut().record_removal();
             }
         }
