@@ -26,7 +26,7 @@ const CONTRACT_ID: &str = "contract.test0";
 
 fn setup_runtime(sender_id: AccountId, protocol_version: ProtocolVersion) -> TestEnv {
     let mut genesis = Genesis::test_sharded_new_version(vec![sender_id], 1, vec![1, 1, 1, 1]);
-    genesis.config.epoch_length = 5;
+    genesis.config.epoch_length = 10;
     genesis.config.protocol_version = protocol_version;
     // Chain must be sharded to test cross-shard congestion control.
     genesis.config.shard_layout = ShardLayout::v1_test();
@@ -85,10 +85,16 @@ fn setup_contract(env: &mut TestEnv) {
     );
 }
 
-fn check_congestion_info(env: &TestEnv) {
+/// Check that the congestion info is correctly bootstrapped, updated and
+/// propagated from chunk extra to chunk header. If the
+/// `check_congested_protocol_upgrade` flag is set check that the chain is under
+/// congestion during the protocol upgrade.
+fn check_congestion_info(env: &TestEnv, check_congested_protocol_upgrade: bool) {
     let client = &env.clients[0];
     let genesis_height = client.chain.genesis().height();
     let head_height = client.chain.head().unwrap().height;
+
+    let mut check_congested_protocol_upgrade_done = false;
 
     for height in genesis_height..head_height + 1 {
         let block = client.chain.get_block_by_height(height);
@@ -105,10 +111,6 @@ fn check_congestion_info(env: &TestEnv) {
             let shard_id = chunk.shard_id();
             let prev_state_root = chunk.prev_state_root();
 
-            let header_congestion_info = chunk.congestion_info();
-            let Some(header_congestion_info) = header_congestion_info else {
-                continue;
-            };
             let trie = client
                 .chain
                 .runtime_adapter
@@ -116,6 +118,13 @@ fn check_congestion_info(env: &TestEnv) {
                 .unwrap();
             let mut computed_congestion_info =
                 bootstrap_congestion_info(&trie, &runtime_config, shard_id).unwrap();
+
+            tracing::info!(target: "test", ?epoch_id, ?height, ?shard_id, ?computed_congestion_info, "checking congestion info");
+
+            let header_congestion_info = chunk.congestion_info();
+            let Some(header_congestion_info) = header_congestion_info else {
+                continue;
+            };
 
             // Do not check the allowed shard as it's set separately from the
             // bootstrapping logic.
@@ -126,6 +135,17 @@ fn check_congestion_info(env: &TestEnv) {
                 "congestion info mismatch at height {} for shard {}",
                 height, shard_id
             );
+
+            if shard_id == 1
+                && check_congested_protocol_upgrade
+                && !check_congested_protocol_upgrade_done
+            {
+                let congestion_level = header_congestion_info
+                    .localized_congestion_level(&runtime_config.congestion_control_config);
+                assert!(congestion_level > 0.0, "congestion level should be non-zero for shard 0");
+
+                check_congested_protocol_upgrade_done = true;
+            }
         }
     }
 }
@@ -175,7 +195,8 @@ fn test_protocol_upgrade_simple() {
         assert!(congestion_control.shard_accepts_transactions());
     }
 
-    check_congestion_info(&env);
+    let check_congested_protocol_upgrade = false;
+    check_congestion_info(&env, check_congested_protocol_upgrade);
 }
 
 fn head_congestion_control_config(
@@ -265,10 +286,12 @@ fn test_protocol_upgrade_under_congestion() {
     env.produce_block(0, tip.height + 1);
     // let next_congestion_info = head_congestion_info(&mut env, contract_shard_id);
 
-    // assert!(congestion_info.delayed_receipts_gas() > next_congestion_info.delayed_receipts_gas());
-    // assert!(congestion_info.receipt_bytes() > next_congestion_info.receipt_bytes());
+    assert!(congestion_info.delayed_receipts_gas() > next_congestion_info.delayed_receipts_gas());
+    assert!(congestion_info.receipt_bytes() > next_congestion_info.receipt_bytes());
 
-    check_congestion_info(&env);
+    let check_congested_protocol_upgrade = true;
+    check_congestion_info(&env, check_congested_protocol_upgrade);
+    env.print_summary();
 }
 
 /// Check we are still in the old version and no congestion info is shared.
