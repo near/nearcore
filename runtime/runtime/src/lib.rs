@@ -1809,7 +1809,7 @@ impl Runtime {
         )?;
 
         // Resolve timed-out PromiseYield receipts
-        let promise_yield_result = resolve_timed_out_promise_yield_receipts(
+        let promise_yield_result = resolve_promise_yield_timeouts(
             processing_state,
             receipt_sink,
             compute_limit,
@@ -2052,12 +2052,12 @@ fn missing_chunk_apply_result(
     });
 }
 
-fn resolve_timed_out_promise_yield_receipts(
+fn resolve_promise_yield_timeouts(
     processing_state: &mut ApplyProcessingReceiptState,
     receipt_sink: &mut ReceiptSink,
     compute_limit: u64,
     proof_size_limit: Option<usize>,
-) -> Result<ResolvePromiseYieldReceiptsResult, RuntimeError> {
+) -> Result<ResolvePromiseYieldTimeoutsResult, RuntimeError> {
     let mut state_update = &mut processing_state.state_update;
     let total = &mut processing_state.total;
     let apply_state = &processing_state.apply_state;
@@ -2145,7 +2145,7 @@ fn resolve_timed_out_promise_yield_receipts(
         total.gas,
         total.compute,
     );
-    Ok(ResolvePromiseYieldReceiptsResult {
+    Ok(ResolvePromiseYieldTimeoutsResult {
         timeout_receipts,
         initial_promise_yield_indices,
         promise_yield_indices,
@@ -2175,12 +2175,12 @@ impl TotalResourceGuard {
 }
 
 struct ProcessReceiptsResult {
-    promise_yield_result: ResolvePromiseYieldReceiptsResult,
+    promise_yield_result: ResolvePromiseYieldTimeoutsResult,
     validator_proposals: Vec<ValidatorStake>,
     processed_delayed_receipts: Vec<Receipt>,
 }
 
-struct ResolvePromiseYieldReceiptsResult {
+struct ResolvePromiseYieldTimeoutsResult {
     timeout_receipts: Vec<Receipt>,
     initial_promise_yield_indices: PromiseYieldIndices,
     promise_yield_indices: PromiseYieldIndices,
