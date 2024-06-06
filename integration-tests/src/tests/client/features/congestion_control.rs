@@ -142,7 +142,7 @@ fn check_congestion_info(env: &TestEnv, check_congested_protocol_upgrade: bool) 
             {
                 let congestion_level = header_congestion_info
                     .localized_congestion_level(&runtime_config.congestion_control_config);
-                assert!(congestion_level > 0.0, "congestion level should be non-zero for shard 0");
+                assert!(congestion_level > 0.0, "the congestion level should be non-zero for the congested shard during protocol upgrade");
 
                 check_congested_protocol_upgrade_done = true;
             }
@@ -284,7 +284,7 @@ fn test_protocol_upgrade_under_congestion() {
 
     // Also check that the congested shard is still making progress.
     env.produce_block(0, tip.height + 1);
-    // let next_congestion_info = head_congestion_info(&mut env, contract_shard_id);
+    let next_congestion_info = head_congestion_info(&mut env, contract_shard_id);
 
     assert!(congestion_info.delayed_receipts_gas() > next_congestion_info.delayed_receipts_gas());
     assert!(congestion_info.receipt_bytes() > next_congestion_info.receipt_bytes());

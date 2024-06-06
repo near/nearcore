@@ -435,10 +435,10 @@ impl DelayedReceiptQueueWrapper {
         self,
         congestion: &mut CongestionInfo,
     ) -> Result<(), RuntimeError> {
-        congestion.add_delayed_receipt_gas(self.new_delayed_gas).unwrap();
-        congestion.remove_delayed_receipt_gas(self.removed_delayed_gas).unwrap();
-        congestion.add_receipt_bytes(self.new_delayed_bytes).unwrap();
-        congestion.remove_receipt_bytes(self.removed_delayed_bytes).unwrap();
+        congestion.add_delayed_receipt_gas(self.new_delayed_gas)?;
+        congestion.remove_delayed_receipt_gas(self.removed_delayed_gas)?;
+        congestion.add_receipt_bytes(self.new_delayed_bytes)?;
+        congestion.remove_receipt_bytes(self.removed_delayed_bytes)?;
         Ok(())
     }
 }
