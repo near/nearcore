@@ -2828,7 +2828,7 @@ fn test_epoch_multi_protocol_version_change() {
     let mut seen_v2 = false;
 
     let mut height = 1;
-    while chrono::Utc::now() < end_time {
+    while chrono::Utc::now() < end_time && (!seen_v0 || !seen_v1 || !seen_v2) {
         let head = env.clients[0].chain.head().unwrap();
         let epoch_id = env.clients[0]
             .epoch_manager
