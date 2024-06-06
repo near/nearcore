@@ -30,7 +30,6 @@ use near_primitives::version::{
     ProtocolFeature, ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
 };
 use near_primitives_core::account::id::AccountType;
-use near_store::trie::RecordingMode;
 use near_store::{
     enqueue_promise_yield_timeout, get_access_key, get_code, get_promise_yield_indices,
     remove_access_key, remove_account, set_access_key, set_code, set_promise_yield_indices,
@@ -255,7 +254,6 @@ pub(crate) fn action_function_call(
         .into());
     }
     state_update.trie.request_code_recording(account_id.clone());
-    state_update.trie.set_recording_mode(RecordingMode::Contract);
     let mut receipt_manager = ReceiptManager::default();
     let mut runtime_ext = RuntimeExt::new(
         state_update,
@@ -281,7 +279,6 @@ pub(crate) fn action_function_call(
         is_last_action,
         None,
     )?;
-    state_update.trie.set_recording_mode(RecordingMode::Runtime);
 
     match &outcome.aborted {
         None => {
