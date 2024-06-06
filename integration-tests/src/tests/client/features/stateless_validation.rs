@@ -529,7 +529,7 @@ fn test_eth_implicit_accounts() {
     let genesis = Genesis::test(accounts.clone(), 2);
     let mut env = TestEnv::builder(&genesis.config)
         .validators(accounts.clone())
-        .clients(accounts.clone())
+        .clients(accounts)
         .nightshade_runtimes(&genesis)
         .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
