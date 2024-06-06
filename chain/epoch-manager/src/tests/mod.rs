@@ -1521,7 +1521,7 @@ fn test_chunk_producer_kickout() {
 }
 
 /// Test when all blocks are produced and all chunks are skipped, chunk
-/// validator is kicked out.
+/// validator is not kicked out.
 #[test]
 fn test_chunk_validator_kickout() {
     if !StatelessValidationV0.enabled(PROTOCOL_VERSION) {
