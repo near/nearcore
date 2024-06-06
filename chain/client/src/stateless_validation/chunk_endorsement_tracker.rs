@@ -15,7 +15,8 @@ use crate::Client;
 
 // This is the number of unique chunks for which we would track the chunk endorsements.
 // Ideally, we should not be processing more than num_shards chunks at a time.
-const NUM_CHUNKS_IN_CHUNK_ENDORSEMENTS_CACHE: usize = 100;
+const NUM_CHUNKS_IN_ENDORSEMENTS_CACHE: usize = 100;
+const NUM_CHUNKS_IN_PENDING_ENDORSEMENTS_CACHE: usize = 100;
 
 pub enum ChunkEndorsementsState {
     Endorsed(Option<EndorsementStats>, ChunkEndorsementSignatures),
@@ -70,33 +71,13 @@ impl ChunkEndorsementTracker {
     pub fn new(epoch_manager: Arc<dyn EpochManagerAdapter>) -> Self {
         Self {
             epoch_manager,
-            chunk_endorsements: SyncLruCache::new(NUM_CHUNKS_IN_CHUNK_ENDORSEMENTS_CACHE),
-            // We can use a different cache size if needed, it does not have to be the same as for `chunk_endorsements`.
-            pending_chunk_endorsements: SyncLruCache::new(NUM_CHUNKS_IN_CHUNK_ENDORSEMENTS_CACHE),
-        }
-    }
-
-    /// Process pending endorsements for the given chunk header.
-    /// It removes these endorsements from the `pending_chunk_endorsements` cache.
-    pub fn process_pending_endorsements(&self, chunk_header: &ShardChunkHeader) {
-        let chunk_hash = &chunk_header.chunk_hash();
-        let chunk_endorsements = {
-            let mut guard = self.pending_chunk_endorsements.lock();
-            guard.pop(chunk_hash)
-        };
-        let Some(chunk_endorsements) = chunk_endorsements else {
-            return;
-        };
-        tracing::debug!(target: "client", ?chunk_hash, "Processing pending chunk endorsements.");
-        for endorsement in chunk_endorsements.values() {
-            if let Err(error) = self.process_chunk_endorsement(chunk_header, endorsement.clone()) {
-                tracing::debug!(target: "client", ?endorsement, ?error, "Error processing pending chunk endorsement");
-            }
+            chunk_endorsements: SyncLruCache::new(NUM_CHUNKS_IN_ENDORSEMENTS_CACHE),
+            pending_chunk_endorsements: SyncLruCache::new(NUM_CHUNKS_IN_PENDING_ENDORSEMENTS_CACHE),
         }
     }
 
     /// Add the chunk endorsement to a cache of pending chunk endorsements (if not yet there).
-    pub(crate) fn add_chunk_endorsement_to_pending_cache(
+    fn add_chunk_endorsement_to_pending_cache(
         &self,
         endorsement: ChunkEndorsement,
     ) -> Result<(), Error> {
@@ -186,16 +167,25 @@ impl ChunkEndorsementTracker {
             chunk_header.shard_id(),
             chunk_header.height_created(),
         )?;
-        // Get the chunk_endorsements for the chunk from our cache.
-        // Note that these chunk endorsements are already validated as part of process_chunk_endorsement.
+
+        // Get the chunk_endorsements for the chunk from chunk_endorsements and pending_chunk_endorsements cache.
+        // Note that these chunk endorsements in chunk_endorsements are already validated.
         // We can safely rely on the following details
         //    1. The chunk endorsements are from valid chunk_validator for this chunk.
         //    2. The chunk endorsements signatures are valid.
-        let Some(chunk_endorsements) = self.chunk_endorsements.get(&chunk_header.chunk_hash())
-        else {
-            // Early return if no chunk_endorsements found in our cache.
-            return Ok(ChunkEndorsementsState::NotEnoughStake(None));
-        };
+        // For pending_chunk_endorsements, we would validate the chunk endorsements before including them in the block.
+        let mut chunk_endorsements =
+            self.chunk_endorsements.get(&chunk_header.chunk_hash()).unwrap_or_default();
+
+        for (account_id, endorsement) in
+            self.pending_chunk_endorsements.get(&chunk_header.chunk_hash()).unwrap_or_default()
+        {
+            if self.epoch_manager.verify_chunk_endorsement(&chunk_header, &endorsement)? {
+                chunk_endorsements.insert(account_id.clone(), endorsement.clone());
+            } else {
+                tracing::error!(target: "client", ?endorsement, "Invalid chunk endorsement.");
+            }
+        }
 
         let endorsement_stats = chunk_validator_assignments
             .compute_endorsement_stats(&chunk_endorsements.keys().collect());
