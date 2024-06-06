@@ -66,7 +66,6 @@ enum ValidatorsSpec {
 struct KickoutsConfig {
     block_producer_kickout_threshold: u8,
     chunk_producer_kickout_threshold: u8,
-    chunk_validator_only_kickout_threshold: u8,
 }
 
 #[derive(Debug, Clone)]
@@ -222,7 +221,6 @@ impl TestGenesisBuilder {
         self.kickouts_config = Some(KickoutsConfig {
             block_producer_kickout_threshold: 0,
             chunk_producer_kickout_threshold: 0,
-            chunk_validator_only_kickout_threshold: 0,
         });
         self
     }
@@ -231,7 +229,6 @@ impl TestGenesisBuilder {
         self.kickouts_config = Some(KickoutsConfig {
             block_producer_kickout_threshold: 90,
             chunk_producer_kickout_threshold: 90,
-            chunk_validator_only_kickout_threshold: 90,
         });
         self
     }
@@ -352,7 +349,6 @@ impl TestGenesisBuilder {
             let default = KickoutsConfig {
                 block_producer_kickout_threshold: 0,
                 chunk_producer_kickout_threshold: 0,
-                chunk_validator_only_kickout_threshold: 0,
             };
             tracing::warn!(
                 "Genesis kickouts_config not explicitly set, defaulting to disabling kickouts.",
@@ -444,8 +440,6 @@ impl TestGenesisBuilder {
             fishermen_threshold: 0,
             block_producer_kickout_threshold: kickouts_config.block_producer_kickout_threshold,
             chunk_producer_kickout_threshold: kickouts_config.chunk_producer_kickout_threshold,
-            chunk_validator_only_kickout_threshold: kickouts_config
-                .chunk_validator_only_kickout_threshold,
             transaction_validity_period,
             protocol_version,
             protocol_treasury_account,

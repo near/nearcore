@@ -791,7 +791,6 @@ impl ForkNetworkCommand {
             avg_hidden_validator_seats_per_shard: epoch_config.avg_hidden_validator_seats_per_shard,
             block_producer_kickout_threshold: 0,
             chunk_producer_kickout_threshold: 0,
-            chunk_validator_only_kickout_threshold: 0,
             max_kickout_stake_perc: 0,
             online_min_threshold: epoch_config.online_min_threshold,
             online_max_threshold: epoch_config.online_max_threshold,

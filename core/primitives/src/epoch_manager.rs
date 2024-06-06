@@ -37,8 +37,6 @@ pub struct EpochConfig {
     pub block_producer_kickout_threshold: u8,
     /// Threshold for kicking out chunk producers.
     pub chunk_producer_kickout_threshold: u8,
-    /// Threshold for kicking out nodes which are only chunk validators.
-    pub chunk_validator_only_kickout_threshold: u8,
     /// Max ratio of validators that we can kick out in an epoch
     pub validator_max_kickout_stake_perc: u8,
     /// Online minimum threshold below which validator doesn't receive reward.
@@ -188,7 +186,6 @@ impl AllEpochConfig {
         if checked_feature!("stable", LowerValidatorKickoutPercentForDebugging, protocol_version) {
             config.block_producer_kickout_threshold = 50;
             config.chunk_producer_kickout_threshold = 50;
-            config.chunk_validator_only_kickout_threshold = 50;
         }
     }
 

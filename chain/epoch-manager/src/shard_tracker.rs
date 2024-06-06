@@ -229,7 +229,6 @@ mod tests {
             avg_hidden_validator_seats_per_shard: vec![],
             block_producer_kickout_threshold: 90,
             chunk_producer_kickout_threshold: 60,
-            chunk_validator_only_kickout_threshold: 60,
             fishermen_threshold: 0,
             online_max_threshold: Ratio::from_integer(1),
             online_min_threshold: Ratio::new(90, 100),
