@@ -2427,8 +2427,8 @@ fn test_chunk_producers() {
     );
 }
 
-/// A sanity test for the compute_validators_to_reward_and_kickout function, tests that
-/// the validators that don't meet the block/chunk producer kickout threshold is kicked out
+/// A sanity test for the compute_validators_to_reward_and_kickout function,
+/// checks that validators that don't meet their kickout thresholds are kicked out.
 #[test]
 fn test_validator_kickout_sanity() {
     let epoch_config = epoch_config_with_production_config(5, 2, 4, 4, 90, 80, 90, false)
@@ -2439,6 +2439,7 @@ fn test_validator_kickout_sanity() {
         ("test2".parse().unwrap(), 1000),
         ("test3".parse().unwrap(), 1000),
         ("test4".parse().unwrap(), 500),
+        ("test5".parse().unwrap(), 500),
     ];
     let epoch_info = epoch_info(0, accounts, vec![0, 1, 2, 3], vec![vec![0, 1, 2], vec![0, 1, 3]]);
     let block_validator_tracker = HashMap::from([
@@ -2463,6 +2464,7 @@ fn test_validator_kickout_sanity() {
                     },
                 ),
                 (2, ChunkStats::new_with_production(70, 100)),
+                (5, ChunkStats::new_with_endorsement(91, 100)),
             ]),
         ),
         (
@@ -2535,6 +2537,13 @@ fn test_validator_kickout_sanity() {
             BlockChunkValidatorStats {
                 block_stats: ValidatorStats { produced: 0, expected: 0 },
                 chunk_stats: ChunkStats::new_with_endorsement(89, 100),
+            },
+        ),
+        (
+            "test5".parse().unwrap(),
+            BlockChunkValidatorStats {
+                block_stats: ValidatorStats { produced: 0, expected: 0 },
+                chunk_stats: ChunkStats::new_with_endorsement(91, 100),
             },
         ),
     ]);
