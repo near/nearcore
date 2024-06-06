@@ -411,8 +411,8 @@ impl JsonRpcHandler {
             "EXPERIMENTAL_changes_in_block" => {
                 process_method_call(request, |params| self.changes_in_block(params)).await
             }
-            "EXPERIMENTAL_congestion_info" => {
-                process_method_call(request, |params| self.congestion_info(params)).await
+            "EXPERIMENTAL_congestion_level" => {
+                process_method_call(request, |params| self.congestion_level(params)).await
             }
             "EXPERIMENTAL_genesis_config" => {
                 process_method_call(request, |_params: ()| async {
@@ -919,7 +919,7 @@ impl JsonRpcHandler {
         Ok(near_jsonrpc_primitives::types::chunks::RpcChunkResponse { chunk_view })
     }
 
-    async fn congestion_info(
+    async fn congestion_level(
         &self,
         request_data: near_jsonrpc_primitives::types::congestion::RpcCongestionLevelRequest,
     ) -> Result<
