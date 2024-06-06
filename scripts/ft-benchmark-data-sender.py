@@ -131,8 +131,10 @@ if __name__ == "__main__":
     average_tps = np.mean(processed_transactions_deltas)
     variance_tps = np.var(processed_transactions_deltas)
     # TODO: will be good to have all "probably should be filled by terraform" as command line arguments
+    # TODO: add start_time and end_time instead of time to db schema
     responce = {
-        "time": time_begin,
+        "start_time": time_begin,
+        "end_time": datetime.now(),
         "git_commit_hash": get_commit()[0],
         "git_commit_time": get_commit()[1],
         "num_nodes": 1,  # TODO: probably should be filled by terraform
