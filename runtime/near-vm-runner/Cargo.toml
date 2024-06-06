@@ -14,20 +14,20 @@ workspace = true
 
 [dependencies]
 anyhow = { workspace = true, optional = true }
-base64.workspace = true
+base64 = { workspace = true, optional = true }
 bn.workspace = true
 borsh.workspace = true
 ed25519-dalek.workspace = true
 enum-map.workspace = true
 finite-wasm = { workspace = true, features = ["instrument"], optional = true }
-lru = "0.12.3"
-memoffset.workspace = true
+lru.workspace = true
+memoffset = { workspace = true, optional = true }
 num-rational.workspace = true
 once_cell.workspace = true
 parity-wasm = { workspace = true, optional = true }
-prefix-sum-vec.workspace = true
+prefix-sum-vec = { workspace = true, optional = true }
 ripemd.workspace = true
-rustix = { workspace = true, features = [ "fs" ] }
+rustix = { workspace = true, features = ["fs"] }
 serde_repr.workspace = true
 serde.workspace = true
 sha2.workspace = true
@@ -84,34 +84,47 @@ nightly_protocol = [
   "near-parameters/nightly_protocol",
   "near-primitives-core/nightly_protocol",
 ]
-wasmer0_vm = [ "wasmer-runtime", "wasmer-runtime-core", "prepare" ]
-wasmtime_vm = [ "wasmtime", "anyhow", "prepare" ]
+wasmer0_vm = ["wasmer-runtime", "wasmer-runtime-core", "prepare"]
+wasmtime_vm = ["wasmtime", "anyhow", "prepare"]
 wasmer2_vm = [
-    "wasmer-compiler",
-    "wasmer-compiler-singlepass",
-    "wasmer-engine",
-    "wasmer-engine-universal",
-    "wasmer-types",
-    "wasmer-vm",
-    "prepare",
+  "wasmer-compiler",
+  "wasmer-compiler-singlepass",
+  "wasmer-engine",
+  "wasmer-engine-universal",
+  "wasmer-types",
+  "wasmer-vm",
+  "memoffset",
+  "prepare",
 ]
 near_vm = [
-    "near-vm-compiler",
-    "near-vm-compiler-singlepass",
-    "near-vm-engine",
-    "near-vm-types",
-    "near-vm-vm",
-    "prepare",
+  "near-vm-compiler",
+  "near-vm-compiler-singlepass",
+  "near-vm-engine",
+  "near-vm-types",
+  "near-vm-vm",
+  "memoffset",
+  "prepare",
 ]
-prepare = [ "finite-wasm", "wasm-encoder", "wasmparser", "parity-wasm", "parity-wasm_41", "pwasm-utils_12" ]
+prepare = [
+  "finite-wasm",
+  "wasm-encoder",
+  "wasmparser",
+  "parity-wasm",
+  "parity-wasm_41",
+  "pwasm-utils_12",
+  "prefix-sum-vec",
+  "metrics",
+]
 
 no_cpu_compatibility_checks = []
 
 no_cache = []
 
 protocol_feature_fix_contract_loading_cost = [
-    "near-primitives-core/protocol_feature_fix_contract_loading_cost",
+  "near-primitives-core/protocol_feature_fix_contract_loading_cost",
 ]
+
+metrics = []
 
 nightly = [
   "near-parameters/nightly",
@@ -120,7 +133,7 @@ nightly = [
   "protocol_feature_fix_contract_loading_cost",
 ]
 sandbox = []
-io_trace = []
+io_trace = ["base64"]
 
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = []

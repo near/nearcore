@@ -69,9 +69,8 @@ use self::{
     event_handler::LoopEventHandler,
     futures::{TestLoopFutureSpawner, TestLoopTask},
 };
-use crate::time;
-use crate::time::{Clock, Duration};
 use near_o11y::{testonly::init_test_logger, tracing::info};
+use near_time::{self, Clock, Duration};
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -107,7 +106,7 @@ pub struct TestLoop<Data: 'static, Event: Debug + Send + 'static> {
     /// The current virtual time.
     current_time: Duration,
     /// Fake clock that always returns the virtual time.
-    clock: time::FakeClock,
+    clock: near_time::FakeClock,
     /// Shutdown flag. When this flag is true, delayed action runners will no
     /// longer post any new events to the event loop.
     shutting_down: Arc<AtomicBool>,
@@ -186,7 +185,7 @@ impl<Event: Debug> InFlightEvents<Event> {
 /// the event sender provided by the test loop, so this way we can avoid a
 /// construction dependency cycle.
 pub struct TestLoopBuilder<Event: Debug + Send + 'static> {
-    clock: time::FakeClock,
+    clock: near_time::FakeClock,
     pending_events: Arc<Mutex<InFlightEvents<Event>>>,
     pending_events_sender: DelaySender<Event>,
     shutting_down: Arc<AtomicBool>,
@@ -202,7 +201,7 @@ impl<Event: Debug + Send + 'static> TestLoopBuilder<Event> {
             is_handling_event: false,
         }));
         Self {
-            clock: time::FakeClock::default(),
+            clock: near_time::FakeClock::default(),
             pending_events: pending_events.clone(),
             pending_events_sender: DelaySender::new(move |event, delay| {
                 pending_events.lock().unwrap().add(event, delay);
@@ -217,7 +216,7 @@ impl<Event: Debug + Send + 'static> TestLoopBuilder<Event> {
     }
 
     /// Returns a clock that will always return the current virtual time.
-    pub fn clock(&self) -> time::Clock {
+    pub fn clock(&self) -> near_time::Clock {
         self.clock.clock()
     }
 
@@ -265,7 +264,7 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
     fn new(
         pending_events: Arc<Mutex<InFlightEvents<Event>>>,
         sender: DelaySender<Event>,
-        clock: time::FakeClock,
+        clock: near_time::FakeClock,
         shutting_down: Arc<AtomicBool>,
         data: Data,
     ) -> Self {

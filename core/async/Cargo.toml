@@ -24,6 +24,7 @@ tokio.workspace = true
 near-async-derive.workspace = true
 near-o11y.workspace = true
 near-performance-metrics.workspace = true
+near-time.workspace = true
 
 [dev-dependencies]
 derive-enum-from-into.workspace = true
