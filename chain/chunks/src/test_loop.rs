@@ -22,7 +22,7 @@ use near_network::{
     test_loop::SupportsRoutingLookup,
     types::{NetworkRequests, PeerManagerMessageRequest},
 };
-use near_primitives::congestion_info::CongestionInfo;
+use near_primitives::{congestion_info::CongestionInfo, version::ProtocolFeature};
 use near_primitives::{
     hash::CryptoHash,
     merkle::{self, MerklePath},
@@ -262,6 +262,9 @@ impl MockChainForShardsManager {
         let data_parts = self.epoch_manager.num_data_parts();
         let parity_parts = self.epoch_manager.num_total_parts() - data_parts;
         let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
+        let congestion_info: Option<CongestionInfo> = ProtocolFeature::CongestionControl
+            .enabled(PROTOCOL_VERSION)
+            .then_some(CongestionInfo::default());
         let (chunk, merkle_paths) = ShardsManagerActor::create_encoded_shard_chunk(
             self.tip.last_block_hash,
             CryptoHash::default(),
@@ -276,7 +279,7 @@ impl MockChainForShardsManager {
             &receipts,
             receipts_root,
             MerkleHash::default(),
-            Some(CongestionInfo::default()),
+            congestion_info,
             &signer,
             &rs,
             PROTOCOL_VERSION,
