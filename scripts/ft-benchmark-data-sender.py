@@ -8,7 +8,6 @@ import psycopg2
 from psycopg2 import sql
 from os import getenv
 
-
 # Duration of experiment in hours
 DURATION = 2
 
@@ -38,10 +37,9 @@ def calculate_processed_transactions() -> int:
         for sample in family.samples:
             if sample.name in interested_metrics:
                 metrics_dict[sample.name] = sample.value
-    if (
-        metrics_dict["near_transaction_processed_total"]
-        - metrics_dict["near_transaction_processed_successfully_total"]
-    ) / metrics_dict["near_transaction_processed_total"] > EPS:
+    if (metrics_dict["near_transaction_processed_total"] -
+            metrics_dict["near_transaction_processed_successfully_total"]
+       ) / metrics_dict["near_transaction_processed_total"] > EPS:
         raise "Too much failed transactions"
     return metrics_dict["near_transaction_processed_successfully_total"]
 
@@ -52,7 +50,9 @@ def calculate_shards() -> int:
         "jsonrpc": "2.0",
         "id": "dontcare",
         "method": "EXPERIMENTAL_protocol_config",
-        "params": {"finality": "final"},
+        "params": {
+            "finality": "final"
+        },
     }
     url = "http://127.0.0.1:3030"
     response = requests.post(url, json=payload)
@@ -63,7 +63,12 @@ def calculate_shards() -> int:
 
 # Returns a tuple with the commit hash and the commit timestamp
 def get_commit() -> tuple[str, datetime]:
-    payload = {"jsonrpc": "2.0", "id": "dontcare", "method": "status", "params": []}
+    payload = {
+        "jsonrpc": "2.0",
+        "id": "dontcare",
+        "method": "status",
+        "params": []
+    }
     local_url = "http://127.0.0.1:3030"
     response = requests.post(local_url, json=payload)
     if response.status_code != 200:
@@ -75,22 +80,22 @@ def get_commit() -> tuple[str, datetime]:
     commit_data = response.json()
     full_commit_hash = commit_data["sha"]
     commit_timestamp_str = commit_data["commit"]["author"]["date"]
-    commit_timestamp = datetime.strptime(commit_timestamp_str, "%Y-%m-%dT%H:%M:%SZ")
+    commit_timestamp = datetime.strptime(commit_timestamp_str,
+                                         "%Y-%m-%dT%H:%M:%SZ")
     return (full_commit_hash, commit_timestamp)
 
 
 # TODO: Make accesses actually work
 def commit_to_db(data: dict) -> None:
     with psycopg2.connect(
-        dbname="benchmarks",
-        user="node-data-sender",
-        password=getenv("DB_PASSWORD"),
-        host="34.90.190.128",
-        port="5432",
+            dbname="benchmarks",
+            user="node-data-sender",
+            password=getenv("DB_PASSWORD"),
+            host="34.90.190.128",
+            port="5432",
     ) as conn:
         with conn.cursor() as cursor:
-            insert_query = sql.SQL(
-                """
+            insert_query = sql.SQL("""
                 INSERT INTO ft_transfer (
                     time, git_commit_hash, git_commit_time, num_nodes, node_hardware, 
                     num_traffic_gen_machines, disjoint_workloads, num_shards, 
@@ -101,8 +106,7 @@ def commit_to_db(data: dict) -> None:
                     %(num_shards)s, %(num_unique_users)s, %(size_state_bytes)s, 
                     %(tps)s, %(total_transactions)s
                 )
-                """
-            )
+                """)
             cursor.execute(insert_query, data)
             conn.commit()
 
@@ -110,14 +114,9 @@ def commit_to_db(data: dict) -> None:
 # TODO: send signal to this process if ft-benchmark.sh decided to switch neard to another commit.
 # add handling of this signal to this script
 if __name__ == "__main__":
-    state_size = (
-        int(
-            subprocess.check_output(["du", "-s", "~/.near/localnet/node0/data"])
-            .decode("utf-8")
-            .split()[0]
-        )
-        * 1024
-    )
+    state_size = (int(
+        subprocess.check_output(["du", "-s", "~/.near/localnet/node0/data"
+                                ]).decode("utf-8").split()[0]) * 1024)
     processed_transactions = []
     time_begin = datetime.now()
     while True:
@@ -128,8 +127,7 @@ if __name__ == "__main__":
         sleep(POLL_INTERVAL)
     processed_transactions_deltas = np.diff(processed_transactions)
     processed_transactions_deltas = np.array(
-        list(map(lambda x: x / POLL_INTERVAL, processed_transactions_deltas))
-    )
+        list(map(lambda x: x / POLL_INTERVAL, processed_transactions_deltas)))
     average_tps = np.mean(processed_transactions_deltas)
     variance_tps = np.var(processed_transactions_deltas)
     # TODO: will be good to have all "probably should be filled by terraform" as command line arguments
@@ -138,11 +136,15 @@ if __name__ == "__main__":
         "git_commit_hash": get_commit()[0],
         "git_commit_time": get_commit()[1],
         "num_nodes": 1,  # TODO: probably should be filled by terraform
-        "node_hardware": "n1-standard-1",  # TODO: probably should be filled by terraform
-        "num_traffic_gen_machines": 0,  # TODO: probably should be filled by terraform
-        "disjoint_workloads": False,  # TODO: probably should be filled by terraform
+        "node_hardware":
+            "n1-standard-1",  # TODO: probably should be filled by terraform
+        "num_traffic_gen_machines":
+            0,  # TODO: probably should be filled by terraform
+        "disjoint_workloads":
+            False,  # TODO: probably should be filled by terraform
         "num_shards": calculate_shards(),
-        "num_unique_users": 1,  # TODO: probably should be filled by terraform or ft-benchmark.sh
+        "num_unique_users":
+            1,  # TODO: probably should be filled by terraform or ft-benchmark.sh
         "size_state_bytes": state_size,
         "tps": average_tps,
         "total_transactions": processed_transactions[-1],
