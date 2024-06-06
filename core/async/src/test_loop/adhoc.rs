@@ -1,6 +1,5 @@
 use super::{delay_sender::DelaySender, event_handler::LoopEventHandler};
 use crate::messaging::CanSend;
-use crate::time;
 use std::fmt::Debug;
 
 /// Any arbitrary logic that runs as part of the test loop.

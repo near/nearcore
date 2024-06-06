@@ -1,10 +1,10 @@
 use crate as near_async; // only needed because we're in this crate itself
 use crate::futures::{DelayedActionRunner, DelayedActionRunnerExt};
 use crate::messaging::{AsyncSender, SendAsync, Sender};
-use crate::time::Duration;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use near_async_derive::{MultiSend, MultiSendMessage, MultiSenderFrom};
+use near_time::Duration;
 use std::ops::{Deref, DerefMut};
 
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]

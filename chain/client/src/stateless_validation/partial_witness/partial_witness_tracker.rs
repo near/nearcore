@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use lru::LruCache;
@@ -7,16 +6,16 @@ use near_async::time::Instant;
 use near_chain::chain::ChunkStateWitnessMessage;
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
-use near_primitives::reed_solomon::{reed_solomon_decode, reed_solomon_part_length};
 use near_primitives::stateless_validation::{
     ChunkProductionKey, ChunkStateWitness, ChunkStateWitnessSize, EncodedChunkStateWitness,
     PartialEncodedStateWitness,
 };
-use reed_solomon_erasure::galois_8::ReedSolomon;
 use time::ext::InstantExt as _;
 
 use crate::client_actor::ClientSenderForPartialWitness;
 use crate::metrics;
+
+use super::encoding::{WitnessEncoder, WitnessEncoderCache, WitnessPart};
 
 /// Max number of chunks to keep in the witness tracker cache. We reach here only after validation
 /// of the partial_witness so the LRU cache size need not be too large.
@@ -27,69 +26,27 @@ const WITNESS_PARTS_CACHE_SIZE: usize = 200;
 /// so we don't have to worry much about memory usage here.
 const PROCESSED_WITNESSES_CACHE_SIZE: usize = 200;
 
-/// Ratio of the number of data parts to total parts in the Reed Solomon encoding.
-/// The tradeoff here is having a higher ratio is better for handling missing parts and network errors
-/// but increases the size of the encoded state witness and the total network bandwidth requirements.
-const RATIO_DATA_PARTS: f32 = 0.8;
-
-/// Reed Solomon encoder for encoding state witness parts.
-/// We keep one encoder for each length of chunk_validators to avoid re-creating the encoder.
-/// This is used by `PartialEncodedStateWitnessTracker`
-/// Note that ReedSolomon encoder does not support having exactly 1 total part count and no parity parts.
-/// In such cases, we use a dummy encoder with None value.
-pub struct RsMap {
-    rs_map: HashMap<usize, Arc<Option<ReedSolomon>>>,
-}
-
-impl RsMap {
-    pub fn new() -> Self {
-        let mut rs_map = HashMap::new();
-        rs_map.insert(1, Arc::new(None));
-        Self { rs_map }
-    }
-
-    pub fn entry(&mut self, total_parts: usize) -> Arc<Option<ReedSolomon>> {
-        self.rs_map
-            .entry(total_parts)
-            .or_insert_with(|| {
-                let data_parts = num_witness_data_parts(total_parts);
-                Arc::new(Some(ReedSolomon::new(data_parts, total_parts - data_parts).unwrap()))
-            })
-            .clone()
-    }
-}
-
-pub fn witness_part_length(encoded_witness_size: usize, total_parts: usize) -> usize {
-    reed_solomon_part_length(encoded_witness_size, num_witness_data_parts(total_parts))
-}
-
-fn num_witness_data_parts(total_parts: usize) -> usize {
-    std::cmp::max((total_parts as f32 * RATIO_DATA_PARTS) as usize, 1)
-}
-
 struct CacheEntry {
     pub created_at: Instant,
     pub data_parts_present: usize,
-    pub data_parts_required: usize,
-    pub parts: Vec<Option<Box<[u8]>>>,
-    pub rs: Arc<Option<ReedSolomon>>,
+    pub parts: Vec<WitnessPart>,
+    pub encoder: Arc<WitnessEncoder>,
     pub total_parts_size: usize,
 }
 
 impl CacheEntry {
-    pub fn new(rs: Arc<Option<ReedSolomon>>) -> Self {
-        let (data_parts, total_parts) = match rs.as_ref() {
-            Some(rs) => (rs.data_shard_count(), rs.total_shard_count()),
-            None => (1, 1),
-        };
+    pub fn new(encoder: Arc<WitnessEncoder>) -> Self {
         Self {
             created_at: Instant::now(),
             data_parts_present: 0,
-            data_parts_required: data_parts,
-            parts: vec![None; total_parts],
+            parts: vec![None; encoder.total_parts()],
             total_parts_size: 0,
-            rs,
+            encoder,
         }
+    }
+
+    fn data_parts_required(&self) -> usize {
+        self.encoder.data_parts()
     }
 
     // Function to insert a part into the cache entry for the chunk hash. Additionally, it tries to
@@ -121,18 +78,11 @@ impl CacheEntry {
         self.parts[part_ord] = Some(part);
 
         // If we have enough parts, try to decode the state witness.
-        if self.data_parts_present < self.data_parts_required {
+        if self.data_parts_present < self.data_parts_required() {
             return None;
         }
 
-        // For the case when we are the only validator for the chunk, we don't need to do Reed Solomon encoding.
-        let decode_result = match self.rs.as_ref() {
-            Some(rs) => reed_solomon_decode(rs, &mut self.parts, encoded_length),
-            None => Ok(EncodedChunkStateWitness::from_boxed_slice(
-                self.parts[0].as_ref().unwrap().clone(),
-            )),
-        };
-
+        let decode_result = self.encoder.decode(&mut self.parts, encoded_length);
         Some(decode_result)
     }
 }
@@ -152,7 +102,7 @@ pub struct PartialEncodedStateWitnessTracker {
     /// times.
     processed_witnesses: LruCache<ChunkProductionKey, ()>,
     /// Reed Solomon encoder for decoding state witness parts.
-    rs_map: RsMap,
+    encoders: WitnessEncoderCache,
 }
 
 impl PartialEncodedStateWitnessTracker {
@@ -165,7 +115,7 @@ impl PartialEncodedStateWitnessTracker {
             epoch_manager,
             parts_cache: LruCache::new(WITNESS_PARTS_CACHE_SIZE),
             processed_witnesses: LruCache::new(PROCESSED_WITNESSES_CACHE_SIZE),
-            rs_map: RsMap::new(),
+            encoders: WitnessEncoderCache::new(),
         }
     }
 
@@ -256,14 +206,13 @@ impl PartialEncodedStateWitnessTracker {
             return Ok(());
         }
         let num_parts = self.get_num_parts(&partial_witness)?;
-        let rs = self.rs_map.entry(num_parts);
-        let new_entry = CacheEntry::new(rs);
+        let new_entry = CacheEntry::new(self.encoders.entry(num_parts));
         if let Some((evicted_key, evicted_entry)) = self.parts_cache.push(key, new_entry) {
             tracing::warn!(
                 target: "client",
                 ?evicted_key,
                 data_parts_present = ?evicted_entry.data_parts_present,
-                data_parts_required = ?evicted_entry.data_parts_required,
+                data_parts_required = ?evicted_entry.data_parts_required(),
                 "Evicted unprocessed partial state witness."
             );
         }
