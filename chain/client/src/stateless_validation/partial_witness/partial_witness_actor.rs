@@ -215,7 +215,7 @@ impl PartialWitnessActor {
         let encode_timer = metrics::PARTIAL_WITNESS_ENCODE_TIME
             .with_label_values(&[shard_id_label.as_str()])
             .start_timer();
-        let validator_witness_tuple = self.generate_state_witness_parts(
+        let mut validator_witness_tuple = self.generate_state_witness_parts(
             epoch_id,
             chunk_header,
             witness_bytes,
@@ -225,11 +225,13 @@ impl PartialWitnessActor {
 
         // Since we can't send network message to ourselves, we need to send the PartialEncodedStateWitnessForward
         // message for our part.
-        if let Some((_, partial_witness)) = validator_witness_tuple
+        if let Some(index) = validator_witness_tuple
             .iter()
-            .find(|(validator, _)| validator == self.my_signer.validator_id())
+            .position(|(validator, _)| validator == self.my_signer.validator_id())
         {
-            self.forward_state_witness_part(partial_witness.clone(), chunk_validators)?;
+            // This also removes this validator from the list, since we do not need to send our own witness part to self.
+            let (_, partial_witness) = validator_witness_tuple.swap_remove(index);
+            self.forward_state_witness_part(partial_witness, chunk_validators)?;
         }
 
         // Send the parts to the corresponding chunk validator owners.
