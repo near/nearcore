@@ -40,6 +40,7 @@ nearcore.workspace = true
 nightly = [
   "near-chain-configs/nightly",
   "near-chain/nightly",
+  "near-database-tool/nightly",
   "near-epoch-manager/nightly",
   "near-mirror/nightly",
   "near-o11y/nightly",
@@ -52,6 +53,7 @@ nightly = [
 nightly_protocol = [
   "near-chain-configs/nightly_protocol",
   "near-chain/nightly_protocol",
+  "near-database-tool/nightly_protocol",
   "near-epoch-manager/nightly_protocol",
   "near-mirror/nightly_protocol",
   "near-o11y/nightly_protocol",
