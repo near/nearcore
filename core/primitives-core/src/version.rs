@@ -223,8 +223,7 @@ impl ProtocolFeature {
             ProtocolFeature::StateWitnessSizeLimit => 83,
             ProtocolFeature::PerReceiptHardStorageProofLimit => 85,
             ProtocolFeature::PartialEncodedStateWitness => 86,
-            ProtocolFeature::WitnessTransactionLimits => 87,
-            ProtocolFeature::CongestionControl => 87,
+            ProtocolFeature::WitnessTransactionLimits | ProtocolFeature::CongestionControl => 87,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]

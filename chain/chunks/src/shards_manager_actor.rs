@@ -1226,8 +1226,7 @@ impl ShardsManagerActor {
         // Check the hashes match
         if header.chunk_hash() != *chunk_hash {
             byzantine_assert!(false);
-            panic!("chunk hash is different!");
-            // return Err(Error::InvalidChunkHeader);
+            return Err(Error::InvalidChunkHeader);
         }
 
         Ok(header)

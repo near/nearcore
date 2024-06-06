@@ -39,17 +39,13 @@ impl PeerId {
 
 impl fmt::Display for PeerId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let full = format!("{}", self.0);
-        let short = full.chars().take(12).collect::<String>();
-        write!(f, "{}", short)
+        write!(f, "{}", self.0)
     }
 }
 
 impl fmt::Debug for PeerId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let full = format!("{}", self.0);
-        let short = full.chars().take(12).collect::<String>();
-        write!(f, "{}", short)
+        write!(f, "{}", self.0)
     }
 }
 

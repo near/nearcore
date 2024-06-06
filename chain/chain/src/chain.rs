@@ -1962,22 +1962,6 @@ impl Chain {
             metrics::VALIDATOR_ACTIVE_TOTAL.set(i64::try_from(count).unwrap_or(i64::MAX));
 
             self.last_time_head_updated = self.clock.now();
-
-            // let mut congestion_level = vec![];
-            // let congestion_info = block.shards_congestion_info();
-            // let runtime_config = self.runtime_adapter.get_protocol_config(epoch_id)?;
-            // for (shard_id, congestion) in congestion_info.iter() {
-            //     let info = *congestion;
-            //     let config = runtime_config.runtime_config.congestion_control_config;
-            //     let control =
-            //         CongestionControl::new(config, info.congestion_info, info.missed_chunks_count);
-            //     let level = control.congestion_level();
-            //     congestion_level.push((*shard_id, level));
-            // }
-            // congestion_level.sort_by_key(|(shard_id, _)| *shard_id);
-
-            // let height = tip.height;
-            // tracing::info!(target: "chain", height, ?congestion_level, "block");
         };
 
         metrics::BLOCK_PROCESSED_TOTAL.inc();

@@ -199,9 +199,9 @@ pub fn validate_chunk_with_chunk_extra_and_receipts_root(
 fn validate_congestion_info(
     extra_congestion_info: &Option<CongestionInfo>,
     header_congestion_info: &Option<CongestionInfo>,
-    _header_protocol_version: ProtocolVersion,
+    _header_protocol_version: ProtocolVersion, // TODO remove that
 ) -> Result<(), Error> {
-    let result = match (extra_congestion_info, header_congestion_info) {
+    match (extra_congestion_info, header_congestion_info) {
         // If both are none then there is no congestion info to validate.
         (None, None) => Ok(()),
         // It is invalid to have one None and one Some. The congestion info in
@@ -219,10 +219,7 @@ fn validate_congestion_info(
                     extra, header
                 ))
             }),
-    };
-
-    result.unwrap();
-    Ok(())
+    }
 }
 
 /// Validates a double sign challenge.

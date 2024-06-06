@@ -14,7 +14,6 @@ use near_store::trie::receipts_column_helper::{
 use near_store::{StorageError, TrieAccess, TrieUpdate};
 use near_vm_runner::logic::ProtocolVersion;
 use std::collections::HashMap;
-use std::fmt::{self, Formatter};
 
 /// Handle receipt forwarding for different protocol versions.
 pub(crate) enum ReceiptSink<'a> {
@@ -69,17 +68,6 @@ pub(crate) struct DelayedReceiptQueueWrapper {
     new_delayed_bytes: u64,
     removed_delayed_gas: Gas,
     removed_delayed_bytes: u64,
-}
-
-impl std::fmt::Debug for DelayedReceiptQueueWrapper {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("DelayedReceiptQueueWrapper")
-            .field("new_delayed_gas", &self.new_delayed_gas)
-            .field("new_delayed_bytes", &self.new_delayed_bytes)
-            .field("removed_delayed_gas", &self.removed_delayed_gas)
-            .field("removed_delayed_bytes", &self.removed_delayed_bytes)
-            .finish()
-    }
 }
 
 impl<'a> ReceiptSink<'a> {
@@ -447,7 +435,6 @@ impl DelayedReceiptQueueWrapper {
         self,
         congestion: &mut CongestionInfo,
     ) -> Result<(), RuntimeError> {
-        tracing::info!(target: "runtime", ?congestion, ?self, "boom");
         congestion.add_delayed_receipt_gas(self.new_delayed_gas).unwrap();
         congestion.remove_delayed_receipt_gas(self.removed_delayed_gas).unwrap();
         congestion.add_receipt_bytes(self.new_delayed_bytes).unwrap();
