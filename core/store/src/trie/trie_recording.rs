@@ -16,6 +16,16 @@ pub struct TrieRecorder {
     code_len_counter: usize,
     /// Account IDs for which the code should be recorded.
     pub codes_to_record: HashSet<AccountId>,
+    pub recording_mode: RecordingMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecordingMode {
+    /// For recording internal runtime operations - doesn't charge extra for removals,
+    /// assuming that runtime operations aren't malicious.
+    Runtime,
+    /// Used during contract execution - charges extra for removals, assuming that they are malicious.
+    Contract,
 }
 
 impl TrieRecorder {
@@ -26,6 +36,7 @@ impl TrieRecorder {
             removal_counter: 0,
             code_len_counter: 0,
             codes_to_record: Default::default(),
+            recording_mode: RecordingMode::Runtime,
         }
     }
 
@@ -37,7 +48,9 @@ impl TrieRecorder {
     }
 
     pub fn record_removal(&mut self) {
-        self.removal_counter = self.removal_counter.saturating_add(1)
+        if self.recording_mode == RecordingMode::Contract {
+            self.removal_counter = self.removal_counter.saturating_add(1)
+        }
     }
 
     pub fn record_code_len(&mut self, code_len: usize) {
@@ -65,6 +78,10 @@ impl TrieRecorder {
         self.recorded_storage_size()
             .saturating_add(removals_size)
             .saturating_add(self.code_len_counter)
+    }
+
+    pub fn set_recording_mode(&mut self, recording_mode: RecordingMode) {
+        self.recording_mode = recording_mode;
     }
 }
 

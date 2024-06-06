@@ -50,6 +50,7 @@ use near_primitives::utils::{
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives_core::apply::ApplyChunkReason;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
+use near_store::trie::RecordingMode;
 use near_store::{
     get, get_account, get_postponed_receipt, get_promise_yield_receipt, get_received_data,
     has_received_data, remove_postponed_receipt, remove_promise_yield_receipt, set, set_access_key,
@@ -1510,6 +1511,7 @@ impl Runtime {
             let recorded_storage_size_before = state_update.trie().recorded_storage_size();
             let storage_proof_size_upper_bound_before =
                 state_update.trie().recorded_storage_size_upper_bound();
+            state_update.trie.set_recording_mode(RecordingMode::Contract);
             let result = self.process_receipt(
                 state_update,
                 apply_state,
@@ -1519,6 +1521,7 @@ impl Runtime {
                 &mut stats,
                 epoch_info_provider,
             );
+            state_update.trie.set_recording_mode(RecordingMode::Runtime);
             let node_counter_after = state_update.trie().get_trie_nodes_count();
             tracing::trace!(target: "runtime", ?node_counter_before, ?node_counter_after);
 

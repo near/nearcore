@@ -41,6 +41,7 @@ use std::hash::Hash;
 use std::rc::Rc;
 use std::str;
 use std::sync::{Arc, RwLock, RwLockReadGuard};
+pub use trie_recording::RecordingMode;
 
 pub mod accounting_cache;
 mod config;
@@ -694,6 +695,13 @@ impl Trie {
             .as_ref()
             .map(|recorder| recorder.borrow().recorded_storage_size_upper_bound())
             .unwrap_or_default()
+    }
+
+    /// Set recording mode for the current trie recorder.
+    pub fn set_recording_mode(&mut self, recording_mode: RecordingMode) {
+        if let Some(recorder) = self.recorder.as_ref() {
+            recorder.borrow_mut().set_recording_mode(recording_mode);
+        }
     }
 
     /// Constructs a Trie from the partial storage (i.e. state proof) that
