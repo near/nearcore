@@ -24,6 +24,18 @@ else
     git pull
 fi
 
+# Find all data senders running the specified script
+python_processes=$(pgrep -f "scripts/ft-benchmark-data-sender.py")
+
+# Send SIGTERM to data senders
+for pid in $python_processes; do
+    echo "Sending SIGTERM to Python process with PID $pid"
+    kill -SIGTERM $pid
+done
+
+# Give data senders time to send data and finish execution
+sleep 10
+
 # Stop previous experiment
 pkill -9 locust || true
 nearup stop 

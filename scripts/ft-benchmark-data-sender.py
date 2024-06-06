@@ -7,6 +7,7 @@ import subprocess
 import psycopg2
 from psycopg2 import sql
 from os import getenv
+import signal
 
 # Duration of experiment in hours
 DURATION = 2
@@ -111,20 +112,8 @@ def commit_to_db(data: dict) -> None:
             conn.commit()
 
 
-# TODO: send signal to this process if ft-benchmark.sh decided to switch neard to another commit.
-# add handling of this signal to this script
-if __name__ == "__main__":
-    state_size = (int(
-        subprocess.check_output(["du", "-s", "~/.near/localnet/node0/data"
-                                ]).decode("utf-8").split()[0]) * 1024)
-    processed_transactions = []
-    time_begin = datetime.now()
-    while True:
-        if (datetime.now() - time_begin).seconds / 3600 > DURATION:
-            break
-        processed_transactions.append(calculate_processed_transactions())
-        print("Added transaction count to list")
-        sleep(POLL_INTERVAL)
+def send_responce(processed_transactions: list[int], time_begin: datetime,
+                  state_size: int):
     processed_transactions_deltas = np.diff(processed_transactions)
     processed_transactions_deltas = np.array(
         list(map(lambda x: x / POLL_INTERVAL, processed_transactions_deltas)))
@@ -150,3 +139,25 @@ if __name__ == "__main__":
         "total_transactions": processed_transactions[-1],
     }
     commit_to_db(responce)
+
+
+if __name__ == "__main__":
+    state_size = (int(
+        subprocess.check_output("du -s ~/.near/localnet/node0/data",
+                                shell=True).decode("utf-8").split()[0]) * 1024)
+    processed_transactions = []
+    time_begin = datetime.now()
+
+    # Hadles signal from ft-benchmark.sh
+    def signal_handler(signum, frame):
+        send_responce(processed_transactions, time_begin, state_size)
+
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    while True:
+        if (datetime.now() - time_begin).seconds / 3600 > DURATION:
+            break
+        processed_transactions.append(calculate_processed_transactions())
+        print("Added transaction count to list")
+        sleep(POLL_INTERVAL)
+    send_responce(processed_transactions, time_begin, state_size)
