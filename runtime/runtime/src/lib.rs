@@ -1379,7 +1379,6 @@ impl Runtime {
 
         let mut stats = ApplyStats::default();
 
-        tracing::info!(target: "runtime", "Process validation accounts update");
         if let Some(validator_accounts_update) = validator_accounts_update {
             self.update_validator_accounts(
                 &mut state_update,
@@ -1388,7 +1387,6 @@ impl Runtime {
             )?;
         }
 
-        tracing::info!(target: "runtime", "Process migrations");
         let (gas_used_for_migrations, mut receipts_to_restore) = self
             .apply_migrations(
                 &mut state_update,
@@ -1457,12 +1455,10 @@ impl Runtime {
         )?;
 
         // Forward buffered receipts from previous chunks.
-        tracing::info!(target: "runtime", "Forwarding buffered receipts from previous chunks");
         receipt_sink.forward_from_buffer(&mut state_update, apply_state)?;
 
         total.add(gas_used_for_migrations, gas_used_for_migrations)?;
 
-        tracing::info!(target: "runtime", "Process transactions");
         for signed_transaction in transactions {
             let (receipt, outcome_with_id) = self.process_transaction(
                 &mut state_update,
