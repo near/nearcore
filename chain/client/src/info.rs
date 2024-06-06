@@ -1029,10 +1029,9 @@ mod tests {
             epoch_length,
             num_shards,
             num_block_producer_seats.try_into().unwrap(),
+            90,
+            90,
             0,
-            90,
-            90,
-            90,
             default_reward_calculator(),
         )
         .into_handle();
