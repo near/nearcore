@@ -9,7 +9,7 @@ import ctypes
 import logging
 import multiprocessing
 import pathlib
-import geventhttpclient as requests
+from geventhttpclient import Session
 import sys
 import threading
 import time
@@ -29,6 +29,10 @@ import utils
 
 DEFAULT_TRANSACTION_TTL = timedelta(minutes=30)
 logger = new_logger(level=logging.WARN)
+
+# This is used to make the specific tests wait for the do_on_locust_init function
+# to initialize the funding account, before initializating the users.
+INIT_DONE = threading.Event()
 
 
 def is_key_error(exception):
@@ -237,7 +241,10 @@ class NearNodeProxy:
         self.request_event = environment.events.request
         [url, port] = environment.host.rsplit(":", 1)
         self.node = cluster.RpcNode(url, port)
-        self.session = requests.Session()
+        self.session = Session(connection_timeout=6,
+                               network_timeout=9,
+                               max_retries=5,
+                               retry_delay=0.1)
 
     def send_tx_retry(self, tx: Transaction, locust_name) -> dict:
         """
@@ -289,6 +296,7 @@ class NearNodeProxy:
                             "EXECUTED_OPTIMISTIC"
                     })
                 evaluate_rpc_result(result.json())
+
             except TxUnknownError as err:
                 # This means we time out in one way or another.
                 # In that case, the stateless transaction validation was
@@ -382,8 +390,11 @@ class NearNodeProxy:
             "id": "dontcare",
             "jsonrpc": "2.0"
         }
-        return self.session.post(url="http://%s:%s" % self.node.rpc_addr(),
-                                 json=j)
+        try:
+            return self.session.post(url="http://%s:%s" % self.node.rpc_addr(),
+                                     json=j)
+        except Exception as e:
+            raise RpcError(details=e)
 
     @retry(wait_fixed=500,
            stop_max_delay=DEFAULT_TRANSACTION_TTL / timedelta(milliseconds=1),
@@ -543,14 +554,17 @@ class NearUser(User):
         assert self.host is not None, "Near user requires the RPC node address"
         self.node = NearNodeProxy(environment)
         self.id = NearUser.get_next_id()
-        user_suffix = f"{self.id}_run{environment.parsed_options.run_id}"
-        self.account_id = NearUser.generate_account_id(
-            environment.account_generator, user_suffix)
+        self.user_suffix = f"{self.id}_run{environment.parsed_options.run_id}"
+        self.account_generator = environment.account_generator
 
     def on_start(self):
         """
         Called once per user, creating the account on chain
         """
+        # Wait for NearUser.funding_account to be initialized.
+        INIT_DONE.wait()
+        self.account_id = NearUser.generate_account_id(self.account_generator,
+                                                       self.user_suffix)
         self.account = Account(key.Key.from_random(self.account_id))
         if not self.node.account_exists(self.account_id):
             self.send_tx_retry(
@@ -624,6 +638,20 @@ class InvalidNonceError(RpcError):
         self.ak_nonce = ak_nonce
 
 
+class ShardCongestedError(RpcError):
+
+    def __init__(
+        self,
+        shard_id,
+    ):
+        super().__init__(
+            message="Shard congested",
+            details=
+            f"Shard {shard_id} is currently congested and rejects new transactions"
+        )
+        self.shard_id = shard_id
+
+
 class TxError(NearError):
 
     def __init__(self,
@@ -673,6 +701,9 @@ def evaluate_rpc_result(rpc_result):
                 raise InvalidNonceError(
                     err_description["InvalidNonce"]["tx_nonce"],
                     err_description["InvalidNonce"]["ak_nonce"])
+            elif "ShardCongested" in err_description:
+                raise ShardCongestedError(
+                    err_description["ShardCongested"]["shard_id"])
         raise RpcError(details=rpc_result["error"])
 
     result = rpc_result["result"]
@@ -742,6 +773,7 @@ def init_account_generator(parsed_options):
     if parsed_options.shard_layout_file is not None:
         with open(parsed_options.shard_layout_file, 'r') as f:
             shard_layout = json.load(f)
+        shard_layout_version = "V1" if "V1" in shard_layout else "V0"
     elif parsed_options.shard_layout_chain_id is not None:
         if parsed_options.shard_layout_chain_id not in ['mainnet', 'testnet']:
             sys.exit(
@@ -757,8 +789,32 @@ def init_account_generator(parsed_options):
                 "shards_split_map": [[0, 1, 2, 3]],
                 "to_parent_shard_map": [0, 0, 0, 0],
                 "version": 1
+            },
+            "V2": {
+                "fixed_shards": [],
+                "boundary_accounts": [
+                    "aurora", "aurora-0", "kkuuue2akv_1630967379.near",
+                    "tge-lockup.sweat"
+                ],
+                "shards_split_map": [[0, 1, 2, 3, 4]],
+                "to_parent_shard_map": [0, 0, 0, 0, 0],
+                "version": 2
+            },
+            "V3": {
+                "fixed_shards": [],
+                "boundary_accounts": [
+                    "aurora",
+                    "aurora-0",
+                    "game.hot.tg",
+                    "kkuuue2akv_1630967379.near",
+                    "tge-lockup.sweat",
+                ],
+                "shards_split_map": [[0, 1, 2, 3, 4, 5]],
+                "to_parent_shard_map": [0, 0, 0, 0, 0, 0],
+                "version": 3
             }
         }
+        shard_layout_version = parsed_options.shard_layout_version.upper()
     else:
         shard_layout = {
             "V0": {
@@ -766,8 +822,8 @@ def init_account_generator(parsed_options):
                 "version": 0,
             },
         }
-
-    return AccountGenerator(shard_layout)
+        shard_layout_version = "V0"
+    return AccountGenerator(shard_layout, shard_layout_version)
 
 
 # called once per process before user initialization
@@ -818,9 +874,6 @@ def do_on_locust_init(environment):
     environment.master_funding_account = master_funding_account
 
 
-INIT_DONE = threading.Event()
-
-
 @events.init.add_listener
 def on_locust_init(environment, **kwargs):
     do_on_locust_init(environment)
@@ -849,6 +902,12 @@ def _(parser):
         required=False,
         help=
         "chain ID whose shard layout we should consult when generating account IDs. Convenience option to avoid using --shard-layout-file for mainnet and testnet"
+    )
+    parser.add_argument(
+        "--shard-layout-version",
+        required=False,
+        help=
+        "Version of the shard layout. Only works with --shard-layout-chain-id. Should be one of V0, V1, V2, or V3."
     )
     parser.add_argument(
         "--run-id",

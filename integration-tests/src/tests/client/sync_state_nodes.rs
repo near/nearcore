@@ -570,7 +570,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                 .clients_count(2)
                 .use_state_snapshots()
                 .real_stores()
-                .nightshade_runtimes(&genesis)
+                .nightshade_runtimes_congestion_control_disabled(&genesis)
                 .build();
 
             let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();

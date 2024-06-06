@@ -17,6 +17,7 @@ use near_primitives::reed_solomon::reed_solomon_encode;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::{
     ChunkStateWitness, ChunkStateWitnessAck, EncodedChunkStateWitness, PartialEncodedStateWitness,
+    MAX_CHUNK_STATE_WITNESS_SIZE,
 };
 use near_primitives::types::{AccountId, BlockHeightDelta, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -26,7 +27,9 @@ use crate::client_actor::ClientSenderForPartialWitness;
 use crate::metrics;
 use crate::stateless_validation::state_witness_tracker::ChunkStateWitnessTracker;
 
-use super::partial_witness_tracker::{PartialEncodedStateWitnessTracker, RsMap};
+use super::partial_witness_tracker::{
+    witness_part_length, PartialEncodedStateWitnessTracker, RsMap,
+};
 
 pub struct PartialWitnessActor {
     /// Adapter to send messages to the network.
@@ -340,6 +343,17 @@ impl PartialWitnessActor {
             )));
         }
 
+        let max_part_len =
+            witness_part_length(MAX_CHUNK_STATE_WITNESS_SIZE.as_u64() as usize, num_parts);
+        if partial_witness.part_size() > max_part_len {
+            return Err(Error::InvalidPartialChunkStateWitness(format!(
+                "Part size {} exceed limit of {} (total parts: {})",
+                partial_witness.part_size(),
+                max_part_len,
+                num_parts
+            )));
+        }
+
         // TODO(https://github.com/near/nearcore/issues/11301): replace these direct DB accesses with messages
         // sent to the client actor. for a draft, see https://github.com/near/nearcore/commit/e186dc7c0b467294034c60758fe555c78a31ef2d
         let head = self.store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?;
@@ -397,12 +411,16 @@ impl PartialWitnessActor {
 
 fn compress_witness(witness: &ChunkStateWitness) -> Result<EncodedChunkStateWitness, Error> {
     let shard_id_label = witness.chunk_header.shard_id().to_string();
-    let encode_timer = metrics::CHUNK_STATE_WITNESS_ENCODE_TIME
+    let encode_timer = near_chain::stateless_validation::metrics::CHUNK_STATE_WITNESS_ENCODE_TIME
         .with_label_values(&[shard_id_label.as_str()])
         .start_timer();
     let (witness_bytes, raw_witness_size) = EncodedChunkStateWitness::encode(&witness)?;
     encode_timer.observe_duration();
 
-    metrics::record_witness_size_metrics(raw_witness_size, witness_bytes.size_bytes(), witness);
+    near_chain::stateless_validation::metrics::record_witness_size_metrics(
+        raw_witness_size,
+        witness_bytes.size_bytes(),
+        witness,
+    );
     Ok(witness_bytes)
 }

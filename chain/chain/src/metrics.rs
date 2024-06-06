@@ -238,36 +238,3 @@ pub(crate) static RESHARDING_STATUS: Lazy<IntGaugeVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-
-pub static SAVE_LATEST_WITNESS_GENERATE_UPDATE_TIME: Lazy<HistogramVec> = Lazy::new(|| {
-    try_create_histogram_vec(
-        "near_save_latest_witness_generate_update_time",
-        "Time taken to generate an update of latest witnesses",
-        &["shard_id"],
-        Some(exponential_buckets(0.001, 1.6, 20).unwrap()),
-    )
-    .unwrap()
-});
-pub static SAVE_LATEST_WITNESS_COMMIT_UPDATE_TIME: Lazy<HistogramVec> = Lazy::new(|| {
-    try_create_histogram_vec(
-        "near_save_latest_witness_commit_update_time",
-        "Time taken to commit the update of latest witnesses",
-        &["shard_id"],
-        Some(exponential_buckets(0.001, 1.6, 20).unwrap()),
-    )
-    .unwrap()
-});
-pub static SAVED_LATEST_WITNESSES_COUNT: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge(
-        "near_saved_latest_witnesses_count",
-        "Total number of saved latest witnesses",
-    )
-    .unwrap()
-});
-pub static SAVED_LATEST_WITNESSES_SIZE: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge(
-        "near_saved_latest_witnesses_size",
-        "Total size of saved latest witnesses (in bytes)",
-    )
-    .unwrap()
-});

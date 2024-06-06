@@ -172,6 +172,7 @@ export interface DebugChunkStatus {
 }
 
 export interface EpochInfoView {
+    epoch_height: number;
     epoch_id: string;
     height: number;
     first_block: null | [string, string];

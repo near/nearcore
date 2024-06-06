@@ -204,7 +204,10 @@ fn validate_congestion_info(
     // The congestion info should be Some iff the congestion control features is enabled.
     let enabled = ProtocolFeature::CongestionControl.enabled(header_protocol_version);
     if header_congestion_info.is_some() != enabled {
-        return Err(Error::InvalidCongestionInfo("Congestion Information is missing.".to_string()));
+        return Err(Error::InvalidCongestionInfo(format!(
+            "Congestion Information version mismatch. version {}, enabled: {}, info {:?}",
+            header_protocol_version, enabled, header_congestion_info
+        )));
     }
 
     match (extra_congestion_info, header_congestion_info) {
