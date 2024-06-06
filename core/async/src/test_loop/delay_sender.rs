@@ -101,7 +101,7 @@ impl<Event> DelaySender<Event> {
     {
         TestLoopAsyncComputationSpawner {
             sender: self.narrow(),
-            artificial_delay: Box::new(artificial_delay),
+            artificial_delay: Arc::new(artificial_delay),
         }
     }
 }

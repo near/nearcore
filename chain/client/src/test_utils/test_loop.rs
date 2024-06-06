@@ -11,6 +11,7 @@ use near_async::test_loop::event_handler::{LoopEventHandler, TryIntoOrSelf};
 use near_async::time::Duration;
 
 use crate::Client;
+use near_async::v2::{self, LoopData, LoopStream};
 use near_network::client::{
     BlockApproval, BlockResponse, ChunkEndorsementMessage, ClientSenderForNetwork,
     ClientSenderForNetworkMessage, ProcessTxRequest,
@@ -21,13 +22,14 @@ use near_network::state_witness::{
     PartialWitnessSenderForNetworkMessage,
 };
 use near_network::test_loop::SupportsRoutingLookup;
-use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
+use near_network::types::{NetworkRequests, PeerManagerAdapterMessage, PeerManagerMessageRequest};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, Balance, ShardId};
 use near_primitives::views::{
     FinalExecutionOutcomeView, QueryRequest, QueryResponse, QueryResponseKind,
 };
+use std::collections::HashMap;
 
 pub fn print_basic_client_info_before_each_event<Data, Event>(
     idx: Option<usize>,
@@ -210,6 +212,158 @@ pub fn route_network_messages_to_client<
     })
 }
 
+fn route_network_message_to_client(
+    request: NetworkRequests,
+    originator: &AccountId,
+    senders: &HashMap<AccountId, ClientSenderForNetwork>,
+) -> Result<(), NetworkRequests> {
+    match request {
+        NetworkRequests::Block { block } => {
+            for (other_account, sender) in senders {
+                if other_account != originator {
+                    drop(sender.send_async(BlockResponse {
+                        block: block.clone(),
+                        peer_id: PeerId::random(),
+                        was_requested: false,
+                    }));
+                }
+            }
+        }
+        NetworkRequests::Approval { approval_message } => {
+            if &approval_message.target != originator {
+                drop(
+                    senders[&approval_message.target]
+                        .send_async(BlockApproval(approval_message.approval, PeerId::random())),
+                );
+            } else {
+                tracing::warn!("Dropping message to self");
+            }
+        }
+        NetworkRequests::ForwardTx(account, transaction) => {
+            if &account != originator {
+                drop(senders[&account].send_async(ProcessTxRequest {
+                    transaction,
+                    is_forwarded: true,
+                    check_only: false,
+                }))
+            } else {
+                tracing::warn!("Dropping message to self");
+            }
+        }
+        NetworkRequests::ChunkEndorsement(target, endorsement) => {
+            if &target == originator {
+                drop(senders[&target].send_async(ChunkEndorsementMessage(endorsement)));
+            } else {
+                tracing::warn!("Dropping message to self");
+            }
+        }
+        NetworkRequests::SnapshotHostInfo { .. } => {
+            // TODO: what to do about this?
+        }
+        request => {
+            return Err(request);
+        }
+    }
+    Ok(())
+}
+
+pub fn handle_client_network_routing(
+    stream: &LoopStream<PeerManagerAdapterMessage>,
+    originator: &AccountId,
+    test: &mut v2::TestLoop,
+    senders: &HashMap<AccountId, DelaySender<ClientSenderForNetworkMessage>>,
+    network_delay: Duration,
+) {
+    let originator = originator.clone();
+    let senders = senders.iter()
+        .map(|(account_id, delay_sender)| {
+            (account_id.clone(), delay_sender
+                .with_additional_delay(network_delay)
+                .into_wrapped_multi_sender::<ClientSenderForNetworkMessage, ClientSenderForNetwork>())
+        })
+        .collect::<HashMap<_, _>>();
+    stream.handle0(test, move |msg| {
+        let PeerManagerAdapterMessage::_request_sender(request) = msg else { return Err(msg) };
+        let PeerManagerMessageRequest::NetworkRequests(request) = request else {
+            return Err(PeerManagerAdapterMessage::_request_sender(request));
+        };
+        match route_network_message_to_client(request, &originator, &senders) {
+            Ok(()) => Ok(()),
+            Err(request) => Err(PeerManagerAdapterMessage::_request_sender(
+                PeerManagerMessageRequest::NetworkRequests(request),
+            )),
+        }
+    });
+}
+
+fn route_network_message_to_partial_witness(
+    request: NetworkRequests,
+    originator: &AccountId,
+    senders: &HashMap<AccountId, PartialWitnessSenderForNetwork>,
+) -> Result<(), NetworkRequests> {
+    match request {
+        NetworkRequests::ChunkStateWitnessAck(target, witness_ack) => {
+            if &target != originator {
+                senders[&target].send(ChunkStateWitnessAckMessage(witness_ack));
+            } else {
+                tracing::warn!("Dropping state-witness-ack message to self");
+            }
+        }
+        NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple) => {
+            for (target, partial_witness) in validator_witness_tuple.into_iter() {
+                if &target != originator {
+                    senders[&target].send(PartialEncodedStateWitnessMessage(partial_witness));
+                } else {
+                    tracing::warn!("Dropping state-witness message to self");
+                }
+            }
+        }
+        NetworkRequests::PartialEncodedStateWitnessForward(chunk_validators, partial_witness) => {
+            for target in chunk_validators {
+                if &target != originator {
+                    senders[&target]
+                        .send(PartialEncodedStateWitnessForwardMessage(partial_witness.clone()));
+                } else {
+                    tracing::warn!("Dropping state-witness-forward message to self");
+                }
+            }
+        }
+        request => {
+            return Err(request);
+        }
+    }
+    Ok(())
+}
+
+pub fn handle_partial_witness_network_routing(
+    stream: &LoopStream<PeerManagerAdapterMessage>,
+    originator: &AccountId,
+    test: &mut v2::TestLoop,
+    senders: &HashMap<AccountId, DelaySender<PartialWitnessSenderForNetworkMessage>>,
+    network_delay: Duration,
+) {
+    let originator = originator.clone();
+    let senders = senders.iter()
+        .map(|(account_id, delay_sender)| {
+            (account_id.clone(), delay_sender
+                .with_additional_delay(network_delay)
+                .into_wrapped_multi_sender::<PartialWitnessSenderForNetworkMessage, PartialWitnessSenderForNetwork>())
+        })
+        .collect::<HashMap<_, _>>();
+    stream.handle0(test, move |msg| {
+        let PeerManagerAdapterMessage::_request_sender(request) = msg else { return Err(msg) };
+        let PeerManagerMessageRequest::NetworkRequests(request) = request else {
+            return Err(PeerManagerAdapterMessage::_request_sender(request));
+        };
+        match route_network_message_to_partial_witness(request, &originator, &senders) {
+            Ok(()) => Ok(()),
+            Err(request) => Err(PeerManagerAdapterMessage::_request_sender(
+                PeerManagerMessageRequest::NetworkRequests(request),
+            )),
+        }
+    });
+}
+
 // TODO: This would be a good starting point for turning this into a test util.
 pub trait ClientQueries {
     fn client_index_tracking_account(&self, account: &AccountId) -> usize;
@@ -318,6 +472,143 @@ impl<Data: AsRef<Client> + AsRef<AccountId>> ClientQueries for Vec<Data> {
                     .cares_about_shard_from_prev_block(
                         &head.prev_block_hash,
                         &self[i].as_ref(),
+                        *shard_id,
+                    )
+                    .unwrap();
+                if tracks_shard {
+                    tracked_shards.push(*shard_id);
+                }
+            }
+            ret.push(tracked_shards);
+        }
+        ret
+    }
+}
+
+pub struct ClientQueriesV2WithData<'a> {
+    test: &'a v2::TestLoop,
+    clients: &'a Vec<LoopData<ClientActorInner>>,
+    accounts: &'a Vec<AccountId>,
+}
+
+pub struct ClientQueriesV2 {
+    pub clients: Vec<LoopData<ClientActorInner>>,
+    pub accounts: Vec<AccountId>,
+}
+
+impl ClientQueriesV2 {
+    pub fn new() -> Self {
+        Self { clients: Vec::new(), accounts: Vec::new() }
+    }
+
+    pub fn add_client(&mut self, client: LoopData<ClientActorInner>, account: AccountId) {
+        self.clients.push(client);
+        self.accounts.push(account);
+    }
+
+    pub fn with<'a>(&'a self, test: &'a v2::TestLoop) -> ClientQueriesV2WithData<'a> {
+        ClientQueriesV2WithData { test, clients: &self.clients, accounts: &self.accounts }
+    }
+}
+
+impl<'a> ClientQueries for ClientQueriesV2WithData<'a> {
+    fn client_index_tracking_account(&self, account_id: &AccountId) -> usize {
+        let client = &self.test.data(self.clients[0]).client;
+        let head = client.chain.head().unwrap();
+        let shard_id =
+            client.epoch_manager.account_id_to_shard_id(&account_id, &head.epoch_id).unwrap();
+
+        for i in 0..self.clients.len() {
+            let client: &Client = &self.test.data(self.clients[i]).client;
+            let tracks_shard = client
+                .epoch_manager
+                .cares_about_shard_from_prev_block(
+                    &head.prev_block_hash,
+                    &self.accounts[i],
+                    shard_id,
+                )
+                .unwrap();
+            if tracks_shard {
+                return i;
+            }
+        }
+        panic!("No client tracks shard {}", shard_id);
+    }
+
+    fn runtime_query(&self, account_id: &AccountId, query: QueryRequest) -> QueryResponse {
+        let client_index = self.client_index_tracking_account(account_id);
+        let client: &Client = &self.test.data(self.clients[client_index]).client;
+        let head = client.chain.head().unwrap();
+        let last_block = client.chain.get_block(&head.last_block_hash).unwrap();
+        let shard_id =
+            client.epoch_manager.account_id_to_shard_id(&account_id, &head.epoch_id).unwrap();
+        let shard_uid = client.epoch_manager.shard_id_to_uid(shard_id, &head.epoch_id).unwrap();
+        let last_chunk_header = &last_block.chunks()[shard_id as usize];
+
+        client
+            .runtime_adapter
+            .query(
+                shard_uid,
+                &last_chunk_header.prev_state_root(),
+                last_block.header().height(),
+                last_block.header().raw_timestamp(),
+                last_block.header().prev_hash(),
+                last_block.header().hash(),
+                last_block.header().epoch_id(),
+                &query,
+            )
+            .unwrap()
+    }
+
+    fn query_balance(&self, account_id: &AccountId) -> Balance {
+        let response = self.runtime_query(
+            account_id,
+            QueryRequest::ViewAccount { account_id: account_id.clone() },
+        );
+        if let QueryResponseKind::ViewAccount(account_view) = response.kind {
+            account_view.amount
+        } else {
+            panic!("Wrong return value")
+        }
+    }
+
+    fn view_call(&self, account_id: &AccountId, method: &str, args: &[u8]) -> Vec<u8> {
+        let response = self.runtime_query(
+            account_id,
+            QueryRequest::CallFunction {
+                account_id: account_id.clone(),
+                method_name: method.to_string(),
+                args: args.to_vec().into(),
+            },
+        );
+        if let QueryResponseKind::CallResult(call_result) = response.kind {
+            call_result.result
+        } else {
+            panic!("Wrong return value")
+        }
+    }
+
+    fn tx_outcome(&self, tx_hash: CryptoHash) -> FinalExecutionOutcomeView {
+        // TODO: this does not work yet with single-shard tracking.
+        let client: &Client = &self.test.data(self.clients[0]).client;
+        client.chain.get_final_transaction_result(&tx_hash).unwrap()
+    }
+
+    fn tracked_shards_for_each_client(&self) -> Vec<Vec<ShardId>> {
+        let client: &Client = &self.test.data(self.clients[0]).client;
+        let head = client.chain.head().unwrap();
+        let all_shard_ids = client.epoch_manager.shard_ids(&head.epoch_id).unwrap();
+
+        let mut ret = Vec::new();
+        for i in 0..self.clients.len() {
+            let client: &Client = &self.test.data(self.clients[i]).client;
+            let mut tracked_shards = Vec::new();
+            for shard_id in &all_shard_ids {
+                let tracks_shard = client
+                    .epoch_manager
+                    .cares_about_shard_from_prev_block(
+                        &head.prev_block_hash,
+                        &self.accounts[i],
                         *shard_id,
                     )
                     .unwrap();

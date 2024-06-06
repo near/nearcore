@@ -374,7 +374,10 @@ pub enum NetworkResponses {
     RouteNotFound,
 }
 
-#[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
+#[derive(
+    Clone, near_async::MultiSend, near_async::MultiSenderFrom, near_async::MultiSendMessage,
+)]
+#[multi_send_message_derive(Debug)]
 pub struct PeerManagerAdapter {
     pub async_request_sender: AsyncSender<PeerManagerMessageRequest, PeerManagerMessageResponse>,
     pub request_sender: Sender<PeerManagerMessageRequest>,
