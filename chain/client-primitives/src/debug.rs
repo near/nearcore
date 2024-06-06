@@ -25,6 +25,7 @@ pub struct TrackedShardsView {
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct EpochInfoView {
+    pub epoch_height: u64,
     pub epoch_id: CryptoHash,
     pub height: BlockHeight,
     pub first_block: Option<(CryptoHash, Utc)>,

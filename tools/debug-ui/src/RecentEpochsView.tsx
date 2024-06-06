@@ -33,6 +33,7 @@ export const RecentEpochsView = ({ addr }: RecentEpochsViewProps) => {
             <thead>
                 <tr>
                     <th></th>
+                    <th>Epoch Height</th>
                     <th>Epoch ID</th>
                     <th>Start Height</th>
                     <th>Protocol Version</th>
@@ -77,6 +78,7 @@ export const RecentEpochsView = ({ addr }: RecentEpochsViewProps) => {
                     return (
                         <tr className={rowClassName} key={epochInfo.epoch_id}>
                             <td>{firstColumnText}</td>
+                            <td>{epochInfo.epoch_height}</td>
                             <td>{epochInfo.epoch_id}</td>
                             <td>{epochInfo.height}</td>
                             <td>{epochInfo.protocol_version}</td>

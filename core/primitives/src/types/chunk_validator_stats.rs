@@ -12,6 +12,21 @@ pub struct ChunkValidatorStats {
 }
 
 impl ChunkValidatorStats {
+    pub const fn new(
+        chunks_produced: u64,
+        chunks_expected: u64,
+        endorsements_produced: u64,
+        endorsements_expected: u64,
+    ) -> Self {
+        ChunkValidatorStats {
+            production: ValidatorStats { produced: chunks_produced, expected: chunks_expected },
+            endorsement: ValidatorStats {
+                produced: endorsements_produced,
+                expected: endorsements_expected,
+            },
+        }
+    }
+
     pub const fn new_with_production(produced: u64, expected: u64) -> Self {
         ChunkValidatorStats {
             production: ValidatorStats { produced, expected },
