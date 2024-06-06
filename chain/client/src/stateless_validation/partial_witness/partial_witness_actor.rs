@@ -13,7 +13,6 @@ use near_network::state_witness::{
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::Tip;
-use near_primitives::reed_solomon::reed_solomon_encode;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::{
     ChunkStateWitness, ChunkStateWitnessAck, EncodedChunkStateWitness, PartialEncodedStateWitness,
@@ -27,9 +26,8 @@ use crate::client_actor::ClientSenderForPartialWitness;
 use crate::metrics;
 use crate::stateless_validation::state_witness_tracker::ChunkStateWitnessTracker;
 
-use super::partial_witness_tracker::{
-    witness_part_length, PartialEncodedStateWitnessTracker, RsMap,
-};
+use super::encoding::{witness_part_length, WitnessEncoderCache};
+use super::partial_witness_tracker::PartialEncodedStateWitnessTracker;
 
 pub struct PartialWitnessActor {
     /// Adapter to send messages to the network.
@@ -44,7 +42,7 @@ pub struct PartialWitnessActor {
     state_witness_tracker: ChunkStateWitnessTracker,
     /// Reed Solomon encoder for encoding state witness parts.
     /// We keep one wrapper for each length of chunk_validators to avoid re-creating the encoder.
-    rs_map: RsMap,
+    encoders: WitnessEncoderCache,
     /// Currently used to find the chain HEAD when validating partial witnesses,
     /// but should be removed if we implement retrieving this info from the client
     store: Store,
@@ -118,7 +116,7 @@ impl PartialWitnessActor {
             epoch_manager,
             partial_witness_tracker,
             state_witness_tracker: ChunkStateWitnessTracker::new(clock),
-            rs_map: RsMap::new(),
+            encoders: WitnessEncoderCache::new(),
             store,
         }
     }
@@ -166,16 +164,8 @@ impl PartialWitnessActor {
         );
 
         // Break the state witness into parts using Reed Solomon encoding.
-        let rs = self.rs_map.entry(chunk_validators.len());
-
-        // For the case when we are the only validator for the chunk, we don't need to do Reed Solomon encoding.
-        let (parts, encoded_length) = match rs.as_ref() {
-            Some(rs) => reed_solomon_encode(&rs, witness_bytes),
-            None => (
-                vec![Some(witness_bytes.as_slice().to_vec().into_boxed_slice())],
-                witness_bytes.size_bytes(),
-            ),
-        };
+        let encoder = self.encoders.entry(chunk_validators.len());
+        let (parts, encoded_length) = encoder.encode(&witness_bytes);
 
         Ok(chunk_validators
             .iter()

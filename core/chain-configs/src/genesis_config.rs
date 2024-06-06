@@ -128,9 +128,9 @@ pub struct GenesisConfig {
     #[serde(with = "dec_format")]
     #[default(MAX_GAS_PRICE)]
     pub max_gas_price: Balance,
-    /// Criterion for kicking out block producers (this is a number between 0 and 100)
+    /// Threshold for kicking out block producers, between 0 and 100.
     pub block_producer_kickout_threshold: u8,
-    /// Criterion for kicking out chunk producers (this is a number between 0 and 100)
+    /// Threshold for kicking out chunk producers, between 0 and 100.
     pub chunk_producer_kickout_threshold: u8,
     /// Online minimum threshold below which validator doesn't receive reward.
     #[serde(default = "default_online_min_threshold")]
@@ -791,9 +791,9 @@ pub struct ProtocolConfigView {
     /// Maximum gas price.
     #[serde(with = "dec_format")]
     pub max_gas_price: Balance,
-    /// Criterion for kicking out block producers (this is a number between 0 and 100)
+    /// Threshold for kicking out block producers, between 0 and 100.
     pub block_producer_kickout_threshold: u8,
-    /// Criterion for kicking out chunk producers (this is a number between 0 and 100)
+    /// Threshold for kicking out chunk producers, between 0 and 100.
     pub chunk_producer_kickout_threshold: u8,
     /// Online minimum threshold below which validator doesn't receive reward.
     pub online_min_threshold: Rational32,
