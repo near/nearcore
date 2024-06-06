@@ -1,5 +1,4 @@
 use crate::metrics::{PROTOCOL_VERSION_NEXT, PROTOCOL_VERSION_VOTES};
-use crate::proposals::proposals_to_epoch_info;
 use crate::types::EpochInfoAggregator;
 use near_cache::SyncLruCache;
 use near_chain_configs::GenesisConfig;
@@ -35,6 +34,7 @@ use tracing::{debug, warn};
 use types::BlockHeaderInfo;
 
 pub use crate::adapter::EpochManagerAdapter;
+pub use crate::proposals::proposals_to_epoch_info;
 pub use crate::reward_calculator::RewardCalculator;
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
 pub use crate::types::RngSeed;
@@ -450,6 +450,8 @@ impl EpochManager {
         exempted_validators
     }
 
+    /// Computes the set of validators to reward with stats and validators to kick out with reason.
+    ///
     /// # Parameters
     /// epoch_info
     /// block_validator_tracker
@@ -459,7 +461,7 @@ impl EpochManager {
     /// prev_validator_kickout: previously kicked out
     ///
     /// # Returns
-    /// (set of validators to kickout, set of validators to reward with stats)
+    /// (set of validators to reward with stats, set of validators to kickout)
     ///
     /// - Slashed validators are ignored (they are handled separately)
     /// - The total stake of validators that will be kicked out will not exceed
@@ -468,14 +470,14 @@ impl EpochManager {
     /// - A validator is kicked out if he produced too few blocks or chunks
     /// - If all validators are either previously kicked out or to be kicked out, we choose one not to
     /// kick out
-    fn compute_kickout_info(
+    fn compute_validators_to_reward_and_kickout(
         config: &EpochConfig,
         epoch_info: &EpochInfo,
         block_validator_tracker: &HashMap<ValidatorId, ValidatorStats>,
         chunk_validator_tracker: &HashMap<ShardId, HashMap<ValidatorId, ChunkValidatorStats>>,
         slashed: &HashMap<AccountId, SlashState>,
         prev_validator_kickout: &HashMap<AccountId, ValidatorKickoutReason>,
-    ) -> (HashMap<AccountId, ValidatorKickoutReason>, HashMap<AccountId, BlockChunkValidatorStats>)
+    ) -> (HashMap<AccountId, BlockChunkValidatorStats>, HashMap<AccountId, ValidatorKickoutReason>)
     {
         let block_producer_kickout_threshold = config.block_producer_kickout_threshold;
         let chunk_producer_kickout_threshold = config.chunk_producer_kickout_threshold;
@@ -498,6 +500,10 @@ impl EpochManager {
                 if let Some(stat) = tracker.get(&(i as u64)) {
                     *chunk_stats.expected_mut() += stat.expected();
                     *chunk_stats.produced_mut() += stat.produced();
+                    chunk_stats.endorsement_stats_mut().produced +=
+                        stat.endorsement_stats().produced;
+                    chunk_stats.endorsement_stats_mut().expected +=
+                        stat.endorsement_stats().expected;
                 }
             }
             total_stake += v.stake();
@@ -562,7 +568,7 @@ impl EpochManager {
                 validator_kickout.remove(&validator);
             }
         }
-        (validator_kickout, validator_block_chunk_stats)
+        (validator_block_chunk_stats, validator_kickout)
     }
 
     fn collect_blocks_info(
@@ -660,7 +666,7 @@ impl EpochManager {
 
         let config = self.config.for_protocol_version(epoch_info.protocol_version());
         // Compute kick outs for validators who are offline.
-        let (kickout, validator_block_chunk_stats) = Self::compute_kickout_info(
+        let (validator_block_chunk_stats, kickout) = Self::compute_validators_to_reward_and_kickout(
             &config,
             &epoch_info,
             &block_validator_tracker,
@@ -1708,9 +1714,16 @@ impl EpochManager {
         Ok(ShardConfig::new(epoch_config))
     }
 
+    pub fn get_config_for_protocol_version(
+        &self,
+        protocol_version: ProtocolVersion,
+    ) -> Result<EpochConfig, EpochError> {
+        Ok(self.config.for_protocol_version(protocol_version))
+    }
+
     pub fn get_epoch_config(&self, epoch_id: &EpochId) -> Result<EpochConfig, EpochError> {
         let protocol_version = self.get_epoch_info(epoch_id)?.protocol_version();
-        Ok(self.config.for_protocol_version(protocol_version))
+        self.get_config_for_protocol_version(protocol_version)
     }
 
     pub fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {

@@ -2,9 +2,10 @@ use crate::{
     error::{AccountIdError, CallerError, Error, RelayerError, UserError},
     eth_emulation, ethabi_utils, near_action,
     types::{
-        Action, ExecutionContext, TransactionValidationOutcome, ADD_KEY_SELECTOR,
-        ADD_KEY_SIGNATURE, DELETE_KEY_SELECTOR, DELETE_KEY_SIGNATURE, FUNCTION_CALL_SELECTOR,
-        FUNCTION_CALL_SIGNATURE, TRANSFER_SELECTOR, TRANSFER_SIGNATURE,
+        Action, EthEmulationKind, ExecutionContext, ParsableTransactionKind, TargetKind,
+        TransactionKind, ADD_KEY_SELECTOR, ADD_KEY_SIGNATURE, DELETE_KEY_SELECTOR,
+        DELETE_KEY_SIGNATURE, FUNCTION_CALL_SELECTOR, FUNCTION_CALL_SIGNATURE, TRANSFER_SELECTOR,
+        TRANSFER_SIGNATURE,
     },
 };
 use aurora_engine_transactions::{EthTransactionKind, NormalizedEthTransaction};
@@ -35,32 +36,97 @@ pub fn parse_rlp_tx_to_action(
     target: &AccountId,
     context: &ExecutionContext,
     expected_nonce: &mut u64,
-) -> Result<(near_action::Action, TransactionValidationOutcome), Error> {
+) -> Result<(near_action::Action, TransactionKind), Error> {
     let tx_bytes = decode_b64(tx_bytes_b64)?;
     let tx_kind: EthTransactionKind = tx_bytes.as_slice().try_into()?;
     let tx: NormalizedEthTransaction = tx_kind.try_into()?;
-    let validation_outcome = validate_tx_relayer_data(&tx, target, context, *expected_nonce)?;
+    let target_kind = validate_tx_relayer_data(&tx, target, context, *expected_nonce)?;
 
     // If the transaction is valid then increment the nonce to prevent replay
     *expected_nonce = expected_nonce.saturating_add(1);
 
-    let to = tx.to.ok_or(Error::User(UserError::EvmDeployDisallowed))?.raw();
-    let action = if to != context.current_address
-        && extract_address(target).map(|a| a == to).unwrap_or(false)
-    {
-        // If target is another Ethereum implicit account then the action
-        // must be a transfer (because EOAs are not contracts on Ethereum).
-        Action::Transfer { receiver_id: target.to_string(), yocto_near: 0 }
-    } else {
-        parse_tx_data(target, &tx, context)?
+    // The way an honest relayer assigns `target` is as follows:
+    // 1. If the Ethereum transaction payload represents a Near action then use the receiver_id,
+    // 2. If the payload looks like a supported Ethereum emulation then use the address registrar:
+    // 2.a. if the tx.to address is registered then use the associated account id,
+    // 2.b. otherwise, tx.to == target
+    // 3. Otherwise, tx.to == target
+    // Given this algorithm, the only way to have `TargetKind::EthImplicit` is in the
+    // following cases:
+    // I)   The Ethereum transaction payload is not parseable as a known action,
+    // II)  The payload is parsable as a Near action and the receiver_id is an eth-implicit account
+    // III) The payload is parsable as a supported Ethereum emulation but the to address is
+    //      not registered in the address registrar.
+    // Therefore, to determine if the relayer is honest we must always parse the payload and
+    // we only need to check the registrar if the payload is parseable as an Ethereum emulation.
+    // Note: the `TargetKind` is determined in `validate_tx_relayer_data` above, and that function
+    // also confirms that the `target` is compatible with the user's `tx.to`.
+
+    let (action, transaction_kind) = match parse_tx_data(target, &tx, context) {
+        Ok((action, ParsableTransactionKind::NearNativeAction)) => {
+            (action, TransactionKind::NearNativeAction)
+        }
+        Ok((action, ParsableTransactionKind::SelfNearNativeAction)) => {
+            if let TargetKind::EthImplicit(_) = target_kind {
+                // The calldata was parseable as a Near native action where the target
+                // should be the current account, but the target is some other wallet contract.
+                // This is technically allowed under the Ethereum standard for base token transfers
+                // (where any calldata can be used when sending tokens to another EOA), so we
+                // assume such a transfer must have been the user's intent. No address check is
+                // required in this case because no Near account other than the current account
+                // can be the receiver of these actions.
+                (
+                    Action::Transfer { receiver_id: target.to_string(), yocto_near: 0 },
+                    TransactionKind::EthEmulation(EthEmulationKind::EOABaseTokenTransfer {
+                        address_check: None,
+                    }),
+                )
+            } else {
+                (action, TransactionKind::NearNativeAction)
+            }
+        }
+        Ok((action, ParsableTransactionKind::EthEmulation(eth_emulation))) => {
+            if let TargetKind::EthImplicit(address) = target_kind {
+                // Even though the action was parsable, the target is another wallet contract,
+                // so the action _must_ still be a base token transfer, but we need
+                // to check if the target is not registered (otherwise the relayer is faulty).
+                (
+                    Action::Transfer { receiver_id: target.to_string(), yocto_near: 0 },
+                    TransactionKind::EthEmulation(EthEmulationKind::EOABaseTokenTransfer {
+                        address_check: Some(address),
+                    }),
+                )
+            } else {
+                (action, TransactionKind::EthEmulation(eth_emulation.into()))
+            }
+        }
+        Err(
+            error @ (Error::User(UserError::InvalidAbiEncodedData)
+            | Error::User(UserError::UnknownFunctionSelector)),
+        ) => {
+            // Unparsable actions can still be base token transfers, but no
+            // registrar check is required.
+            if let TargetKind::EthImplicit(_) = target_kind {
+                (
+                    Action::Transfer { receiver_id: target.to_string(), yocto_near: 0 },
+                    TransactionKind::EthEmulation(EthEmulationKind::EOABaseTokenTransfer {
+                        address_check: None,
+                    }),
+                )
+            } else {
+                return Err(error);
+            }
+        }
+        Err(other_err) => return Err(other_err),
     };
+
     validate_tx_value(&tx, context, &action)?;
 
     // Call to `low_u128` here is safe because of the validation done in `validate_tx_value`
     let near_action = action
         .try_into_near_action(tx.value.raw().low_u128().saturating_mul(MAX_YOCTO_NEAR.into()))?;
 
-    Ok((near_action, validation_outcome))
+    Ok((near_action, transaction_kind))
 }
 
 /// Extracts a 20-byte address from a Near account ID.
@@ -116,11 +182,24 @@ pub fn keccak256(bytes: &[u8]) -> [u8; 32] {
     near_sdk::env::keccak256_array(bytes)
 }
 
+fn parse_target(target: &AccountId, current_address: Address) -> TargetKind<'_> {
+    match extract_address(target) {
+        Ok(address) => {
+            if address == current_address {
+                TargetKind::CurrentAccount
+            } else {
+                TargetKind::EthImplicit(address)
+            }
+        }
+        Err(_) => TargetKind::OtherNearAccount(target),
+    }
+}
+
 fn parse_tx_data(
     target: &AccountId,
     tx: &NormalizedEthTransaction,
     context: &ExecutionContext,
-) -> Result<Action, Error> {
+) -> Result<(Action, ParsableTransactionKind), Error> {
     if tx.data.len() < 4 {
         return Err(Error::User(UserError::InvalidAbiEncodedData));
     }
@@ -134,7 +213,10 @@ fn parse_tx_data(
             if yocto_near > MAX_YOCTO_NEAR {
                 return Err(Error::User(UserError::ExcessYoctoNear));
             }
-            Ok(Action::FunctionCall { receiver_id, method_name, args, gas, yocto_near })
+            Ok((
+                Action::FunctionCall { receiver_id, method_name, args, gas, yocto_near },
+                ParsableTransactionKind::NearNativeAction,
+            ))
         }
         TRANSFER_SELECTOR => {
             let (receiver_id, yocto_near): (String, u32) =
@@ -145,7 +227,10 @@ fn parse_tx_data(
             if yocto_near > MAX_YOCTO_NEAR {
                 return Err(Error::User(UserError::ExcessYoctoNear));
             }
-            Ok(Action::Transfer { receiver_id, yocto_near })
+            Ok((
+                Action::Transfer { receiver_id, yocto_near },
+                ParsableTransactionKind::NearNativeAction,
+            ))
         }
         ADD_KEY_SELECTOR => {
             let (
@@ -158,23 +243,32 @@ fn parse_tx_data(
                 receiver_id,
                 method_names,
             ) = ethabi_utils::abi_decode(&ADD_KEY_SIGNATURE, &tx.data[4..])?;
-            Ok(Action::AddKey {
-                public_key_kind,
-                public_key,
-                nonce,
-                is_full_access,
-                is_limited_allowance,
-                allowance,
-                receiver_id,
-                method_names,
-            })
+            Ok((
+                Action::AddKey {
+                    public_key_kind,
+                    public_key,
+                    nonce,
+                    is_full_access,
+                    is_limited_allowance,
+                    allowance,
+                    receiver_id,
+                    method_names,
+                },
+                ParsableTransactionKind::SelfNearNativeAction,
+            ))
         }
         DELETE_KEY_SELECTOR => {
             let (public_key_kind, public_key) =
                 ethabi_utils::abi_decode(&DELETE_KEY_SIGNATURE, &tx.data[4..])?;
-            Ok(Action::DeleteKey { public_key_kind, public_key })
+            Ok((
+                Action::DeleteKey { public_key_kind, public_key },
+                ParsableTransactionKind::SelfNearNativeAction,
+            ))
         }
-        _ => eth_emulation::try_emulation(target, tx, context),
+        _ => {
+            let (action, emulation_kind) = eth_emulation::try_emulation(target, tx, context)?;
+            Ok((action, ParsableTransactionKind::EthEmulation(emulation_kind)))
+        }
     }
 }
 
@@ -184,12 +278,12 @@ fn parse_tx_data(
 /// - to address is present and matches the target address (or hash of target account ID)
 /// - nonce matches expected nonce
 /// If this validation fails then the relayer that sent it is faulty and should be banned.
-fn validate_tx_relayer_data(
+fn validate_tx_relayer_data<'a>(
     tx: &NormalizedEthTransaction,
-    target: &AccountId,
+    target: &'a AccountId,
     context: &ExecutionContext,
     expected_nonce: u64,
-) -> Result<TransactionValidationOutcome, Error> {
+) -> Result<TargetKind<'a>, Error> {
     if tx.address.raw() != context.current_address {
         return Err(Error::Relayer(RelayerError::InvalidSender));
     }
@@ -199,11 +293,22 @@ fn validate_tx_relayer_data(
     }
 
     let to = tx.to.ok_or(Error::User(UserError::EvmDeployDisallowed))?.raw();
-    let target_as_address = extract_address(target).ok();
-    let to_equals_target = target_as_address.map(|target| to == target).unwrap_or(false);
 
-    // Only valid targets satisfy `to == target` or `to == hash(target)`
-    if !to_equals_target && to != account_id_to_address(target) {
+    let target_kind = parse_target(target, context.current_address);
+
+    // valid targets satisfy `to == target` or `to == hash(target)`
+    let is_valid_target = match target_kind {
+        TargetKind::CurrentAccount if to == context.current_address => {
+            target == &context.current_account_id
+        }
+        TargetKind::EthImplicit(address) if to == address => {
+            target.as_str()
+                == format!("0x{}{}", hex::encode(address), context.current_account_suffix())
+        }
+        _ => to == account_id_to_address(target),
+    };
+
+    if !is_valid_target {
         return Err(Error::Relayer(RelayerError::InvalidTarget));
     }
 
@@ -216,15 +321,7 @@ fn validate_tx_relayer_data(
         return Err(Error::Relayer(RelayerError::InvalidNonce));
     }
 
-    // If `to == target` and this is not a self-transaction then the address must not
-    // be registered in the address registry. The purpose of this check is to prevent
-    // lazy relayers from skipping this check themselves (relayers are supposed to use
-    // the address registry to fill in the `target`).
-    if to_equals_target && to != context.current_address {
-        Ok(TransactionValidationOutcome::AddressCheckRequired(to))
-    } else {
-        Ok(TransactionValidationOutcome::Validated)
-    }
+    Ok(target_kind)
 }
 
 fn validate_tx_value(

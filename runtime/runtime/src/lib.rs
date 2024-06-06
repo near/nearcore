@@ -1167,12 +1167,9 @@ impl Runtime {
             if let Some(mut account) = get_account(state_update, account_id)? {
                 if let Some(reward) = validator_accounts_update.validator_rewards.get(account_id) {
                     debug!(target: "runtime", "account {} adding reward {} to stake {}", account_id, reward, account.locked());
-                    account.set_locked(
-                        account
-                            .locked()
-                            .checked_add(*reward)
-                            .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?,
-                    );
+                    account.set_locked(account.locked().checked_add(*reward).ok_or_else(|| {
+                        RuntimeError::UnexpectedIntegerOverflow("update_validator_accounts".into())
+                    })?);
                 }
 
                 debug!(target: "runtime",
@@ -1191,20 +1188,26 @@ impl Runtime {
                 let return_stake = account
                     .locked()
                     .checked_sub(max(*max_of_stakes, last_proposal))
-                    .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?;
+                    .ok_or_else(|| {
+                        RuntimeError::UnexpectedIntegerOverflow(
+                            "update_validator_accounts - return stake".into(),
+                        )
+                    })?;
                 debug!(target: "runtime", "account {} return stake {}", account_id, return_stake);
-                account.set_locked(
-                    account
-                        .locked()
-                        .checked_sub(return_stake)
-                        .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?,
-                );
-                account.set_amount(
-                    account
-                        .amount()
-                        .checked_add(return_stake)
-                        .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?,
-                );
+                account.set_locked(account.locked().checked_sub(return_stake).ok_or_else(
+                    || {
+                        RuntimeError::UnexpectedIntegerOverflow(
+                            "update_validator_accounts - set_locked".into(),
+                        )
+                    },
+                )?);
+                account.set_amount(account.amount().checked_add(return_stake).ok_or_else(
+                    || {
+                        RuntimeError::UnexpectedIntegerOverflow(
+                            "update_validator_accounts - set_amount".into(),
+                        )
+                    },
+                )?);
 
                 set_account(state_update, account_id.clone(), &account);
             } else if *max_of_stakes > 0 {
@@ -1227,16 +1230,19 @@ impl Runtime {
                         "FATAL: staking invariant does not hold. Account locked {} is less than slashed {}",
                         account.locked(), amount_to_slash)).into());
                 }
-                stats.slashed_burnt_amount = stats
-                    .slashed_burnt_amount
-                    .checked_add(amount_to_slash)
-                    .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?;
-                account.set_locked(
-                    account
-                        .locked()
-                        .checked_sub(amount_to_slash)
-                        .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?,
-                );
+                stats.slashed_burnt_amount =
+                    stats.slashed_burnt_amount.checked_add(amount_to_slash).ok_or_else(|| {
+                        RuntimeError::UnexpectedIntegerOverflow(
+                            "update_validator_accounts - slashed".into(),
+                        )
+                    })?;
+                account.set_locked(account.locked().checked_sub(amount_to_slash).ok_or_else(
+                    || {
+                        RuntimeError::UnexpectedIntegerOverflow(
+                            "update_validator_accounts - slash locked".into(),
+                        )
+                    },
+                )?);
                 set_account(state_update, account_id.clone(), &account);
             } else {
                 return Err(StorageError::StorageInconsistentState(format!(
@@ -1265,12 +1271,13 @@ impl Runtime {
                             account_id
                         ))
                     })?;
-                account.set_amount(
-                    account
-                        .amount()
-                        .checked_add(treasury_reward)
-                        .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?,
-                );
+                account.set_amount(account.amount().checked_add(treasury_reward).ok_or_else(
+                    || {
+                        RuntimeError::UnexpectedIntegerOverflow(
+                            "update_validator_accounts - treasure_reward".into(),
+                        )
+                    },
+                )?);
                 set_account(state_update, account_id.clone(), &account);
             }
         }
@@ -1398,14 +1405,20 @@ impl Runtime {
 
         let delayed_receipts_queue = DelayedReceiptQueue::load(&state_update)?;
         let mut delayed_receipts = DelayedReceiptQueueWrapper::new(delayed_receipts_queue);
-        let mut own_congestion_info =
-            apply_state.own_congestion_info(protocol_version, &state_update)?;
 
         if !apply_state.is_new_chunk
             && protocol_version >= ProtocolFeature::FixApplyChunks.protocol_version()
         {
             let (trie, trie_changes, state_changes) = state_update.finalize()?;
             let proof = trie.recorded_storage();
+
+            // For old chunks, copy the congestion info exactly as it came in,
+            // potentially returning `None` even if the congestion control
+            // feature is enabled for the protocol version.
+            let congestion_info = apply_state
+                .congestion_info
+                .get(&apply_state.shard_id)
+                .map(|extended_info| extended_info.congestion_info);
 
             return Ok(ApplyResult {
                 state_root: trie_changes.new_root,
@@ -1420,7 +1433,7 @@ impl Runtime {
                 proof,
                 delayed_receipts_count: delayed_receipts.len(),
                 metrics: None,
-                congestion_info: own_congestion_info,
+                congestion_info,
             });
         }
 
@@ -1429,6 +1442,8 @@ impl Runtime {
         let mut local_receipts = vec![];
         let mut outcomes = vec![];
         let mut processed_delayed_receipts = vec![];
+        let mut own_congestion_info =
+            apply_state.own_congestion_info(protocol_version, &state_update)?;
         let mut metrics = metrics::ApplyMetrics::default();
 
         let mut receipt_sink = ReceiptSink::new(
@@ -1769,7 +1784,7 @@ impl Runtime {
                 .copied()
                 .collect::<Vec<_>>();
 
-            let congestion_seed = apply_state.block_height;
+            let congestion_seed = apply_state.block_height.wrapping_add(apply_state.shard_id);
             congestion_info.finalize_allowed_shard(
                 apply_state.shard_id,
                 &other_shards,
@@ -3437,6 +3452,53 @@ mod tests {
                 assert_eq!(expected_forwarded as usize, apply_result.outgoing_receipts.len());
             }
         }
+    }
+
+    /// Create a scenario where `apply` is called without congestion info but
+    /// cross-shard congestion control is enabled, then check what congestion
+    /// info is in the apply result.
+    fn check_congestion_info_bootstrapping(is_new_chunk: bool, want: Option<CongestionInfo>) {
+        let initial_balance = to_yocto(1_000_000);
+        let initial_locked = to_yocto(500_000);
+        let gas_limit = 10u64.pow(15);
+        let (runtime, tries, root, mut apply_state, _, epoch_info_provider) =
+            setup_runtime(initial_balance, initial_locked, gas_limit);
+
+        // Delete previous congestion info to trigger bootstrapping it.
+        // An empty hash map is what we should see in the first chunk with the feature enabled.
+        apply_state.congestion_info = HashMap::new();
+
+        // Apply test specific settings
+        apply_state.is_new_chunk = is_new_chunk;
+
+        let apply_result = runtime
+            .apply(
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
+                &None,
+                &apply_state,
+                &[],
+                &[],
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap();
+
+        assert_eq!(want, apply_result.congestion_info);
+    }
+
+    /// Test that applying a new chunk triggers bootstrapping the congestion
+    /// info but applying an old chunk doesn't. (We don't want bootstrapping to
+    /// be triggered on missed chunks.)
+    #[test]
+    fn test_congestion_info_bootstrapping() {
+        if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
+            return;
+        }
+        let is_new_chunk = true;
+        check_congestion_info_bootstrapping(is_new_chunk, Some(CongestionInfo::default()));
+
+        let is_new_chunk = false;
+        check_congestion_info_bootstrapping(is_new_chunk, None);
     }
 
     // Apply trie changes in `ApplyResult` and update `ApplyState` with new

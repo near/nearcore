@@ -1181,6 +1181,7 @@ dependencies = [
  "base64 0.21.7",
  "ethabi",
  "hex",
+ "near-contract-standards",
  "near-crypto 0.21.2",
  "near-sdk",
  "near-workspaces",
@@ -2240,6 +2241,15 @@ dependencies = [
  "json_comments",
  "thiserror",
  "tracing",
+]
+
+[[package]]
+name = "near-contract-standards"
+version = "5.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d60a794d819e96fb307eb9afe5dd5d5c5dc7a73ce46eb8a94a0f40c387a165b"
+dependencies = [
+ "near-sdk",
 ]
 
 [[package]]

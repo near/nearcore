@@ -167,6 +167,7 @@ impl NightshadeRuntime {
         compiled_contract_cache: Box<dyn ContractRuntimeCache>,
         genesis_config: &GenesisConfig,
         epoch_manager: Arc<EpochManagerHandle>,
+        runtime_config_store: Option<RuntimeConfigStore>,
         trie_config: TrieConfig,
         state_snapshot_type: StateSnapshotType,
     ) -> Arc<Self> {
@@ -177,7 +178,7 @@ impl NightshadeRuntime {
             epoch_manager,
             None,
             None,
-            None,
+            runtime_config_store,
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
             trie_config,
             StateSnapshotConfig {
@@ -407,8 +408,8 @@ impl NightshadeRuntime {
                 // TODO(#2152): process gracefully
                 RuntimeError::BalanceMismatchError(e) => panic!("{}", e),
                 // TODO(#2152): process gracefully
-                RuntimeError::UnexpectedIntegerOverflow => {
-                    panic!("RuntimeError::UnexpectedIntegerOverflow")
+                RuntimeError::UnexpectedIntegerOverflow(reason) => {
+                    panic!("RuntimeError::UnexpectedIntegerOverflow {reason}")
                 }
                 RuntimeError::StorageError(e) => Error::StorageError(e),
                 // TODO(#2152): process gracefully
@@ -643,8 +644,24 @@ impl RuntimeAdapter for NightshadeRuntime {
         verify_signature: bool,
         epoch_id: &EpochId,
         current_protocol_version: ProtocolVersion,
+        receiver_congestion_info: Option<ExtendedCongestionInfo>,
     ) -> Result<Option<InvalidTxError>, Error> {
         let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
+
+        if let Some(congestion_info) = receiver_congestion_info {
+            let congestion_control = CongestionControl::new(
+                runtime_config.congestion_control_config,
+                congestion_info.congestion_info,
+                congestion_info.missed_chunks_count,
+            );
+            if !congestion_control.shard_accepts_transactions() {
+                let receiver_shard =
+                    self.account_id_to_shard_uid(transaction.transaction.receiver_id(), epoch_id)?;
+                return Ok(Some(InvalidTxError::ShardCongested {
+                    shard_id: receiver_shard.shard_id,
+                }));
+            }
+        }
 
         if let Some(state_root) = state_root {
             let shard_uid =

@@ -130,7 +130,6 @@ pub struct CongestionControlConfig {
     pub max_congestion_memory_consumption: u64,
 
     /// How many missed chunks in a row in a shard is considered 100% congested.
-    /// TODO(congestion_control) - find a good limit for missed chunks.
     pub max_congestion_missed_chunks: u64,
 
     /// The maximum amount of gas attached to receipts a shard can forward to
@@ -204,7 +203,7 @@ impl CongestionControlConfig {
             allowed_shard_outgoing_gas: max_value,
             max_tx_gas: max_value,
             min_tx_gas: max_value,
-            reject_tx_congestion_threshold: 1.0,
+            reject_tx_congestion_threshold: 2.0,
         }
     }
 }

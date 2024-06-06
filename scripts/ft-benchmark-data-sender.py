@@ -119,26 +119,29 @@ def send_responce(processed_transactions: list[int], time_begin: datetime,
         list(map(lambda x: x / POLL_INTERVAL, processed_transactions_deltas)))
     average_tps = np.mean(processed_transactions_deltas)
     variance_tps = np.var(processed_transactions_deltas)
+    commit_hash, commit_time = get_commit()
     # TODO: will be good to have all "probably should be filled by terraform" as command line arguments
-    responce = {
-        "time": time_begin,
-        "git_commit_hash": get_commit()[0],
-        "git_commit_time": get_commit()[1],
+    # TODO: add start_time and end_time instead of time to db schema
+    response = {
+        "start_time": time_begin,
+        "end_time": datetime.now(),
+        "git_commit_hash": commit_hash,
+        "git_commit_time": commit_time,
         "num_nodes": 1,  # TODO: probably should be filled by terraform
         "node_hardware":
-            "n1-standard-1",  # TODO: probably should be filled by terraform
+            "n2d-standard-8",  # TODO: probably should be filled by terraform
         "num_traffic_gen_machines":
             0,  # TODO: probably should be filled by terraform
         "disjoint_workloads":
             False,  # TODO: probably should be filled by terraform
         "num_shards": calculate_shards(),
         "num_unique_users":
-            1,  # TODO: probably should be filled by terraform or ft-benchmark.sh
+            1000,  # TODO: probably should be filled by terraform or ft-benchmark.sh
         "size_state_bytes": state_size,
         "tps": average_tps,
         "total_transactions": processed_transactions[-1],
     }
-    commit_to_db(responce)
+    commit_to_db(response)
 
 
 if __name__ == "__main__":

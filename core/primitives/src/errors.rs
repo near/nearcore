@@ -53,7 +53,7 @@ impl From<InvalidTxError> for TxExecutionError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeError {
     /// An unexpected integer overflow occurred. The likely issue is an invalid state or the transition.
-    UnexpectedIntegerOverflow,
+    UnexpectedIntegerOverflow(String),
     /// An error happened during TX verification and account charging. It's likely the chunk is invalid.
     /// and should be challenged.
     InvalidTxError(InvalidTxError),
@@ -213,6 +213,11 @@ pub enum InvalidTxError {
     InvalidTransactionVersion,
     // Error occurred during storage access
     StorageError(StorageError),
+    /// The receiver shard of the transaction is too congested to accept new
+    /// transactions at the moment.
+    ShardCongested {
+        shard_id: u32,
+    },
 }
 
 impl From<StorageError> for InvalidTxError {
@@ -620,6 +625,9 @@ impl Display for InvalidTxError {
             InvalidTxError::StorageError(error) => {
                 write!(f, "Storage error: {}", error)
             }
+            InvalidTxError::ShardCongested { shard_id } => {
+                write!(f, "Shard {shard_id} is currently congested and rejects new transactions.")
+            }
         }
     }
 }
@@ -828,8 +836,8 @@ impl From<IntegerOverflowError> for InvalidTxError {
 }
 
 impl From<IntegerOverflowError> for RuntimeError {
-    fn from(_: IntegerOverflowError) -> Self {
-        RuntimeError::UnexpectedIntegerOverflow
+    fn from(err: IntegerOverflowError) -> Self {
+        RuntimeError::UnexpectedIntegerOverflow(err.to_string())
     }
 }
 

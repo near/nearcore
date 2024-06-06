@@ -183,10 +183,9 @@ impl CongestionInfo {
     pub fn add_receipt_bytes(&mut self, bytes: u64) -> Result<(), RuntimeError> {
         match self {
             CongestionInfo::V1(inner) => {
-                inner.receipt_bytes = inner
-                    .receipt_bytes
-                    .checked_add(bytes)
-                    .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?;
+                inner.receipt_bytes = inner.receipt_bytes.checked_add(bytes).ok_or_else(|| {
+                    RuntimeError::UnexpectedIntegerOverflow("add_receipt_bytes".into())
+                })?;
             }
         }
         Ok(())
@@ -195,10 +194,9 @@ impl CongestionInfo {
     pub fn remove_receipt_bytes(&mut self, bytes: u64) -> Result<(), RuntimeError> {
         match self {
             CongestionInfo::V1(inner) => {
-                inner.receipt_bytes = inner
-                    .receipt_bytes
-                    .checked_sub(bytes)
-                    .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?;
+                inner.receipt_bytes = inner.receipt_bytes.checked_sub(bytes).ok_or_else(|| {
+                    RuntimeError::UnexpectedIntegerOverflow("remove_receipt_bytes".into())
+                })?;
             }
         }
         Ok(())
@@ -207,10 +205,10 @@ impl CongestionInfo {
     pub fn add_delayed_receipt_gas(&mut self, gas: Gas) -> Result<(), RuntimeError> {
         match self {
             CongestionInfo::V1(inner) => {
-                inner.delayed_receipts_gas = inner
-                    .delayed_receipts_gas
-                    .checked_add(gas as u128)
-                    .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?;
+                inner.delayed_receipts_gas =
+                    inner.delayed_receipts_gas.checked_add(gas as u128).ok_or_else(|| {
+                        RuntimeError::UnexpectedIntegerOverflow("add_delayed_receipt_gas".into())
+                    })?;
             }
         }
         Ok(())
@@ -219,10 +217,10 @@ impl CongestionInfo {
     pub fn remove_delayed_receipt_gas(&mut self, gas: Gas) -> Result<(), RuntimeError> {
         match self {
             CongestionInfo::V1(inner) => {
-                inner.delayed_receipts_gas = inner
-                    .delayed_receipts_gas
-                    .checked_sub(gas as u128)
-                    .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?;
+                inner.delayed_receipts_gas =
+                    inner.delayed_receipts_gas.checked_sub(gas as u128).ok_or_else(|| {
+                        RuntimeError::UnexpectedIntegerOverflow("remove_delayed_receipt_gas".into())
+                    })?;
             }
         }
         Ok(())
@@ -231,10 +229,10 @@ impl CongestionInfo {
     pub fn add_buffered_receipt_gas(&mut self, gas: Gas) -> Result<(), RuntimeError> {
         match self {
             CongestionInfo::V1(inner) => {
-                inner.buffered_receipts_gas = inner
-                    .buffered_receipts_gas
-                    .checked_add(gas as u128)
-                    .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?;
+                inner.buffered_receipts_gas =
+                    inner.buffered_receipts_gas.checked_add(gas as u128).ok_or_else(|| {
+                        RuntimeError::UnexpectedIntegerOverflow("add_buffered_receipt_gas".into())
+                    })?;
             }
         }
         Ok(())
@@ -243,10 +241,12 @@ impl CongestionInfo {
     pub fn remove_buffered_receipt_gas(&mut self, gas: Gas) -> Result<(), RuntimeError> {
         match self {
             CongestionInfo::V1(inner) => {
-                inner.buffered_receipts_gas = inner
-                    .buffered_receipts_gas
-                    .checked_sub(gas as u128)
-                    .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?;
+                inner.buffered_receipts_gas =
+                    inner.buffered_receipts_gas.checked_sub(gas as u128).ok_or_else(|| {
+                        RuntimeError::UnexpectedIntegerOverflow(
+                            "remove_buffered_receipt_gas".into(),
+                        )
+                    })?;
             }
         }
         Ok(())
@@ -641,7 +641,11 @@ mod tests {
             return;
         }
 
-        let config = get_config();
+        // The default config is quite restricting, allow more missed chunks for
+        // this test to check the middle cases.
+        let mut config = get_config();
+        config.max_congestion_missed_chunks = 10;
+
         let info = CongestionInfo::default();
 
         // Test missed chunks congestion without any other congestion
@@ -684,7 +688,10 @@ mod tests {
             return;
         }
 
-        let config = get_config();
+        // The default config is quite restricting, allow more missed chunks for
+        // this test to check the middle cases.
+        let mut config = get_config();
+        config.max_congestion_missed_chunks = 10;
 
         // Setup half congested congestion info.
         let mut info = CongestionInfo::default();
