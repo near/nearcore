@@ -84,7 +84,7 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
                                           store: Store,
                                           contract_cache: Box<dyn ContractRuntimeCache>,
                                           epoch_manager: Arc<EpochManagerHandle>,
-                                          _,
+                                          runtime_config_store: RuntimeConfigStore,
                                           trie_config: TrieConfig|
          -> Arc<dyn RuntimeAdapter> {
             // TODO: It's not ideal to initialize genesis state with the nightshade runtime here for tests
@@ -98,6 +98,7 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
                 contract_cache,
                 &genesis.config,
                 epoch_manager,
+                Some(runtime_config_store),
                 trie_config,
                 state_snapshot_type.clone(),
             )

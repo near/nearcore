@@ -53,7 +53,7 @@ impl From<InvalidTxError> for TxExecutionError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeError {
     /// An unexpected integer overflow occurred. The likely issue is an invalid state or the transition.
-    UnexpectedIntegerOverflow,
+    UnexpectedIntegerOverflow(String),
     /// An error happened during TX verification and account charging. It's likely the chunk is invalid.
     /// and should be challenged.
     InvalidTxError(InvalidTxError),
@@ -836,8 +836,8 @@ impl From<IntegerOverflowError> for InvalidTxError {
 }
 
 impl From<IntegerOverflowError> for RuntimeError {
-    fn from(_: IntegerOverflowError) -> Self {
-        RuntimeError::UnexpectedIntegerOverflow
+    fn from(err: IntegerOverflowError) -> Self {
+        RuntimeError::UnexpectedIntegerOverflow(err.to_string())
     }
 }
 

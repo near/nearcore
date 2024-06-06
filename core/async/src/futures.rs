@@ -1,7 +1,7 @@
-use crate::time::Duration;
 use actix::Actor;
 pub use futures::future::BoxFuture; // pub for macros
 use futures::FutureExt;
+use near_time::Duration;
 use std::ops::DerefMut;
 
 /// Abstraction for something that can drive futures.

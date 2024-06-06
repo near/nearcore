@@ -1,10 +1,10 @@
 use super::{delay_sender::DelaySender, event_handler::LoopEventHandler, TestLoop};
 use crate::futures::{AsyncComputationSpawner, DelayedActionRunner};
 use crate::test_loop::event_handler::TryIntoOrSelf;
-use crate::time::Duration;
 use crate::{futures::FutureSpawner, messaging::CanSend};
 use futures::future::BoxFuture;
 use futures::task::{waker_ref, ArcWake};
+use near_time::Duration;
 use std::fmt::Debug;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
