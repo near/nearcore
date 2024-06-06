@@ -913,6 +913,7 @@ fn setup_genesis(
     // Same needs to be set in the AllEpochConfigTestOverrides.
     genesis.config.block_producer_kickout_threshold = 0;
     genesis.config.chunk_producer_kickout_threshold = 0;
+    genesis.config.chunk_validator_only_kickout_threshold = 0;
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = genesis_protocol_version;
     genesis.config.use_production_config = true;

@@ -208,7 +208,7 @@ impl RewardCalculator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use near_primitives::types::{BlockChunkValidatorStats, ChunkValidatorStats, ValidatorStats};
+    use near_primitives::types::{BlockChunkValidatorStats, ChunkStats, ValidatorStats};
     use near_primitives::version::PROTOCOL_VERSION;
     use num_rational::Ratio;
     use std::collections::HashMap;
@@ -231,14 +231,14 @@ mod tests {
                 "test1".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 0, expected: 0 },
-                    chunk_stats: ChunkValidatorStats::default(),
+                    chunk_stats: ChunkStats::default(),
                 },
             ),
             (
                 "test2".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 0, expected: 1 },
-                    chunk_stats: ChunkValidatorStats::new_with_production(0, 1),
+                    chunk_stats: ChunkStats::new_with_production(0, 1),
                 },
             ),
         ]);
@@ -282,21 +282,21 @@ mod tests {
                 "test1".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 945, expected: 1000 },
-                    chunk_stats: ChunkValidatorStats::new_with_production(945, 1000),
+                    chunk_stats: ChunkStats::new_with_production(945, 1000),
                 },
             ),
             (
                 "test2".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 999, expected: 1000 },
-                    chunk_stats: ChunkValidatorStats::new_with_production(999, 1000),
+                    chunk_stats: ChunkStats::new_with_production(999, 1000),
                 },
             ),
             (
                 "test3".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 850, expected: 1000 },
-                    chunk_stats: ChunkValidatorStats::new_with_production(850, 1000),
+                    chunk_stats: ChunkStats::new_with_production(850, 1000),
                 },
             ),
         ]);
@@ -347,7 +347,7 @@ mod tests {
                 "test1".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 945, expected: 1000 },
-                    chunk_stats: ChunkValidatorStats::new_with_production(945, 1000),
+                    chunk_stats: ChunkStats::new_with_production(945, 1000),
                 },
             ),
             // chunk only producer
@@ -355,7 +355,7 @@ mod tests {
                 "test2".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 0, expected: 0 },
-                    chunk_stats: ChunkValidatorStats::new_with_production(999, 1000),
+                    chunk_stats: ChunkStats::new_with_production(999, 1000),
                 },
             ),
             // block only producer (not implemented right now, just for testing)
@@ -363,7 +363,7 @@ mod tests {
                 "test3".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 945, expected: 1000 },
-                    chunk_stats: ChunkValidatorStats::default(),
+                    chunk_stats: ChunkStats::default(),
                 },
             ),
             // a validator that expected blocks and chunks are both 0 (this could occur with very
@@ -372,7 +372,7 @@ mod tests {
                 "test4".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 0, expected: 0 },
-                    chunk_stats: ChunkValidatorStats::default(),
+                    chunk_stats: ChunkStats::default(),
                 },
             ),
         ]);
@@ -428,7 +428,7 @@ mod tests {
                 "test1".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 945, expected: 1000 },
-                    chunk_stats: ChunkValidatorStats {
+                    chunk_stats: ChunkStats {
                         production: ValidatorStats { produced: 944, expected: 1000 },
                         endorsement: ValidatorStats { produced: 946, expected: 1000 },
                     },
@@ -439,7 +439,7 @@ mod tests {
                 "test2".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 0, expected: 0 },
-                    chunk_stats: ChunkValidatorStats {
+                    chunk_stats: ChunkStats {
                         production: ValidatorStats { produced: 998, expected: 1000 },
                         endorsement: ValidatorStats { produced: 1000, expected: 1000 },
                     },
@@ -450,7 +450,7 @@ mod tests {
                 "test3".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 940, expected: 1000 },
-                    chunk_stats: ChunkValidatorStats::new_with_endorsement(950, 1000),
+                    chunk_stats: ChunkStats::new_with_endorsement(950, 1000),
                 },
             ),
             // Endorsements only
@@ -458,7 +458,7 @@ mod tests {
                 "test4".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 0, expected: 0 },
-                    chunk_stats: ChunkValidatorStats::new_with_endorsement(1000, 1000),
+                    chunk_stats: ChunkStats::new_with_endorsement(1000, 1000),
                 },
             ),
         ]);
@@ -514,7 +514,7 @@ mod tests {
             "test".parse().unwrap(),
             BlockChunkValidatorStats {
                 block_stats: ValidatorStats { produced: 43200, expected: 43200 },
-                chunk_stats: ChunkValidatorStats {
+                chunk_stats: ChunkStats {
                     production: ValidatorStats { produced: 345600, expected: 345600 },
                     endorsement: ValidatorStats { produced: 345600, expected: 345600 },
                 },

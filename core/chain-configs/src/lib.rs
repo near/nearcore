@@ -52,6 +52,9 @@ pub const BLOCK_PRODUCER_KICKOUT_THRESHOLD: u8 = 90;
 /// Criterion for kicking out chunk producers.
 pub const CHUNK_PRODUCER_KICKOUT_THRESHOLD: u8 = 90;
 
+/// Criterion for kicking out chunk validators.
+pub const CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD: u8 = 90;
+
 /// Fishermen stake threshold.
 pub const FISHERMEN_THRESHOLD: Balance = 10 * NEAR_BASE;
 

@@ -33,10 +33,12 @@ pub struct EpochConfig {
     pub num_block_producer_seats_per_shard: Vec<NumSeats>,
     /// Expected number of hidden validator seats per each shard.
     pub avg_hidden_validator_seats_per_shard: Vec<NumSeats>,
-    /// Criterion for kicking out block producers.
+    /// Threshold for kicking out block producers.
     pub block_producer_kickout_threshold: u8,
-    /// Criterion for kicking out chunk producers.
+    /// Threshold for kicking out chunk producers.
     pub chunk_producer_kickout_threshold: u8,
+    /// Threshold for kicking out nodes which are only chunk validators.
+    pub chunk_validator_only_kickout_threshold: u8,
     /// Max ratio of validators that we can kick out in an epoch
     pub validator_max_kickout_stake_perc: u8,
     /// Online minimum threshold below which validator doesn't receive reward.
@@ -186,6 +188,7 @@ impl AllEpochConfig {
         if checked_feature!("stable", LowerValidatorKickoutPercentForDebugging, protocol_version) {
             config.block_producer_kickout_threshold = 50;
             config.chunk_producer_kickout_threshold = 50;
+            config.chunk_validator_only_kickout_threshold = 50;
         }
     }
 
@@ -1143,6 +1146,14 @@ pub mod epoch_info {
                 Self::V1(_) | Self::V2(_) => Default::default(),
                 Self::V3(v3) => v3.rng_seed,
                 Self::V4(v4) => v4.rng_seed,
+            }
+        }
+
+        #[inline]
+        pub fn validator_mandates(&self) -> ValidatorMandates {
+            match self {
+                Self::V1(_) | Self::V2(_) | Self::V3(_) => Default::default(),
+                Self::V4(v4) => v4.validator_mandates.clone(),
             }
         }
 
