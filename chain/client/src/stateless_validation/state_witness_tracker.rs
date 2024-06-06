@@ -4,7 +4,7 @@ use bytesize::ByteSize;
 use lru::LruCache;
 use near_async::time::Clock;
 use near_primitives::sharding::ChunkHash;
-use near_primitives::stateless_validation::{ChunkStateWitness, ChunkStateWitnessAck};
+use near_primitives::stateless_validation::ChunkStateWitnessAck;
 use s3::creds::time::ext::InstantExt as _;
 use std::hash::Hash;
 
@@ -24,8 +24,8 @@ struct ChunkStateWitnessKey {
 }
 
 impl ChunkStateWitnessKey {
-    pub fn new(witness: &ChunkStateWitness) -> Self {
-        Self { chunk_hash: witness.chunk_header.chunk_hash() }
+    pub fn new(chunk_hash: ChunkHash) -> Self {
+        Self { chunk_hash }
     }
 }
 
@@ -57,11 +57,11 @@ impl ChunkStateWitnessTracker {
     /// Adds a new witness message to track.
     pub fn record_witness_sent(
         &mut self,
-        witness: &ChunkStateWitness,
+        chunk_hash: ChunkHash,
         witness_size_in_bytes: usize,
         num_validators: usize,
     ) -> () {
-        let key = ChunkStateWitnessKey::new(witness);
+        let key = ChunkStateWitnessKey::new(chunk_hash);
         tracing::trace!(target: "state_witness_tracker", witness_key=?key,
             size=witness_size_in_bytes, "Recording state witness sent.");
         self.witnesses.put(
@@ -113,7 +113,7 @@ impl ChunkStateWitnessTracker {
         &mut self,
         witness: &ChunkStateWitness,
     ) -> Option<&ChunkStateWitnessRecord> {
-        let key = ChunkStateWitnessKey::new(witness);
+        let key = ChunkStateWitnessKey::new(witness.chunk_header.chunk_hash());
         self.witnesses.get(&key)
     }
 }
@@ -157,7 +157,7 @@ mod state_witness_tracker_tests {
         let clock = dummy_clock();
         let mut tracker = ChunkStateWitnessTracker::new(clock.clock());
 
-        tracker.record_witness_sent(&witness, 4321, NUM_VALIDATORS);
+        tracker.record_witness_sent(&witness.chunk_header.compute_hash(), 4321, NUM_VALIDATORS);
         clock.advance(Duration::milliseconds(3444));
 
         // Ack received from all "except for one".
@@ -176,7 +176,7 @@ mod state_witness_tracker_tests {
         let clock = dummy_clock();
         let mut tracker = ChunkStateWitnessTracker::new(clock.clock());
 
-        tracker.record_witness_sent(&witness, 4321, NUM_VALIDATORS);
+        tracker.record_witness_sent(&witness.chunk_header.compute_hash(), 4321, NUM_VALIDATORS);
         clock.advance(Duration::milliseconds(3444));
 
         // Ack received from all.
