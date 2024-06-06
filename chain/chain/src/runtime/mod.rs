@@ -167,6 +167,7 @@ impl NightshadeRuntime {
         compiled_contract_cache: Box<dyn ContractRuntimeCache>,
         genesis_config: &GenesisConfig,
         epoch_manager: Arc<EpochManagerHandle>,
+        runtime_config_store: Option<RuntimeConfigStore>,
         trie_config: TrieConfig,
         state_snapshot_type: StateSnapshotType,
     ) -> Arc<Self> {
@@ -177,7 +178,7 @@ impl NightshadeRuntime {
             epoch_manager,
             None,
             None,
-            None,
+            runtime_config_store,
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
             trie_config,
             StateSnapshotConfig {
