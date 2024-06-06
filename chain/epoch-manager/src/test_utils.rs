@@ -127,7 +127,6 @@ pub fn epoch_config_with_production_config(
     num_chunk_producer_seats: NumSeats,
     block_producer_kickout_threshold: u8,
     chunk_producer_kickout_threshold: u8,
-    chunk_validator_only_kickout_threshold: u8,
     use_production_config: bool,
 ) -> AllEpochConfig {
     let epoch_config = EpochConfig {
@@ -140,7 +139,6 @@ pub fn epoch_config_with_production_config(
         avg_hidden_validator_seats_per_shard: vec![],
         block_producer_kickout_threshold,
         chunk_producer_kickout_threshold,
-        chunk_validator_only_kickout_threshold,
         fishermen_threshold: 0,
         online_min_threshold: Ratio::new(90, 100),
         online_max_threshold: Ratio::new(99, 100),
@@ -162,7 +160,6 @@ pub fn epoch_config(
     num_block_producer_seats: NumSeats,
     block_producer_kickout_threshold: u8,
     chunk_producer_kickout_threshold: u8,
-    chunk_validator_only_kickout_threshold: u8,
 ) -> AllEpochConfig {
     epoch_config_with_production_config(
         epoch_length,
@@ -171,7 +168,6 @@ pub fn epoch_config(
         100,
         block_producer_kickout_threshold,
         chunk_producer_kickout_threshold,
-        chunk_validator_only_kickout_threshold,
         false,
     )
 }
@@ -206,7 +202,6 @@ pub fn setup_epoch_manager(
     num_block_producer_seats: NumSeats,
     block_producer_kickout_threshold: u8,
     chunk_producer_kickout_threshold: u8,
-    chunk_validator_only_kickout_threshold: u8,
     reward_calculator: RewardCalculator,
 ) -> EpochManager {
     let store = create_test_store();
@@ -216,7 +211,6 @@ pub fn setup_epoch_manager(
         num_block_producer_seats,
         block_producer_kickout_threshold,
         chunk_producer_kickout_threshold,
-        chunk_validator_only_kickout_threshold,
     );
     EpochManager::new(
         store,
@@ -246,7 +240,6 @@ pub fn setup_default_epoch_manager(
         num_block_producer_seats,
         block_producer_kickout_threshold,
         chunk_producer_kickout_threshold,
-        0,
         default_reward_calculator(),
     )
 }
@@ -280,7 +273,7 @@ pub fn setup_epoch_manager_with_block_and_chunk_producers(
         validators.push((chunk_only_producer.clone(), stake));
         total_stake += stake;
     }
-    let config = epoch_config(epoch_length, num_shards, num_block_producers, 0, 0, 0);
+    let config = epoch_config(epoch_length, num_shards, num_block_producers, 0, 0);
     let epoch_manager = EpochManager::new(
         store,
         config,

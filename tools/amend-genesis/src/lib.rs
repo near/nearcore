@@ -280,7 +280,6 @@ pub struct GenesisChanges {
     pub max_inflation_rate: Option<Rational32>,
     pub block_producer_kickout_threshold: Option<u8>,
     pub chunk_producer_kickout_threshold: Option<u8>,
-    pub chunk_validator_only_kickout_threshold: Option<u8>,
     pub gas_limit: Option<u64>,
     pub min_gas_price: Option<Balance>,
     pub max_gas_price: Option<Balance>,
@@ -409,9 +408,6 @@ pub fn amend_genesis(
     }
     if let Some(t) = genesis_changes.chunk_producer_kickout_threshold {
         genesis.config.chunk_producer_kickout_threshold = t;
-    }
-    if let Some(t) = genesis_changes.chunk_validator_only_kickout_threshold {
-        genesis.config.chunk_validator_only_kickout_threshold = t;
     }
     if let Some(l) = genesis_changes.gas_limit {
         genesis.config.gas_limit = l;
@@ -645,8 +641,6 @@ mod test {
                     near_chain_configs::BLOCK_PRODUCER_KICKOUT_THRESHOLD,
                 chunk_producer_kickout_threshold:
                     near_chain_configs::CHUNK_PRODUCER_KICKOUT_THRESHOLD,
-                chunk_validator_only_kickout_threshold:
-                    near_chain_configs::CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD,
                 online_max_threshold: Rational32::new(99, 100),
                 online_min_threshold: Rational32::new(
                     near_chain_configs::BLOCK_PRODUCER_KICKOUT_THRESHOLD as i32,

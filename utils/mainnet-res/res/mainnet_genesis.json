@@ -16,7 +16,6 @@
   "min_gas_price": "1000000000",
   "block_producer_kickout_threshold": 90,
   "chunk_producer_kickout_threshold": 90,
-  "chunk_validator_only_kickout_threshold": 80,
   "online_min_threshold": [
     90,
     100

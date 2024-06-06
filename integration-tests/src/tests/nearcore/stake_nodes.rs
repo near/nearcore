@@ -55,7 +55,6 @@ fn init_test_staking(
     genesis.config.num_block_producer_seats = num_node_seats;
     genesis.config.block_producer_kickout_threshold = 20;
     genesis.config.chunk_producer_kickout_threshold = 20;
-    genesis.config.chunk_validator_only_kickout_threshold = 20;
     genesis.config.minimum_stake_divisor = minimum_stake_divisor;
     if !enable_rewards {
         genesis.config.max_inflation_rate = Ratio::from_integer(0);

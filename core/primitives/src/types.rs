@@ -1066,8 +1066,6 @@ pub enum ValidatorKickoutReason {
     NotEnoughBlocks { produced: NumBlocks, expected: NumBlocks },
     /// Validator didn't produce enough chunks.
     NotEnoughChunks { produced: NumBlocks, expected: NumBlocks },
-    /// Validator didn't produce enough chunk endorsements.
-    NotEnoughChunkEndorsements { produced: NumBlocks, expected: NumBlocks },
     /// Validator unstaked themselves.
     Unstaked,
     /// Validator stake is now below threshold

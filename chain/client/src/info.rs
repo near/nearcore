@@ -1031,7 +1031,6 @@ mod tests {
             num_block_producer_seats.try_into().unwrap(),
             90,
             90,
-            0,
             default_reward_calculator(),
         )
         .into_handle();

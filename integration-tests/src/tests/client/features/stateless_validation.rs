@@ -92,7 +92,6 @@ fn run_chunk_validation_test(
         // missing chunks functionality.
         block_producer_kickout_threshold: 0,
         chunk_producer_kickout_threshold: 0,
-        chunk_validator_only_kickout_threshold: 0,
         // Needed to distribute full non-trivial reward to each validator if at
         // least some block/chunk was produced.
         // This itself is needed to make state transition on epoch boundary
