@@ -7,6 +7,7 @@ use indicatif::ParallelProgressIterator;
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisConfig;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
+use near_primitives::hash::CryptoHash;
 use near_primitives::state::FlatStateValue;
 use near_store::flat::delta::KeyForFlatStateDelta;
 use near_store::flat::store_helper::{
@@ -118,6 +119,10 @@ pub fn prepare_memtrie_state_trimming(
             _ => panic!("Flat storage is not ready for shard {shard_uid}"),
         };
         let root = get_state_root(&store, flat_head, shard_uid)?;
+        if root == CryptoHash::default() {
+            tracing::info!("Shard {shard_uid} has empty state; skipping.");
+            continue;
+        }
         let plan = make_memtrie_parallel_loading_plan(store.clone(), shard_uid, root)?;
 
         // The nodes that are needed to load the memtrie must be kept in the State column.
