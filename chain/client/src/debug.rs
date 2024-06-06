@@ -286,6 +286,11 @@ impl ClientActorInner {
         };
         return Ok((
             EpochInfoView {
+                epoch_height: self
+                    .client
+                    .epoch_manager
+                    .get_epoch_info(&epoch_id)
+                    .map(|info| info.epoch_height())?,
                 epoch_id: epoch_id.0,
                 height: block.header().height(),
                 first_block: Some((*block.header().hash(), block.header().timestamp())),
@@ -312,6 +317,11 @@ impl ClientActorInner {
             self.get_producers_for_epoch(&head.next_epoch_id, &head.last_block_hash)?;
 
         Ok(EpochInfoView {
+            epoch_height: self
+                .client
+                .epoch_manager
+                .get_epoch_info(&head.next_epoch_id)
+                .map(|info| info.epoch_height())?,
             epoch_id: head.next_epoch_id.0,
             // Expected height of the next epoch.
             height: epoch_start_height + self.client.config.epoch_length,

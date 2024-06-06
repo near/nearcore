@@ -391,7 +391,7 @@ impl AnyCache {
     fn new(size: usize) -> Self {
         Self {
             cache: if let Some(size) = NonZeroUsize::new(size) {
-                Some(Mutex::new(lru::LruCache::new(size)))
+                Some(Mutex::new(lru::LruCache::new(size.into())))
             } else {
                 None
             },

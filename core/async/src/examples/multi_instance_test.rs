@@ -1,5 +1,5 @@
-use crate::time;
 use derive_enum_from_into::{EnumFrom, EnumTryInto};
+use near_time;
 
 use crate::test_loop::delay_sender::DelaySender;
 use crate::{
@@ -81,10 +81,10 @@ fn test_multi_instance() {
     for i in 0..5 {
         sender.send_with_delay(
             (i, TestEvent::LocalRequest(SumRequest::GetSum)),
-            time::Duration::milliseconds(1),
+            near_time::Duration::milliseconds(1),
         );
     }
-    test.run_for(time::Duration::milliseconds(2));
+    test.run_for(near_time::Duration::milliseconds(2));
     assert_eq!(test.data[0].sums, vec![ReportSumMsg(14)]);
     assert_eq!(test.data[1].sums, vec![ReportSumMsg(13)]);
     assert_eq!(test.data[2].sums, vec![ReportSumMsg(12)]);
