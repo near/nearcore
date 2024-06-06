@@ -24,7 +24,7 @@ use near_primitives::types::ValidatorKickoutReason::{
     NotEnoughBlocks, NotEnoughChunkEndorsements, NotEnoughChunks,
 };
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::ProtocolFeature::SimpleNightshade;
+use near_primitives::version::ProtocolFeature::{SimpleNightshade, StatelessValidationV0};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 use num_rational::Ratio;
@@ -1527,6 +1527,9 @@ fn test_chunk_producer_kickout() {
 /// validator is kicked out.
 #[test]
 fn test_chunk_validator_kickout() {
+    if !StatelessValidationV0.enabled(PROTOCOL_VERSION) {
+        return;
+    }
     let stake_amount = 1_000_000;
     let validators: Vec<(AccountId, Balance)> =
         (0..3).map(|i| (format!("test{i}").parse().unwrap(), stake_amount + 100 - i)).collect();

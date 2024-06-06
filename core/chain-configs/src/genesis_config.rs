@@ -44,6 +44,10 @@ fn default_online_max_threshold() -> Rational32 {
     Rational32::new(99, 100)
 }
 
+fn default_chunk_validator_only_kickout_threshold() -> u8 {
+    80
+}
+
 fn default_minimum_stake_divisor() -> u64 {
     10
 }
@@ -133,6 +137,7 @@ pub struct GenesisConfig {
     /// Threshold for kicking out chunk producers, between 0 and 100.
     pub chunk_producer_kickout_threshold: u8,
     /// Threshold for kicking out nodes which are only chunk validators, between 0 and 100.
+    #[serde(default = "default_chunk_validator_only_kickout_threshold")]
     pub chunk_validator_only_kickout_threshold: u8,
     /// Online minimum threshold below which validator doesn't receive reward.
     #[serde(default = "default_online_min_threshold")]
@@ -1081,6 +1086,7 @@ mod test {
               "max_gas_price": "10000000000000000000000",
               "block_producer_kickout_threshold": 90,
               "chunk_producer_kickout_threshold": 90,
+              "chunk_validator_only_kickout_threshold": 80,
               "online_min_threshold": [
                 9,
                 10
@@ -1206,6 +1212,7 @@ mod test {
               "max_gas_price": "10000000000000000000000",
               "block_producer_kickout_threshold": 90,
               "chunk_producer_kickout_threshold": 90,
+              "chunk_validator_only_kickout_threshold": 80,
               "online_min_threshold": [
                 9,
                 10
