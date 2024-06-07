@@ -540,8 +540,7 @@ impl RunCmd {
                 near_config
                     .network_config
                     .validator
-                    .as_ref()
-                    .map(|validator| validator.account_id()),
+                    .account_id()
             )
             .await
             .global();

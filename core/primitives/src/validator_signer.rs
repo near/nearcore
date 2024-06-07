@@ -191,6 +191,10 @@ pub struct EmptyValidatorSigner {
 }
 
 impl EmptyValidatorSigner {
+    pub fn new(account_id: AccountId) -> ValidatorSigner {
+        ValidatorSigner::Empty(Self { account_id })
+    }
+
     fn validator_id(&self) -> &AccountId {
         &self.account_id
     }

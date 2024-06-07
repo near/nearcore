@@ -87,6 +87,7 @@ use crate::logic::{
     make_partial_encoded_chunk_from_owned_parts_and_needed_receipts, need_part, need_receipt,
 };
 use crate::metrics;
+use near_chain_configs::MutableConfigValue;
 use ::time::ext::InstantExt as _;
 use actix::Actor;
 use near_async::actix_wrapper::ActixWrapper;
@@ -242,7 +243,7 @@ impl RequestPool {
 
 pub struct ShardsManagerActor {
     clock: time::Clock,
-    me: Option<AccountId>,
+    validator_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
     store: ReadOnlyChunksStore,
 
     epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -292,7 +293,7 @@ pub fn start_shards_manager(
     shard_tracker: ShardTracker,
     network_adapter: Sender<PeerManagerMessageRequest>,
     client_adapter_for_shards_manager: Sender<ShardsManagerResponse>,
-    me: Option<AccountId>,
+    validator_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
     store: Store,
     chunk_request_retry_period: Duration,
 ) -> (actix::Addr<ActixWrapper<ShardsManagerActor>>, actix::ArbiterHandle) {
@@ -309,7 +310,7 @@ pub fn start_shards_manager(
     let chunks_store = ReadOnlyChunksStore::new(store);
     let shards_manager = ShardsManagerActor::new(
         Clock::real(),
-        me,
+        validator_signer,
         epoch_manager,
         shard_tracker,
         network_adapter,
@@ -330,7 +331,7 @@ pub fn start_shards_manager(
 impl ShardsManagerActor {
     pub fn new(
         clock: time::Clock,
-        me: Option<AccountId>,
+        validator_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
         network_adapter: Sender<PeerManagerMessageRequest>,
@@ -342,7 +343,7 @@ impl ShardsManagerActor {
     ) -> Self {
         Self {
             clock,
-            me,
+            validator_signer,
             store,
             epoch_manager: epoch_manager.clone(),
             shard_tracker,
@@ -365,6 +366,10 @@ impl ShardsManagerActor {
             chain_header_head: initial_chain_header_head,
             chunk_request_retry_period,
         }
+    }
+
+    fn me(&self) -> Option<AccountId> {
+        self.validator_signer.get().map(|vs| vs.validator_id().clone())
     }
 
     pub fn periodically_resend_chunk_requests(
@@ -414,7 +419,7 @@ impl ShardsManagerActor {
 
         let request_full = force_request_full
             || cares_about_shard_this_or_next_epoch(
-                self.me.as_ref(),
+                self.me().as_ref(),
                 ancestor_hash,
                 shard_id,
                 true,
@@ -442,12 +447,12 @@ impl ShardsManagerActor {
         // from the target account or any eligible peer of the node (See comments in
         // AccountIdOrPeerTrackingShard for when target account is used or peer is used)
 
-        let me = self.me.as_ref();
+        let me = self.me();
         // A account that is either the original chunk producer or a random block producer tracking
         // the shard
         let shard_representative_target = if !request_own_parts_from_others
             && !request_from_archival
-            && Some(&chunk_producer_account_id) != me
+            && Some(&chunk_producer_account_id) != me.as_ref()
         {
             Some(chunk_producer_account_id)
         } else {
@@ -466,7 +471,7 @@ impl ShardsManagerActor {
             // get_part_owner unnecessarily.  It’s probably not worth optimising
             // though unless you can think of a concise way to do it.
             let part_owner = self.epoch_manager.get_part_owner(&epoch_id, part_ord)?;
-            let we_own_part = Some(&part_owner) == me;
+            let we_own_part = Some(&part_owner) == me.as_ref();
             if !request_full && !we_own_part {
                 continue;
             }
@@ -502,7 +507,7 @@ impl ShardsManagerActor {
         debug!(target: "chunks", "Will send {} requests to fetch chunk parts.", bp_to_parts.len());
         for (target_account, part_ords) in bp_to_parts {
             // extra check that we are not sending request to ourselves.
-            if no_account_id || me != target_account.as_ref() {
+            if no_account_id || me != target_account {
                 let prefer_peer = request_from_archival || rand::thread_rng().gen::<bool>();
                 debug!(
                     target: "chunks",
@@ -568,7 +573,7 @@ impl ShardsManagerActor {
                         false,
                         &self.shard_tracker,
                     )
-                    && self.me.as_ref() != Some(&account_id)
+                    && self.me().as_ref() != Some(&account_id)
                 {
                     Some(account_id)
                 } else {
@@ -587,7 +592,7 @@ impl ShardsManagerActor {
             .into_iter()
             .filter(|chunk_shard_id| {
                 cares_about_shard_this_or_next_epoch(
-                    self.me.as_ref(),
+                    self.me().as_ref(),
                     parent_hash,
                     *chunk_shard_id,
                     true,
@@ -609,7 +614,7 @@ impl ShardsManagerActor {
         next_chunk_height: BlockHeight,
     ) -> Result<bool, EpochError> {
         // chunks will not be forwarded to non-validators
-        let me = match self.me.as_ref() {
+        let me = match self.me() {
             None => return Ok(false),
             Some(it) => it,
         };
@@ -617,13 +622,13 @@ impl ShardsManagerActor {
         let block_producers =
             self.epoch_manager.get_epoch_block_producers_ordered(&epoch_id, prev_hash)?;
         for (bp, _) in block_producers {
-            if bp.account_id() == me {
+            if bp.account_id() == &me {
                 return Ok(true);
             }
         }
         let chunk_producer =
             self.epoch_manager.get_chunk_producer(&epoch_id, next_chunk_height, shard_id)?;
-        if &chunk_producer == me {
+        if chunk_producer == me {
             return Ok(true);
         }
         Ok(false)
@@ -871,7 +876,7 @@ impl ShardsManagerActor {
             chunk_hash = %request.chunk_hash.0,
             part_ords = ?request.part_ords,
             shards = ?request.tracking_shards,
-            account = ?self.me.as_ref());
+            account = ?self.me());
 
         let started = self.clock.now();
         let (source, response) = self.prepare_partial_encoded_chunk_response(request);
@@ -1156,7 +1161,7 @@ impl ShardsManagerActor {
                 match decode_encoded_chunk(
                     &encoded_chunk,
                     merkle_paths,
-                    self.me.as_ref(),
+                    self.me().as_ref(),
                     self.epoch_manager.as_ref(),
                     &self.shard_tracker,
                 ) {
@@ -1695,7 +1700,7 @@ impl ShardsManagerActor {
         let entry = self.encoded_chunks.get(&chunk_hash).unwrap();
 
         let cares_about_shard = cares_about_shard_this_or_next_epoch(
-            self.me.as_ref(),
+            self.me().as_ref(),
             &prev_block_hash,
             header.shard_id(),
             true,
@@ -1710,7 +1715,7 @@ impl ShardsManagerActor {
                 header,
                 entry.parts.values(),
                 entry.receipts.values(),
-                self.me.as_ref(),
+                self.me().as_ref(),
                 self.epoch_manager.as_ref(),
                 &self.shard_tracker,
             );
@@ -1795,7 +1800,7 @@ impl ShardsManagerActor {
         }
     }
 
-    /// Send the parts of the partial_encoded_chunk that are owned by `self.me` to the
+    /// Send the parts of the partial_encoded_chunk that are owned by `self.me()` to the
     /// other validators that are tracking the shard.
     fn send_partial_encoded_chunk_to_chunk_trackers(
         &mut self,
@@ -1804,7 +1809,7 @@ impl ShardsManagerActor {
         epoch_id: &EpochId,
         latest_block_hash: &CryptoHash,
     ) -> Result<(), Error> {
-        let me = match self.me.as_ref() {
+        let me = match self.me() {
             Some(me) => me,
             None => return Ok(()),
         };
@@ -1816,7 +1821,7 @@ impl ShardsManagerActor {
                     && self
                         .epoch_manager
                         .get_part_owner(epoch_id, part.part_ord)
-                        .is_ok_and(|owner| &owner == me)
+                        .is_ok_and(|owner| owner == me)
             })
             .cloned()
             .collect();
@@ -1890,11 +1895,11 @@ impl ShardsManagerActor {
                     )
                 })
                 .collect::<Result<HashSet<_>, _>>()?;
-            next_chunk_producers.remove(me);
+            next_chunk_producers.remove(&me);
             for (bp, _) in block_producers {
                 let bp_account_id = bp.take_account_id();
                 // no need to send anything to myself
-                if me == &bp_account_id {
+                if me == bp_account_id {
                     continue;
                 }
                 next_chunk_producers.remove(&bp_account_id);
@@ -1930,7 +1935,7 @@ impl ShardsManagerActor {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
         for shard_id in self.epoch_manager.shard_ids(&epoch_id)? {
             if !chunk_entry.receipts.contains_key(&shard_id) {
-                if need_receipt(prev_block_hash, shard_id, self.me.as_ref(), &self.shard_tracker) {
+                if need_receipt(prev_block_hash, shard_id, self.me().as_ref(), &self.shard_tracker) {
                     return Ok(false);
                 }
             }
@@ -1952,7 +1957,7 @@ impl ShardsManagerActor {
                 if need_part(
                     prev_block_hash,
                     part_ord,
-                    self.me.as_ref(),
+                    self.me().as_ref(),
                     self.epoch_manager.as_ref(),
                 )? {
                     return Ok(false);
@@ -2064,7 +2069,7 @@ impl ShardsManagerActor {
                     &merkle_paths,
                 );
 
-            if Some(&to_whom) != self.me.as_ref() {
+            if Some(&to_whom) != self.me().as_ref() {
                 self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                     NetworkRequests::PartialEncodedChunkMessage {
                         account_id: to_whom.clone(),

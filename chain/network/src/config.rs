@@ -57,13 +57,13 @@ pub enum ValidatorProxies {
 
 #[derive(Clone)]
 pub struct ValidatorConfig {
-    pub signer: Arc<ValidatorSigner>,
+    pub signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
     pub proxies: ValidatorProxies,
 }
 
 impl ValidatorConfig {
-    pub fn account_id(&self) -> AccountId {
-        self.signer.validator_id().clone()
+    pub fn account_id(&self) -> Option<AccountId> {
+        self.signer.get().map(|s| s.validator_id().clone())
     }
 }
 
@@ -93,7 +93,7 @@ pub struct Tier1 {
 pub struct NetworkConfig {
     pub node_addr: Option<tcp::ListenerAddr>,
     pub node_key: SecretKey,
-    pub validator: Option<ValidatorConfig>,
+    pub validator: ValidatorConfig,
 
     pub peer_store: peer_store::Config,
     pub snapshot_hosts: snapshot_hosts::Config,
@@ -250,14 +250,14 @@ impl NetworkConfig {
         }
         let mut this = Self {
             node_key,
-            validator: validator_signer.get().map(|signer| ValidatorConfig {
-                signer,
+            validator: ValidatorConfig {
+                signer: validator_signer,
                 proxies: if !cfg.public_addrs.is_empty() {
                     ValidatorProxies::Static(cfg.public_addrs)
                 } else {
                     ValidatorProxies::Dynamic(cfg.trusted_stun_servers)
                 },
-            }),
+            },
             node_addr: match cfg.addr.as_str() {
                 "" => None,
                 addr => Some(tcp::ListenerAddr::new(
@@ -356,7 +356,7 @@ impl NetworkConfig {
     pub fn from_seed(seed: &str, node_addr: tcp::ListenerAddr) -> Self {
         let node_key = SecretKey::from_seed(KeyType::ED25519, seed);
         let validator = ValidatorConfig {
-            signer: Arc::new(create_test_signer(seed)),
+            signer: MutableConfigValue::new(Some(Arc::new(create_test_signer(seed))), "validator_signer"),
             proxies: ValidatorProxies::Static(vec![PeerAddr {
                 addr: *node_addr,
                 peer_id: PeerId::new(node_key.public_key()),
@@ -365,7 +365,7 @@ impl NetworkConfig {
         NetworkConfig {
             node_addr: Some(node_addr),
             node_key,
-            validator: Some(validator),
+            validator,
             peer_store: peer_store::Config {
                 boot_nodes: vec![],
                 blacklist: blacklist::Blacklist::default(),

@@ -419,7 +419,7 @@ pub fn start_with_config_and_synchronization(
         shard_tracker.clone(),
         network_adapter.as_sender(),
         client_adapter_for_shards_manager.as_sender(),
-        config.validator_signer.get().map(|signer| signer.validator_id().clone()),
+        config.validator_signer.clone(),
         split_store.unwrap_or_else(|| storage.get_hot_store()),
         config.client_config.chunk_request_retry_period,
     );

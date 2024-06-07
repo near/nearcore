@@ -21,7 +21,7 @@ client_config = {
     "state_sync_enabled": True,
     "store.state_snapshot_enabled": True
 }
-config_map = {i: client_config for i in range(NUM_VALIDATORS)}
+config_map = {i: client_config for i in range(NUM_VALIDATORS + 1)}
 nodes = start_cluster(
     NUM_VALIDATORS, 1, 1, None,
     [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 10],
@@ -35,22 +35,24 @@ nodes[NUM_VALIDATORS].stop_checking_store()
 time.sleep(2)
 
 block = nodes[1].get_latest_block()
-target_height = block.height + 4 * EPOCH_LENGTH
+max_height = block.height + 4 * EPOCH_LENGTH
 start_time = time.time()
 
 while True:
     assert time.time() - start_time < TIMEOUT, 'Validators got stuck'
     old_validator_height = nodes[1].get_latest_block().height
     new_validator_height = nodes[NUM_VALIDATORS].get_latest_block().height
-    if old_validator_height > target_height and new_validator_height > target_height:
+    if old_validator_height > max_height and new_validator_height > max_height:
         break
     info = nodes[1].json_rpc('validators', 'latest')
-    count = len(info['result']['next_validators'])
-    assert count == NUM_VALIDATORS, 'Number of validators do not match'
-    validator = info['result']['next_validators'][0]['account_id']
+    next_validators = info['result']['next_validators']
+    account_ids = [v['account_id'] for v in next_validators]
+    print(account_ids)
+    assert len(account_ids) == NUM_VALIDATORS, 'Number of validators do not match'
+    
     # We copied over 'test0' validator key, along with validator account ID.
     # Therefore, despite nodes[0] being stopped, 'test0' still figures as active validator.
-    assert validator == 'test0'
+    assert sorted(account_ids)[0] == 'test0'
     statuses = sorted([(node_idx, nodes[node_idx].get_latest_block()) for node_idx in range(1, NUM_VALIDATORS + 1)],
                       key=lambda element: element[1].height)
     print(statuses)
@@ -60,14 +62,13 @@ while True:
     succeed = True
     for _, block in statuses:
         try:
-            print(block.hash)
             node.get_block(block.hash)
         except Exception:
             succeed = False
             break
-    print(succeed)
-    # if statuses[0][1].height > EPOCH_LENGTH * 2 + 5 and succeed:
-    #     sys.exit(0)
+    print('Succeed', succeed)
+    if statuses[0][1].height > max_height - EPOCH_LENGTH // 2 and succeed:
+        sys.exit(0)
     time.sleep(1)
 
 assert False, 'Nodes are not synced'

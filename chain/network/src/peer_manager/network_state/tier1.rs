@@ -26,10 +26,10 @@ impl super::NetworkState {
         if self.config.tier1.is_none() {
             return None;
         }
-        self.config
-            .validator
-            .as_ref()
-            .filter(|cfg| accounts_data.keys.contains(&cfg.signer.public_key()))
+        if self.config.validator.signer.get().filter(|signer| accounts_data.keys.contains(&signer.public_key())).is_none() {
+            return None;
+        }
+        Some(&self.config.validator)
     }
 
     async fn tier1_connect_to_my_proxies(
@@ -94,6 +94,8 @@ impl super::NetworkState {
         let accounts_data = self.accounts_data.load();
 
         let vc = self.tier1_validator_config(&accounts_data)?;
+        let vc_signer = vc.signer.get()?;
+
         let proxies = match (&self.config.node_addr, &vc.proxies) {
             (None, _) => vec![],
             (_, config::ValidatorProxies::Static(peer_addrs)) => peer_addrs.clone(),
@@ -188,14 +190,13 @@ impl super::NetworkState {
         let new_data = self.accounts_data.set_local(
             clock,
             LocalAccountData {
-                signer: vc.signer.clone(),
+                signer: vc_signer,
                 data: Arc::new(AccountData { peer_id: self.config.node_id(), proxies: my_proxies }),
             },
         );
         // Early exit in case this node is not a TIER1 node any more.
         let new_data = new_data?;
         // Advertise the new_data.
-
         self.tier2.broadcast_message(Arc::new(PeerMessage::SyncAccountsData(SyncAccountsData {
             incremental: true,
             requesting_full_sync: false,
@@ -292,6 +293,7 @@ impl super::NetworkState {
             }
         }
         if let Some(vc) = validator_cfg {
+            let validator_signer = if let Some(v) = vc.signer.get() { v } else { return };
             // Try to establish new TIER1 connections to accounts in random order.
             let mut handles = vec![];
             let mut account_keys: Vec<_> = proxies_by_account.keys().copied().collect();
@@ -300,7 +302,7 @@ impl super::NetworkState {
                 // tier1_connect() is responsible for connecting to proxies
                 // of this node. tier1_connect() connects only to proxies
                 // of other TIER1 nodes.
-                if account_key == &vc.signer.public_key() {
+                if account_key == &validator_signer.public_key() {
                     continue;
                 }
                 // Bound the number of connections established at a single call to
