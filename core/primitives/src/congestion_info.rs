@@ -152,20 +152,13 @@ impl CongestionInfo {
     // if the congestion info was correctly set in the chunk header based on the
     // information from the chunk extra.
     //
-    // TODO(congestion_control) validate allowed shard correctly
-    // * If the shard is fully congested then any of the other shards can be the
-    //   allowed shard.
-    // * If the shard is not fully congested the allowed shard should be set to
-    //   self.
-    // Currently the check is more restrictive and expects all nodes to follow
-    // the reference implementation which makes it part of the protocol.
+    // TODO(congestion_control) validate allowed shard
     pub fn validate_extra_and_header(extra: &CongestionInfo, header: &CongestionInfo) -> bool {
         match (extra, header) {
             (CongestionInfo::V1(extra), CongestionInfo::V1(header)) => {
                 extra.delayed_receipts_gas == header.delayed_receipts_gas
                     && extra.buffered_receipts_gas == header.buffered_receipts_gas
                     && extra.receipt_bytes == header.receipt_bytes
-                    && extra.allowed_shard == header.allowed_shard
             }
         }
     }
