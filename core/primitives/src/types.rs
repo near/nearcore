@@ -923,7 +923,8 @@ pub mod chunk_extra {
             }
         }
 
-        // Dirty workaround for broken allowed shard validation
+        /// Dirty workaround for broken allowed shard validation
+        /// TODO(congestion_control) validate allowed shard
         pub fn with_zeroed_allowed_shard(&self) -> ChunkExtra {
             let mut res = self.clone();
             if let ChunkExtra::V3(v3) = &mut res {
