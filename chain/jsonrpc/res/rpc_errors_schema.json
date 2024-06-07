@@ -744,7 +744,8 @@
         "InvalidDataReceiverId",
         "ReturnedValueLengthExceeded",
         "NumberInputDataDependenciesExceeded",
-        "ActionsValidation"
+        "ActionsValidation",
+        "ReceiptSizeExceeded"
       ],
       "props": {}
     },
