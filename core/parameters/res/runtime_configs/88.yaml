@@ -1,2 +1,3 @@
 outgoing_receipts_usual_size_limit: {old: 999_999_999_999_999, new: 102_400}
 outgoing_receipts_big_size_limit: {old: 999_999_999_999_999, new: 4_718_592}
+max_receipt_size: {old: 999_999_999_999_999, new: 4_194_304}

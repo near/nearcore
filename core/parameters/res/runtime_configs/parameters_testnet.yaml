@@ -200,6 +200,7 @@ max_arguments_length: 4_194_304
 max_length_returned_data: 4_194_304
 max_contract_size: 4_194_304
 max_transaction_size: 4_194_304
+max_receipt_size: 999_999_999_999_999
 max_length_storage_key: 4_194_304
 max_length_storage_value: 4_194_304
 max_promises_per_function_call_action: 1_024
