@@ -1861,19 +1861,13 @@ impl Runtime {
         let delayed_receipts_count = delayed_receipts.len();
         if let Some(congestion_info) = &mut own_congestion_info {
             delayed_receipts.apply_congestion_changes(congestion_info)?;
-            let other_shards = apply_state
-                .congestion_info
-                .keys()
-                .filter(|&&id| id != apply_state.shard_id)
-                .copied()
-                .collect::<Vec<_>>();
+            let all_shards: Vec<ShardId> = apply_state.congestion_info.keys().copied().collect();
 
             let congestion_seed = apply_state.block_height.wrapping_add(apply_state.shard_id);
             congestion_info.finalize_allowed_shard(
                 apply_state.shard_id,
-                &other_shards,
+                all_shards.as_slice(),
                 congestion_seed,
-                &apply_state.config.congestion_control_config,
             );
         }
 
