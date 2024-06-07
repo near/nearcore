@@ -16,8 +16,8 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::stateless_validation::ChunkValidatorAssignments;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, ChunkValidatorStats,
-    EpochId, EpochInfoProvider, NumSeats, ShardId, ValidatorId, ValidatorInfoIdentifier,
+    AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, ChunkStats, EpochId,
+    EpochInfoProvider, NumSeats, ShardId, ValidatorId, ValidatorInfoIdentifier,
     ValidatorKickoutReason, ValidatorStats,
 };
 use near_primitives::version::{ProtocolVersion, UPGRADABILITY_FIX_PROTOCOL_VERSION};
@@ -474,7 +474,7 @@ impl EpochManager {
         config: &EpochConfig,
         epoch_info: &EpochInfo,
         block_validator_tracker: &HashMap<ValidatorId, ValidatorStats>,
-        chunk_validator_tracker: &HashMap<ShardId, HashMap<ValidatorId, ChunkValidatorStats>>,
+        chunk_stats_tracker: &HashMap<ShardId, HashMap<ValidatorId, ChunkStats>>,
         slashed: &HashMap<AccountId, SlashState>,
         prev_validator_kickout: &HashMap<AccountId, ValidatorKickoutReason>,
     ) -> (HashMap<AccountId, BlockChunkValidatorStats>, HashMap<AccountId, ValidatorKickoutReason>)
@@ -495,8 +495,8 @@ impl EpochManager {
                 .get(&(i as u64))
                 .unwrap_or(&ValidatorStats { expected: 0, produced: 0 })
                 .clone();
-            let mut chunk_stats = ChunkValidatorStats::default();
-            for (_, tracker) in chunk_validator_tracker.iter() {
+            let mut chunk_stats = ChunkStats::default();
+            for (_, tracker) in chunk_stats_tracker.iter() {
                 if let Some(stat) = tracker.get(&(i as u64)) {
                     *chunk_stats.expected_mut() += stat.expected();
                     *chunk_stats.produced_mut() += stat.produced();
@@ -534,9 +534,7 @@ impl EpochManager {
                 all_kicked_out = false;
                 continue;
             }
-            if stats.block_stats.produced * 100
-                < u64::from(block_producer_kickout_threshold) * stats.block_stats.expected
-            {
+            if stats.block_stats.less_than(block_producer_kickout_threshold) {
                 validator_kickout.insert(
                     account_id.clone(),
                     ValidatorKickoutReason::NotEnoughBlocks {
@@ -545,9 +543,7 @@ impl EpochManager {
                     },
                 );
             }
-            if stats.chunk_stats.produced() * 100
-                < u64::from(chunk_producer_kickout_threshold) * stats.chunk_stats.expected()
-            {
+            if stats.chunk_stats.production_stats().less_than(chunk_producer_kickout_threshold) {
                 validator_kickout.entry(account_id.clone()).or_insert_with(|| {
                     ValidatorKickoutReason::NotEnoughChunks {
                         produced: stats.chunk_stats.produced(),
@@ -587,7 +583,6 @@ impl EpochManager {
             version_tracker,
             ..
         } = self.get_epoch_info_aggregator_upto_last(last_block_hash)?;
-
         let mut proposals = vec![];
         let mut validator_kickout = HashMap::new();
 
@@ -1365,7 +1360,7 @@ impl EpochManager {
                             .get(info.account_id())
                             .unwrap_or(&BlockChunkValidatorStats {
                                 block_stats: ValidatorStats { produced: 0, expected: 0 },
-                                chunk_stats: ChunkValidatorStats {
+                                chunk_stats: ChunkStats {
                                     production: ValidatorStats { produced: 0, expected: 0 },
                                     endorsement: ValidatorStats { produced: 0, expected: 0 },
                                 },
@@ -1423,9 +1418,9 @@ impl EpochManager {
                             .unwrap_or(&ValidatorStats { produced: 0, expected: 0 })
                             .clone();
 
-                        let mut chunks_stats_by_shard: HashMap<ShardId, ChunkValidatorStats> =
+                        let mut chunks_stats_by_shard: HashMap<ShardId, ChunkStats> =
                             HashMap::new();
-                        let mut chunk_stats = ChunkValidatorStats::default();
+                        let mut chunk_stats = ChunkStats::default();
                         for (shard, tracker) in aggregator.shard_tracker.iter() {
                             if let Some(stats) = tracker.get(&(validator_id as u64)) {
                                 let produced = stats.produced();

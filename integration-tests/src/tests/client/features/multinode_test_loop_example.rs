@@ -267,6 +267,7 @@ fn test_client_with_multi_test_loop() {
             contract_cache,
             &genesis.config,
             epoch_manager.clone(),
+            None,
             TrieConfig::from_store_config(&store_config),
             StateSnapshotType::EveryEpoch,
         );
