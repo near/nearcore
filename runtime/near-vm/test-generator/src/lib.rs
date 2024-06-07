@@ -4,7 +4,7 @@
 //! to automatically run the files in parallel.
 //!
 //! > This program is inspired/forked from:
-//! > https://github.com/bytecodealliance/wasmtime/blob/master/build.rs
+//! > <https://github.com/bytecodealliance/wasmtime/blob/master/build.rs>
 mod processors;
 
 pub use crate::processors::{emscripten_processor, wasi_processor, wast_processor};
