@@ -39,6 +39,8 @@ pub struct EpochConfig {
     pub chunk_producer_kickout_threshold: u8,
     /// Threshold for kicking out nodes which are only chunk validators.
     pub chunk_validator_only_kickout_threshold: u8,
+    /// Number of chunk validator mandates per each shard.
+    pub target_validator_mandates_per_shard: NumSeats,
     /// Max ratio of validators that we can kick out in an epoch
     pub validator_max_kickout_stake_perc: u8,
     /// Online minimum threshold below which validator doesn't receive reward.

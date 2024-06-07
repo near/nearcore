@@ -22,6 +22,7 @@
   "block_producer_kickout_threshold": 90,
   "chunk_producer_kickout_threshold": 90,
   "chunk_validator_only_kickout_threshold": 80,
+  "target_validator_mandates_per_shard": 0,
   "online_min_threshold": [
     9,
     10

@@ -48,6 +48,10 @@ fn default_chunk_validator_only_kickout_threshold() -> u8 {
     80
 }
 
+fn default_target_validator_mandates_per_shard() -> NumSeats {
+    68
+}
+
 fn default_minimum_stake_divisor() -> u64 {
     10
 }
@@ -139,6 +143,8 @@ pub struct GenesisConfig {
     /// Threshold for kicking out nodes which are only chunk validators, between 0 and 100.
     #[serde(default = "default_chunk_validator_only_kickout_threshold")]
     pub chunk_validator_only_kickout_threshold: u8,
+    #[serde(default = "default_target_validator_mandates_per_shard")]
+    pub target_validator_mandates_per_shard: NumSeats,
     /// Online minimum threshold below which validator doesn't receive reward.
     #[serde(default = "default_online_min_threshold")]
     #[default(Rational32::new(90, 100))]
@@ -245,6 +251,7 @@ impl From<&GenesisConfig> for EpochConfig {
             block_producer_kickout_threshold: config.block_producer_kickout_threshold,
             chunk_producer_kickout_threshold: config.chunk_producer_kickout_threshold,
             chunk_validator_only_kickout_threshold: config.chunk_validator_only_kickout_threshold,
+            target_validator_mandates_per_shard: config.target_validator_mandates_per_shard,
             fishermen_threshold: config.fishermen_threshold,
             online_min_threshold: config.online_min_threshold,
             online_max_threshold: config.online_max_threshold,
@@ -805,6 +812,7 @@ pub struct ProtocolConfigView {
     pub chunk_producer_kickout_threshold: u8,
     /// Threshold for kicking out nodes which are only chunk validators, between 0 and 100.
     pub chunk_validator_only_kickout_threshold: u8,
+    pub target_validator_mandates_per_shard: NumSeats,
     /// Online minimum threshold below which validator doesn't receive reward.
     pub online_min_threshold: Rational32,
     /// Online maximum threshold above which validator gets full reward.
@@ -874,6 +882,7 @@ impl From<ProtocolConfig> for ProtocolConfigView {
             chunk_producer_kickout_threshold: genesis_config.chunk_producer_kickout_threshold,
             chunk_validator_only_kickout_threshold: genesis_config
                 .chunk_validator_only_kickout_threshold,
+            target_validator_mandates_per_shard: genesis_config.target_validator_mandates_per_shard,
             online_min_threshold: genesis_config.online_min_threshold,
             online_max_threshold: genesis_config.online_max_threshold,
             gas_price_adjustment_rate: genesis_config.gas_price_adjustment_rate,

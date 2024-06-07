@@ -41,6 +41,7 @@ pub struct TestGenesisBuilder {
     transaction_validity_period: Option<NumBlocks>,
     validators: Option<ValidatorsSpec>,
     minimum_validators_per_shard: Option<NumSeats>,
+    target_validator_mandates_per_shard: Option<NumSeats>,
     protocol_treasury_account: Option<String>,
     shuffle_shard_assignment_for_chunk_producers: Option<bool>,
     kickouts_config: Option<KickoutsConfig>,
@@ -205,6 +206,14 @@ impl TestGenesisBuilder {
         self
     }
 
+    pub fn target_validator_mandates_per_shard(
+        &mut self,
+        target_validator_mandates_per_shard: NumSeats,
+    ) -> &mut Self {
+        self.target_validator_mandates_per_shard = Some(target_validator_mandates_per_shard);
+        self
+    }
+
     /// Specifies the protocol treasury account. If not specified, this will
     /// pick an arbitrary account name and ensure that it is included in the
     /// genesis records.
@@ -325,6 +334,15 @@ impl TestGenesisBuilder {
             );
             default
         });
+        let target_validator_mandates_per_shard =
+            self.target_validator_mandates_per_shard.unwrap_or_else(|| {
+                let default = 68;
+                tracing::warn!(
+                    "Genesis minimum_validators_per_shard not explicitly set, defaulting to {:?}.",
+                    default
+                );
+                default
+            });
         let protocol_treasury_account: AccountId = self
             .protocol_treasury_account
             .clone()
@@ -446,6 +464,7 @@ impl TestGenesisBuilder {
             chunk_producer_kickout_threshold: kickouts_config.chunk_producer_kickout_threshold,
             chunk_validator_only_kickout_threshold: kickouts_config
                 .chunk_validator_only_kickout_threshold,
+            target_validator_mandates_per_shard,
             transaction_validity_period,
             protocol_version,
             protocol_treasury_account,

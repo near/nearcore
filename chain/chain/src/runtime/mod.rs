@@ -1316,6 +1316,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             epoch_config.chunk_producer_kickout_threshold;
         genesis_config.chunk_validator_only_kickout_threshold =
             epoch_config.chunk_validator_only_kickout_threshold;
+        genesis_config.target_validator_mandates_per_shard =
+            epoch_config.target_validator_mandates_per_shard;
         genesis_config.max_kickout_stake_perc = epoch_config.validator_max_kickout_stake_perc;
         genesis_config.online_min_threshold = epoch_config.online_min_threshold;
         genesis_config.online_max_threshold = epoch_config.online_max_threshold;

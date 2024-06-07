@@ -533,6 +533,7 @@ mod tests {
                 block_producer_kickout_threshold: 0,
                 chunk_producer_kickout_threshold: 0,
                 chunk_validator_only_kickout_threshold: 0,
+                target_validator_mandates_per_shard: 0,
                 validator_max_kickout_stake_perc: 0,
                 online_min_threshold: 0.into(),
                 online_max_threshold: 0.into(),
