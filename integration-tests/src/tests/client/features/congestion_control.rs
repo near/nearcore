@@ -1,4 +1,5 @@
 use assert_matches::assert_matches;
+use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
@@ -283,11 +284,19 @@ fn test_protocol_upgrade_under_congestion() {
     );
 
     // Also check that the congested shard is still making progress.
-    env.produce_block(0, tip.height + 1);
-    let next_congestion_info = head_congestion_info(&mut env, contract_shard_id);
+    let block = env.clients[0].produce_block(tip.height + 1).unwrap().unwrap();
+    assert_eq!(
+        block.header().chunk_mask()[contract_shard_id as usize],
+        true,
+        "chunk isn't missing"
+    );
+    let gas_used = block.chunks().get(contract_shard_id as usize).unwrap().prev_gas_used();
+    tracing::debug!(target: "test", "prev_gas_used: {}", gas_used);
 
-    assert!(congestion_info.delayed_receipts_gas() > next_congestion_info.delayed_receipts_gas());
-    assert!(congestion_info.receipt_bytes() > next_congestion_info.receipt_bytes());
+    // The chunk should process at least 500TGas worth of receipts
+    assert!(gas_used > 500_000_000_000_000);
+
+    env.process_block(0, block, Provenance::PRODUCED);
 
     let check_congested_protocol_upgrade = true;
     check_congestion_info(&env, check_congested_protocol_upgrade);

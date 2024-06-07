@@ -42,8 +42,15 @@ pub(crate) struct ReceiptSinkV2<'a> {
     /// used to make forwarding decisions.
     pub(crate) own_congestion_info: &'a mut CongestionInfo,
     pub(crate) outgoing_receipts: &'a mut Vec<Receipt>,
-    pub(crate) outgoing_limit: HashMap<ShardId, Gas>,
+    pub(crate) outgoing_limit: HashMap<ShardId, OutgoingLimit>,
     pub(crate) outgoing_buffers: ShardsOutgoingReceiptBuffer,
+}
+
+/// Limits for outgoing receipts to a shard.
+/// Receipts are sent out until the limit is hit, after that they're buffered.
+pub(crate) struct OutgoingLimit {
+    pub gas: Gas,
+    pub size: u64,
 }
 
 enum ReceiptForwarding {
@@ -82,7 +89,7 @@ impl<'a> ReceiptSink<'a> {
             debug_assert!(ProtocolFeature::CongestionControl.enabled(protocol_version));
             let outgoing_buffers = ShardsOutgoingReceiptBuffer::load(trie)?;
 
-            let outgoing_limit: HashMap<ShardId, Gas> = apply_state
+            let outgoing_limit: HashMap<ShardId, OutgoingLimit> = apply_state
                 .congestion_info
                 .iter()
                 .map(|(&shard_id, congestion)| {
@@ -91,8 +98,19 @@ impl<'a> ReceiptSink<'a> {
                         congestion.congestion_info,
                         congestion.missed_chunks_count,
                     );
+                    let gas_limit = if shard_id != apply_state.shard_id {
+                        other_congestion_control.outgoing_gas_limit(apply_state.shard_id)
+                    } else {
+                        // No gas limits on receipts that stay on the same shard. Backpressure
+                        // wouldn't help, the receipt takes the same memory if buffered or
+                        // in the delayed receipts queue.
+                        Gas::MAX
+                    };
 
-                    (shard_id, other_congestion_control.outgoing_limit(apply_state.shard_id))
+                    let size_limit =
+                        other_congestion_control.outgoing_size_limit(apply_state.shard_id);
+
+                    (shard_id, OutgoingLimit { gas: gas_limit, size: size_limit })
                 })
                 .collect();
 
@@ -216,13 +234,6 @@ impl ReceiptSinkV2<'_> {
     ) -> Result<(), RuntimeError> {
         let shard = epoch_info_provider
             .account_id_to_shard_id(receipt.receiver_id(), &apply_state.epoch_id)?;
-        if shard == apply_state.shard_id {
-            // No limits on receipts that stay on the same shard. Backpressure
-            // wouldn't help, the receipt takes the same memory if buffered or
-            // in the delayed receipts queue.
-            self.outgoing_receipts.push(receipt);
-            return Ok(());
-        }
         match Self::try_forward(
             receipt,
             shard,
@@ -247,7 +258,7 @@ impl ReceiptSinkV2<'_> {
     fn try_forward(
         receipt: Receipt,
         shard: ShardId,
-        outgoing_limit: &mut HashMap<ShardId, Gas>,
+        outgoing_limit: &mut HashMap<ShardId, OutgoingLimit>,
         outgoing_receipts: &mut Vec<Receipt>,
         apply_state: &ApplyState,
     ) -> Result<ReceiptForwarding, RuntimeError> {
@@ -256,12 +267,20 @@ impl ReceiptSinkV2<'_> {
         // could be a special case during resharding events. Or even a bug. In
         // any case, if we cannot know a limit, treating it as literally "no
         // limit" is the safest approach to ensure availability.
-        let forward_limit = outgoing_limit.entry(shard).or_insert(Gas::MAX);
+        // For the size limit, we default to the usual limit that is applied to all (non-special) shards.
+        let forward_limit = outgoing_limit.entry(shard).or_insert(OutgoingLimit {
+            gas: Gas::MAX,
+            size: apply_state.config.congestion_control_config.outgoing_receipts_usual_size_limit,
+        });
         let gas_to_forward = receipt_congestion_gas(&receipt, &apply_state.config)?;
-        if *forward_limit > gas_to_forward {
+        let size_to_forward: u64 =
+            receipt_size(&receipt)?.try_into().expect("Can't convert usize to u64");
+
+        if forward_limit.gas > gas_to_forward && forward_limit.size > size_to_forward {
             outgoing_receipts.push(receipt);
-            // underflow impossible: checked forward_limit > gas_to_forward above
-            *forward_limit -= gas_to_forward;
+            // underflow impossible: checked forward_limit > gas/size_to_forward above
+            forward_limit.gas -= gas_to_forward;
+            forward_limit.size -= size_to_forward;
             Ok(ReceiptForwarding::Forwarded)
         } else {
             Ok(ReceiptForwarding::NotForwarded(receipt))

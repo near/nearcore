@@ -1861,19 +1861,13 @@ impl Runtime {
         let delayed_receipts_count = delayed_receipts.len();
         if let Some(congestion_info) = &mut own_congestion_info {
             delayed_receipts.apply_congestion_changes(congestion_info)?;
-            let other_shards = apply_state
-                .congestion_info
-                .keys()
-                .filter(|&&id| id != apply_state.shard_id)
-                .copied()
-                .collect::<Vec<_>>();
+            let all_shards: Vec<ShardId> = apply_state.congestion_info.keys().copied().collect();
 
             let congestion_seed = apply_state.block_height.wrapping_add(apply_state.shard_id);
             congestion_info.finalize_allowed_shard(
                 apply_state.shard_id,
-                &other_shards,
+                all_shards.as_slice(),
                 congestion_seed,
-                &apply_state.config.congestion_control_config,
             );
         }
 
@@ -3681,7 +3675,7 @@ mod tests {
         // Check congestion is 1.0
         let congestion = apply_state.congestion_control(receiver_shard, 0);
         assert_eq!(congestion.congestion_level(), 1.0);
-        assert_eq!(congestion.outgoing_limit(local_shard), 0);
+        assert_eq!(congestion.outgoing_gas_limit(local_shard), 0);
 
         // release congestion to just below 1.0, which should allow one receipt
         // to be forwarded per round
@@ -3700,7 +3694,7 @@ mod tests {
         // this exact number does not matter but if it changes the test setup
         // needs to adapt to ensure the number of forwarded receipts is as expected
         assert!(
-            congestion.outgoing_limit(local_shard) - min_outgoing_gas < 100 * 10u64.pow(9),
+            congestion.outgoing_gas_limit(local_shard) - min_outgoing_gas < 100 * 10u64.pow(9),
             "allowed forwarding must be less than 100 GGas away from MIN_OUTGOING_GAS"
         );
 
