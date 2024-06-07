@@ -98,14 +98,14 @@ impl<'a> ReceiptSink<'a> {
                         congestion.congestion_info,
                         congestion.missed_chunks_count,
                     );
-                    let mut gas_limit =
-                        other_congestion_control.outgoing_gas_limit(apply_state.shard_id);
-                    if shard_id == apply_state.shard_id {
+                    let gas_limit = if shard_id != apply_state.shard_id {
+                        other_congestion_control.outgoing_gas_limit(apply_state.shard_id)
+                    } else {
                         // No gas limits on receipts that stay on the same shard. Backpressure
                         // wouldn't help, the receipt takes the same memory if buffered or
                         // in the delayed receipts queue.
-                        gas_limit = Gas::MAX;
-                    }
+                        Gas::MAX
+                    };
 
                     let size_limit = other_congestion_control
                         .outgoing_size_limit(apply_state.shard_id, &apply_state.config);
