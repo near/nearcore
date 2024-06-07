@@ -407,8 +407,8 @@ impl NightshadeRuntime {
                 // TODO(#2152): process gracefully
                 RuntimeError::BalanceMismatchError(e) => panic!("{}", e),
                 // TODO(#2152): process gracefully
-                RuntimeError::UnexpectedIntegerOverflow => {
-                    panic!("RuntimeError::UnexpectedIntegerOverflow")
+                RuntimeError::UnexpectedIntegerOverflow(reason) => {
+                    panic!("RuntimeError::UnexpectedIntegerOverflow {reason}")
                 }
                 RuntimeError::StorageError(e) => Error::StorageError(e),
                 // TODO(#2152): process gracefully

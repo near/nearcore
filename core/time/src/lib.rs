@@ -307,7 +307,7 @@ impl Interval {
 
 /// Provides serialization of Duration as std::time::Duration.
 pub mod serde_duration_as_std {
-    use crate::time::Duration;
+    use crate::Duration;
     use serde::Deserialize;
     use serde::Serialize;
 
@@ -332,7 +332,7 @@ pub mod serde_duration_as_std {
 
 /// Provides serialization of Duration as std::time::Duration.
 pub mod serde_opt_duration_as_std {
-    use crate::time::Duration;
+    use crate::Duration;
     use serde::Deserialize;
     use serde::Serialize;
 
@@ -365,7 +365,7 @@ pub mod serde_opt_duration_as_std {
 }
 
 pub mod serde_utc_as_iso {
-    use crate::time::Utc;
+    use crate::Utc;
     use serde::{Deserialize, Serialize};
     use time::format_description::well_known::Iso8601;
 
@@ -386,7 +386,7 @@ pub mod serde_utc_as_iso {
 }
 
 pub mod serde_opt_utc_as_iso {
-    use crate::time::Utc;
+    use crate::Utc;
     use serde::{Deserialize, Serialize};
     use time::format_description::well_known::Iso8601;
 
@@ -418,7 +418,7 @@ pub mod serde_opt_utc_as_iso {
 
 #[cfg(test)]
 mod tests {
-    use crate::time::Duration;
+    use crate::Duration;
     use serde_json;
 
     #[test]

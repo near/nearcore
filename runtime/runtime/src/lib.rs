@@ -1168,12 +1168,9 @@ impl Runtime {
             if let Some(mut account) = get_account(state_update, account_id)? {
                 if let Some(reward) = validator_accounts_update.validator_rewards.get(account_id) {
                     debug!(target: "runtime", "account {} adding reward {} to stake {}", account_id, reward, account.locked());
-                    account.set_locked(
-                        account
-                            .locked()
-                            .checked_add(*reward)
-                            .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?,
-                    );
+                    account.set_locked(account.locked().checked_add(*reward).ok_or_else(|| {
+                        RuntimeError::UnexpectedIntegerOverflow("update_validator_accounts".into())
+                    })?);
                 }
 
                 debug!(target: "runtime",
@@ -1192,20 +1189,26 @@ impl Runtime {
                 let return_stake = account
                     .locked()
                     .checked_sub(max(*max_of_stakes, last_proposal))
-                    .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?;
+                    .ok_or_else(|| {
+                        RuntimeError::UnexpectedIntegerOverflow(
+                            "update_validator_accounts - return stake".into(),
+                        )
+                    })?;
                 debug!(target: "runtime", "account {} return stake {}", account_id, return_stake);
-                account.set_locked(
-                    account
-                        .locked()
-                        .checked_sub(return_stake)
-                        .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?,
-                );
-                account.set_amount(
-                    account
-                        .amount()
-                        .checked_add(return_stake)
-                        .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?,
-                );
+                account.set_locked(account.locked().checked_sub(return_stake).ok_or_else(
+                    || {
+                        RuntimeError::UnexpectedIntegerOverflow(
+                            "update_validator_accounts - set_locked".into(),
+                        )
+                    },
+                )?);
+                account.set_amount(account.amount().checked_add(return_stake).ok_or_else(
+                    || {
+                        RuntimeError::UnexpectedIntegerOverflow(
+                            "update_validator_accounts - set_amount".into(),
+                        )
+                    },
+                )?);
 
                 set_account(state_update, account_id.clone(), &account);
             } else if *max_of_stakes > 0 {
@@ -1228,16 +1231,19 @@ impl Runtime {
                         "FATAL: staking invariant does not hold. Account locked {} is less than slashed {}",
                         account.locked(), amount_to_slash)).into());
                 }
-                stats.slashed_burnt_amount = stats
-                    .slashed_burnt_amount
-                    .checked_add(amount_to_slash)
-                    .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?;
-                account.set_locked(
-                    account
-                        .locked()
-                        .checked_sub(amount_to_slash)
-                        .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?,
-                );
+                stats.slashed_burnt_amount =
+                    stats.slashed_burnt_amount.checked_add(amount_to_slash).ok_or_else(|| {
+                        RuntimeError::UnexpectedIntegerOverflow(
+                            "update_validator_accounts - slashed".into(),
+                        )
+                    })?;
+                account.set_locked(account.locked().checked_sub(amount_to_slash).ok_or_else(
+                    || {
+                        RuntimeError::UnexpectedIntegerOverflow(
+                            "update_validator_accounts - slash locked".into(),
+                        )
+                    },
+                )?);
                 set_account(state_update, account_id.clone(), &account);
             } else {
                 return Err(StorageError::StorageInconsistentState(format!(
@@ -1266,12 +1272,13 @@ impl Runtime {
                             account_id
                         ))
                     })?;
-                account.set_amount(
-                    account
-                        .amount()
-                        .checked_add(treasury_reward)
-                        .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?,
-                );
+                account.set_amount(account.amount().checked_add(treasury_reward).ok_or_else(
+                    || {
+                        RuntimeError::UnexpectedIntegerOverflow(
+                            "update_validator_accounts - treasure_reward".into(),
+                        )
+                    },
+                )?);
                 set_account(state_update, account_id.clone(), &account);
             }
         }
@@ -1861,7 +1868,7 @@ impl Runtime {
                 .copied()
                 .collect::<Vec<_>>();
 
-            let congestion_seed = apply_state.block_height;
+            let congestion_seed = apply_state.block_height.wrapping_add(apply_state.shard_id);
             congestion_info.finalize_allowed_shard(
                 apply_state.shard_id,
                 &other_shards,
