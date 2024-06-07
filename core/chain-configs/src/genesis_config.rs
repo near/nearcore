@@ -143,7 +143,7 @@ pub struct GenesisConfig {
     /// Threshold for kicking out nodes which are only chunk validators, between 0 and 100.
     #[serde(default = "default_chunk_validator_only_kickout_threshold")]
     pub chunk_validator_only_kickout_threshold: u8,
-    /// Number of chunk validator mandates for each shard.
+    /// Number of target chunk validator mandates for each shard.
     #[serde(default = "default_target_validator_mandates_per_shard")]
     #[default(68)]
     pub target_validator_mandates_per_shard: NumSeats,
@@ -814,7 +814,7 @@ pub struct ProtocolConfigView {
     pub chunk_producer_kickout_threshold: u8,
     /// Threshold for kicking out nodes which are only chunk validators, between 0 and 100.
     pub chunk_validator_only_kickout_threshold: u8,
-    /// Number of chunk validator mandates for each shard.
+    /// Number of target chunk validator mandates for each shard.
     pub target_validator_mandates_per_shard: NumSeats,
     /// Online minimum threshold below which validator doesn't receive reward.
     pub online_min_threshold: Rational32,
