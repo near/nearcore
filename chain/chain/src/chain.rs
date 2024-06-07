@@ -1543,6 +1543,7 @@ impl Chain {
         };
 
         if all_known {
+            tracing::info!(target: "chain", "debugheaders all known");
             return Ok(());
         }
 
@@ -1550,9 +1551,13 @@ impl Chain {
         for header in headers.iter() {
             match check_header_known(self, header)? {
                 Ok(_) => {}
-                Err(_) => continue,
+                Err(_) => {
+                    tracing::info!(target: "chain", "debugheaders header {} {} known error", header.height(), header.hash());
+                    continue;
+                }
             }
 
+            tracing::info!(target: "chain", "debugheaders save header {} {}", header.height(), header.hash());
             self.validate_header(header, &Provenance::SYNC, challenges)?;
             let mut chain_store_update = self.chain_store.store_update();
             chain_store_update.save_block_header(header.clone())?;
@@ -1577,8 +1582,11 @@ impl Chain {
 
         let mut chain_update = self.chain_update();
         if let Some(header) = headers.last() {
+            tracing::info!(target: "chain", "debugheaders update header head {} {}", header.height(), header.hash());
             // Update header_head if it's the new tip
             chain_update.update_header_head_if_not_challenged(header)?;
+        } else {
+            tracing::info!(target: "chain", "debugheaders no update header head");
         }
         chain_update.commit()
     }
