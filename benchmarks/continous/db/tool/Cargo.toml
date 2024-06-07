@@ -5,3 +5,9 @@ members = [
   "cli",
   "orm"
 ]
+
+[workspace.dependencies]
+anyhow = "1.0"
+chrono = { version = "0.4.38", features=["now"] }
+diesel = { version = "2.1.1", features = ["postgres", "chrono"] }
+dotenvy = "0.15"
