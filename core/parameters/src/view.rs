@@ -629,10 +629,10 @@ pub struct WitnessConfigView {
     pub new_transactions_validation_state_size_soft_limit: usize,
     /// The standard size limit for outgoing receipts aimed at a single shard.
     /// This limit is pretty small to keep the size of source_receipt_proofs under control.
-    pub outgoing_receipts_usual_size_limit: usize,
+    pub outgoing_receipts_usual_size_limit: u64,
     /// Large size limit for outgoing receipts to a shard, used when it's safe
     /// to send a lot of receipts without making the state witness too large.
-    pub outgoing_receipts_big_size_limit: usize,
+    pub outgoing_receipts_big_size_limit: u64,
 }
 
 impl From<WitnessConfig> for WitnessConfigView {

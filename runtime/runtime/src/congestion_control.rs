@@ -50,7 +50,7 @@ pub(crate) struct ReceiptSinkV2<'a> {
 /// Receipts are sent out until the limit is hit, after that they're buffered.
 pub(crate) struct OutgoingLimit {
     pub gas: Gas,
-    pub size: usize,
+    pub size: u64,
 }
 
 enum ReceiptForwarding {
@@ -281,7 +281,8 @@ impl ReceiptSinkV2<'_> {
             size: apply_state.config.witness_config.outgoing_receipts_usual_size_limit,
         });
         let gas_to_forward = receipt_congestion_gas(&receipt, &apply_state.config)?;
-        let size_to_forward = receipt_size(&receipt)?;
+        let size_to_forward: u64 =
+            receipt_size(&receipt)?.try_into().expect("Can't convert usize to u64");
 
         if forward_limit.gas > gas_to_forward && forward_limit.size > size_to_forward {
             outgoing_receipts.push(receipt);
