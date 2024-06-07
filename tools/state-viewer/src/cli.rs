@@ -9,10 +9,12 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::trie_key::col;
 use near_primitives::types::{BlockHeight, ShardId};
-use near_store::{Mode, NodeStorage, Store, Temperature};
+use near_store::db::{MixedDB, ReadOrder, SplitDB};
+use near_store::{Mode, NodeStorage, Store, StoreConfig, Temperature};
 use nearcore::{load_config, NearConfig};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::Arc;
 
 #[derive(clap::Subcommand)]
 #[clap(subcommand_required = true, arg_required_else_help = true)]
@@ -119,7 +121,33 @@ impl StateViewerSubCommand {
         let store = match temperature {
             Temperature::Hot => storage.get_hot_store(),
             // Cold store on it's own is useless in majority of subcommands
-            Temperature::Cold => storage.get_split_store().unwrap(),
+            Temperature::Cold => {
+                if let Some(fs_path) = std::env::var("FSDIR").ok() {
+                    let fs_db = {
+                        let path = if PathBuf::from(fs_path.clone()).is_absolute() {
+                            PathBuf::from(fs_path)
+                        } else {
+                            home_dir.join(&fs_path)
+                        };
+                        Arc::new(
+                            near_store::db::RocksDB::open(
+                                &path,
+                                &StoreConfig::default(),
+                                Mode::ReadOnly,
+                                near_store::Temperature::Hot,
+                            )
+                            .expect("Unable to open FS db"),
+                        )
+                    };
+                    let cold_storage = storage.cold_db().unwrap().clone();
+                    let split_db = SplitDB::new(storage.into_inner(Temperature::Hot), cold_storage);
+                    let mixed_db = MixedDB::new(fs_db, split_db, ReadOrder::ReadDBFirst);
+                    NodeStorage::new(mixed_db).get_hot_store()
+                } else {
+                    tracing::warn!("NO FSDIR env");
+                    storage.get_split_store().unwrap()
+                }
+            }
         };
 
         match self {
