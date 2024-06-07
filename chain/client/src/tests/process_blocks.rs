@@ -65,7 +65,7 @@ fn test_bad_shard_id() {
     // modify chunk 0 to have shard_id 1
     let chunk = chunks.get(0).unwrap();
     let outgoing_receipts_root = chunks.get(1).unwrap().prev_outgoing_receipts_root();
-    let congestion_info: Option<CongestionInfo> = ProtocolFeature::CongestionControl
+    let congestion_info = ProtocolFeature::CongestionControl
         .enabled(PROTOCOL_VERSION)
         .then_some(CongestionInfo::default());
     let mut modified_chunk = ShardChunkHeaderV3::new(

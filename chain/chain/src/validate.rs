@@ -204,7 +204,7 @@ fn validate_congestion_info(
             .then_some(())
             .ok_or_else(|| {
                 Error::InvalidCongestionInfo(format!(
-                    "Congestion Information mismatch. extra: {:?}, header: {:?}",
+                    "Congestion Information validate error. extra: {:?}, header: {:?}",
                     extra, header
                 ))
             }),

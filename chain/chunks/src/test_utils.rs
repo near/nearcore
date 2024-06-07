@@ -136,7 +136,7 @@ impl ChunkTestFixture {
         let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
         let receipts_hashes = Chain::build_receipts_hashes(&receipts, &shard_layout);
         let (receipts_root, _) = merkle::merklize(&receipts_hashes);
-        let congestion_info: Option<CongestionInfo> = ProtocolFeature::CongestionControl
+        let congestion_info = ProtocolFeature::CongestionControl
             .enabled(PROTOCOL_VERSION)
             .then_some(CongestionInfo::default());
         let (mock_chunk, mock_merkle_paths) = ShardsManagerActor::create_encoded_shard_chunk(
