@@ -111,7 +111,7 @@ impl ChunkStateWitnessTracker {
     #[cfg(test)]
     fn get_record_for_witness(
         &mut self,
-        witness: &ChunkStateWitness,
+        witness: &near_primitives::stateless_validation::ChunkStateWitness,
     ) -> Option<&ChunkStateWitnessRecord> {
         let key = ChunkStateWitnessKey::new(witness.chunk_header.chunk_hash());
         self.witnesses.get(&key)
@@ -147,6 +147,7 @@ mod state_witness_tracker_tests {
     use super::*;
     use near_async::time::{Duration, FakeClock, Utc};
     use near_primitives::hash::hash;
+    use near_primitives::stateless_validation::ChunkStateWitness;
     use near_primitives::types::ShardId;
 
     const NUM_VALIDATORS: usize = 3;
@@ -157,7 +158,7 @@ mod state_witness_tracker_tests {
         let clock = dummy_clock();
         let mut tracker = ChunkStateWitnessTracker::new(clock.clock());
 
-        tracker.record_witness_sent(&witness.chunk_header.compute_hash(), 4321, NUM_VALIDATORS);
+        tracker.record_witness_sent(witness.chunk_header.compute_hash(), 4321, NUM_VALIDATORS);
         clock.advance(Duration::milliseconds(3444));
 
         // Ack received from all "except for one".
@@ -176,7 +177,7 @@ mod state_witness_tracker_tests {
         let clock = dummy_clock();
         let mut tracker = ChunkStateWitnessTracker::new(clock.clock());
 
-        tracker.record_witness_sent(&witness.chunk_header.compute_hash(), 4321, NUM_VALIDATORS);
+        tracker.record_witness_sent(witness.chunk_header.compute_hash(), 4321, NUM_VALIDATORS);
         clock.advance(Duration::milliseconds(3444));
 
         // Ack received from all.
