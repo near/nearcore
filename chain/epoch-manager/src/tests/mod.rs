@@ -22,7 +22,7 @@ use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use near_primitives::stateless_validation::PartialEncodedStateWitness;
 use near_primitives::types::ValidatorKickoutReason::{NotEnoughBlocks, NotEnoughChunks};
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::ProtocolFeature::{SimpleNightshade, StatelessValidationV0};
+use near_primitives::version::ProtocolFeature::{self, SimpleNightshade, StatelessValidationV0};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 use num_rational::Ratio;
@@ -2730,6 +2730,9 @@ fn test_max_kickout_stake_ratio() {
 }
 
 fn test_chunk_header(h: &[CryptoHash], signer: &dyn ValidatorSigner) -> ShardChunkHeader {
+    let congestion_info = ProtocolFeature::CongestionControl
+        .enabled(PROTOCOL_VERSION)
+        .then_some(CongestionInfo::default());
     ShardChunkHeader::V3(ShardChunkHeaderV3::new(
         PROTOCOL_VERSION,
         h[0],
@@ -2745,7 +2748,7 @@ fn test_chunk_header(h: &[CryptoHash], signer: &dyn ValidatorSigner) -> ShardChu
         h[2],
         h[2],
         vec![],
-        CongestionInfo::default(),
+        congestion_info,
         signer,
     ))
 }

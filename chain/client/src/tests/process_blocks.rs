@@ -65,6 +65,9 @@ fn test_bad_shard_id() {
     // modify chunk 0 to have shard_id 1
     let chunk = chunks.get(0).unwrap();
     let outgoing_receipts_root = chunks.get(1).unwrap().prev_outgoing_receipts_root();
+    let congestion_info = ProtocolFeature::CongestionControl
+        .enabled(PROTOCOL_VERSION)
+        .then_some(CongestionInfo::default());
     let mut modified_chunk = ShardChunkHeaderV3::new(
         PROTOCOL_VERSION,
         *chunk.prev_block_hash(),
@@ -80,7 +83,7 @@ fn test_bad_shard_id() {
         outgoing_receipts_root,
         chunk.tx_root(),
         chunk.prev_validator_proposals().collect(),
-        CongestionInfo::default(),
+        congestion_info,
         &validator_signer,
     );
     modified_chunk.height_included = 2;
@@ -209,7 +212,7 @@ fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
         chunk.prev_outgoing_receipts_root(),
         chunk.tx_root(),
         chunk.prev_validator_proposals().collect(),
-        congestion_info,
+        Some(congestion_info),
         &validator_signer,
     );
     modified_chunk_header.height_included = 2;
