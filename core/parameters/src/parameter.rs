@@ -32,7 +32,11 @@ pub enum Parameter {
     /// A witness contains transactions from both the previous chunk and the current one.
     /// This parameter limits the sum of sizes of transactions from both of those chunks.
     CombinedTransactionsSizeLimit,
+    /// The standard size limit for outgoing receipts aimed at a single shard.
+    /// This limit is pretty small to keep the size of source_receipt_proofs under control.
     OutgoingReceiptsUsualSizeLimit,
+    /// Large size limit for outgoing receipts to a shard, used when it's safe
+    /// to send a lot of receipts without making the state witness too large.
     OutgoingReceiptsBigSizeLimit,
 
     // Account creation config
