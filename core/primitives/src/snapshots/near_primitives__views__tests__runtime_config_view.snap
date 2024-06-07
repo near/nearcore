@@ -234,13 +234,13 @@ expression: "&view"
     "allowed_shard_outgoing_gas": 9223372036854775807,
     "max_tx_gas": 9223372036854775807,
     "min_tx_gas": 9223372036854775807,
-    "reject_tx_congestion_threshold": 1.0
+    "reject_tx_congestion_threshold": 1.0,
+    "outgoing_receipts_usual_size_limit": 999999999999999,
+    "outgoing_receipts_big_size_limit": 999999999999999
   },
   "witness_config": {
     "main_storage_proof_size_soft_limit": 999999999999999,
     "combined_transactions_size_limit": 999999999999999,
-    "new_transactions_validation_state_size_soft_limit": 999999999999999,
-    "outgoing_receipts_usual_size_limit": 999999999999999,
-    "outgoing_receipts_big_size_limit": 999999999999999
+    "new_transactions_validation_state_size_soft_limit": 999999999999999
   }
 }

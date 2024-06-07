@@ -107,8 +107,8 @@ impl<'a> ReceiptSink<'a> {
                         Gas::MAX
                     };
 
-                    let size_limit = other_congestion_control
-                        .outgoing_size_limit(apply_state.shard_id, &apply_state.config);
+                    let size_limit =
+                        other_congestion_control.outgoing_size_limit(apply_state.shard_id);
 
                     (shard_id, OutgoingLimit { gas: gas_limit, size: size_limit })
                 })
@@ -270,7 +270,7 @@ impl ReceiptSinkV2<'_> {
         // For the size limit, we default to the usual limit that is applied to all (non-special) shards.
         let forward_limit = outgoing_limit.entry(shard).or_insert(OutgoingLimit {
             gas: Gas::MAX,
-            size: apply_state.config.witness_config.outgoing_receipts_usual_size_limit,
+            size: apply_state.config.congestion_control_config.outgoing_receipts_usual_size_limit,
         });
         let gas_to_forward = receipt_congestion_gas(&receipt, &apply_state.config)?;
         let size_to_forward: u64 =

@@ -830,7 +830,7 @@ fn meta_tx_create_and_use_implicit_account(new_account: AccountId) {
     let node = RuntimeNode::new_with_modified_config(&relayer, |runtime_config| {
         // Increase the outgoing receipts limit to allow the large receipt to be processed immediately.
         // Without this change the receipt would be processed somewhere in the next few blocks.
-        runtime_config.witness_config.outgoing_receipts_usual_size_limit = 200_000;
+        runtime_config.congestion_control_config.outgoing_receipts_usual_size_limit = 200_000;
     });
 
     // Check the account doesn't exist, yet. We will attempt creating it.

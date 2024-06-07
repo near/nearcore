@@ -1,7 +1,6 @@
 use crate::errors::RuntimeError;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_parameters::config::CongestionControlConfig;
-use near_parameters::RuntimeConfig;
 use near_primitives_core::types::{Gas, ShardId};
 
 /// This class combines the congestion control config, congestion info and
@@ -93,17 +92,13 @@ impl CongestionControl {
     }
 
     /// How much data another shard can send to us in the next block.
-    pub fn outgoing_size_limit(
-        &self,
-        sender_shard: ShardId,
-        runtime_config: &RuntimeConfig,
-    ) -> Gas {
+    pub fn outgoing_size_limit(&self, sender_shard: ShardId) -> Gas {
         if sender_shard == self.info.allowed_shard() as u64 {
             // The allowed shard is allowed to send more data to us.
-            runtime_config.witness_config.outgoing_receipts_big_size_limit
+            self.config.outgoing_receipts_big_size_limit
         } else {
             // Other shards have a low standard limit.
-            runtime_config.witness_config.outgoing_receipts_usual_size_limit
+            self.config.outgoing_receipts_usual_size_limit
         }
     }
 

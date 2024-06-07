@@ -341,10 +341,6 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     .get(Parameter::CombinedTransactionsSizeLimit)?,
                 new_transactions_validation_state_size_soft_limit: params
                     .get(Parameter::NewTransactionsValidationStateSizeSoftLimit)?,
-                outgoing_receipts_usual_size_limit: params
-                    .get(Parameter::OutgoingReceiptsUsualSizeLimit)?,
-                outgoing_receipts_big_size_limit: params
-                    .get(Parameter::OutgoingReceiptsBigSizeLimit)?,
             },
         })
     }
@@ -367,6 +363,9 @@ fn get_congestion_control_config(
             let rational: Rational32 = params.get(Parameter::RejectTxCongestionThreshold)?;
             *rational.numer() as f64 / *rational.denom() as f64
         },
+        outgoing_receipts_usual_size_limit: params
+            .get(Parameter::OutgoingReceiptsUsualSizeLimit)?,
+        outgoing_receipts_big_size_limit: params.get(Parameter::OutgoingReceiptsBigSizeLimit)?,
     };
     Ok(congestion_control_config)
 }
