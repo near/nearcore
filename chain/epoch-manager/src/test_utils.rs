@@ -141,7 +141,7 @@ pub fn epoch_config_with_production_config(
         block_producer_kickout_threshold,
         chunk_producer_kickout_threshold,
         chunk_validator_only_kickout_threshold,
-        target_validator_mandates_per_shard: 1,
+        target_validator_mandates_per_shard: 68,
         fishermen_threshold: 0,
         online_min_threshold: Ratio::new(90, 100),
         online_max_threshold: Ratio::new(99, 100),
