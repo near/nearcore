@@ -489,7 +489,7 @@ fn safe_add_gas_to_u128(a: u128, b: Gas) -> Result<u128, IntegerOverflowError> {
     a.checked_add(b as u128).ok_or(IntegerOverflowError {})
 }
 
-/// Each shard receieves receipts from all other shards, but it could happen
+/// Each shard receives receipts from all other shards, but it could happen
 /// that all of the sender shards sends a lot of data, which would cause
 /// the state witness to be really large. To prevent this, the usual limit
 /// on the size of outgoing receipts is pretty small (outgoing_receipts_usual_size_limit).
