@@ -3,7 +3,7 @@
 //! pass the control to Client. This means, any real block processing or production logic should
 //! be put in Client.
 //! Unfortunately, this is not the case today. We are in the process of refactoring ClientActor
-//! https://github.com/near/nearcore/issues/7899
+//! <https://github.com/near/nearcore/issues/7899>
 
 #[cfg(feature = "test_features")]
 use crate::client::AdvProduceBlocksMode;
