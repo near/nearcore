@@ -275,10 +275,11 @@ pub fn proposals_to_epoch_info(
     // Assign chunk validators to shards using validator mandates abstraction.
     let validator_mandates = if checked_feature!("stable", StatelessValidationV0, protocol_version)
     {
-        // Value chosen based on calculations for the security of the protocol.
+        // Default production value chosen to 68 based on calculations for the
+        // security of the mainnet protocol.
         // With this number of mandates per shard and 6 shards, the theory calculations predict the
         // protocol is secure for 40 years (at 90% confidence).
-        let target_mandates_per_shard = 68;
+        let target_mandates_per_shard = epoch_config.target_validator_mandates_per_shard as usize;
         let num_shards = shard_ids.len();
         let validator_mandates_config =
             ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
