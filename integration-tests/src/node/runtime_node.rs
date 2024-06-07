@@ -54,7 +54,7 @@ impl RuntimeNode {
     /// Same as `RuntimeNode::new`, but allows to modify the RuntimeConfig.
     pub fn new_with_modified_config(
         account_id: &AccountId,
-        modify_config: impl Fn(&mut RuntimeConfig),
+        modify_config: impl FnOnce(&mut RuntimeConfig),
     ) -> Self {
         let mut genesis = Genesis::test(vec![alice_account(), bob_account(), carol_account()], 3);
         add_test_contract(&mut genesis, &alice_account());
