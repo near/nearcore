@@ -775,6 +775,7 @@ pub(crate) fn view_chain(
     height: Option<BlockHeight>,
     view_block: bool,
     view_chunks: bool,
+    header_only: bool,
     near_config: NearConfig,
     store: Store,
 ) {
@@ -788,6 +789,11 @@ pub(crate) fn view_chain(
             Some(h) => {
                 let block_hash =
                     chain_store.get_block_hash_by_height(h).expect("Block does not exist");
+                if header_only {
+                    let h = chain_store.get_block_header(&block_hash);
+                    println!("{} {}", block_hash, if h.is_ok() { "header found" } else { "header not found" } );
+                    return;
+                }
                 chain_store.get_block(&block_hash).unwrap()
             }
             None => {

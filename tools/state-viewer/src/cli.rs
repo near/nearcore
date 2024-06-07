@@ -707,11 +707,13 @@ pub struct ViewChainCmd {
     block: bool,
     #[clap(long)]
     chunk: bool,
+    #[clap(long)]
+    header_only: bool,
 }
 
 impl ViewChainCmd {
     pub fn run(self, near_config: NearConfig, store: Store) {
-        view_chain(self.height, self.block, self.chunk, near_config, store);
+        view_chain(self.height, self.block, self.chunk, self.header_only, near_config, store);
     }
 }
 
