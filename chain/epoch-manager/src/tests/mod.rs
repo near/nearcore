@@ -2206,6 +2206,7 @@ fn test_protocol_version_switch_with_many_seats() {
         block_producer_kickout_threshold: 90,
         chunk_producer_kickout_threshold: 60,
         chunk_validator_only_kickout_threshold: 60,
+        target_validator_mandates_per_shard: 10,
         fishermen_threshold: 0,
         online_min_threshold: Ratio::new(90, 100),
         online_max_threshold: Ratio::new(99, 100),
