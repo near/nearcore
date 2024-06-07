@@ -75,7 +75,10 @@ use near_primitives::network::PeerId;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, EpochId, ValidatorInfoIdentifier};
+use near_primitives::version::ProtocolFeature::StatelessValidationV0;
+use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::views::CurrentEpochValidatorInfo;
 use near_store::config::StateSnapshotType;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
@@ -176,15 +179,36 @@ enum TestEvent {
 
 const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 
+const NUM_ACCOUNTS: usize = 20;
+const NUM_SHARDS: u64 = 4;
+const EPOCH_LENGTH: u64 = 12;
+const NETWORK_DELAY: Duration = Duration::milliseconds(10);
+
+const NUM_BLOCK_AND_CHUNK_PRODUCERS: usize = 4;
+const NUM_CHUNK_VALIDATORS_ONLY: usize = 4;
+const NUM_VALIDATORS: usize = NUM_BLOCK_AND_CHUNK_PRODUCERS + NUM_CHUNK_VALIDATORS_ONLY;
+
 #[test]
-fn test_client_with_multi_test_loop() {
-    const NUM_CLIENTS: usize = 4;
-    const NETWORK_DELAY: Duration = Duration::milliseconds(10);
+fn test_stateless_validators_with_multi_test_loop() {
+    if !StatelessValidationV0.enabled(PROTOCOL_VERSION) {
+        println!("Test not applicable without StatelessValidation enabled");
+        return;
+    }
+
     let builder = TestLoopBuilder::<(usize, TestEvent)>::new();
 
     let initial_balance = 10000 * ONE_NEAR;
-    let accounts =
-        (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
+    let accounts = (0..NUM_ACCOUNTS)
+        .map(|i| format!("account{}", i).parse().unwrap())
+        .collect::<Vec<AccountId>>();
+
+    // All block_and_chunk_producers will be both block and chunk validators.
+    let block_and_chunk_producers =
+        (0..NUM_BLOCK_AND_CHUNK_PRODUCERS).map(|idx| accounts[idx].as_str()).collect::<Vec<_>>();
+    // These are the accounts that are only chunk validators, but not block/chunk producers.
+    let chunk_validators_only = (NUM_BLOCK_AND_CHUNK_PRODUCERS..NUM_VALIDATORS)
+        .map(|idx| accounts[idx].as_str())
+        .collect::<Vec<_>>();
 
     let mut genesis_builder = TestGenesisBuilder::new();
     genesis_builder
@@ -195,11 +219,8 @@ fn test_client_with_multi_test_loop() {
         .gas_limit_one_petagas()
         .shard_layout_simple_v1(&["account3", "account5", "account7"])
         .transaction_validity_period(1000)
-        .epoch_length(10)
-        .validators_desired_roles(
-            &(0..NUM_CLIENTS).map(|idx| accounts[idx].as_str()).collect::<Vec<_>>(),
-            &[],
-        )
+        .epoch_length(EPOCH_LENGTH)
+        .validators_desired_roles(&block_and_chunk_producers, &chunk_validators_only)
         .shuffle_shard_assignment_for_chunk_producers(true);
     for account in &accounts {
         genesis_builder.add_user_account_simple(account.clone(), initial_balance);
@@ -208,7 +229,7 @@ fn test_client_with_multi_test_loop() {
 
     let tempdir = tempfile::tempdir().unwrap();
     let mut datas = Vec::new();
-    for idx in 0..NUM_CLIENTS {
+    for idx in 0..NUM_VALIDATORS {
         let mut client_config = ClientConfig::test(true, 600, 2000, 4, false, true, false, false);
         client_config.max_block_wait_delay = Duration::seconds(6);
         client_config.state_sync_enabled = true;
@@ -396,7 +417,7 @@ fn test_client_with_multi_test_loop() {
     }
 
     let mut test = builder.build(datas);
-    for idx in 0..NUM_CLIENTS {
+    for idx in 0..NUM_VALIDATORS {
         // Handlers that do nothing but print some information.
         test.register_handler(print_basic_client_info_before_each_event(Some(idx)).for_index(idx));
 
@@ -472,7 +493,7 @@ fn test_client_with_multi_test_loop() {
     // We use adhoc events for these, just so that the visualizer can see these as events rather
     // than happening outside of the TestLoop framework. Other than that, we could also just remove
     // the send_adhoc_event part and the test would still work.
-    for idx in 0..NUM_CLIENTS {
+    for idx in 0..NUM_VALIDATORS {
         let sender = test.sender().for_index(idx);
         let shutting_down = test.shutting_down();
         test.sender().for_index(idx).send_adhoc_event("start_client", move |data| {
@@ -498,20 +519,20 @@ fn test_client_with_multi_test_loop() {
         |data| data[0].client.client.chain.head().unwrap().height == 10003,
         Duration::seconds(5),
     );
-    for idx in 0..NUM_CLIENTS {
+    for idx in 0..NUM_VALIDATORS {
         test.sender().for_index(idx).send_adhoc_event("assertions", |data| {
             let chain = &data.client.client.chain;
             let block = chain.get_block_by_height(10002).unwrap();
             assert_eq!(
                 block.header().chunk_mask(),
-                &(0..NUM_CLIENTS).map(|_| true).collect::<Vec<_>>()
+                &(0..NUM_SHARDS).map(|_| true).collect::<Vec<_>>()
             );
         })
     }
     test.run_instant();
 
-    let first_epoch_tracked_shards = test.data.tracked_shards_for_each_client();
-    tracing::info!("First epoch tracked shards: {:?}", first_epoch_tracked_shards);
+    // Capture the initial validator info in the first epoch.
+    let initial_epoch_id = test.data[0].client.client.chain.head().unwrap().epoch_id;
 
     let mut balances = accounts
         .iter()
@@ -520,21 +541,23 @@ fn test_client_with_multi_test_loop() {
         .collect::<HashMap<_, _>>();
 
     let anchor_hash = *test.data[0].client.client.chain.get_block_by_height(10002).unwrap().hash();
-    for i in 0..accounts.len() {
+
+    // Run send-money transactions between "non-validator" accounts.
+    for i in NUM_VALIDATORS..NUM_ACCOUNTS {
         let amount = ONE_NEAR * (i as u128 + 1);
         let tx = SignedTransaction::send_money(
             1,
             accounts[i].clone(),
-            accounts[(i + 1) % accounts.len()].clone(),
+            accounts[(i + 1) % NUM_ACCOUNTS].clone(),
             &create_user_test_signer(&accounts[i]),
             amount,
             anchor_hash,
         );
         *balances.get_mut(&accounts[i]).unwrap() -= amount;
-        *balances.get_mut(&accounts[(i + 1) % accounts.len()]).unwrap() += amount;
+        *balances.get_mut(&accounts[(i + 1) % NUM_ACCOUNTS]).unwrap() += amount;
         drop(
             test.sender()
-                .for_index(i % NUM_CLIENTS)
+                .for_index(i % NUM_VALIDATORS)
                 .with_additional_delay(Duration::milliseconds(300 * i as i64))
                 .into_wrapped_multi_sender::<ClientSenderForNetworkMessage, ClientSenderForNetwork>(
                 )
@@ -546,16 +569,22 @@ fn test_client_with_multi_test_loop() {
         );
     }
 
-    // Give plenty of time for these transactions to complete.
-    test.run_for(Duration::seconds(40));
+    // Run the chain some time to allow transactions be processed.
+    test.run_for(Duration::seconds(20));
 
-    // Make sure the chain progresses for several epochs.
+    // Capture the id of the epoch we will check for the correct validator information in assert_validator_info.
+    let prev_epoch_id = test.data[0].client.client.chain.head().unwrap().epoch_id;
+    assert_ne!(prev_epoch_id, initial_epoch_id);
+
+    // Run the chain until it transitions to a different epoch then prev_epoch_id.
     test.run_until(
-        |data| data[0].client.client.chain.head().unwrap().height > 10050,
-        Duration::seconds(10),
+        |data| data[0].client.client.chain.head().unwrap().epoch_id != prev_epoch_id,
+        Duration::seconds(EPOCH_LENGTH as i64),
     );
 
-    for account in &accounts {
+    // Check that the balances are correct.
+    for i in NUM_VALIDATORS..NUM_ACCOUNTS {
+        let account = &accounts[i];
         assert_eq!(
             test.data.query_balance(account),
             *balances.get(account).unwrap(),
@@ -564,15 +593,84 @@ fn test_client_with_multi_test_loop() {
         );
     }
 
-    let later_epoch_tracked_shards = test.data.tracked_shards_for_each_client();
-    tracing::info!("Later epoch tracked shards: {:?}", later_epoch_tracked_shards);
-    assert_ne!(first_epoch_tracked_shards, later_epoch_tracked_shards);
-
-    for idx in 0..NUM_CLIENTS {
+    for idx in 0..NUM_VALIDATORS {
         test.data[idx].state_sync_dumper.stop();
     }
+
+    // Check the validator information for the epoch with the prev_epoch_id.
+    assert_validator_info(&test.data[0].client.client, prev_epoch_id, initial_epoch_id, &accounts);
 
     // Give the test a chance to finish off remaining events in the event loop, which can
     // be important for properly shutting down the nodes.
     test.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+/// Returns the CurrentEpochValidatorInfo for each validator account for the given epoch id.
+fn get_current_validators(
+    client: &Client,
+    epoch_id: EpochId,
+) -> HashMap<AccountId, CurrentEpochValidatorInfo> {
+    client
+        .epoch_manager
+        .get_validator_info(ValidatorInfoIdentifier::EpochId(epoch_id))
+        .unwrap()
+        .current_validators
+        .iter()
+        .map(|v| (v.account_id.clone(), v.clone()))
+        .collect()
+}
+
+/// Asserts the following:
+/// 1. Block and chunk producers produce block and chunks and also validate chunk witnesses.
+/// 2. Chunk validators only validate chunk witnesses.
+/// 3. Stake of both the block/chunk producers and chunk validators increase (due to rewards).
+/// TODO: Assert on the specific reward amount, currently it only checks that some amount is rewarded.
+fn assert_validator_info(
+    client: &Client,
+    epoch_id: EpochId,
+    initial_epoch_id: EpochId,
+    accounts: &Vec<AccountId>,
+) {
+    let validator_to_info = get_current_validators(client, epoch_id);
+    let initial_validator_to_info = get_current_validators(client, initial_epoch_id);
+
+    // Check that block/chunk producers generate blocks/chunks and also endorse chunk witnesses.
+    for idx in 0..NUM_BLOCK_AND_CHUNK_PRODUCERS {
+        let account = &accounts[idx];
+        let validator_info = validator_to_info.get(account).unwrap();
+        assert!(validator_info.num_produced_blocks > 0);
+        assert!(validator_info.num_produced_blocks <= validator_info.num_expected_blocks);
+        assert!(validator_info.num_expected_blocks < EPOCH_LENGTH);
+
+        assert!(0 < validator_info.num_produced_chunks);
+        assert!(validator_info.num_produced_chunks <= validator_info.num_expected_chunks);
+        assert!(validator_info.num_expected_chunks < EPOCH_LENGTH * NUM_SHARDS);
+
+        assert!(validator_info.num_produced_endorsements > 0);
+        assert!(
+            validator_info.num_produced_endorsements <= validator_info.num_expected_endorsements
+        );
+        assert!(validator_info.num_expected_endorsements <= EPOCH_LENGTH * NUM_SHARDS);
+
+        let initial_validator_info = initial_validator_to_info.get(account).unwrap();
+        assert!(initial_validator_info.stake < validator_info.stake);
+    }
+    // Check chunk validators only endorse chunk witnesses.
+    for idx in NUM_BLOCK_AND_CHUNK_PRODUCERS..NUM_VALIDATORS {
+        let account = &accounts[idx];
+        let validator_info = validator_to_info.get(account).unwrap();
+        assert_eq!(validator_info.num_expected_blocks, 0);
+        assert_eq!(validator_info.num_expected_chunks, 0);
+        assert_eq!(validator_info.num_produced_blocks, 0);
+        assert_eq!(validator_info.num_produced_chunks, 0);
+
+        assert!(validator_info.num_produced_endorsements > 0);
+        assert!(
+            validator_info.num_produced_endorsements <= validator_info.num_expected_endorsements
+        );
+        assert!(validator_info.num_expected_endorsements <= EPOCH_LENGTH * NUM_SHARDS);
+
+        let initial_validator_info = initial_validator_to_info.get(account).unwrap();
+        assert!(initial_validator_info.stake < validator_info.stake);
+    }
 }

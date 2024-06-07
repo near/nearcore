@@ -8,6 +8,7 @@
 use crate::Client;
 use near_chain::Block;
 use near_chain_primitives::Error;
+use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::ChunkStateWitness;
 use near_primitives::types::BlockHeight;
 use std::ops::Range;
@@ -101,21 +102,23 @@ impl Client {
 
         // Remove all orphan witnesses that are below the last final block of the new block.
         // They won't be used, so we can remove them from the pool to save memory.
-        let last_final_block =
-            match self.chain.get_block_header(new_block.header().last_final_block()) {
-                Ok(block_header) => block_header,
-                Err(err) => {
-                    // TODO(wacban) this error happens often in integration
-                    // tests when the last final block is genesis / genesis.prev.
-                    tracing::error!(
-                        target: "client",
-                        last_final_block = ?new_block.header().last_final_block(),
-                        ?err,
-                        "Error getting last final block of the new block"
-                    );
-                    return;
-                }
-            };
+        let last_final_block = new_block.header().last_final_block();
+        // Handle genesis gracefully.
+        if last_final_block == &CryptoHash::default() {
+            return;
+        }
+        let last_final_block = match self.chain.get_block_header(last_final_block) {
+            Ok(block_header) => block_header,
+            Err(err) => {
+                tracing::error!(
+                    target: "client",
+                    ?last_final_block,
+                    ?err,
+                    "Error getting last final block of the new block"
+                );
+                return;
+            }
+        };
         self.chunk_validator
             .orphan_witness_pool
             .remove_witnesses_below_final_height(last_final_block.height());

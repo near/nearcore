@@ -218,8 +218,7 @@ pub fn create_chunk(
             transactions,
             decoded_chunk.prev_outgoing_receipts(),
             header.prev_outgoing_receipts_root(),
-            // TODO(congestion_control): compute if not available
-            header.congestion_info().unwrap_or_default(),
+            header.congestion_info(),
             &*signer,
             PROTOCOL_VERSION,
         )

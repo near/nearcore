@@ -137,8 +137,12 @@ impl CongestionInfo {
     // information from the chunk extra.
     //
     // TODO(congestion_control) validate allowed shard correctly
-    // If the shard is fully congested the any of the other shards can be the allowed shard.
-    // If the shard is not fully congested the allowed shard should be set to self.
+    // * If the shard is fully congested then any of the other shards can be the
+    //   allowed shard.
+    // * If the shard is not fully congested the allowed shard should be set to
+    //   self.
+    // Currently the check is more restrictive and expects all nodes to follow
+    // the reference implementation which makes it part of the protocol.
     pub fn validate_extra_and_header(extra: &CongestionInfo, header: &CongestionInfo) -> bool {
         match (extra, header) {
             (CongestionInfo::V1(extra), CongestionInfo::V1(header)) => {
@@ -183,10 +187,9 @@ impl CongestionInfo {
     pub fn add_receipt_bytes(&mut self, bytes: u64) -> Result<(), RuntimeError> {
         match self {
             CongestionInfo::V1(inner) => {
-                inner.receipt_bytes = inner
-                    .receipt_bytes
-                    .checked_add(bytes)
-                    .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?;
+                inner.receipt_bytes = inner.receipt_bytes.checked_add(bytes).ok_or_else(|| {
+                    RuntimeError::UnexpectedIntegerOverflow("add_receipt_bytes".into())
+                })?;
             }
         }
         Ok(())
@@ -195,10 +198,9 @@ impl CongestionInfo {
     pub fn remove_receipt_bytes(&mut self, bytes: u64) -> Result<(), RuntimeError> {
         match self {
             CongestionInfo::V1(inner) => {
-                inner.receipt_bytes = inner
-                    .receipt_bytes
-                    .checked_sub(bytes)
-                    .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?;
+                inner.receipt_bytes = inner.receipt_bytes.checked_sub(bytes).ok_or_else(|| {
+                    RuntimeError::UnexpectedIntegerOverflow("remove_receipt_bytes".into())
+                })?;
             }
         }
         Ok(())
@@ -207,10 +209,10 @@ impl CongestionInfo {
     pub fn add_delayed_receipt_gas(&mut self, gas: Gas) -> Result<(), RuntimeError> {
         match self {
             CongestionInfo::V1(inner) => {
-                inner.delayed_receipts_gas = inner
-                    .delayed_receipts_gas
-                    .checked_add(gas as u128)
-                    .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?;
+                inner.delayed_receipts_gas =
+                    inner.delayed_receipts_gas.checked_add(gas as u128).ok_or_else(|| {
+                        RuntimeError::UnexpectedIntegerOverflow("add_delayed_receipt_gas".into())
+                    })?;
             }
         }
         Ok(())
@@ -219,10 +221,10 @@ impl CongestionInfo {
     pub fn remove_delayed_receipt_gas(&mut self, gas: Gas) -> Result<(), RuntimeError> {
         match self {
             CongestionInfo::V1(inner) => {
-                inner.delayed_receipts_gas = inner
-                    .delayed_receipts_gas
-                    .checked_sub(gas as u128)
-                    .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?;
+                inner.delayed_receipts_gas =
+                    inner.delayed_receipts_gas.checked_sub(gas as u128).ok_or_else(|| {
+                        RuntimeError::UnexpectedIntegerOverflow("remove_delayed_receipt_gas".into())
+                    })?;
             }
         }
         Ok(())
@@ -231,10 +233,10 @@ impl CongestionInfo {
     pub fn add_buffered_receipt_gas(&mut self, gas: Gas) -> Result<(), RuntimeError> {
         match self {
             CongestionInfo::V1(inner) => {
-                inner.buffered_receipts_gas = inner
-                    .buffered_receipts_gas
-                    .checked_add(gas as u128)
-                    .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?;
+                inner.buffered_receipts_gas =
+                    inner.buffered_receipts_gas.checked_add(gas as u128).ok_or_else(|| {
+                        RuntimeError::UnexpectedIntegerOverflow("add_buffered_receipt_gas".into())
+                    })?;
             }
         }
         Ok(())
@@ -243,10 +245,12 @@ impl CongestionInfo {
     pub fn remove_buffered_receipt_gas(&mut self, gas: Gas) -> Result<(), RuntimeError> {
         match self {
             CongestionInfo::V1(inner) => {
-                inner.buffered_receipts_gas = inner
-                    .buffered_receipts_gas
-                    .checked_sub(gas as u128)
-                    .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow)?;
+                inner.buffered_receipts_gas =
+                    inner.buffered_receipts_gas.checked_sub(gas as u128).ok_or_else(|| {
+                        RuntimeError::UnexpectedIntegerOverflow(
+                            "remove_buffered_receipt_gas".into(),
+                        )
+                    })?;
             }
         }
         Ok(())
