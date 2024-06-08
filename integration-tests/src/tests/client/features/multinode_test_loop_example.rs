@@ -84,6 +84,7 @@ use near_vm_runner::ContractRuntimeCache;
 use near_vm_runner::FilesystemContractRuntimeCache;
 use nearcore::state_sync::StateSyncDumper;
 use nearcore::NightshadeRuntime;
+use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -106,8 +107,8 @@ impl AsMut<TestData> for TestData {
     }
 }
 
-impl AsRef<Client> for TestData {
-    fn as_ref(&self) -> &Client {
+impl Borrow<Client> for TestData {
+    fn borrow(&self) -> &Client {
         &self.client.client
     }
 }
