@@ -4,7 +4,7 @@ use near_chain::{Block, Provenance};
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_chunks::shards_manager_actor::CHUNK_REQUEST_SWITCH_TO_FULL_FETCH;
 
-use near_chunks::test_loop::ShardsManagerResendChunkRequests;
+use near_chunks::test_utils::ShardsManagerResendChunkRequests;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
 use near_o11y::testonly::init_test_logger;
