@@ -3,7 +3,7 @@ use std::sync::Arc;
 use itertools::Itertools;
 use near_async::messaging::{Actor, CanSend, Handler, Sender};
 use near_async::time::Clock;
-use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
+use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::state_witness::{
@@ -62,8 +62,7 @@ pub struct DistributeStateWitnessRequest {
     pub state_witness: ChunkStateWitness,
 }
 
-#[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
-#[multi_send_message_derive(Debug)]
+#[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct PartialWitnessSenderForClient {
     pub distribute_chunk_state_witness: Sender<DistributeStateWitnessRequest>,
 }

@@ -22,7 +22,7 @@ use near_chain_configs::{
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::client_actor::ClientActorInner;
 use near_client::sync_jobs_actor::SyncJobsActor;
-use near_client::test_utils::test_loop::sync_actor::test_loop_sync_actor_maker;
+use near_client::test_utils::test_loop::test_loop_sync_actor_maker;
 
 use near_client::test_utils::test_loop::ClientQueries;
 use near_client::{Client, PartialWitnessActor, SyncAdapter};

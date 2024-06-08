@@ -29,7 +29,6 @@ use crate::client::ShardsManagerResponse;
 use crate::shards_manager_actor::ShardsManagerActor;
 use crate::test_loop::ShardsManagerResendChunkRequests;
 
-/// Deprecated. Use `MockChainForShardsManager`.
 pub struct ChunkTestFixture {
     pub store: Store,
     pub epoch_manager: EpochManagerHandle,

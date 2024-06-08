@@ -3,7 +3,7 @@ use near_async::actix_wrapper::ActixWrapper;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
 use near_async::messaging::{self, CanSend, Handler, HandlerWithContext, Sender};
 use near_async::time::Duration;
-use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
+use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
     BlockCatchUpResponse, LoadMemtrieRequest, LoadMemtrieResponse,
@@ -19,8 +19,7 @@ use near_store::DBCol;
 // Set the mailbox capacity for the SyncJobsActor from default 16 to 100.
 const MAILBOX_CAPACITY: usize = 100;
 
-#[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
-#[multi_send_message_derive(Debug)]
+#[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct ClientSenderForSyncJobs {
     apply_state_parts_response: Sender<ApplyStatePartsResponse>,
     block_catch_up_response: Sender<BlockCatchUpResponse>,
