@@ -23,7 +23,7 @@ use near_client_primitives::types::GetSplitStorageInfo;
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{Message, Request};
-use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
+use near_jsonrpc_primitives::types::config::{RpcProtocolConfigError, RpcProtocolConfigResponse};
 use near_jsonrpc_primitives::types::entity_debug::{EntityDebugHandler, EntityQuery};
 use near_jsonrpc_primitives::types::query::RpcQueryRequest;
 use near_jsonrpc_primitives::types::split_storage::{
@@ -37,7 +37,7 @@ use near_network::tcp;
 use near_o11y::metrics::{prometheus, Encoder, TextEncoder};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::{AccountId, BlockHeight, BlockId, BlockReference};
 use near_primitives::views::{QueryRequest, TxExecutionStatus};
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -410,6 +410,9 @@ impl JsonRpcHandler {
             }
             "EXPERIMENTAL_changes_in_block" => {
                 process_method_call(request, |params| self.changes_in_block(params)).await
+            }
+            "EXPERIMENTAL_congestion_level" => {
+                process_method_call(request, |params| self.congestion_level(params)).await
             }
             "EXPERIMENTAL_genesis_config" => {
                 process_method_call(request, |_params: ()| async {
@@ -914,6 +917,41 @@ impl JsonRpcHandler {
         let chunk_view =
             self.view_client_send(GetChunk::rpc_from(request_data.chunk_reference)).await?;
         Ok(near_jsonrpc_primitives::types::chunks::RpcChunkResponse { chunk_view })
+    }
+
+    async fn congestion_level(
+        &self,
+        request_data: near_jsonrpc_primitives::types::congestion::RpcCongestionLevelRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::congestion::RpcCongestionLevelResponse,
+        near_jsonrpc_primitives::types::congestion::RpcCongestionLevelError,
+    > {
+        let chunk_view =
+            self.view_client_send(GetChunk::rpc_from(request_data.chunk_reference)).await?;
+        let config_result = self
+            .view_client_send(GetProtocolConfig(BlockReference::BlockId(BlockId::Height(
+                chunk_view.header.height_included,
+            ))))
+            .await;
+        let config = config_result.map_err(|err: RpcProtocolConfigError| match err {
+            RpcProtocolConfigError::UnknownBlock { error_message } => {
+                near_jsonrpc_primitives::types::congestion::RpcCongestionLevelError::UnknownBlock {
+                    error_message,
+                }
+            }
+            RpcProtocolConfigError::InternalError { error_message } => {
+                near_jsonrpc_primitives::types::congestion::RpcCongestionLevelError::InternalError {
+                    error_message,
+                }
+            }
+        })?;
+        let congestion_info = chunk_view.header.congestion_info;
+        let congestion_level = congestion_info
+            .map(|info| info.congestion_level(config.runtime_config.congestion_control_config))
+            .unwrap_or(0.0);
+        Ok(near_jsonrpc_primitives::types::congestion::RpcCongestionLevelResponse {
+            congestion_level,
+        })
     }
 
     async fn receipt(
