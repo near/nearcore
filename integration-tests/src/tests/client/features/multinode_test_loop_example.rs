@@ -51,7 +51,7 @@ use near_client::test_utils::test_loop::partial_witness_actor::{
 };
 use near_client::test_utils::test_loop::sync_actor::{
     forward_sync_actor_messages_from_client, forward_sync_actor_messages_from_network,
-    test_loop_sync_actor_maker, TestSyncActors,
+    test_loop_sync_actor_maker_old, TestSyncActors,
 };
 use near_client::test_utils::test_loop::sync_jobs_actor::forward_messages_from_client_to_sync_jobs_actor;
 use near_client::test_utils::test_loop::{
@@ -257,7 +257,7 @@ fn test_client_with_multi_test_loop() {
         let state_sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
             builder.sender().for_index(idx).into_sender(),
             builder.sender().for_index(idx).into_sender(),
-            test_loop_sync_actor_maker(builder.sender().for_index(idx), sync_actors.clone()),
+            test_loop_sync_actor_maker_old(builder.sender().for_index(idx), sync_actors.clone()),
         )));
         let contract_cache = FilesystemContractRuntimeCache::new(&homedir, None::<&str>)
             .expect("filesystem contract cache")

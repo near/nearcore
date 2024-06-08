@@ -1,19 +1,44 @@
 use crate::sync::adapter::SyncActorHandler;
 use crate::sync::sync_actor::SyncActor;
 use crate::SyncMessage;
-use near_async::messaging::{IntoSender, Sender};
-use near_async::test_loop::delay_sender::DelaySender;
+use near_async::messaging::{IntoSender, LateBoundSender, Sender};
+use near_async::test_loop::data::TestLoopData;
+use near_async::test_loop::delay_sender::DelaySender as DelaySenderOld;
 use near_async::test_loop::event_handler::LoopEventHandler;
+use near_async::test_loop::DelaySender;
 use near_network::state_sync::StateSyncResponse;
 use near_network::types::PeerManagerMessageRequest;
 use near_primitives::shard_layout::ShardUId;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+pub fn test_loop_sync_actor_maker(
+    sender: DelaySender,
+) -> Arc<
+    dyn Fn(ShardUId, Sender<SyncMessage>, Sender<PeerManagerMessageRequest>) -> SyncActorHandler
+        + Send
+        + Sync,
+> {
+    Arc::new(move |shard_uid, client_sender, network_sender| {
+        let sync_actor = SyncActor::new(shard_uid, client_sender, network_sender);
+        let sync_actor_adapter = LateBoundSender::new();
+        let sync_actor_adapter_clone = sync_actor_adapter.clone();
+        let callback = move |data: &mut TestLoopData| {
+            data.register_actor(sync_actor, Some(sync_actor_adapter));
+        };
+        sender.send(format!("Register SyncActor {:?}", shard_uid), Box::new(callback));
+        SyncActorHandler {
+            client_sender: sync_actor_adapter_clone.as_sender(),
+            network_sender: sync_actor_adapter_clone.as_sender(),
+            shutdown: Mutex::new(Box::new(move || {})),
+        }
+    })
+}
+
 pub type TestSyncActors = Arc<Mutex<HashMap<ShardUId, SyncActor>>>;
 
-pub fn test_loop_sync_actor_maker<E>(
-    sender: DelaySender<E>,
+pub fn test_loop_sync_actor_maker_old<E>(
+    sender: DelaySenderOld<E>,
     sync_actors: TestSyncActors,
 ) -> Arc<
     dyn Fn(ShardUId, Sender<SyncMessage>, Sender<PeerManagerMessageRequest>) -> SyncActorHandler
