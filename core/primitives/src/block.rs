@@ -6,7 +6,7 @@ use crate::block_body::{BlockBody, BlockBodyV1, ChunkEndorsementSignatures};
 pub use crate::block_header::*;
 use crate::challenge::{Challenges, ChallengesResult};
 use crate::checked_feature;
-use crate::congestion_info::{CongestionInfo, ExtendedCongestionInfo};
+use crate::congestion_info::{BlockCongestionInfo, CongestionInfo, ExtendedCongestionInfo};
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{merklize, verify_path, MerklePath};
 use crate::num_rational::Rational32;
@@ -23,7 +23,7 @@ use near_primitives_core::version::ProtocolFeature;
 use near_time::Utc;
 use primitive_types::U256;
 use reed_solomon_erasure::galois_8::ReedSolomon;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::ops::Index;
 use std::sync::Arc;
 
@@ -596,8 +596,8 @@ impl Block {
         }
     }
 
-    pub fn shards_congestion_info(&self) -> HashMap<ShardId, ExtendedCongestionInfo> {
-        let mut result = HashMap::new();
+    pub fn shards_congestion_info(&self) -> BlockCongestionInfo {
+        let mut result = BTreeMap::new();
 
         for chunk in self.chunks().iter() {
             let shard_id = chunk.shard_id();
@@ -614,7 +614,7 @@ impl Block {
                 result.insert(shard_id, extended_congestion_info);
             }
         }
-        result
+        BlockCongestionInfo::new(result)
     }
 
     pub fn hash(&self) -> &CryptoHash {

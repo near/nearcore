@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use crate::errors::RuntimeError;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_parameters::config::CongestionControlConfig;
@@ -315,6 +317,50 @@ impl CongestionInfo {
         // checked_rem failed, hence all_shards.len() is 0
         // own_shard is the only choice.
         return own_shard;
+    }
+}
+
+// TODO remove default
+#[derive(Clone, Debug, Default)]
+pub struct BlockCongestionInfo {
+    shards_congestion_info: BTreeMap<ShardId, ExtendedCongestionInfo>,
+}
+
+impl BlockCongestionInfo {
+    pub fn new(shards_congestion_info: BTreeMap<ShardId, ExtendedCongestionInfo>) -> Self {
+        Self { shards_congestion_info }
+    }
+
+    pub fn iter(&self) -> std::collections::btree_map::Iter<'_, u64, ExtendedCongestionInfo> {
+        self.shards_congestion_info.iter()
+    }
+
+    pub fn all_shards(&self) -> Vec<ShardId> {
+        self.shards_congestion_info.keys().copied().collect()
+    }
+
+    pub fn get(&self, shard_id: &ShardId) -> Option<&ExtendedCongestionInfo> {
+        self.shards_congestion_info.get(shard_id)
+    }
+
+    pub fn get_mut(&mut self, shard_id: &ShardId) -> Option<&mut ExtendedCongestionInfo> {
+        self.shards_congestion_info.get_mut(shard_id)
+    }
+
+    pub fn insert(
+        &mut self,
+        shard_id: ShardId,
+        value: ExtendedCongestionInfo,
+    ) -> Option<ExtendedCongestionInfo> {
+        self.shards_congestion_info.insert(shard_id, value)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.shards_congestion_info.is_empty()
+    }
+
+    pub fn clear(&mut self) -> () {
+        self.shards_congestion_info.clear()
     }
 }
 
