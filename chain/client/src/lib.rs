@@ -1,6 +1,6 @@
 pub use near_client_primitives::types::{
     Error, GetBlock, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree, GetChunk,
-    GetClientConfig, GetDelayedReceipt, GetExecutionOutcome, GetExecutionOutcomeResponse,
+    GetClientConfig, GetExecutionOutcome, GetExecutionOutcomeResponse,
     GetExecutionOutcomesForBlock, GetGasPrice, GetMaintenanceWindows, GetNetworkInfo,
     GetNextLightClientBlock, GetProtocolConfig, GetReceipt, GetSplitStorageInfo, GetStateChanges,
     GetStateChangesInBlock, GetStateChangesWithCauseInBlock,

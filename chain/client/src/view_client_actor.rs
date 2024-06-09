@@ -17,13 +17,13 @@ use near_chain_configs::{ClientConfig, ProtocolConfigView};
 use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_client_primitives::types::{
     Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofError, GetBlockProofResponse,
-    GetBlockWithMerkleTree, GetChunkError, GetDelayedReceipt, GetDelayedReceiptError,
-    GetExecutionOutcome, GetExecutionOutcomeError, GetExecutionOutcomesForBlock, GetGasPrice,
-    GetGasPriceError, GetMaintenanceWindows, GetMaintenanceWindowsError,
-    GetNextLightClientBlockError, GetProtocolConfig, GetProtocolConfigError, GetReceipt,
-    GetReceiptError, GetSplitStorageInfo, GetSplitStorageInfoError, GetStateChangesError,
-    GetStateChangesWithCauseInBlock, GetStateChangesWithCauseInBlockForTrackedShards,
-    GetValidatorInfoError, Query, QueryError, TxStatus, TxStatusError,
+    GetBlockWithMerkleTree, GetChunkError, GetExecutionOutcome, GetExecutionOutcomeError,
+    GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError, GetMaintenanceWindows,
+    GetMaintenanceWindowsError, GetNextLightClientBlockError, GetProtocolConfig,
+    GetProtocolConfigError, GetReceipt, GetReceiptError, GetSplitStorageInfo,
+    GetSplitStorageInfoError, GetStateChangesError, GetStateChangesWithCauseInBlock,
+    GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfoError, Query, QueryError,
+    TxStatus, TxStatusError,
 };
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
@@ -1122,24 +1122,6 @@ impl Handler<GetReceipt> for ViewClientActorInner {
             .chain
             .chain_store()
             .get_receipt(&msg.receipt_id)?
-            .map(|receipt| Receipt::clone(&receipt).into()))
-    }
-}
-
-impl Handler<GetDelayedReceipt> for ViewClientActorInner {
-    #[perf]
-    fn handle(
-        &mut self,
-        msg: GetDelayedReceipt,
-    ) -> Result<Option<ReceiptView>, GetDelayedReceiptError> {
-        tracing::debug!(target: "client", ?msg);
-        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
-            .with_label_values(&["GetDelayedReceipt"])
-            .start_timer();
-        Ok(self
-            .chain
-            .chain_store()
-            .get_delayed_receipt(&msg.receipt_id)?
             .map(|receipt| Receipt::clone(&receipt).into()))
     }
 }

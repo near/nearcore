@@ -1016,38 +1016,6 @@ impl Message for GetReceipt {
 }
 
 #[derive(Debug)]
-pub struct GetDelayedReceipt {
-    pub receipt_id: CryptoHash,
-}
-
-#[derive(thiserror::Error, Debug)]
-pub enum GetDelayedReceiptError {
-    #[error("IO Error: {0}")]
-    IOError(String),
-    #[error("Delayed Receipt with id {0} is not found on the node")]
-    UnknownReceipt(near_primitives::hash::CryptoHash),
-    // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
-    // expected cases, we cannot statically guarantee that no other errors will be returned
-    // in the future.
-    // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
-    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {0}")]
-    Unreachable(String),
-}
-
-impl From<near_chain_primitives::Error> for GetDelayedReceiptError {
-    fn from(error: near_chain_primitives::Error) -> Self {
-        match error {
-            near_chain_primitives::Error::IOErr(error) => Self::IOError(error.to_string()),
-            _ => Self::Unreachable(error.to_string()),
-        }
-    }
-}
-
-impl Message for GetDelayedReceipt {
-    type Result = Result<Option<ReceiptView>, GetDelayedReceiptError>;
-}
-
-#[derive(Debug)]
 pub struct GetProtocolConfig(pub BlockReference);
 
 impl Message for GetProtocolConfig {

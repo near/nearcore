@@ -75,6 +75,7 @@ fn test_problematic_blocks_hash() {
 pub async fn build_streamer_message(
     client: &Addr<near_client::ViewClientActor>,
     block: views::BlockView,
+    ignore_missing_local_delayed_receipt: bool,
 ) -> Result<StreamerMessage, errors::IndexerError> {
     let _timer = metrics::BUILD_STREAMER_MESSAGE_TIME.start_timer();
     let chunks = fetch_block_chunks(&client, &block).await?;
@@ -87,6 +88,7 @@ pub async fn build_streamer_message(
     let runtime_config = runtime_config_store.get_config(protocol_config_view.protocol_version);
 
     let mut shards_outcomes = fetch_outcomes(&client, block.header.hash).await?;
+
     let mut state_changes = fetch_state_changes(
         &client,
         block.header.hash,
@@ -165,7 +167,19 @@ pub async fn build_streamer_message(
         let mut receipt_execution_outcomes: Vec<IndexerExecutionOutcomeWithReceipt> = vec![];
         for outcome in receipt_outcomes {
             let IndexerExecutionOutcomeWithOptionalReceipt { execution_outcome, receipt } = outcome;
+            tracing::debug!(
+                target: INDEXER,
+                "Looking for the Receipt for ExecutionOutcome {} in block {}...\n{:#?}",
+                execution_outcome.id,
+                block.header.height,
+                &execution_outcome,
+            );
             let receipt = if let Some(receipt) = receipt {
+                tracing::debug!(
+                    target: INDEXER,
+                    "Receipt {} found in ExecutionOutcome",
+                    &execution_outcome.id,
+                );
                 receipt
             } else {
                 // Attempt to extract the receipt or decide to fetch it based on cache access success
@@ -186,35 +200,44 @@ pub async fn build_streamer_message(
                         }
                     }
                 };
-
                 // Depending on whether you got the receipt from the cache, proceed
                 if let Some(receipt) = maybe_receipt {
                     // Receipt was found in cache
+                    tracing::debug!(
+                        target: INDEXER,
+                        "Receipt {} found in DELAYED_LOCAL_RECEIPTS_CACHE",
+                        &execution_outcome.id,
+                    );
                     receipt
                 } else {
                     // Receipt not found in cache or failed to acquire lock
                     // Local Delayed receipt might be in the RocksDB of the node
                     // if this node has started from genesis (forknet/mocknet)
-                    match fetchers::fetch_delayed_receipt_by_id(&client, execution_outcome.id)
-                        .await?
+                    tracing::debug!(
+                        target: INDEXER,
+                        "Receipt {} not found in DELAYED_LOCAL_RECEIPTS_CACHE, looking for it in up to 1000 blocks back in time",
+                        &execution_outcome.id,
+                    );
+                    match lookup_delayed_local_receipt_in_previous_blocks(
+                        &client,
+                        &runtime_config,
+                        block.clone(),
+                        execution_outcome.id,
+                    )
+                    .await
                     {
-                        Some(receipt) => receipt,
-                        None => {
-                            // Receipt not found in the RocksDB of the node
-                            // or failed to fetch it from the RocksDB
-                            // proceed to look it up in the history of blocks (up to 1000 blocks back)
-                            tracing::warn!(
-                                target: INDEXER,
-                                "Receipt {} is missing in block and in DELAYED_LOCAL_RECEIPTS_CACHE, looking for it in up to 1000 blocks back in time",
-                                execution_outcome.id,
-                            );
-                            lookup_delayed_local_receipt_in_previous_blocks(
-                                &client,
-                                &runtime_config,
-                                block.clone(),
-                                execution_outcome.id,
-                            )
-                            .await?
+                        Ok(receipt) => receipt,
+                        Err(err) => {
+                            if ignore_missing_local_delayed_receipt {
+                                warn!(
+                                    target: INDEXER,
+                                    "Local Delayed Receipt {} is not found when ExecutionOutcome was observed. Skipping the ExecutionOutcome according to the IndexerConfig.ignore_missing_local_delayed_receipt = true",
+                                    &execution_outcome.id,
+                                );
+                                continue;
+                            } else {
+                                return Err(err);
+                            }
                         }
                     }
                 }
@@ -451,7 +474,12 @@ pub(crate) async fn start(
         for block_height in start_syncing_block_height..=latest_block_height {
             metrics::CURRENT_BLOCK_HEIGHT.set(block_height as i64);
             if let Ok(block) = fetch_block_by_height(&view_client, block_height).await {
-                let response = build_streamer_message(&view_client, block).await;
+                let response = build_streamer_message(
+                    &view_client,
+                    block,
+                    indexer_config.ignore_missing_local_delayed_receipt,
+                )
+                .await;
 
                 match response {
                     Ok(streamer_message) => {
