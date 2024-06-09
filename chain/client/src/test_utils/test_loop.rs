@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use near_async::messaging::{IntoSender, LateBoundSender, Sender};
 use near_async::test_loop::data::TestLoopData;
-use near_async::test_loop::DelaySender;
+use near_async::test_loop::pending_events_sender::PendingEventsSender;
 use near_network::types::PeerManagerMessageRequest;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, Balance, ShardId};
@@ -135,7 +135,8 @@ where
 }
 
 pub fn test_loop_sync_actor_maker(
-    sender: DelaySender,
+    index: usize,
+    sender: PendingEventsSender,
 ) -> Arc<
     dyn Fn(ShardUId, Sender<SyncMessage>, Sender<PeerManagerMessageRequest>) -> SyncActorHandler
         + Send
@@ -146,7 +147,7 @@ pub fn test_loop_sync_actor_maker(
         let sync_actor_adapter = LateBoundSender::new();
         let sync_actor_adapter_clone = sync_actor_adapter.clone();
         let callback = move |data: &mut TestLoopData| {
-            data.register_actor(sync_actor, Some(sync_actor_adapter));
+            data.register_actor_for_index(index, sync_actor, Some(sync_actor_adapter));
         };
         sender.send(format!("Register SyncActor {:?}", shard_uid), Box::new(callback));
         SyncActorHandler {

@@ -59,16 +59,18 @@
 //! then the actual order of execution is B, D, A, E, C.
 pub mod data;
 pub mod futures;
+pub mod pending_events_sender;
 pub mod sender;
 
 use data::TestLoopData;
 use futures::{TestLoopAsyncComputationSpawner, TestLoopFututeSpawner};
 use near_time::{Clock, Duration, FakeClock};
+use pending_events_sender::{CallbackEvent, PendingEventsSender};
 use sender::TestLoopSender;
 use serde::Serialize;
+use std::collections::BinaryHeap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
-use std::{collections::BinaryHeap, fmt::Debug, sync::Arc};
+use std::sync::{Arc, Mutex};
 use time::ext::InstantExt;
 
 use crate::messaging::{Actor, LateBoundSender};
@@ -83,7 +85,7 @@ pub struct TestLoopV2 {
     /// The data that is stored and accessed by the test loop.
     pub data: TestLoopData,
     /// The sender is used to send events to the event loop.
-    pending_events_sender: DelaySender,
+    pending_events_sender: PendingEventsSender,
     /// The events that are yet to be handled. They are kept in a heap so that
     /// events that shall execute earlier (by our own virtual clock) are popped
     /// first.
@@ -101,37 +103,9 @@ pub struct TestLoopV2 {
     shutting_down: Arc<AtomicBool>,
 }
 
-type TestLoopCallback = Box<dyn FnOnce(&mut TestLoopData) + Send>;
-
-/// Interface to send an event with a delay (in virtual time).
-#[derive(Clone)]
-pub struct DelaySender(Arc<dyn Fn(String, TestLoopCallback, Duration) + Send + Sync>);
-
-impl DelaySender {
-    pub fn new(f: impl Fn(String, TestLoopCallback, Duration) + Send + Sync + 'static) -> Self {
-        Self(Arc::new(f))
-    }
-
-    /// Schedule a callback to be executed. TestLoop follows the fifo order of executing events.
-    pub fn send(&self, description: String, callback: TestLoopCallback) {
-        self.send_with_delay(description, callback, Duration::ZERO);
-    }
-
-    /// Schedule a callback to be executed after a delay.
-    pub fn send_with_delay(
-        &self,
-        description: String,
-        callback: TestLoopCallback,
-        delay: Duration,
-    ) {
-        self.0(description, callback, delay);
-    }
-}
-
 /// An event waiting to be executed, ordered by the due time and then by ID.
 struct EventInHeap {
-    description: String,
-    callback: TestLoopCallback,
+    event: CallbackEvent,
     due: Duration,
     id: usize,
 }
@@ -156,23 +130,6 @@ impl Ord for EventInHeap {
     }
 }
 
-/// CallbackEvent for testloop is a simple event with a single callback which gets executed. This takes in
-/// testloop data as a parameter which can be used alongside with data handlers to access data.
-/// This is very versatile and we can potentially have anything as a callback. For example, for the case of Senders
-/// and Handlers, we can have a simple implementation of the CanSend function as a callback calling the Handle function
-/// of the actor.
-struct CallbackEvent {
-    description: String,
-    callback: TestLoopCallback,
-    delay: Duration,
-}
-
-impl Debug for CallbackEvent {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("Event").field(&self.description).finish()
-    }
-}
-
 struct InFlightEvents {
     events: Vec<CallbackEvent>,
     /// The TestLoop thread ID. This and the following field are used to detect unintended
@@ -193,8 +150,8 @@ impl InFlightEvents {
                 "Event was sent from the wrong thread. TestLoop tests should be single-threaded. \
                     Check if there's any code that spawns computation on another thread such as \
                     rayon::spawn, and convert it to AsyncComputationSpawner or FutureSpawner. \
-                    Event: {:?}",
-                event
+                    Event: {}",
+                event.description
             );
         }
         self.events.push(event);
@@ -232,9 +189,9 @@ impl TestLoopV2 {
             is_handling_event: false,
         }));
         let pending_events_clone = pending_events.clone();
-        let pending_events_sender = DelaySender::new(move |description, callback, delay| {
+        let pending_events_sender = PendingEventsSender::new(move |callback_event| {
             let mut pending_events = pending_events_clone.lock().unwrap();
-            pending_events.add(CallbackEvent { description, callback, delay });
+            pending_events.add(callback_event);
         });
         let shutting_down = Arc::new(AtomicBool::new(false));
         Self {
@@ -265,7 +222,7 @@ impl TestLoopV2 {
     }
 
     /// Returns a sender that can be used anywhere to send events to the loop.
-    pub fn sender(&self) -> DelaySender {
+    pub fn sender(&self) -> PendingEventsSender {
         self.pending_events_sender.clone()
     }
 
@@ -275,7 +232,7 @@ impl TestLoopV2 {
         description: String,
         callback: impl FnOnce(&mut TestLoopData) + Send + 'static,
     ) {
-        self.pending_events_sender.send(description, Box::new(callback));
+        self.pending_events_sender.send(format!("Adhoc({})", description), Box::new(callback));
     }
 
     /// Returns a clock that will always return the current virtual time.
@@ -291,17 +248,28 @@ impl TestLoopV2 {
     where
         A: Actor + 'static,
     {
-        self.data.register_actor(actor, adapter)
+        self.data.register_actor_for_index(0, actor, adapter)
+    }
+
+    pub fn register_actor_for_index<A>(
+        &mut self,
+        index: usize,
+        actor: A,
+        adapter: Option<Arc<LateBoundSender<TestLoopSender<A>>>>,
+    ) -> TestLoopSender<A>
+    where
+        A: Actor + 'static,
+    {
+        self.data.register_actor_for_index(index, actor, adapter)
     }
 
     /// Helper to push events we have just received into the heap.
     fn queue_received_events(&mut self) {
         for event in self.pending_events.lock().unwrap().events.drain(..) {
             self.events.push(EventInHeap {
-                description: event.description,
-                callback: event.callback,
                 due: self.current_time + event.delay,
                 id: self.next_event_index,
+                event,
             });
             self.next_event_index += 1;
         }
@@ -371,14 +339,15 @@ impl TestLoopV2 {
         let start_json = serde_json::to_string(&EventStartLogOutput {
             current_index: event.id,
             total_events: self.next_event_index,
-            current_event: format!("{:?}", event.description),
+            current_event: event.event.description,
             current_time_ms: event.due.whole_milliseconds() as u64,
         })
         .unwrap();
         tracing::info!(target: "test_loop", "TEST_LOOP_EVENT_START {}", start_json);
         assert_eq!(self.current_time, event.due);
 
-        (event.callback)(&mut self.data);
+        let callback = event.event.callback;
+        callback(&mut self.data);
 
         // Push any new events into the queue. Do this before emitting the end log line,
         // so that it contains the correct new total number of events.
@@ -453,9 +422,9 @@ impl Drop for TestLoopV2 {
         self.queue_received_events();
         if let Some(event) = self.events.pop() {
             panic!(
-                "Event scheduled at {} is not handled at the end of the test: {:?}.
+                "Event scheduled at {} is not handled at the end of the test: {}.
                  Consider calling `test.shutdown_and_drain_remaining_events(...)`.",
-                event.due, event.description
+                event.due, event.event.description
             );
         }
     }

@@ -1,4 +1,5 @@
 use std::any::type_name;
+use std::fmt::Debug;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -7,7 +8,7 @@ use crate::messaging::{Actor, CanSend, HandlerWithContext, MessageWithCallback};
 use crate::time::Duration;
 
 use super::data::{TestLoopData, TestLoopDataHandle};
-use super::DelaySender;
+use super::PendingEventsSender;
 
 /// TestLoopSender implements the CanSend methods for an actor that can Handle them. This is
 /// similar to our pattern of having an ActixWarpper around an actor to send messages to it.
@@ -31,7 +32,7 @@ where
     A: 'static,
 {
     actor_handle: TestLoopDataHandle<A>,
-    pending_events_sender: DelaySender,
+    pending_events_sender: PendingEventsSender,
     shutting_down: Arc<AtomicBool>,
     sender_delay: Duration,
 }
@@ -68,7 +69,7 @@ where
             f(actor, &mut this);
         };
         self.pending_events_sender.send_with_delay(
-            format!("DelayedActionRunner {:?}", name),
+            format!("DelayedAction {}({:?})", pretty_type_name::<A>(), name),
             Box::new(callback),
             dur,
         );
@@ -77,17 +78,18 @@ where
 
 impl<M, A> CanSend<M> for TestLoopSender<A>
 where
-    M: actix::Message + Send + 'static,
+    M: actix::Message + Debug + Send + 'static,
     A: Actor + HandlerWithContext<M> + 'static,
 {
     fn send(&self, msg: M) {
         let mut this = self.clone();
         let callback = move |data: &mut TestLoopData| {
+            tracing::debug!(target: "test_loop", "Handling message: {:?}", msg);
             let actor = data.get_mut(&this.actor_handle);
             actor.handle(msg, &mut this);
         };
         self.pending_events_sender.send_with_delay(
-            format!("Message {:?}", type_name::<M>()),
+            format!("{}({})", pretty_type_name::<A>(), pretty_type_name::<M>()),
             Box::new(callback),
             self.sender_delay,
         );
@@ -96,20 +98,21 @@ where
 
 impl<M, R, A> CanSend<MessageWithCallback<M, R>> for TestLoopSender<A>
 where
-    M: actix::Message<Result = R> + Send + 'static,
+    M: actix::Message<Result = R> + Debug + Send + 'static,
     A: Actor + HandlerWithContext<M> + 'static,
     R: 'static,
 {
     fn send(&self, msg: MessageWithCallback<M, R>) {
         let mut this = self.clone();
         let callback = move |data: &mut TestLoopData| {
+            tracing::debug!(target: "test_loop", "Handling message: {:?}", msg);
             let MessageWithCallback { message: msg, callback } = msg;
             let actor = data.get_mut(&this.actor_handle);
             let result = actor.handle(msg, &mut this);
             callback(Ok(result));
         };
         self.pending_events_sender.send_with_delay(
-            format!("Message {:?}", type_name::<M>()),
+            format!("{}({})", pretty_type_name::<A>(), pretty_type_name::<M>()),
             Box::new(callback),
             self.sender_delay,
         );
@@ -122,7 +125,7 @@ where
 {
     pub fn new(
         actor_handle: TestLoopDataHandle<A>,
-        pending_events_sender: DelaySender,
+        pending_events_sender: PendingEventsSender,
         shutting_down: Arc<AtomicBool>,
     ) -> Self {
         Self { actor_handle, pending_events_sender, shutting_down, sender_delay: Duration::ZERO }
@@ -136,4 +139,11 @@ where
     pub fn actor_handle(&self) -> TestLoopDataHandle<A> {
         self.actor_handle.clone()
     }
+}
+
+// Quick and dirty way of getting the type name without the module path.
+// Does not work for more complex types like std::sync::Arc<std::sync::atomic::AtomicBool<...>>
+// example near_chunks::shards_manager_actor::ShardsManagerActor -> ShardsManagerActor
+fn pretty_type_name<T>() -> &'static str {
+    type_name::<T>().split("::").last().unwrap()
 }

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use crate::messaging::{Actor, LateBoundSender};
 
 use super::sender::TestLoopSender;
-use super::DelaySender;
+use super::PendingEventsSender;
 
 /// TestLoopData is the container for all data that is stored and accessed by the test loop.
 ///
@@ -37,13 +37,13 @@ pub struct TestLoopData {
     // Container of the data. We store it as a vec of Any so that we can store any type of data.
     data: Vec<Box<dyn Any>>,
     // Sender to send events to the test loop. Used mainly for registering actors.
-    pending_events_sender: DelaySender,
+    pending_events_sender: PendingEventsSender,
     // Atomic bool to check if the test loop is shutting down. Used mainly for registering actors.
     shutting_down: Arc<AtomicBool>,
 }
 
 impl TestLoopData {
-    pub fn new(pending_events_sender: DelaySender, shutting_down: Arc<AtomicBool>) -> Self {
+    pub fn new(pending_events_sender: PendingEventsSender, shutting_down: Arc<AtomicBool>) -> Self {
         Self { data: Vec::new(), pending_events_sender, shutting_down }
     }
 
@@ -58,8 +58,9 @@ impl TestLoopData {
     /// Function to register an actor in the TestLoopData.
     /// Additionally schedules the start event for the actor on testloop.
     /// Returns a TestLoopSender<Actor> that can be used to send messages to the actor.
-    pub fn register_actor<A>(
+    pub fn register_actor_for_index<A>(
         &mut self,
+        index: usize,
         actor: A,
         adapter: Option<Arc<LateBoundSender<TestLoopSender<A>>>>,
     ) -> TestLoopSender<A>
@@ -69,7 +70,7 @@ impl TestLoopData {
         let actor_handle = self.register_data(actor);
         let sender = TestLoopSender::new(
             actor_handle,
-            self.pending_events_sender.clone(),
+            self.pending_events_sender.clone().for_index(index),
             self.shutting_down.clone(),
         );
         self.queue_start_actor_event(sender.clone());
@@ -88,7 +89,7 @@ impl TestLoopData {
             actor.start_actor(&mut sender);
         };
         self.pending_events_sender
-            .send(format!("StartActor {:?}", type_name::<A>()), Box::new(callback));
+            .send(format!("StartActor({:?})", type_name::<A>()), Box::new(callback));
     }
 
     /// Function to get reference to the data stored in TestLoopData.
@@ -133,7 +134,7 @@ mod tests {
     use std::sync::Arc;
 
     use crate::test_loop::data::TestLoopData;
-    use crate::test_loop::DelaySender;
+    use crate::test_loop::PendingEventsSender;
 
     #[derive(Debug, PartialEq)]
     struct TestData {
@@ -143,7 +144,7 @@ mod tests {
     #[test]
     fn test_register_data() {
         let mut data =
-            TestLoopData::new(DelaySender::new(|_, _, _| {}), Arc::new(AtomicBool::new(false)));
+            TestLoopData::new(PendingEventsSender::new(|_| {}), Arc::new(AtomicBool::new(false)));
         let test_data = TestData { value: 42 };
         let handle = data.register_data(test_data);
         assert_eq!(data.get(&handle), &TestData { value: 42 });
