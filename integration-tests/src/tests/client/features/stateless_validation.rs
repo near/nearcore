@@ -33,6 +33,7 @@ const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 fn run_chunk_validation_test(
     seed: u64,
     prob_missing_chunk: f64,
+    prob_missing_block: f64,
     genesis_protocol_version: ProtocolVersion,
 ) {
     init_integration_logger();
@@ -44,7 +45,7 @@ fn run_chunk_validation_test(
 
     let initial_balance = 100 * ONE_NEAR;
     let validator_stake = 1000000 * ONE_NEAR;
-    let blocks_to_produce = 50;
+    let blocks_to_produce = if prob_missing_block > 0.0 { 200 } else { 50 };
     let num_accounts = 9;
     let accounts = (0..num_accounts)
         .map(|i| format!("account{}", i).parse().unwrap())
@@ -145,7 +146,17 @@ fn run_chunk_validation_test(
 
     let mut rng: StdRng = SeedableRng::seed_from_u64(seed);
     let mut found_differing_post_state_root_due_to_state_transitions = false;
+
+    let tip = env.clients[0].chain.head().unwrap();
+    let mut height = tip.height;
+
     for round in 0..blocks_to_produce {
+        height += 1;
+        if rng.gen_bool(prob_missing_block) {
+            // Skip producing a block.
+            continue;
+        }
+
         let heads = env
             .clients
             .iter()
@@ -174,12 +185,13 @@ fn run_chunk_validation_test(
             let _ = env.clients[0].process_tx(tx, false, false);
         }
 
-        let block_producer = env.get_block_producer_at_offset(&tip, 1);
+        let height_offset = height - tip.height;
+        let block_producer = env.get_block_producer_at_offset(&tip, height_offset);
         tracing::debug!(
             target: "client",
-            "Producing block at height {} by {}", tip.height + 1, block_producer
+            "Producing block at height {} by {}", height, block_producer
         );
-        let block = env.client(&block_producer).produce_block(tip.height + 1).unwrap().unwrap();
+        let block = env.client(&block_producer).produce_block(height).unwrap().unwrap();
 
         // Apply the block.
         for i in 0..env.clients.len() {
@@ -253,23 +265,45 @@ fn run_chunk_validation_test(
 
 #[test]
 fn test_chunk_validation_no_missing_chunks() {
-    run_chunk_validation_test(42, 0.0, PROTOCOL_VERSION);
+    run_chunk_validation_test(42, 0.0, 0.0, PROTOCOL_VERSION);
 }
 
 #[test]
 fn test_chunk_validation_low_missing_chunks() {
-    run_chunk_validation_test(43, 0.3, PROTOCOL_VERSION);
+    run_chunk_validation_test(43, 0.3, 0.0, PROTOCOL_VERSION);
 }
 
 #[test]
 fn test_chunk_validation_high_missing_chunks() {
-    run_chunk_validation_test(44, 0.81, PROTOCOL_VERSION);
+    run_chunk_validation_test(44, 0.81, 0.0, PROTOCOL_VERSION);
 }
+
 #[test]
-fn test_chunk_validation_protocol_upgrade() {
+fn test_chunk_validation_protocol_upgrade_no_missing() {
     run_chunk_validation_test(
         42,
         0.0,
+        0.0,
+        ProtocolFeature::StatelessValidationV0.protocol_version() - 1,
+    );
+}
+
+#[test]
+fn test_chunk_validation_protocol_upgrade_low_missing_prob() {
+    run_chunk_validation_test(
+        42,
+        0.2,
+        0.1,
+        ProtocolFeature::StatelessValidationV0.protocol_version() - 1,
+    );
+}
+
+#[test]
+fn test_chunk_validation_protocol_upgrade_mid_missing_prob() {
+    run_chunk_validation_test(
+        42,
+        0.6,
+        0.3,
         ProtocolFeature::StatelessValidationV0.protocol_version() - 1,
     );
 }
