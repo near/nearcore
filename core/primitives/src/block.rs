@@ -596,7 +596,7 @@ impl Block {
         }
     }
 
-    pub fn shards_congestion_info(&self) -> BlockCongestionInfo {
+    pub fn block_congestion_info(&self) -> BlockCongestionInfo {
         let mut result = BTreeMap::new();
 
         for chunk in self.chunks().iter() {

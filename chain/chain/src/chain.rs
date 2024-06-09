@@ -476,7 +476,7 @@ impl Chain {
                         .enabled(chain_genesis.protocol_version)
                     {
                         genesis
-                            .shards_congestion_info()
+                            .block_congestion_info()
                             .get(&chunk_header.shard_id())
                             .map(|info| info.congestion_info)
                     } else {
@@ -3068,7 +3068,7 @@ impl Chain {
         } else {
             prev_block_header.next_gas_price()
         };
-        let congestion_info = block.shards_congestion_info();
+        let congestion_info = block.block_congestion_info();
 
         Ok(ApplyChunkBlockContext::from_header(block_header, gas_price, congestion_info))
     }

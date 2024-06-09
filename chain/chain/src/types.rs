@@ -360,7 +360,7 @@ impl From<&Block> for PrepareTransactionsBlockContext {
             next_gas_price: header.next_gas_price(),
             height: header.height(),
             block_hash: *header.hash(),
-            congestion_info: block.shards_congestion_info(),
+            congestion_info: block.block_congestion_info(),
         }
     }
 }

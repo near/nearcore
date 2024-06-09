@@ -1638,7 +1638,7 @@ fn prepare_transactions(
 ) -> Result<PreparedTransactions, Error> {
     let shard_id = 0;
     let block = chain.get_block(&env.head.prev_block_hash).unwrap();
-    let congestion_info = block.shards_congestion_info();
+    let congestion_info = block.block_congestion_info();
 
     env.runtime.prepare_transactions(
         storage_config,

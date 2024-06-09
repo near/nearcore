@@ -108,7 +108,7 @@ pub(crate) fn apply_block(
                 ApplyChunkBlockContext::from_header(
                     block.header(),
                     prev_block.header().next_gas_price(),
-                    prev_block.shards_congestion_info(),
+                    prev_block.block_congestion_info(),
                 ),
                 &receipts,
                 chunk.transactions(),
@@ -133,7 +133,7 @@ pub(crate) fn apply_block(
                 ApplyChunkBlockContext::from_header(
                     block.header(),
                     block.header().next_gas_price(),
-                    prev_block.shards_congestion_info(),
+                    prev_block.block_congestion_info(),
                 ),
                 &[],
                 &[],
