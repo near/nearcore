@@ -156,6 +156,7 @@ impl CongestionInfo {
                 extra.delayed_receipts_gas == header.delayed_receipts_gas
                     && extra.buffered_receipts_gas == header.buffered_receipts_gas
                     && extra.receipt_bytes == header.receipt_bytes
+                    && extra.allowed_shard == header.allowed_shard
             }
         }
     }
@@ -323,6 +324,8 @@ impl CongestionInfo {
 // TODO remove default
 #[derive(Clone, Debug, Default)]
 pub struct BlockCongestionInfo {
+    /// The per shard congestion info. It's important that the data structure is
+    /// deterministic. Ideally it should also be sorted by shard id.
     shards_congestion_info: BTreeMap<ShardId, ExtendedCongestionInfo>,
 }
 
@@ -331,7 +334,7 @@ impl BlockCongestionInfo {
         Self { shards_congestion_info }
     }
 
-    pub fn iter(&self) -> std::collections::btree_map::Iter<'_, u64, ExtendedCongestionInfo> {
+    pub fn iter(&self) -> impl Iterator<Item = (&ShardId, &ExtendedCongestionInfo)> {
         self.shards_congestion_info.iter()
     }
 
