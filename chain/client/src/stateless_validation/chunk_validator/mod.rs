@@ -291,7 +291,7 @@ impl Client {
         );
         // In production PartialWitnessActor does not forward a state witness to the chunk producer that
         // produced the witness. However some tests bypass PartialWitnessActor, thus when a chunk producer
-        // receives its own state witness, we log a warning insteaf of panicking.
+        // receives its own state witness, we log a warning instead of panicking.
         // TODO: Make sure all tests run with "test_features" and panic for non-test builds.
         if self.validator_signer.as_ref().unwrap().validator_id() == &witness.chunk_producer {
             tracing::warn!(
