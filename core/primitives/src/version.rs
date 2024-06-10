@@ -67,6 +67,10 @@ pub const PROTOCOL_UPGRADE_SCHEDULE: Lazy<ProtocolUpgradeVotingSchedule> = Lazy:
     // that they are ordered by datetime and version, the last one is the
     // PROTOCOL_VERSION and that there is enough time between subsequent
     // upgrades.
+    //
+    // At most one protocol version upgrade vote can happen per epoch. If, by any
+    // chance, two or more votes get scheduled on the same epoch, the latest upgrades
+    // will be postponed.
 
     // e.g.
     // let v1_protocol_version = 50;

@@ -54,6 +54,9 @@ pub struct AmendGenesisCommand {
     /// chunk_producer_kickout_threshold to set in the output genesis file
     #[clap(long)]
     chunk_producer_kickout_threshold: Option<u8>,
+    /// chunk_validator_only_kickout_threshold to set in the output genesis file
+    #[clap(long)]
+    chunk_validator_only_kickout_threshold: Option<u8>,
     /// protocol_reward_rate to set in the output genesis file. Give a ratio here (e.g. "1/10")
     #[clap(long)]
     protocol_reward_rate: Option<Rational32>,
@@ -94,6 +97,7 @@ impl AmendGenesisCommand {
             max_inflation_rate: self.max_inflation_rate,
             block_producer_kickout_threshold: self.block_producer_kickout_threshold,
             chunk_producer_kickout_threshold: self.chunk_producer_kickout_threshold,
+            chunk_validator_only_kickout_threshold: self.chunk_validator_only_kickout_threshold,
             gas_limit: self.gas_limit,
             min_gas_price: self.min_gas_price,
             max_gas_price: self.max_gas_price,

@@ -109,6 +109,8 @@ pub struct LimitConfig {
     pub max_contract_size: u64,
     /// Max transaction size
     pub max_transaction_size: u64,
+    /// Max receipt size
+    pub max_receipt_size: u64,
     /// Max storage key size
     pub max_length_storage_key: u64,
     /// Max storage value size

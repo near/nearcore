@@ -569,7 +569,7 @@ mod tests {
             0,
             sender,
             receiver,
-            &signer,
+            &signer.into(),
             deposit,
             CryptoHash::default(),
         );

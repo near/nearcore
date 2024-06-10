@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use near_async::time::Clock;
-use near_crypto::{PublicKey, Signer};
+use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -41,6 +41,7 @@ pub struct TestGenesisBuilder {
     transaction_validity_period: Option<NumBlocks>,
     validators: Option<ValidatorsSpec>,
     minimum_validators_per_shard: Option<NumSeats>,
+    target_validator_mandates_per_shard: Option<NumSeats>,
     protocol_treasury_account: Option<String>,
     shuffle_shard_assignment_for_chunk_producers: Option<bool>,
     kickouts_config: Option<KickoutsConfig>,
@@ -66,6 +67,7 @@ enum ValidatorsSpec {
 struct KickoutsConfig {
     block_producer_kickout_threshold: u8,
     chunk_producer_kickout_threshold: u8,
+    chunk_validator_only_kickout_threshold: u8,
 }
 
 #[derive(Debug, Clone)]
@@ -204,6 +206,14 @@ impl TestGenesisBuilder {
         self
     }
 
+    pub fn target_validator_mandates_per_shard(
+        &mut self,
+        target_validator_mandates_per_shard: NumSeats,
+    ) -> &mut Self {
+        self.target_validator_mandates_per_shard = Some(target_validator_mandates_per_shard);
+        self
+    }
+
     /// Specifies the protocol treasury account. If not specified, this will
     /// pick an arbitrary account name and ensure that it is included in the
     /// genesis records.
@@ -221,6 +231,7 @@ impl TestGenesisBuilder {
         self.kickouts_config = Some(KickoutsConfig {
             block_producer_kickout_threshold: 0,
             chunk_producer_kickout_threshold: 0,
+            chunk_validator_only_kickout_threshold: 0,
         });
         self
     }
@@ -229,18 +240,7 @@ impl TestGenesisBuilder {
         self.kickouts_config = Some(KickoutsConfig {
             block_producer_kickout_threshold: 90,
             chunk_producer_kickout_threshold: 90,
-        });
-        self
-    }
-
-    pub fn kickouts(
-        &mut self,
-        block_producer_kickout_threshold: u8,
-        chunk_producer_kickout_threshold: u8,
-    ) -> &mut Self {
-        self.kickouts_config = Some(KickoutsConfig {
-            block_producer_kickout_threshold,
-            chunk_producer_kickout_threshold,
+            chunk_validator_only_kickout_threshold: 90,
         });
         self
     }
@@ -334,6 +334,15 @@ impl TestGenesisBuilder {
             );
             default
         });
+        let target_validator_mandates_per_shard =
+            self.target_validator_mandates_per_shard.unwrap_or_else(|| {
+                let default = 68;
+                tracing::warn!(
+                    "Genesis minimum_validators_per_shard not explicitly set, defaulting to {:?}.",
+                    default
+                );
+                default
+            });
         let protocol_treasury_account: AccountId = self
             .protocol_treasury_account
             .clone()
@@ -361,6 +370,7 @@ impl TestGenesisBuilder {
             let default = KickoutsConfig {
                 block_producer_kickout_threshold: 0,
                 chunk_producer_kickout_threshold: 0,
+                chunk_validator_only_kickout_threshold: 0,
             };
             tracing::warn!(
                 "Genesis kickouts_config not explicitly set, defaulting to disabling kickouts.",
@@ -452,6 +462,9 @@ impl TestGenesisBuilder {
             fishermen_threshold: 0,
             block_producer_kickout_threshold: kickouts_config.block_producer_kickout_threshold,
             chunk_producer_kickout_threshold: kickouts_config.chunk_producer_kickout_threshold,
+            chunk_validator_only_kickout_threshold: kickouts_config
+                .chunk_validator_only_kickout_threshold,
+            target_validator_mandates_per_shard,
             transaction_validity_period,
             protocol_version,
             protocol_treasury_account,

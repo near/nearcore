@@ -26,7 +26,7 @@ pub fn add_blocks(
     client: Addr<ClientActor>,
     num: usize,
     epoch_length: BlockHeightDelta,
-    signer: &dyn ValidatorSigner,
+    signer: &ValidatorSigner,
 ) -> Vec<Block> {
     let mut prev = &blocks[blocks.len() - 1];
     let mut block_merkle_tree = PartialMerkleTree::default();

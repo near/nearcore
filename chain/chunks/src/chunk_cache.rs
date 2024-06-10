@@ -296,7 +296,7 @@ mod tests {
             CryptoHash::default(),
             CryptoHash::default(),
             vec![],
-            &signer,
+            &signer.into(),
         ))
     }
 

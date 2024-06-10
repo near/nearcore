@@ -486,6 +486,8 @@ impl EpochManagerAdapter for MockEpochManager {
             avg_hidden_validator_seats_per_shard: vec![1, 1],
             block_producer_kickout_threshold: 0,
             chunk_producer_kickout_threshold: 0,
+            chunk_validator_only_kickout_threshold: 0,
+            target_validator_mandates_per_shard: 1,
             validator_max_kickout_stake_perc: 0,
             online_min_threshold: Ratio::new(1i32, 4i32),
             online_max_threshold: Ratio::new(3i32, 4i32),

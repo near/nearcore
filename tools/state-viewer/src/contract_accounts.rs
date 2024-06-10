@@ -492,7 +492,7 @@ impl ContractAccountFilter {
 mod tests {
     use super::{ContractAccount, ContractAccountFilter, Summary};
     use borsh::BorshSerialize;
-    use near_crypto::{InMemorySigner, Signer};
+    use near_crypto::InMemorySigner;
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
     use near_primitives::transaction::{

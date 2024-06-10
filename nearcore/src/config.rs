@@ -21,14 +21,14 @@ use near_chain_configs::{
     default_view_client_throttle_period, get_initial_supply, ChunkDistributionNetworkConfig,
     ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode, LogSummaryStyle,
     MutableConfigValue, ReshardingConfig, StateSyncConfig, BLOCK_PRODUCER_KICKOUT_THRESHOLD,
-    CHUNK_PRODUCER_KICKOUT_THRESHOLD, EXPECTED_EPOCH_LENGTH, FISHERMEN_THRESHOLD,
-    GAS_PRICE_ADJUSTMENT_RATE, GENESIS_CONFIG_FILENAME, INITIAL_GAS_LIMIT, MAX_INFLATION_RATE,
-    MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, NEAR_BASE, NUM_BLOCKS_PER_YEAR,
-    NUM_BLOCK_PRODUCER_SEATS, PROTOCOL_REWARD_RATE, PROTOCOL_UPGRADE_STAKE_THRESHOLD,
-    TRANSACTION_VALIDITY_PERIOD,
+    CHUNK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD,
+    EXPECTED_EPOCH_LENGTH, FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE, GENESIS_CONFIG_FILENAME,
+    INITIAL_GAS_LIMIT, MAX_INFLATION_RATE, MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, NEAR_BASE,
+    NUM_BLOCKS_PER_YEAR, NUM_BLOCK_PRODUCER_SEATS, PROTOCOL_REWARD_RATE,
+    PROTOCOL_UPGRADE_STAKE_THRESHOLD, TRANSACTION_VALIDITY_PERIOD,
 };
 use near_config_utils::{ValidationError, ValidationErrors};
-use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
+use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey};
 use near_epoch_manager::EpochManagerHandle;
 #[cfg(feature = "json_rpc")]
 use near_jsonrpc::RpcConfig;
@@ -504,7 +504,7 @@ pub struct NearConfig {
     pub rosetta_rpc_config: Option<RosettaRpcConfig>,
     pub telemetry_config: TelemetryConfig,
     pub genesis: Genesis,
-    pub validator_signer: Option<Arc<dyn ValidatorSigner>>,
+    pub validator_signer: Option<Arc<ValidatorSigner>>,
 }
 
 impl NearConfig {
@@ -512,7 +512,7 @@ impl NearConfig {
         config: Config,
         genesis: Genesis,
         network_key_pair: KeyFile,
-        validator_signer: Option<Arc<dyn ValidatorSigner>>,
+        validator_signer: Option<Arc<ValidatorSigner>>,
     ) -> anyhow::Result<Self> {
         Ok(NearConfig {
             config: config.clone(),
@@ -982,6 +982,7 @@ pub fn init_configs(
                 gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
                 block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
                 chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
+                chunk_validator_only_kickout_threshold: CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD,
                 online_max_threshold: Rational32::new(99, 100),
                 online_min_threshold: Rational32::new(BLOCK_PRODUCER_KICKOUT_THRESHOLD as i32, 100),
                 validators: vec![AccountInfo {
@@ -1015,7 +1016,7 @@ pub fn create_testnet_configs_from_seeds(
     local_ports: bool,
     archive: bool,
     tracked_shards: Vec<u64>,
-) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, Genesis) {
+) -> (Vec<Config>, Vec<ValidatorSigner>, Vec<InMemorySigner>, Genesis) {
     let num_validator_seats = (seeds.len() - num_non_validator_seats as usize) as NumSeats;
     let validator_signers =
         seeds.iter().map(|seed| create_test_signer(seed.as_str())).collect::<Vec<_>>();
@@ -1075,8 +1076,7 @@ pub fn create_testnet_configs(
     local_ports: bool,
     archive: bool,
     tracked_shards: Vec<u64>,
-) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, Genesis, Vec<InMemorySigner>)
-{
+) -> (Vec<Config>, Vec<ValidatorSigner>, Vec<InMemorySigner>, Genesis, Vec<InMemorySigner>) {
     let shard_keys = vec![];
     let (configs, validator_signers, network_signers, genesis) = create_testnet_configs_from_seeds(
         (0..(num_validator_seats + num_non_validator_seats))
@@ -1237,7 +1237,7 @@ pub fn load_config(
     let validator_file = dir.join(&config.validator_key_file);
     let validator_signer = if validator_file.exists() {
         match InMemoryValidatorSigner::from_file(&validator_file) {
-            Ok(signer) => Some(Arc::new(signer) as Arc<dyn ValidatorSigner>),
+            Ok(signer) => Some(Arc::new(signer.into())),
             Err(_) => {
                 let error_message = format!(
                     "Failed initializing validator signer from {}",
@@ -1329,7 +1329,7 @@ pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -
     } else {
         let signer =
             Arc::new(InMemorySigner::from_seed(seed.parse().unwrap(), KeyType::ED25519, seed));
-        let validator_signer = Arc::new(create_test_signer(seed)) as Arc<dyn ValidatorSigner>;
+        let validator_signer = Arc::new(create_test_signer(seed)) as Arc<ValidatorSigner>;
         (signer, Some(validator_signer))
     };
     NearConfig::new(config, genesis, signer.into(), validator_signer).unwrap()

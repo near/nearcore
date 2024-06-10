@@ -138,7 +138,7 @@ pub struct Doomslug {
     endorsement_pending: bool,
     /// Information to track the timer (see `start_timer` routine in the paper)
     timer: DoomslugTimer,
-    signer: Option<Arc<dyn ValidatorSigner>>,
+    signer: Option<Arc<ValidatorSigner>>,
     /// How many approvals to have before producing a block. In production should be always `HalfStake`,
     ///    but for many tests we use `NoApprovals` to invoke more forkfulness
     threshold_mode: DoomslugThresholdMode,
@@ -362,7 +362,7 @@ impl Doomslug {
         min_delay: Duration,
         delay_step: Duration,
         max_delay: Duration,
-        signer: Option<Arc<dyn ValidatorSigner>>,
+        signer: Option<Arc<ValidatorSigner>>,
         threshold_mode: DoomslugThresholdMode,
     ) -> Self {
         Doomslug {

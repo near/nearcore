@@ -19,6 +19,7 @@ use crate::version::{ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
 use near_primitives_core::types::ShardId;
+use near_primitives_core::version::ProtocolFeature;
 use near_time::Utc;
 use primitive_types::U256;
 use reed_solomon_erasure::galois_8::ReedSolomon;
@@ -105,6 +106,10 @@ pub fn genesis_chunks(
         std::iter::repeat(state_roots[0]).take(shard_ids.len()).collect()
     };
 
+    let congestion_info = ProtocolFeature::CongestionControl
+        .enabled(genesis_protocol_version)
+        .then_some(CongestionInfo::default());
+
     shard_ids
         .into_iter()
         .zip(state_roots)
@@ -124,8 +129,8 @@ pub fn genesis_chunks(
                 vec![],
                 &[],
                 CryptoHash::default(),
-                CongestionInfo::default(),
-                &EmptyValidatorSigner::default(),
+                congestion_info,
+                &EmptyValidatorSigner::default().into(),
                 genesis_protocol_version,
             )
             .expect("Failed to decode genesis chunk");
@@ -262,7 +267,7 @@ impl Block {
         minted_amount: Option<Balance>,
         challenges_result: ChallengesResult,
         challenges: Challenges,
-        signer: &dyn ValidatorSigner,
+        signer: &ValidatorSigner,
         next_bp_hash: CryptoHash,
         block_merkle_root: CryptoHash,
         timestamp: Utc,

@@ -92,6 +92,7 @@ fn run_chunk_validation_test(
         // missing chunks functionality.
         block_producer_kickout_threshold: 0,
         chunk_producer_kickout_threshold: 0,
+        chunk_validator_only_kickout_threshold: 0,
         // Needed to distribute full non-trivial reward to each validator if at
         // least some block/chunk was produced.
         // This itself is needed to make state transition on epoch boundary
@@ -165,7 +166,7 @@ fn run_chunk_validation_test(
                 round as u64,
                 sender_account,
                 receiver_account,
-                &signer,
+                &signer.into(),
                 ONE_NEAR,
                 tip.last_block_hash,
             );
@@ -405,7 +406,7 @@ fn test_invalid_transactions() {
             1,
             sender_account.clone(),
             receiver_account.clone(),
-            &signers[0],
+            &signers[0].clone().into(),
             u128::MAX,
             tip.last_block_hash,
         ),
@@ -414,7 +415,7 @@ fn test_invalid_transactions() {
             0,
             sender_account.clone(),
             receiver_account.clone(),
-            &signers[0],
+            &signers[0].clone().into(),
             ONE_NEAR,
             tip.last_block_hash,
         ),
@@ -423,7 +424,7 @@ fn test_invalid_transactions() {
             2,
             "test3".parse().unwrap(),
             receiver_account.clone(),
-            &new_signer,
+            &new_signer.into(),
             ONE_NEAR,
             tip.last_block_hash,
         ),
@@ -433,7 +434,7 @@ fn test_invalid_transactions() {
         1,
         sender_account,
         receiver_account,
-        &signers[0],
+        &signers[0].clone().into(),
         ONE_NEAR,
         tip.last_block_hash,
     );
@@ -466,7 +467,7 @@ fn test_invalid_transactions() {
                     chunk,
                     encoded_chunk_parts_paths,
                     receipts,
-                    client.validator_signer.as_ref().unwrap().validator_id().clone(),
+                    client.validator_signer.get().unwrap().validator_id().clone(),
                 )
                 .unwrap();
             let prev_block = client.chain.get_block(shard_chunk.prev_block()).unwrap();

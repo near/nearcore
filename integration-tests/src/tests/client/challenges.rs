@@ -23,8 +23,7 @@ use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::AccountId;
-use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::Trie;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use reed_solomon_erasure::galois_8::ReedSolomon;
@@ -37,7 +36,7 @@ fn test_block_with_challenges() {
     let genesis = env.clients[0].chain.get_block_by_height(0).unwrap();
 
     let mut block = env.clients[0].produce_block(1).unwrap().unwrap();
-    let signer = env.clients[0].validator_signer.as_ref().unwrap().clone();
+    let signer = env.clients[0].validator_signer.get().unwrap();
 
     {
         let challenge_body = ChallengeBody::BlockDoubleSign(BlockDoubleSign {
@@ -239,7 +238,8 @@ fn test_verify_chunk_proofs_malicious_challenge_valid_order_transactions() {
     env.produce_block(0, 1);
 
     let genesis_hash = *env.clients[0].chain.genesis().hash();
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer =
+        InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
 
     let (ProduceChunkResult { chunk, .. }, block) = create_chunk_with_transactions(
         &mut env.clients[0],
@@ -275,7 +275,8 @@ fn test_verify_chunk_proofs_challenge_transaction_order() {
     env.produce_block(0, 1);
 
     let genesis_hash = *env.clients[0].chain.genesis().hash();
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer =
+        InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
 
     let (ProduceChunkResult { chunk, .. }, block) = create_chunk_with_transactions(
         &mut env.clients[0],
@@ -318,7 +319,7 @@ fn challenge(
             chunk,
             merkle_proof: merkle_paths[shard_id].clone(),
         }),
-        &*env.clients[0].validator_signer.as_ref().unwrap().clone(),
+        &*env.clients[0].validator_signer.get().unwrap(),
     );
     validate_challenge(
         env.clients[0].chain.epoch_manager.as_ref(),
@@ -344,7 +345,7 @@ fn test_verify_chunk_invalid_state_challenge() {
                 1,
                 "test0".parse().unwrap(),
                 "test1".parse().unwrap(),
-                &signer,
+                &signer.into(),
                 1000,
                 genesis_hash,
             ),
@@ -362,6 +363,10 @@ fn test_verify_chunk_invalid_state_challenge() {
     let data_parts = env.clients[0].epoch_manager.num_data_parts();
     let parity_parts = total_parts - data_parts;
     let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
+    let congestion_info = ProtocolFeature::CongestionControl
+        .enabled(PROTOCOL_VERSION)
+        .then_some(CongestionInfo::default());
+
     let (mut invalid_chunk, merkle_paths) = ShardsManagerActor::create_encoded_shard_chunk(
         *last_block.hash(),
         Trie::EMPTY_ROOT,
@@ -376,7 +381,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         &[],
         last_block.chunks()[0].prev_outgoing_receipts_root(),
         CryptoHash::default(),
-        CongestionInfo::default(),
+        congestion_info,
         &validator_signer,
         &rs,
         PROTOCOL_VERSION,
@@ -408,7 +413,7 @@ fn test_verify_chunk_invalid_state_challenge() {
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
     block_merkle_tree.insert(*last_block.hash());
 
-    let signer = client.validator_signer.as_ref().unwrap().clone();
+    let signer = client.validator_signer.get().unwrap();
     let endorsement =
         ChunkEndorsement::new(invalid_chunk.cloned_header().chunk_hash(), signer.as_ref());
     let block = Block::produce(
