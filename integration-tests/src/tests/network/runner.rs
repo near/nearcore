@@ -27,7 +27,6 @@ use near_primitives::block::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, ValidatorId};
-use near_primitives::validator_signer::ValidatorSigner;
 use near_store::genesis::initialize_genesis_state;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
 use nearcore::NightshadeRuntime;

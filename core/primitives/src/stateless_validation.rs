@@ -60,7 +60,7 @@ impl PartialEncodedStateWitness {
         part_ord: usize,
         part: Vec<u8>,
         encoded_length: usize,
-        signer: &dyn ValidatorSigner,
+        signer: &ValidatorSigner,
     ) -> Self {
         let inner = PartialEncodedStateWitnessInner::new(
             epoch_id,
@@ -378,7 +378,7 @@ impl ChunkStateWitness {
             Default::default(),
             Default::default(),
             congestion_info,
-            &EmptyValidatorSigner::default(),
+            &EmptyValidatorSigner::default().into(),
         ));
         Self::new(
             "alice.near".parse().unwrap(),
@@ -423,7 +423,7 @@ pub struct ChunkEndorsement {
 }
 
 impl ChunkEndorsement {
-    pub fn new(chunk_hash: ChunkHash, signer: &dyn ValidatorSigner) -> ChunkEndorsement {
+    pub fn new(chunk_hash: ChunkHash, signer: &ValidatorSigner) -> ChunkEndorsement {
         let inner = ChunkEndorsementInner::new(chunk_hash);
         let account_id = signer.validator_id().clone();
         let signature = signer.sign_chunk_endorsement(&inner);

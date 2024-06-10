@@ -51,7 +51,8 @@ fn test_flat_storage_upgrade() {
         old_protocol_version,
     );
 
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer: Signer =
+        InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
     let gas = 20_000_000_000_000;
     let tx = TransactionV0 {
         signer_id: "test0".parse().unwrap(),

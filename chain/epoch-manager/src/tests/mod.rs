@@ -2760,7 +2760,7 @@ fn test_max_kickout_stake_ratio() {
     assert_eq!(validator_stats, wanted_validator_stats,);
 }
 
-fn test_chunk_header(h: &[CryptoHash], signer: &dyn ValidatorSigner) -> ShardChunkHeader {
+fn test_chunk_header(h: &[CryptoHash], signer: &ValidatorSigner) -> ShardChunkHeader {
     let congestion_info = ProtocolFeature::CongestionControl
         .enabled(PROTOCOL_VERSION)
         .then_some(CongestionInfo::default());

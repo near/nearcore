@@ -128,7 +128,7 @@ impl ShardChunkHeaderV2 {
         prev_outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         prev_validator_proposals: Vec<ValidatorStakeV1>,
-        signer: &dyn ValidatorSigner,
+        signer: &ValidatorSigner,
     ) -> Self {
         let inner = ShardChunkHeaderInnerV1 {
             prev_block_hash,
@@ -194,7 +194,7 @@ impl ShardChunkHeaderV3 {
         tx_root: CryptoHash,
         prev_validator_proposals: Vec<ValidatorStake>,
         congestion_info: Option<CongestionInfo>,
-        signer: &dyn ValidatorSigner,
+        signer: &ValidatorSigner,
     ) -> Self {
         let inner = if let Some(congestion_info) = congestion_info {
             assert!(ProtocolFeature::CongestionControl.enabled(protocol_version));
@@ -234,7 +234,7 @@ impl ShardChunkHeaderV3 {
         Self::from_inner(inner, signer)
     }
 
-    pub fn from_inner(inner: ShardChunkHeaderInner, signer: &dyn ValidatorSigner) -> Self {
+    pub fn from_inner(inner: ShardChunkHeaderInner, signer: &ValidatorSigner) -> Self {
         let hash = Self::compute_hash(&inner);
         let signature = signer.sign_chunk_hash(&hash);
         Self { inner, height_included: 0, signature, hash }
@@ -506,7 +506,7 @@ impl ShardChunkHeaderV1 {
         prev_outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         prev_validator_proposals: Vec<ValidatorStakeV1>,
-        signer: &dyn ValidatorSigner,
+        signer: &ValidatorSigner,
     ) -> Self {
         let inner = ShardChunkHeaderInnerV1 {
             prev_block_hash,
@@ -1037,7 +1037,7 @@ impl EncodedShardChunk {
         prev_outgoing_receipts: &[Receipt],
         prev_outgoing_receipts_root: CryptoHash,
         congestion_info: Option<CongestionInfo>,
-        signer: &dyn ValidatorSigner,
+        signer: &ValidatorSigner,
         protocol_version: ProtocolVersion,
     ) -> Result<(Self, Vec<MerklePath>), std::io::Error> {
         let (transaction_receipts_parts, encoded_length) = reed_solomon_encode(

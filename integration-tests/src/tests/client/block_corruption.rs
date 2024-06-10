@@ -21,7 +21,7 @@ fn create_tx_load(height: BlockHeight, last_block: &Block) -> Vec<SignedTransact
         height + 10000,
         "test0".parse().unwrap(),
         "test1".parse().unwrap(),
-        &signer,
+        &signer.into(),
         10,
         *last_block.hash(),
     );
@@ -80,11 +80,10 @@ fn change_shard_id_to_invalid() {
     // 2. Rehash and resign
     block.mut_header().get_mut().inner_rest.block_body_hash =
         block.compute_block_body_hash().unwrap();
-    block.mut_header().resign(&InMemoryValidatorSigner::from_seed(
-        "test0".parse().unwrap(),
-        KeyType::ED25519,
-        "test0",
-    ));
+    block.mut_header().resign(
+        &InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0")
+            .into(),
+    );
 
     // Try to process corrupt block and expect code to notice invalid shard_id
     let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
@@ -125,11 +124,14 @@ fn check_corrupt_block(
     if let Ok(mut corrupt_block) = Block::try_from_slice(corrupt_block_vec.as_slice()) {
         corrupt_block.mut_header().get_mut().inner_rest.block_body_hash =
             corrupt_block.compute_block_body_hash().unwrap();
-        corrupt_block.mut_header().resign(&InMemoryValidatorSigner::from_seed(
-            "test0".parse().unwrap(),
-            KeyType::ED25519,
-            "test0",
-        ));
+        corrupt_block.mut_header().resign(
+            &InMemoryValidatorSigner::from_seed(
+                "test0".parse().unwrap(),
+                KeyType::ED25519,
+                "test0",
+            )
+            .into(),
+        );
 
         if !is_breaking_block_change(&correct_block, &corrupt_block) {
             return Ok(anyhow::anyhow!(NOT_BREAKING_CHANGE_MSG));

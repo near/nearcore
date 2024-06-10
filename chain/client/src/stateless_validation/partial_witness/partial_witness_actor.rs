@@ -33,7 +33,7 @@ pub struct PartialWitnessActor {
     /// Adapter to send messages to the network.
     network_adapter: PeerManagerAdapter,
     /// Validator signer to sign the state witness.
-    my_signer: Arc<dyn ValidatorSigner>,
+    my_signer: Arc<ValidatorSigner>,
     /// Epoch manager to get the set of chunk validators
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     /// Tracks the parts of the state witness sent from chunk producers to chunk validators.
@@ -104,7 +104,7 @@ impl PartialWitnessActor {
         clock: Clock,
         network_adapter: PeerManagerAdapter,
         client_sender: ClientSenderForPartialWitness,
-        my_signer: Arc<dyn ValidatorSigner>,
+        my_signer: Arc<ValidatorSigner>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         store: Store,
     ) -> Self {

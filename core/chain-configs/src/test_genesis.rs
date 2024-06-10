@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use near_async::time::Clock;
-use near_crypto::{PublicKey, Signer};
+use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;

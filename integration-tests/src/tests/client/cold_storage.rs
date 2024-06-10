@@ -3,7 +3,7 @@ use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_epoch_manager::EpochManager;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
@@ -71,17 +71,13 @@ fn test1() -> AccountId {
     "test1".parse().unwrap()
 }
 
-fn create_tx_send_money(
-    nonce: u64,
-    signer: &InMemorySigner,
-    block_hash: CryptoHash,
-) -> SignedTransaction {
+fn create_tx_send_money(nonce: u64, signer: &Signer, block_hash: CryptoHash) -> SignedTransaction {
     SignedTransaction::send_money(nonce, test0(), test1(), signer, 1, block_hash)
 }
 
 fn create_tx_deploy_contract(
     height: u64,
-    signer: &InMemorySigner,
+    signer: &Signer,
     block_hash: CryptoHash,
 ) -> SignedTransaction {
     let code = near_test_contracts::rs_contract().to_vec();
@@ -92,7 +88,7 @@ fn create_tx_deploy_contract(
 
 fn create_tx_function_call(
     nonce: u64,
-    signer: &InMemorySigner,
+    signer: &Signer,
     block_hash: CryptoHash,
 ) -> SignedTransaction {
     let action = Action::FunctionCall(Box::new(FunctionCallAction {
@@ -131,7 +127,7 @@ fn test_storage_after_commit_of_cold_update() {
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
     for height in 1..max_height {
-        let signer = InMemorySigner::from_seed(test0(), KeyType::ED25519, "test0");
+        let signer = InMemorySigner::from_seed(test0(), KeyType::ED25519, "test0").into();
         if height == 1 {
             let tx = create_tx_deploy_contract(height, &signer, last_hash);
             assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -273,7 +269,7 @@ fn test_cold_db_copy_with_height_skips() {
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
     for height in 1..max_height {
-        let signer = InMemorySigner::from_seed(test0(), KeyType::ED25519, "test0");
+        let signer = InMemorySigner::from_seed(test0(), KeyType::ED25519, "test0").into();
         // It is still painful to filter out transactions in last two blocks.
         // So, as block 19 is skipped, blocks 17 and 18 shouldn't contain any transactions.
         // So, we shouldn't send any transactions between block 17 and the previous block.
@@ -364,7 +360,7 @@ fn test_initial_copy_to_cold(batch_size: usize) {
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
     for height in 1..max_height {
-        let signer = InMemorySigner::from_seed(test0(), KeyType::ED25519, "test0");
+        let signer = InMemorySigner::from_seed(test0(), KeyType::ED25519, "test0").into();
         for i in 0..5 {
             let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
             assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -448,7 +444,7 @@ fn test_cold_loop_on_gc_boundary() {
     let mut last_hash = *env.clients[0].chain.genesis().hash();
 
     for height in 1..height_delta {
-        let signer = InMemorySigner::from_seed(test0(), KeyType::ED25519, "test0");
+        let signer = InMemorySigner::from_seed(test0(), KeyType::ED25519, "test0").into();
         for i in 0..5 {
             let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
             assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -467,7 +463,7 @@ fn test_cold_loop_on_gc_boundary() {
     update_cold_head(cold_db, &hot_store, &(height_delta - 1)).unwrap();
 
     for height in height_delta..height_delta * 2 {
-        let signer = InMemorySigner::from_seed(test0(), KeyType::ED25519, "test0");
+        let signer = InMemorySigner::from_seed(test0(), KeyType::ED25519, "test0").into();
         for i in 0..5 {
             let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
             assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
