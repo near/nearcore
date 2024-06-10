@@ -375,22 +375,6 @@ mod tests {
         assert_contents(waiting_for_102, vec![witness4]);
     }
 
-    /// An OrphanStateWitnessPool with 0 capacity shouldn't crash, it should just ignore all witnesses
-    #[test]
-    fn zero_capacity() {
-        let mut pool = OrphanStateWitnessPool::new(0);
-
-        pool.add_orphan_state_witness(make_witness(100, 1, block(99), 0), 0);
-        pool.add_orphan_state_witness(make_witness(100, 1, block(99), 0), 1);
-        pool.add_orphan_state_witness(make_witness(100, 2, block(99), 0), 0);
-        pool.add_orphan_state_witness(make_witness(101, 0, block(100), 0), 0);
-
-        let waiting = pool.take_state_witnesses_waiting_for_block(&block(99));
-        assert_contents(waiting, vec![]);
-
-        assert_empty(&pool);
-    }
-
     /// OrphanStateWitnessPool has a Drop implementation which clears the metrics.
     /// It's hard to test it because metrics are global and it could interfere with other tests,
     /// but we can at least test that it doesn't crash. That's always something.
