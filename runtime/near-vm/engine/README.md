@@ -19,4 +19,4 @@ Please check [Wasmer `ATTRIBUTIONS`] to further see licenses and other
 attributions of the project.
 
 [`wasmtime-api`]: https://crates.io/crates/wasmtime
-[Wasmer `ATTRIBUTIONS`]: https://github.com/wasmerio/wasmer/blob/master/ATTRIBUTIONS.md
+[Wasmer `ATTRIBUTIONS`]: https://github.com/wasmerio/wasmer/blob/2.3.0/ATTRIBUTIONS.md
