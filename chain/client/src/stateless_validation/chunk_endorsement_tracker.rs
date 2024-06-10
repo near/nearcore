@@ -1,6 +1,7 @@
 use lru::LruCache;
 use near_chain::ChainStoreAccess;
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 
 use near_chain_primitives::Error;
@@ -78,9 +79,13 @@ impl ChunkEndorsementTracker {
             epoch_manager: epoch_manager.clone(),
             inner: Mutex::new(ChunkEndorsementTrackerInner {
                 epoch_manager,
-                chunk_endorsements: LruCache::new(NUM_CHUNKS_IN_CHUNK_ENDORSEMENTS_CACHE),
+                chunk_endorsements: LruCache::new(
+                    NonZeroUsize::new(NUM_CHUNKS_IN_CHUNK_ENDORSEMENTS_CACHE).unwrap(),
+                ),
                 // We can use a different cache size if needed, it does not have to be the same as for `chunk_endorsements`.
-                pending_chunk_endorsements: LruCache::new(NUM_CHUNKS_IN_CHUNK_ENDORSEMENTS_CACHE),
+                pending_chunk_endorsements: LruCache::new(
+                    NonZeroUsize::new(NUM_CHUNKS_IN_CHUNK_ENDORSEMENTS_CACHE).unwrap(),
+                ),
             }),
         }
     }

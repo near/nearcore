@@ -1,3 +1,4 @@
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use lru::LruCache;
@@ -110,8 +111,10 @@ impl PartialEncodedStateWitnessTracker {
         Self {
             client_sender,
             epoch_manager,
-            parts_cache: LruCache::new(WITNESS_PARTS_CACHE_SIZE),
-            processed_witnesses: LruCache::new(PROCESSED_WITNESSES_CACHE_SIZE),
+            parts_cache: LruCache::new(NonZeroUsize::new(WITNESS_PARTS_CACHE_SIZE).unwrap()),
+            processed_witnesses: LruCache::new(
+                NonZeroUsize::new(PROCESSED_WITNESSES_CACHE_SIZE).unwrap(),
+            ),
             encoders: WitnessEncoderCache::new(),
         }
     }

@@ -1,3 +1,5 @@
+use std::num::NonZeroUsize;
+
 use lru::LruCache;
 use near_chain_configs::default_orphan_state_witness_pool_size;
 use near_primitives::hash::CryptoHash;
@@ -31,7 +33,9 @@ impl OrphanStateWitnessPool {
                 to performance problems.", cache_capacity);
         }
 
-        OrphanStateWitnessPool { witness_cache: LruCache::new(cache_capacity) }
+        OrphanStateWitnessPool {
+            witness_cache: LruCache::new(NonZeroUsize::new(cache_capacity).unwrap()),
+        }
     }
 
     /// Add an orphaned chunk state witness to the pool. The witness will be put in a cache and it'll

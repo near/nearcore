@@ -30,6 +30,7 @@ use near_primitives::{
 use near_store::DBCol;
 use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
+use std::num::NonZeroUsize;
 use time::ext::InstantExt as _;
 
 use near_client_primitives::debug::{DebugBlockStatus, DebugChunkStatus};
@@ -56,7 +57,7 @@ pub struct BlockProductionTracker(lru::LruCache<BlockHeight, BlockProduction>);
 
 impl BlockProductionTracker {
     pub(crate) fn new() -> Self {
-        Self(lru::LruCache::new(PRODUCTION_TIMES_CACHE_SIZE))
+        Self(lru::LruCache::new(NonZeroUsize::new(PRODUCTION_TIMES_CACHE_SIZE).unwrap()))
     }
 
     pub(crate) fn get(&mut self, height: BlockHeight) -> BlockProduction {

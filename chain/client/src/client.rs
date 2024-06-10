@@ -87,6 +87,7 @@ use near_store::ShardUId;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::RwLock;
 use time::ext::InstantExt as _;
@@ -400,7 +401,9 @@ impl Client {
             sharded_tx_pool,
             network_adapter,
             validator_signer: MutableConfigValue::new(validator_signer, "validator_signer"),
-            pending_approvals: lru::LruCache::new(num_block_producer_seats),
+            pending_approvals: lru::LruCache::new(
+                NonZeroUsize::new(num_block_producer_seats).unwrap(),
+            ),
             catchup_state_syncs: HashMap::new(),
             epoch_sync,
             header_sync,
@@ -408,10 +411,14 @@ impl Client {
             state_sync,
             challenges: Default::default(),
             rs_for_chunk_production: ReedSolomon::new(data_parts, parity_parts).unwrap(),
-            rebroadcasted_blocks: lru::LruCache::new(NUM_REBROADCAST_BLOCKS),
+            rebroadcasted_blocks: lru::LruCache::new(
+                NonZeroUsize::new(NUM_REBROADCAST_BLOCKS).unwrap(),
+            ),
             last_time_head_progress_made: clock.now(),
             block_production_info: BlockProductionTracker::new(),
-            chunk_production_info: lru::LruCache::new(PRODUCTION_TIMES_CACHE_SIZE),
+            chunk_production_info: lru::LruCache::new(
+                NonZeroUsize::new(PRODUCTION_TIMES_CACHE_SIZE).unwrap(),
+            ),
             tier1_accounts_cache: None,
             flat_storage_creator,
             last_time_sync_block_requested: HashMap::new(),

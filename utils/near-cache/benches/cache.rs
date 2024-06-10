@@ -1,13 +1,15 @@
 #[macro_use]
 extern crate bencher;
 
+use std::num::NonZeroUsize;
+
 use bencher::Bencher;
 use lru::LruCache;
 use near_cache::SyncLruCache;
 
 fn bench_lru(bench: &mut Bencher) {
     bench.iter(|| {
-        let mut cache = LruCache::new(10000);
+        let mut cache = LruCache::new(NonZeroUsize::new(10000).unwrap());
         for _x in 0..1000000 {
             let a = rand::random::<u64>();
             let b = rand::random::<u64>();
