@@ -294,6 +294,15 @@ pub(crate) fn validate_receipt(
     receipt: &Receipt,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), ReceiptValidationError> {
+    let receipt_size: u64 =
+        borsh::to_vec(receipt).unwrap().len().try_into().expect("Can't convert usize to u64");
+    if receipt_size > limit_config.max_receipt_size {
+        return Err(ReceiptValidationError::ReceiptSizeExceeded {
+            size: receipt_size,
+            limit: limit_config.max_receipt_size,
+        });
+    }
+
     // We retain these checks here as to maintain backwards compatibility
     // with AccountId validation since we illegally parse an AccountId
     // in near-vm-logic/logic.rs#fn(VMLogic::read_and_parse_account_id)

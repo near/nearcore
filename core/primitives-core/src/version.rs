@@ -161,6 +161,8 @@ pub enum ProtocolFeature {
     PartialEncodedStateWitness,
     /// Size limits for transactions included in a ChunkStateWitness.
     WitnessTransactionLimits,
+    /// Size limit on outgoing receipts.
+    OutgoingReceiptsSizeLimit,
 }
 
 impl ProtocolFeature {
@@ -223,7 +225,9 @@ impl ProtocolFeature {
             ProtocolFeature::StateWitnessSizeLimit => 83,
             ProtocolFeature::PerReceiptHardStorageProofLimit => 85,
             ProtocolFeature::PartialEncodedStateWitness => 86,
-            ProtocolFeature::WitnessTransactionLimits | ProtocolFeature::CongestionControl => 87,
+            ProtocolFeature::WitnessTransactionLimits
+            | ProtocolFeature::CongestionControl
+            | ProtocolFeature::OutgoingReceiptsSizeLimit => 87,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
