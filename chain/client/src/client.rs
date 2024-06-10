@@ -403,7 +403,7 @@ impl Client {
             shards_manager_adapter,
             sharded_tx_pool,
             network_adapter,
-            validator_signer,
+            validator_signer: MutableConfigValue::new(validator_signer, "validator_signer"),
             pending_approvals: lru::LruCache::new(num_block_producer_seats),
             catchup_state_syncs: HashMap::new(),
             epoch_sync,
