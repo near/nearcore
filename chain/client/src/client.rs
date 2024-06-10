@@ -208,8 +208,8 @@ impl Client {
             .update(update_client_config.produce_chunk_add_transactions_time_limit);
     }
 
-    pub(crate) fn update_validator_signer(&self, signer: Arc<ValidatorSigner>) {
-        self.validator_signer.update(Some(signer));
+    pub(crate) fn update_validator_signer(&self, signer: Arc<ValidatorSigner>) -> bool {
+        self.validator_signer.update(Some(signer))
     }
 }
 

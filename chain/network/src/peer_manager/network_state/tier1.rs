@@ -95,7 +95,6 @@ impl super::NetworkState {
 
         let vc = self.tier1_validator_config(&accounts_data)?;
         let vc_signer = vc.signer.get()?;
-
         let proxies = match (&self.config.node_addr, &vc.proxies) {
             (None, _) => vec![],
             (_, config::ValidatorProxies::Static(peer_addrs)) => peer_addrs.clone(),

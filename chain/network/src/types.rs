@@ -163,6 +163,9 @@ pub struct SetChainInfo(pub ChainInfo);
 #[rtype(result = "PeerManagerMessageResponse")]
 pub enum PeerManagerMessageRequest {
     NetworkRequests(NetworkRequests),
+    /// Request PeerManager to advertise tier 1 proxies.
+    /// Used internally.
+    AdvertiseTier1Proxies,
     /// Request PeerManager to connect to the given peer.
     /// Used in tests and internally by PeerManager.
     /// TODO: replace it with AsyncContext::spawn/run_later for internal use.
@@ -194,6 +197,7 @@ impl PeerManagerMessageRequest {
 #[derive(actix::MessageResponse, Debug)]
 pub enum PeerManagerMessageResponse {
     NetworkResponses(NetworkResponses),
+    AdvertiseTier1Proxies,
     /// TEST-ONLY
     OutboundTcpConnect,
     FetchRoutingTable(RoutingTableInfo),
