@@ -7,14 +7,16 @@ use std::io;
 use std::path::Path;
 use std::sync::Arc;
 
-/// Generic signer trait, that can sign with some subset of supported curves.
+/// Enum for Signer, that can sign with some subset of supported curves.
 #[derive(Debug, PartialEq)]
 pub enum Signer {
+    /// Dummy signer, does not hold a key. Use for tests only!
     Empty(EmptySigner),
+    /// Default signer that holds data in memory.
     InMemory(InMemorySigner),
 }
 
-/// Generic signer trait, that can sign with some subset of supported curves.
+/// Enum for Signer, that can sign with some subset of supported curves.
 impl Signer {
     pub fn public_key(&self) -> PublicKey {
         match self {
