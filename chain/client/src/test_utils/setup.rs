@@ -298,7 +298,7 @@ pub fn setup_only_view(
 
     ViewClientActorInner::spawn_actix_actor(
         clock,
-        signer.clone(),
+        signer,
         chain_genesis,
         epoch_manager,
         shard_tracker,

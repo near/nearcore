@@ -133,7 +133,7 @@ impl ChunkValidator {
 
         let chunk_header = state_witness.chunk_header.clone();
         let network_sender = self.network_sender.clone();
-        let signer = self.my_signer.get().ok_or(Error::NotAValidator)?.clone();
+        let signer = self.my_signer.get().ok_or(Error::NotAValidator)?;
         let chunk_endorsement_tracker = self.chunk_endorsement_tracker.clone();
         let epoch_manager = self.epoch_manager.clone();
         // If we have the chunk extra for the previous block, we can validate the chunk without state witness.

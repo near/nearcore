@@ -1843,7 +1843,7 @@ impl ShardsManagerActor {
         if checked_feature!("stable", SingleShardTracking, protocol_version) {
             let shard_id = partial_encoded_chunk.header.shard_id();
             let mut accounts_forwarded_to = HashSet::new();
-            accounts_forwarded_to.insert(me.clone());
+            accounts_forwarded_to.insert(me);
             let next_chunk_producer = self.epoch_manager.get_chunk_producer(
                 &epoch_id,
                 current_chunk_height + 1,
