@@ -59,7 +59,7 @@ fn test_state_dump() {
         });
 
         let validator = MutableConfigValue::new(
-            EmptyValidatorSigner::new("test0".parse().unwrap()),
+            Some(Arc::new(EmptyValidatorSigner::new("test0".parse().unwrap()))),
             "validator_signer",
         );
         let mut state_sync_dumper = StateSyncDumper {
@@ -149,10 +149,9 @@ fn run_state_sync_with_dumped_parts(
             .nightshade_runtimes(&genesis)
             .build();
 
-        let signer: Signer =
-            InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
+        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
         let validator = MutableConfigValue::new(
-            InMemoryValidatorSigner::from_signer(signer),
+            Some(Arc::new(InMemoryValidatorSigner::from_signer(signer.clone()).into())),
             "validator_signer",
         );
         let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -192,6 +191,7 @@ fn run_state_sync_with_dumped_parts(
             account_creation_at_epoch_height * epoch_length + 1
         };
 
+        let signer: Signer = signer.into();
         for i in 1..=dump_node_head_height {
             if i == account_creation_at_height {
                 let tx = SignedTransaction::create_account(

@@ -48,12 +48,12 @@ fn one_iter(
         .collect::<Vec<_>>();
     let signers = account_ids
         .iter()
-        .map(|account_id|
+        .map(|account_id| {
             MutableConfigValue::new(
                 Some(Arc::new(create_test_signer(account_id))),
                 "validator_signer",
             )
-        )
+        })
         .collect::<Vec<_>>();
     let clock = FakeClock::new(Utc::UNIX_EPOCH);
     let mut doomslugs = signers

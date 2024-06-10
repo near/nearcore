@@ -110,7 +110,7 @@ pub(crate) fn make_chain_info(
     let mut chain_info = chain.get_chain_info();
     let mut account_keys = AccountKeys::new();
     for cfg in validators {
-        let s = &cfg.validator.as_ref().unwrap().signer;
+        let s = &cfg.validator.signer.get().unwrap();
         account_keys.entry(s.validator_id().clone()).or_default().insert(s.public_key());
     }
     chain_info.tier1_accounts = Arc::new(account_keys);

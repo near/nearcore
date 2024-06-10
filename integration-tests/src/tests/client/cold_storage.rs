@@ -1,6 +1,6 @@
 use borsh::BorshDeserialize;
 use near_chain::Provenance;
-use near_chain_configs::Genesis;
+use near_chain_configs::{Genesis, MutableConfigValue};
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
@@ -488,7 +488,7 @@ fn test_cold_loop_on_gc_boundary() {
             public_key: signer.public_key,
             secret_key: signer.secret_key,
         },
-        None,
+        MutableConfigValue::new(None, "validator_signer"),
     )
     .unwrap();
     near_config.client_config = env.clients[0].config.clone();

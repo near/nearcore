@@ -778,6 +778,7 @@ mod tests {
     };
     use crate::Doomslug;
     use near_async::time::{Duration, FakeClock, Utc};
+    use near_chain_configs::MutableConfigValue;
     use near_crypto::{KeyType, SecretKey};
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::hash;
@@ -788,6 +789,10 @@ mod tests {
     #[test]
     fn test_endorsements_and_skips_basic() {
         let clock = FakeClock::new(Utc::UNIX_EPOCH);
+        let validator = MutableConfigValue::new(
+            Some(Arc::new(create_test_signer("test").into())),
+            "validator_signer",
+        );
         let mut ds = Doomslug::new(
             clock.clock(),
             0,
@@ -795,7 +800,7 @@ mod tests {
             Duration::milliseconds(1000),
             Duration::milliseconds(100),
             Duration::milliseconds(3000),
-            Some(Arc::new(create_test_signer("test"))),
+            validator,
             DoomslugThresholdMode::TwoThirds,
         );
 
@@ -943,7 +948,10 @@ mod tests {
             .map(|(account_id, _, _)| create_test_signer(account_id))
             .collect::<Vec<_>>();
 
-        let signer = Arc::new(create_test_signer("test"));
+        let signer = MutableConfigValue::new(
+            Some(Arc::new(create_test_signer("test").into())),
+            "validator_signer",
+        );
         let clock = FakeClock::new(Utc::UNIX_EPOCH);
         let mut ds = Doomslug::new(
             clock.clock(),
@@ -952,7 +960,7 @@ mod tests {
             Duration::milliseconds(1000),
             Duration::milliseconds(100),
             Duration::milliseconds(3000),
-            Some(signer),
+            signer,
             DoomslugThresholdMode::TwoThirds,
         );
 

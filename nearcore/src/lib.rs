@@ -360,20 +360,21 @@ pub fn start_with_config_and_synchronization(
     );
     let snapshot_callbacks = SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
 
-    let (partial_witness_actor, partial_witness_arbiter) = if config.validator_signer.get().is_some() {
-        let (partial_witness_actor, partial_witness_arbiter) =
-            spawn_actix_actor(PartialWitnessActor::new(
-                Clock::real(),
-                network_adapter.as_multi_sender(),
-                client_adapter_for_partial_witness_actor.as_multi_sender(),
-                config.validator_signer.clone(),
-                epoch_manager.clone(),
-                storage.get_hot_store(),
-            ));
-        (Some(partial_witness_actor), Some(partial_witness_arbiter))
-    } else {
-        (None, None)
-    };
+    let (partial_witness_actor, partial_witness_arbiter) =
+        if config.validator_signer.get().is_some() {
+            let (partial_witness_actor, partial_witness_arbiter) =
+                spawn_actix_actor(PartialWitnessActor::new(
+                    Clock::real(),
+                    network_adapter.as_multi_sender(),
+                    client_adapter_for_partial_witness_actor.as_multi_sender(),
+                    config.validator_signer.clone(),
+                    epoch_manager.clone(),
+                    storage.get_hot_store(),
+                ));
+            (Some(partial_witness_actor), Some(partial_witness_arbiter))
+        } else {
+            (None, None)
+        };
 
     let (_gc_actor, gc_arbiter) = spawn_actix_actor(GCActor::new(
         runtime.store().clone(),

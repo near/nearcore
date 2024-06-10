@@ -948,7 +948,8 @@ mod tests {
     #[test]
     fn test_telemetry_info() {
         let config = ClientConfig::test(false, 1230, 2340, 50, false, true, true, true);
-        let info_helper = InfoHelper::new(Clock::real(), noop().into_sender(), &config, None);
+        let validator = MutableConfigValue::new(None, "validator_signer");
+        let info_helper = InfoHelper::new(Clock::real(), noop().into_sender(), &config, validator);
 
         let store = near_store::test_utils::create_test_store();
         let mut genesis = Genesis::test(vec!["test".parse::<AccountId>().unwrap()], 1);
@@ -1053,8 +1054,9 @@ mod tests {
 
         // Then check that get_num_validators returns the correct number of validators.
         let client_config = ClientConfig::test(false, 1230, 2340, 50, false, true, true, true);
+        let validator = MutableConfigValue::new(None, "validator_signer");
         let mut info_helper =
-            InfoHelper::new(Clock::real(), noop().into_sender(), &client_config, None);
+            InfoHelper::new(Clock::real(), noop().into_sender(), &client_config, validator);
         assert_eq!(
             num_validators,
             info_helper.get_num_validators(&epoch_manager_adapter, &epoch_id, &last_block_hash)

@@ -23,8 +23,8 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::ChainGenesis;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_chain_configs::{
-    ClientConfig, DumpConfig, ExternalStorageConfig, ExternalStorageLocation, StateSyncConfig,
-    SyncConfig,
+    ClientConfig, DumpConfig, ExternalStorageConfig, ExternalStorageLocation, MutableConfigValue,
+    StateSyncConfig, SyncConfig,
 };
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
@@ -76,7 +76,6 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
-use near_primitives::validator_signer::EmptyValidatorSigner;
 use near_store::config::StateSnapshotType;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
@@ -290,7 +289,10 @@ fn test_client_with_multi_test_loop() {
         let snapshot_callbacks =
             SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
 
-        let validator_signer = Arc::new(create_test_signer(accounts[idx].as_str()));
+        let validator_signer = MutableConfigValue::new(
+            Some(Arc::new(create_test_signer(accounts[idx].as_str()))),
+            "validator_signer",
+        );
         let client = Client::new(
             builder.clock(),
             client_config.clone(),
@@ -301,7 +303,7 @@ fn test_client_with_multi_test_loop() {
             runtime_adapter.clone(),
             builder.sender().for_index(idx).into_multi_sender(),
             builder.sender().for_index(idx).into_sender(),
-            Some(validator_signer.clone()),
+            validator_signer.clone(),
             true,
             [0; 32],
             Some(snapshot_callbacks),
@@ -320,7 +322,7 @@ fn test_client_with_multi_test_loop() {
 
         let shards_manager = ShardsManagerActor::new(
             builder.clock(),
-            Some(accounts[idx].clone()),
+            validator_signer.clone(),
             epoch_manager.clone(),
             shard_tracker.clone(),
             builder.sender().for_index(idx).into_sender(),
@@ -341,7 +343,7 @@ fn test_client_with_multi_test_loop() {
             client_config.clone(),
             PeerId::random(),
             builder.sender().for_index(idx).into_multi_sender(),
-            None,
+            MutableConfigValue::new(None, "validator_signer"),
             noop().into_sender(),
             None,
             Default::default(),
@@ -361,13 +363,12 @@ fn test_client_with_multi_test_loop() {
                 .sender()
                 .for_index(idx)
                 .into_wrapped_multi_sender::<ClientSenderForPartialWitnessMessage, _>(),
-            validator_signer,
+            validator_signer.clone(),
             epoch_manager.clone(),
             store,
         );
 
         let future_spawner = builder.sender().for_index(idx).into_future_spawner();
-        let validator = EmptyValidatorSigner::new(accounts[idx].clone());
         let state_sync_dumper = StateSyncDumper {
             clock: builder.clock(),
             client_config,
@@ -375,7 +376,7 @@ fn test_client_with_multi_test_loop() {
             epoch_manager,
             shard_tracker,
             runtime: runtime_adapter,
-            validator,
+            validator: validator_signer,
             dump_future_runner: Box::new(move |future| {
                 future_spawner.spawn_boxed("state_sync_dumper", future);
                 Box::new(|| {})
