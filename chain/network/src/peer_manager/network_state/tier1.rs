@@ -101,7 +101,7 @@ impl super::NetworkState {
         let accounts_data = self.accounts_data.load();
 
         let vc = self.tier1_validator_config(&accounts_data)?;
-        let vc_signer = vc.signer.get()?;
+        let signer = vc.signer.get()?;
         let proxies = match (&self.config.node_addr, &vc.proxies) {
             (None, _) => vec![],
             (_, config::ValidatorProxies::Static(peer_addrs)) => peer_addrs.clone(),
@@ -196,7 +196,7 @@ impl super::NetworkState {
         let new_data = self.accounts_data.set_local(
             clock,
             LocalAccountData {
-                signer: vc_signer,
+                signer,
                 data: Arc::new(AccountData { peer_id: self.config.node_id(), proxies: my_proxies }),
             },
         );
