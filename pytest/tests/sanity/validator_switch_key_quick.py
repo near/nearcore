@@ -21,6 +21,8 @@ client_config = {
     "state_sync_enabled": True,
     "store.state_snapshot_enabled": True
 }
+# It is important for the non-validating node to track all shards as well.
+# It needs to have all the data when it switches to validator role.
 config_map = {i: client_config for i in range(NUM_VALIDATORS + 1)}
 nodes = start_cluster(
     NUM_VALIDATORS, 1, 1, None,
@@ -66,8 +68,10 @@ while True:
         except Exception:
             succeed = False
             break
+    # Both validators should be synchronized
     print('Succeed', succeed)
     if statuses[0][1].height > max_height - EPOCH_LENGTH // 2 and succeed:
+        # If nodes are synchronized and the current height is close to `max_height` we can finish. 
         sys.exit(0)
     time.sleep(1)
 

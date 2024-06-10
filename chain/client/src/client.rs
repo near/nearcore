@@ -208,6 +208,8 @@ impl Client {
             .update(update_client_config.produce_chunk_add_transactions_time_limit);
     }
 
+    /// Updates client's mutable validator signer.
+    /// It will update all validator signers that synchronizes with it.
     pub(crate) fn update_validator_signer(&self, signer: Arc<ValidatorSigner>) -> bool {
         self.validator_signer.update(Some(signer))
     }
@@ -403,7 +405,7 @@ impl Client {
             shards_manager_adapter,
             sharded_tx_pool,
             network_adapter,
-            validator_signer: MutableConfigValue::new(validator_signer, "validator_signer"),
+            validator_signer,
             pending_approvals: lru::LruCache::new(num_block_producer_seats),
             catchup_state_syncs: HashMap::new(),
             epoch_sync,

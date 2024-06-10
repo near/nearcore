@@ -1159,7 +1159,8 @@ impl ClientActorInner {
     /// Returns the delay before the next time `check_triggers` should be called, which is
     /// min(time until the closest trigger, 1 second).
     pub(crate) fn check_triggers(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) -> Duration {
-        let _span = tracing::debug_span!(target: "client", "check_triggers").entered();
+        let _span: tracing::span::EnteredSpan =
+            tracing::debug_span!(target: "client", "check_triggers").entered();
         if let Some(config_updater) = &mut self.config_updater {
             config_updater.try_update(
                 &|updateable_client_config| {
@@ -1168,6 +1169,8 @@ impl ClientActorInner {
                 &|validator_signer| self.client.update_validator_signer(validator_signer),
             );
             if config_updater.was_validator_signer_updated() {
+                // Request PeerManager to advertise tier1 proxies.
+                // It is needed to advertise that our validator key changed.
                 self.network_adapter.send(PeerManagerMessageRequest::AdvertiseTier1Proxies);
             }
         }
