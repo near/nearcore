@@ -260,7 +260,7 @@ impl PartialWitnessActor {
         let target_chunk_validators = ordered_chunk_validators
             .into_iter()
             .filter(|validator| {
-                validator != self.my_signer.validator_id() && *validator != chunk_producer
+                validator != self.my_signer.get().unwrap().validator_id() && *validator != chunk_producer
             })
             .collect();
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(

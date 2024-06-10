@@ -1,5 +1,6 @@
 use crate::{Doomslug, DoomslugThresholdMode};
 use near_async::time::{Duration, FakeClock, Instant, Utc};
+use near_chain_configs::MutableConfigValue;
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::block::Approval;
 use near_primitives::hash::{hash, CryptoHash};
@@ -47,7 +48,12 @@ fn one_iter(
         .collect::<Vec<_>>();
     let signers = account_ids
         .iter()
-        .map(|account_id| Arc::new(create_test_signer(account_id)))
+        .map(|account_id|
+            MutableConfigValue::new(
+                Some(Arc::new(create_test_signer(account_id))),
+                "validator_signer",
+            )
+        )
         .collect::<Vec<_>>();
     let clock = FakeClock::new(Utc::UNIX_EPOCH);
     let mut doomslugs = signers
@@ -60,7 +66,7 @@ fn one_iter(
                 Duration::milliseconds(1000),
                 Duration::milliseconds(100),
                 delta * 20, // some arbitrary number larger than delta * 6
-                Some(signer.clone()),
+                signer.clone(),
                 DoomslugThresholdMode::TwoThirds,
             )
         })

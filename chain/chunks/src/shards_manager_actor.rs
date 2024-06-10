@@ -2239,6 +2239,7 @@ mod test {
     use near_primitives::block::Tip;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::types::EpochId;
+    use near_primitives::validator_signer::EmptyValidatorSigner;
     use near_store::test_utils::create_test_store;
     use std::sync::Arc;
 
@@ -2269,9 +2270,13 @@ mod test {
         let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let client_adapter = Arc::new(MockClientAdapterForShardsManager::default());
         let clock = FakeClock::default();
+        let validator_signer = MutableConfigValue::new(
+            Some(Arc::new(EmptyValidatorSigner::new("test".parse().unwrap()))),
+            "validator_signer",
+        );
         let mut shards_manager = ShardsManagerActor::new(
             clock.clock(),
-            Some("test".parse().unwrap()),
+            validator_signer,
             epoch_manager,
             shard_tracker,
             network_adapter.as_sender(),
@@ -2313,9 +2318,13 @@ mod test {
         // Test that resending chunk requests won't request for parts the node already received
         let mut fixture = ChunkTestFixture::new(true, 3, 6, 1, true);
         let clock = FakeClock::default();
+        let validator_signer = MutableConfigValue::new(
+            Some(Arc::new(EmptyValidatorSigner::new(fixture.mock_shard_tracker.clone()))),
+            "validator_signer",
+        );
         let mut shards_manager = ShardsManagerActor::new(
             clock.clock(),
-            Some(fixture.mock_shard_tracker.clone()),
+            validator_signer,
             Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
@@ -2386,9 +2395,13 @@ mod test {
     fn test_invalid_chunk() {
         // Test that process_partial_encoded_chunk will reject invalid chunk
         let fixture = ChunkTestFixture::default();
+        let validator_signer = MutableConfigValue::new(
+            Some(Arc::new(EmptyValidatorSigner::new(fixture.mock_shard_tracker.clone()))),
+            "validator_signer",
+        );
         let mut shards_manager = ShardsManagerActor::new(
             FakeClock::default().clock(),
-            Some(fixture.mock_shard_tracker.clone()),
+            validator_signer,
             Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
@@ -2415,9 +2428,13 @@ mod test {
     fn test_chunk_forwarding_dedup() {
         // Tests that we only forward a chunk if it's the first time we receive it.
         let fixture = ChunkTestFixture::default();
+        let validator_signer = MutableConfigValue::new(
+            Some(Arc::new(EmptyValidatorSigner::new(fixture.mock_shard_tracker.clone()))),
+            "validator_signer",
+        );
         let mut shards_manager = ShardsManagerActor::new(
             FakeClock::default().clock(),
-            Some(fixture.mock_chunk_part_owner.clone()),
+            validator_signer,
             Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
@@ -2484,9 +2501,13 @@ mod test {
         account_id: Option<AccountId>,
     ) -> RequestChunksResult {
         let clock = FakeClock::default();
+        let validator_signer = MutableConfigValue::new(
+            account_id.map(|id| Arc::new(EmptyValidatorSigner::new(id))),
+            "validator_signer",
+        );
         let mut shards_manager = ShardsManagerActor::new(
             clock.clock(),
-            account_id,
+            validator_signer,
             Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
@@ -2573,9 +2594,13 @@ mod test {
         // case too
         let fixture = ChunkTestFixture::new(true, 2, 4, 4, false);
         let clock = FakeClock::default();
+        let validator_signer = MutableConfigValue::new(
+            Some(Arc::new(EmptyValidatorSigner::new(fixture.mock_shard_tracker.clone()))),
+            "validator_signer",
+        );
         let mut shards_manager = ShardsManagerActor::new(
             clock.clock(),
-            Some(fixture.mock_shard_tracker.clone()),
+            validator_signer,
             Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
@@ -2643,9 +2668,13 @@ mod test {
     fn test_receive_forward_before_chunk_header_from_block() {
         let fixture = ChunkTestFixture::default();
         let clock = FakeClock::default();
+        let validator_signer = MutableConfigValue::new(
+            Some(Arc::new(EmptyValidatorSigner::new(fixture.mock_shard_tracker.clone()))),
+            "validator_signer",
+        );
         let mut shards_manager = ShardsManagerActor::new(
             clock.clock(),
-            Some(fixture.mock_shard_tracker.clone()),
+            validator_signer,
             Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
@@ -2705,9 +2734,13 @@ mod test {
     #[test]
     fn test_chunk_cache_hit_for_produced_chunk() {
         let fixture = ChunkTestFixture::default();
+        let validator_signer = MutableConfigValue::new(
+            Some(Arc::new(EmptyValidatorSigner::new(fixture.mock_shard_tracker.clone()))),
+            "validator_signer",
+        );
         let mut shards_manager = ShardsManagerActor::new(
             FakeClock::default().clock(),
-            Some(fixture.mock_shard_tracker.clone()),
+            validator_signer,
             Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
@@ -2740,9 +2773,13 @@ mod test {
     #[test]
     fn test_chunk_cache_hit_for_received_chunk() {
         let fixture = ChunkTestFixture::default();
+        let validator_signer = MutableConfigValue::new(
+            Some(Arc::new(EmptyValidatorSigner::new(fixture.mock_shard_tracker.clone()))),
+            "validator_signer",
+        );
         let mut shards_manager = ShardsManagerActor::new(
             FakeClock::default().clock(),
-            Some(fixture.mock_shard_tracker.clone()),
+            validator_signer,
             Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
@@ -2772,9 +2809,13 @@ mod test {
     #[test]
     fn test_chunk_response_for_uncached_partial_chunk() {
         let mut fixture = ChunkTestFixture::default();
+        let validator_signer = MutableConfigValue::new(
+            Some(Arc::new(EmptyValidatorSigner::new(fixture.mock_shard_tracker.clone()))),
+            "validator_signer",
+        );
         let shards_manager = ShardsManagerActor::new(
             FakeClock::default().clock(),
-            Some(fixture.mock_shard_tracker.clone()),
+            validator_signer,
             Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
@@ -2805,9 +2846,13 @@ mod test {
     #[test]
     fn test_chunk_response_for_uncached_shard_chunk() {
         let mut fixture = ChunkTestFixture::default();
+        let validator_signer = MutableConfigValue::new(
+            Some(Arc::new(EmptyValidatorSigner::new(fixture.mock_shard_tracker.clone()))),
+            "validator_signer",
+        );
         let shards_manager = ShardsManagerActor::new(
             FakeClock::default().clock(),
-            Some(fixture.mock_shard_tracker.clone()),
+            validator_signer,
             Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
@@ -2839,9 +2884,13 @@ mod test {
     #[test]
     fn test_chunk_response_combining_cache_and_partial_chunks() {
         let mut fixture = ChunkTestFixture::default();
+        let validator_signer = MutableConfigValue::new(
+            Some(Arc::new(EmptyValidatorSigner::new(fixture.mock_shard_tracker.clone()))),
+            "validator_signer",
+        );
         let mut shards_manager = ShardsManagerActor::new(
             FakeClock::default().clock(),
-            Some(fixture.mock_shard_tracker.clone()),
+            validator_signer,
             Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
