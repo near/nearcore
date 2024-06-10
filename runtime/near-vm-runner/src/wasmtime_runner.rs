@@ -120,15 +120,9 @@ impl IntoVMError for anyhow::Error {
     }
 }
 
-#[cfg(not(feature = "lightbeam"))]
 #[allow(clippy::needless_pass_by_ref_mut)]
 pub fn get_engine(config: &mut wasmtime::Config) -> Engine {
     Engine::new(config).unwrap()
-}
-
-#[cfg(feature = "lightbeam")]
-pub fn get_engine(config: &mut wasmtime::Config) -> Engine {
-    Engine::new(config.strategy(wasmtime::Strategy::Lightbeam).unwrap()).unwrap()
 }
 
 pub(crate) fn wasmtime_vm_hash() -> u64 {
