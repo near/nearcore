@@ -11,7 +11,8 @@ use near_parameters::vm::VMKind;
 use near_parameters::RuntimeFeesConfig;
 use near_primitives_core::hash::CryptoHash;
 use std::borrow::Cow;
-use std::cell::RefCell;
+use std::cell::{RefCell, UnsafeCell};
+use std::ffi::c_void;
 use wasmtime::ExternType::Func;
 use wasmtime::{Engine, Linker, Memory, MemoryType, Module, Store};
 
@@ -83,7 +84,7 @@ trait IntoVMError {
 impl IntoVMError for anyhow::Error {
     fn into_vm_error(self) -> Result<FunctionCallError, VMRunnerError> {
         let cause = self.root_cause();
-        if let Some(container) = cause.downcast_ref::<imports::wasmtime::ErrorContainer>() {
+        if let Some(container) = cause.downcast_ref::<ErrorContainer>() {
             use {VMLogicError as LE, VMRunnerError as RE};
             return match container.take() {
                 Some(LE::HostError(h)) => Ok(FunctionCallError::HostError(h)),
@@ -206,8 +207,7 @@ impl crate::runner::VM for WasmtimeVM {
         if let Err(e) = result {
             return Ok(VMOutcome::abort(logic, e));
         }
-
-        imports::wasmtime::link(&mut linker, memory_copy, &store, &mut logic);
+        link(&mut linker, memory_copy, &store, &mut logic);
         match module.get_export(method_name) {
             Some(export) => match export {
                 Func(func_type) => {
@@ -262,4 +262,77 @@ impl crate::runner::VM for WasmtimeVM {
     > {
         Ok(Ok(ContractPrecompilatonResult::CacheNotAvailable))
     }
+}
+
+/// This is a container from which an error can be taken out by value. This is necessary as
+/// `anyhow` does not really give any opportunity to grab causes by value and the VM Logic
+/// errors end up a couple layers deep in a causal chain.
+#[derive(Debug)]
+pub(crate) struct ErrorContainer(std::sync::Mutex<Option<VMLogicError>>);
+impl ErrorContainer {
+    pub(crate) fn take(&self) -> Option<VMLogicError> {
+        let mut guard = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        guard.take()
+    }
+}
+impl std::error::Error for ErrorContainer {}
+impl std::fmt::Display for ErrorContainer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("VMLogic error occurred and is now stored in an opaque storage container")
+    }
+}
+
+thread_local! {
+    static CALLER_CONTEXT: UnsafeCell<*mut c_void> = const { UnsafeCell::new(core::ptr::null_mut()) };
+}
+
+fn link<'a, 'b>(
+    linker: &mut wasmtime::Linker<()>,
+    memory: wasmtime::Memory,
+    store: &wasmtime::Store<()>,
+    logic: &'a mut VMLogic<'b>,
+) {
+    // Unfortunately, due to the Wasmtime implementation we have to do tricks with the
+    // lifetimes of the logic instance and pass raw pointers here.
+    // FIXME(nagisa): I believe this is no longer required, we just need to look at this code
+    // again.
+    let raw_logic = logic as *mut _ as *mut c_void;
+    CALLER_CONTEXT.with(|caller_context| unsafe { *caller_context.get() = raw_logic });
+    linker.define(store, "env", "memory", memory).expect("cannot define memory");
+
+    macro_rules! add_import {
+        (
+          $mod:ident / $name:ident : $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >
+        ) => {
+            #[allow(unused_parens)]
+            fn $name(caller: wasmtime::Caller<'_, ()>, $( $arg_name: $arg_type ),* ) -> anyhow::Result<($( $returns ),*)> {
+                const TRACE: bool = imports::should_trace_host_function(stringify!($name));
+                let _span = TRACE.then(|| {
+                    tracing::trace_span!(target: "vm::host_function", stringify!($name)).entered()
+                });
+                // the below is bad. don't do this at home. it probably works thanks to the exact way the system is setup.
+                // Thanksfully, this doesn't run in production, and hopefully should be possible to remove before we even
+                // consider doing so.
+                let data = CALLER_CONTEXT.with(|caller_context| {
+                    unsafe {
+                        *caller_context.get()
+                    }
+                });
+                unsafe {
+                    // Transmute the lifetime of caller so it's possible to put it in a thread-local.
+                    crate::wasmtime_runner::CALLER.with(|runner_caller| *runner_caller.borrow_mut() = std::mem::transmute(caller));
+                }
+                let logic: &mut VMLogic<'_> = unsafe { &mut *(data as *mut VMLogic<'_>) };
+                match logic.$func( $( $arg_name as $arg_type, )* ) {
+                    Ok(result) => Ok(result as ($( $returns ),* ) ),
+                    Err(err) => {
+                        Err(ErrorContainer(std::sync::Mutex::new(Some(err))).into())
+                    }
+                }
+            }
+
+            linker.func_wrap(stringify!($mod), stringify!($name), $name).expect("cannot link external");
+        };
+    }
+    imports::for_each_available_import!(logic.config, add_import);
 }
