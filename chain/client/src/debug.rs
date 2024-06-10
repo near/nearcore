@@ -18,6 +18,7 @@ use near_client_primitives::{
 use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::log_assert;
 use near_performance_metrics_macros::perf;
+use near_primitives::congestion_info::CongestionControl;
 use near_primitives::state_sync::get_num_state_parts;
 use near_primitives::stateless_validation::ChunkEndorsement;
 use near_primitives::types::{AccountId, BlockHeight, NumShards, ShardId, ValidatorInfoIdentifier};
@@ -456,6 +457,14 @@ impl ClientActorInner {
                     .ok();
 
                 let chunk_endorsements = self.compute_chunk_endorsements_ratio(&block);
+                let congestion_control_config = self
+                    .client
+                    .runtime_adapter
+                    .get_protocol_config(block_header.epoch_id())?
+                    .runtime_config
+                    .congestion_control_config;
+                let shards_congestion_info =
+                    block.as_ref().map(|block| block.shards_congestion_info());
 
                 let chunks = match &block {
                     Some(block) => block
@@ -467,6 +476,18 @@ impl ClientActorInner {
                                 .map(|chunks| chunks.get(&chunk.chunk_hash()))
                                 .flatten()
                                 .copied();
+
+                            let congestion_level =
+                                shards_congestion_info.as_ref().and_then(|shards_info| {
+                                    shards_info.get(&chunk.shard_id()).map(|ext_info| {
+                                        CongestionControl::new(
+                                            congestion_control_config,
+                                            ext_info.congestion_info,
+                                            ext_info.missed_chunks_count,
+                                        )
+                                        .congestion_level()
+                                    })
+                                });
 
                             DebugChunkStatus {
                                 shard_id: chunk.shard_id(),
@@ -485,6 +506,7 @@ impl ClientActorInner {
                                     chunk.chunk_hash().0,
                                 )
                                 .map(|s| s.whole_milliseconds() as u64),
+                                congestion_level,
                                 congestion_info: chunk.congestion_info(),
                                 endorsement_ratio,
                             }
