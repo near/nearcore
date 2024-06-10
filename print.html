@@ -5466,7 +5466,7 @@ Definitely don't use soft-wrapping. While markdown mostly ignores source level l
 </span>// GOOD
 debug!(
     target: &quot;client&quot;,
-    validator_id = self.client.validator_signer.as_ref().map(|vs| {
+    validator_id = self.client.validator_signer.get().map(|vs| {
         tracing::field::display(vs.validator_id())
     }),
     %hash,
@@ -5486,7 +5486,7 @@ form of formatting, as seen in the following example:</p>
 debug!(
     target: &quot;client&quot;,
     &quot;{:?} Received block {} &lt;- {} at {} from {}, requested: {}&quot;,
-    self.client.validator_signer.as_ref().map(|vs| vs.validator_id()),
+    self.client.validator_signer.get().map(|vs| vs.validator_id()),
     hash,
     block.header().prev_hash(),
     block.header().height(),
