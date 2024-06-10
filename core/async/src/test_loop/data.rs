@@ -81,6 +81,7 @@ impl TestLoopData {
         sender
     }
 
+    // Helper function to queue the start actor event on the test loop while registering an actor.
     fn queue_start_actor_event<A>(&self, mut sender: TestLoopSender<A>)
     where
         A: Actor + 'static,
