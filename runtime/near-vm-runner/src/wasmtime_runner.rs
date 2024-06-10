@@ -357,13 +357,15 @@ impl crate::runner::VM for WasmtimeVM {
 
     fn precompile(
         &self,
-        _code: &ContractCode,
-        _cache: &dyn ContractRuntimeCache,
+        code: &ContractCode,
+        cache: &dyn ContractRuntimeCache,
     ) -> Result<
         Result<ContractPrecompilatonResult, CompilationError>,
         crate::logic::errors::CacheError,
     > {
-        Ok(Ok(ContractPrecompilatonResult::CacheNotAvailable))
+        Ok(self
+            .compile_and_cache(code, cache)?
+            .map(|_| ContractPrecompilatonResult::ContractCompiled))
     }
 }
 
