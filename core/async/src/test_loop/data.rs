@@ -13,7 +13,7 @@ use super::DelaySender;
 /// TestLoopData is used to mainly register actors, which can be accessed using a handle during
 /// the execution of the TestLoop.
 ///
-/// ```
+/// ```rust, ignore
 /// let mut data = TestLoopData::new(pending_events_sender, shutting_down);
 ///
 /// let actor = TestActor::new();
@@ -28,11 +28,13 @@ use super::DelaySender;
 ///
 /// We have the ability to register data of any type, and then access it using a handle. This is
 /// useful if we would like to have some arbitrary callback event in testloop to access this data.
-/// ```
+/// 
+/// ```rust, ignore
 /// let mut data = TestLoopData::new(pending_events_sender, shutting_down);
 /// let handle: TestLoopDataHandle<usize> = data.register_data(42);
 /// assert_eq!(data.get(&handle), 42);
 /// ```
+/// 
 pub struct TestLoopData {
     // Container of the data. We store it as a vec of Any so that we can store any type of data.
     data: Vec<Box<dyn Any>>,
