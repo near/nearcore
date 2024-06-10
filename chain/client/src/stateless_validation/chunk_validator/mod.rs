@@ -14,6 +14,7 @@ use near_chain::{Block, Chain};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
+use near_o11y::log_assert;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::{
     ChunkEndorsement, ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessSize,
@@ -282,6 +283,24 @@ impl Client {
     }
 
     fn send_state_witness_ack(&self, witness: &ChunkStateWitness) {
+        // Chunk producers should not receive state witness from themselves.
+        log_assert!(
+            self.validator_signer.is_some(),
+            "Received a chunk state witness but this is not a validator node. Witness={:?}",
+            witness
+        );
+        // In production PartialWitnessActor does not forward a state witness to the chunk producer that
+        // produced the witness. However some tests bypass PartialWitnessActor, thus when a chunk producer
+        // receives its own state witness, we log a warning instead of panicking.
+        // TODO: Make sure all tests run with "test_features" and panic for non-test builds.
+        if self.validator_signer.as_ref().unwrap().validator_id() == &witness.chunk_producer {
+            tracing::warn!(
+                "Validator {:?} received state witness from itself. Witness={:?}",
+                self.validator_signer.as_ref().unwrap().validator_id(),
+                witness
+            );
+            return;
+        }
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::ChunkStateWitnessAck(
                 witness.chunk_producer.clone(),
