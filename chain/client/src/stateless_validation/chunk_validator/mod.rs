@@ -285,7 +285,7 @@ impl Client {
     fn send_state_witness_ack(&self, witness: &ChunkStateWitness) {
         // Chunk producers should not receive state witness from themselves.
         log_assert!(
-            self.validator_signer.is_some(),
+            self.validator_signer.get().is_some(),
             "Received a chunk state witness but this is not a validator node. Witness={:?}",
             witness
         );
@@ -293,10 +293,10 @@ impl Client {
         // produced the witness. However some tests bypass PartialWitnessActor, thus when a chunk producer
         // receives its own state witness, we log a warning instead of panicking.
         // TODO: Make sure all tests run with "test_features" and panic for non-test builds.
-        if self.validator_signer.as_ref().unwrap().validator_id() == &witness.chunk_producer {
+        if self.validator_signer.get().unwrap().validator_id() == &witness.chunk_producer {
             tracing::warn!(
                 "Validator {:?} received state witness from itself. Witness={:?}",
-                self.validator_signer.as_ref().unwrap().validator_id(),
+                self.validator_signer.get().unwrap().validator_id(),
                 witness
             );
             return;

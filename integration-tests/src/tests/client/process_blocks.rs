@@ -2977,7 +2977,7 @@ fn produce_chunks(env: &mut TestEnv, epoch_id: &EpochId, height: u64) {
             produce_chunk_result;
 
         for client in &mut env.clients {
-            let validator_id = client.validator_signer.as_ref().unwrap().validator_id().clone();
+            let validator_id = client.validator_signer.get().unwrap().validator_id().clone();
             client
                 .persist_and_distribute_encoded_chunk(
                     chunk.clone(),

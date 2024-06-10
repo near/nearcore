@@ -57,12 +57,12 @@ fn setup_contract(env: &mut TestEnv) {
     let mut nonce = 1;
     let create_contract_tx = SignedTransaction::create_contract(
         nonce,
-        signer_id.clone(),
+        signer_id,
         CONTRACT_ID.parse().unwrap(),
         contract.to_vec(),
         10 * 10u128.pow(24),
         PublicKey::from_seed(KeyType::ED25519, CONTRACT_ID),
-        &signer,
+        &signer.clone().into(),
         *block.hash(),
     );
     // this adds the tx to the pool and then produces blocks until the tx result is available
@@ -336,7 +336,7 @@ fn new_fn_call_100tgas(
         nonce,
         signer.account_id.clone(),
         CONTRACT_ID.parse().unwrap(),
-        signer.clone().into(),
+        &signer.clone().into(),
         deposit,
         // easy way to burn all attached gas
         "loop_forever".to_owned(),
@@ -362,7 +362,7 @@ fn new_cheap_fn_call(
         nonce,
         signer.account_id.clone(),
         receiver,
-        signer,
+        &signer.clone().into(),
         deposit,
         "foo_does_not_exists".to_owned(),
         vec![],
