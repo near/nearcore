@@ -50,12 +50,14 @@ while True:
     next_validators = info['result']['next_validators']
     account_ids = [v['account_id'] for v in next_validators]
     print(account_ids)
-    assert len(account_ids) == NUM_VALIDATORS, 'Number of validators do not match'
-    
+    assert len(
+        account_ids) == NUM_VALIDATORS, 'Number of validators do not match'
+
     # We copied over 'test0' validator key, along with validator account ID.
     # Therefore, despite nodes[0] being stopped, 'test0' still figures as active validator.
     assert sorted(account_ids)[0] == 'test0'
-    statuses = sorted([(node_idx, nodes[node_idx].get_latest_block()) for node_idx in range(1, NUM_VALIDATORS + 1)],
+    statuses = sorted([(node_idx, nodes[node_idx].get_latest_block())
+                       for node_idx in range(1, NUM_VALIDATORS + 1)],
                       key=lambda element: element[1].height)
     print(statuses)
     last = statuses.pop()
@@ -71,7 +73,7 @@ while True:
     # Both validators should be synchronized
     print('Succeed', succeed)
     if statuses[0][1].height > max_height - EPOCH_LENGTH // 2 and succeed:
-        # If nodes are synchronized and the current height is close to `max_height` we can finish. 
+        # If nodes are synchronized and the current height is close to `max_height` we can finish.
         sys.exit(0)
     time.sleep(1)
 
