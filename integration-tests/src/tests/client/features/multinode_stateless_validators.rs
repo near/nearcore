@@ -206,7 +206,7 @@ fn test_stateless_validators_with_multi_test_loop() {
     let block_and_chunk_producers =
         (0..NUM_BLOCK_AND_CHUNK_PRODUCERS).map(|idx| accounts[idx].as_str()).collect::<Vec<_>>();
     // These are the accounts that are only chunk validators, but not block/chunk producers.
-    let chunk_validators_only = (NUM_BLOCK_AND_CHUNK_PRODUCERS..NUM_VALIDATORS)
+    let chunk_only_validators = (NUM_BLOCK_AND_CHUNK_PRODUCERS..NUM_VALIDATORS)
         .map(|idx| accounts[idx].as_str())
         .collect::<Vec<_>>();
 
@@ -220,7 +220,7 @@ fn test_stateless_validators_with_multi_test_loop() {
         .shard_layout_simple_v1(&["account3", "account5", "account7"])
         .transaction_validity_period(1000)
         .epoch_length(EPOCH_LENGTH)
-        .validators_desired_roles(&block_and_chunk_producers, &chunk_validators_only)
+        .validators_desired_roles(&block_and_chunk_producers, &chunk_only_validators)
         .shuffle_shard_assignment_for_chunk_producers(true);
     for account in &accounts {
         genesis_builder.add_user_account_simple(account.clone(), initial_balance);

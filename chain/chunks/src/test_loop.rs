@@ -73,74 +73,72 @@ pub fn route_shards_manager_network_messages<
     LoopEventHandler::new(move |event: (usize, Event), data: &mut Data| {
         let (idx, event) = event;
         let message = event.try_into_or_self().map_err(|e| (idx, e.into()))?;
-        match message {
-            PeerManagerMessageRequest::NetworkRequests(request) => {
-                match request {
-                    NetworkRequests::PartialEncodedChunkRequest { target, request, .. } => {
-                        let target_idx = data.index_for_account(&target.account_id.unwrap());
-                        let route_back = CryptoHash::hash_borsh(next_hash);
-                        route_back_lookup.insert(route_back, idx);
-                        next_hash += 1;
-                        sender.send_with_delay(
-                            (target_idx,
-                            ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
-                                partial_encoded_chunk_request: request,
-                                route_back,
-                            }.into()),
-                            network_delay,
-                        );
-                        Ok(())
-                    }
-                    NetworkRequests::PartialEncodedChunkResponse { route_back, response } => {
-                        let target_idx =
-                            *route_back_lookup.get(&route_back).expect("Route back not found");
-                        sender.send_with_delay(
-                            (target_idx,
-                            ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
-                                partial_encoded_chunk_response: response,
-                                received_time: clock.now().into(), // TODO: use clock
-                            }.into()),
-                            network_delay,
-                        );
-                        Ok(())
-                    }
-                    NetworkRequests::PartialEncodedChunkMessage {
-                        account_id,
-                        partial_encoded_chunk,
-                    } => {
-                        let target_idx = data.index_for_account(&account_id);
-                        sender.send_with_delay(
-                            (
-                                target_idx,
-                                ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
-                                    partial_encoded_chunk.into(),
-                                )
-                                .into(),
-                            ),
-                            network_delay,
-                        );
-                        Ok(())
-                    }
-                    NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
-                        let target_idx = data.index_for_account(&account_id);
-                        sender.send_with_delay(
-                            (
-                                target_idx,
-                                ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(
-                                    forward,
-                                )
-                                .into(),
-                            ),
-                            network_delay,
-                        );
-                        Ok(())
-                    }
-                    other_message => {
-                        Err((idx, PeerManagerMessageRequest::NetworkRequests(other_message).into()))
-                    }
-                }
+        let PeerManagerMessageRequest::NetworkRequests(request) = message else {
+            return Err((idx, message.into()));
+        };
+        match request {
+            NetworkRequests::PartialEncodedChunkRequest { target, request, .. } => {
+                let target_idx = data.index_for_account(&target.account_id.unwrap());
+                let route_back = CryptoHash::hash_borsh(next_hash);
+                route_back_lookup.insert(route_back, idx);
+                next_hash += 1;
+                sender.send_with_delay(
+                    (
+                        target_idx,
+                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
+                            partial_encoded_chunk_request: request,
+                            route_back,
+                        }
+                        .into(),
+                    ),
+                    network_delay,
+                );
+                Ok(())
             }
-            message => Err((idx, message.into())),
+            NetworkRequests::PartialEncodedChunkResponse { route_back, response } => {
+                let target_idx = *route_back_lookup.get(&route_back).expect("Route back not found");
+                sender.send_with_delay(
+                    (
+                        target_idx,
+                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
+                            partial_encoded_chunk_response: response,
+                            received_time: clock.now().into(), // TODO: use clock
+                        }
+                        .into(),
+                    ),
+                    network_delay,
+                );
+                Ok(())
+            }
+            NetworkRequests::PartialEncodedChunkMessage { account_id, partial_encoded_chunk } => {
+                let target_idx = data.index_for_account(&account_id);
+                sender.send_with_delay(
+                    (
+                        target_idx,
+                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
+                            partial_encoded_chunk.into(),
+                        )
+                        .into(),
+                    ),
+                    network_delay,
+                );
+                Ok(())
+            }
+            NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
+                let target_idx = data.index_for_account(&account_id);
+                sender.send_with_delay(
+                    (
+                        target_idx,
+                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(forward)
+                            .into(),
+                    ),
+                    network_delay,
+                );
+                Ok(())
+            }
+            other_message => {
+                Err((idx, PeerManagerMessageRequest::NetworkRequests(other_message).into()))
+            }
         }
     })
 }

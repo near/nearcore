@@ -51,8 +51,8 @@ pub struct TestGenesisBuilder {
 #[derive(Debug, Clone)]
 enum ValidatorsSpec {
     DesiredRoles {
-        block_producers: Vec<String>,
-        chunk_only_producers: Vec<String>,
+        block_and_chunk_producers: Vec<String>,
+        chunk_validators_only: Vec<String>,
     },
     Raw {
         validators: Vec<AccountInfo>,
@@ -169,12 +169,15 @@ impl TestGenesisBuilder {
     /// validators are selected as specified.
     pub fn validators_desired_roles(
         &mut self,
-        block_producers: &[&str],
-        chunk_only_producers: &[&str],
+        block_and_chunk_producers: &[&str],
+        chunk_validators_only: &[&str],
     ) -> &mut Self {
         self.validators = Some(ValidatorsSpec::DesiredRoles {
-            block_producers: block_producers.iter().map(|s| s.to_string()).collect(),
-            chunk_only_producers: chunk_only_producers.iter().map(|s| s.to_string()).collect(),
+            block_and_chunk_producers: block_and_chunk_producers
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+            chunk_validators_only: chunk_validators_only.iter().map(|s| s.to_string()).collect(),
         });
         self
     }
@@ -185,15 +188,16 @@ impl TestGenesisBuilder {
     pub fn validators_raw(
         &mut self,
         validators: Vec<AccountInfo>,
-        num_block_producer_seats: NumSeats,
-        num_chunk_only_producer_seats: NumSeats,
+        num_block_and_chunk_producer_seats: NumSeats,
+        num_chunk_validator_only_seats: NumSeats,
     ) -> &mut Self {
         self.validators = Some(ValidatorsSpec::Raw {
             validators,
-            num_block_producer_seats,
-            num_chunk_only_producer_seats,
-            num_chunk_producer_seats: num_block_producer_seats,
-            num_chunk_validator_seats: num_block_producer_seats + num_chunk_only_producer_seats,
+            num_block_producer_seats: num_block_and_chunk_producer_seats,
+            num_chunk_only_producer_seats: 0,
+            num_chunk_producer_seats: num_block_and_chunk_producer_seats,
+            num_chunk_validator_seats: num_block_and_chunk_producer_seats
+                + num_chunk_validator_only_seats,
         });
         self
     }
@@ -316,8 +320,8 @@ impl TestGenesisBuilder {
         });
         let validator_specs = self.validators.clone().unwrap_or_else(|| {
             let default = ValidatorsSpec::DesiredRoles {
-                block_producers: vec!["validator0".to_string()],
-                chunk_only_producers: vec![],
+                block_and_chunk_producers: vec!["validator0".to_string()],
+                chunk_validators_only: vec![],
             };
             tracing::warn!(
                 "Genesis validators not explicitly set, defaulting to a single validator setup {:?}.",
@@ -516,15 +520,15 @@ const ONE_NEAR: Balance = 1_000_000_000_000_000_000_000_000;
 
 fn derive_validator_setup(specs: ValidatorsSpec) -> DerivedValidatorSetup {
     match specs {
-        ValidatorsSpec::DesiredRoles { block_producers, chunk_only_producers } => {
-            let num_block_producer_seats = block_producers.len() as NumSeats;
-            let num_chunk_only_producer_seats = chunk_only_producers.len() as NumSeats;
+        ValidatorsSpec::DesiredRoles { block_and_chunk_producers, chunk_validators_only } => {
+            let num_block_and_chunk_producer_seats = block_and_chunk_producers.len() as NumSeats;
+            let num_chunk_validator_only_seats = chunk_validators_only.len() as NumSeats;
             // Set minimum stake ratio to zero; that way, we don't have to worry about
             // chunk producers not having enough stake to be selected as desired.
             let minimum_stake_ratio = Rational32::new(0, 1);
             let mut validators = Vec::new();
-            for i in 0..num_block_producer_seats as usize {
-                let account_id: AccountId = block_producers[i].parse().unwrap();
+            for i in 0..num_block_and_chunk_producer_seats as usize {
+                let account_id: AccountId = block_and_chunk_producers[i].parse().unwrap();
                 let account_info = AccountInfo {
                     public_key: create_test_signer(account_id.as_str()).public_key(),
                     account_id,
@@ -532,21 +536,23 @@ fn derive_validator_setup(specs: ValidatorsSpec) -> DerivedValidatorSetup {
                 };
                 validators.push(account_info);
             }
-            for i in 0..num_chunk_only_producer_seats as usize {
-                let account_id: AccountId = chunk_only_producers[i].parse().unwrap();
+            for i in 0..num_chunk_validator_only_seats as usize {
+                let account_id: AccountId = chunk_validators_only[i].parse().unwrap();
                 let account_info = AccountInfo {
                     public_key: create_test_signer(account_id.as_str()).public_key(),
                     account_id,
-                    amount: ONE_NEAR * (10000 - i as Balance - num_block_producer_seats as Balance),
+                    amount: ONE_NEAR
+                        * (10000 - i as Balance - num_block_and_chunk_producer_seats as Balance),
                 };
                 validators.push(account_info);
             }
             DerivedValidatorSetup {
                 validators,
-                num_block_producer_seats,
-                num_chunk_only_producer_seats,
-                num_chunk_producer_seats: num_block_producer_seats,
-                num_chunk_validator_seats: num_block_producer_seats + num_chunk_only_producer_seats,
+                num_block_producer_seats: num_block_and_chunk_producer_seats,
+                num_chunk_only_producer_seats: num_chunk_validator_only_seats,
+                num_chunk_producer_seats: num_block_and_chunk_producer_seats,
+                num_chunk_validator_seats: num_block_and_chunk_producer_seats
+                    + num_chunk_validator_only_seats,
                 minimum_stake_ratio,
             }
         }
