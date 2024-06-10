@@ -76,6 +76,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
+use near_primitives::validator_signer::EmptyValidatorSigner;
 use near_store::config::StateSnapshotType;
 use near_store::genesis::initialize_genesis_state;
 use near_store::{NodeStorage, StoreConfig, TrieConfig};
@@ -365,6 +366,7 @@ fn test_client_with_multi_test_loop() {
         );
 
         let future_spawner = builder.sender().for_index(idx).into_future_spawner();
+        let validator = EmptyValidatorSigner::new(accounts[idx].clone());
         let state_sync_dumper = StateSyncDumper {
             clock: builder.clock(),
             client_config,
@@ -372,7 +374,7 @@ fn test_client_with_multi_test_loop() {
             epoch_manager,
             shard_tracker,
             runtime: runtime_adapter,
-            account_id: Some(accounts[idx].clone()),
+            validator,
             dump_future_runner: Box::new(move |future| {
                 future_spawner.spawn_boxed("state_sync_dumper", future);
                 Box::new(|| {})

@@ -439,7 +439,7 @@ pub fn start_with_config_and_synchronization(
         epoch_manager,
         shard_tracker,
         runtime,
-        account_id: config.validator_signer.get().map(|signer| signer.validator_id().clone()),
+        validator: config.validator_signer.clone(),
         dump_future_runner: StateSyncDumper::arbiter_dump_future_runner(),
         handle: None,
     };

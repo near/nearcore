@@ -7,7 +7,7 @@ use futures::FutureExt;
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error};
-use near_chain_configs::{ClientConfig, ExternalStorageLocation};
+use near_chain_configs::{ClientConfig, ExternalStorageLocation, MutableConfigValue};
 use near_client::sync::external::{
     create_bucket_readwrite, external_storage_location, StateFileType,
 };
@@ -22,6 +22,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::{StatePartKey, StateSyncDumpProgress};
 use near_primitives::types::{AccountId, EpochHeight, EpochId, ShardId, StateRoot};
+use near_primitives::validator_signer::ValidatorSigner;
 use near_store::DBCol;
 use rand::{thread_rng, Rng};
 use std::collections::HashSet;
@@ -35,7 +36,7 @@ pub struct StateSyncDumper {
     pub epoch_manager: Arc<dyn EpochManagerAdapter>,
     pub shard_tracker: ShardTracker,
     pub runtime: Arc<dyn RuntimeAdapter>,
-    pub account_id: Option<AccountId>,
+    pub validator: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
     pub dump_future_runner: Box<dyn Fn(BoxFuture<'static, ()>) -> Box<dyn FnOnce()>>,
     pub handle: Option<StateSyncDumpHandle>,
 }
@@ -125,7 +126,7 @@ impl StateSyncDumper {
                         dump_config.restart_dump_for_shards.clone().unwrap_or_default(),
                         external.clone(),
                         dump_config.iteration_delay.unwrap_or(Duration::seconds(10)),
-                        self.account_id.clone(),
+                        self.validator.get().map(|v| v.validator_id().clone()),
                         keep_running.clone(),
                     )
                     .boxed(),
