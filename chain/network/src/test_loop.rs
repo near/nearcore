@@ -117,27 +117,21 @@ impl Handler<SetChainInfo> for TestLoopPeerManagerActor {
 
 impl Handler<PeerManagerMessageRequest> for TestLoopPeerManagerActor {
     fn handle(&mut self, msg: PeerManagerMessageRequest) -> PeerManagerMessageResponse {
-        match msg {
-            PeerManagerMessageRequest::NetworkRequests(request) => {
-                // Iterate over the handlers in reverse order to allow for overriding the default handlers.
-                let mut request = Some(request);
-                for handler in self.handlers.iter().rev() {
-                    if let Some(new_request) = handler(request.take().unwrap()) {
-                        request = Some(new_request);
-                    } else {
-                        return PeerManagerMessageResponse::NetworkResponses(
-                            NetworkResponses::NoResponse,
-                        );
-                    }
-                }
-                // If no handler was able to handle the request, panic.
-                if let Some(request) = request {
-                    panic!("Unhandled request: {:?}", request);
-                }
-            }
-            msg => panic!("Unexpected message: {:?}", msg),
+        let PeerManagerMessageRequest::NetworkRequests(request) = msg else {
+            panic!("Unexpected message: {:?}", msg);
         };
-        PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
+
+        // Iterate over the handlers in reverse order to allow for overriding the default handlers.
+        let mut request = Some(request);
+        for handler in self.handlers.iter().rev() {
+            if let Some(new_request) = handler(request.take().unwrap()) {
+                request = Some(new_request);
+            } else {
+                return PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse);
+            }
+        }
+        // If no handler was able to handle the request, panic.
+        panic!("Unhandled request: {:?}", request);
     }
 }
 
