@@ -1,3 +1,13 @@
+
+# State Witness
+
+max_transaction_size: {old: 4_194_304, new: 1_572_864}
+max_receipt_size: {old: 999_999_999_999_999, new: 4_194_304}
+combined_transactions_size_limit: {old: 999_999_999_999_999, new: 2_097_152}
+new_transactions_validation_state_size_soft_limit: {old: 999_999_999_999_999, new: 572_864}
+
+# Congestion Control
+
 # i64::MAX == 9_223_372_036_854_775_807
 # PGAS     ==     1_000_000_000_000_000 GAS
 # TGAS     ==         1_000_000_000_000 GAS
@@ -22,10 +32,10 @@ max_congestion_memory_consumption: {
   old : 9_223_372_036_854_775_807,
   new : 1_000_000_000,
 }
-# 10 missed chunks
+# 2 missed chunks
 max_congestion_missed_chunks: { 
   old : 9_223_372_036_854_775_807,
-  new : 10,
+  new : 2,
 }
 
 # 300 PGAS
@@ -60,3 +70,9 @@ reject_tx_congestion_threshold: {
   old : { numerator: 1, denominator: 1 },
   new : { numerator: 25, denominator: 100 }
 }
+
+# 100 kiB
+outgoing_receipts_usual_size_limit: {old: 999_999_999_999_999, new: 102_400}
+
+# 4.5 MiB
+outgoing_receipts_big_size_limit: {old: 999_999_999_999_999, new: 4_718_592}

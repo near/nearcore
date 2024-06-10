@@ -117,8 +117,8 @@ impl RuntimeUser {
                     }
                     RuntimeError::BalanceMismatchError(e) => panic!("{}", e),
                     RuntimeError::StorageError(e) => panic!("Storage error {:?}", e),
-                    RuntimeError::UnexpectedIntegerOverflow => {
-                        panic!("UnexpectedIntegerOverflow error")
+                    RuntimeError::UnexpectedIntegerOverflow(reason) => {
+                        panic!("UnexpectedIntegerOverflow error {reason}")
                     }
                     RuntimeError::ReceiptValidationError(e) => panic!("{}", e),
                     RuntimeError::ValidatorError(e) => panic!("{}", e),

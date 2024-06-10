@@ -17,6 +17,7 @@ pub mod loading;
 pub mod lookup;
 pub mod metrics;
 pub mod node;
+mod parallel_loader;
 pub mod updating;
 
 /// Check this, because in the code we conveniently assume usize is 8 bytes.
@@ -54,6 +55,18 @@ impl MemTries {
             heights: Default::default(),
             shard_uid,
         }
+    }
+
+    pub fn new_from_arena_and_root(
+        shard_uid: ShardUId,
+        block_height: BlockHeight,
+        arena: STArena,
+        root: MemTrieNodeId,
+    ) -> Self {
+        let mut tries =
+            Self { arena, roots: HashMap::new(), heights: Default::default(), shard_uid };
+        tries.insert_root(root.as_ptr(tries.arena.memory()).view().node_hash(), root, block_height);
+        tries
     }
 
     /// Inserts a new root into the trie. The given function should perform
@@ -232,7 +245,6 @@ mod tests {
                                         extension: &NibbleSlice::new(&[]).encoded(true),
                                     },
                                 );
-                                root.as_ptr_mut(arena.memory_mut()).compute_hash_recursively();
                                 Ok(Some(root))
                             })
                             .unwrap();

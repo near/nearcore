@@ -79,7 +79,8 @@ use near_primitives::types::AccountId;
 use near_primitives::validator_signer::EmptyValidatorSigner;
 use near_store::config::StateSnapshotType;
 use near_store::genesis::initialize_genesis_state;
-use near_store::{NodeStorage, StoreConfig, TrieConfig};
+use near_store::test_utils::create_test_store;
+use near_store::{StoreConfig, TrieConfig};
 use near_vm_runner::ContractRuntimeCache;
 use near_vm_runner::FilesystemContractRuntimeCache;
 use nearcore::state_sync::StateSyncDumper;
@@ -236,11 +237,9 @@ fn test_client_with_multi_test_loop() {
         let store_config = StoreConfig {
             path: Some(homedir.clone()),
             load_mem_tries_for_tracked_shards: true,
-            max_open_files: 1000,
             ..Default::default()
         };
-        let opener = NodeStorage::opener(&homedir, false, &store_config, None);
-        let store = opener.open().unwrap().get_hot_store();
+        let store = create_test_store();
         initialize_genesis_state(store.clone(), &genesis, None);
 
         let sync_jobs_actor = SyncJobsActor::new(
@@ -269,6 +268,7 @@ fn test_client_with_multi_test_loop() {
             contract_cache,
             &genesis.config,
             epoch_manager.clone(),
+            None,
             TrieConfig::from_store_config(&store_config),
             StateSnapshotType::EveryEpoch,
         );
@@ -325,7 +325,7 @@ fn test_client_with_multi_test_loop() {
             shard_tracker.clone(),
             builder.sender().for_index(idx).into_sender(),
             builder.sender().for_index(idx).into_sender(),
-            ReadOnlyChunksStore::new(store),
+            ReadOnlyChunksStore::new(store.clone()),
             client.chain.head().unwrap(),
             client.chain.header_head().unwrap(),
             Duration::milliseconds(100),
@@ -363,6 +363,7 @@ fn test_client_with_multi_test_loop() {
                 .into_wrapped_multi_sender::<ClientSenderForPartialWitnessMessage, _>(),
             validator_signer,
             epoch_manager.clone(),
+            store,
         );
 
         let future_spawner = builder.sender().for_index(idx).into_future_spawner();

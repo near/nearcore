@@ -10,7 +10,7 @@ pub struct Version {
     pub rustc_version: String,
 }
 
-use crate::upgrade_schedule::{get_protocol_version_internal, ProtocolUpgradeVotingSchedule};
+use crate::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 
 /// near_primitives_core re-exports
 pub use near_primitives_core::checked_feature;
@@ -59,21 +59,35 @@ pub const FIXED_MINIMUM_NEW_RECEIPT_GAS_VERSION: ProtocolVersion = 66;
 /// it’s set according to the schedule for that protocol upgrade.  Release
 /// candidates usually have separate schedule to final releases.
 pub const PROTOCOL_UPGRADE_SCHEDULE: Lazy<ProtocolUpgradeVotingSchedule> = Lazy::new(|| {
-    // Update to according to schedule when making a release.
-    // Keep in mind that the protocol upgrade will happen 1-2 epochs (15h-30h)
-    // after the set date. Ideally that should be during working hours.
-    // e.g. ProtocolUpgradeVotingSchedule::from_env_or_str("2000-01-01 15:00:00").unwrap());
+    // Update according to the schedule when making a release. Keep in mind that
+    // the protocol upgrade will happen 1-2 epochs (15h-30h) after the set date.
+    // Ideally that should be during working hours.
+    //
+    // Multiple protocol version upgrades can be scheduled. Please make sure
+    // that they are ordered by datetime and version, the last one is the
+    // PROTOCOL_VERSION and that there is enough time between subsequent
+    // upgrades.
+    //
+    // At most one protocol version upgrade vote can happen per epoch. If, by any
+    // chance, two or more votes get scheduled on the same epoch, the latest upgrades
+    // will be postponed.
 
-    ProtocolUpgradeVotingSchedule::default()
+    // e.g.
+    // let v1_protocol_version = 50;
+    // let v2_protocol_version = 51;
+    // let v1_datetime = ProtocolUpgradeVotingSchedule::parse_datetime("2000-01-01 15:00:00").unwrap();
+    // let v2_datetime = ProtocolUpgradeVotingSchedule::parse_datetime("2000-01-10 15:00:00").unwrap();
+    //
+    // let schedule = vec![(v1_datetime, v1_protocol_version), (v2_datetime, v2_protocol_version)];
+    // ProtocolUpgradeVotingSchedule::new_from_env_or_schedule(PROTOCOL_VERSION, schedule).unwrap()
+
+    ProtocolUpgradeVotingSchedule::new_from_env_or_schedule(PROTOCOL_VERSION, vec![]).unwrap()
 });
 
 /// Gives new clients an option to upgrade without announcing that they support
 /// the new version.  This gives non-validator nodes time to upgrade.  See
 /// <https://github.com/near/NEPs/issues/205>
 pub fn get_protocol_version(next_epoch_protocol_version: ProtocolVersion) -> ProtocolVersion {
-    get_protocol_version_internal(
-        next_epoch_protocol_version,
-        PROTOCOL_VERSION,
-        *PROTOCOL_UPGRADE_SCHEDULE,
-    )
+    let now = chrono::Utc::now();
+    PROTOCOL_UPGRADE_SCHEDULE.get_protocol_version(now, next_epoch_protocol_version)
 }

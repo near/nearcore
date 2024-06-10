@@ -155,7 +155,7 @@ impl<'a> VMLogic<'a> {
         );
         let recorded_storage_counter = RecordedStorageCounter::new(
             ext.get_recorded_storage_size(),
-            config.limit_config.storage_proof_size_receipt_limit,
+            config.limit_config.per_receipt_storage_proof_size_limit,
         );
         Self {
             ext,
@@ -1213,14 +1213,19 @@ impl<'a> VMLogic<'a> {
         self.gas(opcodes as u64 * self.config.regular_op_cost as u64)
     }
 
+    /// An alias for [`VMLogic::gas`].
+    pub fn burn_gas(&mut self, gas: Gas) -> Result<()> {
+        self.gas(gas)
+    }
+
     /// This is the function that is exposed to WASM contracts under the name `gas`.
     ///
     /// For now it is consuming the gas for `gas` opcodes. When we switch to finite-wasm it’ll
     /// be made to be a no-op.
     ///
     /// This function might be intrinsified.
-    pub fn gas_seen_from_wasm(&mut self, gas: u32) -> Result<()> {
-        self.gas_opcodes(gas)
+    pub fn gas_seen_from_wasm(&mut self, opcodes: u32) -> Result<()> {
+        self.gas_opcodes(opcodes)
     }
 
     #[cfg(feature = "test_features")]
@@ -1243,8 +1248,8 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     ///
     /// This is a convenience function that encapsulates several costs:
-    /// `burnt_gas := dispatch cost of the receipt + base dispatch cost  cost of the data receipt`
-    /// `used_gas := burnt_gas + exec cost of the receipt + base exec cost  cost of the data receipt`
+    /// `burnt_gas := dispatch cost of the receipt + base dispatch cost of the data receipt`
+    /// `used_gas := burnt_gas + exec cost of the receipt + base exec cost of the data receipt`
     /// Notice that we prepay all base cost upon the creation of the data dependency, we are going to
     /// pay for the content transmitted through the dependency upon the actual creation of the
     /// DataReceipt.
@@ -2909,7 +2914,7 @@ impl<'a> VMLogic<'a> {
     /// * If `iterator_id` does not correspond to an existing iterator returns `InvalidIteratorId`;
     /// * If between the creation of the iterator and calling `storage_iter_next` the range over
     ///   which it iterates was modified returns `IteratorWasInvalidated`. Specifically, if
-    ///   `storage_write` or `storage_remove` was invoked on the key key such that:
+    ///   `storage_write` or `storage_remove` was invoked on the key such that:
     ///   * in case of `storage_iter_prefix`. `key` has the given prefix and:
     ///     * Iterator was not called next yet.
     ///     * `next` was already called on the iterator and it is currently pointing at the `key`

@@ -239,7 +239,7 @@ impl TestReshardingEnv {
             .validator_seats(num_validators)
             .real_stores()
             .epoch_managers_with_test_overrides(epoch_config_test_overrides)
-            .nightshade_runtimes(&genesis)
+            .nightshade_runtimes_congestion_control_disabled(&genesis)
             .track_all_shards()
             .build();
         assert_eq!(env.validators.len(), num_validators);
@@ -913,6 +913,7 @@ fn setup_genesis(
     // Same needs to be set in the AllEpochConfigTestOverrides.
     genesis.config.block_producer_kickout_threshold = 0;
     genesis.config.chunk_producer_kickout_threshold = 0;
+    genesis.config.chunk_validator_only_kickout_threshold = 0;
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = genesis_protocol_version;
     genesis.config.use_production_config = true;
@@ -2021,19 +2022,16 @@ fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v3() {
 
 // latest protocol
 
-#[ignore]
 #[test]
 fn test_latest_protocol_missing_chunks_low_missing_prob() {
     test_latest_protocol_missing_chunks(0.1, 25);
 }
 
-#[ignore]
 #[test]
 fn test_latest_protocol_missing_chunks_mid_missing_prob() {
     test_latest_protocol_missing_chunks(0.5, 26);
 }
 
-#[ignore]
 #[test]
 fn test_latest_protocol_missing_chunks_high_missing_prob() {
     test_latest_protocol_missing_chunks(0.9, 27);

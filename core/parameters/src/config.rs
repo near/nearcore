@@ -27,10 +27,10 @@ pub struct RuntimeConfig {
     pub wasm_config: crate::vm::Config,
     /// Config that defines rules for account creation.
     pub account_creation_config: AccountCreationConfig,
-    /// The maximum size of the storage proof in state witness after which we defer execution of any new receipts.
-    pub storage_proof_size_soft_limit: usize,
     /// The configuration for congestion control.
     pub congestion_control_config: CongestionControlConfig,
+    /// Configuration specific to ChunkStateWitness.
+    pub witness_config: WitnessConfig,
 }
 
 impl RuntimeConfig {
@@ -57,8 +57,8 @@ impl RuntimeConfig {
             fees: RuntimeFeesConfig::test(),
             wasm_config,
             account_creation_config: AccountCreationConfig::default(),
-            storage_proof_size_soft_limit: usize::MAX,
             congestion_control_config: runtime_config.congestion_control_config,
+            witness_config: runtime_config.witness_config,
         }
     }
 
@@ -73,8 +73,8 @@ impl RuntimeConfig {
             fees: RuntimeFeesConfig::free(),
             wasm_config,
             account_creation_config: AccountCreationConfig::default(),
-            storage_proof_size_soft_limit: usize::MAX,
             congestion_control_config: runtime_config.congestion_control_config,
+            witness_config: runtime_config.witness_config,
         }
     }
 
@@ -130,7 +130,6 @@ pub struct CongestionControlConfig {
     pub max_congestion_memory_consumption: u64,
 
     /// How many missed chunks in a row in a shard is considered 100% congested.
-    /// TODO(congestion_control) - find a good limit for missed chunks.
     pub max_congestion_missed_chunks: u64,
 
     /// The maximum amount of gas attached to receipts a shard can forward to
@@ -180,6 +179,16 @@ pub struct CongestionControlConfig {
     /// How much congestion a shard can tolerate before it stops all shards from
     /// accepting new transactions with the receiver set to the congested shard.
     pub reject_tx_congestion_threshold: f64,
+
+    /// The standard size limit for outgoing receipts aimed at a single shard.
+    /// This limit is pretty small to keep the size of source_receipt_proofs under control.
+    /// It limits the total sum of outgoing receipts, not individual receipts.
+    pub outgoing_receipts_usual_size_limit: u64,
+
+    /// Large size limit for outgoing receipts to a shard, used when it's safe
+    /// to send a lot of receipts without making the state witness too large.
+    /// It limits the total sum of outgoing receipts, not individual receipts.
+    pub outgoing_receipts_big_size_limit: u64,
 }
 
 // The Eq cannot be automatically derived for this class because it contains a
@@ -204,7 +213,23 @@ impl CongestionControlConfig {
             allowed_shard_outgoing_gas: max_value,
             max_tx_gas: max_value,
             min_tx_gas: max_value,
-            reject_tx_congestion_threshold: 1.0,
+            reject_tx_congestion_threshold: 2.0,
+            outgoing_receipts_usual_size_limit: max_value,
+            outgoing_receipts_big_size_limit: max_value,
         }
     }
+}
+
+/// Configuration specific to ChunkStateWitness.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct WitnessConfig {
+    /// Size limit for storage proof generated while executing receipts in a chunk.
+    /// After this limit is reached we defer execution of any new receipts.
+    pub main_storage_proof_size_soft_limit: usize,
+    /// Maximum size of transactions contained inside ChunkStateWitness.
+    /// A witness contains transactions from both the previous chunk and the current one.
+    /// This parameter limits the sum of sizes of transactions from both of those chunks.
+    pub combined_transactions_size_limit: usize,
+    /// Soft size limit of storage proof used to validate new transactions in ChunkStateWitness.
+    pub new_transactions_validation_state_size_soft_limit: usize,
 }

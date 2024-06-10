@@ -1,13 +1,14 @@
-use super::arena::{Arena, ArenaMemory, ArenaPos, ArenaPtr, ArenaPtrMut};
+use super::arena::{Arena, ArenaMemory, ArenaPos, ArenaPtr};
 use super::flexible_data::children::ChildrenView;
 use super::flexible_data::value::ValueView;
+use crate::trie::{Children, TRIE_COSTS};
+use crate::{RawTrieNode, RawTrieNodeWithSize};
 use derive_where::derive_where;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state::FlatStateValue;
 use std::fmt::{Debug, Formatter};
 
 mod encoding;
-mod mutation;
 #[cfg(test)]
 mod tests;
 mod view;
@@ -42,13 +43,6 @@ impl MemTrieNodeId {
     pub fn as_ptr<'a, M: ArenaMemory>(&self, arena: &'a M) -> MemTrieNodePtr<'a, M> {
         MemTrieNodePtr { ptr: arena.ptr(self.pos) }
     }
-
-    pub(crate) fn as_ptr_mut<'a, M: ArenaMemory>(
-        &self,
-        arena: &'a mut M,
-    ) -> MemTrieNodePtrMut<'a, M> {
-        MemTrieNodePtrMut { ptr: arena.ptr_mut(self.pos) }
-    }
 }
 
 /// This is for internal use only, so that we can put `MemTrieNodeId` in an
@@ -64,13 +58,6 @@ impl Default for MemTrieNodeId {
 #[derive_where(Clone, Copy, PartialEq, Eq)]
 pub struct MemTrieNodePtr<'a, M: ArenaMemory> {
     ptr: ArenaPtr<'a, M>,
-}
-
-/// Pointer to an in-memory trie node that allows mutable access to the node
-/// and all its descendants. This is only for computing hashes, and internal
-/// reference counting.
-pub struct MemTrieNodePtrMut<'a, M: ArenaMemory> {
-    ptr: ArenaPtrMut<'a, M>,
 }
 
 impl<'a, M: ArenaMemory> Debug for MemTrieNodePtr<'a, M> {
@@ -127,4 +114,61 @@ pub enum MemTrieNodeView<'a, M: ArenaMemory> {
         children: ChildrenView<'a, M>,
         value: ValueView<'a>,
     },
+}
+
+impl<'a> InputMemTrieNode<'a> {
+    /// Converts the input node into a `RawTrieNodeWithSize`; this is used to initialize
+    /// memory usage and to calculate hash when constructing the memtrie node.
+    ///
+    /// This must not be called if the node is a leaf.
+    pub fn to_raw_trie_node_with_size_non_leaf<Memory: ArenaMemory>(
+        &self,
+        arena: &Memory,
+    ) -> RawTrieNodeWithSize {
+        match self {
+            Self::Leaf { .. } => {
+                unreachable!("Leaf nodes do not need hash computation")
+            }
+            Self::Extension { extension, child, .. } => {
+                let view = child.as_ptr(arena).view();
+                let memory_usage = TRIE_COSTS.node_cost
+                    + extension.len() as u64 * TRIE_COSTS.byte_of_key
+                    + view.memory_usage();
+                let node = RawTrieNode::Extension(extension.to_vec(), view.node_hash());
+                RawTrieNodeWithSize { node, memory_usage }
+            }
+            Self::Branch { children, .. } => {
+                let mut memory_usage = TRIE_COSTS.node_cost;
+                let mut hashes = [None; 16];
+                for (i, child) in children.iter().enumerate() {
+                    if let Some(child) = child {
+                        let view = child.as_ptr(arena).view();
+                        hashes[i] = Some(view.node_hash());
+                        memory_usage += view.memory_usage();
+                    }
+                }
+                let node = RawTrieNode::BranchNoValue(Children(hashes));
+                RawTrieNodeWithSize { node, memory_usage }
+            }
+            Self::BranchWithValue { children, value, .. } => {
+                let value_len = match value {
+                    FlatStateValue::Ref(value_ref) => value_ref.len(),
+                    FlatStateValue::Inlined(value) => value.len(),
+                };
+                let mut memory_usage = TRIE_COSTS.node_cost
+                    + value_len as u64 * TRIE_COSTS.byte_of_value
+                    + TRIE_COSTS.node_cost;
+                let mut hashes = [None; 16];
+                for (i, child) in children.iter().enumerate() {
+                    if let Some(child) = child {
+                        let view = child.as_ptr(arena).view();
+                        hashes[i] = Some(view.node_hash());
+                        memory_usage += view.memory_usage();
+                    }
+                }
+                let node = RawTrieNode::BranchWithValue(value.to_value_ref(), Children(hashes));
+                RawTrieNodeWithSize { node, memory_usage }
+            }
+        }
+    }
 }

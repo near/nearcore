@@ -56,7 +56,7 @@ pub fn proposals_to_epoch_info(
         AliasValidatorSelectionAlgorithm,
         prev_prev_epoch_protocol_version
     ) {
-        return crate::validator_selection::proposals_to_epoch_info(
+        crate::validator_selection::proposals_to_epoch_info(
             epoch_config,
             rng_seed,
             prev_epoch_info,
@@ -66,9 +66,9 @@ pub fn proposals_to_epoch_info(
             minted_amount,
             protocol_version,
             use_stable_shard_assignment,
-        );
+        )
     } else {
-        return old_validator_selection::proposals_to_epoch_info(
+        old_validator_selection::proposals_to_epoch_info(
             epoch_config,
             rng_seed,
             prev_epoch_info,
@@ -77,7 +77,7 @@ pub fn proposals_to_epoch_info(
             validator_reward,
             minted_amount,
             protocol_version,
-        );
+        )
     }
 }
 

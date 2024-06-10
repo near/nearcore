@@ -177,7 +177,7 @@ fn assert_compute_limit_reached(
 ) {
     // The immediate protocol upgrade needs to be set for this test to pass in
     // the release branch where the protocol upgrade date is set.
-    std::env::set_var("NEAR_TESTS_IMMEDIATE_PROTOCOL_UPGRADE", "1");
+    std::env::set_var("NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE", "now");
     near_o11y::testonly::init_test_logger();
 
     let old_protocol_version = INCREASED_STORAGE_COSTS_PROTOCOL_VERSION - 1;

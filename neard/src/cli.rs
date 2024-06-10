@@ -313,7 +313,7 @@ pub(super) struct InitCmd {
     /// Genesis file to use when initializing testnet (including downloading).
     #[clap(long)]
     genesis: Option<String>,
-    /// Initialize boots nodes in <node_key>@<ip_addr> format seperated by commas
+    /// Initialize boots nodes in <node_key>@<ip_addr> format separated by commas
     /// to bootstrap the network and store them in config.json
     #[clap(long)]
     boot_nodes: Option<String>,

@@ -23,7 +23,7 @@ use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::AccountId;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::Trie;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use reed_solomon_erasure::galois_8::ReedSolomon;
@@ -363,6 +363,10 @@ fn test_verify_chunk_invalid_state_challenge() {
     let data_parts = env.clients[0].epoch_manager.num_data_parts();
     let parity_parts = total_parts - data_parts;
     let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
+    let congestion_info = ProtocolFeature::CongestionControl
+        .enabled(PROTOCOL_VERSION)
+        .then_some(CongestionInfo::default());
+
     let (mut invalid_chunk, merkle_paths) = ShardsManagerActor::create_encoded_shard_chunk(
         *last_block.hash(),
         Trie::EMPTY_ROOT,
@@ -377,7 +381,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         &[],
         last_block.chunks()[0].prev_outgoing_receipts_root(),
         CryptoHash::default(),
-        CongestionInfo::default(),
+        congestion_info,
         &validator_signer,
         &rs,
         PROTOCOL_VERSION,

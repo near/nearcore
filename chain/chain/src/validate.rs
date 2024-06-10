@@ -8,6 +8,7 @@ use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, ChunkState, MaybeEncodedShardChunk,
 };
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::merklize;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
@@ -176,7 +177,38 @@ pub fn validate_chunk_with_chunk_extra_and_receipts_root(
         return Err(Error::InvalidGasLimit);
     }
 
+    validate_congestion_info(&prev_chunk_extra.congestion_info(), &chunk_header.congestion_info())?;
+
     Ok(())
+}
+
+/// Validate the congestion info propagation from the chunk extra of the previous
+/// chunk to the chunk header of the current chunk. The extra congestion info is
+/// trusted as it is the result of verified computation. The header congestion
+/// info is being validated.
+fn validate_congestion_info(
+    extra_congestion_info: &Option<CongestionInfo>,
+    header_congestion_info: &Option<CongestionInfo>,
+) -> Result<(), Error> {
+    match (extra_congestion_info, header_congestion_info) {
+        // If both are none then there is no congestion info to validate.
+        (None, None) => Ok(()),
+        // It is invalid to have one None and one Some. The congestion info in
+        // header should always be derived from the congestion info in extra.
+        (None, Some(_)) | (Some(_), None) => Err(Error::InvalidCongestionInfo(format!(
+            "Congestion Information mismatch. extra: {:?}, header: {:?}",
+            extra_congestion_info, header_congestion_info
+        ))),
+        // Congestion Info is present in both the extra and the header. Validate it.
+        (Some(extra), Some(header)) => CongestionInfo::validate_extra_and_header(extra, header)
+            .then_some(())
+            .ok_or_else(|| {
+                Error::InvalidCongestionInfo(format!(
+                    "Congestion Information validate error. extra: {:?}, header: {:?}",
+                    extra, header
+                ))
+            }),
+    }
 }
 
 /// Validates a double sign challenge.

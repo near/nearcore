@@ -4,7 +4,7 @@ import json
 import os
 import pathlib
 import rc
-import requests
+from geventhttpclient import Session
 import shutil
 import signal
 import subprocess
@@ -29,6 +29,13 @@ os.environ["ADVERSARY_CONSENT"] = "1"
 remote_nodes = []
 remote_nodes_lock = threading.Lock()
 cleanup_remote_nodes_atexit_registered = False
+
+
+def session(timeout=9) -> Session:
+    return Session(connection_timeout=6,
+                   network_timeout=timeout,
+                   max_retries=5,
+                   retry_delay=0.1)
 
 
 class DownloadException(Exception):
@@ -209,16 +216,14 @@ class BaseNode(object):
     def wait_for_rpc(self, timeout=1):
         nretry(lambda: self.get_status(), timeout=timeout)
 
-    def json_rpc(self, method, params, timeout=2):
+    def json_rpc(self, method, params, timeout=9):
         j = {
             'method': method,
             'params': params,
             'id': 'dontcare',
             'jsonrpc': '2.0'
         }
-        r = requests.post("http://%s:%s" % self.rpc_addr(),
-                          json=j,
-                          timeout=timeout)
+        r = session(timeout).post("http://%s:%s" % self.rpc_addr(), json=j)
         r.raise_for_status()
         return json.loads(r.content)
 
@@ -235,8 +240,7 @@ class BaseNode(object):
                    check_storage: bool = True,
                    timeout: float = 4,
                    verbose: bool = False):
-        r = requests.get("http://%s:%s/status" % self.rpc_addr(),
-                         timeout=timeout)
+        r = session(timeout).get("http://%s:%s/status" % self.rpc_addr())
         r.raise_for_status()
         status = json.loads(r.content)
         if verbose:
@@ -249,8 +253,7 @@ class BaseNode(object):
         return status
 
     def get_metrics(self, timeout: float = 4):
-        r = requests.get("http://%s:%s/metrics" % self.rpc_addr(),
-                         timeout=timeout)
+        r = session(timeout).get("http://%s:%s/metrics" % self.rpc_addr())
         r.raise_for_status()
         return r.content
 
@@ -688,8 +691,8 @@ chmod +x neard
         return super().json_rpc(method, params, timeout=timeout)
 
     def get_status(self):
-        r = nretry(lambda: requests.get("http://%s:%s/status" % self.rpc_addr(),
-                                        timeout=15),
+        r = nretry(lambda: session(timeout=15).get("http://%s:%s/status" % self.
+                                                   rpc_addr()),
                    timeout=45)
         r.raise_for_status()
         return json.loads(r.content)

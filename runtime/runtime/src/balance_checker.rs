@@ -123,7 +123,9 @@ fn total_postponed_receipts_cost(
             }
         };
 
-        safe_add_balance(total, cost).map_err(|_| RuntimeError::UnexpectedIntegerOverflow)
+        safe_add_balance(total, cost).map_err(|_| {
+            RuntimeError::UnexpectedIntegerOverflow("total_postponed_receipts_cost".into())
+        })
     })
 }
 
@@ -614,7 +616,7 @@ mod tests {
         let tx = transfer_tx(alice_id, bob_id, 2);
         let receipt = extract_transfer_receipt(&tx, gas_price, deposit);
 
-        assert_eq!(
+        assert_matches!(
             check_balance(
                 &RuntimeConfig::test(),
                 &initial_state,
@@ -625,7 +627,7 @@ mod tests {
                 &[],
                 &ApplyStats::default(),
             ),
-            Err(RuntimeError::UnexpectedIntegerOverflow)
+            Err(RuntimeError::UnexpectedIntegerOverflow(_))
         );
     }
 
@@ -671,7 +673,7 @@ mod tests {
         );
     }
 
-    /// When adding a receipt to the outgoing buffer, its balance must must be
+    /// When adding a receipt to the outgoing buffer, its balance must be
     /// picked up by the balance checker. Test it by simulating a transfer
     /// action removing some balance from an account and placing the receipt in
     /// the buffer.

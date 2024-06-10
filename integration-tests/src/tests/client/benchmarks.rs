@@ -8,7 +8,9 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::{create_chunk_on_height, TestEnv};
 use near_client::{ProcessTxResponse, ProduceChunkResult};
 use near_crypto::{InMemorySigner, KeyType};
+use near_primitives::checked_feature;
 use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
+use near_primitives::version::PROTOCOL_VERSION;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 /// How long does it take to produce a large chunk?
@@ -24,7 +26,11 @@ fn benchmark_large_chunk_production_time() {
     let mb = 1024usize.pow(2);
 
     let n_txes = 20;
-    let tx_size = 3 * mb;
+    let tx_size = if checked_feature!("stable", WitnessTransactionLimits, PROTOCOL_VERSION) {
+        mb / 2
+    } else {
+        3 * mb
+    };
 
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
@@ -56,5 +62,9 @@ fn benchmark_large_chunk_production_time() {
 
     // Check that we limit the size of the chunk and not include all `n_txes`
     // transactions in the chunk.
-    assert!(30 * mb < size && size < 40 * mb, "{size}");
+    if checked_feature!("stable", WitnessTransactionLimits, PROTOCOL_VERSION) {
+        assert!(2 * mb < size && size < 4 * mb, "{size}");
+    } else {
+        assert!(30 * mb < size && size < 40 * mb, "{size}");
+    }
 }

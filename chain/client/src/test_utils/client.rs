@@ -42,11 +42,14 @@ impl Client {
         block: MaybeValidated<Block>,
         provenance: Provenance,
         should_produce_chunk: bool,
+        allow_errors: bool,
     ) -> Result<Vec<CryptoHash>, near_chain::Error> {
         self.start_process_block(block, provenance, None)?;
         wait_for_all_blocks_in_processing(&mut self.chain);
         let (accepted_blocks, errors) = self.postprocess_ready_blocks(None, should_produce_chunk);
-        assert!(errors.is_empty(), "unexpected errors when processing blocks: {errors:#?}");
+        if !allow_errors {
+            assert!(errors.is_empty(), "unexpected errors when processing blocks: {errors:#?}");
+        }
         Ok(accepted_blocks)
     }
 
@@ -55,7 +58,7 @@ impl Client {
         block: MaybeValidated<Block>,
         provenance: Provenance,
     ) -> Result<Vec<CryptoHash>, near_chain::Error> {
-        self.process_block_sync_with_produce_chunk_options(block, provenance, true)
+        self.process_block_sync_with_produce_chunk_options(block, provenance, true, false)
     }
 
     pub fn process_block_test_no_produce_chunk(
@@ -63,7 +66,15 @@ impl Client {
         block: MaybeValidated<Block>,
         provenance: Provenance,
     ) -> Result<Vec<CryptoHash>, near_chain::Error> {
-        self.process_block_sync_with_produce_chunk_options(block, provenance, false)
+        self.process_block_sync_with_produce_chunk_options(block, provenance, false, false)
+    }
+
+    pub fn process_block_test_no_produce_chunk_allow_errors(
+        &mut self,
+        block: MaybeValidated<Block>,
+        provenance: Provenance,
+    ) -> Result<Vec<CryptoHash>, near_chain::Error> {
+        self.process_block_sync_with_produce_chunk_options(block, provenance, false, true)
     }
 
     /// This function finishes processing all blocks that started being processed.
@@ -207,8 +218,7 @@ pub fn create_chunk(
             transactions,
             decoded_chunk.prev_outgoing_receipts(),
             header.prev_outgoing_receipts_root(),
-            // TODO(congestion_control): compute if not available
-            header.congestion_info().unwrap_or_default(),
+            header.congestion_info(),
             &*signer,
             PROTOCOL_VERSION,
         )
