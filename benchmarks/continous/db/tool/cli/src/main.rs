@@ -2,13 +2,16 @@ use anyhow::Context;
 use chrono::{DateTime, Utc};
 use clap::{Parser, Subcommand};
 
-use orm::{establish_connection, insert_ft_transfer, models::NewFtTransfer};
+use orm::{check_connection, establish_connection, insert_ft_transfer, models::NewFtTransfer};
 
 fn main() -> anyhow::Result<()> {
     let args = Cli::parse();
 
-    let connection = &mut establish_connection()?;
     match args.command {
+        Command::CheckConnection => {
+            let connection = &mut establish_connection()?;
+            check_connection(connection)?;
+        }
         Command::InsertFtTransfer {
             time,
             git_commit_hash,
@@ -23,6 +26,7 @@ fn main() -> anyhow::Result<()> {
             tps,
             total_transactions,
         } => {
+            let connection = &mut establish_connection()?;
             let node_hardware: Vec<&str> = node_hardware.iter().map(String::as_str).collect();
             let new_ft_transfer = NewFtTransfer {
                 time,
@@ -57,6 +61,8 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Connects to the db and runs a SELECT query to check if a connection can be established.
+    CheckConnection,
     /// Insert data related to an ft transfer benchmark run.
     #[command(arg_required_else_help = true)]
     InsertFtTransfer {

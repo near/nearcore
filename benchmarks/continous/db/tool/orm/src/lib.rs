@@ -1,5 +1,6 @@
 use std::env;
 
+use chrono::{DateTime, Utc};
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
 use dotenvy::dotenv;
@@ -25,5 +26,11 @@ pub fn insert_ft_transfer(
     let num_inserted =
         diesel::insert_into(ft_transfers::table).values(ft_transfer).execute(connection)?;
     anyhow::ensure!(num_inserted == 1, "failed to insert ft_transfer");
+    Ok(())
+}
+
+pub fn check_connection(connection: &mut PgConnection) -> anyhow::Result<()> {
+    use crate::schema::ft_transfers::dsl::{ft_transfers, time};
+    let _result = ft_transfers.select(time).limit(1).load::<DateTime<Utc>>(connection)?;
     Ok(())
 }
