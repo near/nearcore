@@ -1166,9 +1166,7 @@ impl ClientActorInner {
                 &|updateable_client_config| {
                     self.client.update_client_config(updateable_client_config)
                 },
-                &|validator_signer| {
-                    self.client.update_validator_signer(validator_signer)
-                }
+                &|validator_signer| self.client.update_validator_signer(validator_signer),
             );
             if config_updater.was_validator_signer_updated() {
                 self.network_adapter.send(PeerManagerMessageRequest::AdvertiseTier1Proxies);

@@ -1338,7 +1338,13 @@ pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -
         let validator_signer = Arc::new(create_test_signer(seed)) as Arc<ValidatorSigner>;
         (signer, Some(validator_signer))
     };
-    NearConfig::new(config, genesis, signer.into(), MutableConfigValue::new(validator_signer, "validator_signer")).unwrap()
+    NearConfig::new(
+        config,
+        genesis,
+        signer.into(),
+        MutableConfigValue::new(validator_signer, "validator_signer"),
+    )
+    .unwrap()
 }
 
 #[cfg(test)]

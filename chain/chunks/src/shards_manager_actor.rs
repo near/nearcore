@@ -87,7 +87,6 @@ use crate::logic::{
     make_partial_encoded_chunk_from_owned_parts_and_needed_receipts, need_part, need_receipt,
 };
 use crate::metrics;
-use near_chain_configs::MutableConfigValue;
 use ::time::ext::InstantExt as _;
 use actix::Actor;
 use near_async::actix_wrapper::ActixWrapper;
@@ -99,6 +98,7 @@ use near_chain::byzantine_assert;
 use near_chain::chunks_store::ReadOnlyChunksStore;
 use near_chain::near_chain_primitives::error::Error::DBNotFoundErr;
 use near_chain::types::EpochManagerAdapter;
+use near_chain_configs::MutableConfigValue;
 pub use near_chunks_primitives::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
@@ -1935,7 +1935,8 @@ impl ShardsManagerActor {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
         for shard_id in self.epoch_manager.shard_ids(&epoch_id)? {
             if !chunk_entry.receipts.contains_key(&shard_id) {
-                if need_receipt(prev_block_hash, shard_id, self.me().as_ref(), &self.shard_tracker) {
+                if need_receipt(prev_block_hash, shard_id, self.me().as_ref(), &self.shard_tracker)
+                {
                     return Ok(false);
                 }
             }

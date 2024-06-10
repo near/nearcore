@@ -203,8 +203,7 @@ pub fn setup(
         enable_doomslug,
         Some(TEST_SEED),
     );
-    let validator_signer = 
-        Some(Arc::new(EmptyValidatorSigner::new(account_id)));
+    let validator_signer = Some(Arc::new(EmptyValidatorSigner::new(account_id)));
     let (shards_manager_addr, _) = start_shards_manager(
         epoch_manager,
         shard_tracker,
@@ -994,10 +993,7 @@ pub fn setup_client_with_runtime(
         runtime,
         network_adapter,
         shards_manager_adapter.into_sender(),
-        MutableConfigValue::new(
-            Some(validator_signer),
-            "validator_signer",
-        ),
+        MutableConfigValue::new(Some(validator_signer), "validator_signer"),
         enable_doomslug,
         rng_seed,
         snapshot_callbacks,
@@ -1046,9 +1042,7 @@ pub fn setup_synchronous_shards_manager(
     .unwrap();
     let chain_head = chain.head().unwrap();
     let chain_header_head = chain.header_head().unwrap();
-    let validator_signer = account_id.map(|id|
-        Arc::new(EmptyValidatorSigner::new(id))
-    );
+    let validator_signer = account_id.map(|id| Arc::new(EmptyValidatorSigner::new(id)));
     let shards_manager = ShardsManagerActor::new(
         clock,
         MutableConfigValue::new(validator_signer, "validator_signer"),

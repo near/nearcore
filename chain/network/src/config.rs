@@ -356,7 +356,10 @@ impl NetworkConfig {
     pub fn from_seed(seed: &str, node_addr: tcp::ListenerAddr) -> Self {
         let node_key = SecretKey::from_seed(KeyType::ED25519, seed);
         let validator = ValidatorConfig {
-            signer: MutableConfigValue::new(Some(Arc::new(create_test_signer(seed))), "validator_signer"),
+            signer: MutableConfigValue::new(
+                Some(Arc::new(create_test_signer(seed))),
+                "validator_signer",
+            ),
             proxies: ValidatorProxies::Static(vec![PeerAddr {
                 addr: *node_addr,
                 peer_id: PeerId::new(node_key.public_key()),

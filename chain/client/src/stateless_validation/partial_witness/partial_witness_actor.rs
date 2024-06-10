@@ -163,7 +163,8 @@ impl PartialWitnessActor {
         mut chunk_validators: Vec<AccountId>,
     ) {
         // Remove ourselves from the list of chunk validators. Network can't send messages to ourselves.
-        chunk_validators.retain(|validator| validator != self.my_signer.get().unwrap().validator_id());
+        chunk_validators
+            .retain(|validator| validator != self.my_signer.get().unwrap().validator_id());
 
         let signed_witness = SignedEncodedChunkStateWitness {
             signature: self.my_signer.get().unwrap().sign_chunk_state_witness(&witness_bytes),

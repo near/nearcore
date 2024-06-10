@@ -26,7 +26,14 @@ impl super::NetworkState {
         if self.config.tier1.is_none() {
             return None;
         }
-        if self.config.validator.signer.get().filter(|signer| accounts_data.keys.contains(&signer.public_key())).is_none() {
+        if self
+            .config
+            .validator
+            .signer
+            .get()
+            .filter(|signer| accounts_data.keys.contains(&signer.public_key()))
+            .is_none()
+        {
             return None;
         }
         Some(&self.config.validator)
