@@ -1026,6 +1026,14 @@ impl PeerManagerActor {
                     self.handle_msg_network_requests(msg, ctx),
                 )
             }
+            PeerManagerMessageRequest::AdvertiseTier1Proxies => {
+                let state = self.state.clone();
+                let clock = self.clock.clone();
+                ctx.spawn(wrap_future(async move {
+                    state.tier1_advertise_proxies(&clock).await;
+                }));
+                PeerManagerMessageResponse::AdvertiseTier1Proxies
+            }
             PeerManagerMessageRequest::OutboundTcpConnect(stream) => {
                 let peer_addr = stream.peer_addr;
                 if let Err(err) =

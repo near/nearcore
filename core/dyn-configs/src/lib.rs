@@ -3,6 +3,7 @@
 use near_async::time::Clock;
 use near_chain_configs::UpdateableClientConfig;
 use near_o11y::log_config::LogConfig;
+use near_primitives::validator_signer::ValidatorSigner;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -17,6 +18,8 @@ pub struct UpdateableConfigs {
     pub log_config: Option<LogConfig>,
     /// Contents of the `config.json` corresponding to the mutable fields of `ClientConfig`.
     pub client_config: Option<UpdateableClientConfig>,
+    /// Validator key hot loaded from file.
+    pub validator_signer: Option<Arc<ValidatorSigner>>,
 }
 
 /// Pushes the updates to listeners.
@@ -35,6 +38,8 @@ pub enum UpdateableConfigLoaderError {
     OpenAndRead { file: PathBuf, err: std::io::Error },
     #[error("Can't open or read the config file {file:?}: {err:?}")]
     ConfigFileError { file: PathBuf, err: anyhow::Error },
+    #[error("Can't open or read the validator key file {file:?}: {err:?}")]
+    ValidatorKeyFileError { file: PathBuf, err: anyhow::Error },
     #[error("One or multiple dynamic config files reload errors {0:?}")]
     Errors(Vec<UpdateableConfigLoaderError>),
     #[error("No home dir set")]

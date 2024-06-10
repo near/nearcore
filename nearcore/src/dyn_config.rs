@@ -2,8 +2,12 @@ use crate::config::Config;
 use near_chain_configs::UpdateableClientConfig;
 use near_dyn_configs::{UpdateableConfigLoaderError, UpdateableConfigs};
 use near_o11y::log_config::LogConfig;
+use near_primitives::validator_signer::ValidatorSigner;
 use serde::Deserialize;
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 pub const LOG_CONFIG_FILENAME: &str = "log_config.json";
 
@@ -31,9 +35,22 @@ pub fn read_updateable_configs(
     };
     let updateable_client_config = config.as_ref().map(get_updateable_client_config);
 
+    let validator_signer = if let Some(config) = config {
+        read_validator_key(home_dir, &config).unwrap_or_else(|err| {
+            errs.push(err);
+            None
+        })
+    } else {
+        None
+    };
+
     if errs.is_empty() {
         crate::metrics::CONFIG_CORRECT.set(1);
-        Ok(UpdateableConfigs { log_config, client_config: updateable_client_config })
+        Ok(UpdateableConfigs {
+            log_config,
+            client_config: updateable_client_config,
+            validator_signer,
+        })
     } else {
         tracing::warn!(target: "neard", "Dynamically updateable configs are not valid. Please fix this ASAP otherwise the node will be unable to restart: {:?}", &errs);
         crate::metrics::CONFIG_CORRECT.set(0);
@@ -84,5 +101,25 @@ where
             }
             _ => Err(UpdateableConfigLoaderError::OpenAndRead { file: path.to_path_buf(), err }),
         },
+    }
+}
+
+fn read_validator_key(
+    home_dir: &Path,
+    config: &Config,
+) -> Result<Option<Arc<ValidatorSigner>>, UpdateableConfigLoaderError> {
+    let validator_file: PathBuf = home_dir.join(&config.validator_key_file);
+    match crate::config::load_validator_key(&validator_file) {
+        Ok(Some(validator_signer)) => {
+            tracing::info!(target: "neard", "Hot loading validator key {}.", validator_file.display());
+            Ok(Some(validator_signer))
+        }
+        Ok(None) => {
+            tracing::info!(target: "neard", "No validator key {}.", validator_file.display());
+            Ok(None)
+        }
+        Err(err) => {
+            Err(UpdateableConfigLoaderError::ValidatorKeyFileError { file: validator_file, err })
+        }
     }
 }
