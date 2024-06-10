@@ -7,5 +7,4 @@ edition = "2021"
 anyhow.workspace = true
 chrono.workspace = true
 diesel.workspace = true
-dotenvy.workspace = true
 

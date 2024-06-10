@@ -51,7 +51,7 @@ fn main() -> anyhow::Result<()> {
 
 #[derive(Debug, Parser)]
 #[command(
-    about = "A CLI to interact with the db storing contiouos benchmark data",
+    about = "A CLI to interact with the db storing contiuous benchmark data. Commands that connect to the db require the env var DATABASE_URL_CLI to be set in a format compatible with the diesel crate. Consider sourcing the dbprofile file in the repository.",
     long_about = None
 )]
 struct Cli {

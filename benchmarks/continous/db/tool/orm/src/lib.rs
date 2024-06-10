@@ -3,16 +3,14 @@ use std::env;
 use chrono::{DateTime, Utc};
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
-use dotenvy::dotenv;
 
 pub mod models;
 pub mod schema;
 use models::NewFtTransfer;
 
 pub fn establish_connection() -> anyhow::Result<PgConnection> {
-    dotenv().ok();
-
-    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let database_url = env::var("DATABASE_URL_CLI")
+        .expect("DATABASE_URL_CLI must be set. Consider sourcing the dbprofile file.");
     let connection = PgConnection::establish(&database_url)?;
     Ok(connection)
 }
