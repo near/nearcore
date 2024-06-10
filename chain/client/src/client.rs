@@ -207,10 +207,6 @@ impl Client {
             .produce_chunk_add_transactions_time_limit
             .update(update_client_config.produce_chunk_add_transactions_time_limit);
     }
-
-    pub(crate) fn update_validator_signer(&self, signer: Arc<ValidatorSigner>) -> bool {
-        self.validator_signer.update(Some(signer))
-    }
 }
 
 // Debug information about the upcoming block.
@@ -403,7 +399,7 @@ impl Client {
             shards_manager_adapter,
             sharded_tx_pool,
             network_adapter,
-            validator_signer: MutableConfigValue::new(validator_signer, "validator_signer"),
+            validator_signer,
             pending_approvals: lru::LruCache::new(num_block_producer_seats),
             catchup_state_syncs: HashMap::new(),
             epoch_sync,
