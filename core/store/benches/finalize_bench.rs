@@ -18,7 +18,7 @@ use bencher::{black_box, Bencher};
 use borsh::BorshSerialize;
 use near_chain::Chain;
 use near_chunks::shards_manager_actor::ShardsManagerActor;
-use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePathItem};
@@ -136,7 +136,7 @@ fn create_chunk_header(height: u64, shard_id: u64) -> ShardChunkHeader {
         CryptoHash::default(),
         vec![],
         congestion_info,
-        &validator_signer(),
+        &validator_signer().into(),
     ))
 }
 
@@ -208,7 +208,7 @@ fn create_encoded_shard_chunk(
         Default::default(),
         Default::default(),
         congestion_info,
-        &validator_signer(),
+        &validator_signer().into(),
         &rs,
         100,
     )

@@ -23,6 +23,7 @@ tracing.workspace = true
 
 near-async.workspace = true
 near-chain-configs.workspace = true
+near-crypto.workspace = true
 near-o11y.workspace = true
 near-primitives.workspace = true
 

@@ -75,7 +75,12 @@ fn send_tx(
     connector.do_send(
         ProcessTxRequest {
             transaction: SignedTransaction::send_money(
-                nonce, from, to, &signer, amount, block_hash,
+                nonce,
+                from,
+                to,
+                &signer.into(),
+                amount,
+                block_hash,
             ),
             is_forwarded: false,
             check_only: false,

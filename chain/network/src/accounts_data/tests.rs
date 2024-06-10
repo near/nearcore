@@ -17,7 +17,7 @@ fn make_account_data(
 ) -> SignedAccountData {
     let peer_id = data::make_peer_id(rng);
     data::make_account_data(rng, version, clock.now_utc(), signer.public_key(), peer_id)
-        .sign(signer)
+        .sign(&signer.clone().into())
         .unwrap()
 }
 
@@ -225,7 +225,7 @@ async fn set_local() {
     // Set local while local.signer is in cache.keys.
     // A new AccountData should be signed.
     let local = LocalAccountData {
-        signer: Arc::new(signers[0].clone()),
+        signer: Arc::new(signers[0].clone().into()),
         data: Arc::new(make_account_data(rng, &clock.clock(), 1, &signers[0]).data.clone()),
     };
     let got = cache.set_local(&clock.clock(), local.clone()).unwrap();
@@ -266,7 +266,7 @@ async fn set_local() {
 
     // Update local data to a signer in cache.keys.
     let local = LocalAccountData {
-        signer: Arc::new(signers[2].clone()),
+        signer: Arc::new(signers[2].clone().into()),
         data: Arc::new(make_account_data(rng, &clock.clock(), 1, &signers[2]).data.clone()),
     };
     let got = cache.set_local(&clock.clock(), local.clone()).unwrap();
@@ -276,7 +276,7 @@ async fn set_local() {
 
     // Update local data to a signer outside of cache.keys.
     let local = LocalAccountData {
-        signer: Arc::new(signers[0].clone()),
+        signer: Arc::new(signers[0].clone().into()),
         data: Arc::new(make_account_data(rng, &clock.clock(), 1, &signers[0]).data.clone()),
     };
     assert_eq!(None, cache.set_local(&clock.clock(), local));

@@ -134,7 +134,7 @@ pub fn start_client(
     state_sync_adapter: Arc<RwLock<SyncAdapter>>,
     network_adapter: PeerManagerAdapter,
     shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
-    validator_signer: Option<Arc<dyn ValidatorSigner>>,
+    validator_signer: Option<Arc<ValidatorSigner>>,
     telemetry_sender: Sender<TelemetryEvent>,
     snapshot_callbacks: Option<SnapshotCallbacks>,
     sender: Option<broadcast::Sender<()>>,
@@ -313,7 +313,7 @@ impl ClientActorInner {
         config: ClientConfig,
         node_id: PeerId,
         network_adapter: PeerManagerAdapter,
-        validator_signer: Option<Arc<dyn ValidatorSigner>>,
+        validator_signer: Option<Arc<ValidatorSigner>>,
         telemetry_sender: Sender<TelemetryEvent>,
         shutdown_signal: Option<broadcast::Sender<()>>,
         adv: crate::adversarial::Controls,
@@ -325,7 +325,7 @@ impl ClientActorInner {
             info!(target: "client", "Starting validator node: {}", vs.validator_id());
         }
         let info_helper =
-            InfoHelper::new(clock.clone(), telemetry_sender, &config, validator_signer.clone());
+            InfoHelper::new(clock.clone(), telemetry_sender, &config, validator_signer);
 
         let now = clock.now_utc();
         Ok(ClientActorInner {
@@ -462,7 +462,7 @@ impl Handler<NetworkAdversarialMessage> for ClientActorInner {
                 let mut genesis = near_chain_configs::GenesisConfig::default();
                 genesis.genesis_height = self.client.chain.chain_store().get_genesis_height();
                 let mut store_validator = near_chain::store_validator::StoreValidator::new(
-                    self.client.validator_signer.as_ref().map(|x| x.validator_id().clone()),
+                    self.client.validator_signer.get().map(|x| x.validator_id().clone()),
                     genesis,
                     self.client.epoch_manager.clone(),
                     self.client.shard_tracker.clone(),
@@ -708,7 +708,8 @@ impl Handler<Status> for ClientActorInner {
             .into_chain_error()?;
 
         let node_public_key = self.node_id.public_key().clone();
-        let (validator_account_id, validator_public_key) = match &self.client.validator_signer {
+        let (validator_account_id, validator_public_key) = match &self.client.validator_signer.get()
+        {
             Some(vs) => (Some(vs.validator_id().clone()), Some(vs.public_key())),
             None => (None, None),
         };
@@ -890,7 +891,7 @@ impl ClientActorInner {
         self.start_sync(ctx);
 
         // Start block production tracking if have block producer info.
-        if self.client.validator_signer.is_some() {
+        if self.client.validator_signer.get().is_some() {
             self.block_production_started = true;
         }
 
@@ -915,7 +916,7 @@ impl ClientActorInner {
         }
 
         // First check that we currently have an AccountId
-        let validator_signer = match self.client.validator_signer.as_ref() {
+        let validator_signer = match self.client.validator_signer.get() {
             None => return,
             Some(signer) => signer,
         };
@@ -1079,7 +1080,7 @@ impl ClientActorInner {
             debug!(target: "client", "Cannot produce any block: not enough approvals beyond {}", latest_known.height);
         }
 
-        let me = if let Some(me) = &self.client.validator_signer {
+        let me = if let Some(me) = &self.client.validator_signer.get() {
             me.validator_id().clone()
         } else {
             return Ok(());
@@ -1543,7 +1544,8 @@ impl ClientActorInner {
                 Some(self.myself_sender.apply_chunks_done.clone()),
                 self.state_parts_future_spawner.as_ref(),
             ) {
-                error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), err);
+                let validator_signer = self.client.validator_signer.get();
+                error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", validator_signer.as_ref().map(|vs| vs.validator_id()), err);
             }
         }
 
@@ -1660,7 +1662,7 @@ impl ClientActorInner {
             _ => unreachable!("Sync status should have been StateSync!"),
         };
 
-        let me = self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
+        let me = self.client.validator_signer.get().map(|x| x.validator_id().clone());
         let block_header = self.client.chain.get_block_header(&sync_hash);
         let block_header = unwrap_and_report_state_sync_result!(block_header);
         let epoch_id = block_header.epoch_id().clone();
