@@ -331,7 +331,7 @@ pub fn start_with_config_and_synchronization(
 
     let view_client_addr = ViewClientActorInner::spawn_actix_actor(
         Clock::real(),
-        config.validator_signer.get().map(|signer| signer.validator_id().clone()),
+        config.validator_signer.clone(),
         chain_genesis.clone(),
         view_epoch_manager.clone(),
         view_shard_tracker,

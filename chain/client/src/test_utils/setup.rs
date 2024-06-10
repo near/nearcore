@@ -156,7 +156,7 @@ pub fn setup(
 
     let view_client_addr = ViewClientActorInner::spawn_actix_actor(
         clock.clone(),
-        signer.get().map(|signer| signer.validator_id().clone()),
+        signer.clone(),
         chain_genesis.clone(),
         epoch_manager.clone(),
         shard_tracker.clone(),
@@ -279,7 +279,10 @@ pub fn setup_only_view(
     )
     .unwrap();
 
-    let signer = Arc::new(create_test_signer(account_id.as_str()));
+    let signer = MutableConfigValue::new(
+        Some(Arc::new(create_test_signer(account_id.as_str()))),
+        "validator_signer",
+    );
     ActixWrapper::new(TelemetryActor::default()).start();
     let config = ClientConfig::test(
         skip_sync_wait,
@@ -296,7 +299,7 @@ pub fn setup_only_view(
 
     ViewClientActorInner::spawn_actix_actor(
         clock,
-        Some(signer.validator_id().clone()),
+        signer.clone(),
         chain_genesis,
         epoch_manager,
         shard_tracker,
