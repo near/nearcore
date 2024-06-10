@@ -2427,7 +2427,7 @@ mod test {
         let fixture = ChunkTestFixture::default();
         let mut shards_manager = ShardsManagerActor::new(
             FakeClock::default().clock(),
-            mutable_validator_signer(&fixture.mock_shard_tracker),
+            mutable_validator_signer(&fixture.mock_chunk_part_owner),
             Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
@@ -3101,7 +3101,7 @@ mod test {
         let fixture = ChunkTestFixture::default();
         let mut shards_manager = ShardsManagerActor::new(
             FakeClock::default().clock(),
-            mutable_validator_signer(&fixture.mock_shard_tracker),
+            mutable_validator_signer(&fixture.mock_chunk_part_owner),
             Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
