@@ -43,7 +43,7 @@ where
         let head = client.chain.head().unwrap();
         tracing::info!("{}Chain HEAD: {:?}", idx_prefix, head);
 
-        if let Some(signer) = client.validator_signer.as_ref() {
+        if let Some(signer) = client.validator_signer.get() {
             let account_id = signer.validator_id();
 
             let mut tracked_shards = Vec::new();

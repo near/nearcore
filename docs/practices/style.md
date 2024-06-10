@@ -352,7 +352,7 @@ When emitting events and spans with `tracing` prefer adding variable data via
 // GOOD
 debug!(
     target: "client",
-    validator_id = self.client.validator_signer.as_ref().map(|vs| {
+    validator_id = self.client.validator_signer.get().map(|vs| {
         tracing::field::display(vs.validator_id())
     }),
     %hash,
@@ -372,7 +372,7 @@ form of formatting, as seen in the following example:
 debug!(
     target: "client",
     "{:?} Received block {} <- {} at {} from {}, requested: {}",
-    self.client.validator_signer.as_ref().map(|vs| vs.validator_id()),
+    self.client.validator_signer.get().map(|vs| vs.validator_id()),
     hash,
     block.header().prev_hash(),
     block.header().height(),
