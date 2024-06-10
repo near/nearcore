@@ -8,23 +8,28 @@ use near_primitives::types::BlockId;
 
 use super::{Params, RpcFrom, RpcRequest};
 
+pub(crate) fn parse_chunk_reference(value: Value) -> Result<ChunkReference, RpcParseError> {
+    // params can be:
+    // - chunk_reference         (an object),
+    // - [[block_id, shard_id]]  (a one-element array with array element) or
+    // - [chunk_id]              (a one-element array with hash element).
+    let chunk_reference = Params::new(value)
+        .try_singleton(|value: Value| {
+            if value.is_array() {
+                let (block_id, shard_id) = Params::parse(value)?;
+                Ok(ChunkReference::BlockShardId { block_id, shard_id })
+            } else {
+                let chunk_id = Params::parse(value)?;
+                Ok(ChunkReference::ChunkHash { chunk_id })
+            }
+        })
+        .unwrap_or_parse()?;
+    Ok(chunk_reference)
+}
+
 impl RpcRequest for RpcChunkRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
-        // params can be:
-        // - chunk_reference         (an object),
-        // - [[block_id, shard_id]]  (a one-element array with array element) or
-        // - [chunk_id]              (a one-element array with hash element).
-        let chunk_reference = Params::new(value)
-            .try_singleton(|value: Value| {
-                if value.is_array() {
-                    let (block_id, shard_id) = Params::parse(value)?;
-                    Ok(ChunkReference::BlockShardId { block_id, shard_id })
-                } else {
-                    let chunk_id = Params::parse(value)?;
-                    Ok(ChunkReference::ChunkHash { chunk_id })
-                }
-            })
-            .unwrap_or_parse()?;
+        let chunk_reference = parse_chunk_reference(value)?;
         Ok(Self { chunk_reference })
     }
 }

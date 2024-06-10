@@ -84,7 +84,7 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
                                           store: Store,
                                           contract_cache: Box<dyn ContractRuntimeCache>,
                                           epoch_manager: Arc<EpochManagerHandle>,
-                                          _,
+                                          runtime_config_store: RuntimeConfigStore,
                                           trie_config: TrieConfig|
          -> Arc<dyn RuntimeAdapter> {
             // TODO: It's not ideal to initialize genesis state with the nightshade runtime here for tests
@@ -98,11 +98,13 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
                 contract_cache,
                 &genesis.config,
                 epoch_manager,
+                Some(runtime_config_store),
                 trie_config,
                 state_snapshot_type.clone(),
             )
         };
-        let dummy_runtime_configs = vec![RuntimeConfigStore::test(); self.num_clients()];
+        let dummy_runtime_configs =
+            vec![RuntimeConfigStore::test_congestion_control_disabled(); self.num_clients()];
         self.internal_initialize_nightshade_runtimes(
             dummy_runtime_configs,
             trie_configs,

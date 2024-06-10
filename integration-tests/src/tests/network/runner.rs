@@ -137,6 +137,7 @@ fn setup_network_node(
         client_actor.clone().with_auto_span_context().into_multi_sender(),
         signer,
         epoch_manager,
+        runtime.store().clone(),
     ));
     shards_manager_adapter.bind(shards_manager_actor.with_auto_span_context());
     let peer_manager = PeerManagerActor::spawn(

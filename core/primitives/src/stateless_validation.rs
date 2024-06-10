@@ -14,7 +14,15 @@ use bytesize::ByteSize;
 use near_crypto::{PublicKey, Signature};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance, BlockHeight, ShardId};
-use near_primitives_core::version::PROTOCOL_VERSION;
+use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
+
+/// Represents max allowed size of the compressed state witness,
+/// corresponds to EncodedChunkStateWitness struct size.
+pub const MAX_COMPRESSED_STATE_WITNESS_SIZE: ByteSize = ByteSize::mib(32);
+
+/// Represents max allowed size of the raw (not compressed) state witness,
+/// corresponds to the size of borsh-serialized ChunkStateWitness.
+pub const MAX_UNCOMPRESSED_STATE_WITNESS_SIZE: ByteSize = ByteSize::mib(64);
 
 /// An arbitrary static string to make sure that this struct cannot be
 /// serialized to look identical to another serialized struct. For chunk
@@ -31,7 +39,7 @@ type SignatureDifferentiator = String;
 #[derive(Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct PartialEncodedStateWitness {
     inner: PartialEncodedStateWitnessInner,
-    signature: Signature,
+    pub signature: Signature,
 }
 
 impl Debug for PartialEncodedStateWitness {
@@ -92,6 +100,10 @@ impl PartialEncodedStateWitness {
 
     pub fn part_ord(&self) -> usize {
         self.inner.part_ord
+    }
+
+    pub fn part_size(&self) -> usize {
+        self.inner.part.len()
     }
 
     /// Decomposes the partial witness to return (part_ord, part, encoded_length)
@@ -167,10 +179,7 @@ impl EncodedChunkStateWitness {
     /// Returns decoded witness along with the raw (uncompressed) witness size.
     pub fn decode(&self) -> std::io::Result<(ChunkStateWitness, ChunkStateWitnessSize)> {
         // We want to limit the size of decompressed data to address "Zip bomb" attack.
-        // The value here is the same as NETWORK_MESSAGE_MAX_SIZE_BYTES.
-        const MAX_WITNESS_SIZE: ByteSize = ByteSize::mib(512);
-
-        self.decode_with_limit(MAX_WITNESS_SIZE)
+        self.decode_with_limit(MAX_UNCOMPRESSED_STATE_WITNESS_SIZE)
     }
 
     /// Decompress and borsh-deserialize encoded witness bytes.
@@ -210,16 +219,6 @@ impl EncodedChunkStateWitness {
     pub fn as_slice(&self) -> &[u8] {
         &self.0
     }
-}
-
-// TODO(stateless_validation): Deprecate once we send state witness in parts.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct SignedEncodedChunkStateWitness {
-    /// The content of the witness. It is convenient have it as bytes in order
-    /// to perform signature verification along with decoding.
-    pub witness_bytes: EncodedChunkStateWitness,
-    /// Signature corresponds to `witness_bytes.as_slice()` signed by the chunk producer
-    pub signature: Signature,
 }
 
 /// An acknowledgement sent from the chunk producer upon receiving the state witness to
@@ -359,6 +358,10 @@ impl ChunkStateWitness {
     }
 
     pub fn new_dummy(height: BlockHeight, shard_id: ShardId, prev_block_hash: CryptoHash) -> Self {
+        let congestion_info = ProtocolFeature::CongestionControl
+            .enabled(PROTOCOL_VERSION)
+            .then_some(CongestionInfo::default());
+
         let header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
             PROTOCOL_VERSION,
             prev_block_hash,
@@ -374,7 +377,7 @@ impl ChunkStateWitness {
             Default::default(),
             Default::default(),
             Default::default(),
-            CongestionInfo::default(),
+            congestion_info,
             &EmptyValidatorSigner::default().into(),
         ));
         Self::new(

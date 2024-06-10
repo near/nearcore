@@ -1,1 +1,1 @@
-storage_proof_size_soft_limit: {old: 999_999_999_999_999, new: 16_000_000}
+main_storage_proof_size_soft_limit: {old: 999_999_999_999_999, new: 16_000_000}

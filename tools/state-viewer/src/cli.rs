@@ -3,13 +3,14 @@ use crate::contract_accounts::ContractAccountFilter;
 use crate::rocksdb_stats::get_rocksdb_stats;
 use crate::trie_iteration_benchmark::TrieIterationBenchmarkCmd;
 
-use crate::latest_witnesses::LatestWitnessesCmd;
+use crate::latest_witnesses::StateWitnessCmd;
 use near_chain_configs::{GenesisChangeConfig, GenesisValidationMode};
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::trie_key::col;
 use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives_core::types::EpochHeight;
 use near_store::{Mode, NodeStorage, Store, Temperature};
 use nearcore::{load_config, NearConfig};
 use std::path::{Path, PathBuf};
@@ -65,6 +66,9 @@ pub enum StateViewerSubCommand {
     /// Print `EpochInfo` of an epoch given by `--epoch_id` or by `--epoch_height`.
     #[clap(alias = "epoch_info")]
     EpochInfo(EpochInfoCmd),
+    /// Regenerates epoch info based on previous epoch.
+    #[clap(alias = "epoch_analysis")]
+    EpochAnalysis(EpochAnalysisCmd),
     /// Looks up a certain partial chunk.
     #[clap(alias = "partial_chunks")]
     PartialChunks(PartialChunksCmd),
@@ -95,9 +99,18 @@ pub enum StateViewerSubCommand {
     /// View trie structure.
     #[clap(alias = "view_trie")]
     ViewTrie(ViewTrieCmd),
-    /// Print observed ChunkStateWitnesses at the given block height (and shard id).
-    /// Observed witnesses are only saved when `save_latest_witnesses` is set to true in config.json.
-    LatestWitnesses(LatestWitnessesCmd),
+    /// Tools for manually validating state witnesses.
+    ///
+    /// First, dump some of the latest stored state witnesses to a directory
+    /// using the `dump` command. Supports selecting by given height, shard
+    /// and epoch id, or pretty-printing on screen.
+    /// Note that witnesses are only stored when `save_latest_witnesses` is
+    /// set to true in config.json.
+    ///
+    /// Second, validate a particular state witness from a file using the
+    /// `validate` command.
+    #[clap(subcommand)]
+    StateWitness(StateWitnessCmd),
 }
 
 impl StateViewerSubCommand {
@@ -143,6 +156,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::DumpStateRedis(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpTx(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::EpochInfo(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::EpochAnalysis(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::PartialChunks(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::Receipts(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::Replay(cmd) => cmd.run(near_config, store),
@@ -155,7 +169,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
             StateViewerSubCommand::TrieIterationBenchmark(cmd) => cmd.run(near_config, store),
-            StateViewerSubCommand::LatestWitnesses(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::StateWitness(cmd) => cmd.run(home_dir, near_config, store),
         }
     }
 }
@@ -483,6 +497,36 @@ impl EpochInfoCmd {
             near_config,
             store,
         );
+    }
+}
+
+#[derive(clap::Args)]
+pub struct EpochAnalysisCmd {
+    /// Start height of the epochs to analyse.
+    #[clap(long)]
+    start_height: EpochHeight,
+    /// Epoch analysis mode.
+    #[clap(subcommand)]
+    mode: EpochAnalysisMode,
+}
+
+#[derive(clap::Subcommand)]
+pub enum EpochAnalysisMode {
+    /// Regenerate epoch infos based on previous epoch, assert that epoch info
+    /// generation is replayable.
+    /// TODO (#11476): doesn't work when start epoch height is <= 1053 because
+    /// it will try to generate epoch with height 1055 and fail.
+    CheckConsistency,
+    /// Generate epoch infos as if latest `PROTOCOL_VERSION` was used since the
+    /// start epoch height.
+    /// TODO (#11477): doesn't work for start epoch height <= 544 because of
+    /// `EpochOutOfBounds` error.
+    Backtest,
+}
+
+impl EpochAnalysisCmd {
+    pub fn run(self, near_config: NearConfig, store: Store) {
+        print_epoch_analysis(self.start_height, self.mode, near_config, store);
     }
 }
 

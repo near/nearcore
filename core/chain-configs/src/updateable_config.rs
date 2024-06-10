@@ -1,9 +1,12 @@
+#[cfg(feature = "metrics")]
 use near_async::time::Clock;
 use near_primitives::types::BlockHeight;
 use serde::{Deserialize, Serialize, Serializer};
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
-use time::{Duration, OffsetDateTime as Utc};
+use time::Duration;
+#[cfg(feature = "metrics")]
+use time::OffsetDateTime as Utc;
 
 use crate::ReshardingConfig;
 

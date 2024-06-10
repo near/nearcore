@@ -33,10 +33,14 @@ pub struct EpochConfig {
     pub num_block_producer_seats_per_shard: Vec<NumSeats>,
     /// Expected number of hidden validator seats per each shard.
     pub avg_hidden_validator_seats_per_shard: Vec<NumSeats>,
-    /// Criterion for kicking out block producers.
+    /// Threshold for kicking out block producers.
     pub block_producer_kickout_threshold: u8,
-    /// Criterion for kicking out chunk producers.
+    /// Threshold for kicking out chunk producers.
     pub chunk_producer_kickout_threshold: u8,
+    /// Threshold for kicking out nodes which are only chunk validators.
+    pub chunk_validator_only_kickout_threshold: u8,
+    /// Number of target chunk validator mandates for each shard.
+    pub target_validator_mandates_per_shard: NumSeats,
     /// Max ratio of validators that we can kick out in an epoch
     pub validator_max_kickout_stake_perc: u8,
     /// Online minimum threshold below which validator doesn't receive reward.
@@ -186,6 +190,7 @@ impl AllEpochConfig {
         if checked_feature!("stable", LowerValidatorKickoutPercentForDebugging, protocol_version) {
             config.block_producer_kickout_threshold = 50;
             config.chunk_producer_kickout_threshold = 50;
+            config.chunk_validator_only_kickout_threshold = 50;
         }
     }
 
@@ -949,6 +954,16 @@ pub mod epoch_info {
         }
 
         #[inline]
+        pub fn chunk_producers_settlement_mut(&mut self) -> &mut Vec<Vec<ValidatorId>> {
+            match self {
+                Self::V1(v1) => &mut v1.chunk_producers_settlement,
+                Self::V2(v2) => &mut v2.chunk_producers_settlement,
+                Self::V3(v3) => &mut v3.chunk_producers_settlement,
+                Self::V4(v4) => &mut v4.chunk_producers_settlement,
+            }
+        }
+
+        #[inline]
         pub fn validator_kickout(&self) -> &HashMap<AccountId, ValidatorKickoutReason> {
             match self {
                 Self::V1(v1) => &v1.validator_kickout,
@@ -1124,6 +1139,23 @@ pub mod epoch_info {
                 Self::V2(v2) => v2.validators.len(),
                 Self::V3(v3) => v3.validators.len(),
                 Self::V4(v4) => v4.validators.len(),
+            }
+        }
+
+        #[inline]
+        pub fn rng_seed(&self) -> RngSeed {
+            match self {
+                Self::V1(_) | Self::V2(_) => Default::default(),
+                Self::V3(v3) => v3.rng_seed,
+                Self::V4(v4) => v4.rng_seed,
+            }
+        }
+
+        #[inline]
+        pub fn validator_mandates(&self) -> ValidatorMandates {
+            match self {
+                Self::V1(_) | Self::V2(_) | Self::V3(_) => Default::default(),
+                Self::V4(v4) => v4.validator_mandates.clone(),
             }
         }
 

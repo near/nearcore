@@ -155,7 +155,7 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
         if sync_hold {
             block_prod_time *= TEST_STATE_SYNC_TIMEOUT as u64;
         }
-        let (_, conn, _) = setup_mock_all_validators(
+        let (conn, _) = setup_mock_all_validators(
             Clock::real(),
             vs,
             key_pairs,
@@ -450,7 +450,7 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
             };
 
         let connectors1 = connectors.clone();
-        let (_, conn, _) = setup_mock_all_validators(
+        let (conn, _) = setup_mock_all_validators(
             Clock::real(),
             vs,
             key_pairs,
@@ -640,7 +640,7 @@ fn test_catchup_sanity_blocks_produced() {
         let archive = vec![false; vs.all_block_producers().count()];
         let epoch_sync_enabled = vec![true; vs.all_block_producers().count()];
 
-        let (_, conn, _) = setup_mock_all_validators(
+        let (conn, _) = setup_mock_all_validators(
             Clock::real(),
             vs,
             key_pairs,
@@ -721,7 +721,7 @@ fn test_all_chunks_accepted_common(
         let requested = Arc::new(RwLock::new(HashSet::<(AccountId, Vec<u64>, ChunkHash)>::new()));
         let responded = Arc::new(RwLock::new(HashSet::<(CryptoHash, Vec<u64>, ChunkHash)>::new()));
 
-        let (_, conn, _) = setup_mock_all_validators(
+        let (conn, _) = setup_mock_all_validators(
             Clock::real(),
             vs,
             key_pairs,

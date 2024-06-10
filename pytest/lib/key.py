@@ -4,6 +4,7 @@ import os
 import typing
 
 import ed25519
+from nacl.signing import SigningKey
 
 
 class Key:
@@ -75,4 +76,5 @@ class Key:
 
     def sign_bytes(self, data: typing.Union[bytes, bytearray]) -> bytes:
         sk = self.decoded_sk()
-        return ed25519.SigningKey(sk).sign(bytes(data))
+        seed = sk[:32]
+        return SigningKey(seed).sign(bytes(data)).signature

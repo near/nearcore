@@ -268,7 +268,7 @@ imports! {
     storage_iter_range<[start_len: u64, start_ptr: u64, end_len: u64, end_ptr: u64] -> [u64]>,
     storage_iter_next<[iterator_id: u64, key_register_id: u64, value_register_id: u64] -> [u64]>,
     // Function for the injected gas counter. Automatically called by the gas meter.
-    @as gas: gas_seen_from_wasm<[gas_amount: u32] -> []>,
+    @as gas: gas_seen_from_wasm<[opcodes: u32] -> []>,
     // ###############
     // # Validator API #
     // ###############
@@ -290,11 +290,15 @@ imports! {
     // takes a lot of time to execute. It must always be gated behind a feature
     // flag and it must never be released to production.
     ##["test_features"] sleep_nanos<[duration: u64] -> []>,
+
+    // Burn the given amount of gas. This is the ultimate overcharging function
+    // as it doesn't take almost any resources to execute but burns a lot of
+    // gas.
+    ##["test_features"] burn_gas<[gas: u64] -> []>,
 }
 
 #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
 pub(crate) mod wasmer {
-    use super::str_eq;
     use crate::logic::{VMLogic, VMLogicError};
     use std::ffi::c_void;
 
@@ -324,12 +328,10 @@ pub(crate) mod wasmer {
             ) => {
                 #[allow(unused_parens)]
                 fn $name( ctx: &mut wasmer_runtime::Ctx, $( $arg_name: $arg_type ),* ) -> Result<($( $returns ),*), VMLogicError> {
-                    const IS_GAS: bool = str_eq(stringify!($name), "gas") || str_eq(stringify!($name), "finite_wasm_gas");
-                    let _span = if IS_GAS {
-                        None
-                    } else {
-                        Some(tracing::trace_span!(target: "host-function", stringify!($name)).entered())
-                    };
+                    const TRACE: bool = $crate::imports::should_trace_host_function(stringify!($name));
+                    let _span = TRACE.then(|| {
+                        tracing::trace_span!(target: "vm::host_function", stringify!($name)).entered()
+                    });
                     let logic: &mut VMLogic<'_> = unsafe { &mut *(ctx.data as *mut VMLogic<'_>) };
                     logic.$func( $( $arg_name, )* )
                 }
@@ -351,10 +353,8 @@ pub(crate) mod wasmer {
 
 #[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
 pub(crate) mod wasmer2 {
-    use std::sync::Arc;
-
-    use super::str_eq;
     use crate::logic::VMLogic;
+    use std::sync::Arc;
     use wasmer_engine::Engine;
     use wasmer_engine_universal::UniversalEngine;
     use wasmer_vm::{
@@ -422,15 +422,10 @@ pub(crate) mod wasmer2 {
                     extern "C" fn $name(env: *mut VMLogic<'_>, $( $arg_name: $arg_type ),* )
                     -> Ret {
                         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            const IS_GAS: bool = str_eq(stringify!($name), "gas") || str_eq(stringify!($name), "finite_wasm_gas");
-                            let _span = if IS_GAS {
-                                None
-                            } else {
-                                Some(tracing::trace_span!(
-                                    target: "host-function",
-                                    stringify!($name)
-                                ).entered())
-                            };
+                            const TRACE: bool = $crate::imports::should_trace_host_function(stringify!($name));
+                            let _span = TRACE.then(|| {
+                                tracing::trace_span!(target: "vm::host_function", stringify!($name)).entered()
+                            });
 
                             // SAFETY: This code should only be executable within `'vmlogic`
                             // lifetime and so it is safe to dereference the `env` pointer which is
@@ -505,14 +500,12 @@ pub(crate) mod wasmer2 {
 
 #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
 pub(crate) mod near_vm {
-    use std::sync::Arc;
-
-    use super::str_eq;
     use crate::logic::VMLogic;
     use near_vm_engine::universal::UniversalEngine;
     use near_vm_vm::{
         ExportFunction, ExportFunctionMetadata, Resolver, VMFunction, VMFunctionKind, VMMemory,
     };
+    use std::sync::Arc;
 
     pub(crate) struct NearVmImports<'engine, 'vmlogic, 'vmlogic_refs> {
         pub(crate) memory: VMMemory,
@@ -575,15 +568,10 @@ pub(crate) mod near_vm {
                     extern "C" fn $name(env: *mut VMLogic<'_>, $( $arg_name: $arg_type ),* )
                     -> Ret {
                         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            const IS_GAS: bool = str_eq(stringify!($name), "gas") || str_eq(stringify!($name), "finite_wasm_gas");
-                            let _span = if IS_GAS {
-                                None
-                            } else {
-                                Some(tracing::trace_span!(
-                                    target: "host-function",
-                                    stringify!($name)
-                                ).entered())
-                            };
+                            const TRACE: bool = $crate::imports::should_trace_host_function(stringify!($name));
+                            let _span = TRACE.then(|| {
+                                tracing::trace_span!(target: "vm::host_function", stringify!($name)).entered()
+                            });
 
                             // SAFETY: This code should only be executable within `'vmlogic`
                             // lifetime and so it is safe to dereference the `env` pointer which is
@@ -658,7 +646,6 @@ pub(crate) mod near_vm {
 
 #[cfg(feature = "wasmtime_vm")]
 pub(crate) mod wasmtime {
-    use super::str_eq;
     use crate::logic::{VMLogic, VMLogicError};
     use std::cell::UnsafeCell;
     use std::ffi::c_void;
@@ -705,12 +692,10 @@ pub(crate) mod wasmtime {
             ) => {
                 #[allow(unused_parens)]
                 fn $name(caller: wasmtime::Caller<'_, ()>, $( $arg_name: $arg_type ),* ) -> anyhow::Result<($( $returns ),*)> {
-                    const IS_GAS: bool = str_eq(stringify!($name), "gas") || str_eq(stringify!($name), "finite_wasm_gas");
-                    let _span = if IS_GAS {
-                        None
-                    } else {
-                        Some(tracing::trace_span!(target: "host-function", stringify!($name)).entered())
-                    };
+                    const TRACE: bool = $crate::imports::should_trace_host_function(stringify!($name));
+                    let _span = TRACE.then(|| {
+                        tracing::trace_span!(target: "vm::host_function", stringify!($name)).entered()
+                    });
                     // the below is bad. don't do this at home. it probably works thanks to the exact way the system is setup.
                     // Thanksfully, this doesn't run in production, and hopefully should be possible to remove before we even
                     // consider doing so.
@@ -736,6 +721,20 @@ pub(crate) mod wasmtime {
             };
         }
         for_each_available_import!(logic.config, add_import);
+    }
+}
+
+#[cfg(any(
+    feature = "wasmer0_vm",
+    feature = "wasmer2_vm",
+    feature = "near_vm",
+    feature = "wasmtime_vm"
+))]
+pub(crate) const fn should_trace_host_function(host_function: &str) -> bool {
+    match host_function {
+        _ if str_eq(host_function, "gas") => false,
+        _ if str_eq(host_function, "finite_wasm_gas") => false,
+        _ => true,
     }
 }
 

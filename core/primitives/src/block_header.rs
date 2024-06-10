@@ -7,8 +7,8 @@ use crate::types::{AccountId, Balance, BlockHeight, EpochId, MerkleHash, NumBloc
 use crate::validator_signer::ValidatorSigner;
 use crate::version::{get_protocol_version, ProtocolVersion, PROTOCOL_VERSION};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_async::time::Utc;
 use near_crypto::{KeyType, PublicKey, Signature};
+use near_time::Utc;
 use std::sync::Arc;
 
 #[derive(

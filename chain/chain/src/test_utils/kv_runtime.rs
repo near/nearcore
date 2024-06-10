@@ -6,6 +6,7 @@ use crate::types::{
 };
 use crate::BlockHeader;
 use borsh::{BorshDeserialize, BorshSerialize};
+use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain_configs::{ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chain_primitives::Error;
@@ -17,7 +18,7 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::Tip;
 use near_primitives::block_header::{Approval, ApprovalInner};
-use near_primitives::congestion_info::CongestionInfo;
+use near_primitives::congestion_info::{CongestionInfo, ExtendedCongestionInfo};
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::EpochConfig;
@@ -31,7 +32,6 @@ use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::state_part::PartId;
 use near_primitives::stateless_validation::{
     ChunkEndorsement, ChunkValidatorAssignments, PartialEncodedStateWitness,
-    SignedEncodedChunkStateWitness,
 };
 use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
@@ -486,6 +486,8 @@ impl EpochManagerAdapter for MockEpochManager {
             avg_hidden_validator_seats_per_shard: vec![1, 1],
             block_producer_kickout_threshold: 0,
             chunk_producer_kickout_threshold: 0,
+            chunk_validator_only_kickout_threshold: 0,
+            target_validator_mandates_per_shard: 1,
             validator_max_kickout_stake_perc: 0,
             online_min_threshold: Ratio::new(1i32, 4i32),
             online_max_threshold: Ratio::new(3i32, 4i32),
@@ -957,15 +959,6 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(true)
     }
 
-    fn verify_chunk_state_witness_signature(
-        &self,
-        _signed_witness: &SignedEncodedChunkStateWitness,
-        _chunk_producer: &AccountId,
-        _epoch_id: &EpochId,
-    ) -> Result<bool, Error> {
-        Ok(true)
-    }
-
     fn verify_partial_witness_signature(
         &self,
         _partial_witness: &PartialEncodedStateWitness,
@@ -1026,7 +1019,18 @@ impl EpochManagerAdapter for MockEpochManager {
         _tip: &Tip,
         _height: BlockHeight,
     ) -> Result<Vec<EpochId>, EpochError> {
-        unimplemented!();
+        // Just collect all known epochs because `MockEpochManager` is used for
+        // tests which lifetime is short.
+        let epochs = self.hash_to_epoch.read().unwrap();
+        let next_epochs = self.hash_to_next_epoch.read().unwrap();
+        let all_epochs = epochs
+            .keys()
+            .chain(next_epochs.keys())
+            .cloned()
+            .map(|c| EpochId(c))
+            .collect::<HashSet<_>>();
+        let vec = all_epochs.into_iter().collect_vec();
+        Ok(vec)
     }
 
     #[cfg(feature = "new_epoch_sync")]
@@ -1087,6 +1091,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _verify_signature: bool,
         _epoch_id: &EpochId,
         _current_protocol_version: ProtocolVersion,
+        _receiver_congestion_info: Option<ExtendedCongestionInfo>,
     ) -> Result<Option<InvalidTxError>, Error> {
         Ok(None)
     }

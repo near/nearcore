@@ -1,0 +1,36 @@
+sql_dialect := "postgres"
+
+# The following parameters are defined by the `crt-benchmark` Cloud SQL instance in the
+# `nearone-crt` project on GCP. They can be viewed and in some cases changed via:
+#
+# - GCP website: https://console.cloud.google.com/sql/instances/crt-benchmarks/overview?project=nearone-crt
+# - `gcloud` CLI
+db_host := "34.90.190.128"
+db_name := "benchmarks"
+db_port := "5432"
+
+# Check for SQL errors.
+lint_sql path=".":
+	sqlfluff lint {{path}} --dialect {{sql_dialect}}
+
+# Automatically fix SQL errors, overwriting input files.
+# If there are fixable errors, the command becomes interactive.
+fix_sql path=".":
+	sqlfluff fix {{path}} --dialect {{sql_dialect}}
+
+# Connect to Cloud SQL with psql.
+#
+# Expects the password to be stored locally in your `~/.pgpass` file.
+# For a successful connection you need a `.pgpass` with correct file permissions
+# and a password entry matching your connection parameters, see
+# https://www.postgresql.org/docs/15/libpq-pgpass.html
+#
+# Passwords of users can be found in N1's 1password.
+psql username="grafana_reader" db=db_name pgpassfile="~/.pgpass":
+	PGSSLMODE="require" \
+	PGPASSFILE={{pgpassfile}} \
+	psql \
+		--host={{db_host}} \
+		--port={{db_port}} \
+		--username={{username}} \
+		--dbname={{db}}

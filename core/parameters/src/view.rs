@@ -1,3 +1,4 @@
+use crate::config::{CongestionControlConfig, WitnessConfig};
 use crate::{ActionCosts, ExtCosts, Fee, ParameterCost};
 use near_account_id::AccountId;
 use near_primitives_core::serialize::dec_format;
@@ -18,6 +19,10 @@ pub struct RuntimeConfigView {
     pub wasm_config: VMConfigView,
     /// Config that defines rules for account creation.
     pub account_creation_config: AccountCreationConfigView,
+    /// The configuration for congestion control.
+    pub congestion_control_config: CongestionControlConfigView,
+    /// Configuration specific to ChunkStateWitness.
+    pub witness_config: WitnessConfigView,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
@@ -40,9 +45,6 @@ pub struct RuntimeFeesConfigView {
 
     /// Pessimistic gas price inflation ratio.
     pub pessimistic_gas_price_inflation_ratio: Rational32,
-
-    /// The maximum size of the state witness after which we defer execution of any new receipts.
-    pub storage_proof_size_soft_limit: usize,
 }
 
 /// The structure describes configuration for creation of new accounts.
@@ -182,7 +184,6 @@ impl From<crate::RuntimeConfig> for RuntimeConfigView {
                 pessimistic_gas_price_inflation_ratio: config
                     .fees
                     .pessimistic_gas_price_inflation_ratio,
-                storage_proof_size_soft_limit: config.storage_proof_size_soft_limit,
             },
             wasm_config: VMConfigView::from(config.wasm_config),
             account_creation_config: AccountCreationConfigView {
@@ -191,6 +192,10 @@ impl From<crate::RuntimeConfig> for RuntimeConfigView {
                     .min_allowed_top_level_account_length,
                 registrar_account_id: config.account_creation_config.registrar_account_id,
             },
+            congestion_control_config: CongestionControlConfigView::from(
+                config.congestion_control_config,
+            ),
+            witness_config: WitnessConfigView::from(config.witness_config),
         }
     }
 }
@@ -607,6 +612,134 @@ impl From<ExtCostsConfigView> for crate::ExtCostsConfig {
         }
         .map(|_, value| ParameterCost { gas: value, compute: value });
         Self { costs }
+    }
+}
+
+/// Configuration specific to ChunkStateWitness.
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
+pub struct WitnessConfigView {
+    /// Size limit for storage proof generated while executing receipts in a chunk.
+    /// After this limit is reached we defer execution of any new receipts.
+    pub main_storage_proof_size_soft_limit: usize,
+    // Maximum size of transactions contained inside ChunkStateWitness.
+    /// A witness contains transactions from both the previous chunk and the current one.
+    /// This parameter limits the sum of sizes of transactions from both of those chunks.
+    pub combined_transactions_size_limit: usize,
+    /// Soft size limit of storage proof used to validate new transactions in ChunkStateWitness.
+    pub new_transactions_validation_state_size_soft_limit: usize,
+}
+
+impl From<WitnessConfig> for WitnessConfigView {
+    fn from(config: WitnessConfig) -> Self {
+        Self {
+            main_storage_proof_size_soft_limit: config.main_storage_proof_size_soft_limit,
+            combined_transactions_size_limit: config.combined_transactions_size_limit,
+            new_transactions_validation_state_size_soft_limit: config
+                .new_transactions_validation_state_size_soft_limit,
+        }
+    }
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
+pub struct CongestionControlConfigView {
+    /// How much gas in delayed receipts of a shard is 100% incoming congestion.
+    ///
+    /// See [`CongestionControlConfig`] for more details.
+    pub max_congestion_incoming_gas: Gas,
+
+    /// How much gas in outgoing buffered receipts of a shard is 100% congested.
+    ///
+    /// Outgoing congestion contributes to overall congestion, which reduces how
+    /// much other shards are allowed to forward to this shard.
+    pub max_congestion_outgoing_gas: Gas,
+
+    /// How much memory space of all delayed and buffered receipts in a shard is
+    /// considered 100% congested.
+    ///
+    /// See [`CongestionControlConfig`] for more details.
+    pub max_congestion_memory_consumption: u64,
+
+    /// How many missed chunks in a row in a shard is considered 100% congested.
+    pub max_congestion_missed_chunks: u64,
+
+    /// The maximum amount of gas attached to receipts a shard can forward to
+    /// another shard per chunk.
+    ///
+    /// See [`CongestionControlConfig`] for more details.
+    pub max_outgoing_gas: Gas,
+
+    /// The minimum gas each shard can send to a shard that is not fully congested.
+    ///
+    /// See [`CongestionControlConfig`] for more details.
+    pub min_outgoing_gas: Gas,
+
+    /// How much gas the chosen allowed shard can send to a 100% congested shard.
+    ///
+    /// See [`CongestionControlConfig`] for more details.
+    pub allowed_shard_outgoing_gas: Gas,
+
+    /// The maximum amount of gas in a chunk spent on converting new transactions to
+    /// receipts.
+    ///
+    /// See [`CongestionControlConfig`] for more details.
+    pub max_tx_gas: Gas,
+
+    /// The minimum amount of gas in a chunk spent on converting new transactions
+    /// to receipts, as long as the receiving shard is not congested.
+    ///
+    /// See [`CongestionControlConfig`] for more details.
+    pub min_tx_gas: Gas,
+
+    /// How much congestion a shard can tolerate before it stops all shards from
+    /// accepting new transactions with the receiver set to the congested shard.
+    pub reject_tx_congestion_threshold: f64,
+
+    /// The standard size limit for outgoing receipts aimed at a single shard.
+    /// This limit is pretty small to keep the size of source_receipt_proofs under control.
+    /// It limits the total sum of outgoing receipts, not individual receipts.
+    pub outgoing_receipts_usual_size_limit: u64,
+
+    /// Large size limit for outgoing receipts to a shard, used when it's safe
+    /// to send a lot of receipts without making the state witness too large.
+    /// It limits the total sum of outgoing receipts, not individual receipts.
+    pub outgoing_receipts_big_size_limit: u64,
+}
+
+impl From<CongestionControlConfig> for CongestionControlConfigView {
+    fn from(other: CongestionControlConfig) -> Self {
+        Self {
+            max_congestion_incoming_gas: other.max_congestion_incoming_gas,
+            max_congestion_outgoing_gas: other.max_congestion_outgoing_gas,
+            max_congestion_memory_consumption: other.max_congestion_memory_consumption,
+            max_congestion_missed_chunks: other.max_congestion_missed_chunks,
+            max_outgoing_gas: other.max_outgoing_gas,
+            min_outgoing_gas: other.min_outgoing_gas,
+            allowed_shard_outgoing_gas: other.allowed_shard_outgoing_gas,
+            max_tx_gas: other.max_tx_gas,
+            min_tx_gas: other.min_tx_gas,
+            reject_tx_congestion_threshold: other.reject_tx_congestion_threshold,
+            outgoing_receipts_usual_size_limit: other.outgoing_receipts_usual_size_limit,
+            outgoing_receipts_big_size_limit: other.outgoing_receipts_big_size_limit,
+        }
+    }
+}
+
+impl From<CongestionControlConfigView> for CongestionControlConfig {
+    fn from(other: CongestionControlConfigView) -> Self {
+        Self {
+            max_congestion_incoming_gas: other.max_congestion_incoming_gas,
+            max_congestion_outgoing_gas: other.max_congestion_outgoing_gas,
+            max_congestion_memory_consumption: other.max_congestion_memory_consumption,
+            max_congestion_missed_chunks: other.max_congestion_missed_chunks,
+            max_outgoing_gas: other.max_outgoing_gas,
+            min_outgoing_gas: other.min_outgoing_gas,
+            allowed_shard_outgoing_gas: other.allowed_shard_outgoing_gas,
+            max_tx_gas: other.max_tx_gas,
+            min_tx_gas: other.min_tx_gas,
+            reject_tx_congestion_threshold: other.reject_tx_congestion_threshold,
+            outgoing_receipts_usual_size_limit: other.outgoing_receipts_usual_size_limit,
+            outgoing_receipts_big_size_limit: other.outgoing_receipts_big_size_limit,
+        }
     }
 }
 

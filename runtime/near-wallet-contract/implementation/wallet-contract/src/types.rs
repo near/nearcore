@@ -84,12 +84,84 @@ impl ExecutionContext {
         let current_address = crate::internal::extract_address(&current_account_id)?;
         Ok(Self { current_address, attached_deposit, predecessor_account_id, current_account_id })
     }
+
+    /// In production eth-implicit accounts are top-level, so this suffix will
+    /// always be empty. The purpose of finding a suffix is that it allows for
+    /// testing environments where the wallet contract is deployed to an address
+    /// that is a sub-account. For example, this allows testing on Near testnet
+    /// before the eth-implicit accounts feature is stabilized.
+    /// The suffix is only needed in testing.
+    pub fn current_account_suffix(&self) -> &str {
+        self.current_account_id
+            .as_str()
+            .find('.')
+            .map(|index| &self.current_account_id.as_str()[index..])
+            .unwrap_or("")
+    }
+}
+
+/// The `target` of the transaction (set by the relayer)
+/// is one of the following: the current account, another eth-implicit account
+/// (i.e. another wallet contract) or some other Near account. This distinction
+/// is important because the only kind of transaction that can be sent to another
+/// eth-implicit account is a base token transfer (EOAs are not contracts on Ethereum).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use]
+pub enum TargetKind<'a> {
+    CurrentAccount,
+    EthImplicit(Address),
+    OtherNearAccount(&'a AccountId),
+}
+
+/// A transaction can either contain an ABI-encoded Near action
+/// or it can be a normal Ethereum transaction who's behaviour
+/// we are trying to emulate.
+#[must_use]
+pub enum TransactionKind {
+    NearNativeAction,
+    EthEmulation(EthEmulationKind),
 }
 
 #[must_use]
-pub enum TransactionValidationOutcome {
-    Validated,
-    AddressCheckRequired(Address),
+pub enum EthEmulationKind {
+    EOABaseTokenTransfer { address_check: Option<Address> },
+    ERC20Balance,
+    ERC20Transfer { receiver_id: AccountId },
+}
+
+/// Describes a kind of transaction that is directly parsable
+/// from an Ethereum-formatted transaction's calldata. Notably
+/// `EthEmulationKind::EOABaseTokenTransfer` is missing because
+/// on Ethereum base token transfers are inferred from the target
+/// of the transaction, not its data.
+#[must_use]
+pub enum ParsableTransactionKind {
+    /// Near native actions with an explicit receiver
+    /// (i.e. `FunctionCall` and `Transfer`).
+    NearNativeAction,
+    /// Near native actions where the receiver should be equal
+    /// to the current account (i.e. `AddKey` and `DeleteKey`).
+    SelfNearNativeAction,
+    /// Emulated Ethereum standards
+    EthEmulation(ParsableEthEmulationKind),
+}
+
+/// See docs for `ParsableTransactionKind`.
+#[must_use]
+pub enum ParsableEthEmulationKind {
+    ERC20Balance,
+    ERC20Transfer { receiver_id: AccountId },
+}
+
+impl From<ParsableEthEmulationKind> for EthEmulationKind {
+    fn from(value: ParsableEthEmulationKind) -> Self {
+        match value {
+            ParsableEthEmulationKind::ERC20Balance => Self::ERC20Balance,
+            ParsableEthEmulationKind::ERC20Transfer { receiver_id } => {
+                Self::ERC20Transfer { receiver_id }
+            }
+        }
+    }
 }
 
 /// The Near protocol actions represented in a form that is suitable for the

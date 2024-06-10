@@ -8,8 +8,9 @@
 use crate::Client;
 use near_chain::Block;
 use near_chain_primitives::Error;
+use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::ChunkStateWitness;
-use near_primitives::types::{BlockHeight, EpochId};
+use near_primitives::types::BlockHeight;
 use std::ops::Range;
 
 /// We keep only orphan witnesses that are within this distance of
@@ -68,18 +69,6 @@ impl Client {
             return Ok(HandleOrphanWitnessOutcome::TooBig(witness_size));
         }
 
-        // Try to find the EpochId to which this witness will belong based on its height.
-        // It's not always possible to determine the exact epoch_id because the exact
-        // starting height of the next epoch isn't known until it actually starts,
-        // so things can get unclear around epoch boundaries.
-        // Let's collect the epoch_ids in which the witness might possibly be.
-        let possible_epochs =
-            self.epoch_manager.possible_epochs_of_height_around_tip(&chain_head, witness_height)?;
-
-        if !possible_epochs.contains(&witness.epoch_id) {
-            return Ok(HandleOrphanWitnessOutcome::UnsupportedEpochId(witness.epoch_id));
-        }
-
         // Orphan witness is OK, save it to the pool
         tracing::debug!(target: "client", "Saving an orphaned ChunkStateWitness to orphan pool");
         self.chunk_validator.orphan_witness_pool.add_orphan_state_witness(witness, witness_size);
@@ -113,21 +102,23 @@ impl Client {
 
         // Remove all orphan witnesses that are below the last final block of the new block.
         // They won't be used, so we can remove them from the pool to save memory.
-        let last_final_block =
-            match self.chain.get_block_header(new_block.header().last_final_block()) {
-                Ok(block_header) => block_header,
-                Err(err) => {
-                    // TODO(wacban) this error happens often in integration
-                    // tests when the last final block is genesis / genesis.prev.
-                    tracing::error!(
-                        target: "client",
-                        last_final_block = ?new_block.header().last_final_block(),
-                        ?err,
-                        "Error getting last final block of the new block"
-                    );
-                    return;
-                }
-            };
+        let last_final_block = new_block.header().last_final_block();
+        // Handle genesis gracefully.
+        if last_final_block == &CryptoHash::default() {
+            return;
+        }
+        let last_final_block = match self.chain.get_block_header(last_final_block) {
+            Ok(block_header) => block_header,
+            Err(err) => {
+                tracing::error!(
+                    target: "client",
+                    ?last_final_block,
+                    ?err,
+                    "Error getting last final block of the new block"
+                );
+                return;
+            }
+        };
         self.chunk_validator
             .orphan_witness_pool
             .remove_witnesses_below_final_height(last_final_block.height());
@@ -145,5 +136,4 @@ pub enum HandleOrphanWitnessOutcome {
     SavedToPool,
     TooBig(usize),
     TooFarFromHead { head_height: BlockHeight, witness_height: BlockHeight },
-    UnsupportedEpochId(EpochId),
 }

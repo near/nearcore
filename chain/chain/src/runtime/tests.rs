@@ -206,6 +206,8 @@ impl TestEnv {
         genesis.config.epoch_length = config.epoch_length;
         genesis.config.chunk_producer_kickout_threshold =
             genesis.config.block_producer_kickout_threshold;
+        genesis.config.chunk_validator_only_kickout_threshold =
+            genesis.config.block_producer_kickout_threshold;
         if !config.has_reward {
             genesis.config.max_inflation_rate = Ratio::from_integer(0);
         }
@@ -1650,6 +1652,7 @@ fn prepare_transactions(
         PrepareTransactionsChunkContext {
             shard_id,
             gas_limit: env.runtime.genesis_config.gas_limit,
+            last_chunk_transactions_size: 0,
         },
         PrepareTransactionsBlockContext {
             next_gas_price: env.runtime.genesis_config.min_gas_price,

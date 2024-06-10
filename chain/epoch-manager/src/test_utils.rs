@@ -12,7 +12,7 @@ use near_crypto::{KeyType, SecretKey};
 use near_primitives::challenge::SlashedValidator;
 use near_primitives::epoch_manager::block_info::BlockInfoV2;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig, ValidatorWeight};
+use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig, ValidatorSelectionConfig};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
@@ -48,12 +48,6 @@ pub fn epoch_info(
     accounts: Vec<(AccountId, Balance)>,
     block_producers_settlement: Vec<ValidatorId>,
     chunk_producers_settlement: Vec<Vec<ValidatorId>>,
-    hidden_validators_settlement: Vec<ValidatorWeight>,
-    fishermen: Vec<(AccountId, Balance)>,
-    stake_change: BTreeMap<AccountId, Balance>,
-    validator_kickout: Vec<(AccountId, ValidatorKickoutReason)>,
-    validator_reward: HashMap<AccountId, Balance>,
-    minted_amount: Balance,
 ) -> EpochInfo {
     let num_seats = block_producers_settlement.len() as u64;
     epoch_info_with_num_seats(
@@ -61,12 +55,10 @@ pub fn epoch_info(
         accounts,
         block_producers_settlement,
         chunk_producers_settlement,
-        hidden_validators_settlement,
-        fishermen,
-        stake_change,
-        validator_kickout,
-        validator_reward,
-        minted_amount,
+        Default::default(),
+        Default::default(),
+        Default::default(),
+        0,
         num_seats,
     )
 }
@@ -76,8 +68,6 @@ pub fn epoch_info_with_num_seats(
     mut accounts: Vec<(AccountId, Balance)>,
     block_producers_settlement: Vec<ValidatorId>,
     chunk_producers_settlement: Vec<Vec<ValidatorId>>,
-    _hidden_validators_settlement: Vec<ValidatorWeight>,
-    _fishermen: Vec<(AccountId, Balance)>,
     stake_change: BTreeMap<AccountId, Balance>,
     validator_kickout: Vec<(AccountId, ValidatorKickoutReason)>,
     validator_reward: HashMap<AccountId, Balance>,
@@ -134,10 +124,10 @@ pub fn epoch_config_with_production_config(
     epoch_length: BlockHeightDelta,
     num_shards: NumShards,
     num_block_producer_seats: NumSeats,
-    num_hidden_validator_seats: NumSeats,
+    num_chunk_producer_seats: NumSeats,
     block_producer_kickout_threshold: u8,
     chunk_producer_kickout_threshold: u8,
-    fishermen_threshold: Balance,
+    chunk_validator_only_kickout_threshold: u8,
     use_production_config: bool,
 ) -> AllEpochConfig {
     let epoch_config = EpochConfig {
@@ -147,17 +137,20 @@ pub fn epoch_config_with_production_config(
             num_shards,
             num_block_producer_seats,
         ),
-        avg_hidden_validator_seats_per_shard: (0..num_shards)
-            .map(|_| num_hidden_validator_seats)
-            .collect(),
+        avg_hidden_validator_seats_per_shard: vec![],
         block_producer_kickout_threshold,
         chunk_producer_kickout_threshold,
-        fishermen_threshold,
+        chunk_validator_only_kickout_threshold,
+        target_validator_mandates_per_shard: 68,
+        fishermen_threshold: 0,
         online_min_threshold: Ratio::new(90, 100),
         online_max_threshold: Ratio::new(99, 100),
         protocol_upgrade_stake_threshold: Ratio::new(80, 100),
         minimum_stake_divisor: 1,
-        validator_selection_config: Default::default(),
+        validator_selection_config: ValidatorSelectionConfig {
+            num_chunk_producer_seats,
+            ..Default::default()
+        },
         shard_layout: ShardLayout::v0(num_shards, 0),
         validator_max_kickout_stake_perc: 100,
     };
@@ -168,19 +161,18 @@ pub fn epoch_config(
     epoch_length: BlockHeightDelta,
     num_shards: NumShards,
     num_block_producer_seats: NumSeats,
-    num_hidden_validator_seats: NumSeats,
     block_producer_kickout_threshold: u8,
     chunk_producer_kickout_threshold: u8,
-    fishermen_threshold: Balance,
+    chunk_validator_only_kickout_threshold: u8,
 ) -> AllEpochConfig {
     epoch_config_with_production_config(
         epoch_length,
         num_shards,
         num_block_producer_seats,
-        num_hidden_validator_seats,
+        100,
         block_producer_kickout_threshold,
         chunk_producer_kickout_threshold,
-        fishermen_threshold,
+        chunk_validator_only_kickout_threshold,
         false,
     )
 }
@@ -213,10 +205,9 @@ pub fn setup_epoch_manager(
     epoch_length: BlockHeightDelta,
     num_shards: NumShards,
     num_block_producer_seats: NumSeats,
-    num_hidden_validator_seats: NumSeats,
     block_producer_kickout_threshold: u8,
     chunk_producer_kickout_threshold: u8,
-    fishermen_threshold: Balance,
+    chunk_validator_only_kickout_threshold: u8,
     reward_calculator: RewardCalculator,
 ) -> EpochManager {
     let store = create_test_store();
@@ -224,10 +215,9 @@ pub fn setup_epoch_manager(
         epoch_length,
         num_shards,
         num_block_producer_seats,
-        num_hidden_validator_seats,
         block_producer_kickout_threshold,
         chunk_producer_kickout_threshold,
-        fishermen_threshold,
+        chunk_validator_only_kickout_threshold,
     );
     EpochManager::new(
         store,
@@ -247,7 +237,6 @@ pub fn setup_default_epoch_manager(
     epoch_length: BlockHeightDelta,
     num_shards: NumShards,
     num_block_producer_seats: NumSeats,
-    num_hidden_validator_seats: NumSeats,
     block_producer_kickout_threshold: u8,
     chunk_producer_kickout_threshold: u8,
 ) -> EpochManager {
@@ -256,10 +245,9 @@ pub fn setup_default_epoch_manager(
         epoch_length,
         num_shards,
         num_block_producer_seats,
-        num_hidden_validator_seats,
         block_producer_kickout_threshold,
         chunk_producer_kickout_threshold,
-        1,
+        0,
         default_reward_calculator(),
     )
 }
@@ -293,7 +281,7 @@ pub fn setup_epoch_manager_with_block_and_chunk_producers(
         validators.push((chunk_only_producer.clone(), stake));
         total_stake += stake;
     }
-    let config = epoch_config(epoch_length, num_shards, num_block_producers, 0, 0, 0, 0);
+    let config = epoch_config(epoch_length, num_shards, num_block_producers, 0, 0, 0);
     let epoch_manager = EpochManager::new(
         store,
         config,
