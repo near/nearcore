@@ -16,9 +16,12 @@ use crate::stateless_validation::{
 use crate::telemetry::TelemetryInfo;
 use crate::types::{AccountId, BlockHeight, EpochId};
 
+/// Enum for validator signer, that holds validator id and key used for signing data.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum ValidatorSigner {
+    /// Dummy validator signer, does not hold a key. Use for tests only!
     Empty(EmptyValidatorSigner),
+    /// Default validator signer that holds data in memory.
     InMemory(InMemoryValidatorSigner),
 }
 
