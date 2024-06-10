@@ -83,10 +83,10 @@ pub fn route_shards_manager_network_messages<
                         next_hash += 1;
                         sender.send_with_delay(
                             (target_idx,
-                             ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
-                                 partial_encoded_chunk_request: request,
-                                 route_back,
-                             }.into()),
+                            ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
+                                partial_encoded_chunk_request: request,
+                                route_back,
+                            }.into()),
                             network_delay,
                         );
                         Ok(())
@@ -96,10 +96,10 @@ pub fn route_shards_manager_network_messages<
                             *route_back_lookup.get(&route_back).expect("Route back not found");
                         sender.send_with_delay(
                             (target_idx,
-                             ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
-                                 partial_encoded_chunk_response: response,
-                                 received_time: clock.now().into(), // TODO: use clock
-                             }.into()),
+                            ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
+                                partial_encoded_chunk_response: response,
+                                received_time: clock.now().into(), // TODO: use clock
+                            }.into()),
                             network_delay,
                         );
                         Ok(())
