@@ -481,6 +481,7 @@ impl EpochManager {
     {
         let block_producer_kickout_threshold = config.block_producer_kickout_threshold;
         let chunk_producer_kickout_threshold = config.chunk_producer_kickout_threshold;
+        let chunk_validator_only_kickout_threshold = config.chunk_validator_only_kickout_threshold;
         let mut validator_block_chunk_stats = HashMap::new();
         let mut total_stake: Balance = 0;
         let mut maximum_block_prod = 0;
@@ -548,6 +549,21 @@ impl EpochManager {
                     ValidatorKickoutReason::NotEnoughChunks {
                         produced: stats.chunk_stats.produced(),
                         expected: stats.chunk_stats.expected(),
+                    }
+                });
+            }
+            let chunk_validator_only =
+                stats.block_stats.expected == 0 && stats.chunk_stats.expected() == 0;
+            if chunk_validator_only
+                && stats
+                    .chunk_stats
+                    .endorsement_stats()
+                    .less_than(chunk_validator_only_kickout_threshold)
+            {
+                validator_kickout.entry(account_id.clone()).or_insert_with(|| {
+                    ValidatorKickoutReason::NotEnoughChunkEndorsements {
+                        produced: stats.chunk_stats.endorsement_stats().produced,
+                        expected: stats.chunk_stats.endorsement_stats().expected,
                     }
                 });
             }
@@ -722,6 +738,7 @@ impl EpochManager {
                     reason,
                     ValidatorKickoutReason::NotEnoughBlocks { .. }
                         | ValidatorKickoutReason::NotEnoughChunks { .. }
+                        | ValidatorKickoutReason::NotEnoughChunkEndorsements { .. }
                 ) {
                     validator_block_chunk_stats.remove(account_id);
                 }

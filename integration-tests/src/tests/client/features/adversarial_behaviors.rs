@@ -59,6 +59,7 @@ impl AdversarialBehaviorTestData {
             // Configure kickout threshold at 50%.
             config.block_producer_kickout_threshold = 50;
             config.chunk_producer_kickout_threshold = 50;
+            config.chunk_validator_only_kickout_threshold = 50;
         }
         let env = TestEnv::builder(&genesis.config)
             .clock(clock.clock())

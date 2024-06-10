@@ -1,4 +1,5 @@
 use assert_matches::assert_matches;
+use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
@@ -19,13 +20,14 @@ use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::FinalExecutionStatus;
 use near_vm_runner::logic::ProtocolVersion;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
+use node_runtime::bootstrap_congestion_info;
 use std::sync::Arc;
 
 const CONTRACT_ID: &str = "contract.test0";
 
 fn setup_runtime(sender_id: AccountId, protocol_version: ProtocolVersion) -> TestEnv {
     let mut genesis = Genesis::test_sharded_new_version(vec![sender_id], 1, vec![1, 1, 1, 1]);
-    genesis.config.epoch_length = 5;
+    genesis.config.epoch_length = 10;
     genesis.config.protocol_version = protocol_version;
     // Chain must be sharded to test cross-shard congestion control.
     genesis.config.shard_layout = ShardLayout::v1_test();
@@ -84,10 +86,77 @@ fn setup_contract(env: &mut TestEnv) {
     );
 }
 
+/// Check that the congestion info is correctly bootstrapped, updated and
+/// propagated from chunk extra to chunk header. If the
+/// `check_congested_protocol_upgrade` flag is set check that the chain is under
+/// congestion during the protocol upgrade.
+fn check_congestion_info(env: &TestEnv, check_congested_protocol_upgrade: bool) {
+    let client = &env.clients[0];
+    let genesis_height = client.chain.genesis().height();
+    let head_height = client.chain.head().unwrap().height;
+
+    let mut check_congested_protocol_upgrade_done = false;
+
+    for height in genesis_height..head_height + 1 {
+        let block = client.chain.get_block_by_height(height);
+        let Ok(block) = block else {
+            continue;
+        };
+
+        let prev_hash = block.header().prev_hash();
+        let epoch_id = client.epoch_manager.get_epoch_id(block.hash()).unwrap();
+        let protocol_config = client.runtime_adapter.get_protocol_config(&epoch_id).unwrap();
+        let runtime_config = protocol_config.runtime_config;
+
+        for chunk in block.chunks().iter() {
+            let shard_id = chunk.shard_id();
+            let prev_state_root = chunk.prev_state_root();
+
+            let trie = client
+                .chain
+                .runtime_adapter
+                .get_trie_for_shard(shard_id, prev_hash, prev_state_root, false)
+                .unwrap();
+            let mut computed_congestion_info =
+                bootstrap_congestion_info(&trie, &runtime_config, shard_id).unwrap();
+
+            tracing::info!(target: "test", ?epoch_id, ?height, ?shard_id, ?computed_congestion_info, "checking congestion info");
+
+            let header_congestion_info = chunk.congestion_info();
+            let Some(header_congestion_info) = header_congestion_info else {
+                continue;
+            };
+
+            // Do not check the allowed shard as it's set separately from the
+            // bootstrapping logic.
+            computed_congestion_info.set_allowed_shard(header_congestion_info.allowed_shard());
+
+            assert_eq!(
+                header_congestion_info, computed_congestion_info,
+                "congestion info mismatch at height {} for shard {}",
+                height, shard_id
+            );
+
+            if shard_id == 1
+                && check_congested_protocol_upgrade
+                && !check_congested_protocol_upgrade_done
+            {
+                let congestion_level = header_congestion_info
+                    .localized_congestion_level(&runtime_config.congestion_control_config);
+                assert!(congestion_level > 0.0, "the congestion level should be non-zero for the congested shard during protocol upgrade");
+
+                check_congested_protocol_upgrade_done = true;
+            }
+        }
+    }
+}
+
 /// Simplest possible upgrade to new protocol with congestion control enabled,
 /// no traffic at all.
 #[test]
 fn test_protocol_upgrade_simple() {
+    init_test_logger();
+
     // The following only makes sense to test if the feature is enabled in the current build.
     if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
         return;
@@ -126,6 +195,9 @@ fn test_protocol_upgrade_simple() {
         assert_eq!(congestion_control.congestion_level(), 0.0);
         assert!(congestion_control.shard_accepts_transactions());
     }
+
+    let check_congested_protocol_upgrade = false;
+    check_congestion_info(&env, check_congested_protocol_upgrade);
 }
 
 fn head_congestion_control_config(
@@ -212,11 +284,23 @@ fn test_protocol_upgrade_under_congestion() {
     );
 
     // Also check that the congested shard is still making progress.
-    env.produce_block(0, tip.height + 1);
-    let next_congestion_info = head_congestion_info(&mut env, contract_shard_id);
+    let block = env.clients[0].produce_block(tip.height + 1).unwrap().unwrap();
+    assert_eq!(
+        block.header().chunk_mask()[contract_shard_id as usize],
+        true,
+        "chunk isn't missing"
+    );
+    let gas_used = block.chunks().get(contract_shard_id as usize).unwrap().prev_gas_used();
+    tracing::debug!(target: "test", "prev_gas_used: {}", gas_used);
 
-    assert!(congestion_info.delayed_receipts_gas() > next_congestion_info.delayed_receipts_gas());
-    assert!(congestion_info.receipt_bytes() > next_congestion_info.receipt_bytes());
+    // The chunk should process at least 500TGas worth of receipts
+    assert!(gas_used > 500_000_000_000_000);
+
+    env.process_block(0, block, Provenance::PRODUCED);
+
+    let check_congested_protocol_upgrade = true;
+    check_congestion_info(&env, check_congested_protocol_upgrade);
+    env.print_summary();
 }
 
 /// Check we are still in the old version and no congestion info is shared.
