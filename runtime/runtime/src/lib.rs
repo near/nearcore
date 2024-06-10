@@ -3747,9 +3747,10 @@ mod tests {
         let (runtime, tries, root, mut apply_state, _, epoch_info_provider) =
             setup_runtime(initial_balance, initial_locked, gas_limit);
 
-        // Delete previous congestion info to trigger bootstrapping it.
-        // An empty hash map is what we should see in the first chunk with the feature enabled.
-        apply_state.congestion_info.clear();
+        // Delete previous congestion info to trigger bootstrapping it. An empty
+        // shards congestion info map is what we should see in the first chunk
+        // with the feature enabled.
+        apply_state.congestion_info = BlockCongestionInfo::default();
 
         // Apply test specific settings
         apply_state.is_new_chunk = is_new_chunk;

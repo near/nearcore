@@ -321,11 +321,13 @@ impl CongestionInfo {
     }
 }
 
-// TODO remove default
+/// The block congestion info contains the congestion info for all shards in the
+/// block extended with the missed chunks count.
 #[derive(Clone, Debug, Default)]
 pub struct BlockCongestionInfo {
     /// The per shard congestion info. It's important that the data structure is
-    /// deterministic. Ideally it should also be sorted by shard id.
+    /// deterministic because the allowed shard id selection depends on the
+    /// order of shard ids in this map. Ideally it should also be sorted by shard id.
     shards_congestion_info: BTreeMap<ShardId, ExtendedCongestionInfo>,
 }
 
@@ -360,10 +362,6 @@ impl BlockCongestionInfo {
 
     pub fn is_empty(&self) -> bool {
         self.shards_congestion_info.is_empty()
-    }
-
-    pub fn clear(&mut self) -> () {
-        self.shards_congestion_info.clear()
     }
 }
 
