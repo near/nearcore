@@ -57,6 +57,7 @@ use std::cmp::min;
 use std::fmt::Debug;
 use std::io;
 use std::net::SocketAddr;
+use std::num::NonZeroUsize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tracing::Instrument as _;
@@ -333,7 +334,9 @@ impl PeerActor {
                     framed,
                     tracker: Default::default(),
                     stats,
-                    routed_message_cache: LruCache::new(ROUTED_MESSAGE_CACHE_SIZE),
+                    routed_message_cache: LruCache::new(
+                        NonZeroUsize::new(ROUTED_MESSAGE_CACHE_SIZE).unwrap(),
+                    ),
                     protocol_buffers_supported: false,
                     force_encoding,
                     peer_info: match &stream_type {

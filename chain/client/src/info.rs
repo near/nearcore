@@ -29,6 +29,7 @@ use near_telemetry::TelemetryEvent;
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use sysinfo::{get_current_pid, set_open_files_limit, Pid, ProcessExt, System, SystemExt};
 use time::ext::InstantExt as _;
@@ -101,7 +102,7 @@ impl InfoHelper {
             epoch_id: None,
             enable_multiline_logging: client_config.enable_multiline_logging,
             prev_sync_requirement: None,
-            num_validators_per_epoch: LruCache::new(3),
+            num_validators_per_epoch: LruCache::new(NonZeroUsize::new(3).unwrap()),
         }
     }
 
@@ -294,23 +295,21 @@ impl InfoHelper {
         epoch_id: &EpochId,
         last_block_hash: &CryptoHash,
     ) -> usize {
-        self.num_validators_per_epoch
-            .get_or_insert(epoch_id.clone(), || {
-                let block_producers: HashSet<AccountId> = epoch_manager
-                    .get_epoch_block_producers_ordered(epoch_id, last_block_hash)
-                    .unwrap_or(vec![])
-                    .into_iter()
-                    .map(|(validator_stake, _)| validator_stake.account_id().clone())
-                    .collect();
-                let chunk_producers: HashSet<AccountId> = epoch_manager
-                    .get_epoch_chunk_producers(epoch_id)
-                    .unwrap_or(vec![])
-                    .into_iter()
-                    .map(|validator_stake| validator_stake.account_id().clone())
-                    .collect();
-                block_producers.union(&chunk_producers).count()
-            })
-            .map_or(0, |num_validators| *num_validators)
+        *self.num_validators_per_epoch.get_or_insert(epoch_id.clone(), || {
+            let block_producers: HashSet<AccountId> = epoch_manager
+                .get_epoch_block_producers_ordered(epoch_id, last_block_hash)
+                .unwrap_or(vec![])
+                .into_iter()
+                .map(|(validator_stake, _)| validator_stake.account_id().clone())
+                .collect();
+            let chunk_producers: HashSet<AccountId> = epoch_manager
+                .get_epoch_chunk_producers(epoch_id)
+                .unwrap_or(vec![])
+                .into_iter()
+                .map(|validator_stake| validator_stake.account_id().clone())
+                .collect();
+            block_producers.union(&chunk_producers).count()
+        })
     }
 
     /// Print current summary.

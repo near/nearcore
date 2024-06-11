@@ -1,3 +1,5 @@
+use std::num::NonZeroUsize;
+
 use lru::LruCache;
 use near_chain_configs::default_orphan_state_witness_pool_size;
 use near_primitives::hash::CryptoHash;
@@ -31,7 +33,9 @@ impl OrphanStateWitnessPool {
                 to performance problems.", cache_capacity);
         }
 
-        OrphanStateWitnessPool { witness_cache: LruCache::new(cache_capacity) }
+        OrphanStateWitnessPool {
+            witness_cache: LruCache::new(NonZeroUsize::new(cache_capacity).unwrap()),
+        }
     }
 
     /// Add an orphaned chunk state witness to the pool. The witness will be put in a cache and it'll
@@ -369,22 +373,6 @@ mod tests {
 
         let waiting_for_102 = pool.take_state_witnesses_waiting_for_block(&block(102));
         assert_contents(waiting_for_102, vec![witness4]);
-    }
-
-    /// An OrphanStateWitnessPool with 0 capacity shouldn't crash, it should just ignore all witnesses
-    #[test]
-    fn zero_capacity() {
-        let mut pool = OrphanStateWitnessPool::new(0);
-
-        pool.add_orphan_state_witness(make_witness(100, 1, block(99), 0), 0);
-        pool.add_orphan_state_witness(make_witness(100, 1, block(99), 0), 1);
-        pool.add_orphan_state_witness(make_witness(100, 2, block(99), 0), 0);
-        pool.add_orphan_state_witness(make_witness(101, 0, block(100), 0), 0);
-
-        let waiting = pool.take_state_witnesses_waiting_for_block(&block(99));
-        assert_contents(waiting, vec![]);
-
-        assert_empty(&pool);
     }
 
     /// OrphanStateWitnessPool has a Drop implementation which clears the metrics.

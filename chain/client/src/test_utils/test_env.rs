@@ -478,7 +478,7 @@ impl TestEnv {
     }
 
     /// This function used to be able to upgrade to a specific protocol version
-    /// but due to https://github.com/near/nearcore/issues/8590 that
+    /// but due to <https://github.com/near/nearcore/issues/8590> that
     /// functionality does not work currently.  Hence it is renamed to upgrade
     /// to the latest version.
     pub fn upgrade_protocol_to_latest_version(&mut self) {
