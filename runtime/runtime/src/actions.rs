@@ -39,7 +39,7 @@ use near_vm_runner::logic::errors::{
     CacheError, CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
 };
 use near_vm_runner::logic::types::PromiseResult;
-use near_vm_runner::logic::{VMContext, VMOutcome};
+use near_vm_runner::logic::{External as _, VMContext, VMOutcome};
 use near_vm_runner::precompile_contract;
 use near_vm_runner::ContractCode;
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
@@ -125,8 +125,9 @@ pub(crate) fn execute_function_call(
                         });
                     return Ok(VMOutcome::nop_outcome(error));
                 }
-                Err(e) => {
-                    return Err(RuntimeError::StorageError(e));
+                Err(near_vm_runner::logic::GetContractError::StorageError(e)) => {
+                    let error = e.downcast().expect("downcast to a storage error");
+                    return Err(RuntimeError::StorageError(*error));
                 }
             };
             let r = near_vm_runner::run(

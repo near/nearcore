@@ -1,8 +1,11 @@
+use crate::logic::dependencies::{GetContractError, Result, TrieNodesCount};
 use crate::logic::types::ReceiptIndex;
 use crate::logic::{External, StorageGetMode, ValuePtr};
+use crate::ContractCode;
 use near_primitives_core::hash::{hash, CryptoHash};
 use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 #[derive(serde::Serialize)]
 #[serde(remote = "GasWeight")]
@@ -77,6 +80,7 @@ pub struct MockedExternal {
     pub fake_trie: HashMap<Vec<u8>, Vec<u8>>,
     pub validators: HashMap<AccountId, Balance>,
     pub action_log: Vec<MockAction>,
+    pub code: Option<std::sync::Arc<ContractCode>>,
     pub code_hash: CryptoHash,
     data_count: u64,
 }
@@ -109,12 +113,14 @@ impl MockedExternal {
         Self::default()
     }
 
-    pub fn with_code_hash(code_hash: CryptoHash) -> Self {
-        Self { code_hash, ..Self::default() }
+    pub fn with_code(code: ContractCode) -> Self {
+        Self::with_code_and_hash(*code.hash(), code)
+    }
+
+    pub fn with_code_and_hash(code_hash: CryptoHash, code: ContractCode) -> Self {
+        Self { code_hash, code: Some(code.into()), ..Self::default() }
     }
 }
-
-use crate::logic::dependencies::{Result, TrieNodesCount};
 
 impl External for MockedExternal {
     fn storage_set(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
@@ -317,5 +323,9 @@ impl External for MockedExternal {
 
     fn code_hash(&self) -> CryptoHash {
         self.code_hash
+    }
+
+    fn get_contract(&self) -> Result<Option<Arc<ContractCode>>, GetContractError> {
+        Ok(self.code.clone())
     }
 }

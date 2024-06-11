@@ -12,7 +12,7 @@ use near_primitives::version::ProtocolVersion;
 use near_store::{has_promise_yield_receipt, KeyLookupMode, TrieUpdate, TrieUpdateValuePtr};
 use near_vm_runner::logic::errors::{AnyError, VMLogicError};
 use near_vm_runner::logic::types::ReceiptIndex;
-use near_vm_runner::logic::{External, StorageGetMode, ValuePtr};
+use near_vm_runner::logic::{External, StorageGetMode, ValuePtr, GetContractError};
 use near_vm_runner::ContractCode;
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
 use std::sync::Arc;
@@ -95,28 +95,6 @@ impl<'a> RuntimeExt<'a> {
     #[inline]
     pub fn account(&self) -> &'a Account {
         self.account
-    }
-
-    pub fn get_contract(&self) -> Result<Option<Arc<ContractCode>>, StorageError> {
-        let account_id = self.account_id();
-        let code_hash = self.code_hash();
-        if checked_feature!("stable", EthImplicitAccounts, self.current_protocol_version)
-            && account_id.get_account_type() == AccountType::EthImplicitAccount
-        {
-            let chain_id = self.chain_id();
-            assert!(&code_hash == wallet_contract_magic_bytes(&chain_id).hash());
-            return Ok(Some(wallet_contract(&chain_id)));
-        }
-        if checked_feature!("stable", ChunkNodesCache, self.current_protocol_version) {
-            self.trie_update.set_trie_cache_mode(TrieCacheMode::CachingShard);
-        }
-        let contract = self.trie_update.get_code(self.account_id.clone(), code_hash).map(Arc::new);
-        // FIXME: ideally this would reset to previous state, and not to arbitrary state like it
-        // does here...
-        if checked_feature!("stable", ChunkNodesCache, self.current_protocol_version) {
-            self.trie_update.set_trie_cache_mode(TrieCacheMode::CachingChunk);
-        }
-        Ok(contract)
     }
 
     pub fn create_storage_key(&self, key: &[u8]) -> TrieKey {
@@ -388,5 +366,27 @@ impl<'a> External for RuntimeExt<'a> {
 
     fn code_hash(&self) -> CryptoHash {
         self.account.code_hash()
+    }
+
+    fn get_contract(&self) -> Result<Option<Arc<ContractCode>>, GetContractError> {
+        let account_id = self.account_id();
+        let code_hash = self.code_hash();
+        if checked_feature!("stable", EthImplicitAccounts, self.current_protocol_version)
+            && account_id.get_account_type() == AccountType::EthImplicitAccount
+        {
+            let chain_id = self.chain_id();
+            assert!(&code_hash == wallet_contract_magic_bytes(&chain_id).hash());
+            return Ok(Some(wallet_contract(&chain_id)));
+        }
+        if checked_feature!("stable", ChunkNodesCache, self.current_protocol_version) {
+            self.trie_update.set_trie_cache_mode(TrieCacheMode::CachingShard);
+        }
+        let contract = self.trie_update.get_code(self.account_id.clone(), code_hash).map(Arc::new);
+        // FIXME: ideally this would reset to previous state, and not to arbitrary state like it
+        // does here...
+        if checked_feature!("stable", ChunkNodesCache, self.current_protocol_version) {
+            self.trie_update.set_trie_cache_mode(TrieCacheMode::CachingChunk);
+        }
+        Ok(contract)
     }
 }

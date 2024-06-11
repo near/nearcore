@@ -212,7 +212,7 @@ impl TestBuilder {
                     continue;
                 }
 
-                let mut fake_external = MockedExternal::with_code_hash(*self.code.hash());
+                let mut fake_external = MockedExternal::with_code(self.code.clone());
                 let config = runtime_config.wasm_config.clone();
                 let fees = RuntimeFeesConfig::test();
                 let context = self.context.clone();

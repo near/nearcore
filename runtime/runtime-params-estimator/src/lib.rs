@@ -884,8 +884,7 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
     let n_iters = 10;
 
     let code = ContractCode::new(code.to_vec(), None);
-    let mut fake_external = MockedExternal::with_code_hash(*code.hash());
-
+    let mut fake_external = MockedExternal::with_code(code.clone());
     let config_store = RuntimeConfigStore::new(None);
     let config = config_store.get_config(PROTOCOL_VERSION).wasm_config.clone();
     let fees = RuntimeFeesConfig::test();

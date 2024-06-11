@@ -6,6 +6,7 @@ use near_parameters::vm::StorageGetMode;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight, Nonce};
 use std::borrow::Cow;
+use std::error::Error;
 
 /// Representation of the address slice of guest memory.
 #[derive(Clone, Copy)]
@@ -131,6 +132,10 @@ impl TrieNodesCount {
             mem_reads: self.mem_reads.checked_sub(other.mem_reads)?,
         })
     }
+}
+
+pub enum GetContractError {
+    StorageError(Box<dyn Error + Send + Sync>),
 }
 
 /// An external blockchain interface for the Runtime logic
@@ -491,4 +496,7 @@ pub trait External {
 
     /// Hash of the contract for the current account.
     fn code_hash(&self) -> CryptoHash;
+
+    /// Get the contract code
+    fn get_contract(&self) -> Result<Option<std::sync::Arc<crate::ContractCode>>, GetContractError>;
 }

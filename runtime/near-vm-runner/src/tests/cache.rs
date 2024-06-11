@@ -116,7 +116,12 @@ fn make_cached_contract_call_vm(
     prepaid_gas: u64,
     vm_kind: VMKind,
 ) -> VMResult {
-    let mut fake_external = MockedExternal::with_code_hash(code_hash);
+    let mut fake_external = if let Some(code) = code {
+        MockedExternal::with_code_and_hash(code_hash, code.clone())
+    } else {
+        MockedExternal::new()
+    };
+    fake_external.code_hash = code_hash;
     let mut context = create_context(vec![]);
     let fees = RuntimeFeesConfig::test();
     let promise_results = vec![];

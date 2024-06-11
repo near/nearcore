@@ -106,8 +106,7 @@ impl fmt::Debug for ArbitraryModule {
 }
 
 fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
-    let mut fake_external = MockedExternal::with_code_hash(*code.hash());
-
+    let mut fake_external = MockedExternal::with_code(code.clone());
     let mut context = create_context(vec![]);
     context.prepaid_gas = 10u64.pow(14);
 

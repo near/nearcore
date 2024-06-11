@@ -14,8 +14,8 @@ pub fn test_ts_contract() {
     let config = test_vm_config();
     with_vm_variants(&config, |vm_kind: VMKind| {
         let code = ContractCode::new(near_test_contracts::ts_contract().to_vec(), None);
-        let code_hash = code.hash();
-        let mut fake_external = MockedExternal::with_code_hash(*code_hash);
+        let mut fake_external = MockedExternal::with_code(code);
+        let code = ContractCode::new(near_test_contracts::ts_contract().to_vec(), None);
 
         let context = create_context(Vec::new());
         let fees = RuntimeFeesConfig::test();
