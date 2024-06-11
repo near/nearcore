@@ -12,7 +12,7 @@ use super::DelaySender;
 /// TestLoopSender implements the CanSend methods for an actor that can Handle them. This is
 /// similar to our pattern of having an ActixWarpper around an actor to send messages to it.
 ///
-/// ```
+/// ```rust, ignore
 /// let actor = TestActor::new();
 /// let adapter = LateBoundSender::new();
 ///
