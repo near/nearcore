@@ -27,13 +27,12 @@ fn main() -> anyhow::Result<()> {
             total_transactions,
         } => {
             let connection = &mut establish_connection()?;
-            let node_hardware: Vec<&str> = node_hardware.iter().map(String::as_str).collect();
             let new_ft_transfer = NewFtTransfer {
                 time,
-                git_commit_hash: &git_commit_hash,
+                git_commit_hash,
                 git_commit_time,
                 num_nodes,
-                node_hardware: &node_hardware,
+                node_hardware,
                 num_traffic_gen_machines,
                 disjoint_workloads,
                 num_shards,

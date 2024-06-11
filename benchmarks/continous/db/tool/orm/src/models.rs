@@ -5,13 +5,13 @@ use crate::schema::ft_transfers;
 
 #[derive(Insertable)]
 #[diesel(table_name = ft_transfers)]
-pub struct NewFtTransfer<'a> {
+pub struct NewFtTransfer {
     // TODO store start and time in two separate columns
     pub time: DateTime<Utc>,
-    pub git_commit_hash: &'a str,
+    pub git_commit_hash: String,
     pub git_commit_time: DateTime<Utc>,
     pub num_nodes: i32,
-    pub node_hardware: &'a [&'a str],
+    pub node_hardware: Vec<String>,
     pub num_traffic_gen_machines: i32,
     pub disjoint_workloads: bool,
     pub num_shards: i32,
