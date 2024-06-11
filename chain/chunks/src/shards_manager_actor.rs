@@ -809,7 +809,7 @@ impl ShardsManagerActor {
     }
 
     /// Resends chunk requests if haven't received it within expected time.
-    fn resend_chunk_requests(&mut self) {
+    pub fn resend_chunk_requests(&mut self) {
         let _span = tracing::debug_span!(
             target: "client",
             "resend_chunk_requests",
