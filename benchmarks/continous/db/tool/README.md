@@ -37,4 +37,6 @@ Write SQL in the generated `up.sql` and `down.sql`, then apply the migration wit
 diesel migration run
 ```
 
+Before running a migration, consider backing up the db in Cloud SQL to recover from a faulty migration.
+
 More details can be found in Diesel's [getting started guide](https://diesel.rs/guides/getting-started).
