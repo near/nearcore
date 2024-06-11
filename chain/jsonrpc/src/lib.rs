@@ -643,10 +643,11 @@ impl JsonRpcHandler {
         .map_err(|_| {
             metrics::RPC_TIMEOUT_TOTAL.inc();
             tracing::warn!(
-                target: "jsonrpc", "Timeout: tx_status_fetch method. tx_info {:?} fetch_receipt {:?} result {:?}",
+                target: "jsonrpc", "Timeout: tx_status_fetch method. tx_info {:?} fetch_receipt {:?} result {:?} timeout {:?}",
                 tx_info,
                 fetch_receipt,
-                tx_status_result
+                tx_status_result,
+                self.polling_config.polling_timeout,
             );
             near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError
         })?
