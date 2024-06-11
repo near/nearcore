@@ -6,7 +6,7 @@ use near_chain_configs::MIN_GAS_PRICE;
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_parameters::RuntimeConfig;
-use near_primitives::congestion_info::ExtendedCongestionInfo;
+use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::errors::{RuntimeError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
@@ -159,8 +159,9 @@ impl RuntimeUser {
         let congestion_info = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
             all_shard_ids.into_iter().map(|id| (id, ExtendedCongestionInfo::default())).collect()
         } else {
-            HashMap::new()
+            Default::default()
         };
+        let congestion_info = BlockCongestionInfo::new(congestion_info);
 
         ApplyState {
             apply_reason: None,

@@ -11,7 +11,7 @@ use near_pool::{
 };
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::checked_feature;
-use near_primitives::congestion_info::ExtendedCongestionInfo;
+use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::version::PROTOCOL_VERSION;
@@ -85,16 +85,16 @@ impl NightshadeRuntime {
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(block_hash).unwrap_or_default();
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
-        let congestion_info_map: HashMap<ShardId, ExtendedCongestionInfo> =
-            if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
-                HashMap::new()
-            } else {
-                let shard_ids = self.epoch_manager.shard_ids(&epoch_id).unwrap();
-                shard_ids
-                    .into_iter()
-                    .map(|shard_id| (shard_id, ExtendedCongestionInfo::default()))
-                    .collect()
-            };
+        let congestion_info_map = if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
+            BlockCongestionInfo::default()
+        } else {
+            let shard_ids = self.epoch_manager.shard_ids(&epoch_id).unwrap();
+            let shards_congestion_info = shard_ids
+                .into_iter()
+                .map(|shard_id| (shard_id, ExtendedCongestionInfo::default()))
+                .collect();
+            BlockCongestionInfo::new(shards_congestion_info)
+        };
         let mut result = self
             .apply_chunk(
                 RuntimeStorageConfig::new(*state_root, true),
@@ -1638,7 +1638,7 @@ fn prepare_transactions(
 ) -> Result<PreparedTransactions, Error> {
     let shard_id = 0;
     let block = chain.get_block(&env.head.prev_block_hash).unwrap();
-    let congestion_info = block.shards_congestion_info();
+    let congestion_info = block.block_congestion_info();
 
     env.runtime.prepare_transactions(
         storage_config,

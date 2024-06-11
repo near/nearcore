@@ -2285,7 +2285,7 @@ impl Client {
         let receiver_shard =
             self.epoch_manager.account_id_to_shard_id(tx.transaction.receiver_id(), &epoch_id)?;
         let receiver_congestion_info =
-            cur_block.shards_congestion_info().get(&receiver_shard).copied();
+            cur_block.block_congestion_info().get(&receiver_shard).copied();
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
         if let Some(err) = self
