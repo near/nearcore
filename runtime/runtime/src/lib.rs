@@ -2308,7 +2308,7 @@ mod tests {
 
     fn create_receipt_with_actions(
         account_id: AccountId,
-        signer: Arc<InMemorySigner>,
+        signer: Arc<Signer>,
         actions: Vec<Action>,
     ) -> Receipt {
         Receipt::V0(ReceiptV0 {
@@ -2364,8 +2364,7 @@ mod tests {
         initial_balance: Balance,
         initial_locked: Balance,
         gas_limit: Gas,
-    ) -> (Runtime, ShardTries, CryptoHash, ApplyState, Arc<InMemorySigner>, impl EpochInfoProvider)
-    {
+    ) -> (Runtime, ShardTries, CryptoHash, ApplyState, Arc<Signer>, impl EpochInfoProvider) {
         setup_runtime_for_shard(
             initial_balance,
             initial_locked,
@@ -2379,17 +2378,15 @@ mod tests {
         initial_locked: Balance,
         gas_limit: Gas,
         shard_uid: ShardUId,
-    ) -> (Runtime, ShardTries, CryptoHash, ApplyState, Arc<InMemorySigner>, impl EpochInfoProvider)
-    {
+    ) -> (Runtime, ShardTries, CryptoHash, ApplyState, Arc<Signer>, impl EpochInfoProvider) {
         let tries = TestTriesBuilder::new().build();
         let root = MerkleHash::default();
         let runtime = Runtime::new();
         let account_id = alice_account();
-        let signer = Arc::new(InMemorySigner::from_seed(
-            account_id.clone(),
-            KeyType::ED25519,
-            account_id.as_ref(),
-        ));
+        let signer: Arc<Signer> = Arc::new(
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref())
+                .into(),
+        );
 
         let mut initial_state = tries.new_trie_update(shard_uid, root);
         let mut initial_account = account_new(initial_balance, hash(&[]));

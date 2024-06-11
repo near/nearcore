@@ -607,13 +607,14 @@ mod test {
         let epoch_length = 4;
         let (store, genesis, mut env) = setup(epoch_length);
         let genesis_hash = *env.clients[0].chain.genesis().hash();
-        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+        let signer =
+            InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1").into();
         let tx = SignedTransaction::stake(
             1,
             "test1".parse().unwrap(),
             &signer,
             TESTING_INIT_STAKE,
-            signer.public_key.clone(),
+            signer.public_key(),
             genesis_hash,
         );
         assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -649,13 +650,14 @@ mod test {
         let epoch_length = 4;
         let (store, genesis, mut env) = setup(epoch_length);
         let genesis_hash = *env.clients[0].chain.genesis().hash();
-        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+        let signer =
+            InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1").into();
         let tx = SignedTransaction::stake(
             1,
             "test1".parse().unwrap(),
             &signer,
             TESTING_INIT_STAKE,
-            signer.public_key.clone(),
+            signer.public_key(),
             genesis_hash,
         );
         assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);

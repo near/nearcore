@@ -1,5 +1,5 @@
 // This file contains code from external sources.
-// Attributions: https://github.com/wasmerio/wasmer/blob/master/ATTRIBUTIONS.md
+// Attributions: https://github.com/wasmerio/wasmer/blob/2.3.0/ATTRIBUTIONS.md
 
 //! WebAssembly trap handling, which is built on top of the lower-level
 //! signalhandling mechanisms.

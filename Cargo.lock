@@ -4115,6 +4115,7 @@ dependencies = [
  "anyhow",
  "near-async",
  "near-chain-configs",
+ "near-crypto",
  "near-o11y",
  "near-primitives",
  "once_cell",

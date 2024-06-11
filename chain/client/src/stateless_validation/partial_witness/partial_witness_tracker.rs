@@ -6,6 +6,7 @@ use near_async::time::Instant;
 use near_chain::chain::ChunkStateWitnessMessage;
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
+use near_o11y::log_assert_fail;
 use near_primitives::stateless_validation::{
     ChunkProductionKey, ChunkStateWitness, ChunkStateWitnessSize, EncodedChunkStateWitness,
     PartialEncodedStateWitness,
@@ -63,13 +64,7 @@ impl CacheEntry {
 
         // Check if the part is already present.
         if self.parts[part_ord].is_some() {
-            tracing::warn!(
-                target: "client",
-                ?shard_id,
-                ?height_created,
-                ?part_ord,
-                "Received duplicate or redundant partial state witness part."
-            );
+            log_assert_fail!("Received duplicate or redundant partial state witness part. shard_id={shard_id:?}, height_created={height_created:?}, part_ord={part_ord:?}");
             return None;
         }
 

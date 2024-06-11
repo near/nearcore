@@ -31,6 +31,11 @@ remote_nodes_lock = threading.Lock()
 cleanup_remote_nodes_atexit_registered = False
 
 
+# Return the session object that can be used for making http requests.
+# The return value is a context manager that should be used in a with statement.
+# e.g.
+# with session() as s:
+#   r = s.get("http://example.com")
 def session(timeout=9) -> Session:
     return Session(connection_timeout=6,
                    network_timeout=timeout,
@@ -223,8 +228,9 @@ class BaseNode(object):
             'id': 'dontcare',
             'jsonrpc': '2.0'
         }
-        r = session(timeout).post("http://%s:%s" % self.rpc_addr(), json=j)
-        r.raise_for_status()
+        with session(timeout) as s:
+            r = s.post("http://%s:%s" % self.rpc_addr(), json=j)
+            r.raise_for_status()
         return json.loads(r.content)
 
     def send_tx(self, signed_tx):
@@ -240,9 +246,10 @@ class BaseNode(object):
                    check_storage: bool = True,
                    timeout: float = 4,
                    verbose: bool = False):
-        r = session(timeout).get("http://%s:%s/status" % self.rpc_addr())
-        r.raise_for_status()
-        status = json.loads(r.content)
+        with session(timeout) as s:
+            r = s.get("http://%s:%s/status" % self.rpc_addr())
+            r.raise_for_status()
+            status = json.loads(r.content)
         if verbose:
             logger.info(f'Status: {status}')
         if check_storage and status['sync_info']['syncing'] == False:
@@ -253,8 +260,9 @@ class BaseNode(object):
         return status
 
     def get_metrics(self, timeout: float = 4):
-        r = session(timeout).get("http://%s:%s/metrics" % self.rpc_addr())
-        r.raise_for_status()
+        with session(timeout) as s:
+            r = s.get("http://%s:%s/metrics" % self.rpc_addr())
+            r.raise_for_status()
         return r.content
 
     def get_latest_block(self, **kw) -> BlockId:
@@ -685,10 +693,12 @@ chmod +x neard
     def json_rpc(self, method, params, timeout=15):
         return super().json_rpc(method, params, timeout=timeout)
 
+    def get_status_impl(self):
+        with session(timeout=15) as s:
+            return s.get("http://%s:%s/status" % self.rpc_addr())
+
     def get_status(self):
-        r = nretry(lambda: session(timeout=15).get("http://%s:%s/status" % self.
-                                                   rpc_addr()),
-                   timeout=45)
+        r = nretry(lambda: self.get_status_impl, timeout=45)
         r.raise_for_status()
         return json.loads(r.content)
 

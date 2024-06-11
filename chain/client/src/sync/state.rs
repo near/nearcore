@@ -1,6 +1,6 @@
 //! State sync is trying to fetch the 'full state' from the peers (which can be multiple GB).
 //! It happens after HeaderSync and before BlockSync (but only if the node sees that it is 'too much behind').
-//! See https://near.github.io/nearcore/architecture/how/sync.html for more detailed information.
+//! See <https://near.github.io/nearcore/architecture/how/sync.html> for more detailed information.
 //! Such state can be downloaded only at special heights (currently - at the beginning of the current and previous
 //! epochs).
 //!

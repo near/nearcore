@@ -480,7 +480,8 @@ mod tests {
 
     #[test]
     fn test_verify_transaction() {
-        let signer = InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519);
+        let signer: Signer =
+            InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519).into();
         let transaction = Transaction::V0(TransactionV0 {
             signer_id: "test".parse().unwrap(),
             public_key: signer.public_key(),
