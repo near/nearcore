@@ -2,7 +2,7 @@ use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::account::Account;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
@@ -12,12 +12,13 @@ use near_primitives::transaction::{
 use near_primitives::types::{AccountId, BlockHeight, Nonce};
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
-fn test_setup() -> (TestEnv, InMemorySigner) {
+fn test_setup() -> (TestEnv, Signer) {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer =
+        InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
     assert_eq!(
         send_tx(
             &mut env,
@@ -65,7 +66,7 @@ fn send_tx(
     nonce: Nonce,
     signer_id: AccountId,
     receiver_id: AccountId,
-    signer: &InMemorySigner,
+    signer: &Signer,
     actions: Vec<Action>,
 ) -> ProcessTxResponse {
     let hash = env.clients[0].chain.head().unwrap().last_block_hash;

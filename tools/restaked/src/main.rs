@@ -86,8 +86,9 @@ fn main() {
         signer.account_id, key_file.account_id,
         "Only can stake for the same account as given signer key"
     );
+    let signer = Arc::new(signer.into());
 
-    let user = RpcUser::new(rpc_url, account_id.clone(), Arc::new(signer));
+    let user = RpcUser::new(rpc_url, account_id.clone(), signer);
     loop {
         let validators = user.validators(None).unwrap();
         // Check:

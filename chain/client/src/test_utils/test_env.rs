@@ -12,7 +12,7 @@ use near_chain_configs::GenesisConfig;
 use near_chain_primitives::error::QueryError;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
-use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_crypto::{InMemorySigner, KeyType};
 use near_network::client::ProcessTxResponse;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::test_utils::MockPeerManagerAdapter;
@@ -469,8 +469,8 @@ impl TestEnv {
         let tx = SignedTransaction::send_money(
             1,
             account_id.clone(),
-            account_id.clone(),
-            &signer,
+            account_id,
+            &signer.into(),
             100,
             self.clients[id].chain.head().unwrap().last_block_hash,
         );
@@ -478,7 +478,7 @@ impl TestEnv {
     }
 
     /// This function used to be able to upgrade to a specific protocol version
-    /// but due to https://github.com/near/nearcore/issues/8590 that
+    /// but due to <https://github.com/near/nearcore/issues/8590> that
     /// functionality does not work currently.  Hence it is renamed to upgrade
     /// to the latest version.
     pub fn upgrade_protocol_to_latest_version(&mut self) {
@@ -608,7 +608,7 @@ impl TestEnv {
     /// memory caches.
     /// Though, it seems that it is not necessary for current use cases.
     pub fn restart(&mut self, idx: usize) {
-        let account_id = self.get_client_id(idx).clone();
+        let account_id = self.get_client_id(idx);
         let rng_seed = match self.seeds.get(&account_id) {
             Some(seed) => *seed,
             None => TEST_SEED,
@@ -630,14 +630,15 @@ impl TestEnv {
             self.save_trie_changes,
             None,
             self.clients[idx].partial_witness_adapter.clone(),
-            self.clients[idx].validator_signer.clone().unwrap(),
+            self.clients[idx].validator_signer.get().unwrap(),
         )
     }
 
     /// Returns an [`AccountId`] used by a client at given index.  More
     /// specifically, returns validator id of the client’s validator signer.
-    pub fn get_client_id(&self, idx: usize) -> &AccountId {
-        self.clients[idx].validator_signer.as_ref().unwrap().validator_id()
+    pub fn get_client_id(&self, idx: usize) -> AccountId {
+        let validator_signer = self.clients[idx].validator_signer.get();
+        validator_signer.unwrap().validator_id().clone()
     }
 
     /// Returns the index of client with the given [`AccoountId`].
@@ -692,7 +693,7 @@ impl TestEnv {
             tip.height + 1,
             signer.account_id.clone(),
             receiver,
-            signer,
+            &signer.clone().into(),
             actions,
             tip.last_block_hash,
             0,
@@ -731,7 +732,7 @@ impl TestEnv {
             relayer_nonce,
             relayer,
             sender,
-            &relayer_signer,
+            &relayer_signer.into(),
             vec![Action::Delegate(Box::new(signed_delegate_action))],
             tip.last_block_hash,
             0,

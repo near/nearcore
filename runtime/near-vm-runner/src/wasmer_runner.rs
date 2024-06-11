@@ -12,6 +12,7 @@ use crate::{get_contract_cache_key, imports, ContractCode};
 use near_parameters::vm::{Config, VMKind};
 use near_parameters::RuntimeFeesConfig;
 use near_primitives_core::hash::CryptoHash;
+use std::ffi::c_void;
 use wasmer_runtime::{ImportObject, Module};
 
 fn check_method(module: &Module, method_name: &str) -> Result<(), FunctionCallError> {
@@ -417,7 +418,7 @@ impl crate::runner::VM for Wasmer0VM {
             return Ok(VMOutcome::abort(logic, e));
         }
 
-        let import_object = imports::wasmer::build(memory_copy, &mut logic);
+        let import_object = build_imports(memory_copy, &mut logic);
 
         if let Err(e) = check_method(&module, method_name) {
             return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(logic, e));
@@ -441,4 +442,52 @@ impl crate::runner::VM for Wasmer0VM {
             .compile_and_cache(code, Some(cache))?
             .map(|_| ContractPrecompilatonResult::ContractCompiled))
     }
+}
+
+#[derive(Clone, Copy)]
+struct ImportReference(pub *mut c_void);
+unsafe impl Send for ImportReference {}
+unsafe impl Sync for ImportReference {}
+
+pub(crate) fn build_imports(
+    memory: wasmer_runtime::memory::Memory,
+    logic: &mut VMLogic<'_>,
+) -> wasmer_runtime::ImportObject {
+    let raw_ptr = logic as *mut _ as *mut c_void;
+    let import_reference = ImportReference(raw_ptr);
+    let mut import_object = wasmer_runtime::ImportObject::new_with_data(move || {
+        let dtor = (|_: *mut c_void| {}) as fn(*mut c_void);
+        ({ import_reference }.0, dtor)
+    });
+
+    let mut ns_internal = wasmer_runtime_core::import::Namespace::new();
+    let mut ns_env = wasmer_runtime_core::import::Namespace::new();
+    ns_env.insert("memory", memory);
+
+    macro_rules! add_import {
+            (
+              $mod:ident / $name:ident : $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >
+            ) => {
+                #[allow(unused_parens)]
+                fn $name( ctx: &mut wasmer_runtime::Ctx, $( $arg_name: $arg_type ),* ) -> Result<($( $returns ),*), VMLogicError> {
+                    const TRACE: bool = $crate::imports::should_trace_host_function(stringify!($name));
+                    let _span = TRACE.then(|| {
+                        tracing::trace_span!(target: "vm::host_function", stringify!($name)).entered()
+                    });
+                    let logic: &mut VMLogic<'_> = unsafe { &mut *(ctx.data as *mut VMLogic<'_>) };
+                    logic.$func( $( $arg_name, )* )
+                }
+
+                match stringify!($mod) {
+                    "env" => ns_env.insert(stringify!($name), wasmer_runtime::func!($name)),
+                    "internal" => ns_internal.insert(stringify!($name), wasmer_runtime::func!($name)),
+                    _ => unimplemented!(),
+                }
+            };
+        }
+    imports::for_each_available_import!(logic.config, add_import);
+
+    import_object.register("env", ns_env);
+    import_object.register("internal", ns_internal);
+    import_object
 }
