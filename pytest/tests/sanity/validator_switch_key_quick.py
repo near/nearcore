@@ -17,20 +17,21 @@ from cluster import start_cluster
 EPOCH_LENGTH = 20
 TIMEOUT = 100
 
-# It is important for the non-validating node to track all shards as well.
-# It needs to have all the data when it switches to validator role.
-config_map = {
-    2: {
-        "tracked_shards": [0],  # Track all shards
-    }
-}
-
 
 class ValidatorSwitchKeyQuickTest(unittest.TestCase):
 
     def test_validator_switch_key_quick(self):
+        # It is important for the non-validating node to already track shards
+        # that it will be assigned to when becoming a validator.
+        config_map = {
+            2: {
+                "tracked_shards": [0, 2],
+                "store.load_mem_tries_for_tracked_shards": True,
+            }
+        }
+
         [other_validator, old_validator, new_validator
-        ] = start_cluster(2, 1, 1, None,
+        ] = start_cluster(2, 1, 3, None,
                           [["epoch_length", EPOCH_LENGTH],
                            ["block_producer_kickout_threshold", 10],
                            ["chunk_producer_kickout_threshold", 10]],
@@ -51,6 +52,7 @@ class ValidatorSwitchKeyQuickTest(unittest.TestCase):
             assert time.time() - start_time < TIMEOUT, 'Validators got stuck'
 
             info = old_validator.json_rpc('validators', 'latest')
+            print(info)
             next_validators = info['result']['next_validators']
             account_ids = [v['account_id'] for v in next_validators]
             # We copied over 'test0' validator key, along with validator account ID.
@@ -61,7 +63,8 @@ class ValidatorSwitchKeyQuickTest(unittest.TestCase):
                 new_validator.get_latest_block(),
                 old_validator.get_latest_block()
             ]
-            height_per_node = list(map(lambda block: block.height, last_block_per_node))
+            height_per_node = list(
+                map(lambda block: block.height, last_block_per_node))
             logger.info(height_per_node)
             if max(height_per_node) > max_height:
                 break
@@ -73,10 +76,11 @@ class ValidatorSwitchKeyQuickTest(unittest.TestCase):
                 except Exception:
                     synchronized = False
                     break
-            
+
             # Both validators should be synchronized
             logger.info(f'Synchronized {synchronized}')
-            if height_per_node[0] > max_height - EPOCH_LENGTH // 2 and synchronized:
+            if height_per_node[
+                    0] > max_height - EPOCH_LENGTH // 2 and synchronized:
                 # If nodes are synchronized and the current height is close to `max_height` we can finish.
                 return
 
