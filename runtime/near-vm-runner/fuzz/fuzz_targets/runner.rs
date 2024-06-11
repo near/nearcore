@@ -17,7 +17,7 @@ libfuzzer_sys::fuzz_target!(|module: ArbitraryModule| {
 });
 
 fn run_fuzz(code: &ContractCode, config: Arc<RuntimeConfig>) -> VMOutcome {
-    let mut fake_external = MockedExternal::new();
+    let mut fake_external = MockedExternal::with_code_hash(*code.hash());
     let mut context = create_context(vec![]);
     context.prepaid_gas = 10u64.pow(14);
     let mut wasm_config = config.wasm_config.clone();
@@ -30,15 +30,6 @@ fn run_fuzz(code: &ContractCode, config: Arc<RuntimeConfig>) -> VMOutcome {
     vm_kind
         .runtime(wasm_config)
         .unwrap()
-        .run(
-            *code.hash(),
-            Some(&code),
-            &method_name,
-            &mut fake_external,
-            &context,
-            fees,
-            &promise_results,
-            None,
-        )
+        .run(Some(&code), &method_name, &mut fake_external, &context, fees, &promise_results, None)
         .unwrap_or_else(|err| panic!("fatal error: {err:?}"))
 }

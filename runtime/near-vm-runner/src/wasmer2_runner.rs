@@ -12,7 +12,6 @@ use crate::{get_contract_cache_key, imports, ContractCode};
 use memoffset::offset_of;
 use near_parameters::vm::VMKind;
 use near_parameters::RuntimeFeesConfig;
-use near_primitives_core::hash::CryptoHash;
 use std::borrow::Cow;
 use std::hash::Hash;
 use std::mem::size_of;
@@ -565,7 +564,6 @@ impl wasmer_vm::Tunables for &Wasmer2VM {
 impl crate::runner::VM for Wasmer2VM {
     fn run(
         &self,
-        _code_hash: CryptoHash,
         code: Option<&ContractCode>,
         method_name: &str,
         ext: &mut dyn External,

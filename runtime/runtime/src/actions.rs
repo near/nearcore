@@ -48,7 +48,6 @@ use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
 pub(crate) fn execute_function_call(
     apply_state: &ApplyState,
     runtime_ext: &mut RuntimeExt,
-    account: &Account,
     predecessor_id: &AccountId,
     action_receipt: &ActionReceipt,
     promise_results: &[PromiseResult],
@@ -81,9 +80,9 @@ pub(crate) fn execute_function_call(
         block_height: apply_state.block_height,
         block_timestamp: apply_state.block_timestamp,
         epoch_height: apply_state.epoch_height,
-        account_balance: account.amount(),
-        account_locked_balance: account.locked(),
-        storage_usage: account.storage_usage(),
+        account_balance: runtime_ext.account().amount(),
+        account_locked_balance: runtime_ext.account().locked(),
+        storage_usage: runtime_ext.account().storage_usage(),
         attached_deposit: function_call.deposit,
         prepaid_gas: function_call.gas,
         random_seed,
@@ -104,7 +103,6 @@ pub(crate) fn execute_function_call(
     near_vm_runner::reset_metrics();
 
     let result_from_cache = near_vm_runner::run(
-        account,
         None,
         &function_call.method_name,
         runtime_ext,
@@ -118,7 +116,7 @@ pub(crate) fn execute_function_call(
         Err(VMRunnerError::CacheError(CacheError::ReadError(err)))
             if err.kind() == std::io::ErrorKind::NotFound =>
         {
-            let code = match runtime_ext.get_contract(account) {
+            let code = match runtime_ext.get_contract() {
                 Ok(Some(code)) => code,
                 Ok(None) => {
                     let error =
@@ -132,7 +130,6 @@ pub(crate) fn execute_function_call(
                 }
             };
             let r = near_vm_runner::run(
-                account,
                 Some(&code),
                 &function_call.method_name,
                 runtime_ext,
@@ -227,6 +224,7 @@ pub(crate) fn action_function_call(
         state_update,
         &mut receipt_manager,
         account_id,
+        account,
         action_hash,
         &apply_state.epoch_id,
         &apply_state.prev_block_hash,
@@ -237,7 +235,6 @@ pub(crate) fn action_function_call(
     let outcome = execute_function_call(
         apply_state,
         &mut runtime_ext,
-        account,
         receipt.predecessor_id(),
         action_receipt,
         promise_results,

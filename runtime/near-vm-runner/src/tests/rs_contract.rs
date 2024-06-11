@@ -52,7 +52,7 @@ pub fn test_read_write() {
     let config = test_vm_config();
     with_vm_variants(&config, |vm_kind: VMKind| {
         let code = test_contract(vm_kind);
-        let mut fake_external = MockedExternal::new();
+        let mut fake_external = MockedExternal::with_code_hash(*code.hash());
 
         let context = create_context(encode(&[10u64, 20u64]));
         let fees = RuntimeFeesConfig::test();
@@ -60,7 +60,6 @@ pub fn test_read_write() {
         let promise_results = vec![];
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
         let result = runtime.run(
-            *code.hash(),
             Some(&code),
             "write_key_value",
             &mut fake_external,
@@ -73,7 +72,6 @@ pub fn test_read_write() {
 
         let context = create_context(encode(&[10u64]));
         let result = runtime.run(
-            *code.hash(),
             Some(&code),
             "read_value",
             &mut fake_external,
@@ -125,7 +123,7 @@ fn run_test_ext(
     vm_kind: VMKind,
 ) {
     let code = test_contract(vm_kind);
-    let mut fake_external = MockedExternal::new();
+    let mut fake_external = MockedExternal::with_code_hash(*code.hash());
     fake_external.validators =
         validators.into_iter().map(|(s, b)| (s.parse().unwrap(), b)).collect();
     let fees = RuntimeFeesConfig::test();
@@ -133,7 +131,7 @@ fn run_test_ext(
     let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
 
     let outcome = runtime
-        .run(*code.hash(), Some(&code), method, &mut fake_external, &context, &fees, &[], None)
+        .run(Some(&code), method, &mut fake_external, &context, &fees, &[], None)
         .unwrap_or_else(|err| panic!("Failed execution: {:?}", err));
 
     assert_eq!(outcome.profile.action_gas(), 0);
@@ -232,7 +230,7 @@ pub fn test_out_of_memory() {
         }
 
         let code = test_contract(vm_kind);
-        let mut fake_external = MockedExternal::new();
+        let mut fake_external = MockedExternal::with_code_hash(*code.hash());
 
         let context = create_context(Vec::new());
         let fees = RuntimeFeesConfig::free();
@@ -241,7 +239,6 @@ pub fn test_out_of_memory() {
         let promise_results = vec![];
         let result = runtime
             .run(
-                *code.hash(),
                 Some(&code),
                 "out_of_memory",
                 &mut fake_external,
@@ -276,13 +273,12 @@ fn attach_unspent_gas_but_use_all_gas() {
 
     with_vm_variants(&config, |vm_kind: VMKind| {
         let code = function_call_weight_contract();
-        let mut external = MockedExternal::new();
+        let mut external = MockedExternal::with_code_hash(*code.hash());
         let fees = RuntimeFeesConfig::test();
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
 
         let outcome = runtime
             .run(
-                *code.hash(),
                 Some(&code),
                 "attach_unspent_gas_but_use_all_gas",
                 &mut external,

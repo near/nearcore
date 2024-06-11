@@ -212,7 +212,7 @@ impl TestBuilder {
                     continue;
                 }
 
-                let mut fake_external = MockedExternal::new();
+                let mut fake_external = MockedExternal::with_code_hash(*self.code.hash());
                 let config = runtime_config.wasm_config.clone();
                 let fees = RuntimeFeesConfig::test();
                 let context = self.context.clone();
@@ -225,7 +225,6 @@ impl TestBuilder {
                 println!("Running {:?} for protocol version {}", vm_kind, protocol_version);
                 let outcome = runtime
                     .run(
-                        *self.code.hash(),
                         Some(&self.code),
                         &self.method,
                         &mut fake_external,

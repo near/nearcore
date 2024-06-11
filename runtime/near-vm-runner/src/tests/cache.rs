@@ -116,14 +116,13 @@ fn make_cached_contract_call_vm(
     prepaid_gas: u64,
     vm_kind: VMKind,
 ) -> VMResult {
-    let mut fake_external = MockedExternal::new();
+    let mut fake_external = MockedExternal::with_code_hash(code_hash);
     let mut context = create_context(vec![]);
     let fees = RuntimeFeesConfig::test();
     let promise_results = vec![];
     context.prepaid_gas = prepaid_gas;
     let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
     runtime.run(
-        code_hash,
         code,
         method_name,
         &mut fake_external,

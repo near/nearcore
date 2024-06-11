@@ -5,8 +5,6 @@ use crate::logic::{External, VMContext, VMOutcome};
 use crate::{ContractCode, ContractRuntimeCache};
 use near_parameters::vm::{Config, VMKind};
 use near_parameters::RuntimeFeesConfig;
-use near_primitives_core::account::Account;
-use near_primitives_core::hash::CryptoHash;
 
 /// Returned by VM::run method.
 ///
@@ -42,14 +40,13 @@ pub(crate) type VMResult<T = VMOutcome> = Result<T, VMRunnerError>;
 /// The gas cost for contract preparation will be subtracted by the VM
 /// implementation.
 #[tracing::instrument(target = "vm", level = "debug", "run", skip_all, fields(
-    code.hash = %account.code_hash(),
+    code.hash = %ext.code_hash(),
     method_name,
     vm_kind = ?wasm_config.vm_kind,
     burnt_gas = tracing::field::Empty,
     compute_usage = tracing::field::Empty,
 ))]
 pub fn run(
-    account: &Account,
     code: Option<&ContractCode>,
     method_name: &str,
     ext: &mut dyn External,
@@ -65,7 +62,6 @@ pub fn run(
         .runtime(wasm_config.clone())
         .unwrap_or_else(|| panic!("the {vm_kind:?} runtime has not been enabled at compile time"));
     let outcome = runtime.run(
-        account.code_hash(),
         code,
         method_name,
         ext,
@@ -101,7 +97,6 @@ pub trait VM {
     /// implementation.
     fn run(
         &self,
-        code_hash: CryptoHash,
         code: Option<&ContractCode>,
         method_name: &str,
         ext: &mut dyn External,

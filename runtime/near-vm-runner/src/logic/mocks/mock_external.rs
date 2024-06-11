@@ -77,6 +77,7 @@ pub struct MockedExternal {
     pub fake_trie: HashMap<Vec<u8>, Vec<u8>>,
     pub validators: HashMap<AccountId, Balance>,
     pub action_log: Vec<MockAction>,
+    pub code_hash: CryptoHash,
     data_count: u64,
 }
 
@@ -106,6 +107,10 @@ impl ValuePtr for MockedValuePtr {
 impl MockedExternal {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn with_code_hash(code_hash: CryptoHash) -> Self {
+        Self { code_hash, ..Self::default() }
     }
 }
 
@@ -308,5 +313,9 @@ impl External for MockedExternal {
             MockAction::CreateReceipt { receiver_id, .. } => receiver_id,
             _ => panic!("not a valid receipt index!"),
         }
+    }
+
+    fn code_hash(&self) -> CryptoHash {
+        self.code_hash
     }
 }

@@ -9,7 +9,6 @@ use crate::logic::{External, MemSlice, MemoryLike, VMContext, VMLogic, VMOutcome
 use crate::{imports, prepare, ContractCode, ContractRuntimeCache};
 use near_parameters::vm::VMKind;
 use near_parameters::RuntimeFeesConfig;
-use near_primitives_core::hash::CryptoHash;
 use std::borrow::Cow;
 use std::cell::{RefCell, UnsafeCell};
 use std::ffi::c_void;
@@ -152,7 +151,6 @@ impl WasmtimeVM {
 impl crate::runner::VM for WasmtimeVM {
     fn run(
         &self,
-        _code_hash: CryptoHash,
         code: Option<&ContractCode>,
         method_name: &str,
         ext: &mut dyn External,

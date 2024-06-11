@@ -21,6 +21,7 @@ pub struct RuntimeExt<'a> {
     trie_update: &'a mut TrieUpdate,
     pub(crate) receipt_manager: &'a mut ReceiptManager,
     account_id: &'a AccountId,
+    account: &'a Account,
     action_hash: &'a CryptoHash,
     data_count: u64,
     epoch_id: &'a EpochId,
@@ -63,6 +64,7 @@ impl<'a> RuntimeExt<'a> {
         trie_update: &'a mut TrieUpdate,
         receipt_manager: &'a mut ReceiptManager,
         account_id: &'a AccountId,
+        account: &'a Account,
         action_hash: &'a CryptoHash,
         epoch_id: &'a EpochId,
         prev_block_hash: &'a CryptoHash,
@@ -74,6 +76,7 @@ impl<'a> RuntimeExt<'a> {
             trie_update,
             receipt_manager,
             account_id,
+            account,
             action_hash,
             data_count: 0,
             epoch_id,
@@ -89,12 +92,14 @@ impl<'a> RuntimeExt<'a> {
         self.account_id
     }
 
-    pub fn get_contract(
-        &self,
-        account: &Account,
-    ) -> Result<Option<Arc<ContractCode>>, StorageError> {
+    #[inline]
+    pub fn account(&self) -> &'a Account {
+        self.account
+    }
+
+    pub fn get_contract(&self) -> Result<Option<Arc<ContractCode>>, StorageError> {
         let account_id = self.account_id();
-        let code_hash = account.code_hash();
+        let code_hash = self.code_hash();
         if checked_feature!("stable", EthImplicitAccounts, self.current_protocol_version)
             && account_id.get_account_type() == AccountType::EthImplicitAccount
         {
@@ -379,5 +384,9 @@ impl<'a> External for RuntimeExt<'a> {
 
     fn get_receipt_receiver(&self, receipt_index: ReceiptIndex) -> &AccountId {
         self.receipt_manager.get_receipt_receiver(receipt_index)
+    }
+
+    fn code_hash(&self) -> CryptoHash {
+        self.account.code_hash()
     }
 }

@@ -590,7 +590,6 @@ impl<'a> finite_wasm::wasmparser::VisitOperator<'a> for GasCostCfg {
 impl crate::runner::VM for NearVM {
     fn run(
         &self,
-        code_hash: CryptoHash,
         code: Option<&ContractCode>,
         method_name: &str,
         ext: &mut dyn External,
@@ -601,7 +600,7 @@ impl crate::runner::VM for NearVM {
     ) -> Result<VMOutcome, VMRunnerError> {
         let cache = cache.unwrap_or(&NoContractRuntimeCache);
         self.with_compiled_and_loaded(
-            code_hash,
+            ext.code_hash(),
             code,
             cache,
             ext,
