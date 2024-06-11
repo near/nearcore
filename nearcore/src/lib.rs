@@ -11,7 +11,7 @@ use anyhow::Context;
 use cold_storage::ColdStoreLoopHandle;
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::actix_wrapper::{spawn_actix_actor, ActixWrapper};
-use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
+use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::time::{self, Clock};
 pub use near_chain::runtime::NightshadeRuntime;
 use near_chain::state_snapshot_actor::{
@@ -361,20 +361,14 @@ pub fn start_with_config_and_synchronization(
     let snapshot_callbacks = SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
 
     let (partial_witness_actor, partial_witness_arbiter) =
-        if config.validator_signer.get().is_some() {
-            let (partial_witness_actor, partial_witness_arbiter) =
-                spawn_actix_actor(PartialWitnessActor::new(
-                    Clock::real(),
-                    network_adapter.as_multi_sender(),
-                    client_adapter_for_partial_witness_actor.as_multi_sender(),
-                    config.validator_signer.clone(),
-                    epoch_manager.clone(),
-                    storage.get_hot_store(),
-                ));
-            (Some(partial_witness_actor), Some(partial_witness_arbiter))
-        } else {
-            (None, None)
-        };
+        spawn_actix_actor(PartialWitnessActor::new(
+            Clock::real(),
+            network_adapter.as_multi_sender(),
+            client_adapter_for_partial_witness_actor.as_multi_sender(),
+            config.validator_signer.clone(),
+            epoch_manager.clone(),
+            storage.get_hot_store(),
+        ));
 
     let (_gc_actor, gc_arbiter) = spawn_actix_actor(GCActor::new(
         runtime.store().clone(),
@@ -402,10 +396,7 @@ pub fn start_with_config_and_synchronization(
         shutdown_signal,
         adv,
         config_updater,
-        partial_witness_actor
-            .clone()
-            .map(|actor| actor.with_auto_span_context().into_multi_sender())
-            .unwrap_or_else(|| noop().into_multi_sender()),
+        partial_witness_actor.clone().with_auto_span_context().into_multi_sender(),
         true,
         None,
     );
@@ -454,9 +445,7 @@ pub fn start_with_config_and_synchronization(
         config.network_config,
         client_sender_for_network(client_actor.clone(), view_client_addr.clone()),
         shards_manager_adapter.as_sender(),
-        partial_witness_actor
-            .map(|actor| actor.with_auto_span_context().into_multi_sender())
-            .unwrap_or_else(|| noop().into_multi_sender()),
+        partial_witness_actor.with_auto_span_context().into_multi_sender(),
         genesis_id,
     )
     .context("PeerManager::spawn()")?;
@@ -511,9 +500,7 @@ pub fn start_with_config_and_synchronization(
     if let Some(db_metrics_arbiter) = db_metrics_arbiter {
         arbiters.push(db_metrics_arbiter);
     }
-    if let Some(partial_witness_arbiter) = partial_witness_arbiter {
-        arbiters.push(partial_witness_arbiter);
-    }
+    arbiters.push(partial_witness_arbiter);
 
     Ok(NearNode {
         client: client_actor,
