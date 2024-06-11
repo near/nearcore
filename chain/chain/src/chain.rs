@@ -101,6 +101,7 @@ use once_cell::sync::OnceCell;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use time::ext::InstantExt as _;
 use tracing::{debug, debug_span, error, info, warn, Span};
@@ -377,7 +378,7 @@ impl Chain {
             apply_chunks_receiver: rc,
             apply_chunks_spawner: Arc::new(RayonAsyncComputationSpawner),
             last_time_head_updated: clock.now(),
-            invalid_blocks: LruCache::new(INVALID_CHUNKS_POOL_SIZE),
+            invalid_blocks: LruCache::new(NonZeroUsize::new(INVALID_CHUNKS_POOL_SIZE).unwrap()),
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
             snapshot_callbacks: None,
@@ -573,7 +574,7 @@ impl Chain {
             orphans: OrphanBlockPool::new(),
             blocks_with_missing_chunks: MissingChunksPool::new(),
             blocks_in_processing: BlocksInProcessing::new(),
-            invalid_blocks: LruCache::new(INVALID_CHUNKS_POOL_SIZE),
+            invalid_blocks: LruCache::new(NonZeroUsize::new(INVALID_CHUNKS_POOL_SIZE).unwrap()),
             genesis: genesis.clone(),
             transaction_validity_period: chain_genesis.transaction_validity_period,
             epoch_length: chain_genesis.epoch_length,

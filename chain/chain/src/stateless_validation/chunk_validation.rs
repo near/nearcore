@@ -29,6 +29,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{ProtocolVersion, ShardId};
 use near_store::PartialStorage;
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -432,9 +433,9 @@ pub fn validate_chunk_state_witness(
     // Save main state transition result to cache.
     {
         let mut shard_cache = main_state_transition_cache.lock().unwrap();
-        let cache = shard_cache
-            .entry(shard_uid)
-            .or_insert_with(|| LruCache::new(NUM_WITNESS_RESULT_CACHE_ENTRIES));
+        let cache = shard_cache.entry(shard_uid).or_insert_with(|| {
+            LruCache::new(NonZeroUsize::new(NUM_WITNESS_RESULT_CACHE_ENTRIES).unwrap())
+        });
         cache.put(
             block_hash,
             ChunkStateWitnessValidationResult {

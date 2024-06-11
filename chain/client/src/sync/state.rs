@@ -55,6 +55,7 @@ use near_store::DBCol;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::ops::Add;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -171,7 +172,9 @@ impl StateSync {
         let inner = match sync_config {
             SyncConfig::Peers => StateSyncInner::Peers {
                 last_part_id_requested: Default::default(),
-                requested_target: lru::LruCache::new(MAX_PENDING_PART as usize),
+                requested_target: lru::LruCache::new(
+                    NonZeroUsize::new(MAX_PENDING_PART as usize).unwrap(),
+                ),
             },
             SyncConfig::ExternalStorage(ExternalStorageConfig {
                 location,
