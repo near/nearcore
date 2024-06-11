@@ -5,6 +5,6 @@ edition = "2021"
 
 [dependencies]
 anyhow.workspace = true
-chrono.workspace = true
 clap.workspace = true
 orm = { path = "../orm" }
+serde_json.workspace = true

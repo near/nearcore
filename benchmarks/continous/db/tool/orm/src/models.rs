@@ -1,14 +1,17 @@
 use chrono::{DateTime, Utc};
 use diesel::prelude::Insertable;
+use serde::Deserialize;
 
 use crate::schema::ft_transfers;
 
-#[derive(Insertable)]
+#[derive(Insertable, Deserialize)]
 #[diesel(table_name = ft_transfers)]
 pub struct NewFtTransfer {
     // TODO store start and time in two separate columns
+    /// String representation of UTC datetime when the benchmark was run, e.g. '2024-06-07T11:30:44Z'
     pub time: DateTime<Utc>,
     pub git_commit_hash: String,
+    /// See `time` for formatting.
     pub git_commit_time: DateTime<Utc>,
     pub num_nodes: i32,
     pub node_hardware: Vec<String>,
