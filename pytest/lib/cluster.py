@@ -32,14 +32,18 @@ cleanup_remote_nodes_atexit_registered = False
 
 
 # Return the session object that can be used for making http requests.
+#
+# Please note that if the request is consistently failing the default parameters
+# mean that the calls will take connection_timeout + timeout * (1 + max_retries) ~ 1 minute.
+#
 # The return value is a context manager that should be used in a with statement.
 # e.g.
 # with session() as s:
 #   r = s.get("http://example.com")
-def session(timeout=9) -> Session:
+def session(timeout=9, max_retries=5) -> Session:
     return Session(connection_timeout=6,
                    network_timeout=timeout,
-                   max_retries=5,
+                   max_retries=max_retries,
                    retry_delay=0.1)
 
 
@@ -221,14 +225,18 @@ class BaseNode(object):
     def wait_for_rpc(self, timeout=1):
         nretry(lambda: self.get_status(), timeout=timeout)
 
-    def json_rpc(self, method, params, timeout=9):
+    # Send the given JSON-RPC request to the node and return the response.
+    #
+    # Please note that if the request is consistently failing the default parameters
+    # mean that the call will take connection_timeout + timeout * (1 + max_retries) ~ 1 minute.
+    def json_rpc(self, method, params, timeout=9, max_retries=5):
         j = {
             'method': method,
             'params': params,
             'id': 'dontcare',
             'jsonrpc': '2.0'
         }
-        with session(timeout) as s:
+        with session(timeout, max_retries) as s:
             r = s.post("http://%s:%s" % self.rpc_addr(), json=j)
             r.raise_for_status()
         return json.loads(r.content)
@@ -361,8 +369,19 @@ class BaseNode(object):
     def get_chunk(self, chunk_id):
         return self.json_rpc('chunk', [chunk_id])
 
-    def get_tx(self, tx_hash, tx_recipient_id):
-        return self.json_rpc('tx', [tx_hash, tx_recipient_id])
+    # Get the transaction status.
+    #
+    # The default timeout is quite high - 15s - so that is is longer than the
+    # node's default polling_timeout. It's done this way to differentiate
+    # between the case when the transaction is not found on the node and when
+    # the node is dead or not responding.
+    def get_tx(self, tx_hash, tx_recipient_id, timeout=15):
+        return self.json_rpc(
+            'tx',
+            [tx_hash, tx_recipient_id],
+            timeout=timeout,
+            max_retries=0,
+        )
 
     def get_changes_in_block(self, changes_in_block_request):
         return self.json_rpc('EXPERIMENTAL_changes_in_block',
@@ -728,7 +747,7 @@ def spin_up_node(config,
                  blacklist=[],
                  proxy=None,
                  skip_starting_proxy=False,
-                 single_node=False):
+                 single_node=False) -> BaseNode:
     is_local = config['local']
 
     args = make_boot_nodes_arg(boot_node)
