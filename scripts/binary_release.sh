@@ -1,10 +1,10 @@
 #!/bin/bash
 set -xeo pipefail
 
-release="${1:-neard-release}"
+release="${1:-release}"
 
 case "$release" in
-  neard-release|nightly-release|perf-release|assertions-release|statelessnet-release)
+  release|nightly-release|perf-release|assertions-release)
     ;;
   *)  
     echo "Unsupported release type '$release'. Please provide no argument for normal release or provide nightly-release for nightly."
@@ -35,7 +35,7 @@ function tar_binary {
 make $release
 
 function upload_binary {
-  if [ "$release" = "neard-release" ]
+  if [ "$release" = "release" ]
   then
     tar_binary $1
     tar_file=$1.tar.gz
@@ -67,7 +67,12 @@ upload_binary neard
 #   upload_binary store-validator
 # fi
 
-# if [ "$release" = "release" ]
-# then
-#   upload_binary near-sandbox
-# fi
+# near-sandbox is used by near-workspaces which is an SDK for end-to-end contracts testing that automatically 
+# spins up localnet using near-sandbox (neard with extra features useful for testing - state patching, time travel). 
+# There are JS and Rust SDKs and it wouldn’t be efficient to build nearcore from scratch on the 
+# user machine and CI, so it relies on the prebuilt binaries.
+# example PR https://github.com/near/near-sandbox/pull/81/files
+if [ "$release" = "release" ]
+then
+  upload_binary near-sandbox
+fi
