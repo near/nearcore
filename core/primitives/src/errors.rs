@@ -53,7 +53,7 @@ impl From<InvalidTxError> for TxExecutionError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeError {
     /// An unexpected integer overflow occurred. The likely issue is an invalid state or the transition.
-    UnexpectedIntegerOverflow,
+    UnexpectedIntegerOverflow(String),
     /// An error happened during TX verification and account charging. It's likely the chunk is invalid.
     /// and should be challenged.
     InvalidTxError(InvalidTxError),
@@ -336,6 +336,8 @@ pub enum ReceiptValidationError {
     NumberInputDataDependenciesExceeded { number_of_input_data_dependencies: u64, limit: u64 },
     /// An error occurred while validating actions of an ActionReceipt.
     ActionsValidation(ActionsValidationError),
+    /// Receipt is bigger than the limit.
+    ReceiptSizeExceeded { size: u64, limit: u64 },
 }
 
 impl Display for ReceiptValidationError {
@@ -366,6 +368,11 @@ impl Display for ReceiptValidationError {
                 number_of_input_data_dependencies, limit
             ),
             ReceiptValidationError::ActionsValidation(e) => write!(f, "{}", e),
+            ReceiptValidationError::ReceiptSizeExceeded { size, limit } => write!(
+                f,
+                "The size of the receipt exceeded the limit: {} > {}",
+                size, limit
+            ),
         }
     }
 }
@@ -836,8 +843,8 @@ impl From<IntegerOverflowError> for InvalidTxError {
 }
 
 impl From<IntegerOverflowError> for RuntimeError {
-    fn from(_: IntegerOverflowError) -> Self {
-        RuntimeError::UnexpectedIntegerOverflow
+    fn from(err: IntegerOverflowError) -> Self {
+        RuntimeError::UnexpectedIntegerOverflow(err.to_string())
     }
 }
 

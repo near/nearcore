@@ -179,6 +179,16 @@ pub struct CongestionControlConfig {
     /// How much congestion a shard can tolerate before it stops all shards from
     /// accepting new transactions with the receiver set to the congested shard.
     pub reject_tx_congestion_threshold: f64,
+
+    /// The standard size limit for outgoing receipts aimed at a single shard.
+    /// This limit is pretty small to keep the size of source_receipt_proofs under control.
+    /// It limits the total sum of outgoing receipts, not individual receipts.
+    pub outgoing_receipts_usual_size_limit: u64,
+
+    /// Large size limit for outgoing receipts to a shard, used when it's safe
+    /// to send a lot of receipts without making the state witness too large.
+    /// It limits the total sum of outgoing receipts, not individual receipts.
+    pub outgoing_receipts_big_size_limit: u64,
 }
 
 // The Eq cannot be automatically derived for this class because it contains a
@@ -203,7 +213,9 @@ impl CongestionControlConfig {
             allowed_shard_outgoing_gas: max_value,
             max_tx_gas: max_value,
             min_tx_gas: max_value,
-            reject_tx_congestion_threshold: 1.0,
+            reject_tx_congestion_threshold: 2.0,
+            outgoing_receipts_usual_size_limit: max_value,
+            outgoing_receipts_big_size_limit: max_value,
         }
     }
 }

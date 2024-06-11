@@ -6,8 +6,7 @@ use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, ChunkValidatorStats, EpochId, ShardId, ValidatorId,
-    ValidatorStats,
+    AccountId, Balance, BlockHeight, ChunkStats, EpochId, ShardId, ValidatorId, ValidatorStats,
 };
 use near_primitives::version::ProtocolVersion;
 use std::collections::{BTreeMap, HashMap};
@@ -60,7 +59,7 @@ pub struct EpochInfoAggregator {
     /// Map from validator index to (num_blocks_produced, num_blocks_expected) so far in the given epoch.
     pub block_tracker: HashMap<ValidatorId, ValidatorStats>,
     /// For each shard, a map of validator id to (num_chunks_produced, num_chunks_expected) so far in the given epoch.
-    pub shard_tracker: HashMap<ShardId, HashMap<ValidatorId, ChunkValidatorStats>>,
+    pub shard_tracker: HashMap<ShardId, HashMap<ValidatorId, ChunkStats>>,
     /// Latest protocol version that each validator supports.
     pub version_tracker: HashMap<ValidatorId, ProtocolVersion>,
     /// All proposals in this epoch up to this block.
@@ -161,7 +160,7 @@ impl EpochInfoAggregator {
                     }
                     *stats.expected_mut() += 1;
                 })
-                .or_insert_with(|| ChunkValidatorStats::new_with_production(u64::from(*mask), 1));
+                .or_insert_with(|| ChunkStats::new_with_production(u64::from(*mask), 1));
 
             let chunk_validators = chunk_validator_assignment
                 .get(i)
@@ -178,9 +177,7 @@ impl EpochInfoAggregator {
                         }
                         endorsement_stats.expected += 1;
                     })
-                    .or_insert_with(|| {
-                        ChunkValidatorStats::new_with_endorsement(u64::from(*mask), 1)
-                    });
+                    .or_insert_with(|| ChunkStats::new_with_endorsement(u64::from(*mask), 1));
             }
         }
 
@@ -291,6 +288,10 @@ impl EpochInfoAggregator {
                             .and_modify(|entry| {
                                 *entry.expected_mut() += stat.expected();
                                 *entry.produced_mut() += stat.produced();
+                                entry.endorsement_stats_mut().expected +=
+                                    stat.endorsement_stats().expected;
+                                entry.endorsement_stats_mut().produced +=
+                                    stat.endorsement_stats().produced;
                             })
                             .or_insert_with(|| stat.clone());
                     }
