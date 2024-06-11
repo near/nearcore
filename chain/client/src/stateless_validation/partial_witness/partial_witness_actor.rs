@@ -34,6 +34,7 @@ pub struct PartialWitnessActor {
     /// Adapter to send messages to the network.
     network_adapter: PeerManagerAdapter,
     /// Validator signer to sign the state witness.
+    /// This field is mutable and optional. Use with caution!
     my_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
     /// Epoch manager to get the set of chunk validators
     epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -134,9 +135,16 @@ impl PartialWitnessActor {
             "distribute_chunk_state_witness",
         );
 
+        let signer = match self.my_signer.get() {
+            Some(signer) => signer,
+            None => {
+                return Err(Error::NotAValidator);
+            }
+        };
+
         let witness_bytes = compress_witness(&state_witness)?;
 
-        self.send_state_witness_parts(epoch_id, chunk_header, witness_bytes)?;
+        self.send_state_witness_parts(epoch_id, chunk_header, witness_bytes, &signer)?;
 
         Ok(())
     }
@@ -147,6 +155,7 @@ impl PartialWitnessActor {
         epoch_id: EpochId,
         chunk_header: ShardChunkHeader,
         witness_bytes: EncodedChunkStateWitness,
+        signer: &ValidatorSigner,
     ) -> Result<Vec<(AccountId, PartialEncodedStateWitness)>, Error> {
         let chunk_validators = self
             .epoch_manager
@@ -181,7 +190,7 @@ impl PartialWitnessActor {
                     part_ord,
                     part.unwrap().to_vec(),
                     encoded_length,
-                    &*self.my_signer.get().unwrap(),
+                    signer,
                 );
                 (chunk_validator.clone(), partial_witness)
             })
@@ -196,6 +205,7 @@ impl PartialWitnessActor {
         epoch_id: EpochId,
         chunk_header: ShardChunkHeader,
         witness_bytes: EncodedChunkStateWitness,
+        signer: &ValidatorSigner,
     ) -> Result<(), Error> {
         // Capture these values first, as the sources are consumed before calling record_witness_sent.
         let chunk_hash = chunk_header.chunk_hash();
@@ -207,18 +217,18 @@ impl PartialWitnessActor {
             .with_label_values(&[shard_id_label.as_str()])
             .start_timer();
         let mut validator_witness_tuple =
-            self.generate_state_witness_parts(epoch_id, chunk_header, witness_bytes)?;
+            self.generate_state_witness_parts(epoch_id, chunk_header, witness_bytes, signer)?;
         encode_timer.observe_duration();
 
         // Since we can't send network message to ourselves, we need to send the PartialEncodedStateWitnessForward
         // message for our part.
         if let Some(index) = validator_witness_tuple
             .iter()
-            .position(|(validator, _)| validator == self.my_signer.get().unwrap().validator_id())
+            .position(|(validator, _)| validator == signer.validator_id())
         {
             // This also removes this validator from the list, since we do not need to send our own witness part to self.
             let (_, partial_witness) = validator_witness_tuple.swap_remove(index);
-            self.forward_state_witness_part(partial_witness)?;
+            self.forward_state_witness_part(partial_witness, signer)?;
         }
 
         // Record the witness in order to match the incoming acks for measuring round-trip times.
@@ -241,6 +251,7 @@ impl PartialWitnessActor {
     fn forward_state_witness_part(
         &self,
         partial_witness: PartialEncodedStateWitness,
+        signer: &ValidatorSigner,
     ) -> Result<(), Error> {
         let chunk_producer = self.epoch_manager.get_chunk_producer(
             partial_witness.epoch_id(),
@@ -259,10 +270,7 @@ impl PartialWitnessActor {
         // (1) the current validator and (2) validator that produced the chunk and witness.
         let target_chunk_validators = ordered_chunk_validators
             .into_iter()
-            .filter(|validator| {
-                validator != self.my_signer.get().unwrap().validator_id()
-                    && *validator != chunk_producer
-            })
+            .filter(|validator| validator != signer.validator_id() && *validator != chunk_producer)
             .collect();
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::PartialEncodedStateWitnessForward(
@@ -280,15 +288,22 @@ impl PartialWitnessActor {
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?partial_witness, "Receive PartialEncodedStateWitnessMessage");
 
+        let signer = match self.my_signer.get() {
+            Some(signer) => signer,
+            None => {
+                return Err(Error::NotAValidator);
+            }
+        };
+
         // Validate the partial encoded state witness.
-        self.validate_partial_encoded_state_witness(&partial_witness)?;
+        self.validate_partial_encoded_state_witness(&partial_witness, &signer)?;
 
         // Store the partial encoded state witness for self.
         self.partial_witness_tracker
             .store_partial_encoded_state_witness(partial_witness.clone())?;
 
         // Forward the part to all the chunk validators.
-        self.forward_state_witness_part(partial_witness)?;
+        self.forward_state_witness_part(partial_witness, &signer)?;
 
         Ok(())
     }
@@ -298,8 +313,15 @@ impl PartialWitnessActor {
         &mut self,
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
+        let signer = match self.my_signer.get() {
+            Some(signer) => signer,
+            None => {
+                return Err(Error::NotAValidator);
+            }
+        };
+
         // Validate the partial encoded state witness.
-        self.validate_partial_encoded_state_witness(&partial_witness)?;
+        self.validate_partial_encoded_state_witness(&partial_witness, &signer)?;
 
         // Store the partial encoded state witness for self.
         self.partial_witness_tracker.store_partial_encoded_state_witness(partial_witness)?;
@@ -319,6 +341,7 @@ impl PartialWitnessActor {
     fn validate_partial_encoded_state_witness(
         &self,
         partial_witness: &PartialEncodedStateWitness,
+        signer: &ValidatorSigner,
     ) -> Result<(), Error> {
         if !self
             .epoch_manager
@@ -339,7 +362,7 @@ impl PartialWitnessActor {
             partial_witness.shard_id(),
             partial_witness.height_created(),
         )?;
-        if !chunk_validator_assignments.contains(self.my_signer.get().unwrap().validator_id()) {
+        if !chunk_validator_assignments.contains(signer.validator_id()) {
             return Err(Error::NotAChunkValidator);
         }
 
