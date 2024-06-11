@@ -146,7 +146,6 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     for _ in 0..warmup_repeats {
         let result = runtime
             .run(
-                Some(&contract),
                 "hello",
                 &mut fake_external,
                 &fake_context,
@@ -166,7 +165,6 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     for _ in 0..repeats {
         let result = runtime
             .run(
-                Some(&contract),
                 "hello",
                 &mut fake_external,
                 &fake_context,
@@ -183,7 +181,6 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     for _ in 0..warmup_repeats {
         let result = runtime_free_gas
             .run(
-                Some(&contract),
                 "hello",
                 &mut fake_external,
                 &fake_context,
@@ -200,7 +197,6 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     for _ in 0..repeats {
         let result = runtime_free_gas
             .run(
-                Some(&contract),
                 "hello",
                 &mut fake_external,
                 &fake_context,

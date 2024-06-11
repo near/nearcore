@@ -564,7 +564,6 @@ impl wasmer_vm::Tunables for &Wasmer2VM {
 impl crate::runner::VM for Wasmer2VM {
     fn run(
         &self,
-        code: Option<&ContractCode>,
         method_name: &str,
         ext: &mut dyn External,
         context: &VMContext,
@@ -572,10 +571,8 @@ impl crate::runner::VM for Wasmer2VM {
         promise_results: &[PromiseResult],
         cache: Option<&dyn ContractRuntimeCache>,
     ) -> Result<VMOutcome, VMRunnerError> {
-        let Some(code) = code else {
-            return Err(VMRunnerError::CacheError(CacheError::ReadError(std::io::Error::from(
-                std::io::ErrorKind::NotFound,
-            ))));
+        let Some(code) = ext.get_contract().map_err(|err| VMRunnerError::GetContract(err))? else {
+            return Err(VMRunnerError::ContractCodeNotPresent);
         };
         let mut memory = Wasmer2Memory::new(
             self.config.limit_config.initial_memory_pages,
@@ -594,7 +591,7 @@ impl crate::runner::VM for Wasmer2VM {
             return Ok(VMOutcome::abort(logic, e));
         }
 
-        let artifact = self.compile_and_load(code, cache)?;
+        let artifact = self.compile_and_load(&code, cache)?;
         let artifact = match artifact {
             Ok(it) => it,
             Err(err) => {

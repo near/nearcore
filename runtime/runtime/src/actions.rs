@@ -36,10 +36,10 @@ use near_store::{
     StorageError, TrieUpdate,
 };
 use near_vm_runner::logic::errors::{
-    CacheError, CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
+    CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
 };
 use near_vm_runner::logic::types::PromiseResult;
-use near_vm_runner::logic::{External as _, VMContext, VMOutcome};
+use near_vm_runner::logic::{GetContractError, VMContext, VMOutcome};
 use near_vm_runner::precompile_contract;
 use near_vm_runner::ContractCode;
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
@@ -102,8 +102,7 @@ pub(crate) fn execute_function_call(
 
     near_vm_runner::reset_metrics();
 
-    let result_from_cache = near_vm_runner::run(
-        None,
+    let result = near_vm_runner::run(
         &function_call.method_name,
         runtime_ext,
         &context,
@@ -112,37 +111,18 @@ pub(crate) fn execute_function_call(
         promise_results,
         apply_state.cache.as_deref(),
     );
-    let result = match result_from_cache {
-        Err(VMRunnerError::CacheError(CacheError::ReadError(err)))
-            if err.kind() == std::io::ErrorKind::NotFound =>
-        {
-            let code = match runtime_ext.get_contract() {
-                Ok(Some(code)) => code,
-                Ok(None) => {
-                    let error =
-                        FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
-                            account_id: account_id.as_str().into(),
-                        });
-                    return Ok(VMOutcome::nop_outcome(error));
-                }
-                Err(near_vm_runner::logic::GetContractError::StorageError(e)) => {
-                    let error = e.downcast().expect("downcast to a storage error");
-                    return Err(RuntimeError::StorageError(*error));
-                }
-            };
-            let r = near_vm_runner::run(
-                Some(&code),
-                &function_call.method_name,
-                runtime_ext,
-                &context,
-                &config.wasm_config,
-                &config.fees,
-                promise_results,
-                apply_state.cache.as_deref(),
-            );
-            r
+    let result = match result {
+        Err(VMRunnerError::ContractCodeNotPresent) => {
+            let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
+                account_id: account_id.as_str().into(),
+            });
+            return Ok(VMOutcome::nop_outcome(error));
         }
-        res => res,
+        Err(VMRunnerError::GetContract(GetContractError::StorageError(e))) => {
+            let error = e.downcast().expect("downcast to a storage error");
+            return Err(RuntimeError::StorageError(*error));
+        }
+        r => r,
     };
 
     near_vm_runner::report_metrics(
@@ -187,6 +167,9 @@ pub(crate) fn execute_function_call(
         }
         VMRunnerError::WasmUnknownError { debug_message } => {
             panic!("Wasmer returned unknown message: {}", debug_message)
+        }
+        VMRunnerError::GetContract(_) | VMRunnerError::ContractCodeNotPresent => {
+            unreachable!("handled above")
         }
     })?;
 

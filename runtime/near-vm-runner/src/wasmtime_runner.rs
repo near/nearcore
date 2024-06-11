@@ -1,7 +1,7 @@
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{
-    CacheError, CompilationError, FunctionCallError, MethodResolveError, PrepareError,
-    VMLogicError, VMRunnerError, WasmTrap,
+    CompilationError, FunctionCallError, MethodResolveError, PrepareError, VMLogicError,
+    VMRunnerError, WasmTrap,
 };
 use crate::logic::types::PromiseResult;
 use crate::logic::Config;
@@ -151,7 +151,6 @@ impl WasmtimeVM {
 impl crate::runner::VM for WasmtimeVM {
     fn run(
         &self,
-        code: Option<&ContractCode>,
         method_name: &str,
         ext: &mut dyn External,
         context: &VMContext,
@@ -159,10 +158,8 @@ impl crate::runner::VM for WasmtimeVM {
         promise_results: &[PromiseResult],
         _cache: Option<&dyn ContractRuntimeCache>,
     ) -> Result<VMOutcome, VMRunnerError> {
-        let Some(code) = code else {
-            return Err(VMRunnerError::CacheError(CacheError::ReadError(std::io::Error::from(
-                std::io::ErrorKind::NotFound,
-            ))));
+        let Some(code) = ext.get_contract().map_err(|err| VMRunnerError::GetContract(err))? else {
+            return Err(VMRunnerError::ContractCodeNotPresent);
         };
         let mut config = self.default_wasmtime_config();
         let engine = get_engine(&mut config);

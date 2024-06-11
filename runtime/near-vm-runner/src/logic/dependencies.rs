@@ -134,7 +134,9 @@ impl TrieNodesCount {
     }
 }
 
+#[derive(thiserror::Error, Debug)]
 pub enum GetContractError {
+    #[error("storage error has occurred")]
     StorageError(Box<dyn Error + Send + Sync>),
 }
 

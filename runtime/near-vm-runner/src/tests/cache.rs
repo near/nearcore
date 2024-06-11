@@ -63,8 +63,8 @@ fn test_does_not_cache_io_error() {
     let config = test_vm_config();
     with_vm_variants(&config, |vm_kind: VMKind| {
         match vm_kind {
-            VMKind::Wasmer0 | VMKind::Wasmer2 | VMKind::NearVm => {}
-            VMKind::Wasmtime => return,
+            VMKind::NearVm => {}
+            VMKind::Wasmer0 | VMKind::Wasmer2 | VMKind::Wasmtime => return,
         }
 
         let code = near_test_contracts::trivial_contract();
@@ -128,7 +128,6 @@ fn make_cached_contract_call_vm(
     context.prepaid_gas = prepaid_gas;
     let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
     runtime.run(
-        code,
         method_name,
         &mut fake_external,
         &context,

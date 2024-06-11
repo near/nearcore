@@ -78,7 +78,6 @@ fn compute_function_call_cost(
     for _ in 0..warmup_repeats {
         let result = runtime
             .run(
-                Some(&contract),
                 "hello0",
                 &mut fake_external,
                 &fake_context,
@@ -94,7 +93,6 @@ fn compute_function_call_cost(
     for _ in 0..repeats {
         let result = runtime
             .run(
-                Some(&contract),
                 "hello0",
                 &mut fake_external,
                 &fake_context,
