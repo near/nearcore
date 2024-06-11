@@ -1,5 +1,8 @@
 use crate::conversions::Convert;
 use crate::receipt_manager::ReceiptManager;
+use near_primitives::account::id::AccountType;
+use near_primitives::account::Account;
+use near_primitives::checked_feature;
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
@@ -11,6 +14,8 @@ use near_vm_runner::logic::errors::{AnyError, VMLogicError};
 use near_vm_runner::logic::types::ReceiptIndex;
 use near_vm_runner::logic::{External, StorageGetMode, ValuePtr};
 use near_vm_runner::ContractCode;
+use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
+use std::sync::Arc;
 
 pub struct RuntimeExt<'a> {
     trie_update: &'a mut TrieUpdate,
@@ -84,8 +89,29 @@ impl<'a> RuntimeExt<'a> {
         self.account_id
     }
 
-    pub fn get_code(&self, code_hash: CryptoHash) -> Option<ContractCode> {
-        self.trie_update.get_code(self.account_id.clone(), code_hash)
+    pub fn get_contract(
+        &self,
+        account: &Account,
+    ) -> Result<Option<Arc<ContractCode>>, StorageError> {
+        let account_id = self.account_id();
+        let code_hash = account.code_hash();
+        if checked_feature!("stable", EthImplicitAccounts, self.current_protocol_version)
+            && account_id.get_account_type() == AccountType::EthImplicitAccount
+        {
+            let chain_id = self.chain_id();
+            assert!(&code_hash == wallet_contract_magic_bytes(&chain_id).hash());
+            return Ok(Some(wallet_contract(&chain_id)));
+        }
+        if checked_feature!("stable", ChunkNodesCache, self.current_protocol_version) {
+            self.trie_update.set_trie_cache_mode(TrieCacheMode::CachingShard);
+        }
+        let contract = self.trie_update.get_code(self.account_id.clone(), code_hash).map(Arc::new);
+        // FIXME: ideally this would reset to previous state, and not to arbitrary state like it
+        // does here...
+        if checked_feature!("stable", ChunkNodesCache, self.current_protocol_version) {
+            self.trie_update.set_trie_cache_mode(TrieCacheMode::CachingChunk);
+        }
+        Ok(contract)
     }
 
     pub fn create_storage_key(&self, key: &[u8]) -> TrieKey {
