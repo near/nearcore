@@ -235,7 +235,8 @@ where
 
         for i in 0..self.len() {
             let client: &Client = self[i].as_ref();
-            let account_id = client.validator_signer.as_ref().unwrap().validator_id();
+            let validator_signer = client.validator_signer.get().unwrap();
+            let account_id = validator_signer.validator_id();
             let tracks_shard = client
                 .epoch_manager
                 .cares_about_shard_from_prev_block(&head.prev_block_hash, account_id, shard_id)
@@ -314,7 +315,8 @@ where
         let mut ret = Vec::new();
         for i in 0..self.len() {
             let client: &Client = self[i].as_ref();
-            let account_id = client.validator_signer.as_ref().unwrap().validator_id();
+            let validator_signer = client.validator_signer.get().unwrap();
+            let account_id = validator_signer.validator_id();
             let mut tracked_shards = Vec::new();
             for shard_id in &all_shard_ids {
                 let tracks_shard = client
