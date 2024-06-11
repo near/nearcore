@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::path::Path;
 use std::sync::Arc;
@@ -16,7 +17,7 @@ use crate::telemetry::TelemetryInfo;
 use crate::types::{AccountId, BlockHeight, EpochId};
 
 /// Enum for validator signer, that holds validator id and key used for signing data.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum ValidatorSigner {
     /// Dummy validator signer, does not hold a key. Use for tests only!
     Empty(EmptyValidatorSigner),
@@ -186,7 +187,7 @@ impl From<InMemoryValidatorSigner> for ValidatorSigner {
 
 /// Test-only signer that "signs" everything with 0s.
 /// Don't use in any production or code that requires signature verification.
-#[derive(smart_default::SmartDefault, Clone, Debug, PartialEq)]
+#[derive(smart_default::SmartDefault, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct EmptyValidatorSigner {
     #[default("test".parse().unwrap())]
     account_id: AccountId,
@@ -261,7 +262,7 @@ impl EmptyValidatorSigner {
 }
 
 /// Signer that keeps secret key in memory and signs locally.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct InMemoryValidatorSigner {
     account_id: AccountId,
     signer: Arc<Signer>,
