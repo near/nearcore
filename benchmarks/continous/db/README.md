@@ -23,7 +23,7 @@ This simplifies remote connections.
 
 ### Role
 
-A role with read-only permissions is created with for Grafana:
+A role with read-only permissions is created for Grafana:
 
 ```sql
 create role grafana_reader login password 'store_it_in_1password';
