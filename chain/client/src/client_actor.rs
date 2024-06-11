@@ -3,7 +3,7 @@
 //! pass the control to Client. This means, any real block processing or production logic should
 //! be put in Client.
 //! Unfortunately, this is not the case today. We are in the process of refactoring ClientActor
-//! https://github.com/near/nearcore/issues/7899
+//! <https://github.com/near/nearcore/issues/7899>
 
 #[cfg(feature = "test_features")]
 use crate::client::AdvProduceBlocksMode;
@@ -1302,35 +1302,38 @@ impl ClientActorInner {
     /// Can return error, should be called with `produce_block` to handle errors and reschedule.
     fn produce_block(&mut self, next_height: BlockHeight) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "client", "produce_block", next_height).entered();
-        if let Some(block) = self.client.produce_block_on_head(next_height, false)? {
-            // If we produced the block, send it out before we apply the block.
-            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::Block { block: block.clone() },
-            ));
-            // We’ve produced the block so that counts as validated block.
-            let block = MaybeValidated::from_validated(block);
-            let res = self.client.start_process_block(
-                block,
-                Provenance::PRODUCED,
-                Some(self.myself_sender.apply_chunks_done.clone()),
-            );
-            if let Err(e) = &res {
-                match e {
-                    near_chain::Error::ChunksMissing(_) => {
-                        debug!(target: "client", "chunks missing");
-                        // missing chunks were already handled in Client::process_block, we don't need to
-                        // do anything here
-                        return Ok(());
-                    }
-                    _ => {
-                        error!(target: "client", ?res, "Failed to process freshly produced block");
-                        byzantine_assert!(false);
-                        return res.map_err(|err| err.into());
-                    }
-                }
+        let Some(block) = self.client.produce_block_on_head(next_height, false)? else {
+            return Ok(());
+        };
+
+        // If we produced the block, send it out before we apply the block.
+        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::Block { block: block.clone() },
+        ));
+        // We’ve produced the block so that counts as validated block.
+        let block = MaybeValidated::from_validated(block);
+        let res = self.client.start_process_block(
+            block,
+            Provenance::PRODUCED,
+            Some(self.myself_sender.apply_chunks_done.clone()),
+        );
+        let Err(error) = res else {
+            return Ok(());
+        };
+
+        match error {
+            near_chain::Error::ChunksMissing(_) => {
+                debug!(target: "client", "chunks missing");
+                // missing chunks were already handled in Client::process_block, we don't need to
+                // do anything here
+                Ok(())
+            }
+            _ => {
+                error!(target: "client", ?error, "Failed to process freshly produced block");
+                byzantine_assert!(false);
+                Err(error.into())
             }
         }
-        Ok(())
     }
 
     fn send_chunks_metrics(&mut self, block: &Block) {

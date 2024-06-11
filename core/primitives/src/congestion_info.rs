@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use crate::errors::RuntimeError;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_parameters::config::CongestionControlConfig;
@@ -154,6 +156,7 @@ impl CongestionInfo {
                 extra.delayed_receipts_gas == header.delayed_receipts_gas
                     && extra.buffered_receipts_gas == header.buffered_receipts_gas
                     && extra.receipt_bytes == header.receipt_bytes
+                    && extra.allowed_shard == header.allowed_shard
             }
         }
     }
@@ -315,6 +318,50 @@ impl CongestionInfo {
         // checked_rem failed, hence all_shards.len() is 0
         // own_shard is the only choice.
         return own_shard;
+    }
+}
+
+/// The block congestion info contains the congestion info for all shards in the
+/// block extended with the missed chunks count.
+#[derive(Clone, Debug, Default)]
+pub struct BlockCongestionInfo {
+    /// The per shard congestion info. It's important that the data structure is
+    /// deterministic because the allowed shard id selection depends on the
+    /// order of shard ids in this map. Ideally it should also be sorted by shard id.
+    shards_congestion_info: BTreeMap<ShardId, ExtendedCongestionInfo>,
+}
+
+impl BlockCongestionInfo {
+    pub fn new(shards_congestion_info: BTreeMap<ShardId, ExtendedCongestionInfo>) -> Self {
+        Self { shards_congestion_info }
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&ShardId, &ExtendedCongestionInfo)> {
+        self.shards_congestion_info.iter()
+    }
+
+    pub fn all_shards(&self) -> Vec<ShardId> {
+        self.shards_congestion_info.keys().copied().collect()
+    }
+
+    pub fn get(&self, shard_id: &ShardId) -> Option<&ExtendedCongestionInfo> {
+        self.shards_congestion_info.get(shard_id)
+    }
+
+    pub fn get_mut(&mut self, shard_id: &ShardId) -> Option<&mut ExtendedCongestionInfo> {
+        self.shards_congestion_info.get_mut(shard_id)
+    }
+
+    pub fn insert(
+        &mut self,
+        shard_id: ShardId,
+        value: ExtendedCongestionInfo,
+    ) -> Option<ExtendedCongestionInfo> {
+        self.shards_congestion_info.insert(shard_id, value)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.shards_congestion_info.is_empty()
     }
 }
 

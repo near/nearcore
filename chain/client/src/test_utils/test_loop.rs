@@ -223,7 +223,10 @@ pub trait ClientQueries {
     fn tracked_shards_for_each_client(&self) -> Vec<Vec<ShardId>>;
 }
 
-impl<Data: AsRef<Client> + AsRef<AccountId>> ClientQueries for Vec<Data> {
+impl<Data> ClientQueries for Vec<Data>
+where
+    Data: AsRef<Client>,
+{
     fn client_index_tracking_account(&self, account_id: &AccountId) -> usize {
         let client: &Client = self[0].as_ref();
         let head = client.chain.head().unwrap();
@@ -232,13 +235,11 @@ impl<Data: AsRef<Client> + AsRef<AccountId>> ClientQueries for Vec<Data> {
 
         for i in 0..self.len() {
             let client: &Client = self[i].as_ref();
+            let validator_signer = client.validator_signer.get().unwrap();
+            let account_id = validator_signer.validator_id();
             let tracks_shard = client
                 .epoch_manager
-                .cares_about_shard_from_prev_block(
-                    &head.prev_block_hash,
-                    &self[i].as_ref(),
-                    shard_id,
-                )
+                .cares_about_shard_from_prev_block(&head.prev_block_hash, account_id, shard_id)
                 .unwrap();
             if tracks_shard {
                 return i;
@@ -314,15 +315,13 @@ impl<Data: AsRef<Client> + AsRef<AccountId>> ClientQueries for Vec<Data> {
         let mut ret = Vec::new();
         for i in 0..self.len() {
             let client: &Client = self[i].as_ref();
+            let validator_signer = client.validator_signer.get().unwrap();
+            let account_id = validator_signer.validator_id();
             let mut tracked_shards = Vec::new();
             for shard_id in &all_shard_ids {
                 let tracks_shard = client
                     .epoch_manager
-                    .cares_about_shard_from_prev_block(
-                        &head.prev_block_hash,
-                        &self[i].as_ref(),
-                        *shard_id,
-                    )
+                    .cares_about_shard_from_prev_block(&head.prev_block_hash, account_id, *shard_id)
                     .unwrap();
                 if tracks_shard {
                     tracked_shards.push(*shard_id);

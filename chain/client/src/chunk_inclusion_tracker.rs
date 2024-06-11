@@ -8,6 +8,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 
 use crate::metrics;
 use crate::stateless_validation::chunk_endorsement_tracker::{
@@ -51,9 +52,13 @@ pub struct ChunkInclusionTracker {
 impl ChunkInclusionTracker {
     pub fn new() -> Self {
         Self {
-            prev_block_to_chunk_hash_ready: LruCache::new(CHUNK_HEADERS_FOR_INCLUSION_CACHE_SIZE),
+            prev_block_to_chunk_hash_ready: LruCache::new(
+                NonZeroUsize::new(CHUNK_HEADERS_FOR_INCLUSION_CACHE_SIZE).unwrap(),
+            ),
             chunk_hash_to_chunk_info: HashMap::new(),
-            banned_chunk_producers: LruCache::new(NUM_EPOCH_CHUNK_PRODUCERS_TO_KEEP_IN_BLOCKLIST),
+            banned_chunk_producers: LruCache::new(
+                NonZeroUsize::new(NUM_EPOCH_CHUNK_PRODUCERS_TO_KEEP_IN_BLOCKLIST).unwrap(),
+            ),
         }
     }
 

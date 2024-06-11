@@ -2,6 +2,7 @@ use crate::routing;
 use lru::LruCache;
 use near_primitives::network::PeerId;
 use parking_lot::Mutex;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -64,7 +65,7 @@ impl RoutingTableView {
             next_hops: Default::default(),
             distance: Default::default(),
             find_route_calls: 0,
-            last_routed: LruCache::new(LAST_ROUTED_CACHE_SIZE),
+            last_routed: LruCache::new(NonZeroUsize::new(LAST_ROUTED_CACHE_SIZE).unwrap()),
         }))
     }
 

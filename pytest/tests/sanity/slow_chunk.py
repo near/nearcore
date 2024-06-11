@@ -50,6 +50,10 @@ class SlowChunkTest(unittest.TestCase):
             client_config_changes,
         )
 
+        # The chain is slow to warm up. Wait until the chain is ready otherwise
+        # the missing chunks congestion will kick in due to missing blocks.
+        list(poll_blocks(rpc, __target=10))
+
         self.__deploy_contract(rpc)
 
         self.__call_contract(rpc)

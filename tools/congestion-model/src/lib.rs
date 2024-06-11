@@ -32,7 +32,7 @@ pub const GAS_LIMIT: GGas = 1000 * TGAS;
 /// design of Near Protocol.
 ///
 /// The TX gas limit has been hard-coded to gas_limit / 2 for years.
-/// https://github.com/near/nearcore/blob/ac5cba2e7a7507aecce09cbd0152641e986ea381/chain/chain/src/runtime/mod.rs#L709
+/// <https://github.com/near/nearcore/blob/ac5cba2e7a7507aecce09cbd0152641e986ea381/chain/chain/src/runtime/mod.rs#L709>
 ///
 /// Changing this could be part of a congestion strategy.
 pub const TX_GAS_LIMIT: GGas = 500 * TGAS;

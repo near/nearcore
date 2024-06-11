@@ -7,6 +7,7 @@ use near_primitives::{
     views::{PartElapsedTimeView, RequestedStatePartsView},
 };
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 
 const REQUESTED_STATE_PARTS_CACHE_SIZE: usize = 4;
 
@@ -22,7 +23,9 @@ pub(crate) struct StateRequestTracker {
 impl StateRequestTracker {
     pub(crate) fn new() -> Self {
         StateRequestTracker {
-            requested_state_parts: LruCache::new(REQUESTED_STATE_PARTS_CACHE_SIZE),
+            requested_state_parts: LruCache::new(
+                NonZeroUsize::new(REQUESTED_STATE_PARTS_CACHE_SIZE).unwrap(),
+            ),
         }
     }
 
