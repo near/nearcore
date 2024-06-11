@@ -117,8 +117,8 @@ use near_primitives::receipt::Receipt;
 use near_primitives::reed_solomon::{reed_solomon_decode, reed_solomon_encode};
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, EncodedShardChunkBody, PartialEncodedChunk,
-    PartialEncodedChunkPart, PartialEncodedChunkV2, ReceiptProof, ShardChunk, ShardChunkHeader,
-    ShardProof, TransactionReceipt,
+    PartialEncodedChunkPart, PartialEncodedChunkV2, ShardChunk, ShardChunkHeader,
+    TransactionReceipt,
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::ValidatorStake;
