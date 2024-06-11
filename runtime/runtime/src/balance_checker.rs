@@ -123,7 +123,9 @@ fn total_postponed_receipts_cost(
             }
         };
 
-        safe_add_balance(total, cost).map_err(|_| RuntimeError::UnexpectedIntegerOverflow)
+        safe_add_balance(total, cost).map_err(|_| {
+            RuntimeError::UnexpectedIntegerOverflow("total_postponed_receipts_cost".into())
+        })
     })
 }
 
@@ -567,7 +569,7 @@ mod tests {
             0,
             sender,
             receiver,
-            &signer,
+            &signer.into(),
             deposit,
             CryptoHash::default(),
         );
@@ -614,7 +616,7 @@ mod tests {
         let tx = transfer_tx(alice_id, bob_id, 2);
         let receipt = extract_transfer_receipt(&tx, gas_price, deposit);
 
-        assert_eq!(
+        assert_matches!(
             check_balance(
                 &RuntimeConfig::test(),
                 &initial_state,
@@ -625,7 +627,7 @@ mod tests {
                 &[],
                 &ApplyStats::default(),
             ),
-            Err(RuntimeError::UnexpectedIntegerOverflow)
+            Err(RuntimeError::UnexpectedIntegerOverflow(_))
         );
     }
 

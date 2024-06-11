@@ -512,13 +512,17 @@ pub(crate) fn get_receipt(receipt_id: CryptoHash, near_config: NearConfig, store
 }
 
 fn chunk_extras_equal(l: &ChunkExtra, r: &ChunkExtra) -> bool {
+    // TODO(congestion_control) validate allowed shard
+    let l = l.with_zeroed_allowed_shard();
+    let r = r.with_zeroed_allowed_shard();
+
     // explicitly enumerate the versions in a match here first so that if a new version is
     // added, we'll get a compile error here and be reminded to update it correctly.
     //
     // edit with v3: To avoid too many explicit combinations, use wildcards for
     // versions >= 3. The compiler will still notice the missing `(v1, new_v)`
     // combinations.
-    match (l, r) {
+    match (&l, &r) {
         (ChunkExtra::V1(l), ChunkExtra::V1(r)) => return l == r,
         (ChunkExtra::V2(l), ChunkExtra::V2(r)) => return l == r,
         (ChunkExtra::V3(l), ChunkExtra::V3(r)) => return l == r,

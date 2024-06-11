@@ -39,7 +39,9 @@ use near_chain::{
     BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis, ChainStoreAccess, Doomslug,
     DoomslugThresholdMode, Provenance,
 };
-use near_chain_configs::{ClientConfig, LogSummaryStyle, UpdateableClientConfig};
+use near_chain_configs::{
+    ClientConfig, LogSummaryStyle, MutableConfigValue, UpdateableClientConfig,
+};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardedTransactionPool;
 use near_chunks::logic::{
@@ -146,7 +148,7 @@ pub struct Client {
     /// Network adapter.
     pub network_adapter: PeerManagerAdapter,
     /// Signer for block producer (if present).
-    pub validator_signer: Option<Arc<dyn ValidatorSigner>>,
+    pub validator_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
     /// Approvals for which we do not have the block yet
     pub pending_approvals:
         lru::LruCache<ApprovalInner, HashMap<AccountId, (Approval, ApprovalType)>>,
@@ -249,7 +251,7 @@ impl Client {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         network_adapter: PeerManagerAdapter,
         shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
-        validator_signer: Option<Arc<dyn ValidatorSigner>>,
+        validator_signer: Option<Arc<ValidatorSigner>>,
         enable_doomslug: bool,
         rng_seed: RngSeed,
         snapshot_callbacks: Option<SnapshotCallbacks>,
@@ -397,7 +399,7 @@ impl Client {
             shards_manager_adapter,
             sharded_tx_pool,
             network_adapter,
-            validator_signer,
+            validator_signer: MutableConfigValue::new(validator_signer, "validator_signer"),
             pending_approvals: lru::LruCache::new(num_block_producer_seats),
             catchup_state_syncs: HashMap::new(),
             epoch_sync,
@@ -596,11 +598,9 @@ impl Client {
         height: BlockHeight,
         prev_hash: CryptoHash,
     ) -> Result<Option<Block>, Error> {
-        let validator_signer = self
-            .validator_signer
-            .as_ref()
-            .ok_or_else(|| Error::BlockProducer("Called without block producer info.".to_string()))?
-            .clone();
+        let validator_signer = self.validator_signer.get().ok_or_else(|| {
+            Error::BlockProducer("Called without block producer info.".to_string())
+        })?;
 
         // Check that we are were called at the block that we are producer for.
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_hash).unwrap();
@@ -834,11 +834,9 @@ impl Client {
         next_height: BlockHeight,
         shard_id: ShardId,
     ) -> Result<Option<ProduceChunkResult>, Error> {
-        let validator_signer = self
-            .validator_signer
-            .as_ref()
-            .ok_or_else(|| Error::ChunkProducer("Called without block producer info.".to_string()))?
-            .clone();
+        let validator_signer = self.validator_signer.get().ok_or_else(|| {
+            Error::ChunkProducer("Called without block producer info.".to_string())
+        })?;
 
         let chunk_proposer =
             self.epoch_manager.get_chunk_producer(epoch_id, next_height, shard_id).unwrap();
@@ -875,7 +873,7 @@ impl Client {
         last_header: ShardChunkHeader,
         next_height: BlockHeight,
         shard_id: ShardId,
-        validator_signer: Arc<dyn ValidatorSigner>,
+        validator_signer: Arc<ValidatorSigner>,
     ) -> Result<Option<ProduceChunkResult>, Error> {
         let span = tracing::Span::current();
         let timer = Instant::now();
@@ -933,11 +931,7 @@ impl Client {
         #[cfg(feature = "test_features")]
         let gas_used = if self.produce_invalid_chunks { gas_used + 1 } else { gas_used };
 
-        // The congestion info is set to default if it is not present. If the
-        // congestion control feature is not enabled the congestion info will be
-        // stripped from the chunk header anyway. In the first chunk where
-        // feature is enabled the header will contain the default congestion info.
-        let congestion_info = chunk_extra.congestion_info().unwrap_or_default();
+        let congestion_info = chunk_extra.congestion_info();
         let (encoded_chunk, merkle_paths) = ShardsManagerActor::create_encoded_shard_chunk(
             prev_block_hash,
             *chunk_extra.state_root(),
@@ -1097,7 +1091,7 @@ impl Client {
     }
 
     pub fn send_challenges(&mut self, challenges: Vec<ChallengeBody>) {
-        if let Some(validator_signer) = &self.validator_signer {
+        if let Some(validator_signer) = &self.validator_signer.get() {
             for body in challenges {
                 let challenge = Challenge::produce(body, &**validator_signer);
                 self.challenges.insert(challenge.hash, challenge.clone());
@@ -1122,7 +1116,7 @@ impl Client {
         let _span = tracing::debug_span!(
             target: "client",
             "receive_block",
-            me = ?self.validator_signer.as_ref().map(|vs| vs.validator_id()),
+            me = ?self.validator_signer.get().map(|vs| vs.validator_id().clone()),
             %prev_hash,
             %hash,
             height = block.header().height(),
@@ -1310,7 +1304,7 @@ impl Client {
         let result = {
             let me = self
                 .validator_signer
-                .as_ref()
+                .get()
                 .map(|validator_signer| validator_signer.validator_id().clone());
             self.chain.start_process_block_async(
                 &me,
@@ -1324,14 +1318,14 @@ impl Client {
         self.process_block_processing_artifact(block_processing_artifacts);
 
         // Send out challenge if the block was found to be invalid.
-        if let Some(validator_signer) = self.validator_signer.as_ref() {
+        if let Some(validator_signer) = self.validator_signer.get() {
             if let Err(e) = &result {
                 match e {
                     near_chain::Error::InvalidChunkProofs(chunk_proofs) => {
                         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                             NetworkRequests::Challenge(Challenge::produce(
                                 ChallengeBody::ChunkProofs(*chunk_proofs.clone()),
-                                &**validator_signer,
+                                &*validator_signer,
                             )),
                         ));
                     }
@@ -1339,7 +1333,7 @@ impl Client {
                         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                             NetworkRequests::Challenge(Challenge::produce(
                                 ChallengeBody::ChunkState(*chunk_state.clone()),
-                                &**validator_signer,
+                                &*validator_signer,
                             )),
                         ));
                     }
@@ -1362,7 +1356,7 @@ impl Client {
             .entered();
         let me = self
             .validator_signer
-            .as_ref()
+            .get()
             .map(|validator_signer| validator_signer.validator_id().clone());
         let mut block_processing_artifacts = BlockProcessingArtifact::default();
         let (accepted_blocks, errors) = self.chain.postprocess_ready_blocks(
@@ -1569,7 +1563,9 @@ impl Client {
         let next_epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
         let next_block_producer =
             self.epoch_manager.get_block_producer(&next_epoch_id, approval.target_height)?;
-        if Some(&next_block_producer) == self.validator_signer.as_ref().map(|x| x.validator_id()) {
+        let validator_signer = self.validator_signer.get();
+        let next_block_producer_id = validator_signer.as_ref().map(|x| x.validator_id());
+        if Some(&next_block_producer) == next_block_producer_id {
             self.collect_block_approval(&approval, ApprovalType::SelfApproval);
         } else {
             debug!(target: "client",
@@ -1673,7 +1669,7 @@ impl Client {
             }
         }
 
-        if let Some(validator_signer) = self.validator_signer.clone() {
+        if let Some(validator_signer) = self.validator_signer.get() {
             let validator_id = validator_signer.validator_id().clone();
 
             if !self.reconcile_transaction_pool(validator_id.clone(), status, &block) {
@@ -1972,8 +1968,8 @@ impl Client {
         apply_chunks_done_sender: Option<Sender<ApplyChunksDoneMessage>>,
     ) {
         let _span = debug_span!(target: "client", "process_blocks_with_missing_chunks").entered();
-        let me =
-            self.validator_signer.as_ref().map(|validator_signer| validator_signer.validator_id());
+        let validator_signer = self.validator_signer.get();
+        let me = validator_signer.as_ref().map(|validator_signer| validator_signer.validator_id());
         let mut blocks_processing_artifacts = BlockProcessingArtifact::default();
         self.chain.check_blocks_with_missing_chunks(
             &me.map(|x| x.clone()),
@@ -1984,7 +1980,7 @@ impl Client {
     }
 
     pub fn is_validator(&self, epoch_id: &EpochId, block_hash: &CryptoHash) -> bool {
-        match self.validator_signer.as_ref() {
+        match self.validator_signer.get() {
             None => false,
             Some(signer) => {
                 let account_id = signer.validator_id();
@@ -2134,8 +2130,9 @@ impl Client {
             match self.epoch_manager.get_block_producer(&next_block_epoch_id, *target_height) {
                 Err(_) => false,
                 Ok(target_block_producer) => {
+                    let validator_signer = self.validator_signer.get();
                     Some(&target_block_producer)
-                        == self.validator_signer.as_ref().map(|x| x.validator_id())
+                        == validator_signer.as_ref().map(|x| x.validator_id())
                 }
             };
 
@@ -2196,11 +2193,12 @@ impl Client {
             }
         }
 
-        if let Some(account_id) = self.validator_signer.as_ref().map(|bp| bp.validator_id()) {
+        let validator_signer = self.validator_signer.get();
+        if let Some(account_id) = validator_signer.as_ref().map(|bp| bp.validator_id()) {
             validators.remove(account_id);
         }
         for validator in validators {
-            trace!(target: "client", me = ?self.validator_signer.as_ref().map(|bp| bp.validator_id()), ?tx, ?validator, shard_id, "Routing a transaction");
+            trace!(target: "client", me = ?validator_signer.as_ref().map(|bp| bp.validator_id()), ?tx, ?validator, shard_id, "Routing a transaction");
 
             // Send message to network to actually forward transaction.
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
@@ -2223,7 +2221,8 @@ impl Client {
         check_only: bool,
     ) -> ProcessTxResponse {
         unwrap_or_return!(self.process_tx_internal(&tx, is_forwarded, check_only), {
-            let me = self.validator_signer.as_ref().map(|vs| vs.validator_id());
+            let validator_signer = self.validator_signer.get();
+            let me = validator_signer.as_ref().map(|vs| vs.validator_id());
             warn!(target: "client", ?me, ?tx, "Dropping tx");
             ProcessTxResponse::NoResponse
         })
@@ -2269,7 +2268,8 @@ impl Client {
         check_only: bool,
     ) -> Result<ProcessTxResponse, Error> {
         let head = self.chain.head()?;
-        let me = self.validator_signer.as_ref().map(|vs| vs.validator_id());
+        let validator_signer = self.validator_signer.get();
+        let me = validator_signer.as_ref().map(|vs| vs.validator_id());
         let cur_block = self.chain.get_head_block()?;
         let cur_block_header = cur_block.header();
         let transaction_validity_period = self.chain.transaction_validity_period;
@@ -2411,8 +2411,9 @@ impl Client {
     fn active_validator(&self, shard_id: ShardId) -> Result<bool, Error> {
         let head = self.chain.head()?;
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash)?;
+        let validator_signer = self.validator_signer.get();
 
-        let account_id = if let Some(vs) = self.validator_signer.as_ref() {
+        let account_id = if let Some(vs) = validator_signer.as_ref() {
             vs.validator_id()
         } else {
             return Ok(false);
@@ -2441,7 +2442,7 @@ impl Client {
     ) -> Result<(), Error> {
         let _span = debug_span!(target: "sync", "run_catchup").entered();
         let mut notify_state_sync = false;
-        let me = &self.validator_signer.as_ref().map(|x| x.validator_id().clone());
+        let me = &self.validator_signer.get().map(|x| x.validator_id().clone());
 
         for (sync_hash, state_sync_info) in self.chain.chain_store().iterate_state_sync_infos()? {
             assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);

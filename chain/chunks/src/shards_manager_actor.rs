@@ -1976,8 +1976,8 @@ impl ShardsManagerActor {
         prev_outgoing_receipts: &[Receipt],
         prev_outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
-        congestion_info: CongestionInfo,
-        signer: &dyn ValidatorSigner,
+        congestion_info: Option<CongestionInfo>,
+        signer: &ValidatorSigner,
         rs: &ReedSolomon,
         protocol_version: ProtocolVersion,
     ) -> Result<(EncodedShardChunk, Vec<MerklePath>), Error> {

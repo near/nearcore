@@ -55,6 +55,7 @@ fn init_test_staking(
     genesis.config.num_block_producer_seats = num_node_seats;
     genesis.config.block_producer_kickout_threshold = 20;
     genesis.config.chunk_producer_kickout_threshold = 20;
+    genesis.config.chunk_validator_only_kickout_threshold = 20;
     genesis.config.minimum_stake_divisor = minimum_stake_divisor;
     if !enable_rewards {
         genesis.config.max_inflation_rate = Ratio::from_integer(0);
@@ -128,7 +129,7 @@ fn test_stake_nodes() {
                 1,
                 test_nodes[1].account_id.clone(),
                 // &*test_nodes[1].config.block_producer.as_ref().unwrap().signer,
-                &*test_nodes[1].signer,
+                &(*test_nodes[1].signer).clone().into(),
                 TESTING_INIT_STAKE,
                 test_nodes[1].config.validator_signer.as_ref().unwrap().public_key(),
                 test_nodes[1].genesis_hash,
@@ -213,11 +214,14 @@ fn test_validator_kickout() {
             let stakes = (0..num_nodes / 2).map(|_| NEAR_BASE + rng.gen_range(1..100));
             let stake_transactions = stakes.enumerate().map(|(i, stake)| {
                 let test_node = &test_nodes[i];
-                let signer = Arc::new(InMemorySigner::from_seed(
-                    test_node.account_id.clone(),
-                    KeyType::ED25519,
-                    test_node.account_id.as_ref(),
-                ));
+                let signer = Arc::new(
+                    InMemorySigner::from_seed(
+                        test_node.account_id.clone(),
+                        KeyType::ED25519,
+                        test_node.account_id.as_ref(),
+                    )
+                    .into(),
+                );
                 SignedTransaction::stake(
                     1,
                     test_node.account_id.clone(),
@@ -364,11 +368,14 @@ fn test_validator_join() {
                 false,
                 true,
             );
-            let signer = Arc::new(InMemorySigner::from_seed(
-                test_nodes[1].account_id.clone(),
-                KeyType::ED25519,
-                test_nodes[1].account_id.as_ref(),
-            ));
+            let signer = Arc::new(
+                InMemorySigner::from_seed(
+                    test_nodes[1].account_id.clone(),
+                    KeyType::ED25519,
+                    test_nodes[1].account_id.as_ref(),
+                )
+                .into(),
+            );
             let unstake_transaction = SignedTransaction::stake(
                 1,
                 test_nodes[1].account_id.clone(),
@@ -378,11 +385,14 @@ fn test_validator_join() {
                 test_nodes[1].genesis_hash,
             );
 
-            let signer = Arc::new(InMemorySigner::from_seed(
-                test_nodes[2].account_id.clone(),
-                KeyType::ED25519,
-                test_nodes[2].account_id.as_ref(),
-            ));
+            let signer = Arc::new(
+                InMemorySigner::from_seed(
+                    test_nodes[2].account_id.clone(),
+                    KeyType::ED25519,
+                    test_nodes[2].account_id.as_ref(),
+                )
+                .into(),
+            );
             let stake_transaction = SignedTransaction::stake(
                 1,
                 test_nodes[2].account_id.clone(),

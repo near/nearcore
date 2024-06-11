@@ -2,9 +2,8 @@
 extern crate bencher;
 
 use bencher::{black_box, Bencher};
-use borsh::BorshDeserialize;
 
-use near_async::time::Clock;
+use borsh::BorshDeserialize;
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_primitives::account::Account;
 use near_primitives::block::{genesis_chunks, Block};
@@ -18,6 +17,7 @@ use near_primitives::types::{EpochId, StateRoot};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::types::MerkleHash;
+use near_time::Clock;
 use num_rational::Rational32;
 
 fn create_transaction() -> SignedTransaction {
@@ -68,7 +68,7 @@ fn create_block() -> Block {
         Some(0),
         vec![],
         vec![],
-        &signer,
+        &signer.into(),
         CryptoHash::default(),
         CryptoHash::default(),
         Clock::real().now_utc(),

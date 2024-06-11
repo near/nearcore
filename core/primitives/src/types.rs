@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 mod chunk_validator_stats;
 
-pub use chunk_validator_stats::ChunkValidatorStats;
+pub use chunk_validator_stats::ChunkStats;
 
 /// Hash used by to store state root.
 pub type StateRoot = CryptoHash;
@@ -922,6 +922,16 @@ pub mod chunk_extra {
                 Self::V3(v3) => v3.congestion_info.into(),
             }
         }
+
+        /// Dirty workaround for broken allowed shard validation
+        /// TODO(congestion_control) validate allowed shard
+        pub fn with_zeroed_allowed_shard(&self) -> ChunkExtra {
+            let mut res = self.clone();
+            if let ChunkExtra::V3(v3) = &mut res {
+                v3.congestion_info.set_allowed_shard(0);
+            }
+            res
+        }
     }
 }
 
@@ -996,10 +1006,18 @@ pub struct ValidatorStats {
     pub expected: NumBlocks,
 }
 
+impl ValidatorStats {
+    /// Compare stats with threshold which is an expected percentage from 0 to
+    /// 100.
+    pub fn less_than(&self, threshold: u8) -> bool {
+        self.produced * 100 < u64::from(threshold) * self.expected
+    }
+}
+
 #[derive(Debug, BorshSerialize, BorshDeserialize, PartialEq, Eq)]
 pub struct BlockChunkValidatorStats {
     pub block_stats: ValidatorStats,
-    pub chunk_stats: ChunkValidatorStats,
+    pub chunk_stats: ChunkStats,
 }
 
 #[derive(serde::Deserialize, Debug, arbitrary::Arbitrary, PartialEq, Eq)]
@@ -1058,6 +1076,8 @@ pub enum ValidatorKickoutReason {
     NotEnoughBlocks { produced: NumBlocks, expected: NumBlocks },
     /// Validator didn't produce enough chunks.
     NotEnoughChunks { produced: NumBlocks, expected: NumBlocks },
+    /// Validator didn't produce enough chunk endorsements.
+    NotEnoughChunkEndorsements { produced: NumBlocks, expected: NumBlocks },
     /// Validator unstaked themselves.
     Unstaked,
     /// Validator stake is now below threshold

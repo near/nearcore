@@ -508,7 +508,7 @@ mod test {
                 height,
                 from.parse().unwrap(),
                 to.parse().unwrap(),
-                signer,
+                &signer.clone().into(),
                 100,
                 hash,
             );

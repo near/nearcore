@@ -44,7 +44,7 @@ impl MockClient {
 
 pub struct RuntimeUser {
     pub account_id: AccountId,
-    pub signer: Arc<dyn Signer>,
+    pub signer: Arc<Signer>,
     pub trie_viewer: TrieViewer,
     pub client: Arc<RwLock<MockClient>>,
     // Store results of applying transactions/receipts
@@ -59,7 +59,7 @@ pub struct RuntimeUser {
 impl RuntimeUser {
     pub fn new(
         account_id: AccountId,
-        signer: Arc<dyn Signer>,
+        signer: Arc<Signer>,
         client: Arc<RwLock<MockClient>>,
     ) -> Self {
         let runtime_config = Arc::new(client.read().unwrap().runtime_config.clone());
@@ -117,8 +117,8 @@ impl RuntimeUser {
                     }
                     RuntimeError::BalanceMismatchError(e) => panic!("{}", e),
                     RuntimeError::StorageError(e) => panic!("Storage error {:?}", e),
-                    RuntimeError::UnexpectedIntegerOverflow => {
-                        panic!("UnexpectedIntegerOverflow error")
+                    RuntimeError::UnexpectedIntegerOverflow(reason) => {
+                        panic!("UnexpectedIntegerOverflow error {reason}")
                     }
                     RuntimeError::ReceiptValidationError(e) => panic!("{}", e),
                     RuntimeError::ValidatorError(e) => panic!("{}", e),
@@ -390,11 +390,11 @@ impl User for RuntimeUser {
             .map_err(|err| err.to_string())
     }
 
-    fn signer(&self) -> Arc<dyn Signer> {
+    fn signer(&self) -> Arc<Signer> {
         self.signer.clone()
     }
 
-    fn set_signer(&mut self, signer: Arc<dyn Signer>) {
+    fn set_signer(&mut self, signer: Arc<Signer>) {
         self.signer = signer;
     }
 }

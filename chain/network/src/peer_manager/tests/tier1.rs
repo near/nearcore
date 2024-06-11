@@ -18,7 +18,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 /// Constructs a random TIER1 message.
-fn make_block_approval(rng: &mut Rng, signer: &dyn ValidatorSigner) -> Approval {
+fn make_block_approval(rng: &mut Rng, signer: &ValidatorSigner) -> Approval {
     let inner = ApprovalInner::Endorsement(data::make_hash(rng));
     let target_height = rng.gen_range(0..100000);
     Approval {

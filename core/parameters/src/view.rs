@@ -210,27 +210,27 @@ pub struct VMConfigView {
     /// Gas cost of a regular operation.
     pub regular_op_cost: u32,
 
-    /// See [`VMConfig::vm_kind`].
+    /// See [VMConfig::vm_kind](crate::vm::Config::vm_kind).
     pub vm_kind: crate::vm::VMKind,
-    /// See [`VMConfig::disable_9393_fix`].
+    /// See [VMConfig::disable_9393_fix](crate::vm::Config::disable_9393_fix).
     pub disable_9393_fix: bool,
-    /// See [`VMConfig::flat_storage_reads`].
+    /// See [VMConfig::storage_get_mode](crate::vm::Config::storage_get_mode).
     pub storage_get_mode: crate::vm::StorageGetMode,
-    /// See [`VMConfig::fix_contract_loading_cost`].
+    /// See [VMConfig::fix_contract_loading_cost](crate::vm::Config::fix_contract_loading_cost).
     pub fix_contract_loading_cost: bool,
-    /// See [`VMConfig::implicit_account_creation`].
+    /// See [VMConfig::implicit_account_creation](crate::vm::Config::implicit_account_creation).
     pub implicit_account_creation: bool,
-    /// See [`VMConfig::math_extension`].
+    /// See [VMConfig::math_extension](crate::vm::Config::math_extension).
     pub math_extension: bool,
-    /// See [`VMConfig::ed25519_verify`].
+    /// See [VMConfig::ed25519_verify](crate::vm::Config::ed25519_verify).
     pub ed25519_verify: bool,
-    /// See [`VMConfig::alt_bn128`].
+    /// See [VMConfig::alt_bn128](crate::vm::Config::alt_bn128).
     pub alt_bn128: bool,
-    /// See [`VMConfig::function_call_weight`].
+    /// See [VMConfig::function_call_weight](crate::vm::Config::function_call_weight).
     pub function_call_weight: bool,
-    /// See [`VMConfig::eth_implicit_accounts`].
+    /// See [VMConfig::eth_implicit_accounts](crate::vm::Config::eth_implicit_accounts).
     pub eth_implicit_accounts: bool,
-    /// See [`VMConfig::yield_resume_host_functions`].
+    /// See [VMConfig::yield_resume_host_functions](`crate::vm::Config::yield_resume_host_functions).
     pub yield_resume_host_functions: bool,
 
     /// Describes limits for VM and Runtime.
@@ -693,6 +693,16 @@ pub struct CongestionControlConfigView {
     /// How much congestion a shard can tolerate before it stops all shards from
     /// accepting new transactions with the receiver set to the congested shard.
     pub reject_tx_congestion_threshold: f64,
+
+    /// The standard size limit for outgoing receipts aimed at a single shard.
+    /// This limit is pretty small to keep the size of source_receipt_proofs under control.
+    /// It limits the total sum of outgoing receipts, not individual receipts.
+    pub outgoing_receipts_usual_size_limit: u64,
+
+    /// Large size limit for outgoing receipts to a shard, used when it's safe
+    /// to send a lot of receipts without making the state witness too large.
+    /// It limits the total sum of outgoing receipts, not individual receipts.
+    pub outgoing_receipts_big_size_limit: u64,
 }
 
 impl From<CongestionControlConfig> for CongestionControlConfigView {
@@ -708,6 +718,8 @@ impl From<CongestionControlConfig> for CongestionControlConfigView {
             max_tx_gas: other.max_tx_gas,
             min_tx_gas: other.min_tx_gas,
             reject_tx_congestion_threshold: other.reject_tx_congestion_threshold,
+            outgoing_receipts_usual_size_limit: other.outgoing_receipts_usual_size_limit,
+            outgoing_receipts_big_size_limit: other.outgoing_receipts_big_size_limit,
         }
     }
 }
@@ -725,6 +737,8 @@ impl From<CongestionControlConfigView> for CongestionControlConfig {
             max_tx_gas: other.max_tx_gas,
             min_tx_gas: other.min_tx_gas,
             reject_tx_congestion_threshold: other.reject_tx_congestion_threshold,
+            outgoing_receipts_usual_size_limit: other.outgoing_receipts_usual_size_limit,
+            outgoing_receipts_big_size_limit: other.outgoing_receipts_big_size_limit,
         }
     }
 }

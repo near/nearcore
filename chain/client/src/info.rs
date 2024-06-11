@@ -59,7 +59,7 @@ pub struct InfoHelper {
     /// Total gas used during period.
     gas_used: u64,
     /// Sign telemetry with block producer key if available.
-    validator_signer: Option<Arc<dyn ValidatorSigner>>,
+    validator_signer: Option<Arc<ValidatorSigner>>,
     /// Telemetry event sender.
     telemetry_sender: Sender<TelemetryEvent>,
     /// Log coloring enabled.
@@ -81,7 +81,7 @@ impl InfoHelper {
         clock: Clock,
         telemetry_sender: Sender<TelemetryEvent>,
         client_config: &ClientConfig,
-        validator_signer: Option<Arc<dyn ValidatorSigner>>,
+        validator_signer: Option<Arc<ValidatorSigner>>,
     ) -> Self {
         set_open_files_limit(0);
         metrics::export_version(&client_config.version);
@@ -147,7 +147,8 @@ impl InfoHelper {
 
     /// Count which shards are tracked by the node in the epoch indicated by head parameter.
     fn record_tracked_shards(head: &Tip, client: &crate::client::Client) {
-        let me = client.validator_signer.as_ref().map(|x| x.validator_id());
+        let validator_signer = client.validator_signer.get();
+        let me = validator_signer.as_ref().map(|x| x.validator_id());
         if let Ok(shard_ids) = client.epoch_manager.shard_ids(&head.epoch_id) {
             for shard_id in shard_ids {
                 let tracked = client.shard_tracker.care_about_shard(
@@ -164,7 +165,7 @@ impl InfoHelper {
     }
 
     fn record_block_producers(head: &Tip, client: &crate::client::Client) {
-        let me = client.validator_signer.as_ref().map(|x| x.validator_id().clone());
+        let me = client.validator_signer.get().map(|x| x.validator_id().clone());
         if let Some(is_bp) = me.map_or(Some(false), |account_id| {
             // In rare cases block producer information isn't available.
             // Don't set the metric in this case.
@@ -179,7 +180,7 @@ impl InfoHelper {
 
     fn record_chunk_producers(head: &Tip, client: &crate::client::Client) {
         if let (Some(account_id), Ok(epoch_info)) = (
-            client.validator_signer.as_ref().map(|x| x.validator_id().clone()),
+            client.validator_signer.get().map(|x| x.validator_id().clone()),
             client.epoch_manager.get_epoch_info(&head.epoch_id),
         ) {
             for (shard_id, validators) in epoch_info.chunk_producers_settlement().iter().enumerate()
@@ -328,7 +329,8 @@ impl InfoHelper {
                 &head.epoch_id,
                 &head.last_block_hash,
             );
-            let account_id = client.validator_signer.as_ref().map(|x| x.validator_id());
+            let validator_signer = client.validator_signer.get();
+            let account_id = validator_signer.as_ref().map(|x| x.validator_id());
             let is_validator = if let Some(account_id) = account_id {
                 match client.epoch_manager.get_validator_by_account_id(
                     &head.epoch_id,
@@ -1029,10 +1031,9 @@ mod tests {
             epoch_length,
             num_shards,
             num_block_producer_seats.try_into().unwrap(),
+            90,
+            90,
             0,
-            90,
-            90,
-            90,
             default_reward_calculator(),
         )
         .into_handle();

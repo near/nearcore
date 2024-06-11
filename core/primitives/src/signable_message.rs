@@ -94,7 +94,7 @@ impl<'a, T: BorshSerialize> SignableMessage<'a, T> {
         Self { discriminant, msg }
     }
 
-    pub fn sign(&self, signer: &dyn Signer) -> Signature {
+    pub fn sign(&self, signer: &Signer) -> Signature {
         let bytes = borsh::to_vec(&self).expect("Failed to deserialize");
         let hash = hash(&bytes);
         signer.sign(hash.as_bytes())
@@ -241,7 +241,8 @@ mod tests {
 
         let delegate_action = delegate_action(sender_id, receiver_id, signer.public_key());
         let signable = SignableMessage::new(&delegate_action, SignableMessageType::DelegateAction);
-        let signed = SignedDelegateAction { signature: signable.sign(&signer), delegate_action };
+        let signed =
+            SignedDelegateAction { signature: signable.sign(&signer.into()), delegate_action };
 
         assert!(signed.verify());
     }
@@ -259,7 +260,8 @@ mod tests {
             discriminant: MessageDiscriminant::new_on_chain(wrong_nep).unwrap(),
             msg: &delegate_action,
         };
-        let signed = SignedDelegateAction { signature: signable.sign(&signer), delegate_action };
+        let signed =
+            SignedDelegateAction { signature: signable.sign(&signer.into()), delegate_action };
 
         assert!(!signed.verify());
     }
@@ -276,7 +278,8 @@ mod tests {
         // here we use it as an off-chain only signature
         let wrong_discriminant = MessageDiscriminant::new_off_chain(correct_nep).unwrap();
         let signable = SignableMessage { discriminant: wrong_discriminant, msg: &delegate_action };
-        let signed = SignedDelegateAction { signature: signable.sign(&signer), delegate_action };
+        let signed =
+            SignedDelegateAction { signature: signable.sign(&signer.into()), delegate_action };
 
         assert!(!signed.verify());
     }

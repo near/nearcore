@@ -288,6 +288,7 @@ fn test_stateless_validators_with_multi_test_loop() {
             contract_cache,
             &genesis.config,
             epoch_manager.clone(),
+            None,
             TrieConfig::from_store_config(&store_config),
             StateSnapshotType::EveryEpoch,
         );
@@ -548,7 +549,7 @@ fn test_stateless_validators_with_multi_test_loop() {
             1,
             accounts[i].clone(),
             accounts[(i + 1) % NUM_ACCOUNTS].clone(),
-            &create_user_test_signer(&accounts[i]),
+            &create_user_test_signer(&accounts[i]).into(),
             amount,
             anchor_hash,
         );

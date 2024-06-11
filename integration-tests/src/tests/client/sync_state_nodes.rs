@@ -576,7 +576,8 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
             let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
             let mut blocks = vec![genesis_block.clone()];
             let signer =
-                InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+                InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0")
+                    .into();
             let target_height = epoch_length + 1;
             for i in 1..=target_height {
                 tracing::info!(

@@ -32,6 +32,14 @@ pub enum Parameter {
     /// A witness contains transactions from both the previous chunk and the current one.
     /// This parameter limits the sum of sizes of transactions from both of those chunks.
     CombinedTransactionsSizeLimit,
+    /// The standard size limit for outgoing receipts aimed at a single shard.
+    /// This limit is pretty small to keep the size of source_receipt_proofs under control.
+    /// It limits the total sum of outgoing receipts, not individual receipts.
+    OutgoingReceiptsUsualSizeLimit,
+    /// Large size limit for outgoing receipts to a shard, used when it's safe
+    /// to send a lot of receipts without making the state witness too large.
+    /// It limits the total sum of outgoing receipts, not individual receipts.
+    OutgoingReceiptsBigSizeLimit,
 
     // Account creation config
     MinAllowedTopLevelAccountLength,
@@ -153,6 +161,7 @@ pub enum Parameter {
     MaxLengthReturnedData,
     MaxContractSize,
     MaxTransactionSize,
+    MaxReceiptSize,
     MaxLengthStorageKey,
     MaxLengthStorageValue,
     MaxPromisesPerFunctionCallAction,
@@ -247,6 +256,7 @@ impl Parameter {
             Parameter::MaxLengthReturnedData,
             Parameter::MaxContractSize,
             Parameter::MaxTransactionSize,
+            Parameter::MaxReceiptSize,
             Parameter::MaxLengthStorageKey,
             Parameter::MaxLengthStorageValue,
             Parameter::MaxPromisesPerFunctionCallAction,
