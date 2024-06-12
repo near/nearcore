@@ -2,7 +2,7 @@ use crate::client_actor::SyncJobsSenderForClientMessage;
 use crate::sync_jobs_actor::SyncJobsActor;
 use near_async::messaging::Handler;
 use near_async::test_loop::event_handler::LoopEventHandler;
-use near_async::test_loop::futures::TestLoopDelayedActionRunner;
+use near_async::test_loop::futures_old::TestLoopDelayedActionRunner;
 
 pub fn forward_messages_from_client_to_sync_jobs_actor(
     mut ctx: TestLoopDelayedActionRunner<SyncJobsActor>,

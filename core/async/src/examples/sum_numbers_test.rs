@@ -1,14 +1,9 @@
 use derive_enum_from_into::{EnumFrom, EnumTryInto};
-use near_time;
 
-use crate::{
-    messaging::{CanSend, IntoSender},
-    test_loop::{
-        adhoc::{handle_adhoc_events, AdhocEvent, AdhocEventSender},
-        event_handler::{capture_events, LoopEventHandler},
-        TestLoopBuilder,
-    },
-};
+use crate::messaging::{CanSend, IntoSender};
+use crate::test_loop::adhoc::{handle_adhoc_events, AdhocEvent, AdhocEventSender};
+use crate::test_loop::event_handler::{capture_events, LoopEventHandler};
+use crate::test_loop::test_loop_old::TestLoopBuilder;
 
 use super::sum_numbers::{ReportSumMsg, SumNumbersComponent, SumRequest};
 

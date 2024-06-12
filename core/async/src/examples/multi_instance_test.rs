@@ -1,15 +1,10 @@
 use derive_enum_from_into::{EnumFrom, EnumTryInto};
-use near_time;
 
+use crate::examples::sum_numbers_test::forward_sum_request;
+use crate::messaging::{CanSend, IntoSender};
 use crate::test_loop::delay_sender::DelaySender;
-use crate::{
-    examples::sum_numbers_test::forward_sum_request,
-    messaging::{CanSend, IntoSender},
-    test_loop::{
-        event_handler::{capture_events, LoopEventHandler},
-        TestLoopBuilder,
-    },
-};
+use crate::test_loop::event_handler::{capture_events, LoopEventHandler};
+use crate::test_loop::test_loop_old::TestLoopBuilder;
 
 use super::sum_numbers::{ReportSumMsg, SumNumbersComponent, SumRequest};
 
