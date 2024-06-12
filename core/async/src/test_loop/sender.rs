@@ -120,7 +120,8 @@ impl<A> TestLoopSender<A>
 where
     A: Actor + 'static,
 {
-    pub fn new(
+    // constructor private to testloop module
+    pub(crate) fn new(
         actor_handle: TestLoopDataHandle<A>,
         pending_events_sender: DelaySender,
         shutting_down: Arc<AtomicBool>,

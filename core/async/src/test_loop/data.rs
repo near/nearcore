@@ -35,6 +35,8 @@ use super::DelaySender;
 /// assert_eq!(data.get(&handle), 42);
 /// ```
 ///
+/// Note that the handler from one TestLoopData cannot be used to access data from another.
+///
 pub struct TestLoopData {
     // Container of the data. We store it as a vec of Any so that we can store any type of data.
     data: Vec<Box<dyn Any>>,
@@ -96,12 +98,20 @@ impl TestLoopData {
 
     /// Function to get reference to the data stored in TestLoopData.
     pub fn get<T>(&self, handle: &TestLoopDataHandle<T>) -> &T {
-        self.data[handle.id].downcast_ref().unwrap()
+        self.data
+            .get(handle.id)
+            .expect("Handle id out of bounds. Does handle belong to this TestLoopData?")
+            .downcast_ref()
+            .expect("Handle type mismatched. Does handle belong to this TestLoopData?")
     }
 
     /// Function to get mutable reference to the data stored in TestLoopData.
     pub fn get_mut<T>(&mut self, handle: &TestLoopDataHandle<T>) -> &mut T {
-        self.data[handle.id].downcast_mut().unwrap()
+        self.data
+            .get_mut(handle.id)
+            .expect("Handle id out of bounds. Does handle belong to this TestLoopData?")
+            .downcast_mut()
+            .expect("Handle type mismatched. Does handle belong to this TestLoopData?")
     }
 }
 
