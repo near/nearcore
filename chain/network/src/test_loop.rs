@@ -225,6 +225,10 @@ fn network_message_to_state_snapshot_handler() -> NetworkRequestHandler {
 /// While sending the PartialEncodedChunkRequest, we need to know the destination account id.
 /// In the PartialEncodedChunkRequest, We specify the `route_back` as a unique identifier that is
 /// used by the network layer to figure out who to send the response back to.
+///
+/// In network_message_to_shards_manager_handler fn, we use the static initialization for
+/// ROUTE_LOOKUP. This is fine to use in the test framework as each generate route is unique and
+/// independent of other routes.
 #[derive(Default, Clone)]
 struct PartialEncodedChunkRequestRouteLookup(Arc<Mutex<HashMap<CryptoHash, AccountId>>>);
 
@@ -233,6 +237,8 @@ impl PartialEncodedChunkRequestRouteLookup {
         Self(Arc::new(Mutex::new(HashMap::new())))
     }
 
+    // Generating route_id is under a lock and we use the size of hashmap to generate the route_id
+    // The size of hashmap is strictly increasing which ensures us a unique route_id across multiple runs.
     fn add_route(&self, from_account_id: &AccountId) -> CryptoHash {
         let mut guard = self.0.lock().unwrap();
         let route_id = CryptoHash::hash_borsh(guard.len());
@@ -251,6 +257,8 @@ fn network_message_to_shards_manager_handler(
     my_account_id: &AccountId,
     shards_manager_senders: HashMap<AccountId, Sender<ShardsManagerRequestFromNetwork>>,
 ) -> Arc<dyn Fn(NetworkRequests) -> Option<NetworkRequests>> {
+    // Static initialization for ROUTE_LOOKUP. This is fine across tests as we generate a unique route_id
+    // for each message under a lock.
     static ROUTE_LOOKUP: Lazy<PartialEncodedChunkRequestRouteLookup> =
         Lazy::new(PartialEncodedChunkRequestRouteLookup::new);
     let my_account_id = my_account_id.clone();
