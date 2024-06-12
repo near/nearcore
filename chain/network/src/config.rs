@@ -87,6 +87,18 @@ pub struct Tier1 {
     pub enable_outbound: bool,
 }
 
+#[derive(Clone)]
+pub struct SocketOptions {
+    pub recv_buffer_size: Option<u32>,
+    pub send_buffer_size: Option<u32>,
+}
+
+impl SocketOptions {
+    pub fn default() -> SocketOptions {
+        SocketOptions { recv_buffer_size: None, send_buffer_size: None }
+    }
+}
+
 /// Validated configuration for the peer-to-peer manager.
 #[derive(Clone)]
 pub struct NetworkConfig {
@@ -112,6 +124,8 @@ pub struct NetworkConfig {
     pub ideal_connections_lo: u32,
     /// Upper bound of the ideal number of connections.
     pub ideal_connections_hi: u32,
+    /// Socket options for peer connections.
+    pub socket_options: SocketOptions,
     /// Peers which last message is was within this period of time are considered active recent peers.
     pub peer_recent_time_window: time::Duration,
     /// Number of peers to keep while removing a connection.
@@ -310,6 +324,10 @@ impl NetworkConfig {
             minimum_outbound_peers: cfg.minimum_outbound_peers,
             ideal_connections_lo: cfg.ideal_connections_lo,
             ideal_connections_hi: cfg.ideal_connections_hi,
+            socket_options: SocketOptions {
+                recv_buffer_size: cfg.so_recv_buffer_size,
+                send_buffer_size: cfg.so_send_buffer_size,
+            },
             peer_recent_time_window: cfg.peer_recent_time_window.try_into()?,
             safe_set_size: cfg.safe_set_size,
             archival_peer_connections_lower_bound: cfg.archival_peer_connections_lower_bound,
@@ -385,6 +403,7 @@ impl NetworkConfig {
             minimum_outbound_peers: 5,
             ideal_connections_lo: 30,
             ideal_connections_hi: 35,
+            socket_options: SocketOptions { recv_buffer_size: None, send_buffer_size: None },
             peer_recent_time_window: time::Duration::seconds(600),
             safe_set_size: 20,
             archival_peer_connections_lower_bound: 10,

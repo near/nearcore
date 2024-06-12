@@ -1,3 +1,4 @@
+use crate::config::SocketOptions;
 use crate::network_protocol::PeerInfo;
 use anyhow::{anyhow, Context as _};
 use near_primitives::network::PeerId;
@@ -7,10 +8,6 @@ use std::fmt;
 use std::sync::Mutex;
 
 const LISTENER_BACKLOG: u32 = 128;
-
-// Socket options configuring buffer sizes for TIER2 connections
-const TIER2_SO_RCVBUF: u32 = 1000000;
-const TIER2_SO_SNDBUF: u32 = 1000000;
 
 /// TEST-ONLY: guards ensuring that OS considers the given TCP listener port to be in use until
 /// this OS process is terminated.
@@ -87,7 +84,11 @@ impl Stream {
         Ok(Self { peer_addr: stream.peer_addr()?, local_addr: stream.local_addr()?, stream, type_ })
     }
 
-    pub async fn connect(peer_info: &PeerInfo, tier: Tier) -> anyhow::Result<Stream> {
+    pub async fn connect(
+        peer_info: &PeerInfo,
+        tier: Tier,
+        socket_options: &SocketOptions,
+    ) -> anyhow::Result<Stream> {
         let addr = peer_info
             .addr
             .ok_or_else(|| anyhow!("Trying to connect to peer with no public address"))?;
@@ -97,13 +98,18 @@ impl Stream {
             std::net::SocketAddr::V6(_) => tokio::net::TcpSocket::new_v6()?,
         };
 
+        // Avoid setting the buffer sizes for T1 connections, which are numerous and lightweight.
         match tier {
             Tier::T2 => {
-                socket.set_recv_buffer_size(TIER2_SO_RCVBUF)?;
-                socket.set_send_buffer_size(TIER2_SO_SNDBUF)?;
+                if let Some(so_rcvbuf) = socket_options.recv_buffer_size {
+                    socket.set_recv_buffer_size(so_rcvbuf)?;
+                    tracing::debug!(target: "network", "SO_RCVBUF wanted {} got {:?}", so_rcvbuf, socket.recv_buffer_size());
+                }
 
-                tracing::debug!(target: "network", "SO_RCVBUF wanted {} got {:?}", TIER2_SO_RCVBUF, socket.recv_buffer_size());
-                tracing::debug!(target: "network", "SO_SNDBUF wanted {} got {:?}", TIER2_SO_SNDBUF, socket.send_buffer_size());
+                if let Some(so_sndbuf) = socket_options.send_buffer_size {
+                    socket.set_send_buffer_size(so_sndbuf)?;
+                    tracing::debug!(target: "network", "SO_SNDBUF wanted {} got {:?}", so_sndbuf, socket.send_buffer_size());
+                }
             }
             _ => {}
         };
@@ -128,9 +134,10 @@ impl Stream {
     pub async fn loopback(peer_id: PeerId, tier: Tier) -> (Stream, Stream) {
         let listener_addr = ListenerAddr::reserve_for_test();
         let peer_info = PeerInfo { id: peer_id, addr: Some(*listener_addr), account_id: None };
+        let socket_options = SocketOptions::default();
         let mut listener = listener_addr.listener().unwrap();
         let (outbound, inbound) =
-            tokio::join!(Stream::connect(&peer_info, tier), listener.accept());
+            tokio::join!(Stream::connect(&peer_info, tier, &socket_options), listener.accept());
         (outbound.unwrap(), inbound.unwrap())
     }
 
