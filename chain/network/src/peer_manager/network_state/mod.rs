@@ -33,6 +33,7 @@ use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use parking_lot::Mutex;
 use std::net::SocketAddr;
+use std::num::NonZeroUsize;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use tracing::Instrument as _;
@@ -196,7 +197,7 @@ impl NetworkState {
             tier2_route_back: Mutex::new(RouteBackCache::default()),
             tier1_route_back: Mutex::new(RouteBackCache::default()),
             recent_routed_messages: Mutex::new(lru::LruCache::new(
-                RECENT_ROUTED_MESSAGES_CACHE_SIZE,
+                NonZeroUsize::new(RECENT_ROUTED_MESSAGES_CACHE_SIZE).unwrap(),
             )),
             txns_since_last_block: AtomicUsize::new(0),
             whitelist_nodes,

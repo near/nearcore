@@ -95,7 +95,10 @@ members = [
     "utils/near-cache",
     "utils/stdx",
 ]
-exclude = ["tracing"]
+exclude = [
+    "tracing",
+    "benchmarks"
+]
 
 [workspace.lints.clippy]
 all = { level = "allow", priority = -100 }
@@ -199,7 +202,7 @@ lazy_static = "1.4"
 libc = "0.2.81"
 libfuzzer-sys = { version = "0.4", features = ["arbitrary-derive"] }
 log = "0.4"
-lru = "0.7.2"
+lru = "0.12.3"
 memoffset = "0.8"
 more-asserts = "0.2"
 near-account-id = { version = "1.0.0-alpha.4", features = [

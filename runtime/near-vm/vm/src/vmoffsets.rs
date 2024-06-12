@@ -451,11 +451,11 @@ impl VMOffsets {
 
 /// Offsets for [`VMSharedSignatureIndex`].
 ///
-/// [`VMSharedSignatureIndex`]: crate::vmcontext::VMSharedSignatureIndex
+/// [`VMSharedSignatureIndex`]: crate::sig_registry::VMSharedSignatureIndex
 impl VMOffsets {
     /// Return the size of [`VMSharedSignatureIndex`].
     ///
-    /// [`VMSharedSignatureIndex`]: crate::vmcontext::VMSharedSignatureIndex
+    /// [`VMSharedSignatureIndex`]: crate::sig_registry::VMSharedSignatureIndex
     pub const fn size_of_vmshared_signature_index(&self) -> u8 {
         4
     }
@@ -588,7 +588,7 @@ impl VMOffsets {
 
     /// Return the offset to [`VMSharedSignatureIndex`] index `index`.
     ///
-    /// [`VMSharedSignatureIndex`]: crate::vmcontext::VMSharedSignatureIndex
+    /// [`VMSharedSignatureIndex`]: crate::sig_registry::VMSharedSignatureIndex
     // Remember updating precompute upon changes
     pub fn vmctx_vmshared_signature_id(&self, index: SignatureIndex) -> u32 {
         assert_lt!(index.as_u32(), self.num_signature_ids);

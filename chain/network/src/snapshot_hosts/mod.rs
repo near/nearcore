@@ -16,6 +16,7 @@ use parking_lot::Mutex;
 use rayon::iter::ParallelBridge;
 use sha2::{Digest, Sha256};
 use std::collections::{BinaryHeap, HashMap, HashSet};
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -253,7 +254,8 @@ pub(crate) struct SnapshotHostsCache(Mutex<Inner>);
 impl SnapshotHostsCache {
     pub fn new(config: Config) -> Self {
         debug_assert!(config.part_selection_cache_batch_size > 0);
-        let hosts = LruCache::new(config.snapshot_hosts_cache_size as usize);
+        let hosts =
+            LruCache::new(NonZeroUsize::new(config.snapshot_hosts_cache_size as usize).unwrap());
         let state_part_selectors = HashMap::new();
         Self(Mutex::new(Inner {
             hosts,

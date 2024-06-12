@@ -7,6 +7,7 @@ use near_primitives::sharding::ChunkHash;
 use near_primitives::stateless_validation::ChunkStateWitnessAck;
 use s3::creds::time::ext::InstantExt as _;
 use std::hash::Hash;
+use std::num::NonZeroUsize;
 
 /// Limit to the number of witnesses tracked.
 ///
@@ -51,7 +52,12 @@ pub struct ChunkStateWitnessTracker {
 
 impl ChunkStateWitnessTracker {
     pub fn new(clock: Clock) -> Self {
-        Self { witnesses: LruCache::new(CHUNK_STATE_WITNESS_MAX_RECORD_COUNT), clock }
+        Self {
+            witnesses: LruCache::new(
+                NonZeroUsize::new(CHUNK_STATE_WITNESS_MAX_RECORD_COUNT).unwrap(),
+            ),
+            clock,
+        }
     }
 
     /// Adds a new witness message to track.

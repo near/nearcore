@@ -133,6 +133,7 @@ use rand::seq::IteratorRandom;
 use rand::Rng;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::collections::{HashMap, HashSet};
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tracing::{debug, debug_span, error, warn};
 
@@ -360,7 +361,9 @@ impl ShardsManagerActor {
                 CHUNK_REQUEST_SWITCH_TO_FULL_FETCH,
                 CHUNK_REQUEST_RETRY_MAX,
             ),
-            chunk_forwards_cache: lru::LruCache::new(CHUNK_FORWARD_CACHE_SIZE),
+            chunk_forwards_cache: lru::LruCache::new(
+                NonZeroUsize::new(CHUNK_FORWARD_CACHE_SIZE).unwrap(),
+            ),
             chain_head: initial_chain_head,
             chain_header_head: initial_chain_header_head,
             chunk_request_retry_period,
