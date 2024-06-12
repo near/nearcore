@@ -19,6 +19,10 @@ pub fn test_loop_sync_actor_maker(
         + Send
         + Sync,
 > {
+    // This is a closure that will be called by SyncAdapter to create SyncActor.
+    // Since we don't have too much control over when the closure is called, we need to use the CallbackEvent
+    // to register the SyncActor in the TestLoopData.
+    // TestLoop and TestLoopData can not cross the closure boundary and be moved while the PendingEventsSender can.
     Arc::new(move |shard_uid, client_sender, network_sender| {
         let sync_actor = SyncActor::new(shard_uid, client_sender, network_sender);
         let sync_actor_adapter = LateBoundSender::new();
