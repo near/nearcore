@@ -11,7 +11,6 @@ import os
 import json
 import tempfile
 
-
 # Duration of experiment in hours
 DURATION = 2
 
@@ -90,19 +89,21 @@ def get_commit() -> tuple[str, datetime]:
 
 
 def commit_to_db(data: dict) -> None:
-    chdir(os.path.expanduser("~/nearcore/benchmarks/continous/db/tool"))        
+    chdir(os.path.expanduser("~/nearcore/benchmarks/continous/db/tool"))
     with tempfile.NamedTemporaryFile() as fp:
         json.dump(data, fp)
         fp.close()
-        subprocess.run(f"cargo run -p cli -- insert-ft-transfer {fp.name}", shell=True)
+        subprocess.run(f"cargo run -p cli -- insert-ft-transfer {fp.name}",
+                       shell=True)
 
 
 # TODO: send signal to this process if ft-benchmark.sh decided to switch neard to another commit.
 # add handling of this signal to this script
 if __name__ == "__main__":
     state_size = (int(
-        subprocess.check_output(["du", "-s", "~/.near/localnet/node0/data"
-                                ], stderr=subprocess.PIPE, shell=True).decode("utf-8").split()[0]) * 1024)
+        subprocess.check_output(["du", "-s", "~/.near/localnet/node0/data"],
+                                stderr=subprocess.PIPE,
+                                shell=True).decode("utf-8").split()[0]) * 1024)
     processed_transactions = []
     time_begin = datetime.now()
     while True:
@@ -123,8 +124,8 @@ if __name__ == "__main__":
         "git_commit_hash": commit_hash,
         "git_commit_time": commit_time.strftime('%Y-%m-%dT%H:%M:%SZ'),
         "num_nodes": 1,  # TODO: probably should be filled by terraform
-        "node_hardware":
-            ["n2d-standard-8"],  # TODO: probably should be filled by terraform
+        "node_hardware": ["n2d-standard-8"
+                         ],  # TODO: probably should be filled by terraform
         "num_traffic_gen_machines":
             0,  # TODO: probably should be filled by terraform
         "disjoint_workloads":
