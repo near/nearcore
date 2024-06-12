@@ -485,6 +485,16 @@ impl From<near_chain_primitives::Error> for GetChunkError {
     }
 }
 
+#[derive(Debug)]
+pub enum HostError3 {
+    GuestPanic3 { panic_msg: String },
+}
+
+#[derive(Debug)]
+pub enum MyFunctionCallError3 {
+    HostError3(HostError3),
+}
+
 /// Queries client for given path / data.
 #[derive(Clone, Debug)]
 pub struct Query {
@@ -544,7 +554,7 @@ pub enum QueryError {
     },
     #[error("Function call returned an error: vm error haha")]
     ContractExecutionError {
-        vm_error: MyFunctionCallError,
+        vm_error: MyFunctionCallError3,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },

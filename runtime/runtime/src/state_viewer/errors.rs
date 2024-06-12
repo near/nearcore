@@ -1,4 +1,5 @@
-use near_vm_runner::logic::errors::FunctionCallError;
+pub use near_vm_runner::logic::errors::FunctionCallError;
+pub use near_vm_runner::logic::errors::HostError;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ViewAccountError {

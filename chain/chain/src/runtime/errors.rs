@@ -20,7 +20,13 @@ impl QueryError {
                 error_message,
             } => Self::InternalError { error_message, block_height, block_hash },
             node_runtime::state_viewer::errors::CallFunctionError::VMError { error_message } => {
-                Self::ContractExecutionError { error_message: MyFunctionCallError::HostError(HostError::GuestPanic { panic_msg: "this is  my panic".to_string() }), block_height, block_hash }
+                let error = match error_message {
+                    node_runtime::state_viewer::errors::FunctionCallError::HostError(node_runtime::state_viewer::errors::HostError::GuestPanic { panic_msg }) => {
+                        MyFunctionCallError::HostError(HostError::GuestPanic { panic_msg })
+                    }
+                    _ => MyFunctionCallError::HostError(HostError::GuestPanic { panic_msg: "this is  my panic 2".to_string() }),
+                };
+                Self::ContractExecutionError { error_message: error, block_height, block_hash }
             }
         }
     }

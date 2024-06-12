@@ -1,4 +1,6 @@
 use near_async::messaging::AsyncSendError;
+use near_client_primitives::types::HostError3;
+use near_client_primitives::types::MyFunctionCallError3;
 use serde_json::Value;
 
 use near_client_primitives::types::QueryError;
@@ -119,6 +121,12 @@ impl RpcFrom<QueryError> for RpcQueryError {
                 Self::UnknownAccessKey { public_key, block_height, block_hash }
             }
             QueryError::ContractExecutionError { vm_error, block_height, block_hash } => {
+                match vm_error {
+                    MyFunctionCallError3::HostError3(HostError3::GuestPanic3 { panic_msg }) => {
+                        return Self::ContractExecutionError { vm_error: MyFunctionCallError2::HostError2(HostError2::GuestPanic2 { panic_msg: panic_msg }), block_height, block_hash };
+                    }
+                    _ => {}
+                }
                 Self::ContractExecutionError { vm_error: MyFunctionCallError2::HostError2(HostError2::GuestPanic2 { panic_msg: "this is  my panic 2".to_string() }), block_height, block_hash }
             }
             QueryError::Unreachable { ref error_message } => {

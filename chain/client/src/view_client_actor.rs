@@ -14,16 +14,9 @@ use near_chain::{
     get_epoch_block_producers_view, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode,
 };
 use near_chain_configs::{ClientConfig, ProtocolConfigView};
-use near_chain_primitives::error::EpochErrorResultToChainError;
+use near_chain_primitives::error::{EpochErrorResultToChainError, HostError, MyFunctionCallError};
 use near_client_primitives::types::{
-    Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofError, GetBlockProofResponse,
-    GetBlockWithMerkleTree, GetChunkError, GetExecutionOutcome, GetExecutionOutcomeError,
-    GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError, GetMaintenanceWindows,
-    GetMaintenanceWindowsError, GetNextLightClientBlockError, GetProtocolConfig,
-    GetProtocolConfigError, GetReceipt, GetReceiptError, GetSplitStorageInfo,
-    GetSplitStorageInfoError, GetStateChangesError, GetStateChangesWithCauseInBlock,
-    GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfoError, Query, QueryError,
-    TxStatus, TxStatusError,
+    Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofError, GetBlockProofResponse, GetBlockWithMerkleTree, GetChunkError, GetExecutionOutcome, GetExecutionOutcomeError, GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError, GetMaintenanceWindows, GetMaintenanceWindowsError, GetNextLightClientBlockError, GetProtocolConfig, GetProtocolConfigError, GetReceipt, GetReceiptError, GetSplitStorageInfo, GetSplitStorageInfoError, GetStateChangesError, GetStateChangesWithCauseInBlock, GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfoError, HostError3, MyFunctionCallError3, Query, QueryError, TxStatus, TxStatusError
 };
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
@@ -415,10 +408,17 @@ impl ViewClientActorInner {
                     error_message,
                     block_hash,
                     block_height,
-                } => QueryError::ContractExecutionError {
-                    vm_error: error_message,
-                    block_height,
-                    block_hash,
+                } => {
+                    let error = match error_message {
+                        MyFunctionCallError::HostError(HostError::GuestPanic { panic_msg }) => {
+                            MyFunctionCallError3::HostError3(HostError3::GuestPanic3 { panic_msg })
+                        },
+                    };
+                    QueryError::ContractExecutionError {
+                        vm_error: error,
+                        block_height,
+                        block_hash,
+                    }
                 },
                 near_chain::near_chain_primitives::error::QueryError::TooLargeContractState {
                     requested_account_id,
