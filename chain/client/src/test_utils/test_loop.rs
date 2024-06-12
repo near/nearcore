@@ -3,8 +3,6 @@ pub mod partial_witness_actor;
 pub mod sync_actor;
 pub mod sync_jobs_actor;
 
-use std::borrow::Borrow;
-
 use crate::client_actor::{ClientActorInner, ClientSenderForPartialWitnessMessage};
 use near_async::messaging::{CanSend, Handler, SendAsync};
 use near_async::test_loop::delay_sender::DelaySender;
@@ -222,22 +220,22 @@ pub trait ClientQueries {
     fn tracked_shards_for_each_client(&self) -> Vec<Vec<ShardId>>;
 }
 
-impl<Data> ClientQueries for Vec<Data>
-where
-    Data: Borrow<Client>,
-{
+impl<Data: AsRef<Client> + AsRef<AccountId>> ClientQueries for Vec<Data> {
     fn client_index_tracking_account(&self, account_id: &AccountId) -> usize {
-        let client: &Client = self[0].borrow();
+        let client: &Client = self[0].as_ref();
         let head = client.chain.head().unwrap();
         let shard_id =
             client.epoch_manager.account_id_to_shard_id(&account_id, &head.epoch_id).unwrap();
 
         for i in 0..self.len() {
-            let client: &Client = self[i].borrow();
-            let account_id = client.validator_signer.as_ref().unwrap().validator_id();
+            let client: &Client = self[i].as_ref();
             let tracks_shard = client
                 .epoch_manager
-                .cares_about_shard_from_prev_block(&head.prev_block_hash, account_id, shard_id)
+                .cares_about_shard_from_prev_block(
+                    &head.prev_block_hash,
+                    &self[i].as_ref(),
+                    shard_id,
+                )
                 .unwrap();
             if tracks_shard {
                 return i;
@@ -248,7 +246,7 @@ where
 
     fn runtime_query(&self, account_id: &AccountId, query: QueryRequest) -> QueryResponse {
         let client_index = self.client_index_tracking_account(account_id);
-        let client: &Client = self[client_index].borrow();
+        let client: &Client = self[client_index].as_ref();
         let head = client.chain.head().unwrap();
         let last_block = client.chain.get_block(&head.last_block_hash).unwrap();
         let shard_id =
@@ -301,24 +299,27 @@ where
 
     fn tx_outcome(&self, tx_hash: CryptoHash) -> FinalExecutionOutcomeView {
         // TODO: this does not work yet with single-shard tracking.
-        let client: &Client = self[0].borrow();
+        let client: &Client = self[0].as_ref();
         client.chain.get_final_transaction_result(&tx_hash).unwrap()
     }
 
     fn tracked_shards_for_each_client(&self) -> Vec<Vec<ShardId>> {
-        let client: &Client = self[0].borrow();
+        let client: &Client = self[0].as_ref();
         let head = client.chain.head().unwrap();
         let all_shard_ids = client.epoch_manager.shard_ids(&head.epoch_id).unwrap();
 
         let mut ret = Vec::new();
         for i in 0..self.len() {
-            let client: &Client = self[i].borrow();
-            let account_id = client.validator_signer.as_ref().unwrap().validator_id();
+            let client: &Client = self[i].as_ref();
             let mut tracked_shards = Vec::new();
             for shard_id in &all_shard_ids {
                 let tracks_shard = client
                     .epoch_manager
-                    .cares_about_shard_from_prev_block(&head.prev_block_hash, account_id, *shard_id)
+                    .cares_about_shard_from_prev_block(
+                        &head.prev_block_hash,
+                        &self[i].as_ref(),
+                        *shard_id,
+                    )
                     .unwrap();
                 if tracks_shard {
                     tracked_shards.push(*shard_id);
