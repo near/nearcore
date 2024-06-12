@@ -279,14 +279,13 @@ impl PartialWitnessActor {
         tracing::debug!(target: "client", ?partial_witness, "Receive PartialEncodedStateWitnessMessage");
 
         // Validate the partial encoded state witness.
-        self.validate_partial_encoded_state_witness(&partial_witness)?;
-
-        // Store the partial encoded state witness for self.
-        self.partial_witness_tracker
-            .store_partial_encoded_state_witness(partial_witness.clone())?;
-
-        // Forward the part to all the chunk validators.
-        self.forward_state_witness_part(partial_witness)?;
+        if self.validate_partial_encoded_state_witness(&partial_witness)? {
+            // Store the partial encoded state witness for self.
+            self.partial_witness_tracker
+                .store_partial_encoded_state_witness(partial_witness.clone())?;
+            // Forward the part to all the chunk validators.
+            self.forward_state_witness_part(partial_witness)?;
+        }
 
         Ok(())
     }
@@ -297,10 +296,10 @@ impl PartialWitnessActor {
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
         // Validate the partial encoded state witness.
-        self.validate_partial_encoded_state_witness(&partial_witness)?;
-
-        // Store the partial encoded state witness for self.
-        self.partial_witness_tracker.store_partial_encoded_state_witness(partial_witness)?;
+        if self.validate_partial_encoded_state_witness(&partial_witness)? {
+            // Store the partial encoded state witness for self.
+            self.partial_witness_tracker.store_partial_encoded_state_witness(partial_witness)?;
+        }
 
         Ok(())
     }
@@ -314,10 +313,16 @@ impl PartialWitnessActor {
     /// - partial_witness signature is valid and from the expected chunk_producer
     /// TODO(stateless_validation): Include checks from handle_orphan_state_witness in orphan_witness_handling.rs
     /// These include checks based on epoch_id validity, witness size, height_created, distance from chain head, etc.
+    /// Returns:
+    /// - Ok(true) if partial witness is valid and we should process it.
+    /// - Ok(false) if partial witness is potentially valid, but at this point we
+    ///   should not process it. One example of that is if the witness is too old.
+    /// - Err if partial witness is invalid which most probably indicates malicious
+    ///   behavior.
     fn validate_partial_encoded_state_witness(
         &self,
         partial_witness: &PartialEncodedStateWitness,
-    ) -> Result<(), Error> {
+    ) -> Result<bool, Error> {
         if !self
             .epoch_manager
             .get_shard_layout(&partial_witness.epoch_id())?
@@ -373,21 +378,25 @@ impl PartialWitnessActor {
         // as well as malicious behavior of a chunk producer.
         if let Some(final_head) = final_head {
             if partial_witness.height_created() <= final_head.height {
-                return Err(Error::InvalidPartialChunkStateWitness(format!(
-                    "Height created of {} in PartialEncodedStateWitness not greater than final head height {}",
-                    partial_witness.height_created(),
-                    final_head.height,
-                )));
+                tracing::debug!(
+                    target: "client",
+                    ?partial_witness,
+                    final_head_height = final_head.height,
+                    "Skipping partial witness because its height created is not greater than final head height",
+                );
+                return Ok(false);
             }
         }
         if let Some(head) = head {
             if partial_witness.height_created() > head.height + MAX_HEIGHTS_AHEAD {
-                return Err(Error::InvalidPartialChunkStateWitness(format!(
-                    "Height created of {} in PartialEncodedStateWitness more than {} blocks ahead of head height {}",
-                    partial_witness.height_created(),
-                    MAX_HEIGHTS_AHEAD,
-                    head.height,
-                )));
+                tracing::debug!(
+                    target: "client",
+                    ?partial_witness,
+                    head_height = head.height,
+                    "Skipping partial witness because its height created is more than {} blocks ahead of head height",
+                    MAX_HEIGHTS_AHEAD
+                );
+                return Ok(false);
             }
 
             // Try to find the EpochId to which this witness will belong based on its height.
@@ -399,12 +408,13 @@ impl PartialWitnessActor {
                 .epoch_manager
                 .possible_epochs_of_height_around_tip(&head, partial_witness.height_created())?;
             if !possible_epochs.contains(&partial_witness.epoch_id()) {
-                return Err(Error::InvalidPartialChunkStateWitness(format!(
-                    "EpochId {:?} in PartialEncodedStateWitness at height {} is not in the possible list of epochs {:?}",
-                    partial_witness.epoch_id(),
-                    partial_witness.height_created(),
-                    possible_epochs
-                )));
+                tracing::debug!(
+                    target: "client",
+                    ?partial_witness,
+                    ?possible_epochs,
+                    "Skipping partial witness because its EpochId is is not in the possible list of epochs",
+                );
+                return Ok(false);
             }
         }
 
@@ -412,7 +422,7 @@ impl PartialWitnessActor {
             return Err(Error::InvalidPartialChunkStateWitness("Invalid signature".to_string()));
         }
 
-        Ok(())
+        Ok(true)
     }
 
     /// Handles the state witness ack message from the chunk validator.
