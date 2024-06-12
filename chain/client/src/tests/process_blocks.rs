@@ -255,8 +255,6 @@ fn test_bad_congestion_info_corrupt_buffered_receipts_bytes() {
     test_bad_congestion_info_impl(BadCongestionInfoMode::CorruptBufferedReceiptsBytes);
 }
 
-// TODO(congestion_control) validate allowed shard
-#[ignore]
 #[test]
 fn test_bad_congestion_info_corrupt_allowed_shard() {
     test_bad_congestion_info_impl(BadCongestionInfoMode::CorruptAllowedShard);

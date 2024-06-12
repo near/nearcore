@@ -396,7 +396,7 @@ mod tests {
             hash(&[height.to_le_bytes().as_slice(), shard_id.to_le_bytes().as_slice()].concat());
         let mut mock_hashes = MockHashes::new(prev_block_hash);
 
-        let signer = EmptyValidatorSigner::default();
+        let signer = EmptyValidatorSigner::default().into();
         let header_inner = ShardChunkHeaderInner::V3(ShardChunkHeaderInnerV3 {
             prev_block_hash,
             prev_state_root: mock_hashes.next().unwrap(),

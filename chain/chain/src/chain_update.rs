@@ -784,7 +784,7 @@ impl<'a> ChainUpdate<'a> {
                 gas_price,
                 challenges_result: block_header.challenges_result().clone(),
                 random_seed: *block_header.random_value(),
-                congestion_info: prev_block.shards_congestion_info(),
+                congestion_info: prev_block.block_congestion_info(),
             },
             &receipts,
             chunk.transactions(),
@@ -889,7 +889,7 @@ impl<'a> ChainUpdate<'a> {
             ApplyChunkBlockContext::from_header(
                 &block_header,
                 prev_block_header.next_gas_price(),
-                prev_block.shards_congestion_info(),
+                prev_block.block_congestion_info(),
             ),
             &[],
             &[],

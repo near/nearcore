@@ -53,7 +53,7 @@ fn bad_account_data_size() {
         version: rng.gen(),
         timestamp: clock.now_utc(),
     };
-    assert!(ad.sign(&signer).is_err());
+    assert!(ad.sign(&signer.into()).is_err());
 }
 
 #[test]

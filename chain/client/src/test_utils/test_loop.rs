@@ -3,8 +3,6 @@ pub mod partial_witness_actor;
 pub mod sync_actor;
 pub mod sync_jobs_actor;
 
-use std::borrow::Borrow;
-
 use crate::client_actor::{ClientActorInner, ClientSenderForPartialWitnessMessage};
 use near_async::messaging::{CanSend, Handler, SendAsync};
 use near_async::test_loop::delay_sender::DelaySender;
@@ -45,7 +43,7 @@ where
         let head = client.chain.head().unwrap();
         tracing::info!("{}Chain HEAD: {:?}", idx_prefix, head);
 
-        if let Some(signer) = client.validator_signer.as_ref() {
+        if let Some(signer) = client.validator_signer.get() {
             let account_id = signer.validator_id();
 
             let mut tracked_shards = Vec::new();
@@ -136,54 +134,57 @@ pub fn route_network_messages_to_client<
             }
             NetworkRequests::Approval { approval_message } => {
                 let other_idx = data.index_for_account(&approval_message.target);
-                if other_idx != idx {
-                    drop(
-                        client_senders[other_idx]
-                            .send_async(BlockApproval(approval_message.approval, PeerId::random())),
-                    );
-                } else {
-                    tracing::warn!("Dropping message to self");
-                }
+                assert_ne!(
+                    other_idx, idx,
+                    "Attempted to send Approval message to self: {:?}",
+                    approval_message
+                );
+                drop(
+                    client_senders[other_idx]
+                        .send_async(BlockApproval(approval_message.approval, PeerId::random())),
+                );
             }
             NetworkRequests::ForwardTx(account, transaction) => {
                 let other_idx = data.index_for_account(&account);
-                if other_idx != idx {
-                    drop(client_senders[other_idx].send_async(ProcessTxRequest {
-                        transaction,
-                        is_forwarded: true,
-                        check_only: false,
-                    }))
-                } else {
-                    tracing::warn!("Dropping message to self");
-                }
+                assert_ne!(
+                    other_idx, idx,
+                    "Attempted to send ForwardTx message to self for transaction {:?}",
+                    transaction
+                );
+                drop(client_senders[other_idx].send_async(ProcessTxRequest {
+                    transaction,
+                    is_forwarded: true,
+                    check_only: false,
+                }))
             }
             NetworkRequests::ChunkEndorsement(target, endorsement) => {
                 let other_idx = data.index_for_account(&target);
-                if other_idx != idx {
-                    drop(
-                        client_senders[other_idx].send_async(ChunkEndorsementMessage(endorsement)),
-                    );
-                } else {
-                    tracing::warn!("Dropping message to self");
-                }
+                assert_ne!(
+                    other_idx, idx,
+                    "Attempted to send ChunkEndorsement message to self: {:?}",
+                    endorsement
+                );
+                drop(client_senders[other_idx].send_async(ChunkEndorsementMessage(endorsement)));
             }
             NetworkRequests::ChunkStateWitnessAck(target, witness_ack) => {
                 let other_idx = data.index_for_account(&target);
-                if other_idx != idx {
-                    state_witness_senders[other_idx].send(ChunkStateWitnessAckMessage(witness_ack));
-                } else {
-                    tracing::warn!("Dropping state-witness-ack message to self");
-                }
+                assert_ne!(
+                    other_idx, idx,
+                    "Attempted to send ChunkStateWitnessAck message to self: {:?}",
+                    witness_ack
+                );
+                state_witness_senders[other_idx].send(ChunkStateWitnessAckMessage(witness_ack));
             }
             NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple) => {
                 for (target, partial_witness) in validator_witness_tuple.into_iter() {
                     let other_idx = data.index_for_account(&target);
-                    if other_idx != idx {
-                        state_witness_senders[other_idx]
-                            .send(PartialEncodedStateWitnessMessage(partial_witness));
-                    } else {
-                        tracing::warn!("Dropping state-witness message to self");
-                    }
+                    assert_ne!(
+                        other_idx, idx,
+                        "Attempted to send PartialEncodedStateWitness message to self: {:?}",
+                        partial_witness
+                    );
+                    state_witness_senders[other_idx]
+                        .send(PartialEncodedStateWitnessMessage(partial_witness));
                 }
             }
             NetworkRequests::PartialEncodedStateWitnessForward(
@@ -192,13 +193,13 @@ pub fn route_network_messages_to_client<
             ) => {
                 for target in chunk_validators {
                     let other_idx = data.index_for_account(&target);
-                    if other_idx != idx {
-                        state_witness_senders[other_idx].send(
-                            PartialEncodedStateWitnessForwardMessage(partial_witness.clone()),
-                        );
-                    } else {
-                        tracing::warn!("Dropping state-witness-forward message to self");
-                    }
+                    assert_ne!(
+                        other_idx, idx,
+                        "Attempted to send PartialEncodedStateWitnessForward message to self: {:?}",
+                        partial_witness
+                    );
+                    state_witness_senders[other_idx]
+                        .send(PartialEncodedStateWitnessForwardMessage(partial_witness.clone()));
                 }
             }
             NetworkRequests::SnapshotHostInfo { .. } => {
@@ -224,17 +225,18 @@ pub trait ClientQueries {
 
 impl<Data> ClientQueries for Vec<Data>
 where
-    Data: Borrow<Client>,
+    Data: AsRef<Client>,
 {
     fn client_index_tracking_account(&self, account_id: &AccountId) -> usize {
-        let client: &Client = self[0].borrow();
+        let client: &Client = self[0].as_ref();
         let head = client.chain.head().unwrap();
         let shard_id =
             client.epoch_manager.account_id_to_shard_id(&account_id, &head.epoch_id).unwrap();
 
         for i in 0..self.len() {
-            let client: &Client = self[i].borrow();
-            let account_id = client.validator_signer.as_ref().unwrap().validator_id();
+            let client: &Client = self[i].as_ref();
+            let validator_signer = client.validator_signer.get().unwrap();
+            let account_id = validator_signer.validator_id();
             let tracks_shard = client
                 .epoch_manager
                 .cares_about_shard_from_prev_block(&head.prev_block_hash, account_id, shard_id)
@@ -248,7 +250,7 @@ where
 
     fn runtime_query(&self, account_id: &AccountId, query: QueryRequest) -> QueryResponse {
         let client_index = self.client_index_tracking_account(account_id);
-        let client: &Client = self[client_index].borrow();
+        let client: &Client = self[client_index].as_ref();
         let head = client.chain.head().unwrap();
         let last_block = client.chain.get_block(&head.last_block_hash).unwrap();
         let shard_id =
@@ -301,19 +303,20 @@ where
 
     fn tx_outcome(&self, tx_hash: CryptoHash) -> FinalExecutionOutcomeView {
         // TODO: this does not work yet with single-shard tracking.
-        let client: &Client = self[0].borrow();
+        let client: &Client = self[0].as_ref();
         client.chain.get_final_transaction_result(&tx_hash).unwrap()
     }
 
     fn tracked_shards_for_each_client(&self) -> Vec<Vec<ShardId>> {
-        let client: &Client = self[0].borrow();
+        let client: &Client = self[0].as_ref();
         let head = client.chain.head().unwrap();
         let all_shard_ids = client.epoch_manager.shard_ids(&head.epoch_id).unwrap();
 
         let mut ret = Vec::new();
         for i in 0..self.len() {
-            let client: &Client = self[i].borrow();
-            let account_id = client.validator_signer.as_ref().unwrap().validator_id();
+            let client: &Client = self[i].as_ref();
+            let validator_signer = client.validator_signer.get().unwrap();
+            let account_id = validator_signer.validator_id();
             let mut tracked_shards = Vec::new();
             for shard_id in &all_shard_ids {
                 let tracks_shard = client
