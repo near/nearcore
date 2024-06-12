@@ -144,11 +144,12 @@ fn network_message_to_client_handler(
         NetworkRequests::Block { block } => {
             for (account_id, sender) in client_senders.iter() {
                 if account_id != &my_account_id {
-                    let _ = sender.send_async(BlockResponse {
+                    let future = sender.send_async(BlockResponse {
                         block: block.clone(),
                         peer_id: PeerId::random(),
                         was_requested: false,
                     });
+                    drop(future);
                 }
             }
             None
@@ -159,23 +160,27 @@ fn network_message_to_client_handler(
                 "Sending message to self not supported."
             );
             let sender = client_senders.get(&approval_message.target).unwrap();
-            let _ = sender.send_async(BlockApproval(approval_message.approval, PeerId::random()));
+            let future =
+                sender.send_async(BlockApproval(approval_message.approval, PeerId::random()));
+            drop(future);
             None
         }
         NetworkRequests::ForwardTx(account, transaction) => {
             assert_ne!(account, my_account_id, "Sending message to self not supported.");
             let sender = client_senders.get(&account).unwrap();
-            let _ = sender.send_async(ProcessTxRequest {
+            let future = sender.send_async(ProcessTxRequest {
                 transaction,
                 is_forwarded: true,
                 check_only: false,
             });
+            drop(future);
             None
         }
         NetworkRequests::ChunkEndorsement(target, endorsement) => {
             assert_ne!(target, my_account_id, "Sending message to self not supported.");
             let sender = client_senders.get(&target).unwrap();
-            let _ = sender.send_async(ChunkEndorsementMessage(endorsement));
+            let future = sender.send_async(ChunkEndorsementMessage(endorsement));
+            drop(future);
             None
         }
         _ => Some(request),
