@@ -9,6 +9,8 @@ from psycopg2 import sql
 from os import getenv, chdir
 import os
 import json
+import tempfile
+
 
 # Duration of experiment in hours
 DURATION = 2
@@ -89,9 +91,10 @@ def get_commit() -> tuple[str, datetime]:
 
 def commit_to_db(data: dict) -> None:
     chdir(os.path.expanduser("~/nearcore/benchmarks/continous/db/tool"))        
-    json.dump(data, open("tmp.json", "w"))
-    subprocess.run("cargo run -p cli -- insert-ft-transfer tmp.json", shell=True)
-    subprocess.run("rm tmp.json", shell=True)
+    with tempfile.NamedTemporaryFile() as fp:
+        json.dump(data, fp)
+        fp.close()
+        subprocess.run(f"cargo run -p cli -- insert-ft-transfer {fp.name}", shell=True)
 
 
 # TODO: send signal to this process if ft-benchmark.sh decided to switch neard to another commit.
