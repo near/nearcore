@@ -13,7 +13,7 @@
 //!       can be used to send messages to the event loop. For example, suppose we were
 //!       to make a Client whose constructor requires a shards_manager adapter; instead
 //!       of having to make a mock for the shards_manager adapter, we can simply register
-//!       the shards_manager actor with testloop and pass in it's sender.
+//!       the shards_manager actor with testloop and pass in its sender.
 //!     - Compared to writing synchronous tests, there is no need to manually deliver
 //!       network messages or handle actix messages at certain points of the test. Instead,
 //!       the event loop will invoke the appropriate event handlers whenever there is any
@@ -52,6 +52,8 @@
 //!     - Timed tests can be written to check the theoretical performance of certain tasks,
 //!       such as distributing chunks to other nodes within X milliseconds provided that
 //!       network messages have a 10ms delay.
+//!     - The framework does not require major migrations to existing code, e.g. it is
+//!       compatible with the Actix framework and futures.
 //!
 //! A note on the order of execution of the events: all events that are due at the same
 //! timestamp are executed in FIFO order. For example, if the events are emitted in the

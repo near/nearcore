@@ -11,6 +11,7 @@ use parking_lot::Mutex;
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use std::net::SocketAddr;
+use std::num::NonZeroUsize;
 use std::ops::Not;
 
 #[cfg(test)]
@@ -290,7 +291,8 @@ impl PeerStore {
     pub fn new(clock: &time::Clock, config: Config) -> anyhow::Result<Self> {
         let boot_nodes: HashSet<_> = config.boot_nodes.iter().map(|p| p.id.clone()).collect();
         // A mapping from `PeerId` to `KnownPeerState`.
-        let mut peerid_2_state = LruCache::new(config.peer_states_cache_size as usize);
+        let mut peerid_2_state =
+            LruCache::new(NonZeroUsize::new(config.peer_states_cache_size as usize).unwrap());
         // Stores mapping from `SocketAddr` to `VerifiedPeer`, which contains `PeerId`.
         // Only one peer can exist with given `PeerId` or `SocketAddr`.
         // In case of collision, we will choose the first one.

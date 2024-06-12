@@ -985,7 +985,7 @@ pub fn setup_client_with_runtime(
     save_trie_changes: bool,
     snapshot_callbacks: Option<SnapshotCallbacks>,
     partial_witness_adapter: PartialWitnessSenderForClient,
-    validator_signer: Arc<dyn ValidatorSigner>,
+    validator_signer: Arc<ValidatorSigner>,
 ) -> Client {
     let mut config = ClientConfig::test(
         true,

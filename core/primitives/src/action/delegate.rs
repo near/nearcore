@@ -1,6 +1,6 @@
 //! DelegateAction is a type of action to support meta transactions.
 //!
-//! NEP: https://github.com/near/NEPs/pull/366
+//! NEP: <https://github.com/near/NEPs/pull/366>
 //! This is the module containing the types introduced for delegate actions.
 
 pub use self::private_non_delegate_action::NonDelegateAction;

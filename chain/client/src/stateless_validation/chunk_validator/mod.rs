@@ -14,6 +14,7 @@ use near_chain::{Block, Chain};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
+use near_o11y::log_assert;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::{
     ChunkEndorsement, ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessSize,
@@ -36,7 +37,7 @@ const NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT: u64 = 5;
 /// so that the chunk can be included in the block.
 pub struct ChunkValidator {
     /// The signer for our own node, if we are a validator. If not, this is None.
-    my_signer: Option<Arc<dyn ValidatorSigner>>,
+    my_signer: Option<Arc<ValidatorSigner>>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     network_sender: Sender<PeerManagerMessageRequest>,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
@@ -53,7 +54,7 @@ pub struct ChunkValidator {
 
 impl ChunkValidator {
     pub fn new(
-        my_signer: Option<Arc<dyn ValidatorSigner>>,
+        my_signer: Option<Arc<ValidatorSigner>>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         network_sender: Sender<PeerManagerMessageRequest>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
@@ -201,7 +202,7 @@ impl ChunkValidator {
 pub(crate) fn send_chunk_endorsement_to_block_producers(
     chunk_header: &ShardChunkHeader,
     epoch_manager: &dyn EpochManagerAdapter,
-    signer: &dyn ValidatorSigner,
+    signer: &ValidatorSigner,
     network_sender: &Sender<PeerManagerMessageRequest>,
     chunk_endorsement_tracker: &ChunkEndorsementTracker,
 ) {
@@ -282,6 +283,24 @@ impl Client {
     }
 
     fn send_state_witness_ack(&self, witness: &ChunkStateWitness) {
+        // Chunk producers should not receive state witness from themselves.
+        log_assert!(
+            self.validator_signer.get().is_some(),
+            "Received a chunk state witness but this is not a validator node. Witness={:?}",
+            witness
+        );
+        // In production PartialWitnessActor does not forward a state witness to the chunk producer that
+        // produced the witness. However some tests bypass PartialWitnessActor, thus when a chunk producer
+        // receives its own state witness, we log a warning instead of panicking.
+        // TODO: Make sure all tests run with "test_features" and panic for non-test builds.
+        if self.validator_signer.get().unwrap().validator_id() == &witness.chunk_producer {
+            tracing::warn!(
+                "Validator {:?} received state witness from itself. Witness={:?}",
+                self.validator_signer.get().unwrap().validator_id(),
+                witness
+            );
+            return;
+        }
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::ChunkStateWitnessAck(
                 witness.chunk_producer.clone(),

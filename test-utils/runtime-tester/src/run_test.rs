@@ -182,7 +182,7 @@ impl TransactionConfig {
             self.nonce,
             self.signer_id.clone(),
             self.receiver_id.clone(),
-            &self.signer,
+            &self.signer.clone().into(),
             self.actions.clone(),
             *last_block.hash(),
             0,
