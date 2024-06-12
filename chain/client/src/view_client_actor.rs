@@ -64,6 +64,7 @@ use near_store::{DBCol, COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY};
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::hash::Hash;
+use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex, RwLock};
 use tracing::{error, info, warn};
 
@@ -110,11 +111,13 @@ pub struct ViewClientActorInner {
 impl ViewClientRequestManager {
     pub fn new() -> Self {
         Self {
-            tx_status_requests: lru::LruCache::new(QUERY_REQUEST_LIMIT),
-            tx_status_response: lru::LruCache::new(QUERY_REQUEST_LIMIT),
-            query_requests: lru::LruCache::new(QUERY_REQUEST_LIMIT),
-            query_responses: lru::LruCache::new(QUERY_REQUEST_LIMIT),
-            receipt_outcome_requests: lru::LruCache::new(QUERY_REQUEST_LIMIT),
+            tx_status_requests: lru::LruCache::new(NonZeroUsize::new(QUERY_REQUEST_LIMIT).unwrap()),
+            tx_status_response: lru::LruCache::new(NonZeroUsize::new(QUERY_REQUEST_LIMIT).unwrap()),
+            query_requests: lru::LruCache::new(NonZeroUsize::new(QUERY_REQUEST_LIMIT).unwrap()),
+            query_responses: lru::LruCache::new(NonZeroUsize::new(QUERY_REQUEST_LIMIT).unwrap()),
+            receipt_outcome_requests: lru::LruCache::new(
+                NonZeroUsize::new(QUERY_REQUEST_LIMIT).unwrap(),
+            ),
         }
     }
 }

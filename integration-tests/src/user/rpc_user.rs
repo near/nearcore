@@ -28,7 +28,7 @@ use crate::user::User;
 
 pub struct RpcUser {
     account_id: AccountId,
-    signer: Arc<dyn Signer>,
+    signer: Arc<Signer>,
     addr: String,
 }
 
@@ -43,7 +43,7 @@ impl RpcUser {
             .block_on(async move { f(new_client(&format!("http://{}", addr))).await })
     }
 
-    pub fn new(addr: &str, account_id: AccountId, signer: Arc<dyn Signer>) -> RpcUser {
+    pub fn new(addr: &str, account_id: AccountId, signer: Arc<Signer>) -> RpcUser {
         RpcUser { account_id, addr: addr.to_owned(), signer }
     }
 
@@ -222,11 +222,11 @@ impl User for RpcUser {
         }
     }
 
-    fn signer(&self) -> Arc<dyn Signer> {
+    fn signer(&self) -> Arc<Signer> {
         self.signer.clone()
     }
 
-    fn set_signer(&mut self, signer: Arc<dyn Signer>) {
+    fn set_signer(&mut self, signer: Arc<Signer>) {
         self.signer = signer;
     }
 }

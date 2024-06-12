@@ -248,7 +248,7 @@ impl Approval {
         parent_hash: CryptoHash,
         parent_height: BlockHeight,
         target_height: BlockHeight,
-        signer: &dyn ValidatorSigner,
+        signer: &ValidatorSigner,
     ) -> Self {
         let inner = ApprovalInner::new(&parent_hash, parent_height, target_height);
         let signature = signer.sign_approval(&inner, target_height);
@@ -429,7 +429,7 @@ impl BlockHeader {
         next_gas_price: Balance,
         total_supply: Balance,
         challenges_result: ChallengesResult,
-        signer: &dyn ValidatorSigner,
+        signer: &ValidatorSigner,
         last_final_block: CryptoHash,
         last_ds_final_block: CryptoHash,
         epoch_sync_data_hash: Option<CryptoHash>,

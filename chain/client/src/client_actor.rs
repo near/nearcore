@@ -3,7 +3,7 @@
 //! pass the control to Client. This means, any real block processing or production logic should
 //! be put in Client.
 //! Unfortunately, this is not the case today. We are in the process of refactoring ClientActor
-//! https://github.com/near/nearcore/issues/7899
+//! <https://github.com/near/nearcore/issues/7899>
 
 #[cfg(feature = "test_features")]
 use crate::client::AdvProduceBlocksMode;
@@ -134,7 +134,7 @@ pub fn start_client(
     state_sync_adapter: Arc<RwLock<SyncAdapter>>,
     network_adapter: PeerManagerAdapter,
     shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
-    validator_signer: Option<Arc<dyn ValidatorSigner>>,
+    validator_signer: Option<Arc<ValidatorSigner>>,
     telemetry_sender: Sender<TelemetryEvent>,
     snapshot_callbacks: Option<SnapshotCallbacks>,
     sender: Option<broadcast::Sender<()>>,
@@ -313,7 +313,7 @@ impl ClientActorInner {
         config: ClientConfig,
         node_id: PeerId,
         network_adapter: PeerManagerAdapter,
-        validator_signer: Option<Arc<dyn ValidatorSigner>>,
+        validator_signer: Option<Arc<ValidatorSigner>>,
         telemetry_sender: Sender<TelemetryEvent>,
         shutdown_signal: Option<broadcast::Sender<()>>,
         adv: crate::adversarial::Controls,
@@ -325,7 +325,7 @@ impl ClientActorInner {
             info!(target: "client", "Starting validator node: {}", vs.validator_id());
         }
         let info_helper =
-            InfoHelper::new(clock.clone(), telemetry_sender, &config, validator_signer.clone());
+            InfoHelper::new(clock.clone(), telemetry_sender, &config, validator_signer);
 
         let now = clock.now_utc();
         Ok(ClientActorInner {
@@ -462,7 +462,7 @@ impl Handler<NetworkAdversarialMessage> for ClientActorInner {
                 let mut genesis = near_chain_configs::GenesisConfig::default();
                 genesis.genesis_height = self.client.chain.chain_store().get_genesis_height();
                 let mut store_validator = near_chain::store_validator::StoreValidator::new(
-                    self.client.validator_signer.as_ref().map(|x| x.validator_id().clone()),
+                    self.client.validator_signer.get().map(|x| x.validator_id().clone()),
                     genesis,
                     self.client.epoch_manager.clone(),
                     self.client.shard_tracker.clone(),
@@ -708,7 +708,8 @@ impl Handler<Status> for ClientActorInner {
             .into_chain_error()?;
 
         let node_public_key = self.node_id.public_key().clone();
-        let (validator_account_id, validator_public_key) = match &self.client.validator_signer {
+        let (validator_account_id, validator_public_key) = match &self.client.validator_signer.get()
+        {
             Some(vs) => (Some(vs.validator_id().clone()), Some(vs.public_key())),
             None => (None, None),
         };
@@ -890,7 +891,7 @@ impl ClientActorInner {
         self.start_sync(ctx);
 
         // Start block production tracking if have block producer info.
-        if self.client.validator_signer.is_some() {
+        if self.client.validator_signer.get().is_some() {
             self.block_production_started = true;
         }
 
@@ -915,7 +916,7 @@ impl ClientActorInner {
         }
 
         // First check that we currently have an AccountId
-        let validator_signer = match self.client.validator_signer.as_ref() {
+        let validator_signer = match self.client.validator_signer.get() {
             None => return,
             Some(signer) => signer,
         };
@@ -1079,7 +1080,7 @@ impl ClientActorInner {
             debug!(target: "client", "Cannot produce any block: not enough approvals beyond {}", latest_known.height);
         }
 
-        let me = if let Some(me) = &self.client.validator_signer {
+        let me = if let Some(me) = &self.client.validator_signer.get() {
             me.validator_id().clone()
         } else {
             return Ok(());
@@ -1293,35 +1294,38 @@ impl ClientActorInner {
     /// Can return error, should be called with `produce_block` to handle errors and reschedule.
     fn produce_block(&mut self, next_height: BlockHeight) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "client", "produce_block", next_height).entered();
-        if let Some(block) = self.client.produce_block_on_head(next_height, false)? {
-            // If we produced the block, send it out before we apply the block.
-            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::Block { block: block.clone() },
-            ));
-            // We’ve produced the block so that counts as validated block.
-            let block = MaybeValidated::from_validated(block);
-            let res = self.client.start_process_block(
-                block,
-                Provenance::PRODUCED,
-                Some(self.myself_sender.apply_chunks_done.clone()),
-            );
-            if let Err(e) = &res {
-                match e {
-                    near_chain::Error::ChunksMissing(_) => {
-                        debug!(target: "client", "chunks missing");
-                        // missing chunks were already handled in Client::process_block, we don't need to
-                        // do anything here
-                        return Ok(());
-                    }
-                    _ => {
-                        error!(target: "client", ?res, "Failed to process freshly produced block");
-                        byzantine_assert!(false);
-                        return res.map_err(|err| err.into());
-                    }
-                }
+        let Some(block) = self.client.produce_block_on_head(next_height, false)? else {
+            return Ok(());
+        };
+
+        // If we produced the block, send it out before we apply the block.
+        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::Block { block: block.clone() },
+        ));
+        // We’ve produced the block so that counts as validated block.
+        let block = MaybeValidated::from_validated(block);
+        let res = self.client.start_process_block(
+            block,
+            Provenance::PRODUCED,
+            Some(self.myself_sender.apply_chunks_done.clone()),
+        );
+        let Err(error) = res else {
+            return Ok(());
+        };
+
+        match error {
+            near_chain::Error::ChunksMissing(_) => {
+                debug!(target: "client", "chunks missing");
+                // missing chunks were already handled in Client::process_block, we don't need to
+                // do anything here
+                Ok(())
+            }
+            _ => {
+                error!(target: "client", ?error, "Failed to process freshly produced block");
+                byzantine_assert!(false);
+                Err(error.into())
             }
         }
-        Ok(())
     }
 
     fn send_chunks_metrics(&mut self, block: &Block) {
@@ -1540,7 +1544,8 @@ impl ClientActorInner {
                 Some(self.myself_sender.apply_chunks_done.clone()),
                 self.state_parts_future_spawner.as_ref(),
             ) {
-                error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), err);
+                let validator_signer = self.client.validator_signer.get();
+                error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", validator_signer.as_ref().map(|vs| vs.validator_id()), err);
             }
         }
 
@@ -1657,7 +1662,7 @@ impl ClientActorInner {
             _ => unreachable!("Sync status should have been StateSync!"),
         };
 
-        let me = self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
+        let me = self.client.validator_signer.get().map(|x| x.validator_id().clone());
         let block_header = self.client.chain.get_block_header(&sync_hash);
         let block_header = unwrap_and_report_state_sync_result!(block_header);
         let epoch_id = block_header.epoch_id().clone();

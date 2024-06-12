@@ -1,6 +1,7 @@
 use lru::LruCache;
 use std::convert::Infallible;
 use std::hash::Hash;
+use std::num::NonZeroUsize;
 use std::sync::Mutex;
 
 /// A wrapper around `LruCache`. This struct is thread safe, doesn't return any references to any
@@ -16,7 +17,7 @@ where
 {
     /// Creats a new `LRU` cache that holds at most `cap` items.
     pub fn new(cap: usize) -> Self {
-        Self { inner: Mutex::new(LruCache::<K, V>::new(cap)) }
+        Self { inner: Mutex::new(LruCache::<K, V>::new(NonZeroUsize::new(cap).unwrap())) }
     }
 
     /// Returns the number of key-value pairs that are currently in the cache.

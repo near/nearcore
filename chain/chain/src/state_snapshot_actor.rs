@@ -84,18 +84,17 @@ impl StateSnapshotActor {
         }
         match res {
             Ok(res_shard_uids) => {
-                if let Some(res_shard_uids) = res_shard_uids {
-                    self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                        NetworkRequests::SnapshotHostInfo {
-                            sync_hash: prev_block_hash,
-                            epoch_height,
-                            shards: res_shard_uids
-                                .iter()
-                                .map(|uid| uid.shard_id as ShardId)
-                                .collect(),
-                        },
-                    ));
-                }
+                let Some(res_shard_uids) = res_shard_uids else {
+                    return;
+                };
+
+                self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::SnapshotHostInfo {
+                        sync_hash: prev_block_hash,
+                        epoch_height,
+                        shards: res_shard_uids.iter().map(|uid| uid.shard_id as ShardId).collect(),
+                    },
+                ));
             }
             Err(err) => {
                 tracing::error!(target: "state_snapshot", ?err, "State snapshot creation failed.\
