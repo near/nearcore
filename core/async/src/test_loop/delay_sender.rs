@@ -1,7 +1,7 @@
 use crate::break_apart::BreakApart;
 use crate::messaging;
 use crate::messaging::{IntoMultiSender, IntoSender};
-use crate::test_loop::futures::{
+use crate::test_loop::futures_old::{
     TestLoopAsyncComputationEvent, TestLoopAsyncComputationSpawner, TestLoopDelayedActionEvent,
     TestLoopDelayedActionRunner,
 };
@@ -9,7 +9,7 @@ use near_time::Duration;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use super::futures::{TestLoopFutureSpawner, TestLoopTask};
+use super::futures_old::{TestLoopFutureSpawner, TestLoopTask};
 
 /// Interface to send an event with a delay (in virtual time). It can be
 /// converted to a Sender for any message type that can be converted into

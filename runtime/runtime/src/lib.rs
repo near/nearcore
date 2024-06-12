@@ -19,7 +19,7 @@ use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
 use near_primitives::account::Account;
 use near_primitives::checked_feature;
-use near_primitives::congestion_info::{CongestionInfo, ExtendedCongestionInfo};
+use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
 use near_primitives::errors::{
     ActionError, ActionErrorKind, IntegerOverflowError, InvalidTxError, RuntimeError,
     TxExecutionError,
@@ -128,7 +128,7 @@ pub struct ApplyState {
     /// chunk. If the next chunks is the first with congestion control enabled,
     /// the congestion info needs to be computed while applying receipts.
     /// TODO(congestion_info) - verify performance of initialization when congested
-    pub congestion_info: HashMap<ShardId, ExtendedCongestionInfo>,
+    pub congestion_info: BlockCongestionInfo,
 }
 
 /// Contains information to update validators accounts at the first block of a new epoch.
@@ -1861,7 +1861,7 @@ impl Runtime {
         let delayed_receipts_count = delayed_receipts.len();
         if let Some(congestion_info) = &mut own_congestion_info {
             delayed_receipts.apply_congestion_changes(congestion_info)?;
-            let all_shards: Vec<ShardId> = apply_state.congestion_info.keys().copied().collect();
+            let all_shards = apply_state.congestion_info.all_shards();
 
             let congestion_seed = apply_state.block_height.wrapping_add(apply_state.shard_id);
             congestion_info.finalize_allowed_shard(
@@ -2279,7 +2279,7 @@ mod tests {
     use near_primitives::action::delegate::{
         DelegateAction, NonDelegateAction, SignedDelegateAction,
     };
-    use near_primitives::congestion_info::CongestionControl;
+    use near_primitives::congestion_info::{CongestionControl, ExtendedCongestionInfo};
     use near_primitives::hash::hash;
     use near_primitives::receipt::ReceiptPriority;
     use near_primitives::shard_layout::ShardUId;
@@ -2406,12 +2406,13 @@ mod tests {
         let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         store_update.commit().unwrap();
         let contract_cache = FilesystemContractRuntimeCache::test().unwrap();
-        let congestion_info: HashMap<ShardId, ExtendedCongestionInfo> =
-            if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-                [(0, ExtendedCongestionInfo::default())].into()
-            } else {
-                [].into()
-            };
+        let shards_congestion_info = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION)
+        {
+            [(0, ExtendedCongestionInfo::default())].into()
+        } else {
+            [].into()
+        };
+        let congestion_info = BlockCongestionInfo::new(shards_congestion_info);
         let apply_state = ApplyState {
             apply_reason: None,
             block_height: 1,
@@ -3743,9 +3744,10 @@ mod tests {
         let (runtime, tries, root, mut apply_state, _, epoch_info_provider) =
             setup_runtime(initial_balance, initial_locked, gas_limit);
 
-        // Delete previous congestion info to trigger bootstrapping it.
-        // An empty hash map is what we should see in the first chunk with the feature enabled.
-        apply_state.congestion_info = HashMap::new();
+        // Delete previous congestion info to trigger bootstrapping it. An empty
+        // shards congestion info map is what we should see in the first chunk
+        // with the feature enabled.
+        apply_state.congestion_info = BlockCongestionInfo::default();
 
         // Apply test specific settings
         apply_state.is_new_chunk = is_new_chunk;
@@ -3805,7 +3807,7 @@ mod tests {
         fn congestion_control(&self, shard_id: ShardId, missed_chunks: u64) -> CongestionControl {
             CongestionControl::new(
                 self.config.congestion_control_config,
-                self.congestion_info[&shard_id].congestion_info,
+                self.congestion_info.get(&shard_id).unwrap().congestion_info,
                 missed_chunks,
             )
         }

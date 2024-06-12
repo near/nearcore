@@ -4,8 +4,8 @@ use super::actix_component::{
 use crate::futures::FutureSpawnerExt;
 use crate::messaging::IntoSender;
 use crate::test_loop::event_handler::{capture_events, LoopEventHandler};
-use crate::test_loop::futures::{drive_futures, TestLoopDelayedActionEvent, TestLoopTask};
-use crate::test_loop::TestLoopBuilder;
+use crate::test_loop::futures_old::{drive_futures, TestLoopDelayedActionEvent, TestLoopTask};
+use crate::test_loop::test_loop_old::TestLoopBuilder;
 use derive_enum_from_into::{EnumFrom, EnumTryInto};
 use std::sync::Arc;
 use time::Duration;

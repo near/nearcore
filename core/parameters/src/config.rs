@@ -136,14 +136,16 @@ pub struct CongestionControlConfig {
     /// another shard per chunk.
     ///
     /// The actual gas forwarding allowance is a linear interpolation between
-    /// [`MIN_OUTGOING_GAS`] and [`MAX_OUTGOING_GAS`], or 0 if the receiver is
+    /// [MIN_OUTGOING_GAS](CongestionControlConfig::min_outgoing_gas) and
+    /// [MAX_OUTGOING_GAS](CongestionControlConfig::max_outgoing_gas), or 0 if the receiver is
     /// fully congested.
     pub max_outgoing_gas: Gas,
 
     /// The minimum gas each shard can send to a shard that is not fully congested.
     ///
     /// The actual gas forwarding allowance is a linear interpolation between
-    /// [`MIN_OUTGOING_GAS`] and [`MAX_OUTGOING_GAS`], or 0 if the receiver is
+    /// [MIN_OUTGOING_GAS](CongestionControlConfig::min_outgoing_gas) and
+    /// [MAX_OUTGOING_GAS](CongestionControlConfig::max_outgoing_gas), or 0 if the receiver is
     /// fully congested.
     pub min_outgoing_gas: Gas,
 
@@ -160,20 +162,26 @@ pub struct CongestionControlConfig {
     /// receipts.
     ///
     /// The actual gas forwarding allowance is a linear interpolation between
-    /// [`MIN_TX_GAS`] and [`MAX_TX_GAS`], based on the incoming congestion of the
-    /// local shard. Additionally, transactions can be rejected if the receiving
-    /// remote shard is congested more than [`REJECT_TX_CONGESTION_THRESHOLD`] based
-    /// on their general congestion level.
+    /// [MIN_OUTGOING_GAS](CongestionControlConfig::min_outgoing_gas) and
+    /// [MAX_OUTGOING_GAS](CongestionControlConfig::max_outgoing_gas),
+    /// based on the incoming congestion of the local shard.
+    /// Additionally, transactions can be rejected if the receiving
+    /// remote shard is congested more than
+    /// [REJECT_TX_CONGESTION_THRESHOLD](CongestionControlConfig::reject_tx_congestion_threshold)
+    /// based on their general congestion level.
     pub max_tx_gas: Gas,
 
     /// The minimum amount of gas in a chunk spent on converting new transactions
     /// to receipts, as long as the receiving shard is not congested.
     ///
     /// The actual gas forwarding allowance is a linear interpolation between
-    /// [`MIN_TX_GAS`] and [`MAX_TX_GAS`], based on the incoming congestion of the
-    /// local shard. Additionally, transactions can be rejected if the receiving
-    /// remote shard is congested more than [`REJECT_TX_CONGESTION_THRESHOLD`] based
-    /// on their general congestion level.
+    /// [MIN_OUTGOING_GAS](CongestionControlConfig::min_outgoing_gas) and
+    /// [MAX_OUTGOING_GAS](CongestionControlConfig::max_outgoing_gas),
+    /// based on the incoming congestion of the local shard.
+    /// Additionally, transactions can be rejected if the receiving
+    /// remote shard is congested more than
+    /// [REJECT_TX_CONGESTION_THRESHOLD](CongestionControlConfig::reject_tx_congestion_threshold)
+    /// based on their general congestion level.
     pub min_tx_gas: Gas,
 
     /// How much congestion a shard can tolerate before it stops all shards from
