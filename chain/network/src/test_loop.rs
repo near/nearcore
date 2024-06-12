@@ -90,6 +90,8 @@ impl TestLoopPeerManagerActor {
 
     /// Register a new handler to override the default handlers.
     pub fn register_override_handler(&mut self, handler: NetworkRequestHandler) {
+        // We add the handler to the end of the list and while processing the request, we iterate
+        // over the handlers in reverse order.
         self.handlers.push(handler);
     }
 }
