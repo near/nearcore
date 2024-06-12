@@ -172,16 +172,16 @@ fn process_query_response(
     match query_response {
         Ok(rpc_query_response) => serialize_response(rpc_query_response),
         Err(err) => match err {
-            near_jsonrpc_primitives::types::query::RpcQueryError::ContractExecutionError {
-                vm_error,
-                block_height,
-                block_hash,
-            } => Ok(json!({
-                "error": vm_error,
-                "logs": json!([]),
-                "block_height": block_height,
-                "block_hash": block_hash,
-            })),
+            // near_jsonrpc_primitives::types::query::RpcQueryError::ContractExecutionError {
+            //     vm_error,
+            //     block_height,
+            //     block_hash,
+            // } => Ok(json!({
+            //     "error": vm_error,
+            //     "logs": json!([]),
+            //     "block_height": block_height,
+            //     "block_hash": block_hash,
+            // })),
             near_jsonrpc_primitives::types::query::RpcQueryError::UnknownAccessKey {
                 public_key,
                 block_height,

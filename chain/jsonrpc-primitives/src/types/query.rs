@@ -6,6 +6,17 @@ pub struct RpcQueryRequest {
     pub request: near_primitives::views::QueryRequest,
 }
 
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub enum HostError2 {
+    GuestPanic2 { panic_msg: String },
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub enum MyFunctionCallError2 {
+    HostError2(HostError2),
+}
+
 #[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcQueryError {
@@ -28,7 +39,7 @@ pub enum RpcQueryError {
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
-    #[error("account {requested_account_id} does not exist while viewing")]
+    #[error("account {requested_account_id} does not exist while viewing hehey")]
     UnknownAccount {
         requested_account_id: near_primitives::types::AccountId,
         block_height: near_primitives::types::BlockHeight,
@@ -54,9 +65,9 @@ pub enum RpcQueryError {
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
-    #[error("Function call returned an error: {vm_error}")]
+    #[error("Function call returned an error: vm errorlol hehey")]
     ContractExecutionError {
-        vm_error: String,
+        vm_error: MyFunctionCallError2,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },

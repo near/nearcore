@@ -3,7 +3,7 @@ use serde_json::Value;
 
 use near_client_primitives::types::QueryError;
 use near_jsonrpc_primitives::errors::RpcParseError;
-use near_jsonrpc_primitives::types::query::{RpcQueryError, RpcQueryRequest, RpcQueryResponse};
+use near_jsonrpc_primitives::types::query::{HostError2, MyFunctionCallError2, RpcQueryError, RpcQueryRequest, RpcQueryResponse};
 use near_primitives::types::BlockReference;
 use near_primitives::views::{QueryRequest, QueryResponse};
 
@@ -109,6 +109,7 @@ impl RpcFrom<QueryError> for RpcQueryError {
                 Self::InvalidAccount { requested_account_id, block_height, block_hash }
             }
             QueryError::UnknownAccount { requested_account_id, block_height, block_hash } => {
+                println!("here got it");
                 Self::UnknownAccount { requested_account_id, block_height, block_hash }
             }
             QueryError::NoContractCode { contract_account_id, block_height, block_hash } => {
@@ -118,7 +119,7 @@ impl RpcFrom<QueryError> for RpcQueryError {
                 Self::UnknownAccessKey { public_key, block_height, block_hash }
             }
             QueryError::ContractExecutionError { vm_error, block_height, block_hash } => {
-                Self::ContractExecutionError { vm_error, block_height, block_hash }
+                Self::ContractExecutionError { vm_error: MyFunctionCallError2::HostError2(HostError2::GuestPanic2 { panic_msg: "this is  my panic 2".to_string() }), block_height, block_hash }
             }
             QueryError::Unreachable { ref error_message } => {
                 tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", error_message);

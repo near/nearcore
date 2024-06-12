@@ -1,3 +1,5 @@
+use near_vm_runner::logic::errors::FunctionCallError;
+
 #[derive(thiserror::Error, Debug)]
 pub enum ViewAccountError {
     #[error("Account ID \"{requested_account_id}\" is invalid")]
@@ -51,7 +53,7 @@ pub enum CallFunctionError {
     #[error("Internal error: #{error_message}")]
     InternalError { error_message: String },
     #[error("VM error occurred: #{error_message}")]
-    VMError { error_message: String },
+    VMError { error_message: FunctionCallError },
 }
 
 impl From<ViewAccountError> for ViewContractCodeError {

@@ -1,3 +1,5 @@
+use near_chain_primitives::error::{HostError, MyFunctionCallError};
+
 use crate::near_chain_primitives::error::QueryError;
 
 #[easy_ext::ext(FromStateViewerErrors)]
@@ -18,7 +20,7 @@ impl QueryError {
                 error_message,
             } => Self::InternalError { error_message, block_height, block_hash },
             node_runtime::state_viewer::errors::CallFunctionError::VMError { error_message } => {
-                Self::ContractExecutionError { error_message, block_height, block_hash }
+                Self::ContractExecutionError { error_message: MyFunctionCallError::HostError(HostError::GuestPanic { panic_msg: "this is  my panic".to_string() }), block_height, block_hash }
             }
         }
     }

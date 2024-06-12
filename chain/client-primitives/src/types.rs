@@ -1,5 +1,6 @@
 use actix::Message;
 use near_chain_configs::{ClientConfig, ProtocolConfigView};
+use near_chain_primitives::error::MyFunctionCallError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::network::PeerId;
@@ -541,9 +542,9 @@ pub enum QueryError {
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
-    #[error("Function call returned an error: {vm_error}")]
+    #[error("Function call returned an error: vm error haha")]
     ContractExecutionError {
-        vm_error: String,
+        vm_error: MyFunctionCallError,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
