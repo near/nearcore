@@ -6,7 +6,10 @@ import numpy as np
 import subprocess
 import psycopg2
 from psycopg2 import sql
-from os import getenv
+from os import getenv, chdir
+import os
+import json
+import tempfile
 
 # Duration of experiment in hours
 DURATION = 2
@@ -85,45 +88,28 @@ def get_commit() -> tuple[str, datetime]:
     return (full_commit_hash, commit_timestamp)
 
 
-# TODO: Make accesses actually work
 def commit_to_db(data: dict) -> None:
-    with psycopg2.connect(
-            dbname="benchmarks",
-            user="node-data-sender",
-            password=getenv("DB_PASSWORD"),
-            host="34.90.190.128",
-            port="5432",
-    ) as conn:
-        with conn.cursor() as cursor:
-            insert_query = sql.SQL("""
-                INSERT INTO ft_transfer (
-                    time, git_commit_hash, git_commit_time, num_nodes, node_hardware, 
-                    num_traffic_gen_machines, disjoint_workloads, num_shards, 
-                    num_unique_users, size_state_bytes, tps, total_transactions
-                ) VALUES (
-                    %(time)s, %(git_commit_hash)s, %(git_commit_time)s, %(num_nodes)s, 
-                    %(node_hardware)s, %(num_traffic_gen_machines)s, %(disjoint_workloads)s, 
-                    %(num_shards)s, %(num_unique_users)s, %(size_state_bytes)s, 
-                    %(tps)s, %(total_transactions)s
-                )
-                """)
-            cursor.execute(insert_query, data)
-            conn.commit()
+    chdir(os.path.expanduser("~/nearcore/benchmarks/continous/db/tool"))
+    with tempfile.NamedTemporaryFile() as fp:
+        json.dump(data, fp)
+        fp.close()
+        subprocess.run(f"cargo run -p cli -- insert-ft-transfer {fp.name}",
+                       shell=True)
 
 
 # TODO: send signal to this process if ft-benchmark.sh decided to switch neard to another commit.
 # add handling of this signal to this script
 if __name__ == "__main__":
     state_size = (int(
-        subprocess.check_output(["du", "-s", "~/.near/localnet/node0/data"
-                                ]).decode("utf-8").split()[0]) * 1024)
+        subprocess.check_output(["du", "-s", "~/.near/localnet/node0/data"],
+                                stderr=subprocess.PIPE,
+                                shell=True).decode("utf-8").split()[0]) * 1024)
     processed_transactions = []
     time_begin = datetime.now()
     while True:
         if (datetime.now() - time_begin).seconds / 3600 > DURATION:
             break
         processed_transactions.append(calculate_processed_transactions())
-        print("Added transaction count to list")
         sleep(POLL_INTERVAL)
     processed_transactions_deltas = np.diff(processed_transactions)
     processed_transactions_deltas = np.array(
@@ -134,13 +120,12 @@ if __name__ == "__main__":
     # TODO: add start_time and end_time instead of time to db schema
     commit_hash, commit_time = get_commit()
     response = {
-        "start_time": time_begin,
-        "end_time": datetime.now(),
+        "time": time_begin.strftime('%Y-%m-%dT%H:%M:%SZ'),
         "git_commit_hash": commit_hash,
-        "git_commit_time": commit_time,
+        "git_commit_time": commit_time.strftime('%Y-%m-%dT%H:%M:%SZ'),
         "num_nodes": 1,  # TODO: probably should be filled by terraform
-        "node_hardware":
-            "n2d-standard-8",  # TODO: probably should be filled by terraform
+        "node_hardware": ["n2d-standard-8"
+                         ],  # TODO: probably should be filled by terraform
         "num_traffic_gen_machines":
             0,  # TODO: probably should be filled by terraform
         "disjoint_workloads":
@@ -149,7 +134,7 @@ if __name__ == "__main__":
         "num_unique_users":
             1000,  # TODO: probably should be filled by terraform or ft-benchmark.sh
         "size_state_bytes": state_size,
-        "tps": average_tps,
+        "tps": int(average_tps),
         "total_transactions": processed_transactions[-1],
     }
     commit_to_db(response)
