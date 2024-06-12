@@ -41,6 +41,7 @@ use std::hash::Hash;
 use std::rc::Rc;
 use std::str;
 use std::sync::{Arc, RwLock, RwLockReadGuard};
+pub use trie_recording::TrieRecorderStats;
 
 pub mod accounting_cache;
 mod config;
@@ -715,6 +716,12 @@ impl Trie {
         let mut trie = Self::new(storage, root, None);
         trie.charge_gas_for_trie_node_access = !flat_storage_used;
         trie
+    }
+
+    /// Get statisitics about the recorded trie. Useful for observability and debugging.
+    /// This scans all of the recorded data, so could potentially be expensive to run.
+    pub fn recorder_stats(&self) -> Option<TrieRecorderStats> {
+        self.recorder.as_ref().map(|recorder| recorder.borrow().get_stats(&self.root))
     }
 
     pub fn get_root(&self) -> &StateRoot {

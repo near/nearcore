@@ -1,4 +1,5 @@
 use crate::congestion_control::ReceiptSink;
+use crate::ApplyState;
 use near_o11y::metrics::{
     exponential_buckets, linear_buckets, try_create_counter_vec, try_create_gauge_vec,
     try_create_histogram_vec, try_create_histogram_with_buckets, try_create_int_counter,
@@ -8,6 +9,7 @@ use near_o11y::metrics::{
 use near_parameters::config::CongestionControlConfig;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::types::ShardId;
+use near_store::Trie;
 use once_cell::sync::Lazy;
 use std::time::Duration;
 
@@ -398,6 +400,16 @@ static CONGESTION_OUTGOING_GAS: Lazy<IntGaugeVec> = Lazy::new(|| {
     .unwrap()
 });
 
+static CHUNK_RECORDED_TRIE_COLUMN_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_chunk_recorded_trie_column_size",
+        "Size of data belonging to a specific trie column inside chunk's recorded storage proof",
+        &["shard_id", "trie_column"],
+        Some(buckets_for_recorded_trie_column_size()),
+    )
+    .unwrap()
+});
+
 /// Buckets used for burned gas in receipts.
 ///
 /// The maximum possible is 1300 Tgas for a full chunk.
@@ -428,6 +440,15 @@ fn buckets_for_receipt_storage_proof_size() -> Vec<f64> {
 
     // Coarse buckets for the larger values
     buckets.extend(linear_buckets(500_000., 500_000., 20).unwrap());
+    buckets
+}
+
+fn buckets_for_recorded_trie_column_size() -> Vec<f64> {
+    // Precise buckets for the smaller, common values
+    let mut buckets = vec![50_000., 100_000., 200_000., 400_000., 600_000., 800_000.];
+
+    // Coarse buckets for the larger values
+    buckets.extend(linear_buckets(1_000_000., 500_000., 15).unwrap());
     buckets
 }
 
@@ -674,5 +695,25 @@ fn report_outgoing_buffers(
                 .with_label_values(&[&sender_shard_label, &receiver_shard_label])
                 .set(i64::try_from(len).unwrap_or(i64::MAX));
         }
+    }
+}
+
+pub fn report_recorded_column_sizes(trie: &Trie, apply_state: &ApplyState) {
+    // Tracing span to measure time spent on reporting column sizes.
+    let _span = tracing::debug_span!(
+            target: "runtime", "report_recorded_column_sizes",
+            shard_id = apply_state.shard_id,
+            block_height = apply_state.block_height)
+    .entered();
+
+    let Some(trie_recorder_stats) = trie.recorder_stats() else {
+        return;
+    };
+
+    let shard_id_str = apply_state.shard_id.to_string();
+    for column in trie_recorder_stats.trie_column_sizes.iter() {
+        CHUNK_RECORDED_TRIE_COLUMN_SIZE
+            .with_label_values(&[shard_id_str.as_str(), column.column_name])
+            .observe(column.size as f64);
     }
 }
