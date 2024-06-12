@@ -186,3 +186,8 @@ pytest sanity/slow_chunk.py --features nightly
 # TODO(congestion_control) - enable pytest on stabilization
 # pytest sanity/congestion_control.py
 pytest sanity/congestion_control.py --features nightly
+
+# Tests the correct operation of the view client without using memtries (#11312).
+# TODO(#11312): Enable this test after PR #11449 is merged into master.
+# pytest sanity/rpc_view_history.py
+# pytest sanity/rpc_view_history.py --features nightly
