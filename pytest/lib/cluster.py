@@ -306,7 +306,12 @@ class BaseNode(object):
             args = {'epoch_id': epoch_id}
         return self.json_rpc('validators', args)
 
-    def get_account(self, acc, finality='optimistic', block=None, do_assert=True, **kwargs):
+    def get_account(self,
+                    acc,
+                    finality='optimistic',
+                    block=None,
+                    do_assert=True,
+                    **kwargs):
         query = {
             "request_type": "view_account",
             "account_id": acc,

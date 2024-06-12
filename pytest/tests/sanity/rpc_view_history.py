@@ -41,7 +41,12 @@ class TestRpcViewHistory(unittest.TestCase):
             "load_mem_tries_for_tracked_shards": True,
         }
 
-        config = {node_id: {"consensus": consensus, "store": store } for node_id in range(3)}
+        config = {
+            node_id: {
+                "consensus": consensus,
+                "store": store
+            } for node_id in range(3)
+        }
 
         nodes: List[LocalNode] = start_cluster(3, 0, 1, None, [
             ["min_gas_price", 0],
@@ -74,7 +79,8 @@ class TestRpcViewHistory(unittest.TestCase):
 
         for acc_id in ['test0', 'test1']:
             # Sanity check that the payment transaction did go through.
-            amount_delta = int(nodes[0].get_account(acc_id, "final")['result']['amount']) - balances[acc_id]
+            amount_delta = int(nodes[0].get_account(
+                acc_id, "final")['result']['amount']) - balances[acc_id]
 
             if acc_id == 'test0':
                 self.assertEqual(-10, amount_delta)
@@ -82,7 +88,8 @@ class TestRpcViewHistory(unittest.TestCase):
                 self.assertEqual(10, amount_delta)
 
             # Now check that the RPC will provide historical results.
-            historical_amount = int(nodes[0].get_account(acc_id, block=1)['result']['amount'])
+            historical_amount = int(nodes[0].get_account(
+                acc_id, block=1)['result']['amount'])
             self.assertEqual(balances[acc_id], historical_amount)
 
 
