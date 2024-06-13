@@ -184,7 +184,7 @@ fn test_stateless_validators_with_multi_test_loop() {
         let state_sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
             client_adapter.as_sender(),
             network_adapter.as_sender(),
-            test_loop_sync_actor_maker(test_loop.sender()),
+            test_loop_sync_actor_maker(idx, test_loop.sender().for_index(idx)),
         )));
         let contract_cache = FilesystemContractRuntimeCache::new(&homedir, None::<&str>)
             .expect("filesystem contract cache")
@@ -292,13 +292,17 @@ fn test_stateless_validators_with_multi_test_loop() {
         };
         let state_sync_dumper_handle = test_loop.data.register_data(state_sync_dumper);
 
-        let client_sender = test_loop.register_actor(client_actor, Some(client_adapter));
+        let client_sender =
+            test_loop.register_actor_for_index(idx, client_actor, Some(client_adapter));
         let shards_manager_sender =
-            test_loop.register_actor(shards_manager, Some(shards_manager_adapter));
-        let partial_witness_sender =
-            test_loop.register_actor(partial_witness_actions, Some(partial_witness_adapter));
-        test_loop.register_actor(sync_jobs_actor, Some(sync_jobs_adapter));
-        test_loop.register_actor(state_snapshot, Some(state_snapshot_adapter));
+            test_loop.register_actor_for_index(idx, shards_manager, Some(shards_manager_adapter));
+        let partial_witness_sender = test_loop.register_actor_for_index(
+            idx,
+            partial_witness_actions,
+            Some(partial_witness_adapter),
+        );
+        test_loop.register_actor_for_index(idx, sync_jobs_actor, Some(sync_jobs_adapter));
+        test_loop.register_actor_for_index(idx, state_snapshot, Some(state_snapshot_adapter));
 
         let data = TestData {
             account_id: accounts[idx].clone(),
@@ -322,7 +326,11 @@ fn test_stateless_validators_with_multi_test_loop() {
     for idx in 0..NUM_VALIDATORS {
         let peer_manager_actor =
             TestLoopPeerManagerActor::new(test_loop.clock(), &accounts[idx], &node_datas);
-        test_loop.register_actor(peer_manager_actor, Some(node_datas[idx].network_adapter.clone()));
+        test_loop.register_actor_for_index(
+            idx,
+            peer_manager_actor,
+            Some(node_datas[idx].network_adapter.clone()),
+        );
     }
 
     // Give it some condition to stop running at. Here we run the test until the first client

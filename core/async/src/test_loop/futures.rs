@@ -8,7 +8,7 @@ use near_time::Duration;
 use crate::futures::{AsyncComputationSpawner, FutureSpawner};
 
 use super::data::TestLoopData;
-use super::DelaySender;
+use super::PendingEventsSender;
 
 /// Support for futures in TestLoop.
 ///
@@ -38,28 +38,33 @@ use super::DelaySender;
 
 /// A DelaySender is a FutureSpawner that can be used to
 /// spawn futures into the test loop. We give it a convenient alias.
-pub type TestLoopFututeSpawner = DelaySender;
+pub type TestLoopFututeSpawner = PendingEventsSender;
 
 impl FutureSpawner for TestLoopFututeSpawner {
     fn spawn_boxed(&self, description: &str, f: BoxFuture<'static, ()>) {
-        let task = Arc::new(FutureTask { future: Mutex::new(Some(f)), sender: self.clone() });
+        let task = Arc::new(FutureTask {
+            future: Mutex::new(Some(f)),
+            sender: self.clone(),
+            description: description.to_string(),
+        });
         let callback = move |_: &mut TestLoopData| {
             drive_futures(&task);
         };
-        self.send(format!("Future {:?}", description), Box::new(callback));
+        self.send(format!("FutureSpawn({})", description), Box::new(callback));
     }
 }
 
 struct FutureTask {
     future: Mutex<Option<BoxFuture<'static, ()>>>,
-    sender: DelaySender,
+    sender: PendingEventsSender,
+    description: String,
 }
 
 impl ArcWake for FutureTask {
     fn wake_by_ref(arc_self: &Arc<Self>) {
         let clone = arc_self.clone();
         arc_self.sender.send(
-            "FutureTask".to_string(),
+            format!("FutureTask({})", arc_self.description),
             Box::new(move |_: &mut TestLoopData| drive_futures(&clone)),
         );
     }
@@ -83,13 +88,13 @@ fn drive_futures(task: &Arc<FutureTask>) {
 
 /// AsyncComputationSpawner that spawns the computation in the TestLoop.
 pub struct TestLoopAsyncComputationSpawner {
-    sender: DelaySender,
+    sender: PendingEventsSender,
     artificial_delay: Box<dyn Fn(&str) -> Duration + Send + Sync>,
 }
 
 impl TestLoopAsyncComputationSpawner {
     pub fn new(
-        sender: DelaySender,
+        sender: PendingEventsSender,
         artificial_delay: impl Fn(&str) -> Duration + Send + Sync + 'static,
     ) -> Self {
         Self { sender, artificial_delay: Box::new(artificial_delay) }
@@ -99,7 +104,7 @@ impl TestLoopAsyncComputationSpawner {
 impl AsyncComputationSpawner for TestLoopAsyncComputationSpawner {
     fn spawn_boxed(&self, name: &str, f: Box<dyn FnOnce() + Send>) {
         self.sender.send_with_delay(
-            format!("AsyncComputation {:?}", name),
+            format!("AsyncComputation({})", name),
             Box::new(move |_| f()),
             (self.artificial_delay)(name),
         );
