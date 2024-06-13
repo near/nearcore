@@ -28,7 +28,7 @@ once_cell.workspace = true
 parity-wasm.workspace = true
 prefix-sum-vec.workspace = true
 ripemd.workspace = true
-rustix = { workspace = true, features = [ "fs" ] }
+rustix = { workspace = true, features = ["fs"] }
 serde_repr.workspace = true
 serde_with.workspace = true
 serde.workspace = true
@@ -87,28 +87,23 @@ nightly_protocol = [
   "near-primitives-core/nightly_protocol",
 ]
 # all vms enabled for now
-default = [
-  "wasmer0_vm",
-  "wasmtime_vm",
-  "wasmer2_vm",
-  "near_vm",
-]
-wasmer0_vm = [ "wasmer-runtime", "wasmer-runtime-core" ]
-wasmtime_vm = [ "wasmtime", "anyhow"]
+default = []
+wasmer0_vm = ["wasmer-runtime", "wasmer-runtime-core"]
+wasmtime_vm = ["wasmtime", "anyhow"]
 wasmer2_vm = [
-    "wasmer-compiler",
-    "wasmer-compiler-singlepass",
-    "wasmer-engine",
-    "wasmer-engine-universal",
-    "wasmer-types",
-    "wasmer-vm"
+  "wasmer-compiler",
+  "wasmer-compiler-singlepass",
+  "wasmer-engine",
+  "wasmer-engine-universal",
+  "wasmer-types",
+  "wasmer-vm",
 ]
 near_vm = [
-    "near-vm-compiler",
-    "near-vm-compiler-singlepass",
-    "near-vm-engine",
-    "near-vm-types",
-    "near-vm-vm"
+  "near-vm-compiler",
+  "near-vm-compiler-singlepass",
+  "near-vm-engine",
+  "near-vm-types",
+  "near-vm-vm",
 ]
 
 no_cpu_compatibility_checks = []
@@ -116,7 +111,7 @@ no_cpu_compatibility_checks = []
 no_cache = []
 
 protocol_feature_fix_contract_loading_cost = [
-    "near-primitives-core/protocol_feature_fix_contract_loading_cost",
+  "near-primitives-core/protocol_feature_fix_contract_loading_cost",
 ]
 
 nightly = [
