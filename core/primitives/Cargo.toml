@@ -1,6 +1,6 @@
 [package]
 name = "near-primitives"
-version = "0.22.0"
+version.workspace = true
 authors.workspace = true
 edition.workspace = true
 description = "This crate provides the base set of primitives used by other nearcore crates"
