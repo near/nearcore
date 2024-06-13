@@ -48,13 +48,26 @@ impl TestLoopBuilder {
         Self { test_loop: TestLoopV2::new(), genesis: None, clients: vec![] }
     }
 
+    /// Get the clock for the test loop.
     pub fn clock(&self) -> Clock {
         self.test_loop.clock()
     }
 
+    /// Set the genesis configuration for the test loop.
     pub fn genesis(mut self, genesis: Genesis) -> Self {
         self.genesis = Some(genesis);
         self
+    }
+
+    /// Set the clients for the test loop.
+    pub fn clients(mut self, clients: Vec<AccountId>) -> Self {
+        self.clients = clients;
+        self
+    }
+
+    /// Build the test loop environment.
+    pub fn build(self) -> TestLoopEnv {
+        self.ensure_genesis().ensure_clients().build_impl()
     }
 
     fn ensure_genesis(self) -> Self {
@@ -62,18 +75,9 @@ impl TestLoopBuilder {
         self
     }
 
-    pub fn clients(mut self, clients: Vec<AccountId>) -> Self {
-        self.clients = clients;
-        self
-    }
-
     fn ensure_clients(self) -> Self {
         assert!(!self.clients.is_empty(), "Clients must be provided to the test loop");
         self
-    }
-
-    pub fn build(self) -> TestLoopEnv {
-        self.ensure_genesis().ensure_clients().build_impl()
     }
 
     fn build_impl(mut self) -> TestLoopEnv {
