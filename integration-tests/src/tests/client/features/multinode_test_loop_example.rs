@@ -355,13 +355,13 @@ fn test_client_with_multi_test_loop() {
             1,
             accounts[i].clone(),
             accounts[(i + 1) % accounts.len()].clone(),
-            &create_user_test_signer(&accounts[i]),
+            &create_user_test_signer(&accounts[i]).into(),
             amount,
             anchor_hash,
         );
         *balances.get_mut(&accounts[i]).unwrap() -= amount;
         *balances.get_mut(&accounts[(i + 1) % accounts.len()]).unwrap() += amount;
-        let _ = node_datas[i % NUM_CLIENTS]
+        let future = node_datas[i % NUM_CLIENTS]
             .client_sender
             .clone()
             .with_delay(Duration::milliseconds(300 * i as i64))
@@ -370,6 +370,7 @@ fn test_client_with_multi_test_loop() {
                 is_forwarded: false,
                 check_only: false,
             });
+        drop(future);
     }
 
     // Give plenty of time for these transactions to complete.

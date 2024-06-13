@@ -33,7 +33,7 @@ pub struct PartialWitnessActor {
     /// Adapter to send messages to the network.
     network_adapter: PeerManagerAdapter,
     /// Validator signer to sign the state witness.
-    my_signer: Arc<dyn ValidatorSigner>,
+    my_signer: Arc<ValidatorSigner>,
     /// Epoch manager to get the set of chunk validators
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     /// Tracks the parts of the state witness sent from chunk producers to chunk validators.
@@ -103,7 +103,7 @@ impl PartialWitnessActor {
         clock: Clock,
         network_adapter: PeerManagerAdapter,
         client_sender: ClientSenderForPartialWitness,
-        my_signer: Arc<dyn ValidatorSigner>,
+        my_signer: Arc<ValidatorSigner>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         store: Store,
     ) -> Self {
@@ -126,6 +126,26 @@ impl PartialWitnessActor {
     ) -> Result<(), Error> {
         let DistributeStateWitnessRequest { epoch_id, chunk_header, state_witness } = msg;
 
+        tracing::debug!(
+            target: "client",
+            chunk_hash=?chunk_header.chunk_hash(),
+            "distribute_chunk_state_witness",
+        );
+
+        let witness_bytes = compress_witness(&state_witness)?;
+
+        self.send_state_witness_parts(epoch_id, chunk_header, witness_bytes)?;
+
+        Ok(())
+    }
+
+    // Function to generate the parts of the state witness and return them as a tuple of chunk_validator and part.
+    fn generate_state_witness_parts(
+        &mut self,
+        epoch_id: EpochId,
+        chunk_header: ShardChunkHeader,
+        witness_bytes: EncodedChunkStateWitness,
+    ) -> Result<Vec<(AccountId, PartialEncodedStateWitness)>, Error> {
         let chunk_validators = self
             .epoch_manager
             .get_chunk_validator_assignments(
@@ -139,37 +159,14 @@ impl PartialWitnessActor {
             target: "client",
             chunk_hash=?chunk_header.chunk_hash(),
             ?chunk_validators,
-            "distribute_chunk_state_witness",
+            "generate_state_witness_parts",
         );
 
-        let witness_bytes = compress_witness(&state_witness)?;
-
-        // Record the witness in order to match the incoming acks for measuring round-trip times.
-        // See process_chunk_state_witness_ack for the handling of the ack messages.
-        self.state_witness_tracker.record_witness_sent(
-            &state_witness,
-            witness_bytes.size_bytes(),
-            chunk_validators.len(),
-        );
-
-        self.send_state_witness_parts(epoch_id, chunk_header, witness_bytes, chunk_validators)?;
-
-        Ok(())
-    }
-
-    // Function to generate the parts of the state witness and return them as a tuple of chunk_validator and part.
-    fn generate_state_witness_parts(
-        &mut self,
-        epoch_id: EpochId,
-        chunk_header: ShardChunkHeader,
-        witness_bytes: EncodedChunkStateWitness,
-        chunk_validators: Vec<AccountId>,
-    ) -> Vec<(AccountId, PartialEncodedStateWitness)> {
         // Break the state witness into parts using Reed Solomon encoding.
         let encoder = self.encoders.entry(chunk_validators.len());
         let (parts, encoded_length) = encoder.encode(&witness_bytes);
 
-        chunk_validators
+        Ok(chunk_validators
             .iter()
             .zip_eq(parts)
             .enumerate()
@@ -186,7 +183,7 @@ impl PartialWitnessActor {
                 );
                 (chunk_validator.clone(), partial_witness)
             })
-            .collect_vec()
+            .collect_vec())
     }
 
     // Break the state witness into parts and send each part to the corresponding chunk validator owner.
@@ -197,34 +194,38 @@ impl PartialWitnessActor {
         epoch_id: EpochId,
         chunk_header: ShardChunkHeader,
         witness_bytes: EncodedChunkStateWitness,
-        chunk_validators: Vec<AccountId>,
     ) -> Result<(), Error> {
+        // Capture these values first, as the sources are consumed before calling record_witness_sent.
+        let chunk_hash = chunk_header.chunk_hash();
+        let witness_size_in_bytes = witness_bytes.size_bytes();
+
         // Record time taken to encode the state witness parts.
         let shard_id_label = chunk_header.shard_id().to_string();
         let encode_timer = metrics::PARTIAL_WITNESS_ENCODE_TIME
             .with_label_values(&[shard_id_label.as_str()])
             .start_timer();
-        let validator_witness_tuple = self.generate_state_witness_parts(
-            epoch_id,
-            chunk_header,
-            witness_bytes,
-            chunk_validators.clone(),
-        );
+        let mut validator_witness_tuple =
+            self.generate_state_witness_parts(epoch_id, chunk_header, witness_bytes)?;
         encode_timer.observe_duration();
 
         // Since we can't send network message to ourselves, we need to send the PartialEncodedStateWitnessForward
         // message for our part.
-        if let Some((_, partial_witness)) = validator_witness_tuple
+        if let Some(index) = validator_witness_tuple
             .iter()
-            .find(|(validator, _)| validator == self.my_signer.validator_id())
+            .position(|(validator, _)| validator == self.my_signer.validator_id())
         {
-            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::PartialEncodedStateWitnessForward(
-                    chunk_validators,
-                    partial_witness.clone(),
-                ),
-            ));
+            // This also removes this validator from the list, since we do not need to send our own witness part to self.
+            let (_, partial_witness) = validator_witness_tuple.swap_remove(index);
+            self.forward_state_witness_part(partial_witness)?;
         }
+
+        // Record the witness in order to match the incoming acks for measuring round-trip times.
+        // See process_chunk_state_witness_ack for the handling of the ack messages.
+        self.state_witness_tracker.record_witness_sent(
+            chunk_hash,
+            witness_size_in_bytes,
+            validator_witness_tuple.len(),
+        );
 
         // Send the parts to the corresponding chunk validator owners.
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
@@ -233,13 +234,40 @@ impl PartialWitnessActor {
         Ok(())
     }
 
-    /// Handles the state witness ack message from the chunk validator.
-    /// It computes the round-trip time between sending the state witness and receiving
-    /// the ack message and updates the corresponding metric with it.
-    /// Currently we do not raise an error for handling of witness-ack messages,
-    /// as it is used only for tracking some networking metrics.
-    pub fn handle_chunk_state_witness_ack(&mut self, witness_ack: ChunkStateWitnessAck) {
-        self.state_witness_tracker.on_witness_ack_received(witness_ack);
+    /// Sends the witness part to the chunk validators, except for the following:
+    /// 1) The current validator, 2) Chunk producer that originally generated the witness part.
+    fn forward_state_witness_part(
+        &self,
+        partial_witness: PartialEncodedStateWitness,
+    ) -> Result<(), Error> {
+        let chunk_producer = self.epoch_manager.get_chunk_producer(
+            partial_witness.epoch_id(),
+            partial_witness.height_created(),
+            partial_witness.shard_id(),
+        )?;
+        let ordered_chunk_validators = self
+            .epoch_manager
+            .get_chunk_validator_assignments(
+                partial_witness.epoch_id(),
+                partial_witness.shard_id(),
+                partial_witness.height_created(),
+            )?
+            .ordered_chunk_validators();
+        // Forward witness part to chunk validators except for the following:
+        // (1) the current validator and (2) validator that produced the chunk and witness.
+        let target_chunk_validators = ordered_chunk_validators
+            .into_iter()
+            .filter(|validator| {
+                validator != self.my_signer.validator_id() && *validator != chunk_producer
+            })
+            .collect();
+        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::PartialEncodedStateWitnessForward(
+                target_chunk_validators,
+                partial_witness,
+            ),
+        ));
+        Ok(())
     }
 
     /// Function to handle receiving partial_encoded_state_witness message from chunk producer.
@@ -250,25 +278,13 @@ impl PartialWitnessActor {
         tracing::debug!(target: "client", ?partial_witness, "Receive PartialEncodedStateWitnessMessage");
 
         // Validate the partial encoded state witness.
-        self.validate_partial_encoded_state_witness(&partial_witness)?;
-
-        // Store the partial encoded state witness for self.
-        self.partial_witness_tracker
-            .store_partial_encoded_state_witness(partial_witness.clone())?;
-
-        // Forward the part to all the chunk validators.
-        let chunk_validators = self
-            .epoch_manager
-            .get_chunk_validator_assignments(
-                partial_witness.epoch_id(),
-                partial_witness.shard_id(),
-                partial_witness.height_created(),
-            )?
-            .ordered_chunk_validators();
-
-        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::PartialEncodedStateWitnessForward(chunk_validators, partial_witness),
-        ));
+        if self.validate_partial_encoded_state_witness(&partial_witness)? {
+            // Store the partial encoded state witness for self.
+            self.partial_witness_tracker
+                .store_partial_encoded_state_witness(partial_witness.clone())?;
+            // Forward the part to all the chunk validators.
+            self.forward_state_witness_part(partial_witness)?;
+        }
 
         Ok(())
     }
@@ -279,10 +295,10 @@ impl PartialWitnessActor {
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
         // Validate the partial encoded state witness.
-        self.validate_partial_encoded_state_witness(&partial_witness)?;
-
-        // Store the partial encoded state witness for self.
-        self.partial_witness_tracker.store_partial_encoded_state_witness(partial_witness)?;
+        if self.validate_partial_encoded_state_witness(&partial_witness)? {
+            // Store the partial encoded state witness for self.
+            self.partial_witness_tracker.store_partial_encoded_state_witness(partial_witness)?;
+        }
 
         Ok(())
     }
@@ -296,10 +312,16 @@ impl PartialWitnessActor {
     /// - partial_witness signature is valid and from the expected chunk_producer
     /// TODO(stateless_validation): Include checks from handle_orphan_state_witness in orphan_witness_handling.rs
     /// These include checks based on epoch_id validity, witness size, height_created, distance from chain head, etc.
+    /// Returns:
+    /// - Ok(true) if partial witness is valid and we should process it.
+    /// - Ok(false) if partial witness is potentially valid, but at this point we
+    ///   should not process it. One example of that is if the witness is too old.
+    /// - Err if partial witness is invalid which most probably indicates malicious
+    ///   behavior.
     fn validate_partial_encoded_state_witness(
         &self,
         partial_witness: &PartialEncodedStateWitness,
-    ) -> Result<(), Error> {
+    ) -> Result<bool, Error> {
         if !self
             .epoch_manager
             .get_shard_layout(&partial_witness.epoch_id())?
@@ -355,21 +377,25 @@ impl PartialWitnessActor {
         // as well as malicious behavior of a chunk producer.
         if let Some(final_head) = final_head {
             if partial_witness.height_created() <= final_head.height {
-                return Err(Error::InvalidPartialChunkStateWitness(format!(
-                    "Height created of {} in PartialEncodedStateWitness not greater than final head height {}",
-                    partial_witness.height_created(),
-                    final_head.height,
-                )));
+                tracing::debug!(
+                    target: "client",
+                    ?partial_witness,
+                    final_head_height = final_head.height,
+                    "Skipping partial witness because its height created is not greater than final head height",
+                );
+                return Ok(false);
             }
         }
         if let Some(head) = head {
             if partial_witness.height_created() > head.height + MAX_HEIGHTS_AHEAD {
-                return Err(Error::InvalidPartialChunkStateWitness(format!(
-                    "Height created of {} in PartialEncodedStateWitness more than {} blocks ahead of head height {}",
-                    partial_witness.height_created(),
-                    MAX_HEIGHTS_AHEAD,
-                    head.height,
-                )));
+                tracing::debug!(
+                    target: "client",
+                    ?partial_witness,
+                    head_height = head.height,
+                    "Skipping partial witness because its height created is more than {} blocks ahead of head height",
+                    MAX_HEIGHTS_AHEAD
+                );
+                return Ok(false);
             }
 
             // Try to find the EpochId to which this witness will belong based on its height.
@@ -381,12 +407,13 @@ impl PartialWitnessActor {
                 .epoch_manager
                 .possible_epochs_of_height_around_tip(&head, partial_witness.height_created())?;
             if !possible_epochs.contains(&partial_witness.epoch_id()) {
-                return Err(Error::InvalidPartialChunkStateWitness(format!(
-                    "EpochId {:?} in PartialEncodedStateWitness at height {} is not in the possible list of epochs {:?}",
-                    partial_witness.epoch_id(),
-                    partial_witness.height_created(),
-                    possible_epochs
-                )));
+                tracing::debug!(
+                    target: "client",
+                    ?partial_witness,
+                    ?possible_epochs,
+                    "Skipping partial witness because its EpochId is is not in the possible list of epochs",
+                );
+                return Ok(false);
             }
         }
 
@@ -394,7 +421,16 @@ impl PartialWitnessActor {
             return Err(Error::InvalidPartialChunkStateWitness("Invalid signature".to_string()));
         }
 
-        Ok(())
+        Ok(true)
+    }
+
+    /// Handles the state witness ack message from the chunk validator.
+    /// It computes the round-trip time between sending the state witness and receiving
+    /// the ack message and updates the corresponding metric with it.
+    /// Currently we do not raise an error for handling of witness-ack messages,
+    /// as it is used only for tracking some networking metrics.
+    pub fn handle_chunk_state_witness_ack(&mut self, witness_ack: ChunkStateWitnessAck) {
+        self.state_witness_tracker.on_witness_ack_received(witness_ack);
     }
 }
 

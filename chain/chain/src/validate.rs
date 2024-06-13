@@ -14,6 +14,7 @@ use near_primitives::merkle::merklize;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
+use near_primitives::types::ProtocolVersion;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, Nonce};
 
 use crate::types::RuntimeAdapter;
@@ -125,7 +126,11 @@ pub fn validate_chunk_with_chunk_extra(
     };
     let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
 
+    let prev_epoch_id = epoch_manager.get_epoch_id(prev_block_hash)?;
+    let prev_protocol_version = epoch_manager.get_epoch_protocol_version(&prev_epoch_id)?;
+
     validate_chunk_with_chunk_extra_and_receipts_root(
+        prev_protocol_version,
         prev_chunk_extra,
         chunk_header,
         &outgoing_receipts_root,
@@ -134,6 +139,7 @@ pub fn validate_chunk_with_chunk_extra(
 
 /// Validate that all next chunk information matches previous chunk extra.
 pub fn validate_chunk_with_chunk_extra_and_receipts_root(
+    prev_protocol_version: ProtocolVersion,
     prev_chunk_extra: &ChunkExtra,
     chunk_header: &ShardChunkHeader,
     outgoing_receipts_root: &CryptoHash,
@@ -177,7 +183,11 @@ pub fn validate_chunk_with_chunk_extra_and_receipts_root(
         return Err(Error::InvalidGasLimit);
     }
 
-    validate_congestion_info(&prev_chunk_extra.congestion_info(), &chunk_header.congestion_info())?;
+    validate_congestion_info(
+        prev_protocol_version,
+        &prev_chunk_extra.congestion_info(),
+        &chunk_header.congestion_info(),
+    )?;
 
     Ok(())
 }
@@ -187,6 +197,7 @@ pub fn validate_chunk_with_chunk_extra_and_receipts_root(
 /// trusted as it is the result of verified computation. The header congestion
 /// info is being validated.
 fn validate_congestion_info(
+    extra_protocol_version: ProtocolVersion,
     extra_congestion_info: &Option<CongestionInfo>,
     header_congestion_info: &Option<CongestionInfo>,
 ) -> Result<(), Error> {
@@ -200,14 +211,16 @@ fn validate_congestion_info(
             extra_congestion_info, header_congestion_info
         ))),
         // Congestion Info is present in both the extra and the header. Validate it.
-        (Some(extra), Some(header)) => CongestionInfo::validate_extra_and_header(extra, header)
-            .then_some(())
-            .ok_or_else(|| {
-                Error::InvalidCongestionInfo(format!(
-                    "Congestion Information validate error. extra: {:?}, header: {:?}",
-                    extra, header
-                ))
-            }),
+        (Some(extra), Some(header)) => {
+            CongestionInfo::validate_extra_and_header(extra_protocol_version, extra, header)
+                .then_some(())
+                .ok_or_else(|| {
+                    Error::InvalidCongestionInfo(format!(
+                        "Congestion Information validate error. extra: {:?}, header: {:?}",
+                        extra, header
+                    ))
+                })
+        }
     }
 }
 
@@ -456,7 +469,7 @@ mod tests {
             nonce,
             account_id,
             "bob".parse().unwrap(),
-            &signer,
+            &signer.into(),
             10,
             CryptoHash::default(),
         )

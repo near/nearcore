@@ -15,7 +15,7 @@ import threading
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from configured_logger import logger
-from cluster import init_cluster, load_config, spin_up_node, Key
+from cluster import BaseNode, init_cluster, load_config, spin_up_node, Key
 from utils import load_test_contract, poll_blocks, wait_for_blocks
 from transaction import sign_create_account_with_full_access_key_and_balance_tx, sign_deploy_contract_tx, sign_function_call_tx
 
@@ -23,6 +23,8 @@ ONE_NEAR = 10**24
 TGAS = 10**12
 
 ACCESS_KEY_NONCE_RANGE_MULTIPLIER = 1_000_000
+
+GOOD_FINAL_EXECUTION_STATUS = ['FINAL', 'EXECUTED', 'EXECUTED_OPTIMISTIC']
 
 # Shard layout with 5 roughly equal size shards for convenience.
 SHARD_LAYOUT = {
@@ -60,6 +62,9 @@ AccountId = str
 
 
 class CongestionControlTest(unittest.TestCase):
+
+    def setUp(self):
+        self.threads = []
 
     def tearDown(self):
         self.__stop_load()
@@ -155,18 +160,22 @@ class CongestionControlTest(unittest.TestCase):
         self.assertEqual(int(congestion_info['delayed_receipts_gas']), 0)
         self.assertEqual(congestion_info['receipt_bytes'], 0)
 
-    def __check_txs(self, node):
+    def __check_txs(self, node: BaseNode):
         logger.info("Checking transactions. This is slow.")
 
         accepted_count = 0
         rejected_count = 0
+        total = len(self.txs)
+        checked = 0
         for (tx_sender, tx_hash) in self.txs:
             try:
-                result = node.get_tx(tx_hash, tx_sender)
+                # The transactions should be long done by now. Set a short
+                # timeout to speed up the test.
+                # TODO It would be better to check the transactions in parallel.
+                result = node.get_tx(tx_hash, tx_sender, timeout=1)
 
                 status = result['result']['final_execution_status']
-                self.assertIn(status,
-                              ['FINAL', 'EXECUTED', 'EXECUTED_OPTIMISTIC'])
+                self.assertIn(status, GOOD_FINAL_EXECUTION_STATUS)
 
                 status = result['result']['status']
                 self.assertIn('SuccessValue', status)
@@ -175,15 +184,19 @@ class CongestionControlTest(unittest.TestCase):
             except:
                 rejected_count += 1
 
+            checked += 1
+            if checked % 10 == 0:
+                logger.info(
+                    f"Checking transactions under way, {checked}/{total}")
+
         logger.info(
             f"Checking transactions done, total {len(self.txs)}, accepted {accepted_count}, rejected {rejected_count}"
         )
         self.assertGreater(accepted_count, 0)
         self.assertGreater(rejected_count, 0)
 
-    def __start_load(self, node, accounts):
+    def __start_load(self, node: BaseNode, accounts):
         logger.info("Starting load threads")
-        self.threads = []
         self.finished = False
         self.lock = threading.Lock()
 
@@ -204,7 +217,7 @@ class CongestionControlTest(unittest.TestCase):
         for thread in self.threads:
             thread.join()
 
-    def __load(self, node, sender_account, target_account):
+    def __load(self, node: BaseNode, sender_account, target_account):
         logger.debug(
             f"Starting load thread {sender_account.account_id} -> {target_account.account_id}"
         )
@@ -223,7 +236,7 @@ class CongestionControlTest(unittest.TestCase):
             f"Stopped load thread {sender_account.account_id} -> {target_account.account_id}"
         )
 
-    def __setup_node(self):
+    def __setup_node(self) -> BaseNode:
         logger.info("Setting up the node")
         epoch_length = 100
         config = load_config()
@@ -258,7 +271,7 @@ class CongestionControlTest(unittest.TestCase):
             accounts.append(account_key)
         return accounts
 
-    def __create_accounts(self, node, accounts: list[Key]):
+    def __create_accounts(self, node: BaseNode, accounts: list[Key]):
         logger.info("Creating accounts")
 
         create_account_tx_list = []
@@ -269,7 +282,7 @@ class CongestionControlTest(unittest.TestCase):
 
         self.__wait_for_txs(node, create_account_tx_list)
 
-    def __deploy_contracts(self, node, accounts: list[Key]):
+    def __deploy_contracts(self, node: BaseNode, accounts: list[Key]):
         logger.info("Deploying contracts")
 
         deploy_contract_tx_list = list()
@@ -279,7 +292,7 @@ class CongestionControlTest(unittest.TestCase):
 
         self.__wait_for_txs(node, deploy_contract_tx_list)
 
-    def __create_account(self, node, account_key, balance):
+    def __create_account(self, node: BaseNode, account_key, balance):
         block_hash = node.get_latest_block().hash_bytes
         new_signer_key = Key(
             account_key.account_id,
@@ -300,7 +313,7 @@ class CongestionControlTest(unittest.TestCase):
         logger.debug(f"Create account {account_key.account_id}: {result}")
         return result['result']
 
-    def __deploy_contract(self, node, account_key):
+    def __deploy_contract(self, node: BaseNode, account_key):
         logger.debug("Deploying contract.")
 
         block_hash = node.get_latest_block().hash_bytes
@@ -317,7 +330,7 @@ class CongestionControlTest(unittest.TestCase):
         self.assertIn('result', result, result)
         return result['result']
 
-    def __call_contract(self, node, sender: Key, receiver: Key):
+    def __call_contract(self, node: BaseNode, sender: Key, receiver: Key):
         logger.debug(
             f"Calling contract. {sender.account_id} -> {receiver.account_id}")
 
@@ -341,20 +354,21 @@ class CongestionControlTest(unittest.TestCase):
         self.assertIn('result', result, result)
         return result['result']
 
-    def __wait_for_txs(self, node, tx_list: list[AccountId, TxHash]):
+    def __wait_for_txs(self, node: BaseNode, tx_list: list[AccountId, TxHash]):
         (height, _) = wait_for_blocks(node, count=3)
         self.nonce = ACCESS_KEY_NONCE_RANGE_MULTIPLIER * height + 1
 
         for (tx_sender, tx_hash) in tx_list:
             result = node.get_tx(tx_hash, tx_sender)
+            self.assertIn('result', result, result)
 
             status = result['result']['final_execution_status']
-            self.assertIn(status, ['FINAL', 'EXECUTED', 'EXECUTED_OPTIMISTIC'])
+            self.assertIn(status, GOOD_FINAL_EXECUTION_STATUS)
 
             status = result['result']['status']
             self.assertIn('SuccessValue', status)
 
-    def __get_chunk(self, node, block_hash, shard_id):
+    def __get_chunk(self, node: BaseNode, block_hash, shard_id):
         result = node.json_rpc("chunk", {
             "block_id": block_hash,
             "shard_id": shard_id

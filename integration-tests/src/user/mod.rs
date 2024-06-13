@@ -88,9 +88,9 @@ pub trait User {
         public_key: &PublicKey,
     ) -> Result<AccessKeyView, String>;
 
-    fn signer(&self) -> Arc<dyn Signer>;
+    fn signer(&self) -> Arc<Signer>;
 
-    fn set_signer(&mut self, signer: Arc<dyn Signer>);
+    fn set_signer(&mut self, signer: Arc<Signer>);
 
     fn sign_and_commit_actions(
         &self,

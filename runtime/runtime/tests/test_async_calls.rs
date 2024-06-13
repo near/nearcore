@@ -29,7 +29,7 @@ fn test_simple_func_call() {
         1,
         signer_sender.account_id.clone(),
         signer_receiver.account_id,
-        &signer_sender,
+        &signer_sender.into(),
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "sum_n".to_string(),
             args: 10u64.to_le_bytes().to_vec(),
@@ -76,7 +76,7 @@ fn test_single_promise_no_callback() {
         1,
         signer_sender.account_id.clone(),
         signer_receiver.account_id,
-        &signer_sender,
+        &signer_sender.into(),
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
@@ -143,7 +143,7 @@ fn test_single_promise_with_callback() {
         1,
         signer_sender.account_id.clone(),
         signer_receiver.account_id,
-        &signer_sender,
+        &signer_sender.into(),
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
@@ -228,7 +228,7 @@ fn test_two_promises_no_callbacks() {
         1,
         signer_sender.account_id.clone(),
         signer_receiver.account_id,
-        &signer_sender,
+        &signer_sender.into(),
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
@@ -323,7 +323,7 @@ fn test_two_promises_with_two_callbacks() {
         1,
         signer_sender.account_id.clone(),
         signer_receiver.account_id,
-        &signer_sender,
+        &signer_sender.into(),
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
@@ -415,7 +415,7 @@ fn test_single_promise_no_callback_batch() {
         1,
         signer_sender.account_id.clone(),
         signer_receiver.account_id,
-        &signer_sender,
+        &signer_sender.into(),
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
@@ -488,7 +488,7 @@ fn test_single_promise_with_callback_batch() {
         1,
         signer_sender.account_id.clone(),
         signer_receiver.account_id,
-        &signer_sender,
+        &signer_sender.into(),
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
@@ -563,7 +563,7 @@ fn test_simple_transfer() {
         1,
         signer_sender.account_id.clone(),
         signer_receiver.account_id,
-        &signer_sender,
+        &signer_sender.into(),
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
@@ -631,7 +631,7 @@ fn test_create_account_with_transfer_and_full_key() {
         1,
         signer_sender.account_id.clone(),
         signer_receiver.account_id,
-        &signer_sender,
+        &signer_sender.into(),
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
@@ -744,7 +744,7 @@ fn test_account_factory() {
         1,
         signer_sender.account_id.clone(),
         signer_receiver.account_id,
-        &signer_sender,
+        &signer_sender.into(),
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
@@ -891,7 +891,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
         1,
         signer_sender.account_id.clone(),
         signer_receiver.account_id,
-        &signer_sender,
+        &signer_sender.into(),
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
@@ -986,7 +986,7 @@ fn test_transfer_64len_hex() {
         1,
         signer_sender.account_id.clone(),
         signer_receiver.account_id,
-        &signer_sender,
+        &signer_sender.into(),
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
@@ -1053,7 +1053,7 @@ fn test_create_transfer_64len_hex_fail() {
         1,
         signer_sender.account_id.clone(),
         signer_receiver.account_id,
-        &signer_sender,
+        &signer_sender.into(),
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),

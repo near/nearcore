@@ -3510,6 +3510,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "lru"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3262e75e648fce39813cb56ac41f3c3e3f65217ebf3844d818d1f9398cfb0dc"
+dependencies = [
+ "hashbrown 0.14.2",
+]
+
+[[package]]
 name = "lz4-sys"
 version = "1.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3836,7 +3845,7 @@ name = "near-cache"
 version = "0.0.0"
 dependencies = [
  "bencher",
- "lru",
+ "lru 0.12.3",
  "rand",
 ]
 
@@ -3855,7 +3864,7 @@ dependencies = [
  "insta",
  "itertools",
  "itoa",
- "lru",
+ "lru 0.12.3",
  "near-async",
  "near-cache",
  "near-chain-configs",
@@ -3937,7 +3946,7 @@ dependencies = [
  "derive_more",
  "futures",
  "itertools",
- "lru",
+ "lru 0.12.3",
  "near-async",
  "near-chain",
  "near-chain-configs",
@@ -3983,7 +3992,7 @@ dependencies = [
  "derive_more",
  "futures",
  "itertools",
- "lru",
+ "lru 0.12.3",
  "near-actix-test-utils",
  "near-async",
  "near-cache",
@@ -4115,6 +4124,7 @@ dependencies = [
  "anyhow",
  "near-async",
  "near-chain-configs",
+ "near-crypto",
  "near-o11y",
  "near-primitives",
  "once_cell",
@@ -4438,7 +4448,7 @@ dependencies = [
  "futures-util",
  "im",
  "itertools",
- "lru",
+ "lru 0.12.3",
  "near-async",
  "near-crypto",
  "near-fmt",
@@ -4766,7 +4776,7 @@ dependencies = [
  "insta",
  "itertools",
  "itoa",
- "lru",
+ "lru 0.12.3",
  "near-async",
  "near-chain",
  "near-chain-configs",
@@ -4940,7 +4950,7 @@ dependencies = [
  "expect-test",
  "finite-wasm",
  "hex",
- "lru",
+ "lru 0.12.3",
  "memoffset 0.8.0",
  "near-crypto",
  "near-o11y",
@@ -6354,7 +6364,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7263373d500d4d4f505d43a2a662d475a894aa94503a1ee28e9188b5f3960d4f"
 dependencies = [
  "libm",
- "lru",
+ "lru 0.7.8",
  "parking_lot 0.11.2",
  "smallvec",
  "spin 0.9.8",

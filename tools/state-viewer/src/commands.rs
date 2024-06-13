@@ -108,7 +108,7 @@ pub(crate) fn apply_block(
                 ApplyChunkBlockContext::from_header(
                     block.header(),
                     prev_block.header().next_gas_price(),
-                    prev_block.shards_congestion_info(),
+                    prev_block.block_congestion_info(),
                 ),
                 &receipts,
                 chunk.transactions(),
@@ -133,7 +133,7 @@ pub(crate) fn apply_block(
                 ApplyChunkBlockContext::from_header(
                     block.header(),
                     block.header().next_gas_price(),
-                    prev_block.shards_congestion_info(),
+                    prev_block.block_congestion_info(),
                 ),
                 &[],
                 &[],
@@ -512,10 +512,6 @@ pub(crate) fn get_receipt(receipt_id: CryptoHash, near_config: NearConfig, store
 }
 
 fn chunk_extras_equal(l: &ChunkExtra, r: &ChunkExtra) -> bool {
-    // TODO(congestion_control) validate allowed shard
-    let l = l.with_zeroed_allowed_shard();
-    let r = r.with_zeroed_allowed_shard();
-
     // explicitly enumerate the versions in a match here first so that if a new version is
     // added, we'll get a compile error here and be reminded to update it correctly.
     //

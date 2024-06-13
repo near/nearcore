@@ -90,7 +90,6 @@ pub fn setup(
     network_adapter: PeerManagerAdapter,
     transaction_validity_period: NumBlocks,
     genesis_time: Utc,
-    // ctx: &Context<ClientActor>,
     chunk_distribution_config: Option<ChunkDistributionNetworkConfig>,
 ) -> (
     Addr<ClientActor>,
@@ -985,7 +984,7 @@ pub fn setup_client_with_runtime(
     save_trie_changes: bool,
     snapshot_callbacks: Option<SnapshotCallbacks>,
     partial_witness_adapter: PartialWitnessSenderForClient,
-    validator_signer: Arc<dyn ValidatorSigner>,
+    validator_signer: Arc<ValidatorSigner>,
 ) -> Client {
     let mut config = ClientConfig::test(
         true,
