@@ -463,8 +463,8 @@ impl ClientActorInner {
                     .get_protocol_config(block_header.epoch_id())?
                     .runtime_config
                     .congestion_control_config;
-                let shards_congestion_info =
-                    block.as_ref().map(|block| block.shards_congestion_info());
+                let block_congestion_info =
+                    block.as_ref().map(|block| block.block_congestion_info());
 
                 let chunks = match &block {
                     Some(block) => block
@@ -478,7 +478,7 @@ impl ClientActorInner {
                                 .copied();
 
                             let congestion_level =
-                                shards_congestion_info.as_ref().and_then(|shards_info| {
+                                block_congestion_info.as_ref().and_then(|shards_info| {
                                     shards_info.get(&chunk.shard_id()).map(|ext_info| {
                                         CongestionControl::new(
                                             congestion_control_config,
