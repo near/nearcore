@@ -53,7 +53,7 @@ export function parseEntityKey(keyType: EntityKeyType, input: string): EntityKey
             // 
             // Short explanation: 32 bytes are 256 bits, each base58 character 
             // encodes log2(58) ≈ 5.858 bits. Then length of 32-byte array
-            // encoded in base58 is ≈ 256 / 5.858 = 43.7. 
+            // encoded in base58 is ≈ 256 / 5.858 ≈ 43.7. 
             if (![43, 44].includes(input.length)) {
                 return null;
             }
