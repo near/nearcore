@@ -10,7 +10,7 @@ use reed_solomon_erasure::galois_8::ReedSolomon;
 /// Ratio of the number of data parts to total parts in the Reed Solomon encoding.
 /// The tradeoff here is having a higher ratio is better for handling missing parts and network errors
 /// but increases the size of the encoded state witness and the total network bandwidth requirements.
-const RATIO_DATA_PARTS: f32 = 0.8;
+const RATIO_DATA_PARTS: f32 = 0.6;
 
 /// Type alias around what ReedSolomon represents data part as.
 /// This should help with making the code a bit more understandable.
