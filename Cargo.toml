@@ -1,5 +1,5 @@
 [workspace.package]
-version = "1.39.1" # managed by cargo-workspaces, see below
+version = "1.39.1"                              # managed by cargo-workspaces, see below
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2021"
 rust-version = "1.75.0"
@@ -122,7 +122,9 @@ bencher = "0.1.5"
 bitflags = "1.2"
 blake2 = "0.9.1"
 bn = { package = "zeropool-bn", version = "0.5.11", default-features = false }
-bolero = { version = "0.10.0", git = "https://github.com/Ekleog-NEAR/bolero", rev = "56da8e6d1d018519a30b36d85d3a53fe35a42eaf", features = ["arbitrary"] }
+bolero = { version = "0.10.0", git = "https://github.com/Ekleog-NEAR/bolero", rev = "56da8e6d1d018519a30b36d85d3a53fe35a42eaf", features = [
+    "arbitrary",
+] }
 borsh = { version = "1.0.0", features = ["derive", "rc"] }
 bs58 = "0.4"
 bytes = "1"
@@ -137,18 +139,28 @@ clap = { version = "4.2.0", features = ["derive", "env", "string"] }
 cloud-storage = "0.11.1"
 conqueue = "0.4.0"
 cpu-time = "1.0"
-criterion = { version = "0.5.1", default_features = false, features = ["html_reports", "cargo_bench_support"] }
+criterion = { version = "0.5.1", default_features = false, features = [
+    "html_reports",
+    "cargo_bench_support",
+] }
 crossbeam = "0.8"
 crossbeam-channel = "0.5.8"
 csv = "1.2.1"
-curve25519-dalek = { version = "4.1.1", default-features = false, features = ["alloc", "precomputed-tables", "rand_core"] }
+curve25519-dalek = { version = "4.1.1", default-features = false, features = [
+    "alloc",
+    "precomputed-tables",
+    "rand_core",
+] }
 derive-enum-from-into = "0.1.1"
 derive_more = "0.99.9"
 dirs = "4"
 dynasm = "2.0"
 dynasmrt = "2.0"
 easy-ext = "0.2"
-ed25519-dalek = { version = "2.1.0", default-features = false, features = ["hazmat", "rand_core"] }
+ed25519-dalek = { version = "2.1.0", default-features = false, features = [
+    "hazmat",
+    "rand_core",
+] }
 elastic-array = "0.11"
 enum-map = "2.1.0"
 enumset = "1.0"
@@ -183,10 +195,14 @@ lru = "0.7.2"
 memmap2 = "0.5"
 memoffset = "0.8"
 more-asserts = "0.2"
-near-account-id = { version = "1.0.0-alpha.4", features = ["internal_unstable", "serde", "borsh"] }
+near-account-id = { version = "1.0.0-alpha.4", features = [
+    "internal_unstable",
+    "serde",
+    "borsh",
+] }
 near-actix-test-utils = { path = "test-utils/actix-test-utils" }
 near-amend-genesis = { path = "tools/amend-genesis" }
-near-database-tool= { path = "tools/database" }
+near-database-tool = { path = "tools/database" }
 near-async = { path = "core/async" }
 near-cache = { path = "utils/near-cache" }
 near-chain = { path = "chain/chain" }
@@ -202,7 +218,7 @@ nearcore = { path = "nearcore" }
 near-crypto = { path = "core/crypto" }
 near-dyn-configs = { path = "core/dyn-configs" }
 near-epoch-manager = { path = "chain/epoch-manager" }
-near-epoch-sync-tool = { path = "tools/epoch-sync"}
+near-epoch-sync-tool = { path = "tools/epoch-sync" }
 near-flat-storage = { path = "tools/flat-storage" }
 near-fork-network = { path = "tools/fork-network" }
 near-fmt = { path = "utils/fmt" }
@@ -211,7 +227,9 @@ near-indexer-primitives = { path = "chain/indexer-primitives" }
 near-jsonrpc = { path = "chain/jsonrpc" }
 near-jsonrpc-adversarial-primitives = { path = "chain/jsonrpc-adversarial-primitives" }
 near-jsonrpc-client = { path = "chain/jsonrpc/client" }
-near-jsonrpc-primitives = { path = "chain/jsonrpc-primitives", features = ["full"] }
+near-jsonrpc-primitives = { path = "chain/jsonrpc-primitives", features = [
+    "full",
+] }
 near-jsonrpc-tests = { path = "chain/jsonrpc/jsonrpc-tests" }
 near-mainnet-res = { path = "utils/mainnet-res" }
 near-mirror = { path = "tools/mirror" }
@@ -289,7 +307,13 @@ ripemd = "0.1.1"
 rkyv = "0.7.31"
 rlimit = "0.7"
 rlp = "0.5.2"
-rocksdb = { version = "0.21.0", default-features = false, features = ["snappy", "lz4", "zstd", "zlib", "jemalloc"] }
+rocksdb = { version = "0.21.0", default-features = false, features = [
+    "snappy",
+    "lz4",
+    "zstd",
+    "zlib",
+    "jemalloc",
+] }
 runtime-tester = { path = "test-utils/runtime-tester" }
 rusqlite = { version = "0.29.0", features = ["bundled", "chrono", "functions"] }
 rustc-demangle = "0.1"
@@ -339,7 +363,12 @@ tracing = { version = "0.1.36", features = ["std"] }
 tracing-appender = "0.2.2"
 tracing-opentelemetry = "0.17.0"
 tracing-span-tree = "0.1"
-tracing-subscriber = { version = "0.3.15", features = ["env-filter", "fmt", "registry", "std"] }
+tracing-subscriber = { version = "0.3.15", features = [
+    "env-filter",
+    "fmt",
+    "registry",
+    "std",
+] }
 trybuild = "1.0.11"
 turn = "0.6"
 validator = "0.12"
@@ -347,19 +376,31 @@ wasm-encoder = "0.27.0"
 wasmer-compiler = { package = "wasmer-compiler-near", version = "=2.4.1" }
 wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", version = "=2.4.1" }
 wasmer-engine = { package = "wasmer-engine-near", version = "=2.4.1" }
-wasmer-engine-universal = { package = "wasmer-engine-universal-near", version = "=2.4.1", features = ["compiler"] }
-wasmer-runtime = { version = "0.18.0", package = "wasmer-runtime-near", features = ["default-backend-singlepass"], default-features = false }
+wasmer-engine-universal = { package = "wasmer-engine-universal-near", version = "=2.4.1", features = [
+    "compiler",
+] }
+wasmer-runtime = { version = "0.18.0", package = "wasmer-runtime-near", features = [
+    "default-backend-singlepass",
+], default-features = false }
 wasmer-runtime-core = { version = "0.18.2", package = "wasmer-runtime-core-near" }
 wasmer-types = { package = "wasmer-types-near", version = "=2.4.1" }
 wasmer-vm = { package = "wasmer-vm-near", version = "=2.4.1" }
 wasmparser = "0.78" # TODO: unify at least the versions of wasmparser we have in our codebase
 wasmprinter = "0.2"
 wasm-smith = "0.10"
-wasmtime = { version = "14.0.4", default-features = false, features = ["cranelift"] }
+wasmtime = { version = "14.0.4", default-features = false, features = [
+    "cranelift",
+] }
 wast = "40.0"
 wat = "1.0.40"
 webrtc-util = "0.7"
-winapi = { version = "0.3", features = ["winbase", "memoryapi", "errhandlingapi", "winnt", "impl-default"] }
+winapi = { version = "0.3", features = [
+    "winbase",
+    "memoryapi",
+    "errhandlingapi",
+    "winnt",
+    "impl-default",
+] }
 xshell = "0.2.1"
 xz2 = "0.1.6"
 yansi = "0.5.1"
