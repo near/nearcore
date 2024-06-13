@@ -27,4 +27,4 @@ Among other things, it defines the following _types_:
 This project borrowed some of the code for the entity structure from [cranelift-entity](https://crates.io/crates/cranelift-entity).
 We decided to move it here to help on serialization/deserialization and also to ease the integration with other tools like `loupe`.
 
-Please check [Wasmer ATTRIBUTIONS](https://github.com/wasmerio/wasmer/blob/master/ATTRIBUTIONS.md) to further see licenses and other attributions of the project. 
+Please check [Wasmer ATTRIBUTIONS](https://github.com/wasmerio/wasmer/blob/2.3.0/ATTRIBUTIONS.md) to further see licenses and other attributions of the project. 

@@ -4,6 +4,7 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
 use parking_lot::Mutex;
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 
 #[cfg(test)]
 mod tests;
@@ -48,8 +49,10 @@ pub(crate) struct AnnounceAccountCache(Mutex<Inner>);
 impl AnnounceAccountCache {
     pub fn new(store: store::Store) -> Self {
         Self(Mutex::new(Inner {
-            account_peers: LruCache::new(ANNOUNCE_ACCOUNT_CACHE_SIZE),
-            account_peers_broadcasted: LruCache::new(ANNOUNCE_ACCOUNT_CACHE_SIZE),
+            account_peers: LruCache::new(NonZeroUsize::new(ANNOUNCE_ACCOUNT_CACHE_SIZE).unwrap()),
+            account_peers_broadcasted: LruCache::new(
+                NonZeroUsize::new(ANNOUNCE_ACCOUNT_CACHE_SIZE).unwrap(),
+            ),
             store,
         }))
     }

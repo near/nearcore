@@ -42,7 +42,7 @@ fn test_send_tx_async() {
                 1,
                 signer_account_id.parse().unwrap(),
                 "test2".parse().unwrap(),
-                &signer,
+                &signer.into(),
                 100,
                 block_hash,
             );
@@ -97,7 +97,7 @@ fn test_send_tx_commit() {
             1,
             "test1".parse().unwrap(),
             "test2".parse().unwrap(),
-            &signer,
+            &signer.into(),
             100,
             block_hash,
         );
@@ -146,7 +146,8 @@ fn test_expired_tx() {
                                     "test1".parse().unwrap(),
                                     KeyType::ED25519,
                                     "test1",
-                                );
+                                )
+                                .into();
                                 let tx = SignedTransaction::send_money(
                                     1,
                                     "test1".parse().unwrap(),
@@ -190,7 +191,8 @@ fn test_expired_tx() {
 #[test]
 fn test_replay_protection() {
     test_with_client!(test_utils::NodeType::Validator, client, async move {
-        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+        let signer =
+            InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1").into();
         let tx = SignedTransaction::send_money(
             1,
             "test1".parse().unwrap(),
@@ -236,7 +238,7 @@ fn test_check_invalid_tx() {
                 1,
                 "test1".parse().unwrap(),
                 "test2".parse().unwrap(),
-                &signer,
+                &signer.into(),
                 100,
                 hash(&[1]),
             )),

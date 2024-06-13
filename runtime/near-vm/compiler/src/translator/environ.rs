@@ -1,5 +1,5 @@
 // This file contains code from external sources.
-// Attributions: https://github.com/wasmerio/wasmer/blob/master/ATTRIBUTIONS.md
+// Attributions: https://github.com/wasmerio/wasmer/blob/2.3.0/ATTRIBUTIONS.md
 use super::state::ModuleTranslationState;
 use crate::lib::std::borrow::ToOwned;
 use crate::lib::std::string::ToString;

@@ -30,6 +30,7 @@ use near_primitives::{
 use near_store::DBCol;
 use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
+use std::num::NonZeroUsize;
 use time::ext::InstantExt as _;
 
 use near_client_primitives::debug::{DebugBlockStatus, DebugChunkStatus};
@@ -56,7 +57,7 @@ pub struct BlockProductionTracker(lru::LruCache<BlockHeight, BlockProduction>);
 
 impl BlockProductionTracker {
     pub(crate) fn new() -> Self {
-        Self(lru::LruCache::new(PRODUCTION_TIMES_CACHE_SIZE))
+        Self(lru::LruCache::new(NonZeroUsize::new(PRODUCTION_TIMES_CACHE_SIZE).unwrap()))
     }
 
     pub(crate) fn get(&mut self, height: BlockHeight) -> BlockProduction {
@@ -340,7 +341,7 @@ impl ClientActorInner {
     fn get_tracked_shards_view(&self) -> Result<TrackedShardsView, near_chain_primitives::Error> {
         let epoch_id = self.client.chain.header_head()?.epoch_id;
         let fetch_hash = self.client.chain.header_head()?.last_block_hash;
-        let me = self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
+        let me = self.client.validator_signer.get().map(|x| x.validator_id().clone());
         let shard_ids = self.client.epoch_manager.shard_ids(&epoch_id).unwrap();
         let shards_tracked_this_epoch = shard_ids
             .iter()
@@ -538,7 +539,7 @@ impl ClientActorInner {
         let head = self.client.chain.head()?;
         let mut productions = vec![];
 
-        if let Some(signer) = &self.client.validator_signer {
+        if let Some(signer) = &self.client.validator_signer.get() {
             let validator_id = signer.validator_id().to_string();
 
             // We want to show some older blocks (up to DEBUG_PRODUCTION_OLD_BLOCKS_TO_SHOW in the past)
@@ -616,7 +617,7 @@ impl ClientActorInner {
             validator_name: self
                 .client
                 .validator_signer
-                .as_ref()
+                .get()
                 .map(|signer| signer.validator_id().clone()),
             // TODO: this might not work correctly when we're at the epoch boundary (as it will
             // just return the validators for the current epoch). We can fix it in the future, if

@@ -6,7 +6,7 @@ use near_chain::{ChainStoreAccess, Provenance};
 use near_chain_configs::{Genesis, NEAR_BASE};
 use near_client::test_utils::{run_catchup, TestEnv};
 use near_client::{Client, ProcessTxResponse};
-use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_crypto::{InMemorySigner, KeyType};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::{Block, Tip};
@@ -341,7 +341,7 @@ impl TestReshardingEnv {
             let _span = tracing::debug_span!(target: "test", "process block", client=j).entered();
 
             let shard_ids = chunk_producer_to_shard_id
-                .get(client.validator_signer.as_ref().unwrap().validator_id())
+                .get(client.validator_signer.get().unwrap().validator_id())
                 .cloned()
                 .unwrap_or_default();
             let should_produce_chunk =
@@ -974,7 +974,7 @@ fn generate_create_accounts_txs(
                 account_id.clone(),
                 NEAR_BASE,
                 signer.public_key(),
-                &signer0,
+                &signer0.into(),
                 genesis_hash,
             );
             if check_accounts {
@@ -1283,7 +1283,7 @@ fn setup_test_env_with_cross_contract_txs(
             1,
             account_id.clone(),
             account_id.clone(),
-            &signer,
+            &signer.into(),
             actions,
             genesis_hash,
             0,
@@ -1452,7 +1452,7 @@ fn gen_cross_contract_tx_impl(
         nonce,
         account0.clone(),
         account1.clone(),
-        &signer0,
+        &signer0.into(),
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
@@ -1598,7 +1598,7 @@ fn generate_yield_create_tx(
         nonce,
         account_id.clone(),
         account_id.clone(),
-        &signer,
+        &signer.into(),
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: callback_method_name,
             args: vec![],
@@ -1632,7 +1632,7 @@ fn setup_test_env_with_promise_yield_txs(
             1,
             account_id.clone(),
             account_id.clone(),
-            &signer,
+            &signer.into(),
             actions,
             genesis_hash,
             0,
