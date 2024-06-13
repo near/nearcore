@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use near_async::messaging::{Actor, AsyncSender, CanSend, Handler, SendAsync, Sender};
 use near_async::time::Clock;
+use near_async::{MultiSend, MultiSenderFrom};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
@@ -23,11 +24,7 @@ use crate::types::{
 
 /// Subset of ClientSenderForNetwork required for the TestLoop network.
 /// We skip over the message handlers from view client.
-#[derive(
-    Clone, near_async::MultiSend, near_async::MultiSenderFrom, near_async::MultiSendMessage,
-)]
-#[multi_send_message_derive(Debug)]
-#[multi_send_input_derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct ClientSenderForTestLoopNetwork {
     pub block: AsyncSender<BlockResponse, ()>,
     pub block_approval: AsyncSender<BlockApproval, ()>,
@@ -308,24 +305,4 @@ fn network_message_to_shards_manager_handler(
         }
         _ => Some(request),
     })
-}
-
-/// A multi-instance test using the TestLoop framework can support routing
-/// lookup for network messages, as long as the Data type contains AccountId.
-/// This trait is just a helper for looking up the index.
-pub trait SupportsRoutingLookup {
-    fn index_for_account(&self, account: &AccountId) -> usize;
-    fn num_accounts(&self) -> usize;
-}
-
-impl<InnerData: AsRef<AccountId>> SupportsRoutingLookup for Vec<InnerData> {
-    fn index_for_account(&self, account: &AccountId) -> usize {
-        self.iter()
-            .position(|data| data.as_ref() == account)
-            .unwrap_or_else(|| panic!("Account not found: {}", account))
-    }
-
-    fn num_accounts(&self) -> usize {
-        self.len()
-    }
 }

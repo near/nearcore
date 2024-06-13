@@ -59,14 +59,9 @@
 //! timestamp are executed in FIFO order. For example, if the events are emitted in the
 //! following order: (A due 100ms), (B due 0ms), (C due 200ms), (D due 0ms), (E due 100ms)
 //! then the actual order of execution is B, D, A, E, C.
-pub mod adhoc;
 pub mod data;
-pub mod delay_sender;
-pub mod event_handler;
 pub mod futures;
-pub mod futures_old;
 pub mod sender;
-pub mod test_loop_old;
 
 use data::TestLoopData;
 use futures::{TestLoopAsyncComputationSpawner, TestLoopFututeSpawner};
