@@ -426,9 +426,10 @@ impl NetworkState {
             interval.tick(&clock).await;
 
             let result = async {
-                let stream = tcp::Stream::connect(&peer_info, tcp::Tier::T2)
-                    .await
-                    .context("tcp::Stream::connect()")?;
+                let stream =
+                    tcp::Stream::connect(&peer_info, tcp::Tier::T2, &self.config.socket_options)
+                        .await
+                        .context("tcp::Stream::connect()")?;
                 PeerActor::spawn_and_handshake(clock.clone(), stream, None, self.clone())
                     .await
                     .context("PeerActor::spawn()")?;
