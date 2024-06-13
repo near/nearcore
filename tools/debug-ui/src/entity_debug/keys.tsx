@@ -1,36 +1,28 @@
 // Concrete implementations for EntityKey.
 
-import {EntityKey, EntityKeyType} from './types';
+import { EntityKey, EntityKeyType } from './types';
 
 export class StringEntityKey {
-    constructor(private _type: EntityKeyType, private value: string) {
-    }
-
+    constructor(private _type: EntityKeyType, private value: string) {}
     type(): EntityKeyType {
         return this._type;
     }
-
     toString(): string {
         return this.value;
     }
-
     toJSON(): unknown {
         return this.value;
     }
 }
 
 export class NumericEntityKey {
-    constructor(private _type: EntityKeyType, private value: number) {
-    }
-
+    constructor(private _type: EntityKeyType, private value: number) {}
     type(): EntityKeyType {
         return this._type;
     }
-
     toString(): string {
         return this.value.toString();
     }
-
     toJSON(): unknown {
         return this.value;
     }
