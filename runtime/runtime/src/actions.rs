@@ -1194,6 +1194,7 @@ mod tests {
     use crate::near_primitives::shard_layout::ShardUId;
     use near_primitives::account::FunctionCallPermission;
     use near_primitives::action::delegate::NonDelegateAction;
+    use near_primitives::congestion_info::BlockCongestionInfo;
     use near_primitives::errors::InvalidAccessKeyError;
     use near_primitives::hash::hash;
     use near_primitives::runtime::migration_data::MigrationFlags;
@@ -1203,7 +1204,6 @@ mod tests {
     use near_primitives_core::version::PROTOCOL_VERSION;
     use near_store::set_account;
     use near_store::test_utils::TestTriesBuilder;
-    use std::collections::HashMap;
     use std::sync::Arc;
 
     fn test_action_create_account(
@@ -1445,7 +1445,7 @@ mod tests {
             is_new_chunk: false,
             migration_data: Arc::default(),
             migration_flags: MigrationFlags::default(),
-            congestion_info: HashMap::new(),
+            congestion_info: BlockCongestionInfo::default(),
         }
     }
 

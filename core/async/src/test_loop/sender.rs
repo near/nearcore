@@ -13,7 +13,7 @@ use super::PendingEventsSender;
 /// TestLoopSender implements the CanSend methods for an actor that can Handle them. This is
 /// similar to our pattern of having an ActixWarpper around an actor to send messages to it.
 ///
-/// ```
+/// ```rust, ignore
 /// let actor = TestActor::new();
 /// let adapter = LateBoundSender::new();
 ///
@@ -123,7 +123,7 @@ impl<A> TestLoopSender<A>
 where
     A: Actor + 'static,
 {
-    pub fn new(
+    pub(crate) fn new(
         actor_handle: TestLoopDataHandle<A>,
         pending_events_sender: PendingEventsSender,
         shutting_down: Arc<AtomicBool>,

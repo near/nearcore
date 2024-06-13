@@ -6,7 +6,7 @@ use near_chain_configs::MIN_GAS_PRICE;
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_parameters::RuntimeConfig;
-use near_primitives::congestion_info::ExtendedCongestionInfo;
+use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::errors::{RuntimeError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
@@ -44,7 +44,7 @@ impl MockClient {
 
 pub struct RuntimeUser {
     pub account_id: AccountId,
-    pub signer: Arc<dyn Signer>,
+    pub signer: Arc<Signer>,
     pub trie_viewer: TrieViewer,
     pub client: Arc<RwLock<MockClient>>,
     // Store results of applying transactions/receipts
@@ -59,7 +59,7 @@ pub struct RuntimeUser {
 impl RuntimeUser {
     pub fn new(
         account_id: AccountId,
-        signer: Arc<dyn Signer>,
+        signer: Arc<Signer>,
         client: Arc<RwLock<MockClient>>,
     ) -> Self {
         let runtime_config = Arc::new(client.read().unwrap().runtime_config.clone());
@@ -159,8 +159,9 @@ impl RuntimeUser {
         let congestion_info = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
             all_shard_ids.into_iter().map(|id| (id, ExtendedCongestionInfo::default())).collect()
         } else {
-            HashMap::new()
+            Default::default()
         };
+        let congestion_info = BlockCongestionInfo::new(congestion_info);
 
         ApplyState {
             apply_reason: None,
@@ -390,11 +391,11 @@ impl User for RuntimeUser {
             .map_err(|err| err.to_string())
     }
 
-    fn signer(&self) -> Arc<dyn Signer> {
+    fn signer(&self) -> Arc<Signer> {
         self.signer.clone()
     }
 
-    fn set_signer(&mut self, signer: Arc<dyn Signer>) {
+    fn set_signer(&mut self, signer: Arc<Signer>) {
         self.signer = signer;
     }
 }

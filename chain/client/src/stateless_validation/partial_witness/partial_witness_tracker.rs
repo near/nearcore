@@ -1,3 +1,4 @@
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use lru::LruCache;
@@ -6,6 +7,7 @@ use near_async::time::Instant;
 use near_chain::chain::ChunkStateWitnessMessage;
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
+use near_o11y::log_assert_fail;
 use near_primitives::stateless_validation::{
     ChunkProductionKey, ChunkStateWitness, ChunkStateWitnessSize, EncodedChunkStateWitness,
     PartialEncodedStateWitness,
@@ -63,13 +65,7 @@ impl CacheEntry {
 
         // Check if the part is already present.
         if self.parts[part_ord].is_some() {
-            tracing::warn!(
-                target: "client",
-                ?shard_id,
-                ?height_created,
-                ?part_ord,
-                "Received duplicate or redundant partial state witness part."
-            );
+            log_assert_fail!("Received duplicate or redundant partial state witness part. shard_id={shard_id:?}, height_created={height_created:?}, part_ord={part_ord:?}");
             return None;
         }
 
@@ -115,8 +111,10 @@ impl PartialEncodedStateWitnessTracker {
         Self {
             client_sender,
             epoch_manager,
-            parts_cache: LruCache::new(WITNESS_PARTS_CACHE_SIZE),
-            processed_witnesses: LruCache::new(PROCESSED_WITNESSES_CACHE_SIZE),
+            parts_cache: LruCache::new(NonZeroUsize::new(WITNESS_PARTS_CACHE_SIZE).unwrap()),
+            processed_witnesses: LruCache::new(
+                NonZeroUsize::new(PROCESSED_WITNESSES_CACHE_SIZE).unwrap(),
+            ),
             encoders: WitnessEncoderCache::new(),
         }
     }

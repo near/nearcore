@@ -13,7 +13,7 @@ use super::PendingEventsSender;
 /// TestLoopData is used to mainly register actors, which can be accessed using a handle during
 /// the execution of the TestLoop.
 ///
-/// ```
+/// ```rust, ignore
 /// let mut data = TestLoopData::new(pending_events_sender, shutting_down);
 ///
 /// let actor = TestActor::new();
@@ -28,11 +28,15 @@ use super::PendingEventsSender;
 ///
 /// We have the ability to register data of any type, and then access it using a handle. This is
 /// useful if we would like to have some arbitrary callback event in testloop to access this data.
-/// ```
+///
+/// ```rust, ignore
 /// let mut data = TestLoopData::new(pending_events_sender, shutting_down);
 /// let handle: TestLoopDataHandle<usize> = data.register_data(42);
 /// assert_eq!(data.get(&handle), 42);
 /// ```
+///
+/// Note that the handler from one TestLoopData cannot be used to access data from another.
+///
 pub struct TestLoopData {
     // Container of the data. We store it as a vec of Any so that we can store any type of data.
     data: Vec<Box<dyn Any>>,
@@ -80,6 +84,7 @@ impl TestLoopData {
         sender
     }
 
+    // Helper function to queue the start actor event on the test loop while registering an actor.
     fn queue_start_actor_event<A>(&self, mut sender: TestLoopSender<A>)
     where
         A: Actor + 'static,
@@ -94,12 +99,20 @@ impl TestLoopData {
 
     /// Function to get reference to the data stored in TestLoopData.
     pub fn get<T>(&self, handle: &TestLoopDataHandle<T>) -> &T {
-        self.data[handle.id].downcast_ref().unwrap()
+        self.data
+            .get(handle.id)
+            .expect("Handle id out of bounds. Does handle belong to this TestLoopData?")
+            .downcast_ref()
+            .expect("Handle type mismatched. Does handle belong to this TestLoopData?")
     }
 
     /// Function to get mutable reference to the data stored in TestLoopData.
     pub fn get_mut<T>(&mut self, handle: &TestLoopDataHandle<T>) -> &mut T {
-        self.data[handle.id].downcast_mut().unwrap()
+        self.data
+            .get_mut(handle.id)
+            .expect("Handle id out of bounds. Does handle belong to this TestLoopData?")
+            .downcast_mut()
+            .expect("Handle type mismatched. Does handle belong to this TestLoopData?")
     }
 }
 

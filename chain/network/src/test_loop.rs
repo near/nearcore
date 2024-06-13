@@ -76,20 +76,19 @@ impl TestLoopPeerManagerActor {
         PartialWitnessSenderForNetwork: From<&'a T>,
         Sender<ShardsManagerRequestFromNetwork>: From<&'a T>,
     {
-        let mut actor = Self { handlers: Vec::new() };
-        vec![
+        let handlers = vec![
             network_message_to_client_handler(&account_id, make_sender_map(datas)),
             network_message_to_partial_witness_handler(&account_id, make_sender_map(datas)),
             network_message_to_shards_manager_handler(clock, &account_id, make_sender_map(datas)),
             network_message_to_state_snapshot_handler(),
-        ]
-        .into_iter()
-        .for_each(|handler| actor.register_override_handler(handler));
-        actor
+        ];
+        Self { handlers }
     }
 
     /// Register a new handler to override the default handlers.
     pub fn register_override_handler(&mut self, handler: NetworkRequestHandler) {
+        // We add the handler to the end of the list and while processing the request, we iterate
+        // over the handlers in reverse order.
         self.handlers.push(handler);
     }
 }
@@ -114,27 +113,22 @@ impl Handler<SetChainInfo> for TestLoopPeerManagerActor {
 
 impl Handler<PeerManagerMessageRequest> for TestLoopPeerManagerActor {
     fn handle(&mut self, msg: PeerManagerMessageRequest) -> PeerManagerMessageResponse {
-        match msg {
-            PeerManagerMessageRequest::NetworkRequests(request) => {
-                // Iterate over the handlers in reverse order to allow for overriding the default handlers.
-                let mut request = Some(request);
-                for handler in self.handlers.iter().rev() {
-                    if let Some(new_request) = handler(request.take().unwrap()) {
-                        request = Some(new_request);
-                    } else {
-                        return PeerManagerMessageResponse::NetworkResponses(
-                            NetworkResponses::NoResponse,
-                        );
-                    }
-                }
-                // If no handler was able to handle the request, panic.
-                if let Some(request) = request {
-                    panic!("Unhandled request: {:?}", request);
-                }
-            }
-            msg => panic!("Unexpected message: {:?}", msg),
+        let PeerManagerMessageRequest::NetworkRequests(request) = msg else {
+            panic!("Unexpected message: {:?}", msg);
         };
-        PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
+
+        // Iterate over the handlers in reverse order to allow for overriding the default handlers.
+        let mut request = Some(request);
+        for handler in self.handlers.iter().rev() {
+            if let Some(new_request) = handler(request.take().unwrap()) {
+                request = Some(new_request);
+            } else {
+                // Some handler was successfully able to handle the request.
+                return PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse);
+            }
+        }
+        // If no handler was able to handle the request, panic.
+        panic!("Unhandled request: {:?}", request);
     }
 }
 
@@ -147,38 +141,43 @@ fn network_message_to_client_handler(
         NetworkRequests::Block { block } => {
             for (account_id, sender) in client_senders.iter() {
                 if account_id != &my_account_id {
-                    let _ = sender.send_async(BlockResponse {
+                    let future = sender.send_async(BlockResponse {
                         block: block.clone(),
                         peer_id: PeerId::random(),
                         was_requested: false,
                     });
+                    drop(future);
                 }
             }
             None
         }
         NetworkRequests::Approval { approval_message } => {
-            assert!(
-                approval_message.target != my_account_id,
+            assert_ne!(
+                approval_message.target, my_account_id,
                 "Sending message to self not supported."
             );
             let sender = client_senders.get(&approval_message.target).unwrap();
-            let _ = sender.send_async(BlockApproval(approval_message.approval, PeerId::random()));
+            let future =
+                sender.send_async(BlockApproval(approval_message.approval, PeerId::random()));
+            drop(future);
             None
         }
         NetworkRequests::ForwardTx(account, transaction) => {
-            assert!(account != my_account_id, "Sending message to self not supported.");
+            assert_ne!(account, my_account_id, "Sending message to self not supported.");
             let sender = client_senders.get(&account).unwrap();
-            let _ = sender.send_async(ProcessTxRequest {
+            let future = sender.send_async(ProcessTxRequest {
                 transaction,
                 is_forwarded: true,
                 check_only: false,
             });
+            drop(future);
             None
         }
         NetworkRequests::ChunkEndorsement(target, endorsement) => {
-            assert!(target != my_account_id, "Sending message to self not supported.");
+            assert_ne!(target, my_account_id, "Sending message to self not supported.");
             let sender = client_senders.get(&target).unwrap();
-            let _ = sender.send_async(ChunkEndorsementMessage(endorsement));
+            let future = sender.send_async(ChunkEndorsementMessage(endorsement));
+            drop(future);
             None
         }
         _ => Some(request),
@@ -192,31 +191,25 @@ fn network_message_to_partial_witness_handler(
     let my_account_id = my_account_id.clone();
     Arc::new(move |request| match request {
         NetworkRequests::ChunkStateWitnessAck(target, witness_ack) => {
-            // TODO(testloop): Convert account check to a panic.
-            if target != my_account_id {
-                let sender = partial_witness_senders.get(&target).unwrap();
-                sender.send(ChunkStateWitnessAckMessage(witness_ack));
-            }
+            assert_ne!(target, my_account_id, "Sending message to self not supported.");
+            let sender = partial_witness_senders.get(&target).unwrap();
+            sender.send(ChunkStateWitnessAckMessage(witness_ack));
             None
         }
 
         NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple) => {
             for (target, partial_witness) in validator_witness_tuple.into_iter() {
-                // TODO(testloop): Convert account check to a panic.
-                if target != my_account_id {
-                    let sender = partial_witness_senders.get(&target).unwrap();
-                    sender.send(PartialEncodedStateWitnessMessage(partial_witness));
-                }
+                assert_ne!(target, my_account_id, "Sending message to self not supported.");
+                let sender = partial_witness_senders.get(&target).unwrap();
+                sender.send(PartialEncodedStateWitnessMessage(partial_witness));
             }
             None
         }
         NetworkRequests::PartialEncodedStateWitnessForward(chunk_validators, partial_witness) => {
             for target in chunk_validators {
-                // TODO(testloop): Convert account check to a panic.
-                if target != my_account_id {
-                    let sender = partial_witness_senders.get(&target).unwrap();
-                    sender.send(PartialEncodedStateWitnessForwardMessage(partial_witness.clone()));
-                }
+                assert_ne!(target, my_account_id, "Sending message to self not supported.");
+                let sender = partial_witness_senders.get(&target).unwrap();
+                sender.send(PartialEncodedStateWitnessForwardMessage(partial_witness.clone()));
             }
             None
         }
@@ -231,18 +224,27 @@ fn network_message_to_state_snapshot_handler() -> NetworkRequestHandler {
     })
 }
 
+/// While sending the PartialEncodedChunkRequest, we need to know the destination account id.
+/// In the PartialEncodedChunkRequest, We specify the `route_back` as a unique identifier that is
+/// used by the network layer to figure out who to send the response back to.
+///
+/// In network_message_to_shards_manager_handler fn, we use the static initialization for
+/// ROUTE_LOOKUP. This is fine to use in the test framework as each generate route is unique and
+/// independent of other routes.
 #[derive(Default, Clone)]
-struct RouteLookup(Arc<Mutex<HashMap<CryptoHash, AccountId>>>);
+struct PartialEncodedChunkRequestRouteLookup(Arc<Mutex<HashMap<CryptoHash, AccountId>>>);
 
-impl RouteLookup {
+impl PartialEncodedChunkRequestRouteLookup {
     fn new() -> Self {
         Self(Arc::new(Mutex::new(HashMap::new())))
     }
 
-    fn add_route(&self, return_account_id: &AccountId) -> CryptoHash {
+    // Generating route_id is under a lock and we use the size of hashmap to generate the route_id
+    // The size of hashmap is strictly increasing which ensures us a unique route_id across multiple runs.
+    fn add_route(&self, from_account_id: &AccountId) -> CryptoHash {
         let mut guard = self.0.lock().unwrap();
         let route_id = CryptoHash::hash_borsh(guard.len());
-        guard.insert(route_id, return_account_id.clone());
+        guard.insert(route_id, from_account_id.clone());
         route_id
     }
 
@@ -257,10 +259,14 @@ fn network_message_to_shards_manager_handler(
     my_account_id: &AccountId,
     shards_manager_senders: HashMap<AccountId, Sender<ShardsManagerRequestFromNetwork>>,
 ) -> Arc<dyn Fn(NetworkRequests) -> Option<NetworkRequests>> {
-    static ROUTE_LOOKUP: Lazy<RouteLookup> = Lazy::new(RouteLookup::new);
+    // Static initialization for ROUTE_LOOKUP. This is fine across tests as we generate a unique route_id
+    // for each message under a lock.
+    static ROUTE_LOOKUP: Lazy<PartialEncodedChunkRequestRouteLookup> =
+        Lazy::new(PartialEncodedChunkRequestRouteLookup::new);
     let my_account_id = my_account_id.clone();
     Arc::new(move |request| match request {
         NetworkRequests::PartialEncodedChunkRequest { target, request, .. } => {
+            // Save route information in ROUTE_LOOKUP
             let route_back = ROUTE_LOOKUP.add_route(&my_account_id);
             let target = target.account_id.unwrap();
             assert!(target != my_account_id, "Sending message to self not supported.");
@@ -272,6 +278,7 @@ fn network_message_to_shards_manager_handler(
             None
         }
         NetworkRequests::PartialEncodedChunkResponse { route_back, response } => {
+            // Use route_back information to send the response back to the correct client.
             let target = ROUTE_LOOKUP.get_destination(route_back);
             assert!(target != my_account_id, "Sending message to self not supported.");
             let sender = shards_manager_senders.get(&target).unwrap();

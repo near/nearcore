@@ -277,7 +277,7 @@ fn run_chain_for_some_blocks_while_sending_money_around(
                     *nonce,
                     sender.clone(),
                     receiver.clone(),
-                    &create_user_test_signer(&sender),
+                    &create_user_test_signer(&sender).into(),
                     ONE_NEAR,
                     tip.last_block_hash,
                 );
