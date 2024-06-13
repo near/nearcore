@@ -45,6 +45,8 @@ pub struct DebugChunkStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub processing_time_ms: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub congestion_level: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub congestion_info: Option<CongestionInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub endorsement_ratio: Option<f64>,
