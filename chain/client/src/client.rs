@@ -200,6 +200,12 @@ pub struct Client {
     chunk_distribution_network: Option<ChunkDistributionNetwork>,
 }
 
+impl AsRef<Client> for Client {
+    fn as_ref(&self) -> &Client {
+        self
+    }
+}
+
 impl Client {
     pub(crate) fn update_client_config(&self, update_client_config: UpdateableClientConfig) {
         self.config.expected_shutdown.update(update_client_config.expected_shutdown);

@@ -1,11 +1,5 @@
-use derive_enum_from_into::{EnumFrom, EnumTryInto};
-use near_async::messaging::{noop, IntoMultiSender, IntoSender};
-use near_async::test_loop::adhoc::{handle_adhoc_events, AdhocEvent, AdhocEventSender};
-use near_async::test_loop::futures_old::{
-    drive_async_computations, drive_futures, TestLoopAsyncComputationEvent,
-    TestLoopDelayedActionEvent, TestLoopTask,
-};
-use near_async::test_loop::test_loop_old::TestLoopBuilder;
+use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
+use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain::chunks_store::ReadOnlyChunksStore;
 use near_chain::ChainGenesis;

@@ -1,19 +1,16 @@
 use itertools::Itertools;
 use near_async::futures::FutureSpawner;
-use near_async::messaging::{noop, IntoMultiSender, IntoSender, MessageWithCallback, SendAsync};
-use near_async::test_loop::adhoc::{handle_adhoc_events, AdhocEvent, AdhocEventSender};
-use near_async::test_loop::event_handler::ignore_events;
-use near_async::test_loop::futures_old::{
-    drive_async_computations, drive_futures, TestLoopAsyncComputationEvent,
-    TestLoopDelayedActionEvent, TestLoopTask,
+use near_async::messaging::{
+    noop, IntoMultiSender, IntoSender, LateBoundSender, SendAsync, Sender,
 };
-use near_async::test_loop::test_loop_old::TestLoopBuilder;
+use near_async::test_loop::data::{TestLoopData, TestLoopDataHandle};
+use near_async::test_loop::sender::TestLoopSender;
+use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain::chunks_store::ReadOnlyChunksStore;
 use near_chain::state_snapshot_actor::{
     get_delete_snapshot_callback, get_make_snapshot_callback, SnapshotCallbacks, StateSnapshotActor,
 };
-
 use near_chain::types::RuntimeAdapter;
 use near_chain::ChainGenesis;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
@@ -22,39 +19,11 @@ use near_chain_configs::{
     SyncConfig,
 };
 use near_chunks::shards_manager_actor::ShardsManagerActor;
-use near_chunks::test_loop::{
-    forward_client_request_to_shards_manager, forward_network_request_to_shards_manager,
-    route_shards_manager_network_messages,
-};
-use near_client::client_actor::{
-    ClientActorInner, ClientSenderForClientMessage, ClientSenderForPartialWitnessMessage,
-    SyncJobsSenderForClientMessage,
-};
-use near_client::sync::sync_actor::SyncActor;
-use near_client::sync_jobs_actor::{ClientSenderForSyncJobsMessage, SyncJobsActor};
-use near_client::test_utils::test_loop::client_actor::{
-    forward_client_messages_from_client_to_client_actor,
-    forward_client_messages_from_network_to_client_actor,
-    forward_client_messages_from_shards_manager, forward_client_messages_from_sync_adapter,
-    forward_client_messages_from_sync_jobs_to_client_actor,
-};
-use near_client::test_utils::test_loop::partial_witness_actor::{
-    forward_messages_from_client_to_partial_witness_actor,
-    forward_messages_from_network_to_partial_witness_actor,
-};
-use near_client::test_utils::test_loop::sync_actor::{
-    forward_sync_actor_messages_from_client, forward_sync_actor_messages_from_network,
-    test_loop_sync_actor_maker_old, TestSyncActors,
-};
-use near_client::test_utils::test_loop::sync_jobs_actor::forward_messages_from_client_to_sync_jobs_actor;
-use near_client::test_utils::test_loop::{
-    forward_messages_from_partial_witness_actor_to_client,
-    print_basic_client_info_before_each_event,
-};
-use near_client::test_utils::test_loop::{route_network_messages_to_client, ClientQueries};
-use near_client::{
-    Client, PartialWitnessActor, PartialWitnessSenderForClientMessage, SyncAdapter, SyncMessage,
-};
+use near_client::client_actor::ClientActorInner;
+use near_client::sync_jobs_actor::SyncJobsActor;
+use near_client::test_utils::test_loop::sync_actor::test_loop_sync_actor_maker;
+use near_client::test_utils::test_loop::ClientQueries;
+use near_client::{Client, PartialWitnessActor, SyncAdapter};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
 use near_network::client::ProcessTxRequest;
@@ -192,9 +161,9 @@ fn test_client_with_multi_test_loop() {
             ShardTracker::new(TrackedConfig::from_config(&client_config), epoch_manager.clone());
 
         let state_sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
-            builder.sender().for_index(idx).into_sender(),
-            builder.sender().for_index(idx).into_sender(),
-            test_loop_sync_actor_maker_old(builder.sender().for_index(idx), sync_actors.clone()),
+            client_adapter.as_sender(),
+            network_adapter.as_sender(),
+            test_loop_sync_actor_maker(test_loop.sender()),
         )));
         let contract_cache = FilesystemContractRuntimeCache::new(&homedir, None::<&str>)
             .expect("filesystem contract cache")
