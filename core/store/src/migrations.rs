@@ -348,6 +348,15 @@ pub fn migrate_38_to_39(store: &Store) -> anyhow::Result<()> {
 ///
 /// Rewrites ValidatorKickoutReason to introduce NotEnoughChunkEndorsements variant
 pub fn migrate_39_to_40(store: &Store) -> anyhow::Result<()> {
+    if cfg!(feature = "statelessnet_protocol") {
+        tracing::info!(
+            target: "migrations",
+            "For statelessnet, ValidatorKickoutReason is already at correct format. \
+            Skipping migration from 39 to 40."
+        );
+        return Ok(());
+    }
+
     use near_primitives::serialize::dec_format;
     #[derive(BorshDeserialize, serde::Deserialize)]
     pub enum LegacyValidatorKickoutReason {

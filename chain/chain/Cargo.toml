@@ -110,5 +110,5 @@ nightly_protocol = [
   "near-vm-runner/nightly_protocol",
   "node-runtime/nightly_protocol",
 ]
-statelessnet_protocol = ["near-primitives/statelessnet_protocol"]
+statelessnet_protocol = ["near-store/statelessnet_protocol", "near-primitives/statelessnet_protocol"]
 sandbox = ["near-primitives/sandbox"]
