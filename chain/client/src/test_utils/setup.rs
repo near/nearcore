@@ -90,7 +90,6 @@ pub fn setup(
     network_adapter: PeerManagerAdapter,
     transaction_validity_period: NumBlocks,
     genesis_time: Utc,
-    // ctx: &Context<ClientActor>,
     chunk_distribution_config: Option<ChunkDistributionNetworkConfig>,
 ) -> (
     Addr<ClientActor>,
