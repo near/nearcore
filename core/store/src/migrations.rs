@@ -348,6 +348,8 @@ pub fn migrate_38_to_39(store: &Store) -> anyhow::Result<()> {
 ///
 /// Rewrites ValidatorKickoutReason to introduce NotEnoughChunkEndorsements variant
 pub fn migrate_39_to_40(store: &Store) -> anyhow::Result<()> {
+    use near_primitives::serialize::dec_format;
+    #[derive(BorshDeserialize, serde::Deserialize)]
     pub enum LegacyValidatorKickoutReason {
         /// Slashed validators are kicked out.
         Slashed,
