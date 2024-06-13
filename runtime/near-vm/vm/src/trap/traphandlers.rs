@@ -150,9 +150,10 @@ pub unsafe fn near_vm_call_trampoline(
     values_vec: *mut u8,
 ) -> Result<(), Trap> {
     catch_traps(|| {
-        mem::transmute::<_, extern "C" fn(VMFunctionEnvironment, *const VMFunctionBody, *mut u8)>(
-            trampoline,
-        )(callee_env, callee, values_vec);
+        mem::transmute::<
+            VMTrampoline,
+            extern "C" fn(VMFunctionEnvironment, *const VMFunctionBody, *mut u8),
+        >(trampoline)(callee_env, callee, values_vec);
     })
 }
 

@@ -76,4 +76,5 @@ nightly_protocol = [
 ]
 sandbox = [
   "near-client/sandbox",
+  "near-o11y/sandbox",
 ]
