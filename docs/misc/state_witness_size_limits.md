@@ -1,4 +1,4 @@
-### State witness size limits
+## State witness size limits
 
 Some limits were introduced to keep the size of `ChunkStateWitness` reasonable.
 `ChunkStateWitness` contains all the incoming transactions and receipts that will be processed during chunk application and in theory a single receipt could be tens of megabatytes in size. Distributing a `ChunkStateWitness` this large would be troublesome, so we limit the size and number of transactions, receipts, etc. The limits aim to keep the total uncompressed size of `ChunkStateWitness` under 16MiB.
@@ -32,3 +32,13 @@ The limits are:
     * A receiving shard will receive receipts from `num_shards - 1` shards using the usual limit and one shard using the big limit.
 
 In total that gives 2 MiB + 500 KiB + 7MB + 5*100 KiB + 4.5 MiB ~= 14 MiB of maximum witness size
+
+### Validating the limits
+
+Chunk validators have to verify that chunk producer respected all of the limits while producing the chunk. This means that validators also have to keep track of recorded storage proof by recording all trie accesses and they have to enforce the limits.
+If it turns out that some limits weren't respected, the validators will generate a different result of chunk application and they won't endorse the chunk.
+
+### Missing chunks
+
+When a chunk is mising on a shard, this shard will receive receipts from more than one block height. This could lead to large `source_receipt_proofs` so a mechanism is added to reduce the impact. If there are more than two missing chunks in a row,
+the shard is considered fully congested and no new receipts will be sent to it (unless it's the `allowed_shard` to avoid deadlocks).
