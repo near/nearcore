@@ -161,7 +161,9 @@ impl CongestionInfo {
         match (extra, header) {
             (CongestionInfo::V1(extra), CongestionInfo::V1(header)) => {
                 let correct_allowed_shard =
-                    if ProtocolFeature::CongestionControl.enabled(extra_protocol_version) {
+                    if ProtocolFeature::CongestionControlAllowedShardValidation
+                        .enabled(extra_protocol_version)
+                    {
                         extra.allowed_shard == header.allowed_shard
                     } else {
                         true
