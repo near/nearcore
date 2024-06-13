@@ -24,7 +24,7 @@ pub use near_network::client::{
     BlockApproval, BlockResponse, ProcessTxRequest, ProcessTxResponse, SetNetworkInfo,
 };
 pub use stateless_validation::partial_witness::partial_witness_actor::{
-    DistributeStateWitnessRequest, PartialWitnessActor, PartialWitnessSenderForClientMessage,
+    DistributeStateWitnessRequest, PartialWitnessActor,
 };
 
 pub mod adapter;
