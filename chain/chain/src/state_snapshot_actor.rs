@@ -1,5 +1,5 @@
 use near_async::messaging::{Actor, CanSend, Handler, Sender};
-use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
+use near_async::{MultiSend, MultiSenderFrom};
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::Block;
@@ -119,14 +119,12 @@ impl Handler<CreateSnapshotRequest> for StateSnapshotActor {
     }
 }
 
-#[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
-#[multi_send_message_derive(Debug)]
+#[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct StateSnapshotSenderForStateSnapshot {
     create_snapshot: Sender<CreateSnapshotRequest>,
 }
 
-#[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
-#[multi_send_message_derive(Debug)]
+#[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct StateSnapshotSenderForClient(Sender<DeleteAndMaybeCreateSnapshotRequest>);
 
 type MakeSnapshotCallback =

@@ -168,6 +168,8 @@ pub enum ProtocolFeature {
     WitnessTransactionLimits,
     /// Size limit on outgoing receipts.
     OutgoingReceiptsSizeLimit,
+    /// No chunk-only producers in stateless validation
+    NoChunkOnlyProducers,
 }
 
 impl ProtocolFeature {
@@ -233,7 +235,8 @@ impl ProtocolFeature {
             ProtocolFeature::WitnessTransactionLimits
             | ProtocolFeature::CongestionControl
             | ProtocolFeature::OutgoingReceiptsSizeLimit => 87,
-            ProtocolFeature::CongestionControlAllowedShardValidation => 88,
+            ProtocolFeature::CongestionControlAllowedShardValidation
+            | ProtocolFeature::NoChunkOnlyProducers => 88,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]

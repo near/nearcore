@@ -25,7 +25,7 @@ use near_async::futures::{
 use near_async::messaging::{self, CanSend, Handler, IntoMultiSender, LateBoundSender, Sender};
 use near_async::time::{Clock, Utc};
 use near_async::time::{Duration, Instant};
-use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
+use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::chain::{
     ApplyChunksDoneMessage, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
     BlockCatchUpResponse, ChunkStateWitnessMessage, LoadMemtrieRequest, LoadMemtrieResponse,
@@ -201,14 +201,12 @@ pub fn start_client(
     StartClientResult { client_actor: client_addr, client_arbiter_handle, resharding_handle }
 }
 
-#[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
-#[multi_send_message_derive(Debug)]
+#[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct ClientSenderForClient {
     pub apply_chunks_done: Sender<ApplyChunksDoneMessage>,
 }
 
-#[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
-#[multi_send_message_derive(Debug)]
+#[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct SyncJobsSenderForClient {
     pub apply_state_parts: Sender<ApplyStatePartsRequest>,
     pub load_memtrie: Sender<LoadMemtrieRequest>,
@@ -216,8 +214,7 @@ pub struct SyncJobsSenderForClient {
     pub resharding: Sender<ReshardingRequest>,
 }
 
-#[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
-#[multi_send_message_derive(Debug)]
+#[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct ClientSenderForPartialWitness {
     pub chunk_state_witness: Sender<ChunkStateWitnessMessage>,
 }
