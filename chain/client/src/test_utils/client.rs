@@ -109,7 +109,7 @@ impl Client {
                 encoded_chunk,
                 merkle_paths,
                 receipts,
-                self.validator_signer.as_ref().unwrap().validator_id().clone(),
+                self.validator_signer.get().unwrap().validator_id().clone(),
             )
             .unwrap();
         let prev_block = self.chain.get_block(shard_chunk.prev_block()).unwrap();
@@ -201,7 +201,7 @@ pub fn create_chunk(
         let parity_parts = total_parts - data_parts;
         let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
 
-        let signer = client.validator_signer.as_ref().unwrap().clone();
+        let signer = client.validator_signer.get().unwrap();
         let header = chunk.cloned_header();
         let (mut encoded_chunk, mut new_merkle_paths) = EncodedShardChunk::new(
             *header.prev_block_hash(),
@@ -238,7 +238,7 @@ pub fn create_chunk(
         client.chain.chain_store().get_block_merkle_tree(last_block.hash()).unwrap();
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
 
-    let signer = client.validator_signer.as_ref().unwrap().clone();
+    let signer = client.validator_signer.get().unwrap();
     let endorsement = ChunkEndorsement::new(chunk.cloned_header().chunk_hash(), signer.as_ref());
     block_merkle_tree.insert(*last_block.hash());
     let block = Block::produce(
@@ -259,7 +259,7 @@ pub fn create_chunk(
         None,
         vec![],
         vec![],
-        &*client.validator_signer.as_ref().unwrap().clone(),
+        &*client.validator_signer.get().unwrap(),
         *last_block.header().next_bp_hash(),
         block_merkle_tree.root(),
         client.clock.now_utc(),

@@ -2,12 +2,13 @@ use lru::LruCache;
 use near_async::time::{Clock, Duration, Instant};
 use near_primitives::hash::CryptoHash;
 use once_cell::sync::Lazy;
+use std::num::NonZeroUsize;
 use std::sync::Mutex;
 
 // Cache with the mapping from CryptoHash (blocks, chunks) to the number milliseconds that it took to process them.
 // Used only for debugging purposes.
 static CRYPTO_HASH_TIMER_RESULTS: Lazy<Mutex<LruCache<CryptoHash, Duration>>> =
-    Lazy::new(|| Mutex::new(LruCache::new(10000)));
+    Lazy::new(|| Mutex::new(LruCache::new(NonZeroUsize::new(10000).unwrap())));
 
 /// Struct to measure computation times related to different CryptoHashes (for example chunk or block computations).
 /// It stores the data in the global LRU cache, which allows it to be read afterwards.

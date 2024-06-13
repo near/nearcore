@@ -29,6 +29,7 @@ use near_telemetry::TelemetryEvent;
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use sysinfo::{get_current_pid, set_open_files_limit, Pid, ProcessExt, System, SystemExt};
 use time::ext::InstantExt as _;
@@ -59,7 +60,7 @@ pub struct InfoHelper {
     /// Total gas used during period.
     gas_used: u64,
     /// Sign telemetry with block producer key if available.
-    validator_signer: Option<Arc<dyn ValidatorSigner>>,
+    validator_signer: Option<Arc<ValidatorSigner>>,
     /// Telemetry event sender.
     telemetry_sender: Sender<TelemetryEvent>,
     /// Log coloring enabled.
@@ -81,7 +82,7 @@ impl InfoHelper {
         clock: Clock,
         telemetry_sender: Sender<TelemetryEvent>,
         client_config: &ClientConfig,
-        validator_signer: Option<Arc<dyn ValidatorSigner>>,
+        validator_signer: Option<Arc<ValidatorSigner>>,
     ) -> Self {
         set_open_files_limit(0);
         metrics::export_version(&client_config.version);
@@ -101,7 +102,7 @@ impl InfoHelper {
             epoch_id: None,
             enable_multiline_logging: client_config.enable_multiline_logging,
             prev_sync_requirement: None,
-            num_validators_per_epoch: LruCache::new(3),
+            num_validators_per_epoch: LruCache::new(NonZeroUsize::new(3).unwrap()),
         }
     }
 
@@ -147,7 +148,8 @@ impl InfoHelper {
 
     /// Count which shards are tracked by the node in the epoch indicated by head parameter.
     fn record_tracked_shards(head: &Tip, client: &crate::client::Client) {
-        let me = client.validator_signer.as_ref().map(|x| x.validator_id());
+        let validator_signer = client.validator_signer.get();
+        let me = validator_signer.as_ref().map(|x| x.validator_id());
         if let Ok(shard_ids) = client.epoch_manager.shard_ids(&head.epoch_id) {
             for shard_id in shard_ids {
                 let tracked = client.shard_tracker.care_about_shard(
@@ -164,7 +166,7 @@ impl InfoHelper {
     }
 
     fn record_block_producers(head: &Tip, client: &crate::client::Client) {
-        let me = client.validator_signer.as_ref().map(|x| x.validator_id().clone());
+        let me = client.validator_signer.get().map(|x| x.validator_id().clone());
         if let Some(is_bp) = me.map_or(Some(false), |account_id| {
             // In rare cases block producer information isn't available.
             // Don't set the metric in this case.
@@ -179,7 +181,7 @@ impl InfoHelper {
 
     fn record_chunk_producers(head: &Tip, client: &crate::client::Client) {
         if let (Some(account_id), Ok(epoch_info)) = (
-            client.validator_signer.as_ref().map(|x| x.validator_id().clone()),
+            client.validator_signer.get().map(|x| x.validator_id().clone()),
             client.epoch_manager.get_epoch_info(&head.epoch_id),
         ) {
             for (shard_id, validators) in epoch_info.chunk_producers_settlement().iter().enumerate()
@@ -293,23 +295,21 @@ impl InfoHelper {
         epoch_id: &EpochId,
         last_block_hash: &CryptoHash,
     ) -> usize {
-        self.num_validators_per_epoch
-            .get_or_insert(epoch_id.clone(), || {
-                let block_producers: HashSet<AccountId> = epoch_manager
-                    .get_epoch_block_producers_ordered(epoch_id, last_block_hash)
-                    .unwrap_or(vec![])
-                    .into_iter()
-                    .map(|(validator_stake, _)| validator_stake.account_id().clone())
-                    .collect();
-                let chunk_producers: HashSet<AccountId> = epoch_manager
-                    .get_epoch_chunk_producers(epoch_id)
-                    .unwrap_or(vec![])
-                    .into_iter()
-                    .map(|validator_stake| validator_stake.account_id().clone())
-                    .collect();
-                block_producers.union(&chunk_producers).count()
-            })
-            .map_or(0, |num_validators| *num_validators)
+        *self.num_validators_per_epoch.get_or_insert(epoch_id.clone(), || {
+            let block_producers: HashSet<AccountId> = epoch_manager
+                .get_epoch_block_producers_ordered(epoch_id, last_block_hash)
+                .unwrap_or(vec![])
+                .into_iter()
+                .map(|(validator_stake, _)| validator_stake.account_id().clone())
+                .collect();
+            let chunk_producers: HashSet<AccountId> = epoch_manager
+                .get_epoch_chunk_producers(epoch_id)
+                .unwrap_or(vec![])
+                .into_iter()
+                .map(|validator_stake| validator_stake.account_id().clone())
+                .collect();
+            block_producers.union(&chunk_producers).count()
+        })
     }
 
     /// Print current summary.
@@ -328,7 +328,8 @@ impl InfoHelper {
                 &head.epoch_id,
                 &head.last_block_hash,
             );
-            let account_id = client.validator_signer.as_ref().map(|x| x.validator_id());
+            let validator_signer = client.validator_signer.get();
+            let account_id = validator_signer.as_ref().map(|x| x.validator_id());
             let is_validator = if let Some(account_id) = account_id {
                 match client.epoch_manager.get_validator_by_account_id(
                     &head.epoch_id,

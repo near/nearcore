@@ -1,27 +1,9 @@
-pub mod client_actor;
-pub mod partial_witness_actor;
-pub mod sync_actor;
-pub mod sync_jobs_actor;
+use std::sync::{Arc, Mutex};
 
-use crate::client_actor::{ClientActorInner, ClientSenderForPartialWitnessMessage};
-use near_async::messaging::{CanSend, Handler, SendAsync};
-use near_async::test_loop::delay_sender::DelaySender;
-use near_async::test_loop::event_handler::{LoopEventHandler, TryIntoOrSelf};
-
-use near_async::time::Duration;
-
-use crate::Client;
-use near_network::client::{
-    BlockApproval, BlockResponse, ChunkEndorsementMessage, ClientSenderForNetwork,
-    ClientSenderForNetworkMessage, ProcessTxRequest,
-};
-use near_network::state_witness::{
-    ChunkStateWitnessAckMessage, PartialEncodedStateWitnessForwardMessage,
-    PartialEncodedStateWitnessMessage, PartialWitnessSenderForNetwork,
-    PartialWitnessSenderForNetworkMessage,
-};
-use near_network::test_loop::SupportsRoutingLookup;
-use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
+use near_async::messaging::{IntoSender, LateBoundSender, Sender};
+use near_async::test_loop::data::TestLoopData;
+use near_async::test_loop::DelaySender;
+use near_network::types::PeerManagerMessageRequest;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, Balance, ShardId};
 use near_primitives::views::{
@@ -43,7 +25,10 @@ pub trait ClientQueries {
     fn tracked_shards_for_each_client(&self) -> Vec<Vec<ShardId>>;
 }
 
-impl<Data: AsRef<Client> + AsRef<AccountId>> ClientQueries for Vec<Data> {
+impl<Data> ClientQueries for Vec<Data>
+where
+    Data: AsRef<Client>,
+{
     fn client_index_tracking_account(&self, account_id: &AccountId) -> usize {
         let client: &Client = self[0].as_ref();
         let head = client.chain.head().unwrap();
@@ -52,13 +37,11 @@ impl<Data: AsRef<Client> + AsRef<AccountId>> ClientQueries for Vec<Data> {
 
         for i in 0..self.len() {
             let client: &Client = self[i].as_ref();
+            let validator_signer = client.validator_signer.get().unwrap();
+            let account_id = validator_signer.validator_id();
             let tracks_shard = client
                 .epoch_manager
-                .cares_about_shard_from_prev_block(
-                    &head.prev_block_hash,
-                    &self[i].as_ref(),
-                    shard_id,
-                )
+                .cares_about_shard_from_prev_block(&head.prev_block_hash, account_id, shard_id)
                 .unwrap();
             if tracks_shard {
                 return i;
@@ -134,15 +117,13 @@ impl<Data: AsRef<Client> + AsRef<AccountId>> ClientQueries for Vec<Data> {
         let mut ret = Vec::new();
         for i in 0..self.len() {
             let client: &Client = self[i].as_ref();
+            let validator_signer = client.validator_signer.get().unwrap();
+            let account_id = validator_signer.validator_id();
             let mut tracked_shards = Vec::new();
             for shard_id in &all_shard_ids {
                 let tracks_shard = client
                     .epoch_manager
-                    .cares_about_shard_from_prev_block(
-                        &head.prev_block_hash,
-                        &self[i].as_ref(),
-                        *shard_id,
-                    )
+                    .cares_about_shard_from_prev_block(&head.prev_block_hash, account_id, *shard_id)
                     .unwrap();
                 if tracks_shard {
                     tracked_shards.push(*shard_id);
@@ -161,6 +142,10 @@ pub fn test_loop_sync_actor_maker(
         + Send
         + Sync,
 > {
+    // This is a closure that will be called by SyncAdapter to create SyncActor.
+    // Since we don't have too much control over when the closure is called, we need to use the CallbackEvent
+    // to register the SyncActor in the TestLoopData.
+    // TestLoop and TestLoopData can not cross the closure boundary and be moved while the PendingEventsSender can.
     Arc::new(move |shard_uid, client_sender, network_sender| {
         let sync_actor = SyncActor::new(shard_uid, client_sender, network_sender);
         let sync_actor_adapter = LateBoundSender::new();

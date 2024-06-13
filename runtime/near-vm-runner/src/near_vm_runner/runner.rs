@@ -1,7 +1,6 @@
 use super::{NearVmMemory, VM_CONFIG};
 use crate::cache::CompiledContractInfo;
 use crate::errors::ContractPrecompilatonResult;
-use crate::imports::near_vm::NearVmImports;
 use crate::logic::errors::{
     CacheError, CompilationError, FunctionCallError, MethodResolveError, VMRunnerError, WasmTrap,
 };
@@ -25,7 +24,8 @@ use near_vm_engine::universal::{
 };
 use near_vm_types::{FunctionIndex, InstanceConfig, MemoryType, Pages, WASM_PAGE_SIZE};
 use near_vm_vm::{
-    Artifact, Instantiatable, LinearMemory, LinearTable, MemoryStyle, TrapCode, VMMemory,
+    Artifact, ExportFunction, ExportFunctionMetadata, Instantiatable, LinearMemory, LinearTable,
+    MemoryStyle, Resolver, TrapCode, VMFunction, VMFunctionKind, VMMemory,
 };
 use std::mem::size_of;
 use std::sync::{Arc, OnceLock};
@@ -610,7 +610,7 @@ impl crate::runner::VM for NearVM {
             promise_results,
             method_name,
             |vmmemory, mut logic, artifact| {
-                let import = imports::near_vm::build(vmmemory, &mut logic, artifact.engine());
+                let import = build_imports(vmmemory, &mut logic, artifact.engine());
                 let entrypoint = match get_entrypoint_index(&*artifact, method_name) {
                     Ok(index) => index,
                     Err(e) => {
@@ -637,6 +637,142 @@ impl crate::runner::VM for NearVM {
             .compile_and_cache(code, cache)?
             .map(|_| ContractPrecompilatonResult::ContractCompiled))
     }
+}
+
+pub(crate) struct NearVmImports<'engine, 'vmlogic, 'vmlogic_refs> {
+    pub(crate) memory: VMMemory,
+    // Note: this same object is also referenced by the `metadata` field!
+    pub(crate) vmlogic: &'vmlogic mut VMLogic<'vmlogic_refs>,
+    pub(crate) metadata: Arc<ExportFunctionMetadata>,
+    pub(crate) engine: &'engine UniversalEngine,
+}
+
+trait NearVmType {
+    type NearVm;
+    fn to_near_vm(self) -> Self::NearVm;
+    fn ty() -> near_vm_types::Type;
+}
+macro_rules! near_vm_types {
+        ($($native:ty as $near_vm:ty => $type_expr:expr;)*) => {
+            $(impl NearVmType for $native {
+                type NearVm = $near_vm;
+                fn to_near_vm(self) -> $near_vm {
+                    self as _
+                }
+                fn ty() -> near_vm_types::Type {
+                    $type_expr
+                }
+            })*
+        }
+    }
+near_vm_types! {
+    u32 as i32 => near_vm_types::Type::I32;
+    u64 as i64 => near_vm_types::Type::I64;
+}
+
+macro_rules! return_ty {
+        ($return_type: ident = [ ]) => {
+            type $return_type = ();
+            fn make_ret() -> () {}
+        };
+        ($return_type: ident = [ $($returns: ident),* ]) => {
+            #[repr(C)]
+            struct $return_type($(<$returns as NearVmType>::NearVm),*);
+            fn make_ret($($returns: $returns),*) -> Ret { Ret($($returns.to_near_vm()),*) }
+        }
+    }
+
+impl<'e, 'l, 'lr> Resolver for NearVmImports<'e, 'l, 'lr> {
+    fn resolve(&self, _index: u32, module: &str, field: &str) -> Option<near_vm_vm::Export> {
+        if module == "env" && field == "memory" {
+            return Some(near_vm_vm::Export::Memory(self.memory.clone()));
+        }
+
+        macro_rules! add_import {
+                (
+                  $mod:ident / $name:ident : $func:ident <
+                    [ $( $arg_name:ident : $arg_type:ident ),* ]
+                    -> [ $( $returns:ident ),* ]
+                  >
+                ) => {
+                    return_ty!(Ret = [ $($returns),* ]);
+
+                    extern "C" fn $name(env: *mut VMLogic<'_>, $( $arg_name: $arg_type ),* )
+                    -> Ret {
+                        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            const TRACE: bool = $crate::imports::should_trace_host_function(stringify!($name));
+                            let _span = TRACE.then(|| {
+                                tracing::trace_span!(target: "vm::host_function", stringify!($name)).entered()
+                            });
+
+                            // SAFETY: This code should only be executable within `'vmlogic`
+                            // lifetime and so it is safe to dereference the `env` pointer which is
+                            // known to be derived from a valid `&'vmlogic mut VMLogic<'_>` in the
+                            // first place.
+                            unsafe { (*env).$func( $( $arg_name, )* ) }
+                        }));
+                        // We want to ensure that the only kind of error that host function calls
+                        // return are VMLogicError. This is important because we later attempt to
+                        // downcast the `RuntimeError`s into `VMLogicError`.
+                        let result: Result<Result<_, crate::logic::VMLogicError>, _>  = result;
+                        #[allow(unused_parens)]
+                        match result {
+                            Ok(Ok(($($returns),*))) => make_ret($($returns),*),
+                            Ok(Err(trap)) => unsafe {
+                                // SAFETY: this can only be called by a WASM contract, so all the
+                                // necessary hooks are known to be in place.
+                                near_vm_vm::raise_user_trap(Box::new(trap))
+                            },
+                            Err(e) => unsafe {
+                                // SAFETY: this can only be called by a WASM contract, so all the
+                                // necessary hooks are known to be in place.
+                                near_vm_vm::resume_panic(e)
+                            },
+                        }
+                    }
+                    // TODO: a phf hashmap would probably work better here.
+                    if module == stringify!($mod) && field == stringify!($name) {
+                        let args = [$(<$arg_type as NearVmType>::ty()),*];
+                        let rets = [$(<$returns as NearVmType>::ty()),*];
+                        let signature = near_vm_types::FunctionType::new(&args[..], &rets[..]);
+                        let signature = self.engine.register_signature(signature);
+                        return Some(near_vm_vm::Export::Function(ExportFunction {
+                            vm_function: VMFunction {
+                                address: $name as *const _,
+                                // SAFETY: here we erase the lifetime of the `vmlogic` reference,
+                                // but we believe that the lifetimes on `NearVmImports` enforce
+                                // sufficiently that it isn't possible to call this exported
+                                // function when vmlogic is no loger live.
+                                vmctx: near_vm_vm::VMFunctionEnvironment {
+                                    host_env: self.vmlogic as *const _ as *mut _
+                                },
+                                signature,
+                                kind: VMFunctionKind::Static,
+                                call_trampoline: None,
+                                instance_ref: None,
+                            },
+                            metadata: Some(Arc::clone(&self.metadata)),
+                        }));
+                    }
+                };
+            }
+        imports::for_each_available_import!(self.vmlogic.config, add_import);
+        return None;
+    }
+}
+
+pub(crate) fn build_imports<'e, 'a, 'b>(
+    memory: VMMemory,
+    logic: &'a mut VMLogic<'b>,
+    engine: &'e UniversalEngine,
+) -> NearVmImports<'e, 'a, 'b> {
+    let metadata = unsafe {
+        // SAFETY: the functions here are thread-safe. We ensure that the lifetime of `VMLogic`
+        // is sufficiently long by tying the lifetime of VMLogic to the return type which
+        // contains this metadata.
+        ExportFunctionMetadata::new(logic as *mut _ as *mut _, None, |ptr| ptr, |_| {})
+    };
+    NearVmImports { memory, vmlogic: logic, metadata: Arc::new(metadata), engine }
 }
 
 #[cfg(test)]

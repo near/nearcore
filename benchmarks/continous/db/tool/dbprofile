@@ -1,0 +1,9 @@
+# Sets environment variables required for connecting to the db.
+# `source ./dbprofile`
+
+# Used by diesel-cli. Connect as `postgres` since diesel-cli is used for db administration.
+export DATABASE_URL=postgres://postgres@34.90.190.128/benchmarks
+
+# Used by the `/cli` crate which is executed on the nodes that run benchmarks.
+export DATABASE_URL_CLI=postgres://benchmark_runner@34.90.190.128/benchmarks
+
