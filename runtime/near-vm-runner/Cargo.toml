@@ -1,6 +1,6 @@
 [package]
 name = "near-vm-runner"
-version.workspace = "0.22.0"
+version = "0.22.0"
 authors.workspace = true
 edition.workspace = true
 description = "This crate implements the specification of the interface that Near blockchain exposes to the smart contracts."
