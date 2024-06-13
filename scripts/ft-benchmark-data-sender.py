@@ -121,6 +121,7 @@ if __name__ == "__main__":
     commit_hash, commit_time = get_commit()
     response = {
         "time": time_begin.strftime('%Y-%m-%dT%H:%M:%SZ'),
+        "time_end": datetime.now().strftime('%Y-%m-%dT%H:%M:%SZ'),
         "git_commit_hash": commit_hash,
         "git_commit_time": commit_time.strftime('%Y-%m-%dT%H:%M:%SZ'),
         "num_nodes": 1,  # TODO: probably should be filled by terraform
