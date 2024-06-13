@@ -12,8 +12,9 @@ diesel::table! {
         disjoint_workloads -> Bool,
         num_shards -> Int4,
         num_unique_users -> Int4,
-        size_state_bytes -> Int4,
+        size_state_bytes -> Int8,
         tps -> Int4,
-        total_transactions -> Int4,
+        total_transactions -> Int8,
+        time_end -> Timestamptz,
     }
 }
