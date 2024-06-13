@@ -5,5 +5,6 @@ pub mod runtime_utils;
 pub mod test_helpers;
 pub mod user;
 
+pub mod test_loop;
 #[cfg(test)]
 mod tests;

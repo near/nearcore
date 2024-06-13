@@ -1,97 +1,33 @@
+use std::collections::HashMap;
+
 use itertools::Itertools;
-use near_async::futures::FutureSpawner;
-use near_async::messaging::{
-    noop, IntoMultiSender, IntoSender, LateBoundSender, SendAsync, Sender,
-};
-use near_async::test_loop::data::{TestLoopData, TestLoopDataHandle};
-use near_async::test_loop::sender::TestLoopSender;
-use near_async::test_loop::TestLoopV2;
+use near_async::messaging::SendAsync;
+use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
-use near_chain::chunks_store::ReadOnlyChunksStore;
-use near_chain::state_snapshot_actor::{
-    get_delete_snapshot_callback, get_make_snapshot_callback, SnapshotCallbacks, StateSnapshotActor,
-};
-use near_chain::types::RuntimeAdapter;
-use near_chain::ChainGenesis;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
-use near_chain_configs::{
-    ClientConfig, DumpConfig, ExternalStorageConfig, ExternalStorageLocation, StateSyncConfig,
-    SyncConfig,
-};
-use near_chunks::shards_manager_actor::ShardsManagerActor;
-use near_client::client_actor::ClientActorInner;
-use near_client::sync_jobs_actor::SyncJobsActor;
-use near_client::test_utils::test_loop::test_loop_sync_actor_maker;
 use near_client::test_utils::test_loop::ClientQueries;
-use near_client::{Client, PartialWitnessActor, SyncAdapter};
-use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
-use near_epoch_manager::EpochManager;
+use near_client::Client;
 use near_network::client::ProcessTxRequest;
-use near_network::shards_manager::ShardsManagerRequestFromNetwork;
-use near_network::state_witness::PartialWitnessSenderForNetwork;
-use near_network::test_loop::{ClientSenderForTestLoopNetwork, TestLoopPeerManagerActor};
 use near_o11y::testonly::init_test_logger;
-use near_primitives::network::PeerId;
-use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
+use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochId, ValidatorInfoIdentifier};
 use near_primitives::version::ProtocolFeature::StatelessValidationV0;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::CurrentEpochValidatorInfo;
-use near_store::config::StateSnapshotType;
-use near_store::genesis::initialize_genesis_state;
-use near_store::test_utils::create_test_store;
-use near_store::{StoreConfig, TrieConfig};
-use near_vm_runner::ContractRuntimeCache;
-use near_vm_runner::FilesystemContractRuntimeCache;
-use nearcore::state_sync::StateSyncDumper;
-use nearcore::NightshadeRuntime;
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+
+use crate::test_loop::builder::TestLoopBuilder;
+use crate::test_loop::env::TestLoopEnv;
 
 const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 
 const NUM_ACCOUNTS: usize = 20;
 const NUM_SHARDS: u64 = 4;
 const EPOCH_LENGTH: u64 = 12;
-const NETWORK_DELAY: Duration = Duration::milliseconds(10);
 
 const NUM_BLOCK_AND_CHUNK_PRODUCERS: usize = 4;
 const NUM_CHUNK_VALIDATORS_ONLY: usize = 4;
 const NUM_VALIDATORS: usize = NUM_BLOCK_AND_CHUNK_PRODUCERS + NUM_CHUNK_VALIDATORS_ONLY;
-
-struct TestData {
-    pub account_id: AccountId,
-    pub client_sender: TestLoopSender<ClientActorInner>,
-    pub shards_manager_sender: TestLoopSender<ShardsManagerActor>,
-    pub partial_witness_sender: TestLoopSender<PartialWitnessActor>,
-    pub state_sync_dumper_handle: TestLoopDataHandle<StateSyncDumper>,
-    pub network_adapter: Arc<LateBoundSender<TestLoopSender<TestLoopPeerManagerActor>>>,
-}
-
-impl From<&TestData> for AccountId {
-    fn from(data: &TestData) -> AccountId {
-        data.account_id.clone()
-    }
-}
-
-impl From<&TestData> for ClientSenderForTestLoopNetwork {
-    fn from(data: &TestData) -> ClientSenderForTestLoopNetwork {
-        data.client_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
-    }
-}
-
-impl From<&TestData> for PartialWitnessSenderForNetwork {
-    fn from(data: &TestData) -> PartialWitnessSenderForNetwork {
-        data.partial_witness_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
-    }
-}
-
-impl From<&TestData> for Sender<ShardsManagerRequestFromNetwork> {
-    fn from(data: &TestData) -> Sender<ShardsManagerRequestFromNetwork> {
-        data.shards_manager_sender.clone().with_delay(NETWORK_DELAY).into_sender()
-    }
-}
 
 #[test]
 fn test_stateless_validators_with_multi_test_loop() {
@@ -101,7 +37,7 @@ fn test_stateless_validators_with_multi_test_loop() {
     }
 
     init_test_logger();
-    let mut test_loop = TestLoopV2::new();
+    let builder = TestLoopBuilder::new();
 
     let initial_balance = 10000 * ONE_NEAR;
     let accounts = (0..NUM_ACCOUNTS)
@@ -110,15 +46,16 @@ fn test_stateless_validators_with_multi_test_loop() {
 
     // All block_and_chunk_producers will be both block and chunk validators.
     let block_and_chunk_producers =
-        (0..NUM_BLOCK_AND_CHUNK_PRODUCERS).map(|idx| accounts[idx].as_str()).collect::<Vec<_>>();
+        (0..NUM_BLOCK_AND_CHUNK_PRODUCERS).map(|idx| accounts[idx].as_str()).collect_vec();
     // These are the accounts that are only chunk validators, but not block/chunk producers.
     let chunk_validators_only = (NUM_BLOCK_AND_CHUNK_PRODUCERS..NUM_VALIDATORS)
         .map(|idx| accounts[idx].as_str())
-        .collect::<Vec<_>>();
+        .collect_vec();
+    let clients = accounts.iter().take(NUM_VALIDATORS).cloned().collect_vec();
 
     let mut genesis_builder = TestGenesisBuilder::new();
     genesis_builder
-        .genesis_time_from_clock(&test_loop.clock())
+        .genesis_time_from_clock(&builder.clock())
         .protocol_version_latest()
         .genesis_height(10000)
         .gas_prices_free()
@@ -133,187 +70,8 @@ fn test_stateless_validators_with_multi_test_loop() {
     }
     let genesis = genesis_builder.build();
 
-    let tempdir = tempfile::tempdir().unwrap();
-    let mut node_datas = Vec::new();
-    for idx in 0..NUM_VALIDATORS {
-        let client_adapter = LateBoundSender::new();
-        let network_adapter = LateBoundSender::new();
-        let state_snapshot_adapter = LateBoundSender::new();
-        let shards_manager_adapter = LateBoundSender::new();
-        let partial_witness_adapter = LateBoundSender::new();
-        let sync_jobs_adapter = LateBoundSender::new();
-
-        let mut client_config = ClientConfig::test(true, 600, 2000, 4, false, true, false, false);
-        client_config.max_block_wait_delay = Duration::seconds(6);
-        client_config.state_sync_enabled = true;
-        client_config.state_sync_timeout = Duration::milliseconds(100);
-        let external_storage_location =
-            ExternalStorageLocation::Filesystem { root_dir: tempdir.path().join("state_sync") };
-        client_config.state_sync = StateSyncConfig {
-            dump: Some(DumpConfig {
-                iteration_delay: Some(Duration::seconds(1)),
-                location: external_storage_location.clone(),
-                credentials_file: None,
-                restart_dump_for_shards: None,
-            }),
-            sync: SyncConfig::ExternalStorage(ExternalStorageConfig {
-                location: external_storage_location,
-                num_concurrent_requests: 1,
-                num_concurrent_requests_during_catchup: 1,
-            }),
-        };
-        client_config.tracked_shards = Vec::new();
-
-        let homedir = tempdir.path().join(format!("{}", idx));
-        std::fs::create_dir_all(&homedir).expect("Unable to create homedir");
-
-        let store_config = StoreConfig {
-            path: Some(homedir.clone()),
-            load_mem_tries_for_tracked_shards: true,
-            ..Default::default()
-        };
-        let store = create_test_store();
-        initialize_genesis_state(store.clone(), &genesis, None);
-
-        let sync_jobs_actor = SyncJobsActor::new(client_adapter.as_multi_sender());
-        let chain_genesis = ChainGenesis::new(&genesis.config);
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
-        let shard_tracker =
-            ShardTracker::new(TrackedConfig::from_config(&client_config), epoch_manager.clone());
-
-        let state_sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
-            client_adapter.as_sender(),
-            network_adapter.as_sender(),
-            test_loop_sync_actor_maker(idx, test_loop.sender().for_index(idx)),
-        )));
-        let contract_cache = FilesystemContractRuntimeCache::new(&homedir, None::<&str>)
-            .expect("filesystem contract cache")
-            .handle();
-        let runtime_adapter = NightshadeRuntime::test_with_trie_config(
-            &homedir,
-            store.clone(),
-            contract_cache,
-            &genesis.config,
-            epoch_manager.clone(),
-            None,
-            TrieConfig::from_store_config(&store_config),
-            StateSnapshotType::EveryEpoch,
-        );
-
-        let state_snapshot = StateSnapshotActor::new(
-            runtime_adapter.get_flat_storage_manager(),
-            network_adapter.as_multi_sender(),
-            runtime_adapter.get_tries(),
-            state_snapshot_adapter.as_multi_sender(),
-        );
-
-        let delete_snapshot_callback =
-            get_delete_snapshot_callback(state_snapshot_adapter.as_multi_sender());
-        let make_snapshot_callback = get_make_snapshot_callback(
-            state_snapshot_adapter.as_multi_sender(),
-            runtime_adapter.get_flat_storage_manager(),
-        );
-        let snapshot_callbacks =
-            SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
-
-        let validator_signer = Arc::new(create_test_signer(accounts[idx].as_str()));
-        let client = Client::new(
-            test_loop.clock(),
-            client_config.clone(),
-            chain_genesis.clone(),
-            epoch_manager.clone(),
-            shard_tracker.clone(),
-            state_sync_adapter,
-            runtime_adapter.clone(),
-            network_adapter.as_multi_sender(),
-            shards_manager_adapter.as_sender(),
-            Some(validator_signer.clone()),
-            true,
-            [0; 32],
-            Some(snapshot_callbacks),
-            Arc::new(test_loop.async_computation_spawner(|_| Duration::milliseconds(80))),
-            partial_witness_adapter.as_multi_sender(),
-        )
-        .unwrap();
-
-        let shards_manager = ShardsManagerActor::new(
-            test_loop.clock(),
-            Some(accounts[idx].clone()),
-            epoch_manager.clone(),
-            shard_tracker.clone(),
-            network_adapter.as_sender(),
-            client_adapter.as_sender(),
-            ReadOnlyChunksStore::new(store.clone()),
-            client.chain.head().unwrap(),
-            client.chain.header_head().unwrap(),
-            Duration::milliseconds(100),
-        );
-
-        let client_actor = ClientActorInner::new(
-            test_loop.clock(),
-            client,
-            client_adapter.as_multi_sender(),
-            client_config.clone(),
-            PeerId::random(),
-            network_adapter.as_multi_sender(),
-            None,
-            noop().into_sender(),
-            None,
-            Default::default(),
-            None,
-            sync_jobs_adapter.as_multi_sender(),
-            Box::new(test_loop.future_spawner()),
-        )
-        .unwrap();
-
-        let partial_witness_actions = PartialWitnessActor::new(
-            test_loop.clock(),
-            network_adapter.as_multi_sender(),
-            client_adapter.as_multi_sender(),
-            validator_signer,
-            epoch_manager.clone(),
-            store,
-        );
-
-        let future_spawner = test_loop.future_spawner();
-        let state_sync_dumper = StateSyncDumper {
-            clock: test_loop.clock(),
-            client_config,
-            chain_genesis,
-            epoch_manager,
-            shard_tracker,
-            runtime: runtime_adapter,
-            account_id: Some(accounts[idx].clone()),
-            dump_future_runner: Box::new(move |future| {
-                future_spawner.spawn_boxed("state_sync_dumper", future);
-                Box::new(|| {})
-            }),
-            handle: None,
-        };
-        let state_sync_dumper_handle = test_loop.data.register_data(state_sync_dumper);
-
-        let client_sender =
-            test_loop.register_actor_for_index(idx, client_actor, Some(client_adapter));
-        let shards_manager_sender =
-            test_loop.register_actor_for_index(idx, shards_manager, Some(shards_manager_adapter));
-        let partial_witness_sender = test_loop.register_actor_for_index(
-            idx,
-            partial_witness_actions,
-            Some(partial_witness_adapter),
-        );
-        test_loop.register_actor_for_index(idx, sync_jobs_actor, Some(sync_jobs_adapter));
-        test_loop.register_actor_for_index(idx, state_snapshot, Some(state_snapshot_adapter));
-
-        let data = TestData {
-            account_id: accounts[idx].clone(),
-            client_sender,
-            shards_manager_sender,
-            partial_witness_sender,
-            state_sync_dumper_handle,
-            network_adapter,
-        };
-        node_datas.push(data);
-    }
+    let TestLoopEnv { mut test_loop, datas: node_datas } =
+        builder.genesis(genesis).clients(clients).build();
 
     // Bootstrap the test by starting the components.
     for idx in 0..NUM_VALIDATORS {
@@ -321,16 +79,6 @@ fn test_stateless_validators_with_multi_test_loop() {
         test_loop.send_adhoc_event("start_state_sync_dumper".to_owned(), move |test_loop_data| {
             test_loop_data.get_mut(&state_sync_dumper_handle).start().unwrap();
         });
-    }
-
-    for idx in 0..NUM_VALIDATORS {
-        let peer_manager_actor =
-            TestLoopPeerManagerActor::new(test_loop.clock(), &accounts[idx], &node_datas);
-        test_loop.register_actor_for_index(
-            idx,
-            peer_manager_actor,
-            Some(node_datas[idx].network_adapter.clone()),
-        );
     }
 
     // Give it some condition to stop running at. Here we run the test until the first client
