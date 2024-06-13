@@ -229,7 +229,7 @@ impl TestLoopBuilder {
         )
         .unwrap();
 
-        let partial_witness_actions = PartialWitnessActor::new(
+        let partial_witness_actor = PartialWitnessActor::new(
             self.test_loop.clock(),
             network_adapter.as_multi_sender(),
             client_adapter.as_multi_sender(),
@@ -264,7 +264,7 @@ impl TestLoopBuilder {
         );
         let partial_witness_sender = self.test_loop.register_actor_for_index(
             idx,
-            partial_witness_actions,
+            partial_witness_actor,
             Some(partial_witness_adapter),
         );
         self.test_loop.register_actor_for_index(idx, sync_jobs_actor, Some(sync_jobs_adapter));
