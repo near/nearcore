@@ -35,7 +35,7 @@ fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
 
 #[test]
 fn create_then_resume() {
-    let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
+    let node = setup_test_contract(near_test_contracts::rs_contract());
 
     let yield_payload = vec![6u8; 16];
 
@@ -117,7 +117,7 @@ fn create_then_resume() {
 
 #[test]
 fn create_and_resume_in_one_call() {
-    let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
+    let node = setup_test_contract(near_test_contracts::rs_contract());
 
     let yield_payload = vec![23u8; 16];
 
@@ -137,14 +137,14 @@ fn create_and_resume_in_one_call() {
     // returning twice the value of the first byte of the payload
     assert_eq!(
         res.status,
-        FinalExecutionStatus::SuccessValue(vec![46u8]),
-        "{res:?} unexpected result; expected 46",
+        FinalExecutionStatus::SuccessValue(vec![16u8]),
+        "{res:?} unexpected result; expected 16",
     );
 }
 
 #[test]
 fn resume_without_yield() {
-    let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
+    let node = setup_test_contract(near_test_contracts::rs_contract());
 
     // payload followed by data id
     let args: Vec<u8> = vec![42u8; 12].into_iter().chain(vec![23u8; 32].into_iter()).collect();

@@ -133,9 +133,10 @@ fn execute_transaction_from_actions(
         nonce + 1,
         signer.account_id.clone(),
         receiver,
-        signer,
+        &signer.clone().into(),
         actions,
         tip.last_block_hash,
+        0,
     );
     let tx_result = env.execute_tx(tx);
     let height = env.clients[0].chain.head().unwrap().height;

@@ -11,19 +11,30 @@ from rc import pmap
 import re
 import sys
 import time
-import cmd_utils
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from configured_logger import logger
 import local_test_node
+import node_config
 import remote_node
 
 
-def prompt_setup_flags(args):
+def to_list(item):
+    return [item] if item is not None else []
+
+
+def prompt_setup_flags(args, dumper_node_names):
     if not args.yes:
         print(
             'this will reset all nodes\' home dirs and initialize them with new state. continue? [yes/no]'
+        )
+        if sys.stdin.readline().strip() != 'yes':
+            sys.exit()
+
+    if not args.gcs_state_sync and len(dumper_node_names) > 0:
+        print(
+            f'--gcs-state-sync not provided, but there are state dumper nodes: {dumper_node_names}. continue with dumper nodes as normal RPC nodes? [yes/no]'
         )
         if sys.stdin.readline().strip() != 'yes':
             sys.exit()
@@ -103,8 +114,9 @@ def init_neard_runners(args, traffic_generator, nodes, remove_home_dir=False):
             }]
         }
 
-    traffic_generator.init_neard_runner(traffic_generator_config,
-                                        remove_home_dir)
+    if traffic_generator is not None:
+        traffic_generator.init_neard_runner(traffic_generator_config,
+                                            remove_home_dir)
     pmap(lambda x: x[0].init_neard_runner(x[1], remove_home_dir),
          zip(nodes, configs))
 
@@ -126,24 +138,26 @@ def hard_reset_cmd(args, traffic_generator, nodes):
 
 
 def restart_cmd(args, traffic_generator, nodes):
-    all_nodes = nodes + [traffic_generator]
-    pmap(lambda node: node.stop_neard_runner(), all_nodes)
+    targeted = nodes + to_list(traffic_generator)
+    pmap(lambda node: node.stop_neard_runner(), targeted)
     if args.upload_program:
-        pmap(lambda node: node.upload_neard_runner(), all_nodes)
-    pmap(lambda node: node.start_neard_runner(), all_nodes)
+        pmap(lambda node: node.upload_neard_runner(), targeted)
+    pmap(lambda node: node.start_neard_runner(), targeted)
 
 
 def stop_runner_cmd(args, traffic_generator, nodes):
-    pmap(lambda node: node.stop_neard_runner(), nodes + [traffic_generator])
+    targeted = nodes + to_list(traffic_generator)
+    pmap(lambda node: node.stop_neard_runner(), targeted)
 
 
 # returns boot nodes and validators we want for the new test network
 def get_network_nodes(new_test_rpc_responses, num_validators):
     validators = []
     boot_nodes = []
-    for ip_addr, response in new_test_rpc_responses:
+    for node, response in new_test_rpc_responses:
         if len(validators) < num_validators:
-            if response['validator_account_id'] is not None:
+            if node.can_validate and response[
+                    'validator_account_id'] is not None:
                 # we assume here that validator_account_id is not null, validator_public_key
                 # better not be null either
                 validators.append({
@@ -153,7 +167,8 @@ def get_network_nodes(new_test_rpc_responses, num_validators):
                 })
         if len(boot_nodes) < 20:
             boot_nodes.append(
-                f'{response["node_key"]}@{ip_addr}:{response["listen_port"]}')
+                f'{response["node_key"]}@{node.ip_addr()}:{response["listen_port"]}'
+            )
 
         if len(validators) >= num_validators and len(boot_nodes) >= 20:
             break
@@ -184,8 +199,43 @@ def new_genesis_timestamp(node):
     return genesis_time
 
 
-def new_test(args, traffic_generator, nodes):
-    prompt_setup_flags(args)
+def _apply_stateless_config(args, node):
+    """Applies configuration changes to the node for stateless validation,
+    including changing config.json file and updating TCP buffer size at OS level."""
+    # TODO: it should be possible to update multiple keys in one RPC call so we dont have to make multiple round trips
+    do_update_config(node, 'store.load_mem_tries_for_tracked_shards=true')
+    # TODO: Enable saving witness after fixing the performance problems.
+    do_update_config(node, 'save_latest_witnesses=false')
+    if not node.want_state_dump:
+        do_update_config(node, 'tracked_shards=[]')
+    if not args.local_test:
+        node.run_cmd(
+            "sudo sysctl -w net.core.rmem_max=8388608 && sudo sysctl -w net.core.wmem_max=8388608 && sudo sysctl -w net.ipv4.tcp_rmem='4096 87380 8388608' && sudo sysctl -w net.ipv4.tcp_wmem='4096 16384 8388608' && sudo sysctl -w net.ipv4.tcp_slow_start_after_idle=0"
+        )
+
+
+def _apply_config_changes(node, state_sync_location):
+    if state_sync_location is None:
+        changes = {'state_sync_enabled': False}
+    else:
+        changes = {
+            'state_sync.sync': {
+                'ExternalStorage': {
+                    'location': state_sync_location
+                }
+            }
+        }
+        if node.want_state_dump:
+            changes['state_sync.dump.location'] = state_sync_location
+            changes[
+                'store.state_snapshot_config.state_snapshot_type'] = 'EveryEpoch'
+            changes['store.state_snapshot_enabled'] = True
+    for key, change in changes.items():
+        do_update_config(node, f'{key}={json.dumps(change)}')
+
+
+def new_test_cmd(args, traffic_generator, nodes):
+    prompt_setup_flags(args, [n.name() for n in nodes if n.want_state_dump])
 
     if args.epoch_length <= 0:
         sys.exit(f'--epoch-length should be positive')
@@ -196,15 +246,16 @@ def new_test(args, traffic_generator, nodes):
             f'--num-validators is {args.num_validators} but only found {len(nodes)} under test'
         )
 
-    genesis_time = new_genesis_timestamp(nodes[0])
+    ref_node = traffic_generator if traffic_generator else nodes[0]
+    genesis_time = new_genesis_timestamp(ref_node)
 
-    all_nodes = nodes + [traffic_generator]
+    targeted = nodes + to_list(traffic_generator)
 
     logger.info(f'resetting/initializing home dirs')
-    test_keys = pmap(lambda node: node.neard_runner_new_test(), all_nodes)
+    test_keys = pmap(lambda node: node.neard_runner_new_test(), targeted)
 
-    validators, boot_nodes = get_network_nodes(
-        zip([n.ip_addr() for n in all_nodes], test_keys), args.num_validators)
+    validators, boot_nodes = get_network_nodes(zip(nodes, test_keys),
+                                               args.num_validators)
 
     logger.info("""setting validators: {0}
 Then running neard amend-genesis on all nodes, and starting neard to compute genesis \
@@ -217,40 +268,48 @@ ready. After they're ready, you can run `start-traffic`""".format(validators))
             args.epoch_length,
             args.num_seats,
             args.genesis_protocol_version,
-            genesis_time=genesis_time), all_nodes)
+            genesis_time=genesis_time), targeted)
+
+    if args.local_test:
+        location = {
+            "Filesystem": {
+                "root_dir":
+                    str(local_test_node.DEFAULT_LOCAL_MOCKNET_DIR /
+                        'state-parts')
+            }
+        }
+    else:
+        if args.gcs_state_sync:
+            location = {
+                "GCS": {
+                    "bucket":
+                        f'near-state-dumper-mocknet-{args.chain_id}-{args.start_height}-{args.unique_id}'
+                }
+            }
+        else:
+            location = None
+    logger.info('Applying default config changes')
+    pmap(lambda node: _apply_config_changes(node, location), targeted)
 
     if args.stateless_setup:
-        logger.info('enabling in-memory trie in config')
-        pmap(
-            lambda node: do_update_config(
-                node, 'store.load_mem_tries_for_tracked_shards=true'),
-            all_nodes)
-        logger.info('enabling save_latest_witnesses in config')
-        # TODO: it should be possible to update multiple keys in one RPC call so we dont have to make 2 round trips
-        pmap(lambda node: do_update_config(node, 'save_latest_witnesses=true'),
-             all_nodes)
-        if not args.local_test:
-            logger.info('updating tcp sysctl values')
-            pmap(
-                lambda node: node.run_cmd(
-                    "sudo sysctl -w net.core.rmem_max=8388608 && sudo sysctl -w net.core.wmem_max=8388608 && sudo sysctl -w net.ipv4.tcp_rmem='4096 87380 8388608' && sudo sysctl -w net.ipv4.tcp_wmem='4096 16384 8388608' && sudo sysctl -w net.ipv4.tcp_slow_start_after_idle=0"
-                ), all_nodes)
+        logger.info('Configuring nodes for stateless protocol')
+        pmap(lambda node: _apply_stateless_config(args, node), nodes)
 
 
 def status_cmd(args, traffic_generator, nodes):
-    all_nodes = nodes + [traffic_generator]
-    statuses = pmap(lambda node: node.neard_runner_ready(), all_nodes)
-    num_ready = 0
+    targeted = nodes + to_list(traffic_generator)
+    statuses = pmap(lambda node: node.neard_runner_ready(), targeted)
+
     not_ready = []
-    for ready, node in zip(statuses, all_nodes):
+    for ready, node in zip(statuses, targeted):
         if not ready:
             not_ready.append(node.name())
 
     if len(not_ready) == 0:
-        print(f'all {len(all_nodes)} nodes ready')
+        print(f'all {len(targeted)} nodes ready')
     else:
         print(
-            f'{len(all_nodes)-len(not_ready)}/{len(all_nodes)} ready. Nodes not ready: {not_ready[:3]}'
+            f'{len(targeted)-len(not_ready)}/{len(targeted)} ready. Nodes not ready: {not_ready[:3]}'
         )
 
 
@@ -262,14 +321,15 @@ def reset_cmd(args, traffic_generator, nodes):
         if sys.stdin.readline().strip() != 'yes':
             sys.exit()
     if args.backup_id is None:
-        backups = nodes[0].neard_runner_ls_backups()
+        ref_node = traffic_generator if traffic_generator else nodes[0]
+        backups = ref_node.neard_runner_ls_backups()
         backups_msg = 'ID |  Time  | Description\n'
         if 'start' not in backups:
             backups_msg += 'start | None | initial test state after state root computation\n'
         for backup_id, backup_data in backups.items():
             backups_msg += f'{backup_id} | {backup_data.get("time")} | {backup_data.get("description")}\n'
 
-        print(f'Backups as reported by {nodes[0].name()}):\n\n{backups_msg}')
+        print(f'Backups as reported by {ref_node.name()}):\n\n{backups_msg}')
         print('please enter a backup ID here:')
         args.backup_id = sys.stdin.readline().strip()
         if args.backup_id != 'start' and args.backup_id not in backups:
@@ -277,9 +337,9 @@ def reset_cmd(args, traffic_generator, nodes):
                 f'Given backup ID ({args.backup_id}) was not in the list given')
             sys.exit()
 
-    all_nodes = nodes + [traffic_generator]
+    targeted = nodes + to_list(traffic_generator)
     pmap(lambda node: node.neard_runner_reset(backup_id=args.backup_id),
-         all_nodes)
+         targeted)
     logger.info(
         'Data dir reset in progress. Run the `status` command to see when this is finished. Until it is finished, neard runners may not respond to HTTP requests.'
     )
@@ -304,14 +364,15 @@ def make_backup_cmd(args, traffic_generator, nodes):
             if len(description) > 0:
                 args.description = description
 
-    all_nodes = nodes + [traffic_generator]
+    targeted = nodes + to_list(traffic_generator)
     pmap(
         lambda node: node.neard_runner_make_backup(
-            backup_id=args.backup_id, description=args.description), all_nodes)
+            backup_id=args.backup_id, description=args.description), targeted)
 
 
 def stop_nodes_cmd(args, traffic_generator, nodes):
-    pmap(lambda node: node.neard_runner_stop(), nodes + [traffic_generator])
+    targeted = nodes + to_list(traffic_generator)
+    pmap(lambda node: node.neard_runner_stop(), targeted)
 
 
 def stop_traffic_cmd(args, traffic_generator, nodes):
@@ -326,7 +387,7 @@ def do_update_config(node, config_change):
 
 
 def update_config_cmd(args, traffic_generator, nodes):
-    nodes = nodes + [traffic_generator]
+    nodes = nodes + to_list(traffic_generator)
     pmap(
         lambda node: do_update_config(node, args.set),
         nodes,
@@ -344,6 +405,9 @@ def start_nodes_cmd(args, traffic_generator, nodes):
 
 
 def start_traffic_cmd(args, traffic_generator, nodes):
+    if traffic_generator is None:
+        logger.warning('No traffic node selected. Change filters.')
+        return
     if not all(
             pmap(lambda node: node.neard_runner_ready(),
                  nodes + [traffic_generator])):
@@ -366,20 +430,18 @@ def start_traffic_cmd(args, traffic_generator, nodes):
 
 def update_binaries_cmd(args, traffic_generator, nodes):
     pmap(lambda node: node.neard_runner_update_binaries(),
-         nodes + [traffic_generator])
+         nodes + to_list(traffic_generator))
+
+
+def amend_binaries_cmd(args, traffic_generator, nodes):
+    pmap(
+        lambda node: node.neard_runner_update_binaries(
+            args.neard_binary_url, args.epoch_height, args.binary_idx),
+        nodes + to_list(traffic_generator))
 
 
 def run_remote_cmd(args, traffic_generator, nodes):
-    targeted = []
-    if args.all or args.traffic:
-        targeted.append(traffic_generator)
-    if args.all or args.nodes:
-        targeted.extend(nodes)
-    if args.filter is not None:
-        targeted = [h for h in targeted if re.search(args.filter, h.name())]
-    if len(targeted) == 0:
-        logger.error(f'No hosts selected. Change filters and try again.')
-        return
+    targeted = nodes + to_list(traffic_generator)
     logger.info(f'Running cmd on {"".join([h.name() for h in targeted ])}')
     pmap(lambda node: logger.info(
         '{0}:\nstdout:\n{1.stdout}\nstderr:\n{1.stderr}'.format(
@@ -388,12 +450,46 @@ def run_remote_cmd(args, traffic_generator, nodes):
          on_exception="")
 
 
+def run_env_cmd(args, traffic_generator, nodes):
+    if args.clear_all:
+        func = lambda node: node.neard_clear_env()
+    else:
+        func = lambda node: node.neard_update_env(args.key_value)
+    targeted = nodes + to_list(traffic_generator)
+    pmap(func, targeted)
+
+
+def filter_hosts(args, traffic_generator, nodes):
+    if args.host_filter is not None:
+        if not re.search(args.host_filter, traffic_generator.name()):
+            traffic_generator = None
+        nodes = [h for h in nodes if re.search(args.host_filter, h.name())]
+    if args.host_type not in ['all', 'traffic']:
+        traffic_generator = None
+    if args.host_type not in ['all', 'nodes']:
+        nodes = []
+
+    if len(nodes) == 0 and traffic_generator == None:
+        logger.error(f'No hosts selected. Change filters and try again.')
+        exit(1)
+
+    return traffic_generator, nodes
+
+
 if __name__ == '__main__':
     parser = ArgumentParser(description='Control a mocknet instance')
     parser.add_argument('--chain-id', type=str)
     parser.add_argument('--start-height', type=int)
     parser.add_argument('--unique-id', type=str)
     parser.add_argument('--local-test', action='store_true')
+    parser.add_argument('--host-type',
+                        type=str,
+                        choices=['all', 'nodes', 'traffic'],
+                        default='all',
+                        help='Type of hosts to select')
+    parser.add_argument('--host-filter',
+                        type=str,
+                        help='Filter through the selected nodes using regex.')
 
     subparsers = parser.add_subparsers(title='subcommands',
                                        description='valid subcommands',
@@ -453,8 +549,9 @@ if __name__ == '__main__':
     new_test_parser.add_argument('--num-seats', type=int)
     new_test_parser.add_argument('--genesis-protocol-version', type=int)
     new_test_parser.add_argument('--stateless-setup', action='store_true')
+    new_test_parser.add_argument('--gcs-state-sync', action='store_true')
     new_test_parser.add_argument('--yes', action='store_true')
-    new_test_parser.set_defaults(func=new_test)
+    new_test_parser.set_defaults(func=new_test_cmd)
 
     status_parser = subparsers.add_parser(
         'status',
@@ -472,7 +569,7 @@ if __name__ == '__main__':
         help=
         '''Interval in millis between sending each mainnet block\'s worth of transactions.
         Without this flag, the traffic generator will try to match the per-block load on mainnet.
-        So, transactions from consecutive mainnet blocks will be be sent with delays
+        So, transactions from consecutive mainnet blocks will be sent with delays
         between them such that they will probably appear in consecutive mocknet blocks.
         ''')
     start_traffic_parser.set_defaults(func=start_traffic_cmd)
@@ -514,30 +611,53 @@ if __name__ == '__main__':
     # nearcore-release buildkite and urls in the following format without commit
     # but only with the branch name:
     # https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/<branch-name>/neard"
-    update_binaries_parser = subparsers.add_parser(
-        'update-binaries',
-        help=
-        'Update the neard binaries by re-downloading them. The same urls are used.'
-    )
+    update_binaries_parser = subparsers.add_parser('update-binaries',
+                                                   help='''
+        Update the neard binaries by re-downloading them. The same urls are used.
+        If you plan to restart the network multiple times, it is recommended to use
+        URLs that only depend on the branch name. This way, every time you build,
+        you will not need to amend the URL but just run update-binaries.''')
     update_binaries_parser.set_defaults(func=update_binaries_cmd)
+
+    amend_binaries_parsers = subparsers.add_parser('amend-binaries',
+                                                   help='''
+        Add or override the neard URLs by specifying the epoch height or index if you have multiple binaries.
+
+        If the network was started with 2 binaries, the epoch height for the second binary can be randomly assigned
+        on each host. Use caution when updating --epoch-height so that it will not add a binary in between the upgrade
+        window for another binary.''')
+
+    amend_binaries_parsers.add_argument('--neard-binary-url',
+                                        type=str,
+                                        required=True,
+                                        help='URL to the neard binary.')
+    group = amend_binaries_parsers.add_mutually_exclusive_group(required=True)
+    group.add_argument('--epoch-height',
+                       type=int,
+                       help='''
+        The epoch height where this binary will begin to run.
+        If a binary already exists on the host for this epoch height, the old one will be replaced.
+        Otherwise a new binary will be added with this epoch height.
+        ''')
+    group.add_argument('--binary-idx',
+                       type=int,
+                       help='''
+        0 based indexing.
+        The index in the binary list that you want to replace.
+        If the index does not exist on the host this operation will not do anything.
+        ''')
+    amend_binaries_parsers.set_defaults(func=amend_binaries_cmd)
 
     run_cmd_parser = subparsers.add_parser('run-cmd',
                                            help='''Run the cmd on the hosts.''')
     run_cmd_parser.add_argument('--cmd', type=str)
-    run_cmd_parser.add_argument('--all',
-                                action='store_true',
-                                help='Run on all hosts')
-    run_cmd_parser.add_argument('--nodes',
-                                action='store_true',
-                                help='Run on nodes')
-    run_cmd_parser.add_argument('--traffic',
-                                action='store_true',
-                                help='Run on traffic host')
-    run_cmd_parser.add_argument(
-        '--filter',
-        type=str,
-        help='Filter through the selected nodes using regex.')
     run_cmd_parser.set_defaults(func=run_remote_cmd)
+
+    env_cmd_parser = subparsers.add_parser(
+        'env', help='''Update the environment variable on the hosts.''')
+    env_cmd_parser.add_argument('--clear-all', action='store_true')
+    env_cmd_parser.add_argument('--key-value', type=str, nargs='+')
+    env_cmd_parser.set_defaults(func=run_env_cmd)
 
     args = parser.parse_args()
 
@@ -547,10 +667,24 @@ if __name__ == '__main__':
                 f'cannot give --chain-id --start-height or --unique-id along with --local-test'
             )
         traffic_generator, nodes = local_test_node.get_nodes()
+        node_config.configure_nodes(nodes + [traffic_generator],
+                                    node_config.TEST_CONFIG)
     else:
         if args.chain_id is None or args.start_height is None or args.unique_id is None:
             sys.exit(
                 f'must give all of --chain-id --start-height and --unique-id')
         traffic_generator, nodes = remote_node.get_nodes(
             args.chain_id, args.start_height, args.unique_id)
-    args.func(args, traffic_generator, nodes)
+        node_config.configure_nodes(nodes + [traffic_generator],
+                                    node_config.REMOTE_CONFIG)
+
+    # Select the affected hosts.
+    # traffic_generator can become None,
+    # nodes list can become empty
+    traffic_generator, nodes = filter_hosts(args, traffic_generator, nodes)
+    wanted_nodes = []
+    for node in nodes:
+        if node.want_neard_runner:
+            wanted_nodes.append(node)
+
+    args.func(args, traffic_generator, wanted_nodes)

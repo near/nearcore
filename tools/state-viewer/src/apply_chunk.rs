@@ -153,7 +153,7 @@ pub(crate) fn apply_chunk(
                 ),
                 gas_price,
                 random_seed: hash("random seed".as_ref()),
-                congestion_info: prev_block.shards_congestion_info(),
+                congestion_info: prev_block.block_congestion_info(),
             },
             &receipts,
             transactions,
@@ -189,7 +189,7 @@ fn find_tx_or_receipt(
                 let shard_layout =
                     epoch_manager.get_shard_layout_from_prev_block(chunk.prev_block())?;
                 let to_shard =
-                    shard_layout::account_id_to_shard_id(&receipt.receiver_id, &shard_layout);
+                    shard_layout::account_id_to_shard_id(receipt.receiver_id(), &shard_layout);
                 return Ok(Some((HashType::Receipt, to_shard)));
             }
         }
@@ -397,7 +397,7 @@ fn apply_receipt_in_chunk(
                         let shard_layout =
                             epoch_manager.get_shard_layout_from_prev_block(chunk.prev_block())?;
                         let to_shard = shard_layout::account_id_to_shard_id(
-                            &receipt.receiver_id,
+                            receipt.receiver_id(),
                             &shard_layout,
                         );
                         to_apply.insert((height, to_shard));
@@ -508,7 +508,7 @@ mod test {
                 height,
                 from.parse().unwrap(),
                 to.parse().unwrap(),
-                signer,
+                &signer.clone().into(),
                 100,
                 hash,
             );
@@ -684,7 +684,7 @@ mod test {
 
                     for receipt in chunk.prev_outgoing_receipts() {
                         let to_shard = shard_layout::account_id_to_shard_id(
-                            &receipt.receiver_id,
+                            receipt.receiver_id(),
                             &shard_layout,
                         );
 

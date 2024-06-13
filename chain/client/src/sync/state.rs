@@ -1,6 +1,6 @@
 //! State sync is trying to fetch the 'full state' from the peers (which can be multiple GB).
 //! It happens after HeaderSync and before BlockSync (but only if the node sees that it is 'too much behind').
-//! See https://near.github.io/nearcore/architecture/how/sync.html for more detailed information.
+//! See <https://near.github.io/nearcore/architecture/how/sync.html> for more detailed information.
 //! Such state can be downloaded only at special heights (currently - at the beginning of the current and previous
 //! epochs).
 //!
@@ -55,6 +55,7 @@ use near_store::DBCol;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::ops::Add;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -71,7 +72,7 @@ pub const MAX_STATE_PART_REQUEST: u64 = 16;
 pub const MAX_PENDING_PART: u64 = MAX_STATE_PART_REQUEST * 10000;
 /// Time limit per state dump iteration.
 /// A node must check external storage for parts to dump again once time is up.
-pub const STATE_DUMP_ITERATION_TIME_LIMIT_SECS: i64 = 300;
+pub const STATE_DUMP_ITERATION_TIME_LIMIT_SECS: u64 = 300;
 
 pub enum StateSyncResult {
     /// State sync still in progress. No action needed by the caller.
@@ -171,7 +172,9 @@ impl StateSync {
         let inner = match sync_config {
             SyncConfig::Peers => StateSyncInner::Peers {
                 last_part_id_requested: Default::default(),
-                requested_target: lru::LruCache::new(MAX_PENDING_PART as usize),
+                requested_target: lru::LruCache::new(
+                    NonZeroUsize::new(MAX_PENDING_PART as usize).unwrap(),
+                ),
             },
             SyncConfig::ExternalStorage(ExternalStorageConfig {
                 location,
@@ -764,7 +767,8 @@ impl StateSync {
         use_colour: bool,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
     ) -> Result<StateSyncResult, near_chain::Error> {
-        let _span = tracing::debug_span!(target: "sync", "run", sync = "StateSync").entered();
+        let _span =
+            tracing::debug_span!(target: "sync", "run_sync", sync_type = "StateSync").entered();
         tracing::trace!(target: "sync", %sync_hash, ?tracking_shards, "syncing state");
         let now = self.clock.now_utc();
 
@@ -1230,7 +1234,7 @@ fn request_header_from_external_storage(
         &StateFileType::StateHeader,
     );
     state_parts_future_spawner.spawn(
-        "download_header_from_external_storage", 
+        "download_header_from_external_storage",
         async move {
             let result = download_header_from_external_storage(shard_id, sync_hash, location, external).await;
             match state_parts_mpsc_tx.send(StateSyncGetFileResult {

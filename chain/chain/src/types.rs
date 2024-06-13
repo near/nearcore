@@ -11,14 +11,15 @@ use near_primitives::apply::ApplyChunkReason;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::challenge::{ChallengesResult, PartialState};
 use near_primitives::checked_feature;
+use near_primitives::congestion_info::BlockCongestionInfo;
 use near_primitives::congestion_info::CongestionInfo;
+use near_primitives::congestion_info::ExtendedCongestionInfo;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::{PromiseYieldTimeout, Receipt};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
-use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::state_part::PartId;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
@@ -291,14 +292,14 @@ pub struct ApplyChunkBlockContext {
     pub gas_price: Balance,
     pub challenges_result: ChallengesResult,
     pub random_seed: CryptoHash,
-    pub congestion_info: HashMap<ShardId, CongestionInfo>,
+    pub congestion_info: BlockCongestionInfo,
 }
 
 impl ApplyChunkBlockContext {
     pub fn from_header(
         header: &BlockHeader,
         gas_price: Balance,
-        congestion_info: HashMap<ShardId, CongestionInfo>,
+        congestion_info: BlockCongestionInfo,
     ) -> Self {
         Self {
             height: header.height(),
@@ -342,13 +343,14 @@ pub enum PrepareTransactionsLimit {
     Size,
     Time,
     ReceiptCount,
+    StorageProofSize,
 }
 
 pub struct PrepareTransactionsBlockContext {
     pub next_gas_price: Balance,
     pub height: BlockHeight,
     pub block_hash: CryptoHash,
-    pub congestion_info: HashMap<ShardId, CongestionInfo>,
+    pub congestion_info: BlockCongestionInfo,
 }
 
 impl From<&Block> for PrepareTransactionsBlockContext {
@@ -358,19 +360,16 @@ impl From<&Block> for PrepareTransactionsBlockContext {
             next_gas_price: header.next_gas_price(),
             height: header.height(),
             block_hash: *header.hash(),
-            congestion_info: block.shards_congestion_info(),
+            congestion_info: block.block_congestion_info(),
         }
     }
 }
 pub struct PrepareTransactionsChunkContext {
     pub shard_id: ShardId,
     pub gas_limit: Gas,
-}
-
-impl From<&ShardChunkHeader> for PrepareTransactionsChunkContext {
-    fn from(header: &ShardChunkHeader) -> Self {
-        Self { shard_id: header.shard_id(), gas_limit: header.gas_limit() }
-    }
+    /// Size of transactions added in the last existing chunk.
+    /// Used to calculate the allowed size of transactions in a newly produced chunk.
+    pub last_chunk_transactions_size: usize,
 }
 
 /// Bridge between the chain and the runtime.
@@ -419,6 +418,7 @@ pub trait RuntimeAdapter: Send + Sync {
         verify_signature: bool,
         epoch_id: &EpochId,
         current_protocol_version: ProtocolVersion,
+        receiver_congestion_info: Option<ExtendedCongestionInfo>,
     ) -> Result<Option<InvalidTxError>, Error>;
 
     /// Returns an ordered list of valid transactions from the pool up the given limits.

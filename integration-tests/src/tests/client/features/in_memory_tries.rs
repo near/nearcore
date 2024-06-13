@@ -1,23 +1,21 @@
 use near_async::messaging::CanSend;
 use near_async::time::{FakeClock, Utc};
 use near_chain::{Block, Provenance};
-use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords};
-use near_chunks::test_loop::ShardsManagerResendChunkRequests;
-use near_chunks::CHUNK_REQUEST_SWITCH_TO_FULL_FETCH;
+use near_chain_configs::test_genesis::TestGenesisBuilder;
+use near_chunks::shards_manager_actor::CHUNK_REQUEST_SWITCH_TO_FULL_FETCH;
+
+use near_chunks::test_utils::ShardsManagerResendChunkRequests;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
-use near_primitives::shard_layout::ShardLayout;
-use near_primitives::state_record::StateRecord;
-use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
+
+use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountInfo, EpochId};
-use near_primitives::utils::from_timestamp;
-use near_primitives_core::account::{AccessKey, Account};
-use near_primitives_core::hash::CryptoHash;
+use near_primitives::types::EpochId;
+
 use near_primitives_core::types::AccountId;
-use near_primitives_core::version::PROTOCOL_VERSION;
+
 use near_store::test_utils::create_test_store;
 use near_store::{ShardUId, TrieConfig};
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
@@ -31,101 +29,45 @@ const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 fn test_in_memory_trie_node_consistency() {
     // Recommended to run with RUST_LOG=memtrie=debug,chunks=error,info
     init_test_logger();
-    let validator_stake = 1000000 * ONE_NEAR;
     let initial_balance = 10000 * ONE_NEAR;
     let accounts =
         (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
     let mut clock = FakeClock::new(Utc::UNIX_EPOCH);
-    let mut genesis_config = GenesisConfig {
-        genesis_time: from_timestamp(clock.now_utc().unix_timestamp_nanos() as u64),
+    let mut genesis_builder = TestGenesisBuilder::new();
+    genesis_builder
+        .genesis_time_from_clock(&clock.clock())
         // Use the latest protocol version. Otherwise, the version may be too
         // old that e.g. blocks don't even store previous heights.
-        protocol_version: PROTOCOL_VERSION,
-        // Some arbitrary starting height. Doesn't matter.
-        genesis_height: 10000,
+        .protocol_version_latest()
         // We'll test with 4 shards. This can be any number, but we want to test
         // the case when some shards are loaded into memory and others are not.
         // We pick the boundaries so that each shard would get some transactions.
-        shard_layout: ShardLayout::v1(
-            vec!["account3", "account5", "account7"]
-                .into_iter()
-                .map(|a| a.parse().unwrap())
-                .collect(),
-            None,
-            1,
-        ),
+        .shard_layout_simple_v1(&["account3", "account5", "account7"])
         // We're going to send NEAR between accounts and then assert at the end
         // that these transactions have been processed correctly, so here we set
         // the gas price to 0 so that we don't have to calculate gas cost.
-        min_gas_price: 0,
-        max_gas_price: 0,
+        .gas_prices_free()
         // Set the block gas limit high enough so we don't have to worry about
         // transactions being throttled.
-        gas_limit: 100000000000000,
+        .gas_limit_one_petagas()
         // Set the validity period high enough so even if a transaction gets
         // included a few blocks later it won't be rejected.
-        transaction_validity_period: 1000,
+        .transaction_validity_period(100)
         // Make two validators. In this test we don't care about validators but
         // the TestEnv framework works best if all clients are validators. So
         // since we are using two clients, make two validators.
-        validators: vec![
-            AccountInfo {
-                account_id: accounts[0].clone(),
-                amount: validator_stake,
-                public_key: create_test_signer(accounts[0].as_str()).public_key(),
-            },
-            AccountInfo {
-                account_id: accounts[1].clone(),
-                amount: validator_stake,
-                public_key: create_test_signer(accounts[1].as_str()).public_key(),
-            },
-        ],
+        .validators_desired_roles(&["account0", "account1"], &[])
         // We don't care about epoch transitions in this test, and epoch
         // transitions means validator selection, which can kick out validators
         // (due to our test purposefully skipping blocks to create forks), and
         // that's annoying to deal with. So set this to a high value to stay
         // within a single epoch.
-        epoch_length: 10000,
-        // The genesis requires this, so set it to something arbitrary.
-        protocol_treasury_account: accounts[2].clone(),
-        // Simply make all validators block producers.
-        num_block_producer_seats: 2,
-        // Make all validators produce chunks for all shards.
-        minimum_validators_per_shard: 2,
-        // Even though not used for the most recent protocol version,
-        // this must still have the same length as the number of shards,
-        // or else the genesis fails validation.
-        num_block_producer_seats_per_shard: vec![2, 2, 2, 2],
-        ..Default::default()
-    };
+        .epoch_length(10000);
 
-    // We'll now create the initial records. We'll set up 100 accounts, each
-    // with some initial balance. We'll add an access key to each account so
-    // we can send transactions from them.
-    let mut records = Vec::new();
-    for (i, account) in accounts.iter().enumerate() {
-        // The staked amount must be consistent with validators from genesis.
-        let staked = if i < 2 { validator_stake } else { 0 };
-        records.push(StateRecord::Account {
-            account_id: account.clone(),
-            account: Account::new(
-                initial_balance,
-                staked,
-                0,
-                CryptoHash::default(),
-                0,
-                PROTOCOL_VERSION,
-            ),
-        });
-        records.push(StateRecord::AccessKey {
-            account_id: account.clone(),
-            public_key: create_user_test_signer(&account).public_key,
-            access_key: AccessKey::full_access(),
-        });
-        // The total supply must be correct to pass validation.
-        genesis_config.total_supply += initial_balance + staked;
+    for account in &accounts {
+        genesis_builder.add_user_account_simple(account.clone(), initial_balance);
     }
-    let genesis = Genesis::new(genesis_config, GenesisRecords(records)).unwrap();
+    let genesis = genesis_builder.build();
 
     // Create two stores, one for each node. We'll be reusing the stores later
     // to emulate node restarts.
@@ -335,7 +277,7 @@ fn run_chain_for_some_blocks_while_sending_money_around(
                     *nonce,
                     sender.clone(),
                     receiver.clone(),
-                    &create_user_test_signer(&sender),
+                    &create_user_test_signer(&sender).into(),
                     ONE_NEAR,
                     tip.last_block_hash,
                 );
@@ -487,7 +429,6 @@ fn num_memtrie_roots(env: &TestEnv, client_id: usize, shard: ShardUId) -> Option
 fn test_in_memory_trie_consistency_with_state_sync_base_case(track_all_shards: bool) {
     // Recommended to run with RUST_LOG=memtrie=debug,chunks=error,info
     init_test_logger();
-    let validator_stake = 1000000 * ONE_NEAR;
     let initial_balance = 10000 * ONE_NEAR;
     let accounts =
         (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
@@ -495,82 +436,49 @@ fn test_in_memory_trie_consistency_with_state_sync_base_case(track_all_shards: b
     // the case when some shards are loaded into memory and others are not.
     // We pick the boundaries so that each shard would get some transactions.
     const NUM_VALIDATORS_PER_SHARD: usize = 1;
-    let shard_layout = ShardLayout::v1(
-        vec!["account3", "account5", "account7"].into_iter().map(|a| a.parse().unwrap()).collect(),
-        None,
-        1,
-    );
     const NUM_VALIDATORS: usize = NUM_VALIDATORS_PER_SHARD * 4;
-    let mut genesis_config = GenesisConfig {
+
+    let mut clock = FakeClock::new(Utc::UNIX_EPOCH);
+    let mut genesis_builder = TestGenesisBuilder::new();
+    genesis_builder
+        .genesis_time_from_clock(&clock.clock())
+        .genesis_height(10000)
         // Use the latest protocol version. Otherwise, the version may be too
         // old that e.g. blocks don't even store previous heights.
-        protocol_version: PROTOCOL_VERSION,
-        // Some arbitrary starting height. Doesn't matter.
-        genesis_height: 10000,
-        shard_layout,
+        .protocol_version_latest()
+        // We'll test with 4 shards. This can be any number, but we want to test
+        // the case when some shards are loaded into memory and others are not.
+        // We pick the boundaries so that each shard would get some transactions.
+        .shard_layout_simple_v1(&["account3", "account5", "account7"])
         // We're going to send NEAR between accounts and then assert at the end
         // that these transactions have been processed correctly, so here we set
         // the gas price to 0 so that we don't have to calculate gas cost.
-        min_gas_price: 0,
-        max_gas_price: 0,
+        .gas_prices_free()
         // Set the block gas limit high enough so we don't have to worry about
         // transactions being throttled.
-        gas_limit: 100000000000000,
+        .gas_limit_one_petagas()
         // Set the validity period high enough so even if a transaction gets
         // included a few blocks later it won't be rejected.
-        transaction_validity_period: 1000,
-        validators: (0..NUM_VALIDATORS)
-            .map(|i| AccountInfo {
-                account_id: accounts[i].clone(),
-                amount: validator_stake,
-                public_key: create_test_signer(accounts[i].as_str()).public_key(),
-            })
-            .collect(),
+        .transaction_validity_period(1000)
+        // Make NUM_VALIDATORS validators.
+        .validators_desired_roles(
+            &accounts[0..NUM_VALIDATORS].iter().map(|a| a.as_str()).collect::<Vec<_>>(),
+            &[],
+        )
+        .minimum_validators_per_shard(NUM_VALIDATORS_PER_SHARD as u64)
+        // Disable kickouts or else the short epoch length will kick out some validators.
+        .kickouts_disabled()
         // Test epoch transitions.
-        epoch_length: 10,
-        // The genesis requires this, so set it to something arbitrary.
-        protocol_treasury_account: accounts[10].clone(),
-        // Simply make all validators block producers.
-        num_block_producer_seats: NUM_VALIDATORS as u64,
-        minimum_validators_per_shard: NUM_VALIDATORS_PER_SHARD as u64,
-        // Even though not used for the most recent protocol version,
-        // this must still have the same length as the number of shards,
-        // or else the genesis fails validation.
-        num_block_producer_seats_per_shard: vec![0, 0, 0, 0],
-        ..Default::default()
-    };
+        .epoch_length(10);
 
-    // We'll now create the initial records. We'll set up 100 accounts, each
-    // with some initial balance. We'll add an access key to each account so
-    // we can send transactions from them.
-    let mut records = Vec::new();
-    for (i, account) in accounts.iter().enumerate() {
-        // The staked amount must be consistent with validators from genesis.
-        let staked = if i < NUM_VALIDATORS { validator_stake } else { 0 };
-        records.push(StateRecord::Account {
-            account_id: account.clone(),
-            account: Account::new(
-                initial_balance,
-                staked,
-                0,
-                CryptoHash::default(),
-                0,
-                genesis_config.protocol_version,
-            ),
-        });
-        records.push(StateRecord::AccessKey {
-            account_id: account.clone(),
-            public_key: create_user_test_signer(&account).public_key,
-            access_key: AccessKey::full_access(),
-        });
-        // The total supply must be correct to pass validation.
-        genesis_config.total_supply += initial_balance + staked;
+    for account in &accounts {
+        genesis_builder.add_user_account_simple(account.clone(), initial_balance);
     }
-    let genesis = Genesis::new(genesis_config.clone(), GenesisRecords(records)).unwrap();
+    let genesis = genesis_builder.build();
 
-    let mut clock = FakeClock::new(Utc::UNIX_EPOCH);
     let stores = (0..NUM_VALIDATORS).map(|_| create_test_store()).collect::<Vec<_>>();
-    let mut env = TestEnv::builder(&genesis_config)
+    let mut env = TestEnv::builder(&genesis.config)
+        .clock(clock.clock())
         .clients((0..NUM_VALIDATORS).map(|i| format!("account{}", i).parse().unwrap()).collect())
         .stores(stores)
         .maybe_track_all_shards(track_all_shards)

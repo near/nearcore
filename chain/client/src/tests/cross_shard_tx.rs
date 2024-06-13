@@ -44,7 +44,7 @@ fn test_keyvalue_runtime_balances() {
         let validators = vs.all_block_producers().cloned().collect::<Vec<_>>();
         let key_pairs =
             vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
-        let (_, conn, _) = setup_mock_all_validators(
+        let (conn, _) = setup_mock_all_validators(
             Clock::real(),
             vs,
             key_pairs,
@@ -115,7 +115,7 @@ fn send_tx(
                         nonce,
                         from.clone(),
                         to.clone(),
-                        &signer,
+                        &signer.into(),
                         amount,
                         block_hash,
                     ),
@@ -441,7 +441,7 @@ fn test_cross_shard_tx_common(
         let observed_balances = Arc::new(RwLock::new(vec![]));
         let presumable_epoch = Arc::new(RwLock::new(0usize));
 
-        let (_, conn, block_stats) = setup_mock_all_validators(
+        let (conn, block_stats) = setup_mock_all_validators(
             Clock::real(),
             vs,
             key_pairs,

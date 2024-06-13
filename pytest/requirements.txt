@@ -3,7 +3,8 @@ base58
 cython
 deepdiff
 ed25519
-locust
+locust>=2.28
+geventhttpclient>=2.3.1
 nearup
 numpy
 prometheus-client

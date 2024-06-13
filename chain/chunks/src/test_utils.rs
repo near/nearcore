@@ -17,7 +17,7 @@ use near_primitives::sharding::{
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::MerkleHash;
 use near_primitives::types::{AccountId, EpochId, ShardId};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::test_utils::create_test_store;
 use near_store::Store;
 use reed_solomon_erasure::galois_8::ReedSolomon;
@@ -26,10 +26,8 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use crate::adapter::ShardsManagerRequestFromClient;
 use crate::client::ShardsManagerResponse;
-use crate::test_loop::ShardsManagerResendChunkRequests;
-use crate::ShardsManager;
+use crate::shards_manager_actor::ShardsManagerActor;
 
-/// Deprecated. Use `MockChainForShardsManager`.
 pub struct ChunkTestFixture {
     pub store: Store,
     pub epoch_manager: EpochManagerHandle,
@@ -136,7 +134,10 @@ impl ChunkTestFixture {
         let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
         let receipts_hashes = Chain::build_receipts_hashes(&receipts, &shard_layout);
         let (receipts_root, _) = merkle::merklize(&receipts_hashes);
-        let (mock_chunk, mock_merkle_paths) = ShardsManager::create_encoded_shard_chunk(
+        let congestion_info = ProtocolFeature::CongestionControl
+            .enabled(PROTOCOL_VERSION)
+            .then_some(CongestionInfo::default());
+        let (mock_chunk, mock_merkle_paths) = ShardsManagerActor::create_encoded_shard_chunk(
             mock_parent_hash,
             Default::default(),
             Default::default(),
@@ -150,7 +151,7 @@ impl ChunkTestFixture {
             &receipts,
             receipts_root,
             MerkleHash::default(),
-            CongestionInfo::default(),
+            congestion_info,
             &signer,
             &rs,
             PROTOCOL_VERSION,
@@ -278,6 +279,9 @@ impl MockClientAdapterForShardsManager {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ShardsManagerResendChunkRequests;
+
 // Allows ShardsManagerActor-like behavior, except without having to spawn an actor,
 // and without having to manually route ShardsManagerRequest messages. This only works
 // for single-threaded (synchronous) tests. The ShardsManager is immediately called
@@ -286,7 +290,7 @@ impl MockClientAdapterForShardsManager {
 pub struct SynchronousShardsManagerAdapter {
     // Need a mutex here even though we only support single-threaded tests, because
     // MsgRecipient requires Sync.
-    pub shards_manager: Arc<Mutex<ShardsManager>>,
+    pub shards_manager: Arc<Mutex<ShardsManagerActor>>,
 }
 
 impl CanSend<ShardsManagerRequestFromClient> for SynchronousShardsManagerAdapter {
@@ -311,7 +315,7 @@ impl CanSend<ShardsManagerResendChunkRequests> for SynchronousShardsManagerAdapt
 }
 
 impl SynchronousShardsManagerAdapter {
-    pub fn new(shards_manager: ShardsManager) -> Self {
+    pub fn new(shards_manager: ShardsManagerActor) -> Self {
         Self { shards_manager: Arc::new(Mutex::new(shards_manager)) }
     }
 }

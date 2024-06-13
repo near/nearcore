@@ -1,12 +1,13 @@
 use crate::network_protocol::StateResponseInfo;
 use crate::types::{NetworkInfo, ReasonForBan};
 use near_async::messaging::AsyncSender;
+use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::stateless_validation::{ChunkEndorsement, SignedEncodedChunkStateWitness};
+use near_primitives::stateless_validation::ChunkEndorsement;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
@@ -114,15 +115,9 @@ pub struct AnnounceAccountRequest(pub Vec<(AnnounceAccount, Option<EpochId>)>);
 
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]
-pub struct ChunkStateWitnessMessage(pub SignedEncodedChunkStateWitness);
-
-#[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
-#[rtype(result = "()")]
 pub struct ChunkEndorsementMessage(pub ChunkEndorsement);
 
-#[derive(
-    Clone, near_async::MultiSend, near_async::MultiSenderFrom, near_async::MultiSendMessage,
-)]
+#[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
 #[multi_send_message_derive(Debug)]
 #[multi_send_input_derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientSenderForNetwork {
@@ -141,6 +136,5 @@ pub struct ClientSenderForNetwork {
     pub network_info: AsyncSender<SetNetworkInfo, ()>,
     pub announce_account:
         AsyncSender<AnnounceAccountRequest, Result<Vec<AnnounceAccount>, ReasonForBan>>,
-    pub chunk_state_witness: AsyncSender<ChunkStateWitnessMessage, ()>,
     pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, ()>,
 }

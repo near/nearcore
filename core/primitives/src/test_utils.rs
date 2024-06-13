@@ -11,17 +11,17 @@ use crate::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
-    TransferAction,
+    TransactionV0, TransactionV1, TransferAction,
 };
 use crate::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce};
 use crate::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use crate::version::PROTOCOL_VERSION;
 use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus};
-use near_async::time::Clock;
 use near_crypto::vrf::Value;
 use near_crypto::{EmptySigner, InMemorySigner, KeyType, PublicKey, SecretKey, Signature, Signer};
 use near_primitives_core::account::id::AccountIdRef;
 use near_primitives_core::types::{ProtocolVersion, ShardId};
+use near_time::Clock;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -30,28 +30,68 @@ pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
 }
 
 impl Transaction {
-    pub fn new(
+    pub fn new_v0(
         signer_id: AccountId,
         public_key: PublicKey,
         receiver_id: AccountId,
         nonce: Nonce,
         block_hash: CryptoHash,
     ) -> Self {
-        Self { signer_id, public_key, nonce, receiver_id, block_hash, actions: vec![] }
+        Transaction::V0(TransactionV0 {
+            signer_id,
+            public_key,
+            nonce,
+            receiver_id,
+            block_hash,
+            actions: vec![],
+        })
     }
 
-    pub fn sign(self, signer: &dyn Signer) -> SignedTransaction {
+    pub fn new_v1(
+        signer_id: AccountId,
+        public_key: PublicKey,
+        receiver_id: AccountId,
+        nonce: Nonce,
+        block_hash: CryptoHash,
+        priority_fee: u64,
+    ) -> Self {
+        Transaction::V1(TransactionV1 {
+            signer_id,
+            public_key,
+            nonce,
+            receiver_id,
+            block_hash,
+            actions: vec![],
+            priority_fee,
+        })
+    }
+
+    pub fn actions_mut(&mut self) -> &mut Vec<Action> {
+        match self {
+            Transaction::V0(tx) => &mut tx.actions,
+            Transaction::V1(tx) => &mut tx.actions,
+        }
+    }
+
+    pub fn nonce_mut(&mut self) -> &mut Nonce {
+        match self {
+            Transaction::V0(tx) => &mut tx.nonce,
+            Transaction::V1(tx) => &mut tx.nonce,
+        }
+    }
+
+    pub fn sign(self, signer: &Signer) -> SignedTransaction {
         let signature = signer.sign(self.get_hash_and_size().0.as_ref());
         SignedTransaction::new(signature, self)
     }
 
     pub fn create_account(mut self) -> Self {
-        self.actions.push(Action::CreateAccount(CreateAccountAction {}));
+        self.actions_mut().push(Action::CreateAccount(CreateAccountAction {}));
         self
     }
 
     pub fn deploy_contract(mut self, code: Vec<u8>) -> Self {
-        self.actions.push(Action::DeployContract(DeployContractAction { code }));
+        self.actions_mut().push(Action::DeployContract(DeployContractAction { code }));
         self
     }
 
@@ -62,7 +102,7 @@ impl Transaction {
         gas: Gas,
         deposit: Balance,
     ) -> Self {
-        self.actions.push(Action::FunctionCall(Box::new(FunctionCallAction {
+        self.actions_mut().push(Action::FunctionCall(Box::new(FunctionCallAction {
             method_name,
             args,
             gas,
@@ -72,47 +112,73 @@ impl Transaction {
     }
 
     pub fn transfer(mut self, deposit: Balance) -> Self {
-        self.actions.push(Action::Transfer(TransferAction { deposit }));
+        self.actions_mut().push(Action::Transfer(TransferAction { deposit }));
         self
     }
 
     pub fn stake(mut self, stake: Balance, public_key: PublicKey) -> Self {
-        self.actions.push(Action::Stake(Box::new(StakeAction { stake, public_key })));
+        self.actions_mut().push(Action::Stake(Box::new(StakeAction { stake, public_key })));
         self
     }
     pub fn add_key(mut self, public_key: PublicKey, access_key: AccessKey) -> Self {
-        self.actions.push(Action::AddKey(Box::new(AddKeyAction { public_key, access_key })));
+        self.actions_mut().push(Action::AddKey(Box::new(AddKeyAction { public_key, access_key })));
         self
     }
 
     pub fn delete_key(mut self, public_key: PublicKey) -> Self {
-        self.actions.push(Action::DeleteKey(Box::new(DeleteKeyAction { public_key })));
+        self.actions_mut().push(Action::DeleteKey(Box::new(DeleteKeyAction { public_key })));
         self
     }
 
     pub fn delete_account(mut self, beneficiary_id: AccountId) -> Self {
-        self.actions.push(Action::DeleteAccount(DeleteAccountAction { beneficiary_id }));
+        self.actions_mut().push(Action::DeleteAccount(DeleteAccountAction { beneficiary_id }));
         self
     }
 }
 
+/// This block implements a set of helper functions to create transactions for testing purposes.
 impl SignedTransaction {
+    /// Creates v0 for now because v1 is prohibited in the protocol.
+    /// Once v1 is allowed, this function should be updated to create v1 transactions.
     pub fn from_actions(
         nonce: Nonce,
         signer_id: AccountId,
         receiver_id: AccountId,
-        signer: &dyn Signer,
+        signer: &Signer,
         actions: Vec<Action>,
         block_hash: CryptoHash,
+        _priority_fee: u64,
     ) -> Self {
-        Transaction {
+        Transaction::V0(TransactionV0 {
             nonce,
             signer_id,
             public_key: signer.public_key(),
             receiver_id,
             block_hash,
             actions,
-        }
+        })
+        .sign(signer)
+    }
+
+    /// Explicitly create v1 transaction to test in cases where errors are expected.
+    pub fn from_actions_v1(
+        nonce: Nonce,
+        signer_id: AccountId,
+        receiver_id: AccountId,
+        signer: &Signer,
+        actions: Vec<Action>,
+        block_hash: CryptoHash,
+        priority_fee: u64,
+    ) -> Self {
+        Transaction::V1(TransactionV1 {
+            nonce,
+            signer_id,
+            public_key: signer.public_key(),
+            receiver_id,
+            block_hash,
+            actions,
+            priority_fee,
+        })
         .sign(signer)
     }
 
@@ -120,7 +186,7 @@ impl SignedTransaction {
         nonce: Nonce,
         signer_id: AccountId,
         receiver_id: AccountId,
-        signer: &dyn Signer,
+        signer: &Signer,
         deposit: Balance,
         block_hash: CryptoHash,
     ) -> Self {
@@ -131,13 +197,14 @@ impl SignedTransaction {
             signer,
             vec![Action::Transfer(TransferAction { deposit })],
             block_hash,
+            0,
         )
     }
 
     pub fn stake(
         nonce: Nonce,
         signer_id: AccountId,
-        signer: &dyn Signer,
+        signer: &Signer,
         stake: Balance,
         public_key: PublicKey,
         block_hash: CryptoHash,
@@ -149,6 +216,7 @@ impl SignedTransaction {
             signer,
             vec![Action::Stake(Box::new(StakeAction { stake, public_key }))],
             block_hash,
+            0,
         )
     }
 
@@ -158,7 +226,7 @@ impl SignedTransaction {
         new_account_id: AccountId,
         amount: Balance,
         public_key: PublicKey,
-        signer: &dyn Signer,
+        signer: &Signer,
         block_hash: CryptoHash,
     ) -> Self {
         Self::from_actions(
@@ -175,6 +243,7 @@ impl SignedTransaction {
                 Action::Transfer(TransferAction { deposit: amount }),
             ],
             block_hash,
+            0,
         )
     }
 
@@ -185,7 +254,7 @@ impl SignedTransaction {
         code: Vec<u8>,
         amount: Balance,
         public_key: PublicKey,
-        signer: &dyn Signer,
+        signer: &Signer,
         block_hash: CryptoHash,
     ) -> Self {
         Self::from_actions(
@@ -203,6 +272,7 @@ impl SignedTransaction {
                 Action::DeployContract(DeployContractAction { code }),
             ],
             block_hash,
+            0,
         )
     }
 
@@ -210,7 +280,7 @@ impl SignedTransaction {
         nonce: Nonce,
         signer_id: AccountId,
         receiver_id: AccountId,
-        signer: &dyn Signer,
+        signer: &Signer,
         deposit: Balance,
         method_name: String,
         args: Vec<u8>,
@@ -229,6 +299,7 @@ impl SignedTransaction {
                 deposit,
             }))],
             block_hash,
+            0,
         )
     }
 
@@ -237,7 +308,7 @@ impl SignedTransaction {
         signer_id: AccountId,
         receiver_id: AccountId,
         beneficiary_id: AccountId,
-        signer: &dyn Signer,
+        signer: &Signer,
         block_hash: CryptoHash,
     ) -> Self {
         Self::from_actions(
@@ -247,6 +318,7 @@ impl SignedTransaction {
             signer,
             vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id })],
             block_hash,
+            0,
         )
     }
 
@@ -255,9 +327,10 @@ impl SignedTransaction {
             0,
             "test".parse().unwrap(),
             "test".parse().unwrap(),
-            &EmptySigner {},
+            &EmptySigner::new().into(),
             vec![],
             block_hash,
+            0,
         )
     }
 }
@@ -295,7 +368,7 @@ impl BlockHeader {
         }
     }
 
-    pub fn resign(&mut self, signer: &dyn ValidatorSigner) {
+    pub fn resign(&mut self, signer: &ValidatorSigner) {
         let (hash, signature) = signer.sign_block_header_parts(
             *self.prev_hash(),
             &self.inner_lite_bytes(),
@@ -378,12 +451,12 @@ impl BlockBody {
 /// # Examples
 ///
 /// // TODO(mm-near): change it to doc-tested code once we have easy way to create a genesis block.
-/// let signer = EmptyValidatorSigner::default();
+/// let signer = EmptyValidatorSigner::default().into();
 /// let test_block = test_utils::TestBlockBuilder::new(prev, signer).height(33).build();
 pub struct TestBlockBuilder {
     clock: Clock,
     prev: Block,
-    signer: Arc<dyn ValidatorSigner>,
+    signer: Arc<ValidatorSigner>,
     height: u64,
     epoch_id: EpochId,
     next_epoch_id: EpochId,
@@ -393,14 +466,14 @@ pub struct TestBlockBuilder {
 }
 
 impl TestBlockBuilder {
-    pub fn new(clock: Clock, prev: &Block, signer: Arc<dyn ValidatorSigner>) -> Self {
+    pub fn new(clock: Clock, prev: &Block, signer: Arc<ValidatorSigner>) -> Self {
         let mut tree = PartialMerkleTree::default();
         tree.insert(*prev.hash());
 
         Self {
             clock,
             prev: prev.clone(),
-            signer: signer.clone(),
+            signer,
             height: prev.header().height() + 1,
             epoch_id: prev.header().epoch_id().clone(),
             next_epoch_id: if prev.header().is_genesis() {
@@ -642,12 +715,13 @@ pub fn encode(xs: &[u64]) -> Vec<u8> {
 
 // Helper function that creates a new signer for a given account, that uses the account name as seed.
 // Should be used only in tests.
-pub fn create_test_signer(account_name: &str) -> InMemoryValidatorSigner {
+pub fn create_test_signer(account_name: &str) -> ValidatorSigner {
     InMemoryValidatorSigner::from_seed(
         account_name.parse().unwrap(),
         KeyType::ED25519,
         account_name,
     )
+    .into()
 }
 
 /// Helper function that creates a new signer for a given account, that uses the account name as seed.
@@ -683,7 +757,11 @@ impl FinalExecutionOutcomeView {
     #[track_caller]
     /// Check transaction and all transitive receipts for success status.
     pub fn assert_success(&self) {
-        assert!(matches!(self.status, FinalExecutionStatus::SuccessValue(_)));
+        assert!(
+            matches!(self.status, FinalExecutionStatus::SuccessValue(_)),
+            "error: {:?}",
+            self.status
+        );
         for (i, receipt) in self.receipts_outcome.iter().enumerate() {
             assert!(
                 matches!(

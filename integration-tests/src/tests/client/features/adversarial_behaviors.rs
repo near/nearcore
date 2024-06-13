@@ -7,7 +7,8 @@ use near_async::{
 use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_chunks::{
-    test_loop::ShardsManagerResendChunkRequests, CHUNK_REQUEST_SWITCH_TO_FULL_FETCH,
+    shards_manager_actor::CHUNK_REQUEST_SWITCH_TO_FULL_FETCH,
+    test_utils::ShardsManagerResendChunkRequests,
 };
 use near_client::test_utils::TestEnv;
 use near_network::{
@@ -58,6 +59,7 @@ impl AdversarialBehaviorTestData {
             // Configure kickout threshold at 50%.
             config.block_producer_kickout_threshold = 50;
             config.chunk_producer_kickout_threshold = 50;
+            config.chunk_validator_only_kickout_threshold = 50;
         }
         let env = TestEnv::builder(&genesis.config)
             .clock(clock.clock())
@@ -220,7 +222,7 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
         checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION);
     let epoch_manager = test.env.clients[0].epoch_manager.clone();
     let bad_chunk_producer =
-        test.env.clients[7].validator_signer.as_ref().unwrap().validator_id().clone();
+        test.env.clients[7].validator_signer.get().unwrap().validator_id().clone();
     let mut epochs_seen_invalid_chunk: HashSet<EpochId> = HashSet::new();
     let mut last_block_skipped = false;
     for height in 1..=EPOCH_LENGTH * 4 + 5 {
@@ -361,6 +363,9 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk() {
     init_test_logger();
     let mut test = AdversarialBehaviorTestData::new();
     test.env.clients[7].produce_invalid_chunks = true;
+    for client in test.env.clients.iter_mut() {
+        client.chunk_validator.set_should_panic_on_validation_error(false);
+    }
     test_banning_chunk_producer_when_seeing_invalid_chunk_base(test);
 }
 
@@ -370,5 +375,8 @@ fn test_banning_chunk_producer_when_seeing_invalid_tx_in_chunk() {
     init_test_logger();
     let mut test = AdversarialBehaviorTestData::new();
     test.env.clients[7].produce_invalid_tx_in_chunks = true;
+    for client in test.env.clients.iter_mut() {
+        client.chunk_validator.set_should_panic_on_validation_error(false);
+    }
     test_banning_chunk_producer_when_seeing_invalid_chunk_base(test);
 }

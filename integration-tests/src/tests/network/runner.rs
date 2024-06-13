@@ -27,7 +27,6 @@ use near_primitives::block::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, ValidatorId};
-use near_primitives::validator_signer::ValidatorSigner;
 use near_store::genesis::initialize_genesis_state;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
 use nearcore::NightshadeRuntime;
@@ -108,6 +107,8 @@ fn setup_network_node(
         adv.clone(),
         None,
         noop().into_multi_sender(),
+        true,
+        None,
     )
     .client_actor;
     let view_client_addr = ViewClientActorInner::spawn_actix_actor(
@@ -136,6 +137,7 @@ fn setup_network_node(
         client_actor.clone().with_auto_span_context().into_multi_sender(),
         signer,
         epoch_manager,
+        runtime.store().clone(),
     ));
     shards_manager_adapter.bind(shards_manager_actor.with_auto_span_context());
     let peer_manager = PeerManagerActor::spawn(

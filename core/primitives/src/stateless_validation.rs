@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::fmt::{Debug, Formatter};
 
 use crate::challenge::PartialState;
 use crate::congestion_info::CongestionInfo;
@@ -13,7 +14,15 @@ use bytesize::ByteSize;
 use near_crypto::{PublicKey, Signature};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance, BlockHeight, ShardId};
-use near_primitives_core::version::PROTOCOL_VERSION;
+use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
+
+/// Represents max allowed size of the compressed state witness,
+/// corresponds to EncodedChunkStateWitness struct size.
+pub const MAX_COMPRESSED_STATE_WITNESS_SIZE: ByteSize = ByteSize::mib(32);
+
+/// Represents max allowed size of the raw (not compressed) state witness,
+/// corresponds to the size of borsh-serialized ChunkStateWitness.
+pub const MAX_UNCOMPRESSED_STATE_WITNESS_SIZE: ByteSize = ByteSize::mib(64);
 
 /// An arbitrary static string to make sure that this struct cannot be
 /// serialized to look identical to another serialized struct. For chunk
@@ -27,10 +36,21 @@ type SignatureDifferentiator = String;
 /// These are created and signed by the chunk producer and sent to the chunk validators.
 /// Note that the chunk validators do not require all the parts of the state witness to
 /// reconstruct the full state witness due to the Reed Solomon erasure encoding.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct PartialEncodedStateWitness {
     inner: PartialEncodedStateWitnessInner,
-    signature: Signature,
+    pub signature: Signature,
+}
+
+impl Debug for PartialEncodedStateWitness {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PartialEncodedStateWitness")
+            .field("epoch_id", &self.inner.epoch_id)
+            .field("shard_id", &self.inner.shard_id)
+            .field("height_created", &self.inner.height_created)
+            .field("part_ord", &self.inner.part_ord)
+            .finish()
+    }
 }
 
 impl PartialEncodedStateWitness {
@@ -40,7 +60,7 @@ impl PartialEncodedStateWitness {
         part_ord: usize,
         part: Vec<u8>,
         encoded_length: usize,
-        signer: &dyn ValidatorSigner,
+        signer: &ValidatorSigner,
     ) -> Self {
         let inner = PartialEncodedStateWitnessInner::new(
             epoch_id,
@@ -51,6 +71,14 @@ impl PartialEncodedStateWitness {
         );
         let signature = signer.sign_partial_encoded_state_witness(&inner);
         Self { inner, signature }
+    }
+
+    pub fn chunk_production_key(&self) -> ChunkProductionKey {
+        ChunkProductionKey {
+            shard_id: self.shard_id(),
+            epoch_id: self.epoch_id().clone(),
+            height_created: self.height_created(),
+        }
     }
 
     pub fn verify(&self, public_key: &PublicKey) -> bool {
@@ -74,13 +102,17 @@ impl PartialEncodedStateWitness {
         self.inner.part_ord
     }
 
+    pub fn part_size(&self) -> usize {
+        self.inner.part.len()
+    }
+
     /// Decomposes the partial witness to return (part_ord, part, encoded_length)
     pub fn decompose(self) -> (usize, Box<[u8]>, usize) {
         (self.inner.part_ord, self.inner.part, self.inner.encoded_length)
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct PartialEncodedStateWitnessInner {
     epoch_id: EpochId,
     shard_id: ShardId,
@@ -147,10 +179,7 @@ impl EncodedChunkStateWitness {
     /// Returns decoded witness along with the raw (uncompressed) witness size.
     pub fn decode(&self) -> std::io::Result<(ChunkStateWitness, ChunkStateWitnessSize)> {
         // We want to limit the size of decompressed data to address "Zip bomb" attack.
-        // The value here is the same as NETWORK_MESSAGE_MAX_SIZE_BYTES.
-        const MAX_WITNESS_SIZE: ByteSize = ByteSize::mib(512);
-
-        self.decode_with_limit(MAX_WITNESS_SIZE)
+        self.decode_with_limit(MAX_UNCOMPRESSED_STATE_WITNESS_SIZE)
     }
 
     /// Decompress and borsh-deserialize encoded witness bytes.
@@ -190,16 +219,6 @@ impl EncodedChunkStateWitness {
     pub fn as_slice(&self) -> &[u8] {
         &self.0
     }
-}
-
-// TODO(stateless_validation): Deprecate once we send state witness in parts.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct SignedEncodedChunkStateWitness {
-    /// The content of the witness. It is convenient have it as bytes in order
-    /// to perform signature verification along with decoding.
-    pub witness_bytes: EncodedChunkStateWitness,
-    /// Signature corresponds to `witness_bytes.as_slice()` signed by the chunk producer
-    pub signature: Signature,
 }
 
 /// An acknowledgement sent from the chunk producer upon receiving the state witness to
@@ -330,7 +349,19 @@ impl ChunkStateWitness {
         }
     }
 
+    pub fn chunk_production_key(&self) -> ChunkProductionKey {
+        ChunkProductionKey {
+            shard_id: self.chunk_header.shard_id(),
+            epoch_id: self.epoch_id.clone(),
+            height_created: self.chunk_header.height_created(),
+        }
+    }
+
     pub fn new_dummy(height: BlockHeight, shard_id: ShardId, prev_block_hash: CryptoHash) -> Self {
+        let congestion_info = ProtocolFeature::CongestionControl
+            .enabled(PROTOCOL_VERSION)
+            .then_some(CongestionInfo::default());
+
         let header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
             PROTOCOL_VERSION,
             prev_block_hash,
@@ -346,8 +377,8 @@ impl ChunkStateWitness {
             Default::default(),
             Default::default(),
             Default::default(),
-            CongestionInfo::default(),
-            &EmptyValidatorSigner::default(),
+            congestion_info,
+            &EmptyValidatorSigner::default().into(),
         ));
         Self::new(
             "alice.near".parse().unwrap(),
@@ -392,7 +423,7 @@ pub struct ChunkEndorsement {
 }
 
 impl ChunkEndorsement {
-    pub fn new(chunk_hash: ChunkHash, signer: &dyn ValidatorSigner) -> ChunkEndorsement {
+    pub fn new(chunk_hash: ChunkHash, signer: &ValidatorSigner) -> ChunkEndorsement {
         let inner = ChunkEndorsementInner::new(chunk_hash);
         let account_id = signer.validator_id().clone();
         let signature = signer.sign_chunk_endorsement(&inner);
@@ -463,6 +494,15 @@ impl EndorsementStats {
     pub fn required_stake(&self) -> Balance {
         self.total_stake * 2 / 3 + 1
     }
+}
+
+/// This struct contains combination of fields that uniquely identify chunk production.
+/// It means that for a given instance only one chunk could be produced.
+#[derive(Debug, Hash, PartialEq, Eq, Clone)]
+pub struct ChunkProductionKey {
+    pub shard_id: ShardId,
+    pub epoch_id: EpochId,
+    pub height_created: BlockHeight,
 }
 
 #[derive(Debug, Default)]

@@ -179,6 +179,9 @@ pub enum Error {
     /// Invalid Balance Burnt
     #[error("Invalid Balance Burnt")]
     InvalidBalanceBurnt,
+    /// Invalid Congestion Info
+    #[error("Invalid Congestion Info: {0}")]
+    InvalidCongestionInfo(String),
     /// Invalid shard id
     #[error("Shard id {0} does not exist")]
     InvalidShardId(ShardId),
@@ -240,7 +243,7 @@ pub trait LogTransientStorageError {
 impl<T> LogTransientStorageError for Result<T, Error> {
     fn log_storage_error(self, message: &str) -> Self {
         if let Err(err) = &self {
-            tracing::error!(target: "client", "Transient storage error: {message}, {err}");
+            tracing::error!(target: "chain", "Transient storage error: {message}, {err}");
         }
         self
     }
@@ -299,6 +302,7 @@ impl Error {
             | Error::InvalidGasPrice
             | Error::InvalidGasUsed
             | Error::InvalidBalanceBurnt
+            | Error::InvalidCongestionInfo(_)
             | Error::InvalidShardId(_)
             | Error::InvalidStateRequest(_)
             | Error::InvalidRandomnessBeaconOutput
@@ -374,6 +378,7 @@ impl Error {
             Error::InvalidGasPrice => "invalid_gas_price",
             Error::InvalidGasUsed => "invalid_gas_used",
             Error::InvalidBalanceBurnt => "invalid_balance_burnt",
+            Error::InvalidCongestionInfo(_) => "invalid_congestion_info",
             Error::InvalidShardId(_) => "invalid_shard_id",
             Error::InvalidStateRequest(_) => "invalid_state_request",
             Error::InvalidRandomnessBeaconOutput => "invalid_randomness_beacon_output",

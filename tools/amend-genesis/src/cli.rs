@@ -54,9 +54,15 @@ pub struct AmendGenesisCommand {
     /// chunk_producer_kickout_threshold to set in the output genesis file
     #[clap(long)]
     chunk_producer_kickout_threshold: Option<u8>,
+    /// chunk_validator_only_kickout_threshold to set in the output genesis file
+    #[clap(long)]
+    chunk_validator_only_kickout_threshold: Option<u8>,
     /// protocol_reward_rate to set in the output genesis file. Give a ratio here (e.g. "1/10")
     #[clap(long)]
     protocol_reward_rate: Option<Rational32>,
+    /// maximum inflation to se in the output genesis file. Give a ratio here (e.g. "1/10")
+    #[clap(long)]
+    max_inflation_rate: Option<Rational32>,
     /// optional file that should contain a JSON-serialized shard layout
     #[clap(long)]
     shard_layout_file: Option<PathBuf>,
@@ -68,6 +74,9 @@ pub struct AmendGenesisCommand {
     /// on accounts in the output state
     #[clap(long)]
     num_extra_bytes_record: Option<u64>,
+    /// initial gas limit to set in the output genesis file
+    #[clap(long)]
+    gas_limit: Option<u64>,
     /// min_gas_price to set in the output genesis file
     #[clap(long)]
     min_gas_price: Option<u128>,
@@ -85,8 +94,11 @@ impl AmendGenesisCommand {
             epoch_length: self.epoch_length,
             transaction_validity_period: self.transaction_validity_period,
             protocol_reward_rate: self.protocol_reward_rate,
+            max_inflation_rate: self.max_inflation_rate,
             block_producer_kickout_threshold: self.block_producer_kickout_threshold,
             chunk_producer_kickout_threshold: self.chunk_producer_kickout_threshold,
+            chunk_validator_only_kickout_threshold: self.chunk_validator_only_kickout_threshold,
+            gas_limit: self.gas_limit,
             min_gas_price: self.min_gas_price,
             max_gas_price: self.max_gas_price,
         };

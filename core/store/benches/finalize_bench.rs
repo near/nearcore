@@ -17,12 +17,12 @@ extern crate bencher;
 use bencher::{black_box, Bencher};
 use borsh::BorshSerialize;
 use near_chain::Chain;
-use near_chunks::ShardsManager;
-use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_chunks::shards_manager_actor::ShardsManagerActor;
+use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePathItem};
-use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum};
+use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart,
@@ -32,7 +32,7 @@ use near_primitives::sharding::{
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::types::AccountId;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::DBCol;
 use rand::prelude::SliceRandom;
 use reed_solomon_erasure::galois_8::ReedSolomon;
@@ -116,6 +116,10 @@ fn create_benchmark_receipts() -> Vec<Receipt> {
 }
 
 fn create_chunk_header(height: u64, shard_id: u64) -> ShardChunkHeader {
+    let congestion_info = ProtocolFeature::CongestionControl
+        .enabled(PROTOCOL_VERSION)
+        .then_some(CongestionInfo::default());
+
     ShardChunkHeader::V3(ShardChunkHeaderV3::new(
         PROTOCOL_VERSION,
         CryptoHash::default(),
@@ -131,8 +135,8 @@ fn create_chunk_header(height: u64, shard_id: u64) -> ShardChunkHeader {
         CryptoHash::default(),
         CryptoHash::default(),
         vec![],
-        CongestionInfo::default(),
-        &validator_signer(),
+        congestion_info,
+        &validator_signer().into(),
     ))
 }
 
@@ -142,7 +146,7 @@ fn create_action_receipt(
     actions: Vec<Action>,
     input_data_ids: Vec<CryptoHash>,
 ) -> Receipt {
-    Receipt {
+    Receipt::V0(ReceiptV0 {
         predecessor_id: account_id.clone(),
         receiver_id: account_id.clone(),
         receipt_id: CryptoHash::hash_borsh(actions.clone()),
@@ -154,16 +158,16 @@ fn create_action_receipt(
             input_data_ids,
             actions,
         }),
-    }
+    })
 }
 
 fn create_data_receipt(account_id: &AccountId, data_id: CryptoHash, data_size: usize) -> Receipt {
-    Receipt {
+    Receipt::V0(ReceiptV0 {
         predecessor_id: account_id.clone(),
         receiver_id: account_id.clone(),
         receipt_id: CryptoHash::hash_borsh(data_id),
         receipt: ReceiptEnum::Data(DataReceipt { data_id, data: Some(vec![77u8; data_size]) }),
-    }
+    })
 }
 
 fn create_shard_chunk(
@@ -184,7 +188,12 @@ fn create_encoded_shard_chunk(
     receipts: &[Receipt],
 ) -> (EncodedShardChunk, Vec<Vec<MerklePathItem>>) {
     let rs = ReedSolomon::new(33, 67).unwrap();
-    ShardsManager::create_encoded_shard_chunk(
+
+    let congestion_info = ProtocolFeature::CongestionControl
+        .enabled(PROTOCOL_VERSION)
+        .then_some(CongestionInfo::default());
+
+    ShardsManagerActor::create_encoded_shard_chunk(
         Default::default(),
         Default::default(),
         Default::default(),
@@ -198,8 +207,8 @@ fn create_encoded_shard_chunk(
         receipts,
         Default::default(),
         Default::default(),
-        CongestionInfo::default(),
-        &validator_signer(),
+        congestion_info,
+        &validator_signer().into(),
         &rs,
         100,
     )

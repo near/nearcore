@@ -1,5 +1,4 @@
 mod kv_runtime;
-pub mod test_loop;
 mod validator_schedule;
 
 use std::cmp::Ordering;
@@ -23,7 +22,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, NumBlocks, NumShards};
 use near_primitives::utils::MaybeValidated;
-use near_primitives::validator_signer::InMemoryValidatorSigner;
+use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
@@ -120,7 +119,7 @@ pub fn process_block_sync(
 // TODO(#8190) Improve this testing API.
 pub fn setup(
     clock: Clock,
-) -> (Chain, Arc<EpochManagerHandle>, Arc<NightshadeRuntime>, Arc<InMemoryValidatorSigner>) {
+) -> (Chain, Arc<EpochManagerHandle>, Arc<NightshadeRuntime>, Arc<ValidatorSigner>) {
     setup_with_tx_validity_period(clock, 100, 1000)
 }
 
@@ -128,7 +127,7 @@ pub fn setup_with_tx_validity_period(
     clock: Clock,
     tx_validity_period: NumBlocks,
     epoch_length: u64,
-) -> (Chain, Arc<EpochManagerHandle>, Arc<NightshadeRuntime>, Arc<InMemoryValidatorSigner>) {
+) -> (Chain, Arc<EpochManagerHandle>, Arc<NightshadeRuntime>, Arc<ValidatorSigner>) {
     let store = create_test_store();
     let mut genesis = Genesis::test_sharded(
         clock.clone(),
@@ -276,7 +275,7 @@ mod test {
     use rand::Rng;
 
     use near_primitives::hash::CryptoHash;
-    use near_primitives::receipt::Receipt;
+    use near_primitives::receipt::{Receipt, ReceiptPriority};
     use near_primitives::sharding::ReceiptList;
     use near_primitives::types::{AccountId, NumShards};
 
@@ -293,7 +292,7 @@ mod test {
             let shard_receipts: Vec<Receipt> = receipts
                 .iter()
                 .filter(|&receipt| {
-                    account_id_to_shard_id(&receipt.receiver_id, shard_layout) == shard_id
+                    account_id_to_shard_id(receipt.receiver_id(), shard_layout) == shard_id
                 })
                 .cloned()
                 .collect();
@@ -305,7 +304,7 @@ mod test {
     fn test_build_receipt_hashes_with_num_shard(num_shards: NumShards) {
         let shard_layout = ShardLayout::v0(num_shards, 0);
         let create_receipt_from_receiver_id =
-            |receiver_id| Receipt::new_balance_refund(&receiver_id, 0);
+            |receiver_id| Receipt::new_balance_refund(&receiver_id, 0, ReceiptPriority::NoPriority);
         let mut rng = rand::thread_rng();
         let receipts = (0..3000)
             .map(|_| {

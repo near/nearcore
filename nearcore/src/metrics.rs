@@ -98,8 +98,8 @@ fn log_trie_item(key: Vec<u8>, value: Vec<u8>) {
             tracing::trace!(
                 target: "metrics",
                 "trie-stats - PostponedReceipt(predecessor_id: {:?}, receiver_id: {:?})",
-                receipt.predecessor_id,
-                receipt.receiver_id,
+                receipt.predecessor_id(),
+                receipt.receiver_id(),
             );
         }
         _ => {
@@ -167,7 +167,7 @@ fn get_postponed_receipt_count_for_shard(
 }
 
 fn get_postponed_receipt_count_for_trie(trie: Trie) -> Result<i64, anyhow::Error> {
-    let mut iter = trie.iter()?;
+    let mut iter = trie.disk_iter()?;
     iter.seek_prefix([trie_key::col::POSTPONED_RECEIPT])?;
     let mut count = 0;
     for item in iter {

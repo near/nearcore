@@ -6,7 +6,7 @@ use crate::block_body::{BlockBody, BlockBodyV1, ChunkEndorsementSignatures};
 pub use crate::block_header::*;
 use crate::challenge::{Challenges, ChallengesResult};
 use crate::checked_feature;
-use crate::congestion_info::CongestionInfo;
+use crate::congestion_info::{BlockCongestionInfo, CongestionInfo, ExtendedCongestionInfo};
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{merklize, verify_path, MerklePath};
 use crate::num_rational::Rational32;
@@ -17,12 +17,13 @@ use crate::types::{Balance, BlockHeight, EpochId, Gas, NumBlocks, StateRoot};
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 use crate::version::{ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_async::time::Utc;
 use near_crypto::Signature;
 use near_primitives_core::types::ShardId;
+use near_primitives_core::version::ProtocolFeature;
+use near_time::Utc;
 use primitive_types::U256;
 use reed_solomon_erasure::galois_8::ReedSolomon;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::ops::Index;
 use std::sync::Arc;
 
@@ -105,6 +106,10 @@ pub fn genesis_chunks(
         std::iter::repeat(state_roots[0]).take(shard_ids.len()).collect()
     };
 
+    let congestion_info = ProtocolFeature::CongestionControl
+        .enabled(genesis_protocol_version)
+        .then_some(CongestionInfo::default());
+
     shard_ids
         .into_iter()
         .zip(state_roots)
@@ -124,8 +129,8 @@ pub fn genesis_chunks(
                 vec![],
                 &[],
                 CryptoHash::default(),
-                CongestionInfo::default(),
-                &EmptyValidatorSigner::default(),
+                congestion_info,
+                &EmptyValidatorSigner::default().into(),
                 genesis_protocol_version,
             )
             .expect("Failed to decode genesis chunk");
@@ -262,7 +267,7 @@ impl Block {
         minted_amount: Option<Balance>,
         challenges_result: ChallengesResult,
         challenges: Challenges,
-        signer: &dyn ValidatorSigner,
+        signer: &ValidatorSigner,
         next_bp_hash: CryptoHash,
         block_merkle_root: CryptoHash,
         timestamp: Utc,
@@ -591,15 +596,25 @@ impl Block {
         }
     }
 
-    pub fn shards_congestion_info(&self) -> HashMap<ShardId, CongestionInfo> {
-        self.chunks()
-            .iter()
-            .enumerate()
-            // TODO(congestion_control): default is not always appropriate!
-            .map(|(i, chunk_header)| {
-                (i as ShardId, chunk_header.congestion_info().unwrap_or_default())
-            })
-            .collect()
+    pub fn block_congestion_info(&self) -> BlockCongestionInfo {
+        let mut result = BTreeMap::new();
+
+        for chunk in self.chunks().iter() {
+            let shard_id = chunk.shard_id();
+
+            if let Some(congestion_info) = chunk.congestion_info() {
+                let height_included = chunk.height_included();
+                let height_current = self.header().height();
+                let missed_chunks_count = height_current.checked_sub(height_included);
+                let missed_chunks_count = missed_chunks_count
+                    .expect("The chunk height included must be less or equal than block height!");
+
+                let extended_congestion_info =
+                    ExtendedCongestionInfo::new(congestion_info, missed_chunks_count);
+                result.insert(shard_id, extended_congestion_info);
+            }
+        }
+        BlockCongestionInfo::new(result)
     }
 
     pub fn hash(&self) -> &CryptoHash {

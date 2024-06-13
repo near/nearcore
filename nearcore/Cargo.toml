@@ -95,7 +95,9 @@ test_features = [
   "near-client/test_features",
   "near-network/test_features",
   "near-store/test_features",
-  "near-jsonrpc/test_features"
+  "near-jsonrpc/test_features",
+  "near-primitives/test_features",
+  "near-vm-runner/test_features",
 ]
 expensive_tests = [
   "near-client/expensive_tests",
@@ -122,10 +124,6 @@ protocol_feature_nonrefundable_transfer_nep491 = [
 ]
 new_epoch_sync = [
   "near-client/new_epoch_sync"
-]
-yield_resume = [
-  "near-store/yield_resume",
-  "near-primitives/yield_resume",
 ]
 
 nightly = [
@@ -156,7 +154,6 @@ nightly = [
   "protocol_feature_fix_staking_threshold",
   "protocol_feature_nonrefundable_transfer_nep491",
   "testlib/nightly",
-  "yield_resume",
 ]
 nightly_protocol = [
   "near-actix-test-utils/nightly_protocol",

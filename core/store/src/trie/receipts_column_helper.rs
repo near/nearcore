@@ -70,7 +70,7 @@ pub trait TrieQueue {
     /// depending on impl.
     fn write_indices(&self, state_update: &mut TrieUpdate);
 
-    /// Construct the the trie key for a queue item depending on impl.
+    /// Construct the trie key for a queue item depending on impl.
     fn trie_key(&self, queue_index: u64) -> TrieKey;
 
     fn push(
@@ -130,11 +130,13 @@ pub trait TrieQueue {
             state_update.remove(key);
         }
 
-        self.indices_mut().first_index = indices
-            .first_index
-            .checked_add(to_remove)
-            .expect("first_index + to_remove should be < next_available_index");
-        self.write_indices(state_update);
+        if to_remove > 0 {
+            self.indices_mut().first_index = indices
+                .first_index
+                .checked_add(to_remove)
+                .expect("first_index + to_remove should be < next_available_index");
+            self.write_indices(state_update);
+        }
         Ok(to_remove)
     }
 
@@ -214,19 +216,12 @@ impl ShardsOutgoingReceiptBuffer {
         self.shards_indices.shard_buffers.keys().copied().collect()
     }
 
+    pub fn buffer_len(&self, shard_id: ShardId) -> Option<u64> {
+        self.shards_indices.shard_buffers.get(&shard_id).map(TrieQueueIndices::len)
+    }
+
     fn write_indices(&self, state_update: &mut TrieUpdate) {
-        // A default buffer is displayed as not being there at all. This makes an
-        // empty trie and one with the default `ShardsOutgoingReceiptBuffer`,
-        // which are loaded as equivalent, produce the same trie root hash.
-        // TODO(congestion_control) - Figure out if we need this. It's tricky,
-        // if we write back an empty map as a value, many tests fail because the
-        // trie root changes unexpectedly. But if we store it as empty, we have
-        // to be careful to no re-compute it unnecessarily.
-        if self.shards_indices.shard_buffers.values().all(TrieQueueIndices::is_default) {
-            state_update.remove(TrieKey::BufferedReceiptIndices);
-        } else {
-            set(state_update, TrieKey::BufferedReceiptIndices, &self.shards_indices);
-        }
+        set(state_update, TrieKey::BufferedReceiptIndices, &self.shards_indices);
     }
 }
 
@@ -251,7 +246,7 @@ impl TrieQueue for OutgoingReceiptBuffer<'_> {
     }
 
     fn trie_key(&self, index: u64) -> TrieKey {
-        TrieKey::DelayedReceipt { index }
+        TrieKey::BufferedReceipt { index, receiving_shard: self.shard_id }
     }
 }
 
@@ -260,6 +255,21 @@ impl<'a> Iterator for ReceiptIterator<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let index = self.indices.next()?;
+        let key = self.trie_queue.trie_key(index);
+        let result = match get(self.trie, &key) {
+            Err(e) => Err(e),
+            Ok(None) => Err(StorageError::StorageInconsistentState(
+                "Receipt referenced by index should be in the state".to_owned(),
+            )),
+            Ok(Some(receipt)) => Ok(receipt),
+        };
+        Some(result)
+    }
+}
+
+impl<'a> DoubleEndedIterator for ReceiptIterator<'a> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        let index = self.indices.next_back()?;
         let key = self.trie_queue.trie_key(index);
         let result = match get(self.trie, &key) {
             Err(e) => Err(e),

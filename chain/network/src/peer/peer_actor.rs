@@ -1,9 +1,8 @@
 use crate::accounts_data::AccountDataError;
 use crate::client::{
     AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
-    BlockResponse, ChunkEndorsementMessage, ChunkStateWitnessMessage, ProcessTxRequest,
-    RecvChallenge, StateRequestHeader, StateRequestPart, StateResponse, TxStatusRequest,
-    TxStatusResponse,
+    BlockResponse, ChunkEndorsementMessage, ProcessTxRequest, RecvChallenge, StateRequestHeader,
+    StateRequestPart, StateResponse, TxStatusRequest, TxStatusResponse,
 };
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
@@ -58,6 +57,7 @@ use std::cmp::min;
 use std::fmt::Debug;
 use std::io;
 use std::net::SocketAddr;
+use std::num::NonZeroUsize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tracing::Instrument as _;
@@ -334,7 +334,9 @@ impl PeerActor {
                     framed,
                     tracker: Default::default(),
                     stats,
-                    routed_message_cache: LruCache::new(ROUTED_MESSAGE_CACHE_SIZE),
+                    routed_message_cache: LruCache::new(
+                        NonZeroUsize::new(ROUTED_MESSAGE_CACHE_SIZE).unwrap(),
+                    ),
                     protocol_buffers_supported: false,
                     force_encoding,
                     peer_info: match &stream_type {
@@ -421,6 +423,9 @@ impl PeerActor {
                 .inc(),
             PeerMessage::SyncSnapshotHosts(_) => {
                 metrics::SYNC_SNAPSHOT_HOSTS.with_label_values(&["sent"]).inc()
+            }
+            PeerMessage::Routed(routed) => {
+                tracing::debug!(target: "network", source=?routed.msg.author, target=?routed.msg.target, message=?routed.msg.body, "send_routed_message");
             }
             _ => (),
         };
@@ -1014,10 +1019,6 @@ impl PeerActor {
                 network_state
                     .shards_manager_adapter
                     .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(msg));
-                None
-            }
-            RoutedMessageBody::ChunkStateWitness(witness) => {
-                network_state.client.send_async(ChunkStateWitnessMessage(witness)).await.ok();
                 None
             }
             RoutedMessageBody::ChunkStateWitnessAck(ack) => {

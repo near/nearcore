@@ -45,6 +45,7 @@ members = [
     "core/primitives",
     "core/primitives-core",
     "core/store",
+    "core/time",
     "genesis-tools/genesis-csv-to-json",
     "genesis-tools/genesis-populate",
     "genesis-tools/keypair-generator",
@@ -94,6 +95,10 @@ members = [
     "utils/near-cache",
     "utils/stdx",
 ]
+exclude = [
+    "tracing",
+    "benchmarks"
+]
 
 [workspace.lints.clippy]
 all = { level = "allow", priority = -100 }
@@ -133,7 +138,7 @@ backtrace = "0.3"
 base64 = "0.21"
 bencher = "0.1.5"
 bitflags = "1.2"
-blake2 = "0.9.1"
+blake2 = { version = "0.10.6", features = ["reset"] }
 blst = "0.3.11"
 bn = { package = "zeropool-bn", version = "0.5.11", default-features = false }
 # TODO: remove this override when https://github.com/camshaft/bolero/issues/196 is fixed upstream
@@ -167,6 +172,7 @@ curve25519-dalek = { version = "4.1.1", default-features = false, features = [
 ] }
 derive-enum-from-into = "0.1.1"
 derive_more = "0.99.9"
+derive-where = "1.2.7"
 dirs = "4"
 dynasm = "2.0"
 dynasmrt = "2.0"
@@ -175,7 +181,6 @@ ed25519-dalek = { version = "2.1.0", default-features = false, features = [
     "hazmat",
     "rand_core",
 ] }
-elastic-array = "0.11"
 enum-map = "2.1.0"
 enumset = "1.0"
 ethabi = "18"
@@ -203,7 +208,7 @@ lazy_static = "1.4"
 libc = "0.2.81"
 libfuzzer-sys = { version = "0.4", features = ["arbitrary-derive"] }
 log = "0.4"
-lru = "0.7.2"
+lru = "0.12.3"
 memoffset = "0.8"
 more-asserts = "0.2"
 near-account-id = { version = "1.0.0-alpha.4", features = [
@@ -263,6 +268,7 @@ near-state-viewer = { path = "tools/state-viewer", package = "state-viewer" }
 near-store = { path = "core/store" }
 near-telemetry = { path = "chain/telemetry" }
 near-test-contracts = { path = "runtime/near-test-contracts" }
+near-time = { path = "core/time" }
 near-undo-block = { path = "tools/undo-block" }
 near-vm-test-api = { path = "runtime/near-vm/test-api" }
 near-vm-compiler = { path = "runtime/near-vm/compiler" }
@@ -356,14 +362,7 @@ test-log = { version = "0.2", default-features = false, features = ["trace"] }
 thiserror = "1.0.30"
 tikv-jemallocator = "0.5.0"
 time = { version = "0.3.9", features = ["parsing", "serde"] }
-tokio = { version = "1.28", features = [
-    "fs",
-    "macros",
-    "net",
-    "rt-multi-thread",
-    "sync",
-    "time",
-] }
+tokio = { version = "1.28", default-features = false }
 tokio-stream = { version = "0.1.2", features = ["net"] }
 tokio-util = { version = "0.7.1", features = ["codec", "io"] }
 toml = "0.5.8"

@@ -1,11 +1,11 @@
 //! Structs in this file are used for debug purposes, and might change at any time
 //! without backwards compatibility.
 use crate::chunk_inclusion_tracker::ChunkInclusionTracker;
-use crate::ClientActor;
-use actix::{Context, Handler};
-use near_async::time::Clock;
+use crate::client_actor::ClientActorInner;
+use near_async::messaging::Handler;
+use near_async::time::{Clock, Instant};
 use near_chain::crypto_hash_timer::CryptoHashTimer;
-use near_chain::{near_chain_primitives, Chain, ChainStoreAccess};
+use near_chain::{near_chain_primitives, Block, Chain, ChainStoreAccess};
 use near_client_primitives::debug::{
     ApprovalAtHeightStatus, BlockProduction, ChunkCollection, DebugBlockStatusData, DebugStatus,
     DebugStatusResponse, MissedHeightInfo, ProductionAtHeight, ValidatorStatus,
@@ -16,9 +16,10 @@ use near_client_primitives::{
     types::StatusError,
 };
 use near_epoch_manager::EpochManagerAdapter;
-use near_o11y::{handler_debug_span, log_assert, WithSpanContext};
+use near_o11y::log_assert;
 use near_performance_metrics_macros::perf;
 use near_primitives::state_sync::get_num_state_parts;
+use near_primitives::stateless_validation::ChunkEndorsement;
 use near_primitives::types::{AccountId, BlockHeight, NumShards, ShardId, ValidatorInfoIdentifier};
 use near_primitives::{
     hash::CryptoHash,
@@ -29,6 +30,8 @@ use near_primitives::{
 use near_store::DBCol;
 use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
+use std::num::NonZeroUsize;
+use time::ext::InstantExt as _;
 
 use near_client_primitives::debug::{DebugBlockStatus, DebugChunkStatus};
 use near_network::types::{ConnectedPeerInfo, NetworkInfo, PeerType};
@@ -54,7 +57,7 @@ pub struct BlockProductionTracker(lru::LruCache<BlockHeight, BlockProduction>);
 
 impl BlockProductionTracker {
     pub(crate) fn new() -> Self {
-        Self(lru::LruCache::new(PRODUCTION_TIMES_CACHE_SIZE))
+        Self(lru::LruCache::new(NonZeroUsize::new(PRODUCTION_TIMES_CACHE_SIZE).unwrap()))
     }
 
     pub(crate) fn get(&mut self, height: BlockHeight) -> BlockProduction {
@@ -146,16 +149,9 @@ impl BlockProductionTracker {
     }
 }
 
-impl Handler<WithSpanContext<DebugStatus>> for ClientActor {
-    type Result = Result<DebugStatusResponse, StatusError>;
-
+impl Handler<DebugStatus> for ClientActorInner {
     #[perf]
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<DebugStatus>,
-        _ctx: &mut Context<Self>,
-    ) -> Self::Result {
-        let (_span, msg) = handler_debug_span!(target: "client", msg);
+    fn handle(&mut self, msg: DebugStatus) -> Result<DebugStatusResponse, StatusError> {
         match msg {
             DebugStatus::SyncStatus => {
                 Ok(DebugStatusResponse::SyncStatus(self.client.sync_status.clone().into()))
@@ -185,7 +181,7 @@ impl Handler<WithSpanContext<DebugStatus>> for ClientActor {
     }
 }
 
-impl ClientActor {
+impl ClientActorInner {
     // Gets a list of block producers and chunk-only producers for a given epoch.
     fn get_producers_for_epoch(
         &self,
@@ -291,6 +287,11 @@ impl ClientActor {
         };
         return Ok((
             EpochInfoView {
+                epoch_height: self
+                    .client
+                    .epoch_manager
+                    .get_epoch_info(&epoch_id)
+                    .map(|info| info.epoch_height())?,
                 epoch_id: epoch_id.0,
                 height: block.header().height(),
                 first_block: Some((*block.header().hash(), block.header().timestamp())),
@@ -317,6 +318,11 @@ impl ClientActor {
             self.get_producers_for_epoch(&head.next_epoch_id, &head.last_block_hash)?;
 
         Ok(EpochInfoView {
+            epoch_height: self
+                .client
+                .epoch_manager
+                .get_epoch_info(&head.next_epoch_id)
+                .map(|info| info.epoch_height())?,
             epoch_id: head.next_epoch_id.0,
             // Expected height of the next epoch.
             height: epoch_start_height + self.client.config.epoch_length,
@@ -335,7 +341,7 @@ impl ClientActor {
     fn get_tracked_shards_view(&self) -> Result<TrackedShardsView, near_chain_primitives::Error> {
         let epoch_id = self.client.chain.header_head()?.epoch_id;
         let fetch_hash = self.client.chain.header_head()?.last_block_hash;
-        let me = self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
+        let me = self.client.validator_signer.get().map(|x| x.validator_id().clone());
         let shard_ids = self.client.epoch_manager.shard_ids(&epoch_id).unwrap();
         let shards_tracked_this_epoch = shard_ids
             .iter()
@@ -449,27 +455,39 @@ impl ClientActor {
                     .get_block_producer(block_header.epoch_id(), block_header.height())
                     .ok();
 
+                let chunk_endorsements = self.compute_chunk_endorsements_ratio(&block);
+
                 let chunks = match &block {
                     Some(block) => block
                         .chunks()
                         .iter()
-                        .map(|chunk| DebugChunkStatus {
-                            shard_id: chunk.shard_id(),
-                            chunk_hash: chunk.chunk_hash(),
-                            chunk_producer: self
-                                .client
-                                .epoch_manager
-                                .get_chunk_producer(
-                                    block_header.epoch_id(),
-                                    block_header.height(),
-                                    chunk.shard_id(),
+                        .map(|chunk| {
+                            let endorsement_ratio = chunk_endorsements
+                                .as_ref()
+                                .map(|chunks| chunks.get(&chunk.chunk_hash()))
+                                .flatten()
+                                .copied();
+
+                            DebugChunkStatus {
+                                shard_id: chunk.shard_id(),
+                                chunk_hash: chunk.chunk_hash(),
+                                chunk_producer: self
+                                    .client
+                                    .epoch_manager
+                                    .get_chunk_producer(
+                                        block_header.epoch_id(),
+                                        block_header.height(),
+                                        chunk.shard_id(),
+                                    )
+                                    .ok(),
+                                gas_used: chunk.prev_gas_used(),
+                                processing_time_ms: CryptoHashTimer::get_timer_value(
+                                    chunk.chunk_hash().0,
                                 )
-                                .ok(),
-                            gas_used: chunk.prev_gas_used(),
-                            processing_time_ms: CryptoHashTimer::get_timer_value(
-                                chunk.chunk_hash().0,
-                            )
-                            .map(|s| s.whole_milliseconds() as u64),
+                                .map(|s| s.whole_milliseconds() as u64),
+                                congestion_info: chunk.congestion_info(),
+                                endorsement_ratio,
+                            }
                         })
                         .collect(),
                     None => vec![],
@@ -521,7 +539,7 @@ impl ClientActor {
         let head = self.client.chain.head()?;
         let mut productions = vec![];
 
-        if let Some(signer) = &self.client.validator_signer {
+        if let Some(signer) = &self.client.validator_signer.get() {
             let validator_id = signer.validator_id().to_string();
 
             // We want to show some older blocks (up to DEBUG_PRODUCTION_OLD_BLOCKS_TO_SHOW in the past)
@@ -599,10 +617,11 @@ impl ClientActor {
             validator_name: self
                 .client
                 .validator_signer
-                .as_ref()
+                .get()
                 .map(|signer| signer.validator_id().clone()),
-            // TODO: this might not work correctly when we're at the epoch boundary (as it will just return the validators for the current epoch).
-            // We can fix it in the future, if we see that this debug page is useful.
+            // TODO: this might not work correctly when we're at the epoch boundary (as it will
+            // just return the validators for the current epoch). We can fix it in the future, if
+            // we see that this debug page is useful.
             validators: self
                 .client
                 .epoch_manager
@@ -630,9 +649,82 @@ impl ClientActor {
                 .get_banned_chunk_producers(),
         })
     }
+
+    /// Computes the ratio of stake endorsed to all chunks in `block`.
+    /// The logic is based on `Chain::validate_chunk_endorsements_in_block`.
+    fn compute_chunk_endorsements_ratio(
+        &self,
+        block: &Option<Block>,
+    ) -> Option<HashMap<ChunkHash, f64>> {
+        let Some(block) = block else {
+            return None;
+        };
+        let mut chunk_endorsements = HashMap::new();
+        if block.chunks().len() != block.chunk_endorsements().len() {
+            return None;
+        }
+        // Get the epoch id.
+        let Ok(epoch_id) =
+            self.client.epoch_manager.get_epoch_id_from_prev_block(block.header().prev_hash())
+        else {
+            return None;
+        };
+        // Iterate all shards and compute the endorsed stake from the endorsement signatures.
+        for (chunk_header, signatures) in block.chunks().iter().zip(block.chunk_endorsements()) {
+            // Validation checks.
+            if chunk_header.height_included() != block.header().height() {
+                chunk_endorsements.insert(chunk_header.chunk_hash(), 0.0);
+                continue;
+            }
+            let Ok(chunk_validator_assignments) =
+                self.client.epoch_manager.get_chunk_validator_assignments(
+                    &epoch_id,
+                    chunk_header.shard_id(),
+                    chunk_header.height_created(),
+                )
+            else {
+                chunk_endorsements.insert(chunk_header.chunk_hash(), f64::NAN);
+                continue;
+            };
+            let ordered_chunk_validators = chunk_validator_assignments.ordered_chunk_validators();
+            if ordered_chunk_validators.len() != signatures.len() {
+                chunk_endorsements.insert(chunk_header.chunk_hash(), f64::NAN);
+                continue;
+            }
+            // Compute total stake and endorsed stake.
+            let mut endorsed_chunk_validators = HashSet::new();
+            for (account_id, signature) in ordered_chunk_validators.iter().zip(signatures) {
+                let Some(signature) = signature else { continue };
+                let Ok((validator, _)) = self.client.epoch_manager.get_validator_by_account_id(
+                    &epoch_id,
+                    block.header().prev_hash(),
+                    account_id,
+                ) else {
+                    continue;
+                };
+                if !ChunkEndorsement::validate_signature(
+                    chunk_header.chunk_hash(),
+                    signature,
+                    validator.public_key(),
+                ) {
+                    continue;
+                }
+                endorsed_chunk_validators.insert(account_id);
+            }
+            let endorsement_stats =
+                chunk_validator_assignments.compute_endorsement_stats(&endorsed_chunk_validators);
+            chunk_endorsements.insert(
+                chunk_header.chunk_hash(),
+                endorsement_stats.endorsed_stake as f64 / endorsement_stats.total_stake as f64,
+            );
+        }
+        Some(chunk_endorsements)
+    }
 }
+
 fn new_peer_info_view(chain: &Chain, connected_peer_info: &ConnectedPeerInfo) -> PeerInfoView {
     let full_peer_info = &connected_peer_info.full_peer_info;
+    let now = Instant::now();
     PeerInfoView {
         addr: match full_peer_info.peer_info.addr {
             Some(socket_addr) => socket_addr.to_string(),
@@ -651,17 +743,14 @@ fn new_peer_info_view(chain: &Chain, connected_peer_info: &ConnectedPeerInfo) ->
         peer_id: full_peer_info.peer_info.id.public_key().clone(),
         received_bytes_per_sec: connected_peer_info.received_bytes_per_sec,
         sent_bytes_per_sec: connected_peer_info.sent_bytes_per_sec,
-        last_time_peer_requested_millis: connected_peer_info
-            .last_time_peer_requested
-            .elapsed()
+        last_time_peer_requested_millis: now
+            .signed_duration_since(connected_peer_info.last_time_peer_requested)
             .whole_milliseconds() as u64,
-        last_time_received_message_millis: connected_peer_info
-            .last_time_received_message
-            .elapsed()
+        last_time_received_message_millis: now
+            .signed_duration_since(connected_peer_info.last_time_received_message)
             .whole_milliseconds() as u64,
-        connection_established_time_millis: connected_peer_info
-            .connection_established_time
-            .elapsed()
+        connection_established_time_millis: now
+            .signed_duration_since(connected_peer_info.connection_established_time)
             .whole_milliseconds() as u64,
         is_outbound_peer: connected_peer_info.peer_type == PeerType::Outbound,
         nonce: connected_peer_info.nonce,

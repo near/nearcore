@@ -37,7 +37,8 @@ use std::sync::{Arc, RwLock};
 
 fn generate_transactions(last_hash: &CryptoHash, h: BlockHeight) -> Vec<SignedTransaction> {
     let mut txs = vec![];
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer =
+        InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
     if h == 1 {
         txs.push(SignedTransaction::from_actions(
             h,
@@ -48,6 +49,7 @@ fn generate_transactions(last_hash: &CryptoHash, h: BlockHeight) -> Vec<SignedTr
                 code: near_test_contracts::rs_contract().to_vec(),
             })],
             *last_hash,
+            0,
         ));
     }
 
@@ -64,6 +66,7 @@ fn generate_transactions(last_hash: &CryptoHash, h: BlockHeight) -> Vec<SignedTr
                 deposit: 0,
             }))],
             *last_hash,
+            0,
         ));
     }
 

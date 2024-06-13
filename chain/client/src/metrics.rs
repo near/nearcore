@@ -4,7 +4,6 @@ use near_o11y::metrics::{
     try_create_int_counter_vec, try_create_int_gauge, try_create_int_gauge_vec, Counter, Gauge,
     Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
 };
-use near_primitives::stateless_validation::ChunkStateWitness;
 use once_cell::sync::Lazy;
 
 pub(crate) static BLOCK_PRODUCED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
@@ -361,10 +360,11 @@ pub(crate) static CURRENT_PROTOCOL_VERSION: Lazy<IntGauge> = Lazy::new(|| {
         .unwrap()
 });
 
-pub(crate) static NODE_PROTOCOL_UPGRADE_VOTING_START: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge(
+pub(crate) static NODE_PROTOCOL_UPGRADE_VOTING_START: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
         "near_node_protocol_upgrade_voting_start",
-        "Time in seconds since Unix epoch determining when node will start voting for the protocol upgrade; zero if there is no schedule for the voting")
+        "Time in seconds since Unix epoch determining when node will start voting for the protocol upgrade; zero if there is no schedule for the voting",
+     &["protocol_version"])
         .unwrap()
 });
 
@@ -404,8 +404,12 @@ pub(crate) static PRODUCE_AND_DISTRIBUTE_CHUNK_TIME: Lazy<HistogramVec> = Lazy::
 /// `neard_version` argument.
 pub(crate) fn export_version(neard_version: &near_primitives::version::Version) {
     NODE_PROTOCOL_VERSION.set(near_primitives::version::PROTOCOL_VERSION.into());
-    NODE_PROTOCOL_UPGRADE_VOTING_START
-        .set(near_primitives::version::PROTOCOL_UPGRADE_SCHEDULE.timestamp());
+    let schedule = near_primitives::version::PROTOCOL_UPGRADE_SCHEDULE;
+    for (datetime, protocol_version) in schedule.schedule().iter() {
+        NODE_PROTOCOL_UPGRADE_VOTING_START
+            .with_label_values(&[&protocol_version.to_string()])
+            .set(datetime.timestamp());
+    }
     NODE_DB_VERSION.set(near_store::metadata::DB_VERSION.into());
     NODE_BUILD_INFO.reset();
     NODE_BUILD_INFO
@@ -556,175 +560,6 @@ pub(crate) static SYNC_REQUIREMENT_CURRENT: Lazy<IntGaugeVec> = Lazy::new(|| {
     .unwrap()
 });
 
-pub(crate) static SHADOW_CHUNK_VALIDATION_FAILED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
-    try_create_int_counter(
-        "near_shadow_chunk_validation_failed_total",
-        "Shadow chunk validation failures count",
-    )
-    .unwrap()
-});
-
-pub(crate) static CHUNK_STATE_WITNESS_VALIDATION_TIME: Lazy<HistogramVec> = Lazy::new(|| {
-    try_create_histogram_vec(
-        "near_chunk_state_witness_validation_time",
-        "State witness validation latency in seconds",
-        &["shard_id"],
-        Some(exponential_buckets(0.01, 2.0, 12).unwrap()),
-    )
-    .unwrap()
-});
-
-pub(crate) static CHUNK_STATE_WITNESS_TOTAL_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
-    try_create_histogram_vec(
-        "near_chunk_state_witness_total_size",
-        "Stateless validation compressed state witness size in bytes",
-        &["shard_id"],
-        Some(exponential_buckets(100_000.0, 1.2, 32).unwrap()),
-    )
-    .unwrap()
-});
-
-pub(crate) static CHUNK_STATE_WITNESS_RAW_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
-    try_create_histogram_vec(
-        "near_chunk_state_witness_raw_size",
-        "Stateless validation uncompressed (raw) state witness size in bytes",
-        &["shard_id"],
-        Some(exponential_buckets(100_000.0, 1.2, 32).unwrap()),
-    )
-    .unwrap()
-});
-
-pub(crate) static CHUNK_STATE_WITNESS_ENCODE_TIME: Lazy<HistogramVec> = Lazy::new(|| {
-    try_create_histogram_vec(
-        "near_chunk_state_witness_encode_time",
-        "State witness encoding (serialization + compression) latency in seconds",
-        &["shard_id"],
-        Some(linear_buckets(0.025, 0.025, 20).unwrap()),
-    )
-    .unwrap()
-});
-
-pub(crate) static CHUNK_STATE_WITNESS_DECODE_TIME: Lazy<HistogramVec> = Lazy::new(|| {
-    try_create_histogram_vec(
-        "near_chunk_state_witness_decode_time",
-        "State witness decoding (decompression + deserialization) latency in seconds",
-        &["shard_id"],
-        Some(linear_buckets(0.025, 0.025, 20).unwrap()),
-    )
-    .unwrap()
-});
-
-pub(crate) static CHUNK_STATE_WITNESS_MAIN_STATE_TRANSISTION_SIZE: Lazy<HistogramVec> = Lazy::new(
-    || {
-        try_create_histogram_vec(
-            "near_chunk_state_witness_main_state_transition_size",
-            "Size of ChunkStateWitness::main_state_transition (storage proof needed to execute receipts)",
-            &["shard_id"],
-            Some(buckets_for_witness_field_size()),
-        )
-        .unwrap()
-    },
-);
-
-pub(crate) static CHUNK_STATE_WITNESS_NEW_TRANSACTIONS_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
-    try_create_histogram_vec(
-        "near_chunk_state_witness_new_transactions_size",
-        "Size of ChunkStateWitness::new_transactions (new proposed transactions)",
-        &["shard_id"],
-        Some(buckets_for_witness_field_size()),
-    )
-    .unwrap()
-});
-
-pub(crate) static CHUNK_STATE_WITNESS_NEW_TRANSACTIONS_STATE_SIZE: Lazy<HistogramVec> = Lazy::new(
-    || {
-        try_create_histogram_vec(
-            "near_chunk_state_witness_new_transactions_state_size",
-            "Size of ChunkStateWitness::new_transactions_validation_state (storage proof to validate new proposed transactions)",
-            &["shard_id"],
-            Some(buckets_for_witness_field_size()),
-        )
-        .unwrap()
-    },
-);
-
-pub(crate) static CHUNK_STATE_WITNESS_SOURCE_RECEIPT_PROOFS_SIZE: Lazy<HistogramVec> =
-    Lazy::new(|| {
-        try_create_histogram_vec(
-            "near_chunk_state_witness_source_receipt_proofs_size",
-            "Size of ChunkStateWitness::source_receipt_proofs (incoming receipts proofs)",
-            &["shard_id"],
-            Some(buckets_for_witness_field_size()),
-        )
-        .unwrap()
-    });
-
-pub(crate) fn record_witness_size_metrics(
-    decoded_size: usize,
-    encoded_size: usize,
-    witness: &ChunkStateWitness,
-) {
-    if let Err(err) = record_witness_size_metrics_fallible(decoded_size, encoded_size, witness) {
-        tracing::warn!(target:"client", "Failed to record witness size metrics!, error: {}", err);
-    }
-}
-
-fn record_witness_size_metrics_fallible(
-    decoded_size: usize,
-    encoded_size: usize,
-    witness: &ChunkStateWitness,
-) -> Result<(), std::io::Error> {
-    let shard_id = witness.chunk_header.shard_id().to_string();
-    CHUNK_STATE_WITNESS_RAW_SIZE
-        .with_label_values(&[shard_id.as_str()])
-        .observe(decoded_size as f64);
-    CHUNK_STATE_WITNESS_TOTAL_SIZE
-        .with_label_values(&[&shard_id.as_str()])
-        .observe(encoded_size as f64);
-    CHUNK_STATE_WITNESS_MAIN_STATE_TRANSISTION_SIZE
-        .with_label_values(&[shard_id.as_str()])
-        .observe(borsh::to_vec(&witness.main_state_transition)?.len() as f64);
-    CHUNK_STATE_WITNESS_NEW_TRANSACTIONS_SIZE
-        .with_label_values(&[&shard_id.as_str()])
-        .observe(borsh::to_vec(&witness.new_transactions)?.len() as f64);
-    CHUNK_STATE_WITNESS_NEW_TRANSACTIONS_STATE_SIZE
-        .with_label_values(&[&shard_id.as_str()])
-        .observe(borsh::to_vec(&witness.new_transactions_validation_state)?.len() as f64);
-    CHUNK_STATE_WITNESS_SOURCE_RECEIPT_PROOFS_SIZE
-        .with_label_values(&[&shard_id.as_str()])
-        .observe(borsh::to_vec(&witness.source_receipt_proofs)?.len() as f64);
-    Ok(())
-}
-
-/// Buckets from 0 to 10MB
-/// Meant for measuring size of a single field inside ChunkSizeWitness.
-fn buckets_for_witness_field_size() -> Vec<f64> {
-    vec![
-        10_000.,
-        20_000.,
-        50_000.,
-        100_000.,
-        200_000.,
-        300_000.,
-        500_000.,
-        750_000.,
-        1000_000.,
-        1500_000.,
-        2000_000.,
-        2500_000.,
-        3000_000.,
-        3500_000.,
-        4000_000.,
-        4500_000.,
-        5000_000.,
-        6000_000.,
-        7000_000.,
-        8000_000.,
-        9000_000.,
-        10_000_000.,
-    ]
-}
-
 pub(crate) static ORPHAN_CHUNK_STATE_WITNESSES_TOTAL_COUNT: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_orphan_chunk_state_witness_total_count",
@@ -785,6 +620,34 @@ pub(crate) static BLOCK_PRODUCER_MISSING_ENDORSEMENT_COUNT: Lazy<HistogramVec> =
             buckets.append(&mut exponential_buckets(5.0, 1.5, 10).unwrap());
             buckets
         }),
+    )
+    .unwrap()
+});
+
+pub(crate) static PARTIAL_WITNESS_ENCODE_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_partial_witness_encode_time",
+        "Partial state witness generation from encoded state witness time in seconds",
+        &["shard_id"],
+        Some(linear_buckets(0.0, 0.005, 20).unwrap()),
+    )
+    .unwrap()
+});
+
+pub(crate) static PARTIAL_WITNESS_TIME_TO_LAST_PART: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_partial_witness_time_to_last_part",
+        "Time taken from receiving first partial witness part to receiving enough parts to decode the state witness",
+        &["shard_id"],
+        Some(exponential_buckets(0.001, 2.0, 13).unwrap()),
+    )
+    .unwrap()
+});
+
+pub(crate) static PARTIAL_WITNESS_CACHE_SIZE: Lazy<Gauge> = Lazy::new(|| {
+    try_create_gauge(
+        "near_partial_witness_cache_size",
+        "Total size in bytes of all currently cached witness parts",
     )
     .unwrap()
 });

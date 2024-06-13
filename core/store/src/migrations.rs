@@ -10,7 +10,7 @@ use near_primitives::types::{
     validator_stake::ValidatorStake, AccountId, EpochId, ShardId, ValidatorId,
     ValidatorKickoutReason, ValidatorStats,
 };
-use near_primitives::types::{BlockChunkValidatorStats, ChunkValidatorStats};
+use near_primitives::types::{BlockChunkValidatorStats, ChunkStats};
 use near_primitives::utils::get_outcome_id_block_hash;
 use near_primitives::version::ProtocolVersion;
 use std::collections::{BTreeMap, HashMap};
@@ -260,7 +260,7 @@ pub fn migrate_38_to_39(store: &Store) -> anyhow::Result<()> {
     }
 
     type LegacyEpochInfoAggregator = EpochInfoAggregator<ValidatorStats>;
-    type NewEpochInfoAggregator = EpochInfoAggregator<ChunkValidatorStats>;
+    type NewEpochInfoAggregator = EpochInfoAggregator<ChunkStats>;
 
     #[derive(BorshDeserialize)]
     struct LegacyBlockChunkValidatorStats {
@@ -298,10 +298,7 @@ pub fn migrate_38_to_39(store: &Store) -> anyhow::Result<()> {
                         .map(|(validator_id, stats)| {
                             (
                                 validator_id,
-                                ChunkValidatorStats::new_with_production(
-                                    stats.produced,
-                                    stats.expected,
-                                ),
+                                ChunkStats::new_with_production(stats.produced, stats.expected),
                             )
                         })
                         .collect();
@@ -330,7 +327,7 @@ pub fn migrate_38_to_39(store: &Store) -> anyhow::Result<()> {
                 .map(|(account_id, stats)| {
                     let new_stats = BlockChunkValidatorStats {
                         block_stats: stats.block_stats,
-                        chunk_stats: ChunkValidatorStats::new_with_production(
+                        chunk_stats: ChunkStats::new_with_production(
                             stats.chunk_stats.produced,
                             stats.chunk_stats.expected,
                         ),
@@ -338,7 +335,7 @@ pub fn migrate_38_to_39(store: &Store) -> anyhow::Result<()> {
                     (account_id, new_stats)
                 })
                 .collect(),
-            next_version: legacy_summary.next_version,
+            next_next_epoch_version: legacy_summary.next_version,
         };
         update.set(DBCol::EpochValidatorInfo, &key, &borsh::to_vec(&new_value)?);
     }

@@ -33,7 +33,7 @@ fn start_node() -> ThreadNode {
 fn test_check_tx_error_log() {
     let node = start_node();
     let signer =
-        Arc::new(InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "alice.near"));
+        Arc::new(InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "alice.near").into());
     let block_hash = node.user().get_best_block_hash().unwrap();
     let tx = SignedTransaction::from_actions(
         1,
@@ -44,11 +44,12 @@ fn test_check_tx_error_log() {
             Action::CreateAccount(CreateAccountAction {}),
             Action::Transfer(TransferAction { deposit: 1_000 }),
             Action::AddKey(Box::new(AddKeyAction {
-                public_key: signer.public_key.clone(),
+                public_key: signer.public_key(),
                 access_key: AccessKey::full_access(),
             })),
         ],
         block_hash,
+        0,
     );
 
     let tx_result = node.user().commit_transaction(tx).unwrap_err();
@@ -56,7 +57,7 @@ fn test_check_tx_error_log() {
         tx_result,
         InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::AccessKeyNotFound {
             account_id: bob_account(),
-            public_key: signer.public_key.clone().into()
+            public_key: Box::new(signer.public_key()),
         })
         .rpc_into()
     );
@@ -72,23 +73,24 @@ fn test_deliver_tx_error_log() {
         node.genesis().config.min_gas_price,
     );
     let signer =
-        Arc::new(InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "alice.near"));
+        Arc::new(InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "alice.near").into());
     let block_hash = node.user().get_best_block_hash().unwrap();
     let cost = fee_helper.create_account_transfer_full_key_cost_no_reward();
     let tx = SignedTransaction::from_actions(
         1,
         alice_account(),
         "test.near".parse().unwrap(),
-        &*signer,
+        &signer,
         vec![
             Action::CreateAccount(CreateAccountAction {}),
             Action::Transfer(TransferAction { deposit: TESTING_INIT_BALANCE + 1 }),
             Action::AddKey(Box::new(AddKeyAction {
-                public_key: signer.public_key.clone(),
+                public_key: signer.public_key(),
                 access_key: AccessKey::full_access(),
             })),
         ],
         block_hash,
+        0,
     );
 
     let tx_result = node.user().commit_transaction(tx).unwrap_err();

@@ -2,7 +2,7 @@ mod metrics;
 
 use awc::{Client, Connector};
 use futures::FutureExt;
-use near_async::messaging::Handler;
+use near_async::messaging::{Actor, Handler};
 use near_async::time::{Duration, Instant};
 use near_performance_metrics_macros::perf;
 use std::ops::Sub;
@@ -48,6 +48,8 @@ impl Default for TelemetryActor {
     }
 }
 
+impl Actor for TelemetryActor {}
+
 impl TelemetryActor {
     pub fn new(config: TelemetryConfig) -> Self {
         for endpoint in config.endpoints.iter() {
@@ -76,7 +78,7 @@ impl TelemetryActor {
 impl Handler<TelemetryEvent> for TelemetryActor {
     #[perf]
     fn handle(&mut self, msg: TelemetryEvent) {
-        tracing::debug!(target: "client", ?msg);
+        tracing::debug!(target: "telemetry", ?msg);
         let now = Instant::now();
         if now - self.last_telemetry_update < self.config.reporting_interval {
             // Throttle requests to the telemetry endpoints, to at most one

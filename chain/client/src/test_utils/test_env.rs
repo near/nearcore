@@ -1,10 +1,10 @@
-use crate::stateless_validation::processing_tracker::{
-    ProcessingDoneTracker, ProcessingDoneWaiter,
-};
 use crate::{Client, DistributeStateWitnessRequest};
 use near_async::messaging::{CanSend, IntoMultiSender};
 use near_async::time::Clock;
 use near_async::time::{Duration, Instant};
+use near_chain::stateless_validation::processing_tracker::{
+    ProcessingDoneTracker, ProcessingDoneWaiter,
+};
 use near_chain::test_utils::ValidatorSchedule;
 use near_chain::types::Tip;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
@@ -12,7 +12,7 @@ use near_chain_configs::GenesisConfig;
 use near_chain_primitives::error::QueryError;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
-use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_crypto::{InMemorySigner, KeyType};
 use near_network::client::ProcessTxResponse;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::test_utils::MockPeerManagerAdapter;
@@ -27,7 +27,7 @@ use near_primitives::epoch_manager::RngSeed;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
-use near_primitives::stateless_validation::{ChunkEndorsement, EncodedChunkStateWitness};
+use near_primitives::stateless_validation::{ChunkEndorsement, ChunkStateWitness};
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, NumSeats, ShardId};
@@ -38,9 +38,11 @@ use near_primitives::views::{
 };
 use near_store::metadata::DbKind;
 use near_store::ShardUId;
+use near_vm_runner::logic::ProtocolVersion;
 use once_cell::sync::OnceCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
+use time::ext::InstantExt as _;
 
 use super::mock_partial_witness_adapter::MockPartialWitnessAdapter;
 use super::setup::setup_client_with_runtime;
@@ -305,7 +307,6 @@ impl TestEnv {
                     chunk_producer,
                 } => {
                     self.clients[id]
-                        .chunk_inclusion_tracker
                         .mark_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
                 }
             }
@@ -327,9 +328,8 @@ impl TestEnv {
     }
 
     fn found_differing_post_state_root_due_to_state_transitions(
-        encoded_witness: &EncodedChunkStateWitness,
+        witness: &ChunkStateWitness,
     ) -> bool {
-        let witness = encoded_witness.decode().unwrap().0;
         let mut post_state_roots = HashSet::from([witness.main_state_transition.post_state_root]);
         post_state_roots.extend(witness.implicit_transitions.iter().map(|t| t.post_state_root));
         post_state_roots.len() >= 2
@@ -350,7 +350,7 @@ impl TestEnv {
         // clients. Ideally the route should have been the following:
         // [client] ----(DistributeStateWitnessRequest)----> [partial_witness_actor]
         // [partial_witness_actor] ----(PartialEncodedStateWitness + Forward)----> [partial_witness_actor]
-        // [partial_witness_actor] ----(ProcessChunkStateWitnessMessage)----> [client]
+        // [partial_witness_actor] ----(ChunkStateWitnessMessage)----> [client]
         // But we go directly from processing DistributeStateWitnessRequest to sending it to all the chunk validators.
         // Validation of state witness is done in the partial_witness_actor which should be tested by test_loop.
         let partial_witness_adapters = self.partial_witness_adapters.clone();
@@ -358,8 +358,8 @@ impl TestEnv {
             while let Some(request) = partial_witness_adapter.pop_distribution_request() {
                 let DistributeStateWitnessRequest { epoch_id, chunk_header, state_witness } =
                     request;
-                let (encoded_witness, _) =
-                    EncodedChunkStateWitness::encode(&state_witness).unwrap();
+
+                let raw_witness_size = borsh::to_vec(&state_witness).unwrap().len();
                 let chunk_validators = self.clients[client_idx]
                     .epoch_manager
                     .get_chunk_validator_assignments(
@@ -375,7 +375,8 @@ impl TestEnv {
                     witness_processing_done_waiters.push(processing_done_tracker.make_waiter());
 
                     let processing_result = self.client(&account_id).process_chunk_state_witness(
-                        encoded_witness.clone(),
+                        state_witness.clone(),
+                        raw_witness_size,
                         Some(processing_done_tracker),
                     );
                     if !allow_errors {
@@ -385,9 +386,7 @@ impl TestEnv {
 
                 // Update output.
                 output.found_differing_post_state_root_due_to_state_transitions |=
-                    Self::found_differing_post_state_root_due_to_state_transitions(
-                        &encoded_witness,
-                    );
+                    Self::found_differing_post_state_root_due_to_state_transitions(&state_witness);
             }
         }
 
@@ -454,7 +453,7 @@ impl TestEnv {
                 return Ok(endorsement);
             }
 
-            let elapsed_since_start = start_time.elapsed();
+            let elapsed_since_start = Instant::now().signed_duration_since(start_time);
             if elapsed_since_start > CHUNK_ENDORSEMENTS_TIMEOUT {
                 return Err(TimeoutError(elapsed_since_start));
             }
@@ -470,8 +469,8 @@ impl TestEnv {
         let tx = SignedTransaction::send_money(
             1,
             account_id.clone(),
-            account_id.clone(),
-            &signer,
+            account_id,
+            &signer.into(),
             100,
             self.clients[id].chain.head().unwrap().last_block_hash,
         );
@@ -479,7 +478,7 @@ impl TestEnv {
     }
 
     /// This function used to be able to upgrade to a specific protocol version
-    /// but due to https://github.com/near/nearcore/issues/8590 that
+    /// but due to <https://github.com/near/nearcore/issues/8590> that
     /// functionality does not work currently.  Hence it is renamed to upgrade
     /// to the latest version.
     pub fn upgrade_protocol_to_latest_version(&mut self) {
@@ -503,6 +502,11 @@ impl TestEnv {
         for i in 0..self.clients[0].chain.epoch_length * 2 {
             self.produce_block(0, tip.height + i + 2);
         }
+    }
+
+    pub fn get_head_protocol_version(&self) -> ProtocolVersion {
+        let tip = self.clients[0].chain.head().unwrap();
+        self.clients[0].epoch_manager.get_epoch_protocol_version(&tip.epoch_id).unwrap()
     }
 
     pub fn query_account(&mut self, account_id: AccountId) -> AccountView {
@@ -604,7 +608,7 @@ impl TestEnv {
     /// memory caches.
     /// Though, it seems that it is not necessary for current use cases.
     pub fn restart(&mut self, idx: usize) {
-        let account_id = self.get_client_id(idx).clone();
+        let account_id = self.get_client_id(idx);
         let rng_seed = match self.seeds.get(&account_id) {
             Some(seed) => *seed,
             None => TEST_SEED,
@@ -626,14 +630,15 @@ impl TestEnv {
             self.save_trie_changes,
             None,
             self.clients[idx].partial_witness_adapter.clone(),
-            self.clients[idx].validator_signer.clone().unwrap(),
+            self.clients[idx].validator_signer.get().unwrap(),
         )
     }
 
     /// Returns an [`AccountId`] used by a client at given index.  More
     /// specifically, returns validator id of the client’s validator signer.
-    pub fn get_client_id(&self, idx: usize) -> &AccountId {
-        self.clients[idx].validator_signer.as_ref().unwrap().validator_id()
+    pub fn get_client_id(&self, idx: usize) -> AccountId {
+        let validator_signer = self.clients[idx].validator_signer.get();
+        validator_signer.unwrap().validator_id().clone()
     }
 
     /// Returns the index of client with the given [`AccoountId`].
@@ -688,9 +693,10 @@ impl TestEnv {
             tip.height + 1,
             signer.account_id.clone(),
             receiver,
-            signer,
+            &signer.clone().into(),
             actions,
             tip.last_block_hash,
+            0,
         )
     }
 
@@ -726,9 +732,10 @@ impl TestEnv {
             relayer_nonce,
             relayer,
             sender,
-            &relayer_signer,
+            &relayer_signer.into(),
             vec![Action::Delegate(Box::new(signed_delegate_action))],
             tip.last_block_hash,
+            0,
         )
     }
 
@@ -774,6 +781,37 @@ impl TestEnv {
         }))];
         let tx = self.tx_from_actions(actions, &signer, signer.account_id.clone());
         self.execute_tx(tx).unwrap()
+    }
+
+    /// Print a short summary of all the blocks from genesis to head.
+    pub fn print_summary(&self) {
+        let client = &self.clients[0];
+
+        let genesis_height = client.chain.genesis().height();
+        let head_height = client.chain.head().unwrap().height;
+
+        tracing::info!(target: "test", genesis_height, head_height, "printing summary");
+        for height in genesis_height..head_height + 1 {
+            self.print_block_summary(height);
+        }
+    }
+
+    pub fn print_block_summary(&self, height: u64) {
+        let client = &self.clients[0];
+        let block = client.chain.get_block_by_height(height);
+        let Ok(block) = block else {
+            tracing::info!(target: "test", "Block {}: missing", height);
+            return;
+        };
+        let prev_hash = block.header().prev_hash();
+        let epoch_id = client.epoch_manager.get_epoch_id_from_prev_block(prev_hash).unwrap();
+        let protocol_version = client.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
+        let latest_protocol_version = block.header().latest_protocol_version();
+
+        let block_hash = block.hash();
+        let chunk_mask = block.header().chunk_mask();
+
+        tracing::info!(target: "test", height, ?block_hash, ?chunk_mask, protocol_version, latest_protocol_version, "block");
     }
 }
 

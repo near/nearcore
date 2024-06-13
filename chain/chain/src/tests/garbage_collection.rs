@@ -20,7 +20,7 @@ use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::test_utils::{create_test_signer, TestBlockBuilder};
 use near_primitives::types::{BlockHeight, NumBlocks, StateRoot};
-use near_primitives::validator_signer::InMemoryValidatorSigner;
+use near_primitives::validator_signer::ValidatorSigner;
 use near_store::test_utils::gen_changes;
 use near_store::{DBCol, ShardTries, Trie, WrappedTrieChanges};
 
@@ -221,7 +221,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
 
         let mut state_root2 = state_roots2[simple_chain.from as usize];
         let state_root1 = states1[simple_chain.from as usize].1[shard_to_check_trie as usize];
-        tries1.get_trie_for_shard(shard_uid, state_root1).iter().unwrap();
+        tries1.get_trie_for_shard(shard_uid, state_root1).disk_iter().unwrap();
         assert_eq!(state_root1, state_root2);
 
         for i in start_index..start_index + simple_chain.length {
@@ -277,13 +277,13 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
                 );
                 let a = tries1
                     .get_trie_for_shard(shard_uid, state_root1)
-                    .iter()
+                    .disk_iter()
                     .unwrap()
                     .map(|item| item.unwrap().0)
                     .collect::<Vec<_>>();
                 let b = tries2
                     .get_trie_for_shard(shard_uid, state_root1)
-                    .iter()
+                    .disk_iter()
                     .unwrap()
                     .map(|item| item.unwrap().0)
                     .collect::<Vec<_>>();
@@ -730,7 +730,7 @@ fn add_block(
     epoch_manager: &dyn EpochManagerAdapter,
     prev_block: &mut Block,
     blocks: &mut Vec<Block>,
-    signer: Arc<InMemoryValidatorSigner>,
+    signer: Arc<ValidatorSigner>,
     height: u64,
 ) {
     let next_epoch_id = epoch_manager

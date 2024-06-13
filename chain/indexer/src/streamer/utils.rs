@@ -27,26 +27,29 @@ pub(crate) async fn convert_transactions_sir_into_local_receipts(
             .map(|tx| {
                 let cost = tx_cost(
                     &runtime_config,
-                    &near_primitives::transaction::Transaction {
-                        signer_id: tx.transaction.signer_id.clone(),
-                        public_key: tx.transaction.public_key.clone(),
-                        nonce: tx.transaction.nonce,
-                        receiver_id: tx.transaction.receiver_id.clone(),
-                        block_hash: block.header.hash,
-                        actions: tx
-                            .transaction
-                            .actions
-                            .clone()
-                            .into_iter()
-                            .map(|action| {
-                                near_primitives::transaction::Action::try_from(action).unwrap()
-                            })
-                            .collect(),
-                    },
+                    &near_primitives::transaction::Transaction::V0(
+                        near_primitives::transaction::TransactionV0 {
+                            signer_id: tx.transaction.signer_id.clone(),
+                            public_key: tx.transaction.public_key.clone(),
+                            nonce: tx.transaction.nonce,
+                            receiver_id: tx.transaction.receiver_id.clone(),
+                            block_hash: block.header.hash,
+                            actions: tx
+                                .transaction
+                                .actions
+                                .clone()
+                                .into_iter()
+                                .map(|action| {
+                                    near_primitives::transaction::Action::try_from(action).unwrap()
+                                })
+                                .collect(),
+                        },
+                    ),
                     prev_block_gas_price,
                     true,
                     protocol_version,
-                );
+                )
+                .expect("TransactionCost returned IntegerOverflowError");
                 views::ReceiptView {
                     predecessor_id: tx.transaction.signer_id.clone(),
                     receiver_id: tx.transaction.receiver_id.clone(),
@@ -56,14 +59,13 @@ pub(crate) async fn convert_transactions_sir_into_local_receipts(
                     receipt: views::ReceiptEnumView::Action {
                         signer_id: tx.transaction.signer_id.clone(),
                         signer_public_key: tx.transaction.public_key.clone(),
-                        gas_price: cost
-                            .expect("TransactionCost returned IntegerOverflowError")
-                            .receipt_gas_price,
+                        gas_price: cost.receipt_gas_price,
                         output_data_receivers: vec![],
                         input_data_ids: vec![],
                         actions: tx.transaction.actions.clone(),
                         is_promise_yield: false,
                     },
+                    priority: 0,
                 }
             })
             .collect();

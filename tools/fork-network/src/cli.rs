@@ -24,7 +24,7 @@ use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_account_k
 use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeight, EpochId, NumBlocks, ShardId, StateRoot,
 };
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_store::db::RocksDB;
 use near_store::flat::{store_helper, BlockInfo, FlatStorageManager, FlatStorageStatus};
 use near_store::{
@@ -111,6 +111,10 @@ struct SetValidatorsCmd {
     /// to create a consistent forked network across many machines
     #[arg(long)]
     pub genesis_time: Option<DateTime<Utc>>,
+    /// Genesis protocol version. If not present, the protocol version of the current epoch
+    /// will be used.
+    #[arg(long)]
+    pub protocol_version: Option<ProtocolVersion>,
 }
 
 #[derive(clap::Parser)]
@@ -181,12 +185,14 @@ impl ForkNetworkCommand {
             }
             SubCommand::SetValidators(SetValidatorsCmd {
                 genesis_time,
+                protocol_version,
                 validators,
                 epoch_length,
                 chain_id_suffix,
             }) => {
                 self.set_validators(
                     genesis_time.unwrap_or_else(chrono::Utc::now),
+                    *protocol_version,
                     validators,
                     *epoch_length,
                     chain_id_suffix,
@@ -326,7 +332,7 @@ impl ForkNetworkCommand {
         let runtime =
             NightshadeRuntime::from_config(home_dir, store.clone(), &near_config, epoch_manager)
                 .context("could not create the transaction runtime")?;
-        runtime.get_tries().load_mem_tries_for_enabled_shards(&all_shard_uids).unwrap();
+        runtime.get_tries().load_mem_tries_for_enabled_shards(&all_shard_uids, true).unwrap();
 
         let make_storage_mutator: MakeSingleShardStorageMutatorFn =
             Arc::new(move |prev_state_root| {
@@ -351,6 +357,7 @@ impl ForkNetworkCommand {
     fn set_validators(
         &self,
         genesis_time: DateTime<Utc>,
+        protocol_version: Option<ProtocolVersion>,
         validators: &Path,
         epoch_length: u64,
         chain_id_suffix: &str,
@@ -387,6 +394,7 @@ impl ForkNetworkCommand {
         backup_genesis_file(home_dir, &near_config)?;
         self.make_and_write_genesis(
             genesis_time,
+            protocol_version,
             epoch_length,
             block_height,
             chain_id_suffix,
@@ -752,6 +760,7 @@ impl ForkNetworkCommand {
     fn make_and_write_genesis(
         &self,
         genesis_time: DateTime<Utc>,
+        protocol_version: Option<ProtocolVersion>,
         epoch_length: u64,
         height: BlockHeight,
         chain_id_suffix: &str,
@@ -763,7 +772,13 @@ impl ForkNetworkCommand {
         near_config: &NearConfig,
     ) -> anyhow::Result<()> {
         let epoch_config = epoch_manager.get_epoch_config(epoch_id)?;
-        let epoch_info = epoch_manager.get_epoch_info(epoch_id)?;
+        let protocol_version = match protocol_version {
+            Some(v) => v,
+            None => {
+                let epoch_info = epoch_manager.get_epoch_info(epoch_id)?;
+                epoch_info.protocol_version()
+            }
+        };
         let original_config = near_config.genesis.config.clone();
 
         let new_config = GenesisConfig {
@@ -776,6 +791,8 @@ impl ForkNetworkCommand {
             avg_hidden_validator_seats_per_shard: epoch_config.avg_hidden_validator_seats_per_shard,
             block_producer_kickout_threshold: 0,
             chunk_producer_kickout_threshold: 0,
+            chunk_validator_only_kickout_threshold: 0,
+            target_validator_mandates_per_shard: epoch_config.target_validator_mandates_per_shard,
             max_kickout_stake_perc: 0,
             online_min_threshold: epoch_config.online_min_threshold,
             online_max_threshold: epoch_config.online_max_threshold,
@@ -794,7 +811,7 @@ impl ForkNetworkCommand {
                 .validator_selection_config
                 .shuffle_shard_assignment_for_chunk_producers,
             dynamic_resharding: false,
-            protocol_version: epoch_info.protocol_version(),
+            protocol_version,
             validators: new_validator_accounts,
             gas_price_adjustment_rate: original_config.gas_price_adjustment_rate,
             gas_limit: original_config.gas_limit,
@@ -807,6 +824,10 @@ impl ForkNetworkCommand {
             total_supply: original_config.total_supply,
             transaction_validity_period: original_config.transaction_validity_period,
             use_production_config: original_config.use_production_config,
+            num_chunk_producer_seats: original_config.num_chunk_producer_seats,
+            num_chunk_validator_seats: original_config.num_chunk_validator_seats,
+            chunk_producer_assignment_changes_limit: original_config
+                .chunk_producer_assignment_changes_limit,
         };
 
         let genesis = Genesis::new_from_state_roots(new_config, new_state_roots);

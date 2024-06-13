@@ -127,7 +127,8 @@ fn test_flat_storage_creation_sanity() {
     // Process some blocks with flat storage. Then remove flat storage data from disk.
     {
         let mut env = setup_env(&genesis, store.clone());
-        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+        let signer =
+            InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
         let genesis_hash = *env.clients[0].chain.genesis().hash();
         for height in 1..START_HEIGHT {
             env.produce_block(0, height);
@@ -250,7 +251,8 @@ fn test_flat_storage_creation_two_shards() {
     // Process some blocks with flat storages for two shards. Then remove flat storage data from disk for shard 0.
     {
         let mut env = setup_env(&genesis, store.clone());
-        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+        let signer =
+            InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
         let genesis_hash = *env.clients[0].chain.genesis().hash();
         for height in 1..START_HEIGHT {
             env.produce_block(0, height);
@@ -334,7 +336,7 @@ fn test_flat_storage_creation_start_from_state_part() {
             .map(|part_id| {
                 let path_begin = trie.find_state_part_boundary(part_id, NUM_PARTS).unwrap();
                 let path_end = trie.find_state_part_boundary(part_id + 1, NUM_PARTS).unwrap();
-                let mut trie_iter = trie.iter().unwrap();
+                let mut trie_iter = trie.disk_iter().unwrap();
                 let mut keys = vec![];
                 for item in trie_iter.visit_nodes_interval(&path_begin, &path_end).unwrap() {
                     if let TrieTraversalItem { key: Some(trie_key), .. } = item {
@@ -511,7 +513,8 @@ fn test_not_supported_block() {
     let store = create_test_store();
 
     let mut env = setup_env(&genesis, store);
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer =
+        InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
     let genesis_hash = *env.clients[0].chain.genesis().hash();
 
     // Produce blocks up to `START_HEIGHT`.

@@ -56,7 +56,7 @@ pub enum ValidatorProxies {
 
 #[derive(Clone)]
 pub struct ValidatorConfig {
-    pub signer: Arc<dyn ValidatorSigner>,
+    pub signer: Arc<ValidatorSigner>,
     pub proxies: ValidatorProxies,
 }
 
@@ -213,7 +213,7 @@ impl NetworkConfig {
     pub fn new(
         cfg: crate::config_json::Config,
         node_key: SecretKey,
-        validator_signer: Option<Arc<dyn ValidatorSigner>>,
+        validator_signer: Option<Arc<ValidatorSigner>>,
         archive: bool,
     ) -> anyhow::Result<Self> {
         if cfg.public_addrs.len() > MAX_PEER_ADDRS {
@@ -636,7 +636,7 @@ mod test {
             version: 0,
             timestamp: clock.now_utc(),
         };
-        let sad = ad.sign(&signer).unwrap();
+        let sad = ad.sign(&signer.into()).unwrap();
         assert!(sad.payload().len() <= network_protocol::MAX_ACCOUNT_DATA_SIZE_BYTES);
     }
 }

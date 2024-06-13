@@ -2,41 +2,83 @@ use crate::key_conversion::convert_secret_key;
 use crate::key_file::KeyFile;
 use crate::{KeyType, PublicKey, SecretKey, Signature};
 use near_account_id::AccountId;
+use std::fmt::{self, Debug};
 use std::io;
 use std::path::Path;
 use std::sync::Arc;
 
-/// Generic signer trait, that can sign with some subset of supported curves.
-pub trait Signer: Sync + Send {
-    fn public_key(&self) -> PublicKey;
-    fn sign(&self, data: &[u8]) -> Signature;
+/// Enum for Signer, that can sign with some subset of supported curves.
+#[derive(Debug, PartialEq)]
+pub enum Signer {
+    /// Dummy signer, does not hold a key. Use for tests only!
+    Empty(EmptySigner),
+    /// Default signer that holds data in memory.
+    InMemory(InMemorySigner),
+}
 
-    fn verify(&self, data: &[u8], signature: &Signature) -> bool {
+/// Enum for Signer, that can sign with some subset of supported curves.
+impl Signer {
+    pub fn public_key(&self) -> PublicKey {
+        match self {
+            Signer::Empty(signer) => signer.public_key(),
+            Signer::InMemory(signer) => signer.public_key(),
+        }
+    }
+
+    pub fn sign(&self, data: &[u8]) -> Signature {
+        match self {
+            Signer::Empty(signer) => signer.sign(data),
+            Signer::InMemory(signer) => signer.sign(data),
+        }
+    }
+
+    pub fn verify(&self, data: &[u8], signature: &Signature) -> bool {
         signature.verify(data, &self.public_key())
     }
 
-    fn compute_vrf_with_proof(&self, _data: &[u8]) -> (crate::vrf::Value, crate::vrf::Proof);
+    pub fn compute_vrf_with_proof(&self, data: &[u8]) -> (crate::vrf::Value, crate::vrf::Proof) {
+        match self {
+            Signer::Empty(_) => unimplemented!(),
+            Signer::InMemory(signer) => signer.compute_vrf_with_proof(data),
+        }
+    }
 
     /// Used by test infrastructure, only implement if make sense for testing otherwise raise `unimplemented`.
-    fn write_to_file(&self, _path: &Path) -> io::Result<()> {
-        unimplemented!();
+    pub fn write_to_file(&self, path: &Path) -> io::Result<()> {
+        match self {
+            Signer::Empty(_) => unimplemented!(),
+            Signer::InMemory(signer) => signer.write_to_file(path),
+        }
+    }
+}
+
+impl From<EmptySigner> for Signer {
+    fn from(signer: EmptySigner) -> Self {
+        Signer::Empty(signer)
+    }
+}
+
+impl From<InMemorySigner> for Signer {
+    fn from(signer: InMemorySigner) -> Self {
+        Signer::InMemory(signer)
     }
 }
 
 // Signer that returns empty signature. Used for transaction testing.
+#[derive(Debug, PartialEq)]
 pub struct EmptySigner {}
 
-impl Signer for EmptySigner {
-    fn public_key(&self) -> PublicKey {
+impl EmptySigner {
+    pub fn new() -> Self {
+        Self {}
+    }
+
+    pub fn public_key(&self) -> PublicKey {
         PublicKey::empty(KeyType::ED25519)
     }
 
-    fn sign(&self, _data: &[u8]) -> Signature {
+    pub fn sign(&self, _data: &[u8]) -> Signature {
         Signature::empty(KeyType::ED25519)
-    }
-
-    fn compute_vrf_with_proof(&self, _data: &[u8]) -> (crate::vrf::Value, crate::vrf::Proof) {
-        unimplemented!()
     }
 }
 
@@ -61,24 +103,32 @@ impl InMemorySigner {
     pub fn from_file(path: &Path) -> io::Result<Self> {
         KeyFile::from_file(path).map(Self::from)
     }
-}
 
-impl Signer for InMemorySigner {
-    fn public_key(&self) -> PublicKey {
+    pub fn public_key(&self) -> PublicKey {
         self.public_key.clone()
     }
 
-    fn sign(&self, data: &[u8]) -> Signature {
+    pub fn sign(&self, data: &[u8]) -> Signature {
         self.secret_key.sign(data)
     }
 
-    fn compute_vrf_with_proof(&self, data: &[u8]) -> (crate::vrf::Value, crate::vrf::Proof) {
+    pub fn compute_vrf_with_proof(&self, data: &[u8]) -> (crate::vrf::Value, crate::vrf::Proof) {
         let secret_key = convert_secret_key(self.secret_key.unwrap_as_ed25519());
         secret_key.compute_vrf_with_proof(&data)
     }
 
-    fn write_to_file(&self, path: &Path) -> io::Result<()> {
+    pub fn write_to_file(&self, path: &Path) -> io::Result<()> {
         KeyFile::from(self).write_to_file(path)
+    }
+}
+
+impl fmt::Debug for InMemorySigner {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "InMemorySigner(account_id: {}, public_key: {})",
+            self.account_id, self.public_key
+        )
     }
 }
 

@@ -9,6 +9,7 @@ use near_primitives::types::{AccountId, ApprovalStake, Balance, BlockHeight, Blo
 use near_primitives::validator_signer::ValidatorSigner;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+use time::ext::InstantExt as _;
 use tracing::{debug, debug_span, field, info};
 
 /// Have that many iterations in the timer instead of `loop` to prevent potential bugs from blocking
@@ -137,7 +138,7 @@ pub struct Doomslug {
     endorsement_pending: bool,
     /// Information to track the timer (see `start_timer` routine in the paper)
     timer: DoomslugTimer,
-    signer: Option<Arc<dyn ValidatorSigner>>,
+    signer: Option<Arc<ValidatorSigner>>,
     /// How many approvals to have before producing a block. In production should be always `HalfStake`,
     ///    but for many tests we use `NoApprovals` to invoke more forkfulness
     threshold_mode: DoomslugThresholdMode,
@@ -361,7 +362,7 @@ impl Doomslug {
         min_delay: Duration,
         delay_step: Duration,
         max_delay: Duration,
-        signer: Option<Arc<dyn ValidatorSigner>>,
+        signer: Option<Arc<ValidatorSigner>>,
         threshold_mode: DoomslugThresholdMode,
     ) -> Self {
         Doomslug {
@@ -491,10 +492,12 @@ impl Doomslug {
                     self.update_history(ApprovalHistoryEntry {
                         parent_height: tip_height,
                         target_height: tip_height + 1,
-                        timer_started_ago_millis: (self.clock.now()
-                            - self.timer.last_endorsement_sent)
-                            .whole_milliseconds()
-                            .max(0) as u64,
+                        timer_started_ago_millis: (self
+                            .clock
+                            .now()
+                            .signed_duration_since(self.timer.last_endorsement_sent))
+                        .whole_milliseconds()
+                        .max(0) as u64,
                         expected_delay_millis: self.timer.endorsement_delay.whole_milliseconds()
                             as u64,
                         approval_creation_time: self.clock.now_utc(),
@@ -517,9 +520,12 @@ impl Doomslug {
                 self.update_history(ApprovalHistoryEntry {
                     parent_height: tip_height,
                     target_height: self.timer.height + 1,
-                    timer_started_ago_millis: (self.clock.now() - self.timer.started)
-                        .whole_milliseconds()
-                        .max(0) as u64,
+                    timer_started_ago_millis: (self
+                        .clock
+                        .now()
+                        .signed_duration_since(self.timer.started))
+                    .whole_milliseconds()
+                    .max(0) as u64,
                     expected_delay_millis: skip_delay.whole_milliseconds() as u64,
                     approval_creation_time: self.clock.now_utc(),
                 });
@@ -715,7 +721,7 @@ impl Doomslug {
                     DoomslugBlockProductionReadiness::NotReady => false,
                     DoomslugBlockProductionReadiness::ReadySince(when) => {
                         let enough_approvals_for = now - when;
-                        span.record("enough_approvals_for", enough_approvals_for.as_seconds_f64());
+                        span.record("enough_approvals_for", enough_approvals_for.as_secs_f64());
                         span.record("ready_to_produce_block", true);
                         if has_enough_chunks {
                             if log_block_production_info {

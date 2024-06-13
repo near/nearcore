@@ -1,4 +1,5 @@
 use super::config::{AccountCreationConfig, RuntimeConfig};
+use crate::config::{CongestionControlConfig, WitnessConfig};
 use crate::cost::{
     ActionCosts, ExtCostsConfig, Fee, ParameterCost, RuntimeFeesConfig, StorageUsageConfig,
 };
@@ -332,9 +333,41 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     .get(Parameter::MinAllowedTopLevelAccountLength)?,
                 registrar_account_id: params.get(Parameter::RegistrarAccountId)?,
             },
-            storage_proof_size_soft_limit: params.get(Parameter::StorageProofSizeSoftLimit)?,
+            congestion_control_config: get_congestion_control_config(params)?,
+            witness_config: WitnessConfig {
+                main_storage_proof_size_soft_limit: params
+                    .get(Parameter::MainStorageProofSizeSoftLimit)?,
+                combined_transactions_size_limit: params
+                    .get(Parameter::CombinedTransactionsSizeLimit)?,
+                new_transactions_validation_state_size_soft_limit: params
+                    .get(Parameter::NewTransactionsValidationStateSizeSoftLimit)?,
+            },
         })
     }
+}
+
+fn get_congestion_control_config(
+    params: &ParameterTable,
+) -> Result<CongestionControlConfig, <RuntimeConfig as TryFrom<&ParameterTable>>::Error> {
+    let congestion_control_config = CongestionControlConfig {
+        max_congestion_incoming_gas: params.get(Parameter::MaxCongestionIncomingGas)?,
+        max_congestion_outgoing_gas: params.get(Parameter::MaxCongestionOutgoingGas)?,
+        max_congestion_memory_consumption: params.get(Parameter::MaxCongestionMemoryConsumption)?,
+        max_congestion_missed_chunks: params.get(Parameter::MaxCongestionMissedChunks)?,
+        max_outgoing_gas: params.get(Parameter::MaxOutgoingGas)?,
+        min_outgoing_gas: params.get(Parameter::MinOutgoingGas)?,
+        allowed_shard_outgoing_gas: params.get(Parameter::AllowedShardOutgoingGas)?,
+        max_tx_gas: params.get(Parameter::MaxTxGas)?,
+        min_tx_gas: params.get(Parameter::MinTxGas)?,
+        reject_tx_congestion_threshold: {
+            let rational: Rational32 = params.get(Parameter::RejectTxCongestionThreshold)?;
+            *rational.numer() as f64 / *rational.denom() as f64
+        },
+        outgoing_receipts_usual_size_limit: params
+            .get(Parameter::OutgoingReceiptsUsualSizeLimit)?,
+        outgoing_receipts_big_size_limit: params.get(Parameter::OutgoingReceiptsBigSizeLimit)?,
+    };
+    Ok(congestion_control_config)
 }
 
 impl ParameterTable {

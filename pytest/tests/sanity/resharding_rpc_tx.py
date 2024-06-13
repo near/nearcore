@@ -31,6 +31,10 @@ class ReshardingRpcTx(ReshardingTestBase):
         # test checks the right things.
         super().setUp(epoch_length=20)
 
+        # Print full diff in case of assertion failure. It's handy when the
+        # responses from submit and get transaction differ.
+        self.maxDiff = None
+
     def __setup_account(self, account_id, nonce):
         """ Create an account with full access key and balance. """
         encoded_block_hash = self.node.get_latest_block().hash_bytes
@@ -69,8 +73,13 @@ class ReshardingRpcTx(ReshardingTestBase):
         transfer_response['result']['final_execution_status'] = "IGNORE_ME"
         response['result']['final_execution_status'] = "IGNORE_ME"
 
-        assert response == transfer_response, response
-        pass
+        response = response['result']
+        transfer_response = transfer_response['result']
+
+        # Do not compare receipts_outcome field it may have more values in the
+        # latter response.
+        for key in ['status', 'transaction', 'transaction_outcome']:
+            self.assertEqual(response[key], transfer_response[key])
 
     def test_resharding_rpc_tx(self):
         num_nodes = 2

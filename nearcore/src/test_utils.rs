@@ -13,6 +13,7 @@ use crate::NightshadeRuntime;
 
 pub trait TestEnvNightshadeSetupExt {
     fn nightshade_runtimes(self, genesis: &Genesis) -> Self;
+    fn nightshade_runtimes_congestion_control_disabled(self, genesis: &Genesis) -> Self;
     fn nightshade_runtimes_with_runtime_config_store(
         self,
         genesis: &Genesis,
@@ -28,6 +29,12 @@ pub trait TestEnvNightshadeSetupExt {
 impl TestEnvNightshadeSetupExt for TestEnvBuilder {
     fn nightshade_runtimes(self, genesis: &Genesis) -> Self {
         let runtime_configs = vec![RuntimeConfigStore::test(); self.num_clients()];
+        self.nightshade_runtimes_with_runtime_config_store(genesis, runtime_configs)
+    }
+
+    fn nightshade_runtimes_congestion_control_disabled(self, genesis: &Genesis) -> Self {
+        let runtime_config_store = RuntimeConfigStore::test_congestion_control_disabled();
+        let runtime_configs = vec![runtime_config_store; self.num_clients()];
         self.nightshade_runtimes_with_runtime_config_store(genesis, runtime_configs)
     }
 
@@ -77,7 +84,7 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
                                           store: Store,
                                           contract_cache: Box<dyn ContractRuntimeCache>,
                                           epoch_manager: Arc<EpochManagerHandle>,
-                                          _,
+                                          runtime_config_store: RuntimeConfigStore,
                                           trie_config: TrieConfig|
          -> Arc<dyn RuntimeAdapter> {
             // TODO: It's not ideal to initialize genesis state with the nightshade runtime here for tests
@@ -91,11 +98,13 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
                 contract_cache,
                 &genesis.config,
                 epoch_manager,
+                Some(runtime_config_store),
                 trie_config,
                 state_snapshot_type.clone(),
             )
         };
-        let dummy_runtime_configs = vec![RuntimeConfigStore::test(); self.num_clients()];
+        let dummy_runtime_configs =
+            vec![RuntimeConfigStore::test_congestion_control_disabled(); self.num_clients()];
         self.internal_initialize_nightshade_runtimes(
             dummy_runtime_configs,
             trie_configs,

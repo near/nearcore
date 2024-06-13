@@ -1,5 +1,4 @@
 use crate::metrics::{PROTOCOL_VERSION_NEXT, PROTOCOL_VERSION_VOTES};
-use crate::proposals::proposals_to_epoch_info;
 use crate::types::EpochInfoAggregator;
 use near_cache::SyncLruCache;
 use near_chain_configs::GenesisConfig;
@@ -17,8 +16,8 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::stateless_validation::ChunkValidatorAssignments;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, ChunkValidatorStats,
-    EpochId, EpochInfoProvider, NumSeats, ShardId, ValidatorId, ValidatorInfoIdentifier,
+    AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, ChunkStats, EpochId,
+    EpochInfoProvider, NumSeats, ShardId, ValidatorId, ValidatorInfoIdentifier,
     ValidatorKickoutReason, ValidatorStats,
 };
 use near_primitives::version::{ProtocolVersion, UPGRADABILITY_FIX_PROTOCOL_VERSION};
@@ -35,6 +34,7 @@ use tracing::{debug, warn};
 use types::BlockHeaderInfo;
 
 pub use crate::adapter::EpochManagerAdapter;
+pub use crate::proposals::proposals_to_epoch_info;
 pub use crate::reward_calculator::RewardCalculator;
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
 pub use crate::types::RngSeed;
@@ -275,6 +275,7 @@ impl EpochManager {
                 0,
                 genesis_protocol_version,
                 genesis_protocol_version,
+                false,
             )?;
             // Dummy block info.
             // Artificial block we add to simplify implementation: dummy block is the
@@ -449,6 +450,8 @@ impl EpochManager {
         exempted_validators
     }
 
+    /// Computes the set of validators to reward with stats and validators to kick out with reason.
+    ///
     /// # Parameters
     /// epoch_info
     /// block_validator_tracker
@@ -458,7 +461,7 @@ impl EpochManager {
     /// prev_validator_kickout: previously kicked out
     ///
     /// # Returns
-    /// (set of validators to kickout, set of validators to reward with stats)
+    /// (set of validators to reward with stats, set of validators to kickout)
     ///
     /// - Slashed validators are ignored (they are handled separately)
     /// - The total stake of validators that will be kicked out will not exceed
@@ -467,17 +470,18 @@ impl EpochManager {
     /// - A validator is kicked out if he produced too few blocks or chunks
     /// - If all validators are either previously kicked out or to be kicked out, we choose one not to
     /// kick out
-    fn compute_kickout_info(
+    fn compute_validators_to_reward_and_kickout(
         config: &EpochConfig,
         epoch_info: &EpochInfo,
         block_validator_tracker: &HashMap<ValidatorId, ValidatorStats>,
-        chunk_validator_tracker: &HashMap<ShardId, HashMap<ValidatorId, ChunkValidatorStats>>,
+        chunk_stats_tracker: &HashMap<ShardId, HashMap<ValidatorId, ChunkStats>>,
         slashed: &HashMap<AccountId, SlashState>,
         prev_validator_kickout: &HashMap<AccountId, ValidatorKickoutReason>,
-    ) -> (HashMap<AccountId, ValidatorKickoutReason>, HashMap<AccountId, BlockChunkValidatorStats>)
+    ) -> (HashMap<AccountId, BlockChunkValidatorStats>, HashMap<AccountId, ValidatorKickoutReason>)
     {
         let block_producer_kickout_threshold = config.block_producer_kickout_threshold;
         let chunk_producer_kickout_threshold = config.chunk_producer_kickout_threshold;
+        let chunk_validator_only_kickout_threshold = config.chunk_validator_only_kickout_threshold;
         let mut validator_block_chunk_stats = HashMap::new();
         let mut total_stake: Balance = 0;
         let mut maximum_block_prod = 0;
@@ -492,11 +496,15 @@ impl EpochManager {
                 .get(&(i as u64))
                 .unwrap_or(&ValidatorStats { expected: 0, produced: 0 })
                 .clone();
-            let mut chunk_stats = ChunkValidatorStats::default();
-            for (_, tracker) in chunk_validator_tracker.iter() {
+            let mut chunk_stats = ChunkStats::default();
+            for (_, tracker) in chunk_stats_tracker.iter() {
                 if let Some(stat) = tracker.get(&(i as u64)) {
                     *chunk_stats.expected_mut() += stat.expected();
                     *chunk_stats.produced_mut() += stat.produced();
+                    chunk_stats.endorsement_stats_mut().produced +=
+                        stat.endorsement_stats().produced;
+                    chunk_stats.endorsement_stats_mut().expected +=
+                        stat.endorsement_stats().expected;
                 }
             }
             total_stake += v.stake();
@@ -527,9 +535,7 @@ impl EpochManager {
                 all_kicked_out = false;
                 continue;
             }
-            if stats.block_stats.produced * 100
-                < u64::from(block_producer_kickout_threshold) * stats.block_stats.expected
-            {
+            if stats.block_stats.less_than(block_producer_kickout_threshold) {
                 validator_kickout.insert(
                     account_id.clone(),
                     ValidatorKickoutReason::NotEnoughBlocks {
@@ -538,13 +544,26 @@ impl EpochManager {
                     },
                 );
             }
-            if stats.chunk_stats.produced() * 100
-                < u64::from(chunk_producer_kickout_threshold) * stats.chunk_stats.expected()
-            {
+            if stats.chunk_stats.production_stats().less_than(chunk_producer_kickout_threshold) {
                 validator_kickout.entry(account_id.clone()).or_insert_with(|| {
                     ValidatorKickoutReason::NotEnoughChunks {
                         produced: stats.chunk_stats.produced(),
                         expected: stats.chunk_stats.expected(),
+                    }
+                });
+            }
+            let chunk_validator_only =
+                stats.block_stats.expected == 0 && stats.chunk_stats.expected() == 0;
+            if chunk_validator_only
+                && stats
+                    .chunk_stats
+                    .endorsement_stats()
+                    .less_than(chunk_validator_only_kickout_threshold)
+            {
+                validator_kickout.entry(account_id.clone()).or_insert_with(|| {
+                    ValidatorKickoutReason::NotEnoughChunkEndorsements {
+                        produced: stats.chunk_stats.endorsement_stats().produced,
+                        expected: stats.chunk_stats.endorsement_stats().expected,
                     }
                 });
             }
@@ -561,7 +580,7 @@ impl EpochManager {
                 validator_kickout.remove(&validator);
             }
         }
-        (validator_kickout, validator_block_chunk_stats)
+        (validator_block_chunk_stats, validator_kickout)
     }
 
     fn collect_blocks_info(
@@ -580,7 +599,6 @@ impl EpochManager {
             version_tracker,
             ..
         } = self.get_epoch_info_aggregator_upto_last(last_block_hash)?;
-
         let mut proposals = vec![];
         let mut validator_kickout = HashMap::new();
 
@@ -618,7 +636,7 @@ impl EpochManager {
         let config = self.config.for_protocol_version(protocol_version);
         // Note: non-deterministic iteration is fine here, there can be only one
         // version with large enough stake.
-        let next_version = if let Some((version, stake)) =
+        let next_next_epoch_version = if let Some((version, stake)) =
             versions.into_iter().max_by_key(|&(_version, stake)| stake)
         {
             let numer = *config.protocol_upgrade_stake_threshold.numer() as u128;
@@ -633,8 +651,8 @@ impl EpochManager {
             protocol_version
         };
 
-        PROTOCOL_VERSION_NEXT.set(next_version as i64);
-        tracing::info!(target: "epoch_manager", ?next_version, "Protocol version voting.");
+        PROTOCOL_VERSION_NEXT.set(next_next_epoch_version as i64);
+        tracing::info!(target: "epoch_manager", ?next_next_epoch_version, "Protocol version voting.");
 
         // Gather slashed validators and add them to kick out first.
         let slashed_validators = last_block_info.slashed();
@@ -659,7 +677,7 @@ impl EpochManager {
 
         let config = self.config.for_protocol_version(epoch_info.protocol_version());
         // Compute kick outs for validators who are offline.
-        let (kickout, validator_block_chunk_stats) = Self::compute_kickout_info(
+        let (validator_block_chunk_stats, kickout) = Self::compute_validators_to_reward_and_kickout(
             &config,
             &epoch_info,
             &block_validator_tracker,
@@ -679,7 +697,7 @@ impl EpochManager {
             all_proposals: proposals,
             validator_kickout,
             validator_block_chunk_stats,
-            next_version,
+            next_next_epoch_version,
         })
     }
 
@@ -704,7 +722,7 @@ impl EpochManager {
             all_proposals,
             validator_kickout,
             mut validator_block_chunk_stats,
-            next_version,
+            next_next_epoch_version,
             ..
         } = epoch_summary;
 
@@ -720,6 +738,7 @@ impl EpochManager {
                     reason,
                     ValidatorKickoutReason::NotEnoughBlocks { .. }
                         | ValidatorKickoutReason::NotEnoughChunks { .. }
+                        | ValidatorKickoutReason::NotEnoughChunkEndorsements { .. }
                 ) {
                     validator_block_chunk_stats.remove(account_id);
                 }
@@ -733,7 +752,10 @@ impl EpochManager {
                 epoch_duration,
             )
         };
-        let next_next_epoch_config = self.config.for_protocol_version(next_version);
+        let next_next_epoch_config = self.config.for_protocol_version(next_next_epoch_version);
+        let next_epoch_version = next_epoch_info.protocol_version();
+        let next_shard_layout = self.config.for_protocol_version(next_epoch_version).shard_layout;
+        let has_same_shard_layout = next_shard_layout == next_next_epoch_config.shard_layout;
         let next_next_epoch_info = match proposals_to_epoch_info(
             &next_next_epoch_config,
             rng_seed,
@@ -743,7 +765,8 @@ impl EpochManager {
             validator_reward,
             minted_amount,
             epoch_protocol_version,
-            next_version,
+            next_next_epoch_version,
+            has_same_shard_layout,
         ) {
             Ok(next_next_epoch_info) => next_next_epoch_info,
             Err(EpochError::ThresholdError { stake_sum, num_seats }) => {
@@ -1354,7 +1377,7 @@ impl EpochManager {
                             .get(info.account_id())
                             .unwrap_or(&BlockChunkValidatorStats {
                                 block_stats: ValidatorStats { produced: 0, expected: 0 },
-                                chunk_stats: ChunkValidatorStats {
+                                chunk_stats: ChunkStats {
                                     production: ValidatorStats { produced: 0, expected: 0 },
                                     endorsement: ValidatorStats { produced: 0, expected: 0 },
                                 },
@@ -1412,9 +1435,9 @@ impl EpochManager {
                             .unwrap_or(&ValidatorStats { produced: 0, expected: 0 })
                             .clone();
 
-                        let mut chunks_stats_by_shard: HashMap<ShardId, ChunkValidatorStats> =
+                        let mut chunks_stats_by_shard: HashMap<ShardId, ChunkStats> =
                             HashMap::new();
-                        let mut chunk_stats = ChunkValidatorStats::default();
+                        let mut chunk_stats = ChunkStats::default();
                         for (shard, tracker) in aggregator.shard_tracker.iter() {
                             if let Some(stats) = tracker.get(&(validator_id as u64)) {
                                 let produced = stats.produced();
@@ -1703,9 +1726,16 @@ impl EpochManager {
         Ok(ShardConfig::new(epoch_config))
     }
 
+    pub fn get_config_for_protocol_version(
+        &self,
+        protocol_version: ProtocolVersion,
+    ) -> Result<EpochConfig, EpochError> {
+        Ok(self.config.for_protocol_version(protocol_version))
+    }
+
     pub fn get_epoch_config(&self, epoch_id: &EpochId) -> Result<EpochConfig, EpochError> {
         let protocol_version = self.get_epoch_info(epoch_id)?.protocol_version();
-        Ok(self.config.for_protocol_version(protocol_version))
+        self.get_config_for_protocol_version(protocol_version)
     }
 
     pub fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {

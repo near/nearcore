@@ -54,7 +54,7 @@ fn repro_1183() {
         let connectors1 = connectors.clone();
         let last_block: Arc<RwLock<Option<Block>>> = Arc::new(RwLock::new(None));
         let delayed_one_parts: Arc<RwLock<Vec<NetworkRequests>>> = Arc::new(RwLock::new(vec![]));
-        let (_, conn, _) = setup_mock_all_validators(
+        let (conn, _) = setup_mock_all_validators(
             Clock::real(),
             vs,
             key_pairs,
@@ -122,7 +122,8 @@ fn repro_1183() {
                                                 from.clone(),
                                                 KeyType::ED25519,
                                                 from.as_ref(),
-                                            ),
+                                            )
+                                            .into(),
                                             1,
                                             *block.header().prev_hash(),
                                         ),

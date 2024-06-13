@@ -42,11 +42,14 @@ impl Client {
         block: MaybeValidated<Block>,
         provenance: Provenance,
         should_produce_chunk: bool,
+        allow_errors: bool,
     ) -> Result<Vec<CryptoHash>, near_chain::Error> {
         self.start_process_block(block, provenance, None)?;
         wait_for_all_blocks_in_processing(&mut self.chain);
         let (accepted_blocks, errors) = self.postprocess_ready_blocks(None, should_produce_chunk);
-        assert!(errors.is_empty(), "unexpected errors when processing blocks: {errors:#?}");
+        if !allow_errors {
+            assert!(errors.is_empty(), "unexpected errors when processing blocks: {errors:#?}");
+        }
         Ok(accepted_blocks)
     }
 
@@ -55,7 +58,7 @@ impl Client {
         block: MaybeValidated<Block>,
         provenance: Provenance,
     ) -> Result<Vec<CryptoHash>, near_chain::Error> {
-        self.process_block_sync_with_produce_chunk_options(block, provenance, true)
+        self.process_block_sync_with_produce_chunk_options(block, provenance, true, false)
     }
 
     pub fn process_block_test_no_produce_chunk(
@@ -63,7 +66,15 @@ impl Client {
         block: MaybeValidated<Block>,
         provenance: Provenance,
     ) -> Result<Vec<CryptoHash>, near_chain::Error> {
-        self.process_block_sync_with_produce_chunk_options(block, provenance, false)
+        self.process_block_sync_with_produce_chunk_options(block, provenance, false, false)
+    }
+
+    pub fn process_block_test_no_produce_chunk_allow_errors(
+        &mut self,
+        block: MaybeValidated<Block>,
+        provenance: Provenance,
+    ) -> Result<Vec<CryptoHash>, near_chain::Error> {
+        self.process_block_sync_with_produce_chunk_options(block, provenance, false, true)
     }
 
     /// This function finishes processing all blocks that started being processed.
@@ -98,7 +109,7 @@ impl Client {
                 encoded_chunk,
                 merkle_paths,
                 receipts,
-                self.validator_signer.as_ref().unwrap().validator_id().clone(),
+                self.validator_signer.get().unwrap().validator_id().clone(),
             )
             .unwrap();
         let prev_block = self.chain.get_block(shard_chunk.prev_block()).unwrap();
@@ -128,7 +139,7 @@ fn create_chunk_on_height_for_shard(
     let last_block_hash = client.chain.head().unwrap().last_block_hash;
     let last_block = client.chain.get_block(&last_block_hash).unwrap();
     client
-        .produce_chunk(
+        .try_produce_chunk(
             &last_block,
             &client.epoch_manager.get_epoch_id_from_prev_block(&last_block_hash).unwrap(),
             Chain::get_prev_chunk_header(client.epoch_manager.as_ref(), &last_block, shard_id)
@@ -166,7 +177,7 @@ pub fn create_chunk(
         receipts,
         transactions_storage_proof,
     } = client
-        .produce_chunk(
+        .try_produce_chunk(
             &last_block,
             last_block.header().epoch_id(),
             last_block.chunks()[0].clone(),
@@ -190,7 +201,7 @@ pub fn create_chunk(
         let parity_parts = total_parts - data_parts;
         let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
 
-        let signer = client.validator_signer.as_ref().unwrap().clone();
+        let signer = client.validator_signer.get().unwrap();
         let header = chunk.cloned_header();
         let (mut encoded_chunk, mut new_merkle_paths) = EncodedShardChunk::new(
             *header.prev_block_hash(),
@@ -207,8 +218,7 @@ pub fn create_chunk(
             transactions,
             decoded_chunk.prev_outgoing_receipts(),
             header.prev_outgoing_receipts_root(),
-            // TODO(congestion_control): compute if not available
-            header.congestion_info().unwrap_or_default(),
+            header.congestion_info(),
             &*signer,
             PROTOCOL_VERSION,
         )
@@ -228,7 +238,7 @@ pub fn create_chunk(
         client.chain.chain_store().get_block_merkle_tree(last_block.hash()).unwrap();
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
 
-    let signer = client.validator_signer.as_ref().unwrap().clone();
+    let signer = client.validator_signer.get().unwrap();
     let endorsement = ChunkEndorsement::new(chunk.cloned_header().chunk_hash(), signer.as_ref());
     block_merkle_tree.insert(*last_block.hash());
     let block = Block::produce(
@@ -249,7 +259,7 @@ pub fn create_chunk(
         None,
         vec![],
         vec![],
-        &*client.validator_signer.as_ref().unwrap().clone(),
+        &*client.validator_signer.get().unwrap(),
         *last_block.header().next_bp_hash(),
         block_merkle_tree.root(),
         client.clock.now_utc(),

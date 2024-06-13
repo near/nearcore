@@ -21,6 +21,7 @@ import threading
 import time
 import http
 import http.server
+import dotenv
 
 
 def get_lock(home):
@@ -56,6 +57,10 @@ class JSONHandler(http.server.BaseHTTPRequestHandler):
                                    name="make_backup")
         self.dispatcher.add_method(server.neard_runner.do_ls_backups,
                                    name="ls_backups")
+        self.dispatcher.add_method(server.neard_runner.do_clear_env,
+                                   name="clear_env")
+        self.dispatcher.add_method(server.neard_runner.do_add_env,
+                                   name="add_env")
         super().__init__(request, client_address, server)
 
     def do_GET(self):
@@ -109,6 +114,32 @@ class TestState(Enum):
 
 backup_id_pattern = re.compile(r'^[0-9a-zA-Z.][0-9a-zA-Z_\-.]+$')
 
+# Rotate the logs if they get larger than __neard_logs_file_size__
+# Remove old files if the number of files is __neard_logs_max_file_count__
+# Remove old files if all the logs are past __neard_logs_max_size__
+# The prerotate logic serves us in case neard_runner is not running for a while
+# and we end up with a file larger than the estimated size.
+LOGROTATE_TEMPLATE = """__neard_logs_dir__/__neard_logs_file_name__ {
+    su ubuntu ubuntu
+    size __neard_logs_file_size__
+    rotate __neard_logs_max_file_count__
+    copytruncate
+    missingok
+    notifempty
+    dateext
+    dateformat -%Y-%m-%d-%H-%M-%S
+    create 0644 ubuntu ubuntu
+    prerotate
+        total_size=$(du -sb __neard_logs_dir__/__neard_logs_file_name__* | awk '{total+=$1}END{print total}')
+        while [ $total_size -gt __neard_logs_max_size__ ]; do
+            # get the oldest file alphabetically 
+            oldest_file=$(ls -1 __neard_logs_dir__/__neard_logs_file_name__-* | head -n1)
+            rm -f "$oldest_file"
+            total_size=$(du -sb __neard_logs_dir__/__neard_logs_file_name__* | awk '{total+=$1}END{print total}')
+        done
+    endscript
+}"""
+
 
 class NeardRunner:
 
@@ -116,10 +147,8 @@ class NeardRunner:
         self.home = args.home
         self.neard_home = args.neard_home
         self.neard_logs_dir = args.neard_logs_dir
-        try:
-            os.mkdir(self.neard_logs_dir)
-        except FileExistsError:
-            pass
+        self.neard_logs_file_name = 'logs.txt'
+        self._configure_neard_logs()
         with open(self.home_path('config.json'), 'r') as f:
             self.config = json.load(f)
         self.neard = None
@@ -150,6 +179,46 @@ class NeardRunner:
         # is no need to block reading that when inside the update_binaries rpc for example
         self.lock = threading.Lock()
 
+    def _configure_neard_logs(self):
+        try:
+            os.mkdir(self.neard_logs_dir)
+        except FileExistsError:
+            pass
+
+        variables = {
+            '__neard_logs_dir__': f'{self.neard_logs_dir}',
+            '__neard_logs_file_name__': f'{self.neard_logs_file_name}',
+            '__neard_logs_file_size__': '100M',
+            '__neard_logs_max_file_count__': '900',
+            '__neard_logs_max_size__': '100000000000',  # 100G
+        }
+        logrotate_config = LOGROTATE_TEMPLATE
+        # Replace variables in the template
+        for var, value in variables.items():
+            logrotate_config = re.sub(re.escape(var), value, logrotate_config)
+        self.logrotate_config_path = f'{self.neard_logs_dir}/.neard_logrotate_policy'
+        logging.info(
+            f'Setting log rotation policy in {self.logrotate_config_path}')
+        with open(self.logrotate_config_path, 'w') as config_file:
+            config_file.write(logrotate_config)
+        self.logrotate_binary_path = shutil.which('logrotate')
+        if self.logrotate_binary_path is None:
+            logging.error('The logrotate tool was not found on this system.')
+
+    # Try to rotate the logs based on the policy defined here: self.logrotate_config_path.
+    def run_logrotate(self):
+        run_logrotate_cmd = [
+            self.logrotate_binary_path, '-s',
+            f'{self.neard_logs_dir}/.logrotate_status',
+            self.logrotate_config_path
+        ]
+        subprocess.Popen(
+            run_logrotate_cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
     def is_legacy(self):
         if os.path.exists(os.path.join(
                 self.neard_home, 'setup', 'records.json')) and os.path.exists(
@@ -176,7 +245,11 @@ class NeardRunner:
 
     def save_data(self):
         with open(self.home_path('data.json'), 'w') as f:
-            json.dump(self.data, f)
+            json.dump(self.data, f, indent=2)
+
+    def save_config(self):
+        with open(self.home_path('config.json'), 'w') as f:
+            json.dump(self.config, f, indent=2)
 
     def parse_binaries_config(self):
         if 'binaries' not in self.config:
@@ -596,9 +669,58 @@ class NeardRunner:
         with self.lock:
             return self.data.get('backups', {})
 
-    def do_update_binaries(self):
+    # Updates the URL for the given epoch height or binary idx. adds a new one if the epoch height does not exit
+    def update_binaries_url(self, neard_binary_url, epoch_height, binary_idx):
+        if neard_binary_url is not None and ((epoch_height is None)
+                                             != (binary_idx is None)):
+            logging.info(
+                f'Updating binary list for height:{epoch_height} or idx:{binary_idx} with '
+                f'url: {neard_binary_url}')
+        else:
+            logging.error(
+                f'Update binaries failed. Wrong params: url: {neard_binary_url}, height:{epoch_height}, idx:{binary_idx}'
+            )
+            raise jsonrpc.exceptions.JSONRPCInvalidParams()
+
+        if 'binaries' not in self.config:
+            self.config['binaries'] = []
+
+        if not isinstance(self.config['binaries'], list):
+            self.config['binaries'] = []
+
+        if epoch_height is not None:
+            binary = next((b for b in self.config['binaries']
+                           if b['epoch_height'] == epoch_height), None)
+            if binary:
+                binary['url'] = neard_binary_url
+            else:
+                self.config['binaries'].append({
+                    'url': neard_binary_url,
+                    'epoch_height': epoch_height
+                })
+                self.config['binaries'].sort(
+                    key=lambda binary: binary['epoch_height'])
+        if binary_idx is not None:
+            binaries_number = len(self.config['binaries'])
+            if binary_idx >= binaries_number:
+                logging.error(
+                    f'idx {binary_idx} is out of bounds for the binary list of length {binaries_number}'
+                )
+                raise jsonrpc.exceptions.JSONRPCInvalidParams(
+                    message=
+                    f'Invalid binary idx. Out of bounds for list of length {binaries_number}'
+                )
+            self.config['binaries'][binary_idx]['url'] = neard_binary_url
+
+    def do_update_binaries(self, neard_binary_url, epoch_height, binary_idx):
         with self.lock:
             logging.info('update binaries')
+            if any(arg is not None
+                   for arg in [neard_binary_url, epoch_height, binary_idx]):
+                self.update_binaries_url(neard_binary_url, epoch_height,
+                                         binary_idx)
+                self.save_config()
+
             try:
                 self.download_binaries(force=True)
             except ValueError as e:
@@ -620,6 +742,22 @@ class NeardRunner:
         with self.lock:
             state = self.get_state()
             return state == TestState.RUNNING or state == TestState.STOPPED
+
+    def do_clear_env(self):
+        with self.lock:
+            env_file_path = self.home_path('.env')
+            open(env_file_path, 'w').close()
+            print(f'File {env_file_path} has been successfully cleared.')
+
+    def do_add_env(self, key_values):
+        with self.lock:
+            env_file_path = self.home_path('.env')
+            # Create the file if it does not exit
+            open(env_file_path, 'a').close()
+            for key_value in key_values:
+                logging.info(f'Updating env with {key_value}')
+                [key, value] = key_value.split("=", 1)
+                dotenv.set_key(env_file_path, key, value)
 
     # check the current epoch height, and return the binary path that we should
     # be running given the epoch heights specified in config.json
@@ -654,9 +792,12 @@ class NeardRunner:
     def run_neard(self, cmd, out_file=None):
         assert (self.neard is None)
         assert (self.data['neard_process'] is None)
-        env = os.environ.copy()
-        if 'RUST_LOG' not in env:
-            env['RUST_LOG'] = 'actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn,indexer=info,debug'
+        home_path = os.path.expanduser('~')
+        env = {
+            **os.environ,  # override loaded values with environment variables
+            **dotenv.dotenv_values(os.path.join(home_path, '.secrets')),  # load sensitive variables
+            **dotenv.dotenv_values(self.home_path('.env')),  # load neard variables
+        }
         logging.info(f'running {" ".join(cmd)}')
         self.neard = subprocess.Popen(
             cmd,
@@ -749,15 +890,8 @@ class NeardRunner:
 
     # If this is a regular node, starts neard run. If it's a traffic generator, starts neard mirror run
     def start_neard(self, batch_interval_millis=None):
-        for i in range(20, -1, -1):
-            old_log = os.path.join(self.neard_logs_dir, f'log-{i}.txt')
-            new_log = os.path.join(self.neard_logs_dir, f'log-{i+1}.txt')
-            try:
-                os.rename(old_log, new_log)
-            except FileNotFoundError:
-                pass
-
-        with open(os.path.join(self.neard_logs_dir, 'log-0.txt'), 'ab') as out:
+        with open(os.path.join(self.neard_logs_dir, self.neard_logs_file_name),
+                  'ab') as out:
             if self.is_traffic_generator():
                 cmd = [
                     self.data['current_neard_path'],
@@ -767,8 +901,12 @@ class NeardRunner:
                     self.source_near_home_path(),
                     '--target-home',
                     self.target_near_home_path(),
-                    '--no-secret',
                 ]
+                if os.path.exists(self.setup_path('mirror-secret.json')):
+                    cmd.append('--secret-file')
+                    cmd.append(self.setup_path('mirror-secret.json'))
+                else:
+                    cmd.append('--no-secret')
                 if batch_interval_millis is not None:
                     with open(self.target_near_home_path('mirror-config.json'),
                               'w') as f:
@@ -790,6 +928,20 @@ class NeardRunner:
                     self.data['current_neard_path'], '--log-span-events',
                     '--home', self.neard_home, '--unsafe-fast-startup', 'run'
                 ]
+
+            # Save logs config file to control the level of rust and opentelemetry logs.
+            # Default config sets level to DEBUG for "client" and "chain" logs, WARN for tokio+actix, and INFO for everything else.
+            default_log_filter = 'client=debug,chain=debug,actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn,info'
+            with open(self.target_near_home_path('log_config.json'),
+                      'w') as log_config_file:
+                json.dump(
+                    {
+                        'opentelemetry': default_log_filter,
+                        'rust_log': default_log_filter,
+                    },
+                    log_config_file,
+                    indent=2)
+
             self.run_neard(
                 cmd,
                 out_file=out,
@@ -894,6 +1046,8 @@ class NeardRunner:
                 str(n['epoch_length']),
                 '--num-seats',
                 str(n['num_seats']),
+                '--protocol-reward-rate',
+                '1/10',
             ]
             if n['protocol_version'] is not None:
                 cmd.append('--protocol-version')
@@ -911,6 +1065,9 @@ class NeardRunner:
                 str(n['epoch_length']), '--genesis-time',
                 str(n['genesis_time'])
             ]
+            if n['protocol_version'] is not None:
+                cmd.append('--protocol-version')
+                cmd.append(str(n['protocol_version']))
 
             self.run_neard(cmd)
             self.set_state(TestState.SET_VALIDATORS)
@@ -1155,6 +1312,7 @@ class NeardRunner:
                     self.reset_near_home()
                 elif state == TestState.MAKING_BACKUP:
                     self.make_backup()
+                self.run_logrotate()
             time.sleep(10)
 
     def serve(self, port):

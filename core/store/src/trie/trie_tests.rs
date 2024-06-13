@@ -122,7 +122,7 @@ fn test_reads_with_incomplete_storage() {
         {
             println!("Testing TrieIterator over whole trie");
             let trie_records = |trie: Trie| -> Result<_, StorageError> {
-                let iterator = trie.iter()?;
+                let iterator = trie.disk_iter()?;
                 iterator.collect::<Result<Vec<_>, _>>().map(move |v| (trie, v))
             };
             test_incomplete_storage(get_trie(), trie_records);
@@ -208,14 +208,10 @@ mod trie_storage_tests {
     use crate::trie::accounting_cache::TrieAccountingCache;
     use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage};
     use crate::trie::TrieRefcountAddition;
-    use crate::{DBCol, Store, TrieChanges, TrieConfig};
+    use crate::{Store, TrieChanges, TrieConfig, TrieIterator};
     use assert_matches::assert_matches;
     use near_o11y::testonly::init_test_logger;
-    use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::hash::hash;
-    use near_primitives::shard_layout::get_block_shard_uid;
-    use near_primitives::types::chunk_extra::ChunkExtra;
-    use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 
     fn create_store_with_values(values: &[Vec<u8>], shard_uid: ShardUId) -> Store {
         let tries = TestTriesBuilder::new().build();
@@ -439,36 +435,8 @@ mod trie_storage_tests {
 
         let recorded_normal = trie.recorded_storage();
 
-        let store = create_test_store();
-        let congestion_info = ProtocolFeature::CongestionControl
-            .enabled(PROTOCOL_VERSION)
-            .then(CongestionInfo::default);
-        // ChunkExtra is needed for in-memory trie loading code to query state roots.
-        let chunk_extra = ChunkExtra::new(
-            PROTOCOL_VERSION,
-            &Trie::EMPTY_ROOT,
-            CryptoHash::default(),
-            Vec::new(),
-            0,
-            0,
-            0,
-            congestion_info,
-        );
-        let mut update_for_chunk_extra = store.store_update();
-        update_for_chunk_extra
-            .set_ser(
-                DBCol::ChunkExtra,
-                &get_block_shard_uid(&CryptoHash::default(), &shard_uid),
-                &chunk_extra,
-            )
-            .unwrap();
-        update_for_chunk_extra.commit().unwrap();
-
-        let tries = TestTriesBuilder::new()
-            .with_store(store)
-            .with_flat_storage(true)
-            .with_in_memory_tries()
-            .build();
+        let tries =
+            TestTriesBuilder::new().with_flat_storage(true).with_in_memory_tries(true).build();
         let shard_uid = ShardUId::single_shard();
 
         let state_root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, base_changes);
@@ -505,5 +473,67 @@ mod trie_storage_tests {
     #[test]
     fn test_memtrie_recorded_delete_non_existent_key() {
         test_memtrie_and_disk_updates_consistency(vec![(vec![8], None)]);
+    }
+
+    #[test]
+    fn test_memtrie_iteration_recording() {
+        init_test_logger();
+
+        let base_changes = vec![
+            (vec![6], Some(vec![0])),
+            (vec![7], Some(vec![1])),
+            (vec![7, 0], Some(vec![2])),
+            (vec![7, 1], Some(vec![3])),
+            (vec![8], Some(vec![4])),
+        ];
+
+        let tries =
+            TestTriesBuilder::new().with_flat_storage(true).with_in_memory_tries(true).build();
+        let shard_uid = ShardUId::single_shard();
+
+        let state_root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, base_changes);
+
+        let iter_prefix = vec![7];
+        let expected_iter_results =
+            vec![(vec![7], vec![1]), (vec![7, 0], vec![2]), (vec![7, 1], vec![3])];
+
+        let disk_iter_recorded = {
+            let trie = tries.get_trie_for_shard(shard_uid, state_root).recording_reads();
+            let mut disk_iter = trie.disk_iter().unwrap();
+            disk_iter.seek_prefix(&iter_prefix).unwrap();
+            let disk_iter_results = disk_iter.collect::<Result<Vec<_>, _>>().unwrap();
+            assert_eq!(disk_iter_results, expected_iter_results);
+            trie.recorded_storage().unwrap()
+        };
+
+        let memtrie_iter_recorded = {
+            let trie = tries.get_trie_for_shard(shard_uid, state_root).recording_reads();
+            let lock = trie.lock_for_iter();
+            let mut memtrie_iter = lock.iter().unwrap();
+            match memtrie_iter {
+                TrieIterator::Disk(_) => {
+                    panic!("Expected Memtrie iterator, got Disk iterator");
+                }
+                TrieIterator::Memtrie(_) => {}
+            }
+            memtrie_iter.seek_prefix(&iter_prefix).unwrap();
+            let memtrie_iter_results = memtrie_iter.collect::<Result<Vec<_>, _>>().unwrap();
+            assert_eq!(memtrie_iter_results, expected_iter_results);
+            trie.recorded_storage().unwrap()
+        };
+
+        assert_eq!(disk_iter_recorded, memtrie_iter_recorded);
+
+        let partial_recorded = {
+            let trie = Trie::from_recorded_storage(memtrie_iter_recorded, state_root, true)
+                .recording_reads();
+            let mut disk_iter = trie.disk_iter().unwrap();
+            disk_iter.seek_prefix(&iter_prefix).unwrap();
+            let disk_iter_results = disk_iter.collect::<Result<Vec<_>, _>>().unwrap();
+            assert_eq!(disk_iter_results, expected_iter_results);
+            trie.recorded_storage().unwrap()
+        };
+
+        assert_eq!(disk_iter_recorded, partial_recorded);
     }
 }

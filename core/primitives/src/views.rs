@@ -18,7 +18,7 @@ use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, MerklePath};
 use crate::network::PeerId;
-use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
+use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum, ReceiptV1};
 use crate::serialize::dec_format;
 use crate::sharding::{
     ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderInnerV2,
@@ -40,11 +40,13 @@ use crate::types::{
 };
 use crate::version::{ProtocolVersion, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_async::time::Utc;
 use near_crypto::{PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
+use near_parameters::config::CongestionControlConfig;
+use near_parameters::view::CongestionControlConfigView;
 use near_parameters::{ActionCosts, ExtCosts};
 use near_primitives_core::version::PROTOCOL_VERSION;
+use near_time::Utc;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::collections::HashMap;
@@ -354,12 +356,12 @@ pub struct StatusSyncInfo {
     pub latest_block_hash: CryptoHash,
     pub latest_block_height: BlockHeight,
     pub latest_state_root: CryptoHash,
-    #[serde(with = "near_async::time::serde_utc_as_iso")]
+    #[serde(with = "near_time::serde_utc_as_iso")]
     pub latest_block_time: Utc,
     pub syncing: bool,
     pub earliest_block_hash: Option<CryptoHash>,
     pub earliest_block_height: Option<BlockHeight>,
-    #[serde(with = "near_async::time::serde_opt_utc_as_iso")]
+    #[serde(with = "near_time::serde_opt_utc_as_iso")]
     pub earliest_block_time: Option<Utc>,
     pub epoch_id: Option<EpochId>,
     pub epoch_start_height: Option<BlockHeight>,
@@ -412,7 +414,7 @@ pub struct AccountDataView {
     pub peer_id: PublicKey,
     pub proxies: Vec<Tier1ProxyView>,
     pub account_key: PublicKey,
-    #[serde(with = "near_async::time::serde_utc_as_iso")]
+    #[serde(with = "near_time::serde_utc_as_iso")]
     pub timestamp: Utc,
 }
 
@@ -594,7 +596,7 @@ pub struct ChainProcessingInfo {
 pub struct BlockProcessingInfo {
     pub height: BlockHeight,
     pub hash: CryptoHash,
-    #[serde(with = "near_async::time::serde_utc_as_iso")]
+    #[serde(with = "near_time::serde_utc_as_iso")]
     pub received_timestamp: Utc,
     /// Time (in ms) between when the block was first received and when it was processed
     pub in_progress_ms: u128,
@@ -660,10 +662,10 @@ pub struct ChunkProcessingInfo {
     pub created_by: Option<AccountId>,
     pub status: ChunkProcessingStatus,
     /// Timestamp of first time when we request for this chunk.
-    #[serde(with = "near_async::time::serde_opt_utc_as_iso")]
+    #[serde(with = "near_time::serde_opt_utc_as_iso")]
     pub requested_timestamp: Option<Utc>,
     /// Timestamp of when the chunk is complete
-    #[serde(with = "near_async::time::serde_opt_utc_as_iso")]
+    #[serde(with = "near_time::serde_opt_utc_as_iso")]
     pub completed_timestamp: Option<Utc>,
     /// Time (in millis) that it takes between when the chunk is requested and when it is completed.
     pub request_duration: Option<u64>,
@@ -674,13 +676,13 @@ pub struct ChunkProcessingInfo {
 pub struct PartCollectionInfo {
     pub part_owner: AccountId,
     // Time when the part is received through any message
-    #[serde(with = "near_async::time::serde_opt_utc_as_iso")]
+    #[serde(with = "near_time::serde_opt_utc_as_iso")]
     pub received_time: Option<Utc>,
     // Time when we receive a PartialEncodedChunkForward containing this part
-    #[serde(with = "near_async::time::serde_opt_utc_as_iso")]
+    #[serde(with = "near_time::serde_opt_utc_as_iso")]
     pub forwarded_received_time: Option<Utc>,
     // Time when we receive the PartialEncodedChunk message containing this part
-    #[serde(with = "near_async::time::serde_opt_utc_as_iso")]
+    #[serde(with = "near_time::serde_opt_utc_as_iso")]
     pub chunk_received_time: Option<Utc>,
 }
 
@@ -1353,6 +1355,7 @@ pub struct SignedTransactionView {
     pub nonce: Nonce,
     pub receiver_id: AccountId,
     pub actions: Vec<ActionView>,
+    pub priority_fee: u64,
     pub signature: Signature,
     pub hash: CryptoHash,
 }
@@ -1360,19 +1363,17 @@ pub struct SignedTransactionView {
 impl From<SignedTransaction> for SignedTransactionView {
     fn from(signed_tx: SignedTransaction) -> Self {
         let hash = signed_tx.get_hash();
+        let transaction = signed_tx.transaction;
+        let priority_fee = transaction.priority_fee().unwrap_or_default();
         SignedTransactionView {
-            signer_id: signed_tx.transaction.signer_id,
-            public_key: signed_tx.transaction.public_key,
-            nonce: signed_tx.transaction.nonce,
-            receiver_id: signed_tx.transaction.receiver_id,
-            actions: signed_tx
-                .transaction
-                .actions
-                .into_iter()
-                .map(|action| action.into())
-                .collect(),
+            signer_id: transaction.signer_id().clone(),
+            public_key: transaction.public_key().clone(),
+            nonce: transaction.nonce(),
+            receiver_id: transaction.receiver_id().clone(),
+            actions: transaction.take_actions().into_iter().map(|action| action.into()).collect(),
             signature: signed_tx.signature,
             hash,
+            priority_fee,
         }
     }
 }
@@ -1933,6 +1934,7 @@ pub struct ReceiptView {
     pub receipt_id: CryptoHash,
 
     pub receipt: ReceiptEnumView,
+    pub priority: u64,
 }
 
 #[derive(
@@ -1991,14 +1993,15 @@ fn default_is_promise() -> bool {
 
 impl From<Receipt> for ReceiptView {
     fn from(receipt: Receipt) -> Self {
-        let is_promise_yield = matches!(&receipt.receipt, ReceiptEnum::PromiseYield(_));
-        let is_promise_resume = matches!(&receipt.receipt, ReceiptEnum::PromiseResume(_));
+        let is_promise_yield = matches!(receipt.receipt(), ReceiptEnum::PromiseYield(_));
+        let is_promise_resume = matches!(receipt.receipt(), ReceiptEnum::PromiseResume(_));
+        let priority = receipt.priority().value();
 
         ReceiptView {
-            predecessor_id: receipt.predecessor_id,
-            receiver_id: receipt.receiver_id,
-            receipt_id: receipt.receipt_id,
-            receipt: match receipt.receipt {
+            predecessor_id: receipt.predecessor_id().clone(),
+            receiver_id: receipt.receiver_id().clone(),
+            receipt_id: *receipt.receipt_id(),
+            receipt: match receipt.take_receipt() {
                 ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
                     ReceiptEnumView::Action {
                         signer_id: action_receipt.signer_id,
@@ -2029,6 +2032,7 @@ impl From<Receipt> for ReceiptView {
                     }
                 }
             },
+            priority,
         }
     }
 }
@@ -2037,7 +2041,7 @@ impl TryFrom<ReceiptView> for Receipt {
     type Error = Box<dyn std::error::Error + Send + Sync>;
 
     fn try_from(receipt_view: ReceiptView) -> Result<Self, Self::Error> {
-        Ok(Receipt {
+        Ok(Receipt::V1(ReceiptV1 {
             predecessor_id: receipt_view.predecessor_id,
             receiver_id: receipt_view.receiver_id,
             receipt_id: receipt_view.receipt_id,
@@ -2085,7 +2089,8 @@ impl TryFrom<ReceiptView> for Receipt {
                     }
                 }
             },
-        })
+            priority: receipt_view.priority,
+        }))
     }
 }
 
@@ -2492,6 +2497,21 @@ impl From<CongestionInfoV1> for CongestionInfoView {
 impl From<CongestionInfoView> for CongestionInfo {
     fn from(_: CongestionInfoView) -> Self {
         CongestionInfo::default()
+    }
+}
+
+impl CongestionInfoView {
+    pub fn congestion_level(&self, config_view: CongestionControlConfigView) -> f64 {
+        let congestion_config = CongestionControlConfig::from(config_view);
+        // Localized means without considering missed chunks congestion. As far
+        // as clients are concerned, this is the only congestion level that
+        // matters.
+        // Missed chunks congestion exists to reduce incoming load after a
+        // number of chunks were missed. It is not a property of a specific
+        // chunk but rather a property that changes over time. It is even a bit
+        // misleading to call it congestion, as it is not a problem with too
+        // much traffic.
+        CongestionInfo::from(self.clone()).localized_congestion_level(&congestion_config)
     }
 }
 

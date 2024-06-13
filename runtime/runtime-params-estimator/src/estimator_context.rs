@@ -4,7 +4,7 @@ use crate::gas_cost::GasCost;
 use genesis_populate::get_account_id;
 use genesis_populate::state_dump::StateDump;
 use near_parameters::{ExtCosts, RuntimeConfigStore};
-use near_primitives::congestion_info::CongestionInfo;
+use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
@@ -12,7 +12,7 @@ use near_primitives::state::FlatStateValue;
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::flat::{
     store_helper, BlockInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorage,
     FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus,
@@ -146,6 +146,13 @@ impl<'c> EstimatorContext<'c> {
         runtime_config.account_creation_config.min_allowed_top_level_account_length = 0;
 
         let shard_id = ShardUId::single_shard().shard_id();
+        let congestion_info = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
+            [(shard_id, ExtendedCongestionInfo::default())].into()
+        } else {
+            Default::default()
+        };
+        let congestion_info = BlockCongestionInfo::new(congestion_info);
+
         ApplyState {
             apply_reason: None,
             // Put each runtime into a separate shard.
@@ -166,7 +173,7 @@ impl<'c> EstimatorContext<'c> {
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
-            congestion_info: HashMap::from([(shard_id, CongestionInfo::default())]),
+            congestion_info,
         }
     }
 

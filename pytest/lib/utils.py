@@ -418,7 +418,7 @@ def poll_blocks(node: cluster.LocalNode,
             sent to the node.
         kw: Keyword arguments passed to `BaseDone.get_latest_block` method.
     Yields:
-        A `cluster.BlockId` object for each each time node’s latest block
+        A `cluster.BlockId` object for each time node’s latest block
         changes including the first block when function starts.  Note that there
         is no guarantee that there will be no skipped blocks.
     Raises:
@@ -443,6 +443,10 @@ def poll_blocks(node: cluster.LocalNode,
             if start_height == -1:
                 start_height = latest.height
             count += 1
+
+        if __target and latest.height >= __target:
+            return
+
         time.sleep(poll_interval)
 
     msg = 'Timed out polling blocks from a node\n'

@@ -102,8 +102,7 @@ expression: config_view
     "pessimistic_gas_price_inflation_ratio": [
       103,
       100
-    ],
-    "storage_proof_size_soft_limit": 16000000
+    ]
   },
   "wasm_config": {
     "ext_costs": {
@@ -170,10 +169,10 @@ expression: config_view
       "alt_bn128_g1_sum_element": 5000000000,
       "alt_bn128_pairing_check_base": 9686000000000,
       "alt_bn128_pairing_check_element": 5102000000000,
-      "yield_create_base": 300000000000000,
-      "yield_create_byte": 300000000000000,
-      "yield_resume_base": 300000000000000,
-      "yield_resume_byte": 300000000000000
+      "yield_create_base": 153411779276,
+      "yield_create_byte": 15643988,
+      "yield_resume_base": 1195627285210,
+      "yield_resume_byte": 1195627285210
     },
     "grow_mem_cost": 1,
     "regular_op_cost": 822756,
@@ -187,7 +186,7 @@ expression: config_view
     "alt_bn128": true,
     "function_call_weight": true,
     "eth_implicit_accounts": false,
-    "yield_resume_host_functions": false,
+    "yield_resume_host_functions": true,
     "limit_config": {
       "max_gas_burnt": 300000000000000,
       "max_stack_height": 262144,
@@ -207,6 +206,7 @@ expression: config_view
       "max_length_returned_data": 4194304,
       "max_contract_size": 4194304,
       "max_transaction_size": 4194304,
+      "max_receipt_size": 999999999999999,
       "max_length_storage_key": 2048,
       "max_length_storage_value": 4194304,
       "max_promises_per_function_call_action": 1024,
@@ -217,11 +217,30 @@ expression: config_view
       "account_id_validity_rules_version": 1,
       "yield_timeout_length_in_blocks": 200,
       "max_yield_payload_size": 1024,
-      "storage_proof_size_receipt_limit": 999999999999999
+      "per_receipt_storage_proof_size_limit": 999999999999999
     }
   },
   "account_creation_config": {
     "min_allowed_top_level_account_length": 65,
     "registrar_account_id": "registrar"
+  },
+  "congestion_control_config": {
+    "max_congestion_incoming_gas": 9223372036854775807,
+    "max_congestion_outgoing_gas": 9223372036854775807,
+    "max_congestion_memory_consumption": 9223372036854775807,
+    "max_congestion_missed_chunks": 9223372036854775807,
+    "max_outgoing_gas": 9223372036854775807,
+    "min_outgoing_gas": 9223372036854775807,
+    "allowed_shard_outgoing_gas": 9223372036854775807,
+    "max_tx_gas": 9223372036854775807,
+    "min_tx_gas": 9223372036854775807,
+    "reject_tx_congestion_threshold": 1.0,
+    "outgoing_receipts_usual_size_limit": 999999999999999,
+    "outgoing_receipts_big_size_limit": 999999999999999
+  },
+  "witness_config": {
+    "main_storage_proof_size_soft_limit": 16000000,
+    "combined_transactions_size_limit": 999999999999999,
+    "new_transactions_validation_state_size_soft_limit": 999999999999999
   }
 }

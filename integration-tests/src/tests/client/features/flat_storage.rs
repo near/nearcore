@@ -5,7 +5,9 @@ use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_parameters::ExtCosts;
 use near_primitives::test_utils::encode;
-use near_primitives::transaction::{Action, ExecutionMetadata, FunctionCallAction, Transaction};
+use near_primitives::transaction::{
+    Action, ExecutionMetadata, FunctionCallAction, Transaction, TransactionV0,
+};
 use near_primitives::version::ProtocolFeature;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::Gas;
@@ -18,7 +20,7 @@ use nearcore::test_utils::TestEnvNightshadeSetupExt;
 fn test_flat_storage_upgrade() {
     // The immediate protocol upgrade needs to be set for this test to pass in
     // the release branch where the protocol upgrade date is set.
-    std::env::set_var("NEAR_TESTS_IMMEDIATE_PROTOCOL_UPGRADE", "1");
+    std::env::set_var("NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE", "now");
 
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let epoch_length = 12;
@@ -49,9 +51,10 @@ fn test_flat_storage_upgrade() {
         old_protocol_version,
     );
 
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer: Signer =
+        InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
     let gas = 20_000_000_000_000;
-    let tx = Transaction {
+    let tx = TransactionV0 {
         signer_id: "test0".parse().unwrap(),
         receiver_id: "test0".parse().unwrap(),
         public_key: signer.public_key(),
@@ -69,12 +72,12 @@ fn test_flat_storage_upgrade() {
             deposit: 0,
         }))];
         let tip = env.clients[0].chain.head().unwrap();
-        let signed_transaction = Transaction {
+        let signed_transaction = Transaction::V0(TransactionV0 {
             nonce: 10,
             block_hash: tip.last_block_hash,
             actions: write_value_action,
             ..tx.clone()
-        }
+        })
         .sign(&signer);
         let tx_hash = signed_transaction.get_hash();
         assert_eq!(
@@ -97,12 +100,12 @@ fn test_flat_storage_upgrade() {
                 deposit: 0,
             }))];
             let tip = env.clients[0].chain.head().unwrap();
-            let signed_transaction = Transaction {
+            let signed_transaction = Transaction::V0(TransactionV0 {
                 nonce: 20 + i,
                 block_hash: tip.last_block_hash,
                 actions: read_value_action,
                 ..tx.clone()
-            }
+            })
             .sign(&signer);
             let tx_hash = signed_transaction.get_hash();
             assert_eq!(

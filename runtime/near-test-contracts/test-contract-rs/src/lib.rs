@@ -131,7 +131,6 @@ extern "C" {
     // ########################
     // # Promise Yield/Resume #
     // ########################
-    #[cfg(feature = "nightly")]
     fn promise_yield_create(
         method_name_len: u64,
         method_name_ptr: u64,
@@ -141,7 +140,6 @@ extern "C" {
         gas_weight: u64,
         register_id: u64,
     ) -> u64;
-    #[cfg(feature = "nightly")]
     fn promise_yield_resume(
         data_id_len: u64,
         data_id_ptr: u64,
@@ -170,7 +168,7 @@ extern "C" {
     fn storage_iter_prefix(prefix_len: u64, prefix_ptr: u64) -> u64;
     fn storage_iter_range(start_len: u64, start_ptr: u64, end_len: u64, end_ptr: u64) -> u64;
     fn storage_iter_next(iterator_id: u64, key_register_id: u64, value_register_id: u64) -> u64;
-    fn gas(ops: u32);
+    fn gas(opcodes: u32);
     // #################
     // # Validator API #
     // #################
@@ -190,6 +188,12 @@ extern "C" {
     fn alt_bn128_g1_sum(value_len: u64, value_ptr: u64, register_id: u64);
     #[cfg(feature = "latest_protocol")]
     fn alt_bn128_pairing_check(value_len: u64, value_ptr: u64) -> u64;
+
+    #[cfg(feature = "test_features")]
+    fn sleep_nanos(nanos: u64);
+
+    #[cfg(feature = "test_features")]
+    fn burn_gas(gas: u64);
 }
 
 macro_rules! ext_test {
@@ -390,6 +394,37 @@ pub unsafe fn log_something() {
 #[no_mangle]
 pub unsafe fn loop_forever() {
     loop {}
+}
+
+#[cfg(feature = "test_features")]
+#[no_mangle]
+pub unsafe fn sleep() {
+    const U64_SIZE: usize = size_of::<u64>();
+    let data = [0u8; U64_SIZE];
+
+    input(0);
+    assert!(register_len(0) == U64_SIZE as u64);
+    read_register(0, data.as_ptr() as u64);
+    let nanos = u64::from_le_bytes(data);
+
+    let data = b"sleeping";
+    log_utf8(data.len() as u64, data.as_ptr() as _);
+
+    sleep_nanos(nanos);
+}
+
+#[cfg(feature = "test_features")]
+#[no_mangle]
+pub unsafe fn burn_gas_raw() {
+    const U64_SIZE: usize = size_of::<u64>();
+    let data = [0u8; U64_SIZE];
+
+    input(0);
+    assert!(register_len(0) == U64_SIZE as u64);
+    read_register(0, data.as_ptr() as u64);
+    let amount = u64::from_le_bytes(data);
+
+    burn_gas(amount);
 }
 
 #[no_mangle]
@@ -880,11 +915,10 @@ fn call_promise() {
     }
 }
 
-/// Function which expects to receive exactly one promise result,
-/// the contents of which should match the function's input.
-///
 /// Used as the yield callback in tests of yield create / yield resume.
-/// Returns double the first byte of the payload, if there is one.
+/// The function takes an argument indicating the expected yield payload (promise input).
+/// It panics if executed with the wrong payload.
+/// Returns the payload length.
 #[no_mangle]
 unsafe fn check_promise_result_return_value() {
     input(0);
@@ -893,24 +927,25 @@ unsafe fn check_promise_result_return_value() {
     read_register(0, expected.as_ptr() as u64);
 
     assert_eq!(promise_results_count(), 1);
-    match promise_result(0, 0) {
-        1 => {
-            let mut result = vec![0; register_len(0) as usize];
-            read_register(0, result.as_ptr() as *const u64 as u64);
-            assert_eq!(expected, result);
 
-            // Double the first byte of the payload, then return it.
-            // Used in tests to verify that this function's return value is handled as expected.
-            result[0] *= 2;
-            value_return(1u64, result.as_ptr() as u64);
+    let payload_len = match promise_result(0, 0) {
+        1 => {
+            let payload = vec![0; register_len(0) as usize];
+            read_register(0, payload.as_ptr() as *const u64 as u64);
+            assert_eq!(expected, payload);
+
+            payload.len()
         }
         2 => {
             assert_eq!(expected_result_len, 0);
-            let result = vec![23u8];
-            value_return(1u64, result.as_ptr() as u64);
+
+            0
         }
         _ => unreachable!(),
     };
+
+    let result = vec![payload_len as u8];
+    value_return(1u64, result.as_ptr() as u64);
 }
 
 /// Function which expects to receive exactly one promise result,
@@ -955,7 +990,6 @@ unsafe fn check_promise_result_write_status() {
 /// Call promise_yield_create, specifying `check_promise_result` as the yield callback.
 /// Given input is passed as the argument to the `check_promise_result` function call.
 /// Sets the yield callback's output as the return value.
-#[cfg(feature = "nightly")]
 #[no_mangle]
 pub unsafe fn call_yield_create_return_promise() {
     input(0);
@@ -984,7 +1018,6 @@ pub unsafe fn call_yield_create_return_promise() {
 /// Call promise_yield_create, specifying `check_promise_result` as the yield callback.
 /// Given input is passed as the argument to the `check_promise_result` function call.
 /// Returns the data id produced by promise_yield_create.
-#[cfg(feature = "nightly")]
 #[no_mangle]
 pub unsafe fn call_yield_create_return_data_id() {
     input(0);
@@ -1016,7 +1049,6 @@ pub unsafe fn call_yield_create_return_data_id() {
 /// Call promise_yield_resume.
 /// Input is the byte array with `data_id` represented by last 32 bytes and `payload`
 /// represented by the first `register_len(0) - 32` bytes.
-#[cfg(feature = "nightly")]
 #[no_mangle]
 pub unsafe fn call_yield_resume() {
     input(0);
@@ -1039,7 +1071,6 @@ pub unsafe fn call_yield_resume() {
 }
 
 /// Call promise_yield_create and promise_yield_resume within the same function.
-#[cfg(feature = "nightly")]
 #[no_mangle]
 pub unsafe fn call_yield_create_and_resume() {
     input(0);

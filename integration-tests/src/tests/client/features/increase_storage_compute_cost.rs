@@ -13,7 +13,7 @@
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_parameters::RuntimeConfigStore;
 use near_parameters::{ActionCosts, RuntimeConfig};
 use near_primitives::sharding::ShardChunk;
@@ -177,7 +177,7 @@ fn assert_compute_limit_reached(
 ) {
     // The immediate protocol upgrade needs to be set for this test to pass in
     // the release branch where the protocol upgrade date is set.
-    std::env::set_var("NEAR_TESTS_IMMEDIATE_PROTOCOL_UPGRADE", "1");
+    std::env::set_var("NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE", "now");
     near_o11y::testonly::init_test_logger();
 
     let old_protocol_version = INCREASED_STORAGE_COSTS_PROTOCOL_VERSION - 1;
@@ -301,18 +301,20 @@ fn produce_saturated_chunk(
         gas,
         deposit: 0,
     }))];
-    let signer =
-        InMemorySigner::from_seed(user_account.clone(), KeyType::ED25519, user_account.as_ref());
+    let signer: Signer =
+        InMemorySigner::from_seed(user_account.clone(), KeyType::ED25519, user_account.as_ref())
+            .into();
 
     let tip = env.clients[0].chain.head().unwrap();
     let mut tx_factory = || {
         let tx = SignedTransaction::from_actions(
             *nonce,
-            signer.account_id.clone(),
+            user_account.clone(),
             contract_account.clone(),
             &signer,
             actions.clone(),
             tip.last_block_hash,
+            0,
         );
         *nonce += 1;
         tx

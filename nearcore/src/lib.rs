@@ -23,6 +23,7 @@ use near_chain_configs::ReshardingHandle;
 use near_chain_configs::SyncConfig;
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
+use near_client::gc_actor::GCActor;
 use near_client::sync::adapter::SyncAdapter;
 use near_client::{
     start_client, ClientActor, ConfigUpdater, PartialWitnessActor, StartClientResult,
@@ -368,22 +369,23 @@ pub fn start_with_config_and_synchronization(
                 client_adapter_for_partial_witness_actor.as_multi_sender(),
                 my_signer,
                 epoch_manager.clone(),
+                storage.get_hot_store(),
             ));
         (Some(partial_witness_actor), Some(partial_witness_arbiter))
     } else {
         (None, None)
     };
 
-    let StartClientResult {
-        client_actor,
-        client_arbiter_handle,
-        resharding_handle,
-        gc_arbiter_handle,
-        #[cfg(feature = "test_features")]
-        gc_actor,
-        #[cfg(not(feature = "test_features"))]
-            gc_actor: _,
-    } = start_client(
+    let (_gc_actor, gc_arbiter) = spawn_actix_actor(GCActor::new(
+        runtime.store().clone(),
+        chain_genesis.height,
+        runtime.clone(),
+        epoch_manager.clone(),
+        config.client_config.gc.clone(),
+        config.client_config.archive,
+    ));
+
+    let StartClientResult { client_actor, client_arbiter_handle, resharding_handle } = start_client(
         Clock::real(),
         config.client_config.clone(),
         chain_genesis.clone(),
@@ -404,6 +406,8 @@ pub fn start_with_config_and_synchronization(
             .clone()
             .map(|actor| actor.with_auto_span_context().into_multi_sender())
             .unwrap_or_else(|| noop().into_multi_sender()),
+        true,
+        None,
     );
     if let SyncConfig::Peers = config.client_config.state_sync.sync {
         client_adapter_for_sync.bind(client_actor.clone().with_auto_span_context())
@@ -435,7 +439,7 @@ pub fn start_with_config_and_synchronization(
         epoch_manager,
         shard_tracker,
         runtime,
-        account_id: config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
+        account_id: config.validator_signer.map(|signer| signer.validator_id().clone()),
         dump_future_runner: StateSyncDumper::arbiter_dump_future_runner(),
         handle: None,
     };
@@ -474,7 +478,7 @@ pub fn start_with_config_and_synchronization(
             view_client_addr.clone().with_auto_span_context().into_multi_sender(),
             network_actor.into_multi_sender(),
             #[cfg(feature = "test_features")]
-            gc_actor.into_multi_sender(),
+            _gc_actor.with_auto_span_context().into_multi_sender(),
             Arc::new(entity_debug_handler),
         ));
     }
@@ -502,7 +506,7 @@ pub fn start_with_config_and_synchronization(
         shards_manager_arbiter_handle,
         trie_metrics_arbiter,
         state_snapshot_arbiter,
-        gc_arbiter_handle,
+        gc_arbiter,
     ];
     if let Some(db_metrics_arbiter) = db_metrics_arbiter {
         arbiters.push(db_metrics_arbiter);

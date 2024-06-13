@@ -6,7 +6,7 @@ use near_chain::{ChainStoreAccess, Provenance};
 use near_chain_configs::{Genesis, NEAR_BASE};
 use near_client::test_utils::{run_catchup, TestEnv};
 use near_client::{Client, ProcessTxResponse};
-use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_crypto::{InMemorySigner, KeyType};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::{Block, Tip};
@@ -239,7 +239,7 @@ impl TestReshardingEnv {
             .validator_seats(num_validators)
             .real_stores()
             .epoch_managers_with_test_overrides(epoch_config_test_overrides)
-            .nightshade_runtimes(&genesis)
+            .nightshade_runtimes_congestion_control_disabled(&genesis)
             .track_all_shards()
             .build();
         assert_eq!(env.validators.len(), num_validators);
@@ -341,7 +341,7 @@ impl TestReshardingEnv {
             let _span = tracing::debug_span!(target: "test", "process block", client=j).entered();
 
             let shard_ids = chunk_producer_to_shard_id
-                .get(client.validator_signer.as_ref().unwrap().validator_id())
+                .get(client.validator_signer.get().unwrap().validator_id())
                 .cloned()
                 .unwrap_or_default();
             let should_produce_chunk =
@@ -545,7 +545,7 @@ impl TestReshardingEnv {
         for tx in txs_to_check {
             let id = &tx.get_hash();
 
-            let signer_account_id = &tx.transaction.signer_id;
+            let signer_account_id = tx.transaction.signer_id();
             let shard_uid = account_id_to_shard_uid(signer_account_id, &shard_layout);
 
             tracing::trace!(target: "test", tx=?id, ?signer_account_id, ?shard_uid, "checking tx");
@@ -627,10 +627,10 @@ impl TestReshardingEnv {
                     .clone();
                 for receipt in outgoing_receipts.iter() {
                     let target_shard_id =
-                        client.chain.get_shard_id_for_receipt_id(&receipt.receipt_id).unwrap();
+                        client.chain.get_shard_id_for_receipt_id(receipt.receipt_id()).unwrap();
                     assert_eq!(
                         target_shard_id,
-                        account_id_to_shard_id(&receipt.receiver_id, &shard_layout)
+                        account_id_to_shard_id(receipt.receiver_id(), &shard_layout)
                     );
                 }
             }
@@ -810,8 +810,8 @@ fn check_outgoing_receipts_reassigned_impl(
             // In V0->V1 resharding the outgoing receipts should be reassigned
             // to the receipt receiver's shard id.
             for receipt in outgoing_receipts {
-                let receiver = receipt.receiver_id;
-                let receiver_shard_id = account_id_to_shard_id(&receiver, &shard_layout);
+                let receiver_shard_id =
+                    account_id_to_shard_id(receipt.receiver_id(), &shard_layout);
                 assert_eq!(receiver_shard_id, shard_id);
             }
         }
@@ -913,6 +913,7 @@ fn setup_genesis(
     // Same needs to be set in the AllEpochConfigTestOverrides.
     genesis.config.block_producer_kickout_threshold = 0;
     genesis.config.chunk_producer_kickout_threshold = 0;
+    genesis.config.chunk_validator_only_kickout_threshold = 0;
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = genesis_protocol_version;
     genesis.config.use_production_config = true;
@@ -973,7 +974,7 @@ fn generate_create_accounts_txs(
                 account_id.clone(),
                 NEAR_BASE,
                 signer.public_key(),
-                &signer0,
+                &signer0.into(),
                 genesis_hash,
             );
             if check_accounts {
@@ -1282,9 +1283,10 @@ fn setup_test_env_with_cross_contract_txs(
             1,
             account_id.clone(),
             account_id.clone(),
-            &signer,
+            &signer.into(),
             actions,
             genesis_hash,
+            0,
         );
         init_txs.push(tx);
     }
@@ -1450,7 +1452,7 @@ fn gen_cross_contract_tx_impl(
         nonce,
         account0.clone(),
         account1.clone(),
-        &signer0,
+        &signer0.into(),
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
@@ -1458,6 +1460,7 @@ fn gen_cross_contract_tx_impl(
             deposit: 0,
         }))],
         *block_hash,
+        0,
     )
 }
 
@@ -1595,7 +1598,7 @@ fn generate_yield_create_tx(
         nonce,
         account_id.clone(),
         account_id.clone(),
-        &signer,
+        &signer.into(),
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: callback_method_name,
             args: vec![],
@@ -1603,6 +1606,7 @@ fn generate_yield_create_tx(
             deposit: 0,
         }))],
         *block_hash,
+        0,
     )
 }
 
@@ -1628,9 +1632,10 @@ fn setup_test_env_with_promise_yield_txs(
             1,
             account_id.clone(),
             account_id.clone(),
-            &signer,
+            &signer.into(),
             actions,
             genesis_hash,
+            0,
         );
         init_txs.push(init_tx);
     }
@@ -2017,19 +2022,16 @@ fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v3() {
 
 // latest protocol
 
-#[ignore]
 #[test]
 fn test_latest_protocol_missing_chunks_low_missing_prob() {
     test_latest_protocol_missing_chunks(0.1, 25);
 }
 
-#[ignore]
 #[test]
 fn test_latest_protocol_missing_chunks_mid_missing_prob() {
     test_latest_protocol_missing_chunks(0.5, 26);
 }
 
-#[ignore]
 #[test]
 fn test_latest_protocol_missing_chunks_high_missing_prob() {
     test_latest_protocol_missing_chunks(0.9, 27);

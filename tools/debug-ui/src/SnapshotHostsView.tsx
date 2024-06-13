@@ -19,7 +19,13 @@ export const SnapshotHostsView = ({ addr }: SnapshotHostsViewProps) => {
         return <div className="error">{(error as Error).stack}</div>;
     }
 
-    const snapshot_hosts = snapshotHosts!.status_response.SnapshotHosts;
+    let snapshot_hosts = snapshotHosts!.status_response.SnapshotHosts.hosts;
+    snapshot_hosts.sort((a, b) => {
+        if (a.epoch_height != b.epoch_height) {
+            return b.epoch_height - a.epoch_height;
+        }
+        return a.peer_id.localeCompare(b.peer_id);
+    });
 
     return (
         <div className="snapshot-hosts-view">
@@ -31,7 +37,7 @@ export const SnapshotHostsView = ({ addr }: SnapshotHostsViewProps) => {
                     <th>Sync Hash</th>
                 </thead>
                 <tbody>
-                    {snapshot_hosts.hosts.map((host) => {
+                    {snapshot_hosts.map((host) => {
                         return (
                             <tr key={host.peer_id}>
                                 <td>{host.peer_id}</td>

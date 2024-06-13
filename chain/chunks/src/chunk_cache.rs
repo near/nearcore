@@ -24,9 +24,9 @@ use tracing::warn;
 //    will only include chunks in the block for which it has received the part it owns.
 //    Users of the data structure are responsible for adding chunk to this map at the right time.
 
-/// A chunk is out of horizon if its height + HEIGHT_HORIZON < largest_seen_height
+/// A chunk is out of rear horizon if its height + HEIGHT_HORIZON < largest_seen_height
 const HEIGHT_HORIZON: BlockHeightDelta = 1024;
-/// A chunk is out of horizon if its height > HEIGHT_HORIZON + largest_seen_height
+/// A chunk is out of front horizon if its height > largest_seen_height + MAX_HEIGHTS_AHEAD
 const MAX_HEIGHTS_AHEAD: BlockHeightDelta = 5;
 
 /// EncodedChunksCacheEntry stores the consolidated parts and receipts received for a chunk
@@ -277,7 +277,7 @@ mod tests {
     use near_primitives::validator_signer::InMemoryValidatorSigner;
 
     use crate::chunk_cache::EncodedChunksCache;
-    use crate::ChunkRequestInfo;
+    use crate::shards_manager_actor::ChunkRequestInfo;
 
     fn create_chunk_header(height: u64, shard_id: u64) -> ShardChunkHeader {
         let signer =
@@ -296,7 +296,7 @@ mod tests {
             CryptoHash::default(),
             CryptoHash::default(),
             vec![],
-            &signer,
+            &signer.into(),
         ))
     }
 

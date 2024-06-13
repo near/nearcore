@@ -6,7 +6,7 @@ use near_chain_configs::MIN_GAS_PRICE;
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_parameters::RuntimeConfig;
-use near_primitives::congestion_info::CongestionInfo;
+use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::errors::{RuntimeError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
@@ -14,7 +14,7 @@ use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeightDelta, MerkleHash};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ContractCodeView,
     ExecutionOutcomeView, ExecutionOutcomeWithIdView, ExecutionStatusView,
@@ -44,7 +44,7 @@ impl MockClient {
 
 pub struct RuntimeUser {
     pub account_id: AccountId,
-    pub signer: Arc<dyn Signer>,
+    pub signer: Arc<Signer>,
     pub trie_viewer: TrieViewer,
     pub client: Arc<RwLock<MockClient>>,
     // Store results of applying transactions/receipts
@@ -59,7 +59,7 @@ pub struct RuntimeUser {
 impl RuntimeUser {
     pub fn new(
         account_id: AccountId,
-        signer: Arc<dyn Signer>,
+        signer: Arc<Signer>,
         client: Arc<RwLock<MockClient>>,
     ) -> Self {
         let runtime_config = Arc::new(client.read().unwrap().runtime_config.clone());
@@ -117,12 +117,11 @@ impl RuntimeUser {
                     }
                     RuntimeError::BalanceMismatchError(e) => panic!("{}", e),
                     RuntimeError::StorageError(e) => panic!("Storage error {:?}", e),
-                    RuntimeError::UnexpectedIntegerOverflow => {
-                        panic!("UnexpectedIntegerOverflow error")
+                    RuntimeError::UnexpectedIntegerOverflow(reason) => {
+                        panic!("UnexpectedIntegerOverflow error {reason}")
                     }
                     RuntimeError::ReceiptValidationError(e) => panic!("{}", e),
                     RuntimeError::ValidatorError(e) => panic!("{}", e),
-                    RuntimeError::ContextError(e) => panic!("{}", e),
                 })?;
             for outcome_with_id in apply_result.outcomes {
                 self.transaction_results
@@ -145,7 +144,7 @@ impl RuntimeUser {
                 return Ok(());
             }
             for receipt in apply_result.outgoing_receipts.iter() {
-                self.receipts.borrow_mut().insert(receipt.receipt_id, receipt.clone());
+                self.receipts.borrow_mut().insert(*receipt.receipt_id(), receipt.clone());
             }
             receipts = apply_result.outgoing_receipts;
             txs = vec![];
@@ -157,6 +156,12 @@ impl RuntimeUser {
         let shard_id = 0;
         // TODO(congestion_control) - Set other shard ids somehow.
         let all_shard_ids = [0, 1, 2, 3, 4, 5];
+        let congestion_info = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
+            all_shard_ids.into_iter().map(|id| (id, ExtendedCongestionInfo::default())).collect()
+        } else {
+            Default::default()
+        };
+        let congestion_info = BlockCongestionInfo::new(congestion_info);
 
         ApplyState {
             apply_reason: None,
@@ -176,10 +181,7 @@ impl RuntimeUser {
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
-            congestion_info: all_shard_ids
-                .into_iter()
-                .map(|id| (id, CongestionInfo::default()))
-                .collect(),
+            congestion_info,
         }
     }
 
@@ -389,11 +391,11 @@ impl User for RuntimeUser {
             .map_err(|err| err.to_string())
     }
 
-    fn signer(&self) -> Arc<dyn Signer> {
+    fn signer(&self) -> Arc<Signer> {
         self.signer.clone()
     }
 
-    fn set_signer(&mut self, signer: Arc<dyn Signer>) {
+    fn set_signer(&mut self, signer: Arc<Signer>) {
         self.signer = signer;
     }
 }

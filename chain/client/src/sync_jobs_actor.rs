@@ -1,9 +1,9 @@
 use actix::Actor;
 use near_async::actix_wrapper::ActixWrapper;
-use near_async::futures::{ActixFutureSpawner, FutureSpawner, FutureSpawnerExt};
-use near_async::messaging::{CanSend, Handler, Sender};
+use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
+use near_async::messaging::{self, CanSend, Handler, HandlerWithContext, Sender};
 use near_async::time::Duration;
-use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
+use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
     BlockCatchUpResponse, LoadMemtrieRequest, LoadMemtrieResponse,
@@ -19,8 +19,7 @@ use near_store::DBCol;
 // Set the mailbox capacity for the SyncJobsActor from default 16 to 100.
 const MAILBOX_CAPACITY: usize = 100;
 
-#[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
-#[multi_send_message_derive(Debug)]
+#[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct ClientSenderForSyncJobs {
     apply_state_parts_response: Sender<ApplyStatePartsResponse>,
     block_catch_up_response: Sender<BlockCatchUpResponse>,
@@ -28,16 +27,11 @@ pub struct ClientSenderForSyncJobs {
     load_memtrie_response: Sender<LoadMemtrieResponse>,
 }
 
-#[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
-#[multi_send_message_derive(Debug)]
-pub struct SyncJobsSenderForSyncJobs {
-    resharding_request: Sender<ReshardingRequest>,
-}
-
 pub struct SyncJobsActor {
     client_sender: ClientSenderForSyncJobs,
-    sync_jobs_sender: SyncJobsSenderForSyncJobs,
 }
+
+impl messaging::Actor for SyncJobsActor {}
 
 impl Handler<LoadMemtrieRequest> for SyncJobsActor {
     #[perf]
@@ -60,19 +54,16 @@ impl Handler<BlockCatchUpRequest> for SyncJobsActor {
     }
 }
 
-impl Handler<ReshardingRequest> for SyncJobsActor {
+impl HandlerWithContext<ReshardingRequest> for SyncJobsActor {
     #[perf]
-    fn handle(&mut self, msg: ReshardingRequest) {
-        self.handle_resharding_request(msg, &ActixFutureSpawner);
+    fn handle(&mut self, msg: ReshardingRequest, ctx: &mut dyn DelayedActionRunner<Self>) {
+        self.handle_resharding_request(msg, ctx);
     }
 }
 
 impl SyncJobsActor {
-    pub fn new(
-        client_sender: ClientSenderForSyncJobs,
-        sync_jobs_sender: SyncJobsSenderForSyncJobs,
-    ) -> Self {
-        Self { client_sender, sync_jobs_sender }
+    pub fn new(client_sender: ClientSenderForSyncJobs) -> Self {
+        Self { client_sender }
     }
 
     pub fn spawn_actix_actor(self) -> (actix::Addr<ActixWrapper<Self>>, actix::ArbiterHandle) {
@@ -90,7 +81,7 @@ impl SyncJobsActor {
         msg: &ApplyStatePartsRequest,
     ) -> Result<(), near_chain_primitives::error::Error> {
         let _span: tracing::span::EnteredSpan =
-            tracing::debug_span!(target: "client", "apply_parts").entered();
+            tracing::debug_span!(target: "sync", "apply_parts").entered();
         let store = msg.runtime_adapter.store();
 
         let shard_id = msg.shard_uid.shard_id as ShardId;
@@ -116,7 +107,7 @@ impl SyncJobsActor {
         &mut self,
         msg: &ApplyStatePartsRequest,
     ) -> Result<bool, near_chain_primitives::error::Error> {
-        let _span = tracing::debug_span!(target: "client", "clear_flat_state").entered();
+        let _span = tracing::debug_span!(target: "sync", "clear_flat_state").entered();
         let mut store_update = msg.runtime_adapter.store().store_update();
         let success = msg
             .runtime_adapter
@@ -156,10 +147,10 @@ impl SyncJobsActor {
             }
             Ok(false) => {
                 // Can't panic here, because that breaks many KvRuntime tests.
-                tracing::error!(target: "client", shard_uid = ?msg.shard_uid, "Failed to delete Flat State, but proceeding with applying state parts.");
+                tracing::error!(target: "sync", shard_uid = ?msg.shard_uid, "Failed to delete Flat State, but proceeding with applying state parts.");
             }
             Ok(true) => {
-                tracing::debug!(target: "client", shard_uid = ?msg.shard_uid, "Deleted all Flat State");
+                tracing::debug!(target: "sync", shard_uid = ?msg.shard_uid, "Deleted all Flat State");
             }
         }
 
@@ -172,7 +163,7 @@ impl SyncJobsActor {
     }
 
     pub fn handle_block_catch_up_request(&mut self, msg: BlockCatchUpRequest) {
-        tracing::debug!(target: "client", ?msg);
+        tracing::debug!(target: "sync", ?msg);
         let results = do_apply_chunks(msg.block_hash, msg.block_height, msg.work);
 
         self.client_sender.send(BlockCatchUpResponse {
@@ -185,21 +176,17 @@ impl SyncJobsActor {
     pub fn handle_resharding_request(
         &mut self,
         mut resharding_request: ReshardingRequest,
-        future_spawner: &dyn FutureSpawner,
+        ctx: &mut dyn DelayedActionRunner<Self>,
     ) {
         let config = resharding_request.config.get();
 
         // Wait for the initial delay. It should only be used in tests.
-        let initial_delay = config.initial_delay;
+        let initial_delay = config.initial_delay.max(Duration::ZERO);
         if resharding_request.curr_poll_time == Duration::ZERO && initial_delay > Duration::ZERO {
             tracing::debug!(target: "resharding", ?resharding_request, ?initial_delay, "Waiting for the initial delay");
             resharding_request.curr_poll_time += initial_delay;
-            future_spawner.spawn("resharding initial delay", {
-                let sender = self.sync_jobs_sender.clone();
-                async move {
-                    tokio::time::sleep(initial_delay.max(Duration::ZERO).unsigned_abs()).await;
-                    sender.send(resharding_request);
-                }
+            ctx.run_later("resharding initial delay", initial_delay, |act, ctx| {
+                act.handle_resharding_request(resharding_request, ctx)
             });
             return;
         }
@@ -207,15 +194,11 @@ impl SyncJobsActor {
         if Chain::retry_build_state_for_split_shards(&resharding_request) {
             // Actix implementation let's us send message to ourselves with a delay.
             // In case snapshots are not ready yet, we will retry resharding later.
-            let retry_delay = config.retry_delay;
+            let retry_delay = config.retry_delay.max(Duration::ZERO);
             tracing::debug!(target: "resharding", ?resharding_request, ?retry_delay, "Snapshot missing, retrying resharding later");
             resharding_request.curr_poll_time += retry_delay;
-            future_spawner.spawn("resharding retry", {
-                let sender = self.sync_jobs_sender.clone();
-                async move {
-                    tokio::time::sleep(retry_delay.max(Duration::ZERO).unsigned_abs()).await;
-                    sender.send(resharding_request);
-                }
+            ctx.run_later("resharding retry", retry_delay, |act, ctx| {
+                act.handle_resharding_request(resharding_request, ctx)
             });
             return;
         }

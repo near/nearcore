@@ -1,5 +1,5 @@
-use near_async::messaging::{CanSend, Handler, Sender};
-use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
+use near_async::messaging::{Actor, CanSend, Handler, Sender};
+use near_async::{MultiSend, MultiSenderFrom};
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::Block;
@@ -20,6 +20,8 @@ pub struct StateSnapshotActor {
     tries: ShardTries,
     self_sender: StateSnapshotSenderForStateSnapshot,
 }
+
+impl Actor for StateSnapshotActor {}
 
 impl StateSnapshotActor {
     pub fn new(
@@ -82,18 +84,17 @@ impl StateSnapshotActor {
         }
         match res {
             Ok(res_shard_uids) => {
-                if let Some(res_shard_uids) = res_shard_uids {
-                    self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                        NetworkRequests::SnapshotHostInfo {
-                            sync_hash: prev_block_hash,
-                            epoch_height,
-                            shards: res_shard_uids
-                                .iter()
-                                .map(|uid| uid.shard_id as ShardId)
-                                .collect(),
-                        },
-                    ));
-                }
+                let Some(res_shard_uids) = res_shard_uids else {
+                    return;
+                };
+
+                self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::SnapshotHostInfo {
+                        sync_hash: prev_block_hash,
+                        epoch_height,
+                        shards: res_shard_uids.iter().map(|uid| uid.shard_id as ShardId).collect(),
+                    },
+                ));
             }
             Err(err) => {
                 tracing::error!(target: "state_snapshot", ?err, "State snapshot creation failed.\
@@ -118,14 +119,12 @@ impl Handler<CreateSnapshotRequest> for StateSnapshotActor {
     }
 }
 
-#[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
-#[multi_send_message_derive(Debug)]
+#[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct StateSnapshotSenderForStateSnapshot {
     create_snapshot: Sender<CreateSnapshotRequest>,
 }
 
-#[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
-#[multi_send_message_derive(Debug)]
+#[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct StateSnapshotSenderForClient(Sender<DeleteAndMaybeCreateSnapshotRequest>);
 
 type MakeSnapshotCallback =

@@ -1,5 +1,5 @@
 pub use self::iterator::TrieUpdateIterator;
-use super::{OptimizedValueRef, Trie};
+use super::{OptimizedValueRef, Trie, TrieWithReadLock};
 use crate::trie::{KeyLookupMode, TrieChanges};
 use crate::{StorageError, TrieStorage};
 use near_primitives::hash::CryptoHash;
@@ -172,10 +172,18 @@ impl TrieUpdate {
     }
 
     pub fn remove(&mut self, trie_key: TrieKey) {
-        self.prospective.insert(trie_key.to_vec(), TrieKeyValueUpdate { trie_key, value: None });
+        // We count removals performed by the contracts and charge extra for them.
+        // A malicious contract could generate a lot of storage proof by a removal,
+        // charging extra provides a safe upper bound. (https://github.com/near/nearcore/issues/10890)
+        // This only applies to removals performed by the contracts. Removals performed
+        // by the runtime are assumed to be non-malicious and we don't charge extra for them.
         if let Some(recorder) = &self.trie.recorder {
-            recorder.borrow_mut().record_removal();
+            if matches!(trie_key, TrieKey::ContractData { .. }) {
+                recorder.borrow_mut().record_removal();
+            }
         }
+
+        self.prospective.insert(trie_key.to_vec(), TrieKeyValueUpdate { trie_key, value: None });
     }
 
     pub fn commit(&mut self, event: StateChangeCause) {
@@ -238,7 +246,15 @@ impl TrieUpdate {
 
     /// Returns Error if the underlying storage fails
     pub fn iter(&self, key_prefix: &[u8]) -> Result<TrieUpdateIterator<'_>, StorageError> {
-        TrieUpdateIterator::new(self, key_prefix)
+        TrieUpdateIterator::new(self, key_prefix, None)
+    }
+
+    pub fn locked_iter<'a>(
+        &'a self,
+        key_prefix: &[u8],
+        lock: &'a TrieWithReadLock<'_>,
+    ) -> Result<TrieUpdateIterator<'a>, StorageError> {
+        TrieUpdateIterator::new(self, key_prefix, Some(lock))
     }
 
     pub fn get_root(&self) -> &StateRoot {

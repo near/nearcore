@@ -1,234 +1,19 @@
-pub mod client_actions;
-pub mod partial_witness_actor;
-pub mod sync_actor;
-pub mod sync_jobs_actor;
+use std::sync::{Arc, Mutex};
 
-use crate::client_actions::{
-    ClientActionHandler, ClientActions, ClientSenderForPartialWitnessMessage,
-};
-use near_async::messaging::{CanSend, SendAsync};
-use near_async::test_loop::delay_sender::DelaySender;
-use near_async::test_loop::event_handler::{LoopEventHandler, TryIntoOrSelf};
-
-use near_async::time::Duration;
-
-use crate::Client;
-use near_network::client::{
-    BlockApproval, BlockResponse, ChunkEndorsementMessage, ChunkStateWitnessMessage,
-    ClientSenderForNetwork, ClientSenderForNetworkMessage, ProcessTxRequest,
-};
-use near_network::state_witness::{
-    ChunkStateWitnessAckMessage, PartialEncodedStateWitnessForwardMessage,
-    PartialEncodedStateWitnessMessage, PartialWitnessSenderForNetwork,
-    PartialWitnessSenderForNetworkMessage,
-};
-use near_network::test_loop::SupportsRoutingLookup;
-use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
+use near_async::messaging::{IntoSender, LateBoundSender, Sender};
+use near_async::test_loop::data::TestLoopData;
+use near_async::test_loop::pending_events_sender::PendingEventsSender;
+use near_network::types::PeerManagerMessageRequest;
 use near_primitives::hash::CryptoHash;
-use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, Balance, ShardId};
 use near_primitives::views::{
     FinalExecutionOutcomeView, QueryRequest, QueryResponse, QueryResponseKind,
 };
+use near_store::ShardUId;
 
-pub fn print_basic_client_info_before_each_event<Data, Event>(
-    idx: Option<usize>,
-) -> LoopEventHandler<Data, Event>
-where
-    Data: AsRef<ClientActions>,
-{
-    let idx_prefix = idx.map(|idx| format!("[Client #{}] ", idx)).unwrap_or_default();
-
-    LoopEventHandler::new(move |msg, data: &mut Data| {
-        let client = &data.as_ref().client;
-        tracing::info!("{}sync_status: {:?}", idx_prefix, client.sync_status);
-        let head = client.chain.head().unwrap();
-        tracing::info!("{}Chain HEAD: {:?}", idx_prefix, head);
-
-        if let Some(signer) = client.validator_signer.as_ref() {
-            let account_id = signer.validator_id();
-
-            let mut tracked_shards = Vec::new();
-            let mut next_tracked_shards = Vec::new();
-            let epoch_manager = client.epoch_manager.as_ref();
-            for shard_id in &epoch_manager.shard_ids(&head.epoch_id).unwrap() {
-                let tracks_shard = client
-                    .epoch_manager
-                    .cares_about_shard_from_prev_block(&head.prev_block_hash, account_id, *shard_id)
-                    .unwrap();
-                if tracks_shard {
-                    tracked_shards.push(*shard_id);
-                }
-                let next_tracks_shard = client
-                    .epoch_manager
-                    .cares_about_shard_next_epoch_from_prev_block(
-                        &head.prev_block_hash,
-                        account_id,
-                        *shard_id,
-                    )
-                    .unwrap();
-                if next_tracks_shard {
-                    next_tracked_shards.push(*shard_id);
-                }
-            }
-            tracing::info!(
-                "{}Validator assigned shards: this epoch = {:?}; next epoch = {:?}",
-                idx_prefix,
-                tracked_shards,
-                next_tracked_shards
-            );
-
-            tracing::info!("{}Tx pool: {}", idx_prefix, client.sharded_tx_pool.debug_status());
-        }
-        Err(msg)
-    })
-}
-
-/// Handles outgoing network messages, and turns them into incoming client messages.
-pub fn route_network_messages_to_client<
-    Data: SupportsRoutingLookup,
-    Event: TryIntoOrSelf<PeerManagerMessageRequest>
-        + From<PeerManagerMessageRequest>
-        + From<ClientSenderForNetworkMessage>
-        + From<PartialWitnessSenderForNetworkMessage>,
->(
-    sender: DelaySender<(usize, Event)>,
-    network_delay: Duration,
-) -> LoopEventHandler<Data, (usize, Event)> {
-    // let mut route_back_lookup: HashMap<CryptoHash, usize> = HashMap::new();
-    // let mut next_hash: u64 = 0;
-    LoopEventHandler::new(move |event: (usize, Event), data: &mut Data| {
-        let (idx, event) = event;
-        let message = event.try_into_or_self().map_err(|event| (idx, event.into()))?;
-        let PeerManagerMessageRequest::NetworkRequests(request) = message else {
-            return Err((idx, message.into()));
-        };
-
-        let client_senders = (0..data.num_accounts())
-            .map(|idx| {
-                sender
-                    .with_additional_delay(network_delay)
-                    .for_index(idx)
-                    .into_wrapped_multi_sender::<ClientSenderForNetworkMessage, ClientSenderForNetwork>()
-            })
-            .collect::<Vec<_>>();
-
-        let state_witness_senders = (0..data.num_accounts())
-            .map(|idx| {
-                sender
-                    .with_additional_delay(network_delay)
-                    .for_index(idx)
-                    .into_wrapped_multi_sender::<PartialWitnessSenderForNetworkMessage, PartialWitnessSenderForNetwork>()
-            })
-            .collect::<Vec<_>>();
-
-        match request {
-            NetworkRequests::Block { block } => {
-                for other_idx in 0..data.num_accounts() {
-                    if other_idx != idx {
-                        drop(client_senders[other_idx].send_async(BlockResponse {
-                            block: block.clone(),
-                            peer_id: PeerId::random(),
-                            was_requested: false,
-                        }));
-                    }
-                }
-            }
-            NetworkRequests::Approval { approval_message } => {
-                let other_idx = data.index_for_account(&approval_message.target);
-                if other_idx != idx {
-                    drop(
-                        client_senders[other_idx]
-                            .send_async(BlockApproval(approval_message.approval, PeerId::random())),
-                    );
-                } else {
-                    tracing::warn!("Dropping message to self");
-                }
-            }
-            NetworkRequests::ForwardTx(account, transaction) => {
-                let other_idx = data.index_for_account(&account);
-                if other_idx != idx {
-                    drop(client_senders[other_idx].send_async(ProcessTxRequest {
-                        transaction,
-                        is_forwarded: true,
-                        check_only: false,
-                    }))
-                } else {
-                    tracing::warn!("Dropping message to self");
-                }
-            }
-            NetworkRequests::ChunkEndorsement(target, endorsement) => {
-                let other_idx = data.index_for_account(&target);
-                if other_idx != idx {
-                    drop(
-                        client_senders[other_idx].send_async(ChunkEndorsementMessage(endorsement)),
-                    );
-                } else {
-                    tracing::warn!("Dropping message to self");
-                }
-            }
-            NetworkRequests::ChunkStateWitness(targets, witness) => {
-                let other_idxes = targets
-                    .iter()
-                    .map(|account| data.index_for_account(account))
-                    .collect::<Vec<_>>();
-                for other_idx in &other_idxes {
-                    if *other_idx != idx {
-                        drop(
-                            client_senders[*other_idx]
-                                .send_async(ChunkStateWitnessMessage(witness.clone())),
-                        );
-                    } else {
-                        tracing::warn!(
-                                "ChunkStateWitness asked to send to nodes {:?}, but {} is ourselves, so skipping that",
-                                other_idxes, idx);
-                    }
-                }
-            }
-            NetworkRequests::ChunkStateWitnessAck(target, witness_ack) => {
-                let other_idx = data.index_for_account(&target);
-                if other_idx != idx {
-                    state_witness_senders[other_idx].send(ChunkStateWitnessAckMessage(witness_ack));
-                } else {
-                    tracing::warn!("Dropping state-witness-ack message to self");
-                }
-            }
-            NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple) => {
-                for (target, partial_witness) in validator_witness_tuple.into_iter() {
-                    let other_idx = data.index_for_account(&target);
-                    if other_idx != idx {
-                        state_witness_senders[other_idx]
-                            .send(PartialEncodedStateWitnessMessage(partial_witness));
-                    } else {
-                        tracing::warn!("Dropping state-witness message to self");
-                    }
-                }
-            }
-            NetworkRequests::PartialEncodedStateWitnessForward(
-                chunk_validators,
-                partial_witness,
-            ) => {
-                for target in chunk_validators {
-                    let other_idx = data.index_for_account(&target);
-                    if other_idx != idx {
-                        state_witness_senders[other_idx].send(
-                            PartialEncodedStateWitnessForwardMessage(partial_witness.clone()),
-                        );
-                    } else {
-                        tracing::warn!("Dropping state-witness-forward message to self");
-                    }
-                }
-            }
-            NetworkRequests::SnapshotHostInfo { .. } => {
-                // TODO: what to do about this?
-            }
-            // TODO: Support more network message types as we expand the test.
-            _ => return Err((idx, PeerManagerMessageRequest::NetworkRequests(request).into())),
-        }
-
-        Ok(())
-    })
-}
+use crate::sync::adapter::SyncActorHandler;
+use crate::sync::sync_actor::SyncActor;
+use crate::{Client, SyncMessage};
 
 // TODO: This would be a good starting point for turning this into a test util.
 pub trait ClientQueries {
@@ -240,7 +25,10 @@ pub trait ClientQueries {
     fn tracked_shards_for_each_client(&self) -> Vec<Vec<ShardId>>;
 }
 
-impl<Data: AsRef<Client> + AsRef<AccountId>> ClientQueries for Vec<Data> {
+impl<Data> ClientQueries for Vec<Data>
+where
+    Data: AsRef<Client>,
+{
     fn client_index_tracking_account(&self, account_id: &AccountId) -> usize {
         let client: &Client = self[0].as_ref();
         let head = client.chain.head().unwrap();
@@ -249,13 +37,11 @@ impl<Data: AsRef<Client> + AsRef<AccountId>> ClientQueries for Vec<Data> {
 
         for i in 0..self.len() {
             let client: &Client = self[i].as_ref();
+            let validator_signer = client.validator_signer.get().unwrap();
+            let account_id = validator_signer.validator_id();
             let tracks_shard = client
                 .epoch_manager
-                .cares_about_shard_from_prev_block(
-                    &head.prev_block_hash,
-                    &self[i].as_ref(),
-                    shard_id,
-                )
+                .cares_about_shard_from_prev_block(&head.prev_block_hash, account_id, shard_id)
                 .unwrap();
             if tracks_shard {
                 return i;
@@ -331,15 +117,13 @@ impl<Data: AsRef<Client> + AsRef<AccountId>> ClientQueries for Vec<Data> {
         let mut ret = Vec::new();
         for i in 0..self.len() {
             let client: &Client = self[i].as_ref();
+            let validator_signer = client.validator_signer.get().unwrap();
+            let account_id = validator_signer.validator_id();
             let mut tracked_shards = Vec::new();
             for shard_id in &all_shard_ids {
                 let tracks_shard = client
                     .epoch_manager
-                    .cares_about_shard_from_prev_block(
-                        &head.prev_block_hash,
-                        &self[i].as_ref(),
-                        *shard_id,
-                    )
+                    .cares_about_shard_from_prev_block(&head.prev_block_hash, account_id, *shard_id)
                     .unwrap();
                 if tracks_shard {
                     tracked_shards.push(*shard_id);
@@ -351,11 +135,30 @@ impl<Data: AsRef<Client> + AsRef<AccountId>> ClientQueries for Vec<Data> {
     }
 }
 
-pub fn forward_messages_from_partial_witness_actor_to_client(
-) -> LoopEventHandler<ClientActions, ClientSenderForPartialWitnessMessage> {
-    LoopEventHandler::new_simple(|msg, client_actions: &mut ClientActions| match msg {
-        ClientSenderForPartialWitnessMessage::_receive_chunk_state_witness(msg) => {
-            client_actions.handle(msg)
+pub fn test_loop_sync_actor_maker(
+    index: usize,
+    sender: PendingEventsSender,
+) -> Arc<
+    dyn Fn(ShardUId, Sender<SyncMessage>, Sender<PeerManagerMessageRequest>) -> SyncActorHandler
+        + Send
+        + Sync,
+> {
+    // This is a closure that will be called by SyncAdapter to create SyncActor.
+    // Since we don't have too much control over when the closure is called, we need to use the CallbackEvent
+    // to register the SyncActor in the TestLoopData.
+    // TestLoop and TestLoopData can not cross the closure boundary and be moved while the PendingEventsSender can.
+    Arc::new(move |shard_uid, client_sender, network_sender| {
+        let sync_actor = SyncActor::new(shard_uid, client_sender, network_sender);
+        let sync_actor_adapter = LateBoundSender::new();
+        let sync_actor_adapter_clone = sync_actor_adapter.clone();
+        let callback = move |data: &mut TestLoopData| {
+            data.register_actor_for_index(index, sync_actor, Some(sync_actor_adapter));
+        };
+        sender.send(format!("Register SyncActor {:?}", shard_uid), Box::new(callback));
+        SyncActorHandler {
+            client_sender: sync_actor_adapter_clone.as_sender(),
+            network_sender: sync_actor_adapter_clone.as_sender(),
+            shutdown: Mutex::new(Box::new(move || {})),
         }
     })
 }
