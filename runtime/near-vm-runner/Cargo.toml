@@ -28,7 +28,7 @@ once_cell.workspace = true
 parity-wasm.workspace = true
 prefix-sum-vec.workspace = true
 ripemd.workspace = true
-rustix = { workspace = true, features = ["fs"] }
+rustix = { workspace = true, features = ["fs"], optional = true }
 serde_repr.workspace = true
 serde_with.workspace = true
 serde.workspace = true
@@ -86,10 +86,12 @@ nightly_protocol = [
   "near-parameters/nightly_protocol",
   "near-primitives-core/nightly_protocol",
 ]
+
+
 # all vms enabled for now
 default = []
-wasmer0_vm = ["wasmer-runtime", "wasmer-runtime-core"]
-wasmtime_vm = ["wasmtime", "anyhow"]
+wasmer0_vm = ["wasmer-runtime", "wasmer-runtime-core", "filesystem_cache"]
+wasmtime_vm = ["wasmtime", "anyhow", "filesystem_cache"]
 wasmer2_vm = [
   "wasmer-compiler",
   "wasmer-compiler-singlepass",
@@ -97,6 +99,7 @@ wasmer2_vm = [
   "wasmer-engine-universal",
   "wasmer-types",
   "wasmer-vm",
+  "filesystem_cache",
 ]
 near_vm = [
   "near-vm-compiler",
@@ -104,7 +107,10 @@ near_vm = [
   "near-vm-engine",
   "near-vm-types",
   "near-vm-vm",
+  "filesystem_cache",
 ]
+
+filesystem_cache = ["rustix"]
 
 no_cpu_compatibility_checks = []
 
