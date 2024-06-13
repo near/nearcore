@@ -351,7 +351,7 @@ fn test_client_with_multi_test_loop() {
         );
         *balances.get_mut(&accounts[i]).unwrap() -= amount;
         *balances.get_mut(&accounts[(i + 1) % accounts.len()]).unwrap() += amount;
-        let _ = node_datas[i % NUM_CLIENTS]
+        let future = node_datas[i % NUM_CLIENTS]
             .client_sender
             .clone()
             .with_delay(Duration::milliseconds(300 * i as i64))
@@ -360,6 +360,7 @@ fn test_client_with_multi_test_loop() {
                 is_forwarded: false,
                 check_only: false,
             });
+        drop(future);
     }
 
     // Give plenty of time for these transactions to complete.
