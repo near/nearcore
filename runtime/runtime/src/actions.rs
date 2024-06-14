@@ -136,7 +136,7 @@ pub(crate) fn execute_function_call(
             return Ok(VMOutcome::nop_outcome(error));
         }
         Err(VMRunnerError::GetContract(GetContractError::StorageError(e))) => {
-            let error = e.downcast().expect("downcast to a storage error");
+            let error = e.downcast::<StorageError>().expect("downcast to a storage error");
             return Err(RuntimeError::StorageError(*error));
         }
         Err(VMRunnerError::ExternalError(any_err)) => {
