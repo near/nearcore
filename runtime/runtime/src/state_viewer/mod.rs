@@ -1,4 +1,5 @@
 use crate::actions::execute_function_call;
+use crate::conversions::Convert;
 use crate::ext::RuntimeExt;
 use crate::receipt_manager::ReceiptManager;
 use crate::ApplyState;
@@ -203,7 +204,7 @@ impl TrieViewer {
             random_seed: root,
             current_protocol_version: view_state.current_protocol_version,
             config: config.clone(),
-            cache: view_state.cache,
+            cache: view_state.cache.map(|c| Convert::convert(c)),
             is_new_chunk: false,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),

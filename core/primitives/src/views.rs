@@ -13,6 +13,7 @@ use crate::block_header::{
 use crate::block_header::{BlockHeaderInnerRestV4, BlockHeaderV4};
 use crate::challenge::{Challenge, ChallengesResult};
 use crate::checked_feature;
+use crate::compiled_contract::ContractRuntimeCache;
 use crate::congestion_info::{CongestionInfo, CongestionInfoV1};
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
@@ -103,7 +104,7 @@ pub struct ViewApplyState {
     /// Current Protocol version when we apply the state transition
     pub current_protocol_version: ProtocolVersion,
     /// Cache for compiled contracts.
-    pub cache: Option<Box<dyn near_vm_runner::ContractRuntimeCache>>,
+    pub cache: Option<Box<dyn ContractRuntimeCache>>,
 }
 
 impl From<&Account> for AccountView {
@@ -2521,8 +2522,8 @@ impl CongestionInfoView {
 mod tests {
     use super::ExecutionMetadataView;
     use crate::profile_data_v2::ProfileDataV2;
+    use crate::profile_data_v3::ProfileDataV3;
     use crate::transaction::ExecutionMetadata;
-    use near_vm_runner::ProfileDataV3;
 
     /// The JSON representation used in RPC responses must not remove or rename
     /// fields, only adding fields is allowed or we risk breaking clients.

@@ -22,7 +22,7 @@ use near_primitives::views::{
 };
 use near_store::{ShardTries, TrieUpdate};
 use node_runtime::state_viewer::TrieViewer;
-use node_runtime::{ApplyState, Runtime};
+use node_runtime::{ApplyState, Convert, Runtime};
 
 use crate::user::{User, POISONED_LOCK_ERR};
 use near_primitives::shard_layout::ShardUId;
@@ -307,7 +307,7 @@ impl User for RuntimeUser {
             epoch_height: apply_state.epoch_height,
             block_timestamp: apply_state.block_timestamp,
             current_protocol_version: PROTOCOL_VERSION,
-            cache: apply_state.cache,
+            cache: apply_state.cache.map(Convert::convert_back),
         };
         result.result = self
             .trie_viewer

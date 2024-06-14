@@ -123,6 +123,24 @@ impl ContractRuntimeCache for Box<dyn ContractRuntimeCache> {
     }
 }
 
+impl ContractRuntimeCache for Arc<dyn ContractRuntimeCache> {
+    fn handle(&self) -> Box<dyn ContractRuntimeCache> {
+        <dyn ContractRuntimeCache>::handle(&**self)
+    }
+
+    fn put(&self, key: &CryptoHash, value: CompiledContractInfo) -> std::io::Result<()> {
+        <dyn ContractRuntimeCache>::put(&**self, key, value)
+    }
+
+    fn get(&self, key: &CryptoHash) -> std::io::Result<Option<CompiledContractInfo>> {
+        <dyn ContractRuntimeCache>::get(&**self, key)
+    }
+
+    fn has(&self, key: &CryptoHash) -> std::io::Result<bool> {
+        <dyn ContractRuntimeCache>::has(&**self, key)
+    }
+}
+
 impl<C: ContractRuntimeCache> ContractRuntimeCache for &C {
     fn handle(&self) -> Box<dyn ContractRuntimeCache> {
         <C as ContractRuntimeCache>::handle(self)

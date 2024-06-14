@@ -50,7 +50,7 @@ use near_vm_runner::{precompile_contract, ContractRuntimeCache, FilesystemContra
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{
-    validate_transaction, verify_and_charge_transaction, ApplyState, Runtime,
+    validate_transaction, verify_and_charge_transaction, ApplyState, Convert, Runtime,
     ValidatorAccountsUpdate,
 };
 use std::collections::HashMap;
@@ -1457,7 +1457,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             epoch_height,
             block_timestamp,
             current_protocol_version,
-            cache: Some(Box::new(self.compiled_contract_cache.handle())),
+            cache: Some(Convert::convert_back(self.compiled_contract_cache.handle())),
         };
         self.trie_viewer.call_function(
             state_update,
