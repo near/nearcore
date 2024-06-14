@@ -4610,7 +4610,6 @@ dependencies = [
  "hex",
  "insta",
  "itertools",
- "lru 0.12.3",
  "near-crypto",
  "near-fmt",
  "near-parameters",

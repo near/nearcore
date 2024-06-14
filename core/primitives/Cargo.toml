@@ -40,7 +40,6 @@ thiserror.workspace = true
 tracing.workspace = true
 zstd.workspace = true
 enum-map.workspace = true
-lru.workspace = true
 
 near-time.workspace = true
 near-crypto.workspace = true

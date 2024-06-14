@@ -13,7 +13,6 @@ use crate::block_header::{
 use crate::block_header::{BlockHeaderInnerRestV4, BlockHeaderV4};
 use crate::challenge::{Challenge, ChallengesResult};
 use crate::checked_feature;
-use crate::compiled_contract::ContractRuntimeCache;
 use crate::congestion_info::{CongestionInfo, CongestionInfoV1};
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
@@ -82,29 +81,6 @@ pub struct ContractCodeView {
     #[serde_as(as = "Base64")]
     pub code: Vec<u8>,
     pub hash: CryptoHash,
-}
-
-/// State for the view call.
-#[derive(Debug)]
-pub struct ViewApplyState {
-    /// Currently building block height.
-    pub block_height: BlockHeight,
-    /// Prev block hash
-    pub prev_block_hash: CryptoHash,
-    /// Currently building block hash
-    pub block_hash: CryptoHash,
-    /// To which shard the applied chunk belongs.
-    pub shard_id: ShardId,
-    /// Current epoch id
-    pub epoch_id: EpochId,
-    /// Current epoch height
-    pub epoch_height: EpochHeight,
-    /// The current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
-    pub block_timestamp: u64,
-    /// Current Protocol version when we apply the state transition
-    pub current_protocol_version: ProtocolVersion,
-    /// Cache for compiled contracts.
-    pub cache: Option<Box<dyn ContractRuntimeCache>>,
 }
 
 impl From<&Account> for AccountView {

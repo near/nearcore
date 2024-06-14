@@ -13,7 +13,6 @@ pub use crate::verifier::{
 use config::total_prepaid_send_fees;
 pub use congestion_control::bootstrap_congestion_info;
 use congestion_control::ReceiptSink;
-pub use conversions::Convert;
 use metrics::ApplyMetrics;
 pub use near_crypto;
 use near_parameters::{ActionCosts, RuntimeConfig};
@@ -880,9 +879,9 @@ impl Runtime {
                 compute_usage: Some(result.compute_usage),
                 tokens_burnt,
                 executor_id: account_id.clone(),
-                metadata: ExecutionMetadata::V3(Box::new(
-                    near_primitives::profile_data_v3::ProfileDataV3::convert(*result.profile),
-                )),
+                metadata: ExecutionMetadata::V3(Box::new(conversions::Convert::convert(
+                    *result.profile,
+                ))),
             },
         })
     }
