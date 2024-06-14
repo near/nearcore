@@ -1,4 +1,4 @@
-use crate::logic::dependencies::{GetContractError, Result, TrieNodesCount};
+use crate::logic::dependencies::{Result, TrieNodesCount};
 use crate::logic::types::ReceiptIndex;
 use crate::logic::{External, StorageGetMode, ValuePtr};
 use crate::ContractCode;
@@ -325,7 +325,7 @@ impl External for MockedExternal {
         self.code_hash
     }
 
-    fn get_contract(&self) -> Result<Option<Arc<ContractCode>>, GetContractError> {
-        Ok(self.code.clone())
+    fn get_contract(&self) -> Option<Arc<ContractCode>> {
+        self.code.clone()
     }
 }

@@ -14,7 +14,7 @@ mod utils;
 mod vmstate;
 
 pub use context::VMContext;
-pub use dependencies::{External, MemSlice, MemoryLike, TrieNodesCount, ValuePtr, GetContractError};
+pub use dependencies::{External, MemSlice, MemoryLike, TrieNodesCount, ValuePtr};
 pub use errors::{HostError, VMLogicError};
 pub use gas_counter::with_ext_cost_counter;
 pub use logic::{VMLogic, VMOutcome};

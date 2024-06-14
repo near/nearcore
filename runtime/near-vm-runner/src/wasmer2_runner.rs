@@ -571,7 +571,7 @@ impl crate::runner::VM for Wasmer2VM {
         promise_results: &[PromiseResult],
         cache: Option<&dyn ContractRuntimeCache>,
     ) -> Result<VMOutcome, VMRunnerError> {
-        let Some(code) = ext.get_contract().map_err(|err| VMRunnerError::GetContract(err))? else {
+        let Some(code) = ext.get_contract() else {
             return Err(VMRunnerError::ContractCodeNotPresent);
         };
         let mut memory = Wasmer2Memory::new(

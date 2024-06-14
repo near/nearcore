@@ -239,9 +239,7 @@ impl NearVM {
                 let key = get_contract_cache_key(code_hash, &self.config);
                 let cache_record = cache.get(&key).map_err(CacheError::ReadError)?;
                 let Some(compiled_contract_info) = cache_record else {
-                    let Some(code) =
-                        ext.get_contract().map_err(|err| VMRunnerError::GetContract(err))?
-                    else {
+                    let Some(code) = ext.get_contract() else {
                         return Err(VMRunnerError::ContractCodeNotPresent);
                     };
                     let _span =

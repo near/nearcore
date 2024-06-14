@@ -29,8 +29,6 @@ pub enum VMRunnerError {
     Nondeterministic(String),
     #[error("unknown error during contract execution: {debug_message}")]
     WasmUnknownError { debug_message: String },
-    #[error("could not load the contract from the storage")]
-    GetContract(#[source] super::GetContractError),
     #[error("account has no associated contract code")]
     ContractCodeNotPresent,
 }

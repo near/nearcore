@@ -12,7 +12,7 @@ use near_primitives::version::ProtocolVersion;
 use near_store::{has_promise_yield_receipt, KeyLookupMode, TrieUpdate, TrieUpdateValuePtr};
 use near_vm_runner::logic::errors::{AnyError, VMLogicError};
 use near_vm_runner::logic::types::ReceiptIndex;
-use near_vm_runner::logic::{External, StorageGetMode, ValuePtr, GetContractError};
+use near_vm_runner::logic::{External, StorageGetMode, ValuePtr};
 use near_vm_runner::ContractCode;
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
 use std::sync::Arc;
@@ -368,7 +368,7 @@ impl<'a> External for RuntimeExt<'a> {
         self.account.code_hash()
     }
 
-    fn get_contract(&self) -> Result<Option<Arc<ContractCode>>, GetContractError> {
+    fn get_contract(&self) -> Option<Arc<ContractCode>> {
         let account_id = self.account_id();
         let code_hash = self.code_hash();
         if checked_feature!("stable", EthImplicitAccounts, self.current_protocol_version)
@@ -376,7 +376,7 @@ impl<'a> External for RuntimeExt<'a> {
         {
             let chain_id = self.chain_id();
             assert!(&code_hash == wallet_contract_magic_bytes(&chain_id).hash());
-            return Ok(Some(wallet_contract(&chain_id)));
+            return Some(wallet_contract(&chain_id));
         }
         if checked_feature!("stable", ChunkNodesCache, self.current_protocol_version) {
             self.trie_update.set_trie_cache_mode(TrieCacheMode::CachingShard);
@@ -387,6 +387,6 @@ impl<'a> External for RuntimeExt<'a> {
         if checked_feature!("stable", ChunkNodesCache, self.current_protocol_version) {
             self.trie_update.set_trie_cache_mode(TrieCacheMode::CachingChunk);
         }
-        Ok(contract)
+        contract
     }
 }

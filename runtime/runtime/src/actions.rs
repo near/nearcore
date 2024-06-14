@@ -39,7 +39,7 @@ use near_vm_runner::logic::errors::{
     CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
 };
 use near_vm_runner::logic::types::PromiseResult;
-use near_vm_runner::logic::{GetContractError, VMContext, VMOutcome};
+use near_vm_runner::logic::{VMContext, VMOutcome};
 use near_vm_runner::precompile_contract;
 use near_vm_runner::ContractCode;
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
@@ -128,31 +128,27 @@ pub(crate) fn execute_function_call(
     // than leaking the exact details further up.
     // Note that this does not include errors caused by user code / input, those are
     // stored in outcome.aborted.
-    let outcome = match result {
+    let mut outcome = match result {
         Err(VMRunnerError::ContractCodeNotPresent) => {
             let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
                 account_id: account_id.as_str().into(),
             });
             return Ok(VMOutcome::nop_outcome(error));
         }
-        Err(VMRunnerError::GetContract(GetContractError::StorageError(e))) => {
-            let error = e.downcast::<StorageError>().expect("downcast to a storage error");
-            return Err(RuntimeError::StorageError(*error));
-        }
         Err(VMRunnerError::ExternalError(any_err)) => {
             let err: ExternalError =
                 any_err.downcast().expect("Downcasting AnyError should not fail");
-            Err(match err {
+            return Err(match err {
                 ExternalError::StorageError(err) => err.into(),
                 ExternalError::ValidatorError(err) => RuntimeError::ValidatorError(err),
-            })
+            });
         }
         Err(VMRunnerError::InconsistentStateError(
             err @ InconsistentStateError::IntegerOverflow,
-        )) => Err(StorageError::StorageInconsistentState(err.to_string()).into()),
+        )) => return Err(StorageError::StorageInconsistentState(err.to_string()).into()),
         Err(VMRunnerError::CacheError(err)) => {
             metrics::FUNCTION_CALL_PROCESSED_CACHE_ERRORS.with_label_values(&[(&err).into()]).inc();
-            Err(StorageError::StorageInconsistentState(err.to_string()).into())
+            return Err(StorageError::StorageInconsistentState(err.to_string()).into());
         }
         Err(VMRunnerError::LoadingError(msg)) => {
             panic!("Contract runtime failed to load a contrct: {msg}")
@@ -163,7 +159,7 @@ pub(crate) fn execute_function_call(
         Err(VMRunnerError::WasmUnknownError { debug_message }) => {
             panic!("Wasmer returned unknown message: {}", debug_message)
         }
-        r => r,
+        Ok(r) => r,
     };
 
     if !view_config.is_some() {
