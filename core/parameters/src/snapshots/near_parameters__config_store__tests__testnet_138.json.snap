@@ -240,7 +240,7 @@ expression: config_view
   },
   "witness_config": {
     "main_storage_proof_size_soft_limit": 3000000,
-    "combined_transactions_size_limit": 2097152,
+    "combined_transactions_size_limit": 4194304,
     "new_transactions_validation_state_size_soft_limit": 572864
   }
 }

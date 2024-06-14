@@ -43,6 +43,7 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (85, include_config!("85.yaml")),
     // Congestion Control & State Witness size limit
     (87, include_config!("87.yaml")),
+    (90, include_config!("90.yaml")),
     (129, include_config!("129.yaml")),
     // Introduce ETH-implicit accounts.
     (138, include_config!("138.yaml")),
