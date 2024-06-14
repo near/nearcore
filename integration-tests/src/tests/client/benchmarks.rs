@@ -10,7 +10,7 @@ use near_client::{ProcessTxResponse, ProduceChunkResult};
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::checked_feature;
 use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 /// How long does it take to produce a large chunk?
@@ -56,14 +56,20 @@ fn benchmark_large_chunk_production_time() {
     let ProduceChunkResult { chunk, .. } = create_chunk_on_height(&mut env.clients[0], 0);
     let time = t.elapsed();
 
+    let decoded_chunk = chunk.decode_chunk(0).unwrap();
+
     let size = borsh::object_length(&chunk).unwrap();
     eprintln!("chunk size: {}kb", size / 1024);
     eprintln!("time to produce: {:0.2?}", time);
 
     // Check that we limit the size of the chunk and not include all `n_txes`
     // transactions in the chunk.
-    if checked_feature!("stable", WitnessTransactionLimits, PROTOCOL_VERSION) {
+    if ProtocolFeature::BiggerCombinedTransactionLimit.enabled(PROTOCOL_VERSION) {
+        assert!(6 * mb < size && size < 8 * mb, "{size}");
+        assert_eq!(decoded_chunk.transactions().len(), 7); // 4MiB limit allows for 7 x 0.5MiB transactions
+    } else if ProtocolFeature::WitnessTransactionLimits.enabled(PROTOCOL_VERSION) {
         assert!(2 * mb < size && size < 4 * mb, "{size}");
+        assert_eq!(decoded_chunk.transactions().len(), 3); // 2MiB limit allows for 3 x 0.5MiB transactions
     } else {
         assert!(30 * mb < size && size < 40 * mb, "{size}");
     }
