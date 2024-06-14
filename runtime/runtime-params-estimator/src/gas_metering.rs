@@ -138,7 +138,7 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     let runtime = vm_kind.runtime(vm_config_gas).expect("runtime has not been enabled");
     let runtime_free_gas = vm_kind.runtime(vm_config_free).expect("runtime has not been enabled");
     let fees = runtime_config.fees.clone();
-    let mut fake_external = MockedExternal::with_code(contract.clone());
+    let mut fake_external = MockedExternal::with_code(contract.clone_for_tests());
     let fake_context = create_context(vec![]);
     let promise_results = vec![];
 

@@ -18,7 +18,7 @@ libfuzzer_sys::fuzz_target!(|module: ArbitraryModule| {
 });
 
 fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMOutcome {
-    let mut fake_external = MockedExternal::with_code(code.clone());
+    let mut fake_external = MockedExternal::with_code(code.clone_for_tests());
     let mut context = create_context(vec![]);
     context.prepaid_gas = 10u64.pow(14);
     let config_store = RuntimeConfigStore::new(None);
@@ -32,7 +32,6 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMOutcome {
 
     let method_name = find_entry_point(code).unwrap_or_else(|| "main".to_string());
     let res = vm_kind.runtime(wasm_config).unwrap().run(
-        Some(&code),
         &method_name,
         &mut fake_external,
         &context,
