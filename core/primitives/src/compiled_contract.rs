@@ -1,9 +1,5 @@
 use core::fmt;
-use std::{
-    any::Any,
-    num::NonZeroUsize,
-    sync::{Arc, Mutex},
-};
+use std::{any::Any, num::NonZeroUsize, sync::Mutex};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::CryptoHash;
@@ -55,24 +51,6 @@ impl fmt::Debug for dyn ContractRuntimeCache {
 }
 
 impl ContractRuntimeCache for Box<dyn ContractRuntimeCache> {
-    fn handle(&self) -> Box<dyn ContractRuntimeCache> {
-        <dyn ContractRuntimeCache>::handle(&**self)
-    }
-
-    fn put(&self, key: &CryptoHash, value: CompiledContractInfo) -> std::io::Result<()> {
-        <dyn ContractRuntimeCache>::put(&**self, key, value)
-    }
-
-    fn get(&self, key: &CryptoHash) -> std::io::Result<Option<CompiledContractInfo>> {
-        <dyn ContractRuntimeCache>::get(&**self, key)
-    }
-
-    fn has(&self, key: &CryptoHash) -> std::io::Result<bool> {
-        <dyn ContractRuntimeCache>::has(&**self, key)
-    }
-}
-
-impl ContractRuntimeCache for Arc<dyn ContractRuntimeCache> {
     fn handle(&self) -> Box<dyn ContractRuntimeCache> {
         <dyn ContractRuntimeCache>::handle(&**self)
     }

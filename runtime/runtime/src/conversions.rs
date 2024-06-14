@@ -240,11 +240,11 @@ mod contract_runtime_cache {
 
     use crate::conversions::Convert;
 
-    pub struct WrapperA(pub Arc<dyn ContractRuntimeCacheA + 'static>);
-    pub struct WrapperB(pub Arc<dyn ContractRuntimeCacheB + 'static>);
+    pub struct WrapperA(pub Box<dyn ContractRuntimeCacheA + 'static>);
+    pub struct WrapperB(pub Box<dyn ContractRuntimeCacheB + 'static>);
 
     impl WrapperA {
-        pub fn to_contract_runtime_cache_b(&self) -> WrapperB {
+        pub fn to_contract_runtime_cache_b(self) -> WrapperB {
             struct ImplB(Arc<dyn ContractRuntimeCacheA + 'static>);
 
             impl ContractRuntimeCacheB for ImplB {
@@ -266,12 +266,12 @@ mod contract_runtime_cache {
                 }
             }
 
-            WrapperB(Arc::new(ImplB(Arc::clone(&self.0))))
+            WrapperB(Box::new(ImplB(self.0.into())))
         }
     }
 
     impl WrapperB {
-        pub fn to_contract_runtime_cache_a(&self) -> WrapperA {
+        pub fn to_contract_runtime_cache_a(self) -> WrapperA {
             struct ImplA(Arc<dyn ContractRuntimeCacheB + 'static>);
 
             impl ContractRuntimeCacheA for ImplA {
@@ -293,7 +293,7 @@ mod contract_runtime_cache {
                 }
             }
 
-            WrapperA(Arc::new(ImplA(Arc::clone(&self.0))))
+            WrapperA(Box::new(ImplA(self.0.into())))
         }
     }
 
