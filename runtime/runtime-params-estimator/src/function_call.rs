@@ -77,14 +77,7 @@ fn compute_function_call_cost(
     // Warmup.
     for _ in 0..warmup_repeats {
         let result = runtime
-            .run(
-                "hello0",
-                &mut fake_external,
-                &fake_context,
-                &fees,
-                &promise_results,
-                cache,
-            )
+            .run("hello0", &mut fake_external, &fake_context, &fees, &promise_results, cache)
             .expect("fatal error");
         assert!(result.aborted.is_none());
     }
@@ -92,14 +85,7 @@ fn compute_function_call_cost(
     let start = GasCost::measure(gas_metric);
     for _ in 0..repeats {
         let result = runtime
-            .run(
-                "hello0",
-                &mut fake_external,
-                &fake_context,
-                &fees,
-                &promise_results,
-                cache,
-            )
+            .run("hello0", &mut fake_external, &fake_context, &fees, &promise_results, cache)
             .expect("fatal_error");
         assert!(result.aborted.is_none());
     }

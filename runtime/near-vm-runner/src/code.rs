@@ -26,9 +26,6 @@ impl ContractCode {
     }
 
     pub fn clone_for_tests(&self) -> Self {
-        Self {
-            code: self.code.clone(),
-            hash: self.hash,
-        }
+        Self { code: self.code.clone(), hash: self.hash }
     }
 }

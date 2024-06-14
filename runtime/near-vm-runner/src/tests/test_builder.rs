@@ -224,14 +224,7 @@ impl TestBuilder {
                 };
                 println!("Running {:?} for protocol version {}", vm_kind, protocol_version);
                 let outcome = runtime
-                    .run(
-                        &self.method,
-                        &mut fake_external,
-                        &context,
-                        &fees,
-                        &promise_results,
-                        None,
-                    )
+                    .run(&self.method, &mut fake_external, &context, &fees, &promise_results, None)
                     .expect("execution failed");
 
                 let mut got = String::new();

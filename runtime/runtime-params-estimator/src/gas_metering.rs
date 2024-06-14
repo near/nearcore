@@ -145,14 +145,7 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     // Warmup with gas metering
     for _ in 0..warmup_repeats {
         let result = runtime
-            .run(
-                "hello",
-                &mut fake_external,
-                &fake_context,
-                &fees,
-                &promise_results,
-                cache,
-            )
+            .run("hello", &mut fake_external, &fake_context, &fees, &promise_results, cache)
             .expect("fatal_error");
         if let Some(err) = &result.aborted {
             eprintln!("error: {}", err);
@@ -164,14 +157,7 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     let start = GasCost::measure(gas_metric);
     for _ in 0..repeats {
         let result = runtime
-            .run(
-                "hello",
-                &mut fake_external,
-                &fake_context,
-                &fees,
-                &promise_results,
-                cache,
-            )
+            .run("hello", &mut fake_external, &fake_context, &fees, &promise_results, cache)
             .expect("fatal_error");
         assert!(result.aborted.is_none());
     }
@@ -180,14 +166,7 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     // Warmup without gas metering
     for _ in 0..warmup_repeats {
         let result = runtime_free_gas
-            .run(
-                "hello",
-                &mut fake_external,
-                &fake_context,
-                &fees,
-                &promise_results,
-                cache,
-            )
+            .run("hello", &mut fake_external, &fake_context, &fees, &promise_results, cache)
             .expect("fatal_error");
         assert!(result.aborted.is_none());
     }
@@ -196,14 +175,7 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     let start = GasCost::measure(gas_metric);
     for _ in 0..repeats {
         let result = runtime_free_gas
-            .run(
-                "hello",
-                &mut fake_external,
-                &fake_context,
-                &fees,
-                &promise_results,
-                cache,
-            )
+            .run("hello", &mut fake_external, &fake_context, &fees, &promise_results, cache)
             .expect("fatal_error");
         assert!(result.aborted.is_none());
     }

@@ -127,14 +127,7 @@ fn make_cached_contract_call_vm(
     let promise_results = vec![];
     context.prepaid_gas = prepaid_gas;
     let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
-    runtime.run(
-        method_name,
-        &mut fake_external,
-        &context,
-        &fees,
-        &promise_results,
-        Some(cache),
-    )
+    runtime.run(method_name, &mut fake_external, &context, &fees, &promise_results, Some(cache))
 }
 
 #[test]
