@@ -96,12 +96,11 @@ pub(crate) fn execute_function_call(
     // TODO (#5920): Consider using RAII for switching the state back
 
     let protocol_version = runtime_ext.protocol_version();
+    near_vm_runner::reset_metrics();
+
     if checked_feature!("stable", ChunkNodesCache, protocol_version) {
         runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingChunk);
     }
-
-    near_vm_runner::reset_metrics();
-
     let result = near_vm_runner::run(
         &function_call.method_name,
         runtime_ext,
@@ -111,7 +110,25 @@ pub(crate) fn execute_function_call(
         promise_results,
         apply_state.cache.as_deref(),
     );
-    let result = match result {
+    if checked_feature!("stable", ChunkNodesCache, protocol_version) {
+        runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingShard);
+    }
+
+    near_vm_runner::report_metrics(
+        &apply_state.shard_id.to_string(),
+        &apply_state
+            .apply_reason
+            .as_ref()
+            .map_or_else(|| String::from("unknown"), |r| r.to_string()),
+    );
+
+    // There are many specific errors that the runtime can encounter.
+    // Some can be translated to the more general `RuntimeError`, which allows to pass
+    // the error up to the caller. For all other cases, panicking here is better
+    // than leaking the exact details further up.
+    // Note that this does not include errors caused by user code / input, those are
+    // stored in outcome.aborted.
+    let outcome = match result {
         Err(VMRunnerError::ContractCodeNotPresent) => {
             let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
                 account_id: account_id.as_str().into(),
@@ -122,56 +139,32 @@ pub(crate) fn execute_function_call(
             let error = e.downcast().expect("downcast to a storage error");
             return Err(RuntimeError::StorageError(*error));
         }
-        r => r,
-    };
-
-    near_vm_runner::report_metrics(
-        &apply_state.shard_id.to_string(),
-        &apply_state
-            .apply_reason
-            .as_ref()
-            .map_or_else(|| String::from("unknown"), |r| r.to_string()),
-    );
-
-    if checked_feature!("stable", ChunkNodesCache, protocol_version) {
-        runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingShard);
-    }
-
-    // There are many specific errors that the runtime can encounter.
-    // Some can be translated to the more general `RuntimeError`, which allows to pass
-    // the error up to the caller. For all other cases, panicking here is better
-    // than leaking the exact details further up.
-    // Note that this does not include errors caused by user code / input, those are
-    // stored in outcome.aborted.
-    let mut outcome = result.map_err(|e| match e {
-        VMRunnerError::ExternalError(any_err) => {
+        Err(VMRunnerError::ExternalError(any_err)) => {
             let err: ExternalError =
                 any_err.downcast().expect("Downcasting AnyError should not fail");
-            match err {
+            Err(match err {
                 ExternalError::StorageError(err) => err.into(),
                 ExternalError::ValidatorError(err) => RuntimeError::ValidatorError(err),
-            }
+            })
         }
-        VMRunnerError::InconsistentStateError(err @ InconsistentStateError::IntegerOverflow) => {
-            StorageError::StorageInconsistentState(err.to_string()).into()
-        }
-        VMRunnerError::CacheError(err) => {
+        Err(VMRunnerError::InconsistentStateError(
+            err @ InconsistentStateError::IntegerOverflow,
+        )) => Err(StorageError::StorageInconsistentState(err.to_string()).into()),
+        Err(VMRunnerError::CacheError(err)) => {
             metrics::FUNCTION_CALL_PROCESSED_CACHE_ERRORS.with_label_values(&[(&err).into()]).inc();
-            StorageError::StorageInconsistentState(err.to_string()).into()
+            Err(StorageError::StorageInconsistentState(err.to_string()).into())
         }
-        VMRunnerError::LoadingError(msg) => {
+        Err(VMRunnerError::LoadingError(msg)) => {
             panic!("Contract runtime failed to load a contrct: {msg}")
         }
-        VMRunnerError::Nondeterministic(msg) => {
+        Err(VMRunnerError::Nondeterministic(msg)) => {
             panic!("Contract runner returned non-deterministic error '{}', aborting", msg)
         }
-        VMRunnerError::WasmUnknownError { debug_message } => {
+        Err(VMRunnerError::WasmUnknownError { debug_message }) => {
             panic!("Wasmer returned unknown message: {}", debug_message)
         }
-        VMRunnerError::GetContract(_) | VMRunnerError::ContractCodeNotPresent => {
-            unreachable!("handled above")
-        }
-    })?;
+        r => r,
+    };
 
     if !view_config.is_some() {
         let unused_gas = function_call.gas.saturating_sub(outcome.used_gas);
