@@ -71,6 +71,23 @@ pub mod col {
         (CONTRACT_DATA, "ContractData"),
         (PROMISE_YIELD_RECEIPT, "PromiseYieldReceipt"),
     ];
+
+    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 14] = [
+        (ACCOUNT, "Account"),
+        (CONTRACT_CODE, "ContractCode"),
+        (ACCESS_KEY, "AccessKey"),
+        (RECEIVED_DATA, "ReceivedData"),
+        (POSTPONED_RECEIPT_ID, "PostponedReceiptId"),
+        (PENDING_DATA_COUNT, "PendingDataCount"),
+        (POSTPONED_RECEIPT, "PostponedReceipt"),
+        (DELAYED_RECEIPT_OR_INDICES, "DelayedReceiptOrIndices"),
+        (CONTRACT_DATA, "ContractData"),
+        (PROMISE_YIELD_INDICES, "PromiseYieldIndices"),
+        (PROMISE_YIELD_TIMEOUT, "PromiseYieldTimeout"),
+        (PROMISE_YIELD_RECEIPT, "PromiseYieldReceipt"),
+        (BUFFERED_RECEIPT_INDICES, "BufferedReceiptIndices"),
+        (BUFFERED_RECEIPT, "BufferedReceipt"),
+    ];
 }
 
 /// Describes the key of a specific key-value record in a state trie.
