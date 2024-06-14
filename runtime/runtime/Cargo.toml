@@ -66,7 +66,7 @@ no_cache = [
   "near-store/no_cache",
 ]
 
-sandbox = ["near-vm-runner/sandbox"]
+sandbox = ["near-o11y/sandbox", "near-vm-runner/sandbox"]
 test_features = [
   "near-primitives/test_features",
   "near-vm-runner/test_features",

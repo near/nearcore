@@ -161,7 +161,12 @@ statelessnet_protocol = [
   "near-chain/statelessnet_protocol",
   "near-primitives/statelessnet_protocol",
 ]
-sandbox = ["near-chain/sandbox", "node-runtime/sandbox", "near-client/sandbox"]
+sandbox = [
+  "near-chain/sandbox",
+  "near-client/sandbox",
+  "near-o11y/sandbox",
+  "node-runtime/sandbox",
+]
 no_cache = ["nearcore/no_cache"]
 calimero_zero_storage = []
 new_epoch_sync = ["nearcore/new_epoch_sync"]

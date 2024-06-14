@@ -137,7 +137,7 @@ nightly = [
   "nightly_protocol",
   "protocol_feature_fix_contract_loading_cost",
 ]
-sandbox = []
+sandbox = ["near-o11y/sandbox"]
 io_trace = ["base64"]
 test_features = []
 

@@ -1,5 +1,3 @@
-#![cfg(feature = "new_epoch_sync")]
-
 use anyhow::Context;
 use clap;
 use near_chain::{ChainStore, ChainStoreAccess, ChainUpdate, DoomslugThresholdMode};
