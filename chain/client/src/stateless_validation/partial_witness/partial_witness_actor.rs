@@ -164,7 +164,8 @@ impl PartialWitnessActor {
         );
 
         // Break the state witness into parts using Reed Solomon encoding.
-        let encoder = self.encoders.entry(chunk_validators.len());
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let encoder = self.encoders.entry(chunk_validators.len(), protocol_version);
         let (parts, encoded_length) = encoder.encode(&witness_bytes);
 
         Ok(chunk_validators
@@ -355,8 +356,13 @@ impl PartialWitnessActor {
             )));
         }
 
-        let max_part_len =
-            witness_part_length(MAX_COMPRESSED_STATE_WITNESS_SIZE.as_u64() as usize, num_parts);
+        let protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(&partial_witness.epoch_id())?;
+        let max_part_len = witness_part_length(
+            MAX_COMPRESSED_STATE_WITNESS_SIZE.as_u64() as usize,
+            num_parts,
+            protocol_version,
+        );
         if partial_witness.part_size() > max_part_len {
             return Err(Error::InvalidPartialChunkStateWitness(format!(
                 "Part size {} exceed limit of {} (total parts: {})",
