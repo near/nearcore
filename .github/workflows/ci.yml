@@ -478,3 +478,22 @@ jobs:
           files: py-upgradability.json
           fail_ci_if_error: true
           flags: pytests,upgradability,linux
+  
+  public_libraries_compilation:
+    name: "${{matrix.name}} Public libraries compilation"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-22.04-16core
+          - name: Macos
+            os: macos-latest-xlarge
+          - name: Windows
+            os: windows-latest-xlarge
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      # Run the build for public facing libraries
+      - run: cargo build --release -p near-primitives -p near-crypto -p near-jsonrpc-primitives -p near-chain-configs -p near-primitives-core
