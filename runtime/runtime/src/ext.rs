@@ -18,7 +18,7 @@ use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
 use std::sync::Arc;
 
 pub struct RuntimeExt<'a> {
-    trie_update: &'a mut TrieUpdate,
+    pub(crate) trie_update: &'a mut TrieUpdate,
     pub(crate) receipt_manager: &'a mut ReceiptManager,
     account_id: &'a AccountId,
     account: &'a Account,
@@ -99,10 +99,6 @@ impl<'a> RuntimeExt<'a> {
 
     pub fn create_storage_key(&self, key: &[u8]) -> TrieKey {
         TrieKey::ContractData { account_id: self.account_id.clone(), key: key.to_vec() }
-    }
-
-    pub fn set_trie_cache_mode(&mut self, state: TrieCacheMode) {
-        self.trie_update.set_trie_cache_mode(state);
     }
 
     #[inline]
@@ -371,6 +367,7 @@ impl<'a> External for RuntimeExt<'a> {
     fn get_contract(&self) -> Option<Arc<ContractCode>> {
         let account_id = self.account_id();
         let code_hash = self.code_hash();
+        let version = self.current_protocol_version;
         if checked_feature!("stable", EthImplicitAccounts, self.current_protocol_version)
             && account_id.get_account_type() == AccountType::EthImplicitAccount
         {
@@ -378,15 +375,11 @@ impl<'a> External for RuntimeExt<'a> {
             assert!(&code_hash == wallet_contract_magic_bytes(&chain_id).hash());
             return Some(wallet_contract(&chain_id));
         }
-        if checked_feature!("stable", ChunkNodesCache, self.current_protocol_version) {
-            self.trie_update.set_trie_cache_mode(TrieCacheMode::CachingShard);
-        }
-        let contract = self.trie_update.get_code(self.account_id.clone(), code_hash).map(Arc::new);
-        // FIXME: ideally this would reset to previous state, and not to arbitrary state like it
-        // does here...
-        if checked_feature!("stable", ChunkNodesCache, self.current_protocol_version) {
-            self.trie_update.set_trie_cache_mode(TrieCacheMode::CachingChunk);
-        }
-        contract
+        let mode = match checked_feature!("stable", ChunkNodesCache, version) {
+            true => Some(TrieCacheMode::CachingShard),
+            false => None,
+        };
+        let _guard = self.trie_update.with_trie_cache_mode(mode);
+        self.trie_update.get_code(self.account_id.clone(), code_hash).map(Arc::new)
     }
 }

@@ -6,7 +6,24 @@ use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::Arc;
+
+/// Switch that controls whether the `TrieAccountingCache` is enabled.
+#[derive(Clone)]
+// The atomic bool here is used entirely for interior mutability. This is still entirely a
+// single-threaded structure.
+pub struct TrieAccountingCacheSwitch(Rc<std::sync::atomic::AtomicBool>);
+
+impl TrieAccountingCacheSwitch {
+    pub fn set(&self, enabled: bool) {
+        self.0.store(enabled, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub fn enabled(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
 
 /// Deterministic cache to store trie nodes that have been accessed so far
 /// during the cache's lifetime. It is used for deterministic gas accounting
@@ -41,7 +58,7 @@ use std::sync::Arc;
 pub struct TrieAccountingCache {
     /// Whether the cache is enabled. By default it is not, but it can be
     /// turned on or off on the fly.
-    enable: bool,
+    enable: TrieAccountingCacheSwitch,
     /// Cache of trie node hash -> trie node body, or a leaf value hash ->
     /// leaf value.
     cache: HashMap<CryptoHash, Arc<[u8]>>,
@@ -78,11 +95,12 @@ impl TrieAccountingCache {
                 accounting_cache_size: metrics::CHUNK_CACHE_SIZE.with_label_values(&metrics_labels),
             }
         });
-        Self { enable: false, cache: HashMap::new(), db_read_nodes: 0, mem_read_nodes: 0, metrics }
+        let switch = TrieAccountingCacheSwitch(Default::default());
+        Self { enable: switch, cache: HashMap::new(), db_read_nodes: 0, mem_read_nodes: 0, metrics }
     }
 
-    pub fn set_enabled(&mut self, enabled: bool) {
-        self.enable = enabled;
+    pub fn enable_switch(&self) -> TrieAccountingCacheSwitch {
+        TrieAccountingCacheSwitch(Rc::clone(&self.enable.0))
     }
 
     /// Retrieve raw bytes from the cache if it exists, otherwise retrieve it
@@ -105,7 +123,7 @@ impl TrieAccountingCache {
             }
             let node = storage.retrieve_raw_bytes(hash)?;
 
-            if self.enable {
+            if self.enable.enabled() {
                 self.cache.insert(*hash, node.clone());
                 if let Some(metrics) = &self.metrics {
                     metrics.accounting_cache_size.set(self.cache.len() as i64);
@@ -123,7 +141,7 @@ impl TrieAccountingCache {
         } else {
             self.db_read_nodes += 1;
         }
-        if self.enable {
+        if self.enable.enabled() {
             self.cache.insert(hash, data);
             if let Some(metrics) = &self.metrics {
                 metrics.accounting_cache_size.set(self.cache.len() as i64);

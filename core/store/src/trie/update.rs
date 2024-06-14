@@ -1,4 +1,5 @@
 pub use self::iterator::TrieUpdateIterator;
+use super::accounting_cache::TrieAccountingCacheSwitch;
 use super::{OptimizedValueRef, Trie, TrieWithReadLock};
 use crate::trie::{KeyLookupMode, TrieChanges};
 use crate::{StorageError, TrieStorage};
@@ -261,8 +262,18 @@ impl TrieUpdate {
         self.trie.get_root()
     }
 
-    pub fn set_trie_cache_mode(&self, state: TrieCacheMode) {
-        self.trie.accounting_cache.borrow_mut().set_enabled(state == TrieCacheMode::CachingChunk);
+    /// Returns a guard-style type that will reset the trie cache mode back to the initial state
+    /// once dropped.
+    ///
+    /// Only changes the cache mode if `mode` is `Some`. Will always restore the previous cache
+    /// mode upon drop. The type should not be `std::mem::forget`-ten, as it will leak memory.
+    pub fn with_trie_cache_mode(&self, mode: Option<TrieCacheMode>) -> TrieCacheModeGuard {
+        let switch = self.trie.accounting_cache.borrow().enable_switch();
+        let previous = switch.enabled();
+        if let Some(mode) = mode {
+            switch.set(mode == TrieCacheMode::CachingChunk);
+        }
+        TrieCacheModeGuard(previous, switch)
     }
 }
 
@@ -273,6 +284,13 @@ impl crate::TrieAccess for TrieUpdate {
 
     fn contains_key(&self, key: &TrieKey) -> Result<bool, StorageError> {
         TrieUpdate::contains_key(&self, key)
+    }
+}
+
+pub struct TrieCacheModeGuard(bool, TrieAccountingCacheSwitch);
+impl Drop for TrieCacheModeGuard {
+    fn drop(&mut self) {
+        self.1.set(self.0);
     }
 }
 
