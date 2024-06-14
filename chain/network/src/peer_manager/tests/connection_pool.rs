@@ -1,3 +1,4 @@
+use crate::config::SocketOptions;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::PeerMessage;
 use crate::network_protocol::{Encoding, Handshake, OwnedAccount, PartialEdgeInfo};
@@ -84,7 +85,9 @@ async fn loop_connection() {
     );
 
     // An inbound connection pretending to be a loop should be rejected.
-    let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2).await.unwrap();
+    let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2, &SocketOptions::default())
+        .await
+        .unwrap();
     let stream_id = stream.id();
     let port = stream.local_addr.port();
     let mut events = pm.events.from_now();
@@ -142,7 +145,9 @@ async fn owned_account_mismatch() {
     .await;
 
     // An inbound connection pretending to be a loop should be rejected.
-    let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2).await.unwrap();
+    let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2, &SocketOptions::default())
+        .await
+        .unwrap();
     let stream_id = stream.id();
     let port = stream.local_addr.port();
     let mut events = pm.events.from_now();
@@ -270,7 +275,9 @@ async fn invalid_edge() {
     for (name, edge) in &testcases {
         for tier in [tcp::Tier::T1, tcp::Tier::T2] {
             tracing::info!(target:"test","{name} {tier:?}");
-            let stream = tcp::Stream::connect(&pm.peer_info(), tier).await.unwrap();
+            let stream = tcp::Stream::connect(&pm.peer_info(), tier, &SocketOptions::default())
+                .await
+                .unwrap();
             let stream_id = stream.id();
             let port = stream.local_addr.port();
             let mut events = pm.events.from_now();

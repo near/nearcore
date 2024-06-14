@@ -21,6 +21,13 @@ fn default_ideal_connections_lo() -> u32 {
 fn default_ideal_connections_hi() -> u32 {
     35
 }
+/// Default socket options for peer connections.
+fn default_so_recv_buffer_size() -> Option<u32> {
+    Some(1000000)
+}
+fn default_so_send_buffer_size() -> Option<u32> {
+    Some(1000000)
+}
 /// Peers which last message is was within this period of time are considered active recent peers.
 fn default_peer_recent_time_window() -> Duration {
     Duration::seconds(600)
@@ -104,6 +111,10 @@ pub struct Config {
     /// Upper bound of the ideal number of connections.
     #[serde(default = "default_ideal_connections_hi")]
     pub ideal_connections_hi: u32,
+    #[serde(default = "default_so_recv_buffer_size")]
+    pub so_recv_buffer_size: Option<u32>,
+    #[serde(default = "default_so_send_buffer_size")]
+    pub so_send_buffer_size: Option<u32>,
     /// Peers which last message is was within this period of time are considered active recent peers (in seconds).
     #[serde(default = "default_peer_recent_time_window")]
     #[serde(with = "near_async::time::serde_duration_as_std")]
@@ -301,6 +312,8 @@ impl Default for Config {
             minimum_outbound_peers: default_minimum_outbound_connections(),
             ideal_connections_lo: default_ideal_connections_lo(),
             ideal_connections_hi: default_ideal_connections_hi(),
+            so_recv_buffer_size: default_so_recv_buffer_size(),
+            so_send_buffer_size: default_so_send_buffer_size(),
             peer_recent_time_window: default_peer_recent_time_window(),
             safe_set_size: default_safe_set_size(),
             archival_peer_connections_lower_bound: default_archival_peer_connections_lower_bound(),

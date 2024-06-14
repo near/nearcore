@@ -54,6 +54,7 @@ impl super::NetworkState {
                             account_id: None,
                         },
                         tcp::Tier::T1,
+                        &self.config.socket_options,
                     )
                     .await?;
                     anyhow::Ok(PeerActor::spawn_and_handshake(clock.clone(), stream, None, self.clone()).await?)
@@ -327,6 +328,7 @@ impl super::NetworkState {
                                 account_id: None,
                             },
                             tcp::Tier::T1,
+                            &self.config.socket_options,
                         )
                         .await?;
                         PeerActor::spawn_and_handshake(clock.clone(), stream, None, self.clone())

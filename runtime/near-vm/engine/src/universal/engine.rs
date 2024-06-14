@@ -622,7 +622,9 @@ impl UniversalEngineInner {
                 // As lifetime annotations in Rust cannot influence the codegen, this is not a
                 // source of undefined behaviour but we do lose static lifetime checks that Rust
                 // enforces.
-                std::mem::transmute::<_, VMTrampoline>(code_memory.executable_address(offset))
+                std::mem::transmute::<*const u8, VMTrampoline>(
+                    code_memory.executable_address(offset),
+                )
             };
             allocated_function_call_trampolines.push(trampoline);
         }

@@ -1,6 +1,6 @@
 use crate::blacklist;
 use crate::broadcast;
-use crate::config::NetworkConfig;
+use crate::config::{NetworkConfig, SocketOptions};
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{Encoding, Ping, Pong, RoutedMessageBody, RoutingTableUpdate};
 use crate::peer;
@@ -899,7 +899,9 @@ async fn ttl() {
         chain,
         force_encoding: Some(Encoding::Proto),
     };
-    let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2).await.unwrap();
+    let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2, &SocketOptions::default())
+        .await
+        .unwrap();
     let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
     peer.complete_handshake().await;
     pm.wait_for_routing_table(&[(peer.cfg.id(), vec![peer.cfg.id()])]).await;
@@ -954,7 +956,9 @@ async fn repeated_data_in_sync_routing_table() {
         chain,
         force_encoding: Some(Encoding::Proto),
     };
-    let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2).await.unwrap();
+    let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2, &SocketOptions::default())
+        .await
+        .unwrap();
     let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
     peer.complete_handshake().await;
 

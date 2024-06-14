@@ -24,6 +24,12 @@ else
     git pull
 fi
 
+# some logging improvements
+NEW_COMMIT_HASH=$(git rev-parse origin/master)
+LOG_DIR=scripts/ft-benchmark-logs
+MAIN_LOG_FILE=$LOG_DIR/${NEW_COMMIT_HASH}.log
+exec > >(tee -a $MAIN_LOG_FILE) 2>&1
+
 # Stop previous experiment
 pkill -9 locust || true
 nearup stop 
