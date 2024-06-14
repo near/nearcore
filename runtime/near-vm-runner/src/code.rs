@@ -1,6 +1,5 @@
 use near_primitives_core::hash::{hash as sha256, CryptoHash};
 
-#[derive(Clone)]
 pub struct ContractCode {
     code: Vec<u8>,
     hash: CryptoHash,
@@ -24,5 +23,12 @@ impl ContractCode {
 
     pub fn hash(&self) -> &CryptoHash {
         &self.hash
+    }
+
+    pub fn clone_for_tests(&self) -> Self {
+        Self {
+            code: self.code.clone(),
+            hash: self.hash,
+        }
     }
 }

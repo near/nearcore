@@ -117,7 +117,7 @@ fn make_cached_contract_call_vm(
     vm_kind: VMKind,
 ) -> VMResult {
     let mut fake_external = if let Some(code) = code {
-        MockedExternal::with_code_and_hash(code_hash, code.clone())
+        MockedExternal::with_code_and_hash(code_hash, code.clone_for_tests())
     } else {
         MockedExternal::new()
     };
