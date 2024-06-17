@@ -15,14 +15,22 @@ workspace = true
 blake2.workspace = true
 borsh.workspace = true
 bs58.workspace = true
-curve25519-dalek.workspace = true
+curve25519-dalek = { version = "4.1", default-features = false, features = [
+    "precomputed-tables",
+    "alloc",
+] }
 derive_more.workspace = true
-ed25519-dalek.workspace = true
+ed25519-dalek = { version = "2.1", default-features = false, features = [
+    "hazmat",
+] }
 hex.workspace = true
 near-account-id.workspace = true
 once_cell.workspace = true
 primitive-types.workspace = true
-secp256k1.workspace = true
+secp256k1 = { version = "0.27", default-features = false, features = [
+    "recovery",
+    "alloc",
+] }
 serde.workspace = true
 serde_json.workspace = true
 stdx.workspace = true
@@ -35,3 +43,8 @@ bolero.workspace = true
 hex-literal.workspace = true
 sha2.workspace = true
 tempfile.workspace = true
+curve25519-dalek = { workspace = true, features = ["rand_core"] }
+
+[features]
+default = ["rand"]
+rand = ["secp256k1/rand", "ed25519-dalek/rand_core"]

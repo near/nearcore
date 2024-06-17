@@ -12,10 +12,18 @@ publish = true
 workspace = true
 
 [dependencies]
-once_cell.workspace = true
-time = { workspace = true, features = ["formatting"] }
-tokio = { workspace = true, features = ["time", "sync"] }
-serde.workspace = true
+time = { version = "0.3", features = [
+    "formatting",
+    "parsing",
+], default-features = false }
+once_cell = { workspace = true, optional = true }
+tokio = { workspace = true, features = ["time", "sync"], optional = true }
+serde = { workspace = true, optional = true }
 
 [dev-dependencies]
 serde_json.workspace = true
+
+[features]
+default = ["clock", "serde"]
+clock = ["tokio", "once_cell"]
+serde = ["dep:serde"]

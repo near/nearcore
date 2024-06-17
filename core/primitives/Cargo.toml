@@ -18,7 +18,7 @@ borsh.workspace = true
 bytesize.workspace = true
 bytes.workspace = true
 cfg-if.workspace = true
-chrono.workspace = true
+chrono = { version = "0.4", default-features = false, features = ["now"] }
 derive_more.workspace = true
 easy-ext.workspace = true
 hex.workspace = true
@@ -26,9 +26,7 @@ itertools.workspace = true
 num-rational.workspace = true
 once_cell.workspace = true
 primitive-types.workspace = true
-rand.workspace = true
-rand_chacha.workspace = true
-reed-solomon-erasure.workspace = true
+reed-solomon-erasure = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 serde_with.workspace = true
@@ -41,16 +39,23 @@ tracing.workspace = true
 zstd.workspace = true
 enum-map.workspace = true
 
-near-time.workspace = true
-near-crypto.workspace = true
+rand = { workspace = true, optional = true }
+rand_chacha = { workspace = true, optional = true }
+
+near-time = { path = "../time", default-features = false, features = ["serde"] }
+near-crypto = { path = "../crypto", default-features = false }
 near-fmt.workspace = true
 near-primitives-core.workspace = true
 near-rpc-error-macro.workspace = true
 near-parameters.workspace = true
 
 [features]
+default = ["rand", "clock", "solomon"]
 sandbox = []
 test_features = []
+solomon = ["reed-solomon-erasure"]
+rand = ["dep:rand", "rand_chacha", "near-crypto/rand"]
+clock = ["near-time/clock"]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
 protocol_feature_fix_staking_threshold = [
   "near-primitives-core/protocol_feature_fix_staking_threshold",
@@ -90,6 +95,7 @@ new_epoch_sync = []
 calimero_zero_storage = []
 
 [dev-dependencies]
+near-primitives = { workspace = true, features = ["rand"] }
 assert_matches.workspace = true
 bencher.workspace = true
 bolero.workspace = true

@@ -97,10 +97,7 @@ members = [
     "utils/near-cache",
     "utils/stdx",
 ]
-exclude = [
-    "tracing",
-    "benchmarks"
-]
+exclude = ["tracing", "benchmarks"]
 
 [workspace.lints.clippy]
 all = { level = "allow", priority = -100 }
