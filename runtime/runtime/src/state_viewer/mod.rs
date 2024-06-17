@@ -11,17 +11,40 @@ use near_primitives::receipt::ActionReceipt;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::transaction::FunctionCallAction;
 use near_primitives::trie_key::trie_key_parsers;
-use near_primitives::types::{AccountId, EpochInfoProvider, Gas};
+use near_primitives::types::{
+    AccountId, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas,
+};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::{StateItem, ViewApplyState, ViewStateResult};
+use near_primitives::views::{StateItem, ViewStateResult};
 use near_primitives_core::config::ViewConfig;
 use near_store::{get_access_key, get_account, get_code, TrieUpdate};
-use near_vm_runner::logic::ReturnData;
-use near_vm_runner::ContractCode;
+use near_vm_runner::logic::{ProtocolVersion, ReturnData};
+use near_vm_runner::{ContractCode, ContractRuntimeCache};
 use std::{str, sync::Arc, time::Instant};
 use tracing::debug;
 
 pub mod errors;
+
+/// State for the view call.
+#[derive(Debug)]
+pub struct ViewApplyState {
+    /// Currently building block height.
+    pub block_height: BlockHeight,
+    /// Prev block hash
+    pub prev_block_hash: CryptoHash,
+    /// Currently building block hash
+    pub block_hash: CryptoHash,
+    /// Current epoch id
+    pub epoch_id: EpochId,
+    /// Current epoch height
+    pub epoch_height: EpochHeight,
+    /// The current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
+    pub block_timestamp: u64,
+    /// Current Protocol version when we apply the state transition
+    pub current_protocol_version: ProtocolVersion,
+    /// Cache for compiled contracts.
+    pub cache: Option<Box<dyn ContractRuntimeCache>>,
+}
 
 pub struct TrieViewer {
     /// Upper bound of the byte size of contract state that is still viewable. None is no limit

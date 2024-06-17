@@ -80,27 +80,6 @@ pub struct ContractCodeView {
     pub hash: CryptoHash,
 }
 
-/// State for the view call.
-#[derive(Debug)]
-pub struct ViewApplyState {
-    /// Currently building block height.
-    pub block_height: BlockHeight,
-    /// Prev block hash
-    pub prev_block_hash: CryptoHash,
-    /// Currently building block hash
-    pub block_hash: CryptoHash,
-    /// Current epoch id
-    pub epoch_id: EpochId,
-    /// Current epoch height
-    pub epoch_height: EpochHeight,
-    /// The current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
-    pub block_timestamp: u64,
-    /// Current Protocol version when we apply the state transition
-    pub current_protocol_version: ProtocolVersion,
-    /// Cache for compiled contracts.
-    pub cache: Option<Box<dyn near_vm_runner::ContractRuntimeCache>>,
-}
-
 impl From<&Account> for AccountView {
     fn from(account: &Account) -> Self {
         AccountView {
@@ -2416,8 +2395,8 @@ pub struct SplitStorageInfoView {
 mod tests {
     use super::ExecutionMetadataView;
     use crate::profile_data_v2::ProfileDataV2;
+    use crate::profile_data_v3::ProfileDataV3;
     use crate::transaction::ExecutionMetadata;
-    use near_vm_runner::ProfileDataV3;
 
     /// The JSON representation used in RPC responses must not remove or rename
     /// fields, only adding fields is allowed or we risk breaking clients.

@@ -476,3 +476,14 @@ jobs:
           files: py-upgradability.json
           fail_ci_if_error: true
           flags: pytests,upgradability,linux
+  
+  windows_public_libraries_check:
+    name: "Windows check for building public libraries"
+    runs-on: "windows-latest"
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@9b5b983efc779f85e5e5d11539f005e85ccb27ff
+        with:
+          tool: just
+      - run: just check_build_public_libraries

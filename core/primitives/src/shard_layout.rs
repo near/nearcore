@@ -490,6 +490,7 @@ impl<'de> serde::de::Visitor<'de> for ShardUIdVisitor {
 #[cfg(test)]
 mod tests {
     use crate::shard_layout::{account_id_to_shard_id, ShardLayout, ShardLayoutV1, ShardUId};
+    use near_primitives_core::types::ProtocolVersion;
     use near_primitives_core::types::{AccountId, ShardId};
     use rand::distributions::Alphanumeric;
     use rand::rngs::StdRng;

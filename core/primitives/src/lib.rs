@@ -16,6 +16,7 @@ pub mod errors;
 pub mod merkle;
 pub mod network;
 pub mod profile_data_v2;
+pub mod profile_data_v3;
 pub mod rand;
 pub mod receipt;
 pub mod reed_solomon;
