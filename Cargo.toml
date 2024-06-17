@@ -1,5 +1,5 @@
 [workspace.package]
-version = "0.22.0" # managed by cargo-workspaces, see below
+version = "1.39.1" # managed by cargo-workspaces, see below
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2021"
 rust-version = "1.75.0"
@@ -12,7 +12,7 @@ license = "MIT OR Apache-2.0"
 # Most crates are not stable on purpose, as maintaining API compatibility is a
 # significant developer time expense. Please think thoroughly before adding
 # anything to the list of stable crates.
-version = "0.22.0"
+version = "0.21.1"
 exclude = ["neard"]
 
 [workspace]
