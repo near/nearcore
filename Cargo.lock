@@ -4579,6 +4579,7 @@ dependencies = [
  "near-vm-compiler",
  "near-vm-compiler-singlepass",
  "near-vm-engine",
+ "near-vm-runner",
  "near-vm-types",
  "near-vm-vm",
  "num-rational",

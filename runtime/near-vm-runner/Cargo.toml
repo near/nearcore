@@ -70,6 +70,12 @@ near-vm-types = { workspace = true, optional = true }
 near-vm-vm = { workspace = true, optional = true }
 
 [dev-dependencies]
+near-vm-runner = { workspace = true, features = [
+  "wasmer0_vm",
+  "wasmtime_vm",
+  "wasmer2_vm",
+  "near_vm",
+] }
 arbitrary.workspace = true
 assert_matches.workspace = true
 bolero.workspace = true
