@@ -36,6 +36,16 @@ jobs:
       - name: Set up git user
         uses: fregante/setup-git-user@v2
 
+      - name: Check if version is already published
+        run: |
+          PACKAGE_NAME="near-primitives"
+          VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.metadata.workspaces.version')
+          PUBLISHED=$(curl -s https://crates.io/api/v1/crates/$PACKAGE_NAME/versions | jq -r '.versions[] | select(.num=="'"$VERSION"'") | .num')
+          if [ "$PUBLISHED" == "$VERSION" ]; then
+            echo "Version $VERSION of $PACKAGE_NAME is already published."
+            exit 1
+          fi
+
       - name: Publish near-workspaces on crates.io
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
