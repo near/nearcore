@@ -1,7 +1,7 @@
 # Requirements
 
 - An installation of [`libpq`](https://www.postgresql.org/docs/15/libpq.html).
-  - The name of the package providing `libpq` differs across operating systems and package managers. For example on Ubuntu you can install [`libpq-dev`](https://packages.ubuntu.com/search?suite=default&section=all&arch=any&keywords=libpq-dev&searchon=names).
+  - The name of the package providing `libpq` differs across operating systems and package managers. For example on Ubuntu you can install `libpq-dev`.
 - A `~/.pggass` file with an entry matching the db URL (see [dbprofile](./dbprofile)). Wrong password file setup may lead to unintuitive error messages, therefore it is recommended to read [the docs](https://www.postgresql.org/docs/15/libpq-pgpass.html) to get the the following two points right:
   - Format of password entries.
   - `.pgpass` file permissions.
