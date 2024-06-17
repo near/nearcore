@@ -55,6 +55,7 @@ near-vm-runner.workspace = true
 near-mainnet-res.workspace = true
 
 [dev-dependencies]
+near-primitives = { workspace = true, features = ["clock"] }
 serde_json.workspace = true
 primitive-types.workspace = true
 insta.workspace = true

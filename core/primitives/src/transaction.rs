@@ -471,8 +471,7 @@ pub struct ExecutionOutcomeWithProof {
     pub proof: MerklePath,
     pub outcome: ExecutionOutcome,
 }
-#[cfg(all(test, feature = "rand"))]
-
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};

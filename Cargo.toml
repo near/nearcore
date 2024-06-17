@@ -147,11 +147,14 @@ cov-mark = "2.0.0-pre.1"
 cargo_metadata = "0.14.1"
 cc = "1.0"
 cfg-if = "1.0"
-chrono = { version = "0.4.19", features = ["serde"] }
+chrono = { version = "0.4", default-features = false, features = [
+    "now",
+    "serde",
+] }
 clap = { version = "4.2.0", features = ["derive", "env", "string"] }
 cloud-storage = "0.11.1"
 cpu-time = "1.0"
-criterion = { version = "0.5.1", default_features = false, features = [
+criterion = { version = "0.5.1", default-features = false, features = [
     "html_reports",
     "cargo_bench_support",
 ] }
@@ -225,7 +228,7 @@ near-client-primitives = { path = "chain/client-primitives" }
 near-cold-store-tool = { path = "tools/cold-store", package = "cold-store-tool" }
 near-config-utils = { path = "utils/config" }
 nearcore = { path = "nearcore" }
-near-crypto = { path = "core/crypto" }
+near-crypto = { path = "core/crypto", default-features = false }
 near-dyn-configs = { path = "core/dyn-configs" }
 near-epoch-manager = { path = "chain/epoch-manager" }
 near-epoch-sync-tool = { path = "tools/epoch-sync" }
@@ -261,7 +264,9 @@ near-state-viewer = { path = "tools/state-viewer", package = "state-viewer" }
 near-store = { path = "core/store" }
 near-telemetry = { path = "chain/telemetry" }
 near-test-contracts = { path = "runtime/near-test-contracts" }
-near-time = { path = "core/time" }
+near-time = { path = "core/time", default-features = false, features = [
+    "serde",
+] }
 near-undo-block = { path = "tools/undo-block" }
 near-vm-test-api = { path = "runtime/near-vm/test-api" }
 near-vm-compiler = { path = "runtime/near-vm/compiler" }
