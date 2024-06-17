@@ -4,6 +4,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::epoch_manager::epoch_info::EpochSummary;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
+use near_primitives::serialize::dec_format;
 use near_primitives::state::FlatStateValue;
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof};
 use near_primitives::types::{
@@ -239,6 +240,65 @@ pub fn migrate_37_to_38(store: &Store) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// `ValidatorKickoutReason` enum layout before DB version 39, included.
+#[derive(BorshSerialize, BorshDeserialize, serde::Deserialize)]
+pub enum LegacyValidatorKickoutReasonV39 {
+    /// Slashed validators are kicked out.
+    Slashed,
+    /// Validator didn't produce enough blocks.
+    NotEnoughBlocks { produced: NumBlocks, expected: NumBlocks },
+    /// Validator didn't produce enough chunks.
+    NotEnoughChunks { produced: NumBlocks, expected: NumBlocks },
+    /// Validator unstaked themselves.
+    Unstaked,
+    /// Validator stake is now below threshold
+    NotEnoughStake {
+        #[serde(with = "dec_format", rename = "stake_u128")]
+        stake: Balance,
+        #[serde(with = "dec_format", rename = "threshold_u128")]
+        threshold: Balance,
+    },
+    /// Enough stake but is not chosen because of seat limits.
+    DidNotGetASeat,
+    /// Validator didn't produce enough chunk endorsements.
+    NotEnoughChunkEndorsements { produced: NumBlocks, expected: NumBlocks },
+}
+
+/// `EpochSummary` struct at DB version 39.
+#[derive(BorshSerialize, BorshDeserialize)]
+struct LegacyEpochSummaryV39 {
+    pub prev_epoch_last_block_hash: CryptoHash,
+    /// Proposals from the epoch, only the latest one per account
+    pub all_proposals: Vec<ValidatorStake>,
+    /// Kickout set, includes slashed
+    pub validator_kickout: HashMap<AccountId, LegacyValidatorKickoutReasonV39>,
+    /// Only for validators who met the threshold and didn't get slashed
+    pub validator_block_chunk_stats: HashMap<AccountId, BlockChunkValidatorStats>,
+    /// Protocol version for next epoch.
+    pub next_next_epoch_version: ProtocolVersion,
+}
+
+/// `ValidatorKickoutReason` struct layout before DB version 38, included.
+#[derive(BorshDeserialize)]
+struct LegacyBlockChunkValidatorStatsV38 {
+    pub block_stats: ValidatorStats,
+    pub chunk_stats: ValidatorStats,
+}
+
+/// `ValidatorKickoutReason` struct layout before DB version 38, included.
+#[derive(BorshDeserialize)]
+struct LegacyEpochSummaryV38 {
+    pub prev_epoch_last_block_hash: CryptoHash,
+    /// Proposals from the epoch, only the latest one per account
+    pub all_proposals: Vec<ValidatorStake>,
+    /// Kickout set, includes slashed
+    pub validator_kickout: HashMap<AccountId, LegacyValidatorKickoutReasonV39>,
+    /// Only for validators who met the threshold and didn't get slashed
+    pub validator_block_chunk_stats: HashMap<AccountId, LegacyBlockChunkValidatorStatsV38>,
+    /// Protocol version for next epoch.
+    pub next_version: ProtocolVersion,
+}
+
 /// Migrates the database from version 38 to 39.
 ///
 /// Rewrites Epoch summary to include endorsement stats.
@@ -261,25 +321,6 @@ pub fn migrate_38_to_39(store: &Store) -> anyhow::Result<()> {
 
     type LegacyEpochInfoAggregator = EpochInfoAggregator<ValidatorStats>;
     type NewEpochInfoAggregator = EpochInfoAggregator<ChunkStats>;
-
-    #[derive(BorshDeserialize)]
-    struct LegacyBlockChunkValidatorStats {
-        pub block_stats: ValidatorStats,
-        pub chunk_stats: ValidatorStats,
-    }
-
-    #[derive(BorshDeserialize)]
-    struct LegacyEpochSummary {
-        pub prev_epoch_last_block_hash: CryptoHash,
-        /// Proposals from the epoch, only the latest one per account
-        pub all_proposals: Vec<ValidatorStake>,
-        /// Kickout set, includes slashed
-        pub validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
-        /// Only for validators who met the threshold and didn't get slashed
-        pub validator_block_chunk_stats: HashMap<AccountId, LegacyBlockChunkValidatorStats>,
-        /// Protocol version for next epoch.
-        pub next_version: ProtocolVersion,
-    }
 
     let mut update = store.store_update();
 
@@ -316,8 +357,8 @@ pub fn migrate_38_to_39(store: &Store) -> anyhow::Result<()> {
     // Update EpochSummary
     for result in store.iter(DBCol::EpochValidatorInfo) {
         let (key, old_value) = result?;
-        let legacy_summary = LegacyEpochSummary::try_from_slice(&old_value)?;
-        let new_value = EpochSummary {
+        let legacy_summary = LegacyEpochSummaryV38::try_from_slice(&old_value)?;
+        let new_value = LegacyEpochSummaryV39 {
             prev_epoch_last_block_hash: legacy_summary.prev_epoch_last_block_hash,
             all_proposals: legacy_summary.all_proposals,
             validator_kickout: legacy_summary.validator_kickout,
