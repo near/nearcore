@@ -342,6 +342,7 @@ impl FlatStorage {
         })?)
     }
 
+    // TODO(#11601): Direct call is DEPRECATED, consider removing non-strict mode.
     /// Update the head of the flat storage, including updating the flat state
     /// in memory and on disk and updating the flat state to reflect the state
     /// at the new head. If updating to given head is not possible, returns an
@@ -365,7 +366,7 @@ impl FlatStorage {
     //              new_head
     //
     // The segment [new_head, block_hash] contains two blocks with flat state changes.
-    pub fn update_flat_head(
+    pub fn update_flat_head_impl(
         &self,
         block_hash: &CryptoHash,
         strict: bool,
@@ -434,6 +435,14 @@ impl FlatStorage {
         guard.update_delta_metrics();
 
         Ok(())
+    }
+
+    /// Update the head of the flat storage, including updating the flat state
+    /// in memory and on disk and updating the flat state to reflect the state
+    /// at the new head. If updating to given head is not possible, returns an
+    /// error.
+    pub fn update_flat_head(&self, block_hash: &CryptoHash) -> Result<(), FlatStorageError> {
+        self.update_flat_head_impl(block_hash, true)
     }
 
     /// Adds a delta (including the changes and block info) to flat storage,
@@ -553,23 +562,23 @@ mod tests {
         // Check `BlockNotSupported` errors which are fine to occur during regular block processing.
         // First, check that flat head can be moved to block 1.
         let flat_head_hash = chain.get_block_hash(1);
-        assert_eq!(flat_storage.update_flat_head(&flat_head_hash, true), Ok(()));
+        assert_eq!(flat_storage.update_flat_head_impl(&flat_head_hash, true), Ok(()));
         // Check that attempt to move flat head to block 2 results in error because it lays in unreachable fork.
         let fork_block_hash = chain.get_block_hash(2);
         assert_eq!(
-            flat_storage.update_flat_head(&fork_block_hash, true),
+            flat_storage.update_flat_head_impl(&fork_block_hash, true),
             Err(FlatStorageError::BlockNotSupported((flat_head_hash, fork_block_hash)))
         );
         // Check that attempt to move flat head to block 0 results in error because it is an unreachable parent.
         let parent_block_hash = chain.get_block_hash(0);
         assert_eq!(
-            flat_storage.update_flat_head(&parent_block_hash, true),
+            flat_storage.update_flat_head_impl(&parent_block_hash, true),
             Err(FlatStorageError::BlockNotSupported((flat_head_hash, parent_block_hash)))
         );
         // Check that attempt to move flat head to non-existent block results in the same error.
         let not_existing_hash = hash(&[1, 2, 3]);
         assert_eq!(
-            flat_storage.update_flat_head(&not_existing_hash, true),
+            flat_storage.update_flat_head_impl(&not_existing_hash, true),
             Err(FlatStorageError::BlockNotSupported((flat_head_hash, not_existing_hash)))
         );
         // Corrupt DB state for block 3 and try moving flat head to it.
@@ -578,7 +587,7 @@ mod tests {
         store_helper::remove_delta(&mut store_update, shard_uid, chain.get_block_hash(3));
         store_update.commit().unwrap();
         assert_matches!(
-            flat_storage.update_flat_head(&chain.get_block_hash(3), true),
+            flat_storage.update_flat_head_impl(&chain.get_block_hash(3), true),
             Err(FlatStorageError::StorageInternalError(_))
         );
     }
@@ -631,15 +640,15 @@ mod tests {
 
         // Simulates an actual sequence of calls to `update_flat_head()` in the
         // presence of forks.
-        assert_eq!(flat_storage.update_flat_head(&chain.get_block_hash(0), false), Ok(()));
-        assert_eq!(flat_storage.update_flat_head(&chain.get_block_hash(3), false), Ok(()));
+        assert_eq!(flat_storage.update_flat_head_impl(&chain.get_block_hash(0), false), Ok(()));
+        assert_eq!(flat_storage.update_flat_head_impl(&chain.get_block_hash(3), false), Ok(()));
         assert_matches!(
-            flat_storage.update_flat_head(&chain.get_block_hash(0), false),
+            flat_storage.update_flat_head_impl(&chain.get_block_hash(0), false),
             Err(FlatStorageError::BlockNotSupported(_))
         );
-        assert_eq!(flat_storage.update_flat_head(&chain.get_block_hash(6), false), Ok(()));
+        assert_eq!(flat_storage.update_flat_head_impl(&chain.get_block_hash(6), false), Ok(()));
         assert_matches!(
-            flat_storage.update_flat_head(&chain.get_block_hash(0), false),
+            flat_storage.update_flat_head_impl(&chain.get_block_hash(0), false),
             Err(FlatStorageError::BlockNotSupported(_))
         );
     }
@@ -675,7 +684,7 @@ mod tests {
 
         // Check that flat head can be moved to block 8.
         let flat_head_hash = chain.get_block_hash(8);
-        assert_eq!(flat_storage.update_flat_head(&flat_head_hash, false), Ok(()));
+        assert_eq!(flat_storage.update_flat_head_impl(&flat_head_hash, false), Ok(()));
     }
 
     // This tests basic use cases for FlatStorageChunkView and FlatStorage.
@@ -772,7 +781,7 @@ mod tests {
 
         // 5. Move the flat head to block 5, verify that chunk_view0 still returns the same values
         // and chunk_view1 returns an error. Also check that DBCol::FlatState is updated correctly
-        flat_storage.update_flat_head(&chain.get_block_hash(5), true).unwrap();
+        flat_storage.update_flat_head_impl(&chain.get_block_hash(5), true).unwrap();
         assert_eq!(
             store_helper::get_flat_state_value(&store, shard_uid, &[1]).unwrap(),
             Some(FlatStateValue::value_ref(&[5]))
@@ -796,7 +805,7 @@ mod tests {
 
         // 6. Move the flat head to block 10, verify that chunk_view0 still returns the same values
         //    Also checks that DBCol::FlatState is updated correctly.
-        flat_storage.update_flat_head(&chain.get_block_hash(10), true).unwrap();
+        flat_storage.update_flat_head_impl(&chain.get_block_hash(10), true).unwrap();
         let blocks = flat_storage.get_blocks_to_head(&chain.get_block_hash(10)).unwrap();
         assert_eq!(blocks.len(), 0);
         assert_eq!(store_helper::get_flat_state_value(&store, shard_uid, &[1]).unwrap(), None);
@@ -899,7 +908,7 @@ mod tests {
         // resulting in <=4 blocks on the way from the tip to the chosen head.
         for i in 2..num_blocks as BlockHeight {
             let final_block_hash = chain.get_block_hash(i - 2);
-            flat_storage.update_flat_head(&final_block_hash, false).unwrap();
+            flat_storage.update_flat_head_impl(&final_block_hash, false).unwrap();
 
             let block_hash = chain.get_block_hash(i);
             let blocks = flat_storage.get_blocks_to_head(&block_hash).unwrap();
@@ -965,7 +974,7 @@ mod tests {
             .collect::<HashMap<CryptoHash, BlockHeight>>();
 
         let block_hash = chain.get_block_hash((num_blocks - 1) as BlockHeight);
-        flat_storage.update_flat_head(&block_hash, true).unwrap();
+        flat_storage.update_flat_head_impl(&block_hash, true).unwrap();
 
         let flat_head_hash = flat_storage.get_head_hash();
         let flat_head_height = hashes.get(&flat_head_hash).unwrap();
@@ -1042,7 +1051,7 @@ mod tests {
         let mut max_lag = None;
         for i in 2..num_blocks as BlockHeight {
             let final_block_hash = chain.get_block_hash(i - 2);
-            flat_storage.update_flat_head(&final_block_hash, false).unwrap();
+            flat_storage.update_flat_head_impl(&final_block_hash, false).unwrap();
 
             let block_hash = chain.get_block_hash(i);
             let blocks = flat_storage.get_blocks_to_head(&block_hash).unwrap();
