@@ -52,7 +52,7 @@ pwasm-utils_12.workspace = true
 parity-wasm_41.workspace = true
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
-rustix = { workspace = true, features = ["fs"], optional = true }
+rustix = { workspace = true, features = ["fs"] }
 wasmer-runtime = { workspace = true, optional = true }
 wasmer-runtime-core = { workspace = true, optional = true }
 wasmer-compiler = { workspace = true, optional = true }

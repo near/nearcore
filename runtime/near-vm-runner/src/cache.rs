@@ -193,6 +193,7 @@ impl fmt::Debug for MockContractRuntimeCache {
 
 #[cfg(unix)]
 mod filesystem_cache {
+    use super::*;
     use std::io::{Read, Write};
 
     /// A cache that stores precompiled contract executables in a directory of a filesystem.
@@ -388,7 +389,7 @@ mod filesystem_cache {
     }
 }
 
-#[cfg(feature = "filesystem_cache")]
+#[cfg(unix)]
 pub use filesystem_cache::*;
 
 type AnyCacheValue = dyn Any + Send;
