@@ -12,6 +12,8 @@ license = "MIT OR Apache-2.0"
 # Most crates are not stable on purpose, as maintaining API compatibility is a
 # significant developer time expense. Please think thoroughly before adding
 # anything to the list of stable crates.
+# Only bump  0.x.* to 0.(x+1).0 on any nearcore release as nearcore does not guarantee
+# semver compatibility. i.e. api can change without a protocol upgrade.
 version = "0.20.1"
 exclude = ["neard"]
 
