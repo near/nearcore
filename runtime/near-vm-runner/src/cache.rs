@@ -191,7 +191,7 @@ impl fmt::Debug for MockContractRuntimeCache {
     }
 }
 
-#[cfg(feature = "filesystem_cache")]
+#[cfg(unix)]
 mod filesystem_cache {
     use std::io::{Read, Write};
 
