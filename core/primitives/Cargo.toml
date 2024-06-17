@@ -22,7 +22,7 @@ chrono = { version = "0.4", default-features = false, features = ["now"] }
 derive_more.workspace = true
 easy-ext.workspace = true
 hex.workspace = true
-itertools.workspace = true
+itertools = { workspace = true, optional = true }
 num-rational.workspace = true
 once_cell.workspace = true
 primitive-types.workspace = true
@@ -50,11 +50,10 @@ near-rpc-error-macro.workspace = true
 near-parameters.workspace = true
 
 [features]
-default = ["rand", "clock", "solomon"]
 sandbox = []
 test_features = []
-solomon = ["reed-solomon-erasure"]
-rand = ["dep:rand", "rand_chacha", "near-crypto/rand"]
+solomon = ["reed-solomon-erasure", "itertools"]
+rand = ["dep:rand", "rand_chacha", "near-crypto/rand", "itertools"]
 clock = ["near-time/clock"]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
 protocol_feature_fix_staking_threshold = [
