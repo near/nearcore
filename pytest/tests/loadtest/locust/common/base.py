@@ -571,10 +571,10 @@ class NearUser(User):
                                                        self.user_suffix)
         self.account = Account(key.Key.from_random(self.account_id))
         if not self.node.account_exists(self.account_id):
-            self.send_tx_retry(
-                CreateSubAccount(NearUser.funding_account,
-                                 self.account.key,
-                                 balance=NearUser.INIT_BALANCE))
+            self.send_tx_retry(CreateSubAccount(NearUser.funding_account,
+                                                self.account.key,
+                                                balance=NearUser.INIT_BALANCE),
+                               locust_name="Init NearUser")
         self.account.refresh_nonce(self.node.node)
 
     def send_tx(self, tx: Transaction, locust_name="generic send_tx"):
