@@ -320,7 +320,9 @@ class NearNodeProxy:
                     # using retrying lib here to poll until a response is ready
                     self.poll_tx_result(meta, tx)
         except NearError as err:
-            logging.warn(f"marking an error {err.message}, {err.details}")
+            logging.warn(
+                f"marking an error for transaction '{locust_name}' (id={signed_tx.id}): {err.message}, {err.details}"
+            )
             meta["exception"] = err
 
         meta["response_time"] = (time.perf_counter() -
@@ -357,7 +359,9 @@ class NearNodeProxy:
                     details=submit_response)
                 meta["response"] = submit_response.content
         except NearError as err:
-            logging.warn(f"marking an error {err.message}, {err.details}")
+            logging.warn(
+                f"marking an error for transaction '{locust_name}' (id={signed_tx.id}): {err.message}, {err.details}"
+            )
             meta["exception"] = err
 
         meta["response_time"] = (time.perf_counter() -
