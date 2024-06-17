@@ -27,6 +27,7 @@ near-store.workspace = true
 near-chain.workspace = true
 near-test-contracts.workspace = true
 near-vm-runner.workspace = true
+node-runtime.workspace = true
 
 [features]
 nightly_protocol = [
