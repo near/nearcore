@@ -74,6 +74,11 @@ nextest-integration TYPE *FLAGS:
 nextest-integration TYPE *FLAGS:
     @echo "Nextest integration tests are currently disabled on macos!"
 
+[windows]
+nextest-integration TYPE *FLAGS:
+    @echo "Nextest integration tests are currently disabled on windows!"
+
+
 doctests:
     cargo test --doc
 
