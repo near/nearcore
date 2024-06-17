@@ -3593,12 +3593,12 @@ fn test_long_chain_with_restart_from_snapshot() {
 mod contract_precompilation_tests {
     use super::*;
     use near_primitives::test_utils::MockEpochInfoProvider;
-    use near_primitives::views::ViewApplyState;
     use near_store::TrieUpdate;
     use near_vm_runner::{
         get_contract_cache_key, ContractCode, ContractRuntimeCache, FilesystemContractRuntimeCache,
     };
     use node_runtime::state_viewer::TrieViewer;
+    use node_runtime::state_viewer::ViewApplyState;
 
     const EPOCH_LENGTH: u64 = 25;
 
