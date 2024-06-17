@@ -17,7 +17,7 @@ pub mod loading;
 pub mod lookup;
 pub mod metrics;
 pub mod node;
-mod parallel_loader;
+pub mod parallel_loader;
 pub mod updating;
 
 /// Check this, because in the code we conveniently assume usize is 8 bytes.

@@ -1,4 +1,5 @@
 mod adjust_database;
+mod aggressive_trimming;
 mod analyse_data_size_distribution;
 mod analyse_gas_usage;
 mod analyse_high_load;
@@ -12,5 +13,5 @@ mod make_snapshot;
 mod memtrie;
 mod run_migrations;
 mod state_perf;
-mod utils;
+pub mod utils;
 mod write_to_db;

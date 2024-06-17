@@ -17,6 +17,7 @@ anyhow.workspace = true
 chrono.workspace = true
 clap.workspace = true
 hex.workspace = true
+indicatif.workspace = true
 rayon.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -26,6 +27,7 @@ tracing.workspace = true
 near-chain-configs.workspace = true
 near-chain.workspace = true
 near-crypto.workspace = true
+near-database-tool.workspace = true
 near-epoch-manager.workspace = true
 near-mirror.workspace = true
 near-o11y.workspace = true
@@ -38,6 +40,7 @@ nearcore.workspace = true
 nightly = [
   "near-chain-configs/nightly",
   "near-chain/nightly",
+  "near-database-tool/nightly",
   "near-epoch-manager/nightly",
   "near-mirror/nightly",
   "near-o11y/nightly",
@@ -50,6 +53,7 @@ nightly = [
 nightly_protocol = [
   "near-chain-configs/nightly_protocol",
   "near-chain/nightly_protocol",
+  "near-database-tool/nightly_protocol",
   "near-epoch-manager/nightly_protocol",
   "near-mirror/nightly_protocol",
   "near-o11y/nightly_protocol",
