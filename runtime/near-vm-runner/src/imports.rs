@@ -48,6 +48,7 @@
 //! `for_each_available_import` takes care to invoke `M!` only for currently
 //! available imports.
 
+#[allow(unused)]
 macro_rules! call_with_name {
     ( $M:ident => @in $mod:ident : $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] > ) => {
         $M!($mod / $func : $func < [ $( $arg_name : $arg_type ),* ] -> [ $( $returns ),* ] >)
@@ -67,6 +68,7 @@ macro_rules! imports {
         $( @as $name:ident : )?
         $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >,)*
     ) => {
+        #[allow(unused)]
         macro_rules! for_each_available_import {
             ($config:expr, $M:ident) => {$(
                 $(#[cfg(feature = $feature_name)])?
@@ -705,6 +707,7 @@ pub(crate) mod wasmtime {
 
 /// Constant-time string equality, work-around for `"foo" == "bar"` not working
 /// in const context yet.
+#[allow(unused)]
 const fn str_eq(s1: &str, s2: &str) -> bool {
     let s1 = s1.as_bytes();
     let s2 = s2.as_bytes();

@@ -131,16 +131,16 @@ pub trait VMKindExt {
 }
 
 impl VMKindExt for VMKind {
-    fn runtime(&self, config: Config) -> Option<Box<dyn VM>> {
+    fn runtime(&self, _config: Config) -> Option<Box<dyn VM>> {
         match self {
             #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
-            Self::Wasmer0 => Some(Box::new(crate::wasmer_runner::Wasmer0VM::new(config))),
+            Self::Wasmer0 => Some(Box::new(crate::wasmer_runner::Wasmer0VM::new(_config))),
             #[cfg(feature = "wasmtime_vm")]
-            Self::Wasmtime => Some(Box::new(crate::wasmtime_runner::WasmtimeVM::new(config))),
+            Self::Wasmtime => Some(Box::new(crate::wasmtime_runner::WasmtimeVM::new(_config))),
             #[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
-            Self::Wasmer2 => Some(Box::new(crate::wasmer2_runner::Wasmer2VM::new(config))),
+            Self::Wasmer2 => Some(Box::new(crate::wasmer2_runner::Wasmer2VM::new(_config))),
             #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
-            Self::NearVm => Some(Box::new(crate::near_vm_runner::NearVM::new(config))),
+            Self::NearVm => Some(Box::new(crate::near_vm_runner::NearVM::new(_config))),
             #[allow(unreachable_patterns)] // reachable when some of the VMs are disabled.
             _ => None,
         }
