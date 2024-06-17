@@ -94,7 +94,7 @@ new_epoch_sync = []
 calimero_zero_storage = []
 
 [dev-dependencies]
-near-primitives = { workspace = true, features = ["rand"] }
+near-primitives = { workspace = true, features = ["rand", "solomon"] }
 assert_matches.workspace = true
 bencher.workspace = true
 bolero.workspace = true
