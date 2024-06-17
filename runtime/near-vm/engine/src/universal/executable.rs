@@ -58,9 +58,7 @@ impl<'a> UniversalExecutableRef<'a> {
     /// Right now we are not doing any extra work for validation, but
     /// `rkyv` has an option to do bytecheck on the serialized data before
     /// serializing (via `rkyv::check_archived_value`).
-    pub unsafe fn deserialize(
-        data: &'a [u8],
-    ) -> Result<UniversalExecutableRef<'a>, DeserializeError> {
+    pub unsafe fn deserialize(data: &'a [u8]) -> Result<Self, DeserializeError> {
         Self::verify_serialized(data).map_err(|e| DeserializeError::Incompatible(e.to_string()))?;
         let (archive, position) = data.split_at(data.len() - 8);
         let mut position_value = [0u8; 8];

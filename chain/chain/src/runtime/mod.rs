@@ -36,7 +36,7 @@ use near_primitives::types::{
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, ContractCodeView, QueryRequest, QueryResponse,
-    QueryResponseKind, ViewApplyState, ViewStateResult,
+    QueryResponseKind, ViewStateResult,
 };
 use near_store::config::StateSnapshotType;
 use near_store::flat::FlatStorageManager;
@@ -48,7 +48,7 @@ use near_store::{
 use near_vm_runner::ContractCode;
 use near_vm_runner::{precompile_contract, ContractRuntimeCache, FilesystemContractRuntimeCache};
 use node_runtime::adapter::ViewRuntimeAdapter;
-use node_runtime::state_viewer::TrieViewer;
+use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
     validate_transaction, verify_and_charge_transaction, ApplyState, Runtime,
     ValidatorAccountsUpdate,
@@ -1457,7 +1457,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             epoch_height,
             block_timestamp,
             current_protocol_version,
-            cache: Some(Box::new(self.compiled_contract_cache.handle())),
+            cache: Some(self.compiled_contract_cache.handle()),
         };
         self.trie_viewer.call_function(
             state_update,
