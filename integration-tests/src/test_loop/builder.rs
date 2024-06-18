@@ -1,7 +1,5 @@
-use itertools::Itertools;
 use std::sync::{Arc, RwLock};
 
-use near_async::actix_wrapper::spawn_actix_actor;
 use near_async::futures::FutureSpawner;
 use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::test_loop::sender::TestLoopSender;
