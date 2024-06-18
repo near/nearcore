@@ -107,8 +107,10 @@ impl super::NetworkState {
                 // Query all the STUN servers in parallel.
                 let queries = stun_servers.iter().map(|addr| {
                     let clock = clock.clone();
+                    let want_ipv4 = node_addr.is_ipv4();
                     let addr = addr.clone();
                     self.spawn(async move {
+                        let addr = stun::lookup_host(addr, want_ipv4).await?;
                         match stun::query(&clock, &addr).await {
                             Ok(ip) => Some(ip),
                             Err(err) => {
