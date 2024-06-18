@@ -273,7 +273,7 @@ impl ForkNetworkCommand {
                 flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
                 let flat_storage =
                     flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
-                flat_storage.update_flat_head(&desired_block_hash, true).unwrap();
+                flat_storage.update_flat_head(&desired_block_hash).unwrap();
                 let chunk_extra = chain.get_chunk_extra(&desired_block_hash, &shard_uid).unwrap();
                 let state_root = chunk_extra.state_root();
                 tracing::info!(?shard_id, ?epoch_id, ?state_root);

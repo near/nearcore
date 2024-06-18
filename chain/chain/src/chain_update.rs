@@ -288,7 +288,17 @@ impl<'a> ChainUpdate<'a> {
                         result.shard_uid,
                         result.trie_changes.state_changes(),
                     )?;
-                    flat_storage_manager.update_flat_storage_for_shard(result.shard_uid, block)?;
+                    let last_final_block_hash = *block.header().last_final_block();
+                    if last_final_block_hash != CryptoHash::default() {
+                        // TODO(#11600): this seems good enough to create a snapshot
+                        // for the new shard when resharding finishes, because there
+                        // is no concept of missing chunk. However, testing is required.
+                        flat_storage_manager.update_flat_storage_for_shard(
+                            result.shard_uid,
+                            last_final_block_hash,
+                        )?;
+                    }
+
                     self.chain_store_update.merge(store_update);
 
                     self.chain_store_update.save_chunk_extra(
