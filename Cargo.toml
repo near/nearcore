@@ -161,7 +161,7 @@ criterion = { version = "0.5.1", default_features = false, features = [
 crossbeam = "0.8"
 crossbeam-channel = "0.5.8"
 csv = "1.2.1"
-curve25519-dalek = { version = "4.1.1", default-features = false, features = [
+curve25519-dalek = { version = "4.1.3", default-features = false, features = [
     "alloc",
     "precomputed-tables",
     "rand_core",
