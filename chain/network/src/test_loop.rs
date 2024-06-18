@@ -95,7 +95,7 @@ impl TestLoopPeerManagerActor {
 
 // Helper function to create a map of senders from a list of data.
 // Converts Vec<Data> to HashMap<AccountId, Sender>
-pub fn make_sender_map<'a, T, U>(datas: &'a Vec<T>) -> HashMap<AccountId, U>
+fn make_sender_map<'a, T, U>(datas: &'a Vec<T>) -> HashMap<AccountId, U>
 where
     AccountId: From<&'a T>,
     U: From<&'a T>,
@@ -232,23 +232,23 @@ fn network_message_to_state_snapshot_handler() -> NetworkRequestHandler {
 /// ROUTE_LOOKUP. This is fine to use in the test framework as each generate route is unique and
 /// independent of other routes.
 #[derive(Default, Clone)]
-pub struct PartialEncodedChunkRequestRouteLookup(Arc<Mutex<HashMap<CryptoHash, AccountId>>>);
+struct PartialEncodedChunkRequestRouteLookup(Arc<Mutex<HashMap<CryptoHash, AccountId>>>);
 
 impl PartialEncodedChunkRequestRouteLookup {
-    pub fn new() -> Self {
+    fn new() -> Self {
         Self(Arc::new(Mutex::new(HashMap::new())))
     }
 
     // Generating route_id is under a lock and we use the size of hashmap to generate the route_id
     // The size of hashmap is strictly increasing which ensures us a unique route_id across multiple runs.
-    pub fn add_route(&self, from_account_id: &AccountId) -> CryptoHash {
+    fn add_route(&self, from_account_id: &AccountId) -> CryptoHash {
         let mut guard = self.0.lock().unwrap();
         let route_id = CryptoHash::hash_borsh(guard.len());
         guard.insert(route_id, from_account_id.clone());
         route_id
     }
 
-    pub fn get_destination(&self, route_id: CryptoHash) -> AccountId {
+    fn get_destination(&self, route_id: CryptoHash) -> AccountId {
         let guard = self.0.lock().unwrap();
         guard.get(&route_id).unwrap().clone()
     }

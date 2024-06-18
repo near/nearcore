@@ -881,21 +881,6 @@ impl Client {
             }
         }
 
-        let epoch_length = self.chain.epoch_length;
-        let blocks_until_end_of_epoch =
-            if self.epoch_manager.is_next_block_epoch_start(&prev_block_hash)? {
-                epoch_length
-            } else {
-                let epoch_start_height =
-                    self.epoch_manager.get_epoch_start_height(&prev_block_hash)?;
-                let epoch_relative_height = next_height.saturating_sub(epoch_start_height);
-                epoch_length.saturating_sub(epoch_relative_height)
-            };
-        if blocks_until_end_of_epoch <= 2 {
-            info!(target: "client", shard_id, next_height, blocks_until_end_of_epoch, "SKIP!!!!!!!!!");
-            return Err(Error::ChunkProducer("SKIP!!!!!!!!!".to_string()));
-        }
-
         debug!(target: "client", me = ?validator_signer.validator_id(), next_height, shard_id, "Producing chunk");
 
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;

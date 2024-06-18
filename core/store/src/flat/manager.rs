@@ -136,7 +136,6 @@ impl FlatStorageManager {
         shard_uid: ShardUId,
         state_changes: &[RawStateChangesWithTrieKey],
     ) -> Result<StoreUpdate, StorageError> {
-        tracing::info!(target: "client", %shard_uid, "FS DELTA: {:?} changes", state_changes.len());
         let prev_block_with_changes = if state_changes.is_empty() {
             // The current block has no flat state changes.
             // Find the last block with flat state changes by looking it up in

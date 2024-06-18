@@ -249,7 +249,7 @@ impl TestLoopBuilder {
             client_config.gc.clone(),
             client_config.archive,
         );
-        // adapter not needed
+        // We don't send messages to `GCActor` so adapter is not needed.
         self.test_loop.register_actor_for_index(idx, gc_actor, None);
 
         let future_spawner = self.test_loop.future_spawner();
