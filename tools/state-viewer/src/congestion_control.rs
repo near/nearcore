@@ -27,7 +27,7 @@ impl CongestionControlCmd {
 
     fn run_print(&self, near_config: &NearConfig, store: Store) {
         let chain_store = ChainStore::new(
-            store.clone(),
+            store,
             near_config.genesis.config.genesis_height,
             near_config.client_config.save_trie_changes,
         );
