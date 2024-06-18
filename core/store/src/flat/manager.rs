@@ -86,8 +86,9 @@ impl FlatStorageManager {
     }
 
     /// Update flat storage for given processed or caught up block, which includes:
-    /// - merge deltas from current flat storage head to new one;
-    /// - update flat storage head to the hash of final block visible from given one;
+    /// - merge deltas from current flat storage head to new one given in
+    /// `new_flat_head`;
+    /// - update flat storage head to the new one;
     /// - remove info about unreachable blocks from memory.
     pub fn update_flat_storage_for_shard(
         &self,
@@ -123,7 +124,7 @@ impl FlatStorageManager {
                 }
             });
         } else {
-            tracing::debug!(target: "store", ?shard_uid, "No flat storage!!!");
+            tracing::debug!(target: "store", ?shard_uid, ?new_flat_head, "No flat storage!!!");
         }
         Ok(())
     }
