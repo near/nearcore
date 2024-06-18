@@ -10,18 +10,15 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 /// Switch that controls whether the `TrieAccountingCache` is enabled.
-#[derive(Clone)]
-// The atomic bool here is used entirely for interior mutability. This is still entirely a
-// single-threaded structure.
-pub struct TrieAccountingCacheSwitch(Rc<std::sync::atomic::AtomicBool>);
+pub struct TrieAccountingCacheSwitch(Rc<std::cell::Cell<bool>>);
 
 impl TrieAccountingCacheSwitch {
     pub fn set(&self, enabled: bool) {
-        self.0.store(enabled, std::sync::atomic::Ordering::Relaxed);
+        self.0.set(enabled);
     }
 
     pub fn enabled(&self) -> bool {
-        self.0.load(std::sync::atomic::Ordering::Relaxed)
+        self.0.get()
     }
 }
 
