@@ -18,6 +18,7 @@ use near_chain_configs::{
 };
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::client_actor::ClientActorInner;
+use near_client::gc_actor::GCActor;
 use near_client::sync_jobs_actor::SyncJobsActor;
 use near_client::test_utils::test_loop::test_loop_sync_actor_maker;
 use near_client::{Client, PartialWitnessActor, SyncAdapter};
@@ -41,11 +42,12 @@ pub struct TestLoopBuilder {
     test_loop: TestLoopV2,
     genesis: Option<Genesis>,
     clients: Vec<AccountId>,
+    gc: bool,
 }
 
 impl TestLoopBuilder {
     pub fn new() -> Self {
-        Self { test_loop: TestLoopV2::new(), genesis: None, clients: vec![] }
+        Self { test_loop: TestLoopV2::new(), genesis: None, clients: vec![], gc: true }
     }
 
     /// Get the clock for the test loop.
@@ -62,6 +64,13 @@ impl TestLoopBuilder {
     /// Set the clients for the test loop.
     pub fn clients(mut self, clients: Vec<AccountId>) -> Self {
         self.clients = clients;
+        self
+    }
+
+    /// Disable garbage collection for the nodes.
+    /// TODO(#11605): should always be enabled, if it doesn't work, it's a bug.
+    pub fn disable_gc(mut self) -> Self {
+        self.gc = false;
         self
     }
 
@@ -237,6 +246,19 @@ impl TestLoopBuilder {
             epoch_manager.clone(),
             store,
         );
+
+        if self.gc {
+            let gc_actor = GCActor::new(
+                runtime_adapter.store().clone(),
+                chain_genesis.height,
+                runtime_adapter.clone(),
+                epoch_manager.clone(),
+                client_config.gc.clone(),
+                client_config.archive,
+            );
+            // We don't send messages to `GCActor` so adapter is not needed.
+            self.test_loop.register_actor_for_index(idx, gc_actor, None);
+        }
 
         let future_spawner = self.test_loop.future_spawner();
         let state_sync_dumper = StateSyncDumper {
