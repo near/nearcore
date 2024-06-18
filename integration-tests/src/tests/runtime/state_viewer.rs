@@ -5,12 +5,11 @@ use borsh::BorshDeserialize;
 use crate::runtime_utils::{get_runtime_and_trie, get_test_trie_viewer, TEST_SHARD_UID};
 use near_primitives::{
     account::Account,
-    hash::hash as sha256,
-    hash::CryptoHash,
+    hash::{hash as sha256, CryptoHash},
     serialize::to_base64,
     trie_key::trie_key_parsers,
     types::{AccountId, StateRoot},
-    views::{StateItem, ViewApplyState},
+    views::StateItem,
 };
 use near_primitives::{
     test_utils::MockEpochInfoProvider,

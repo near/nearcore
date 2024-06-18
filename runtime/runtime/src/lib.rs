@@ -879,7 +879,9 @@ impl Runtime {
                 compute_usage: Some(result.compute_usage),
                 tokens_burnt,
                 executor_id: account_id.clone(),
-                metadata: ExecutionMetadata::V3(result.profile),
+                metadata: ExecutionMetadata::V3(Box::new(conversions::Convert::convert(
+                    *result.profile,
+                ))),
             },
         })
     }

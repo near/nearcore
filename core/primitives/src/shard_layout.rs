@@ -491,9 +491,9 @@ impl<'de> serde::de::Visitor<'de> for ShardUIdVisitor {
 mod tests {
     use crate::epoch_manager::{AllEpochConfig, EpochConfig, ValidatorSelectionConfig};
     use crate::shard_layout::{account_id_to_shard_id, ShardLayout, ShardLayoutV1, ShardUId};
+    use near_primitives_core::types::ProtocolVersion;
     use near_primitives_core::types::{AccountId, ShardId};
     use near_primitives_core::version::ProtocolFeature;
-    use near_vm_runner::logic::ProtocolVersion;
     use rand::distributions::Alphanumeric;
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};

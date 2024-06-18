@@ -39,17 +39,17 @@ strum.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 zstd.workspace = true
+enum-map.workspace = true
 
 near-time.workspace = true
 near-crypto.workspace = true
 near-fmt.workspace = true
 near-primitives-core.workspace = true
 near-rpc-error-macro.workspace = true
-near-vm-runner.workspace = true
 near-parameters.workspace = true
 
 [features]
-sandbox = ["near-vm-runner/sandbox"]
+sandbox = []
 test_features = []
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
 protocol_feature_fix_staking_threshold = [
@@ -57,7 +57,6 @@ protocol_feature_fix_staking_threshold = [
 ]
 protocol_feature_fix_contract_loading_cost = [
   "near-primitives-core/protocol_feature_fix_contract_loading_cost",
-  "near-vm-runner/protocol_feature_fix_contract_loading_cost",
 ]
 protocol_feature_reject_blocks_with_outdated_protocol_version = [
   "near-primitives-core/protocol_feature_reject_blocks_with_outdated_protocol_version",
@@ -70,7 +69,6 @@ nightly = [
   "near-fmt/nightly",
   "near-parameters/nightly",
   "near-primitives-core/nightly",
-  "near-vm-runner/nightly",
   "nightly_protocol",
   "protocol_feature_fix_contract_loading_cost",
   "protocol_feature_fix_staking_threshold",
@@ -82,7 +80,6 @@ nightly_protocol = [
   "near-fmt/nightly_protocol",
   "near-parameters/nightly_protocol",
   "near-primitives-core/nightly_protocol",
-  "near-vm-runner/nightly_protocol",
 ]
 
 statelessnet_protocol = ["near-primitives-core/statelessnet_protocol"]
