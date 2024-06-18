@@ -289,7 +289,7 @@ impl GenesisBuilder {
         shard_id: u64,
         state_root: CryptoHash,
     ) -> Result<Option<CongestionInfo>> {
-        if ProtocolFeature::CongestionControl.enabled(protocol_version) {
+        if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
             return Ok(None);
         }
         let prev_hash = genesis.header().prev_hash();
