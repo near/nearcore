@@ -96,6 +96,7 @@ new_epoch_sync = []
 calimero_zero_storage = []
 
 [dev-dependencies]
+chrono = { workspace = true, features = ["clock"] }
 near-primitives = { workspace = true, features = ["clock", "solomon", "rand"] }
 assert_matches.workspace = true
 bencher.workspace = true
