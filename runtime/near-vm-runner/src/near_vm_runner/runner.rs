@@ -16,7 +16,6 @@ use crate::{prepare, NoContractRuntimeCache};
 use memoffset::offset_of;
 use near_parameters::vm::VMKind;
 use near_parameters::RuntimeFeesConfig;
-use near_primitives_core::hash::CryptoHash;
 use near_vm_compiler_singlepass::Singlepass;
 use near_vm_engine::universal::{
     MemoryPool, Universal, UniversalArtifact, UniversalEngine, UniversalExecutable,
@@ -212,8 +211,6 @@ impl NearVM {
     )]
     fn with_compiled_and_loaded(
         &self,
-        code_hash: CryptoHash,
-        code: Option<&ContractCode>,
         cache: &dyn ContractRuntimeCache,
         ext: &mut dyn External,
         context: &VMContext,
@@ -228,64 +225,29 @@ impl NearVM {
         // To identify a cache hit from either in-memory and on-disk cache correctly, we first assume that we have a cache hit here,
         // and then we set it to false when we fail to find any entry and decide to compile (by calling compile_and_cache below).
         let mut is_cache_hit = true;
+        let code_hash = ext.code_hash();
         let (wasm_bytes, artifact_result) = cache.memory_cache().try_lookup(
             code_hash,
-            || match code {
-                None => {
-                    // `cache` stores compiled machine code in the database
-                    //
-                    // Caches also cache _compilation_ errors, so that we don't have to
-                    // re-parse invalid code (invalid code, in a sense, is a normal
-                    // outcome). And `cache`, being a database, can fail with an `io::Error`.
-                    let _span =
-                        tracing::debug_span!(target: "vm", "NearVM::fetch_from_cache").entered();
-                    let key = get_contract_cache_key(code_hash, &self.config);
-                    let cache_record = cache.get(&key).map_err(CacheError::ReadError)?;
-                    let Some(code) = cache_record else {
-                        return Err(VMRunnerError::CacheError(CacheError::ReadError(
-                            std::io::Error::from(std::io::ErrorKind::NotFound),
-                        )));
+            || {
+                // `cache` stores compiled machine code in the database
+                //
+                // Caches also cache _compilation_ errors, so that we don't have to
+                // re-parse invalid code (invalid code, in a sense, is a normal
+                // outcome). And `cache`, being a database, can fail with an `io::Error`.
+                let _span =
+                    tracing::debug_span!(target: "vm", "NearVM::fetch_from_cache").entered();
+                let key = get_contract_cache_key(code_hash, &self.config);
+                let cache_record = cache.get(&key).map_err(CacheError::ReadError)?;
+                let Some(compiled_contract_info) = cache_record else {
+                    let Some(code) = ext.get_contract() else {
+                        return Err(VMRunnerError::ContractCodeNotPresent);
                     };
-
-                    match &code.compiled {
-                        CompiledContract::CompileModuleError(err) => {
-                            Ok::<_, VMRunnerError>(to_any((code.wasm_bytes, Err(err.clone()))))
-                        }
-                        CompiledContract::Code(serialized_module) => {
-                            let _span =
-                                tracing::debug_span!(target: "vm", "NearVM::load_from_fs_cache")
-                                    .entered();
-                            unsafe {
-                                // (UN-)SAFETY: the `serialized_module` must have been produced by
-                                // a prior call to `serialize`.
-                                //
-                                // In practice this is not necessarily true. One could have
-                                // forgotten to change the cache key when upgrading the version of
-                                // the near_vm library or the database could have had its data
-                                // corrupted while at rest.
-                                //
-                                // There should definitely be some validation in near_vm to ensure
-                                // we load what we think we load.
-                                let executable =
-                                    UniversalExecutableRef::deserialize(&serialized_module)
-                                        .map_err(|_| CacheError::DeserializationError)?;
-                                let artifact = self
-                                    .engine
-                                    .load_universal_executable_ref(&executable)
-                                    .map(Arc::new)
-                                    .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?;
-                                Ok(to_any((code.wasm_bytes, Ok(artifact))))
-                            }
-                        }
-                    }
-                }
-                Some(code) => {
                     let _span =
                         tracing::debug_span!(target: "vm", "NearVM::build_from_source").entered();
                     is_cache_hit = false;
-                    Ok(to_any((
+                    return Ok(to_any((
                         code.code().len() as u64,
-                        match self.compile_and_cache(code, cache)? {
+                        match self.compile_and_cache(&code, cache)? {
                             Ok(executable) => Ok(self
                                 .engine
                                 .load_universal_executable(&executable)
@@ -293,7 +255,40 @@ impl NearVM {
                                 .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?),
                             Err(err) => Err(err),
                         },
-                    )))
+                    )));
+                };
+
+                match &compiled_contract_info.compiled {
+                    CompiledContract::CompileModuleError(err) => Ok::<_, VMRunnerError>(to_any((
+                        compiled_contract_info.wasm_bytes,
+                        Err(err.clone()),
+                    ))),
+                    CompiledContract::Code(serialized_module) => {
+                        let _span =
+                            tracing::debug_span!(target: "vm", "NearVM::load_from_fs_cache")
+                                .entered();
+                        unsafe {
+                            // (UN-)SAFETY: the `serialized_module` must have been produced by
+                            // a prior call to `serialize`.
+                            //
+                            // In practice this is not necessarily true. One could have
+                            // forgotten to change the cache key when upgrading the version of
+                            // the near_vm library or the database could have had its data
+                            // corrupted while at rest.
+                            //
+                            // There should definitely be some validation in near_vm to ensure
+                            // we load what we think we load.
+                            let executable =
+                                UniversalExecutableRef::deserialize(&serialized_module)
+                                    .map_err(|_| CacheError::DeserializationError)?;
+                            let artifact = self
+                                .engine
+                                .load_universal_executable_ref(&executable)
+                                .map(Arc::new)
+                                .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?;
+                            Ok(to_any((compiled_contract_info.wasm_bytes, Ok(artifact))))
+                        }
+                    }
                 }
             },
             move |value| {
@@ -590,8 +585,6 @@ impl<'a> finite_wasm::wasmparser::VisitOperator<'a> for GasCostCfg {
 impl crate::runner::VM for NearVM {
     fn run(
         &self,
-        code_hash: CryptoHash,
-        code: Option<&ContractCode>,
         method_name: &str,
         ext: &mut dyn External,
         context: &VMContext,
@@ -601,8 +594,6 @@ impl crate::runner::VM for NearVM {
     ) -> Result<VMOutcome, VMRunnerError> {
         let cache = cache.unwrap_or(&NoContractRuntimeCache);
         self.with_compiled_and_loaded(
-            code_hash,
-            code,
             cache,
             ext,
             context,
