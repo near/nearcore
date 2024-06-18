@@ -2026,6 +2026,7 @@ impl ShardsManagerActor {
 
         let mut block_producer_mapping = HashMap::new();
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
+        tracing::info!(target: "client", "total number of parts: {:?}", self.epoch_manager.num_total_parts());
         for part_ord in 0..self.epoch_manager.num_total_parts() {
             let part_ord = part_ord as u64;
             let to_whom = self.epoch_manager.get_part_owner(&epoch_id, part_ord).unwrap();
@@ -2033,6 +2034,7 @@ impl ShardsManagerActor {
             let entry = block_producer_mapping.entry(to_whom).or_insert_with(Vec::new);
             entry.push(part_ord);
         }
+        tracing::info!(target: "client", "block producer mapping: {:?}", block_producer_mapping);
 
         let receipt_proofs = make_outgoing_receipts_proofs(
             &chunk_header,
