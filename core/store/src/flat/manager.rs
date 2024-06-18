@@ -96,7 +96,7 @@ impl FlatStorageManager {
     ) -> Result<(), StorageError> {
         if let Some(flat_storage) = self.get_flat_storage_for_shard(shard_uid) {
             // Try to update flat head.
-            flat_storage.update_flat_head_impl(&new_flat_head, true).unwrap_or_else(|err| {
+            flat_storage.update_flat_head_impl(&new_flat_head, false).unwrap_or_else(|err| {
                 match &err {
                     FlatStorageError::BlockNotSupported(_) => {
                         // It's possible that new head is not a child of current flat head, e.g. when we have a
@@ -136,6 +136,7 @@ impl FlatStorageManager {
         shard_uid: ShardUId,
         state_changes: &[RawStateChangesWithTrieKey],
     ) -> Result<StoreUpdate, StorageError> {
+        tracing::info!(target: "client", %shard_uid, "FS DELTA: {:?} changes", state_changes.len());
         let prev_block_with_changes = if state_changes.is_empty() {
             // The current block has no flat state changes.
             // Find the last block with flat state changes by looking it up in
