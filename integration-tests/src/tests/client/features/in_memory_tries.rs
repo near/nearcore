@@ -556,6 +556,7 @@ fn test_load_memtrie_after_empty_chunks() {
 
     let num_accounts = 3;
     let num_clients = 2;
+    let epoch_length = 5;
     let initial_balance = 10000 * ONE_NEAR;
     let accounts = (num_accounts - num_clients..num_accounts)
         .map(|i| format!("account{}", i).parse().unwrap())
@@ -571,7 +572,7 @@ fn test_load_memtrie_after_empty_chunks() {
         // Set 2 shards, first of which doesn't have any validators.
         .shard_layout_simple_v1(&["account1"])
         .transaction_validity_period(1000)
-        .epoch_length(5)
+        .epoch_length(epoch_length)
         .validators_desired_roles(&clients.iter().map(|t| t.as_str()).collect_vec(), &[]);
     for account in &accounts {
         genesis_builder.add_user_account_simple(account.clone(), initial_balance);
@@ -652,7 +653,8 @@ fn test_load_memtrie_after_empty_chunks() {
     let client_handle = node_datas[0].client_sender.actor_handle();
     test_loop.run_until(
         |test_loop_data| {
-            test_loop_data.get(&client_handle).client.chain.head().unwrap().height > 10050
+            test_loop_data.get(&client_handle).client.chain.head().unwrap().height
+                > 10000 + epoch_length * 10
         },
         Duration::seconds(10),
     );
