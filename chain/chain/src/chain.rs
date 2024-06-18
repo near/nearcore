@@ -2003,6 +2003,7 @@ impl Chain {
         if last_final_block_hash == CryptoHash::default() {
             return Ok(None);
         }
+        return Ok(Some(last_final_block_hash));
 
         let last_final_block = self.get_block(&last_final_block_hash)?;
         let last_final_block_epoch_id = last_final_block.header().epoch_id();

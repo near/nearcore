@@ -1,7 +1,10 @@
+use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+use itertools::Itertools;
+use once_cell::sync::Lazy;
 
 use near_async::futures::FutureSpawner;
-use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
+use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender, Sender};
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::test_loop::TestLoopV2;
 use near_async::time::{Clock, Duration};
@@ -19,11 +22,11 @@ use near_chain_configs::{
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::client_actor::ClientActorInner;
 use near_client::sync_jobs_actor::SyncJobsActor;
-use near_client::test_utils::test_loop::test_loop_sync_actor_maker;
+use near_client::test_utils::test_loop::{ClientQueries, test_loop_sync_actor_maker};
 use near_client::{Client, PartialWitnessActor, SyncAdapter};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
-use near_network::test_loop::TestLoopPeerManagerActor;
+use near_network::test_loop::{TestLoopPeerManagerActor};
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::AccountId;
@@ -34,8 +37,82 @@ use near_store::{StoreConfig, TrieConfig};
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use nearcore::state_sync::StateSyncDumper;
 use tempfile::TempDir;
+use near_network::shards_manager::ShardsManagerRequestFromNetwork;
+use near_network::types::NetworkRequests;
 
 use super::env::{TestData, TestLoopEnv};
+
+pub fn network_message_to_shards_manager_override_handler(
+    test_loop: &TestLoopV2,
+    my_account_id: &AccountId,
+    node_datas: &Vec<TestData>,
+) -> Arc<dyn Fn(NetworkRequests) -> Option<NetworkRequests>> {
+    // Static initialization for ROUTE_LOOKUP. This is fine across tests as we generate a unique route_id
+    // for each message under a lock.
+    static ROUTE_LOOKUP: Lazy<near_network::test_loop::PartialEncodedChunkRequestRouteLookup> =
+        Lazy::new(near_network::test_loop::PartialEncodedChunkRequestRouteLookup::new);
+    let my_account_id = my_account_id.clone();
+    let clock = test_loop.clock();
+
+    let clients = node_datas
+        .iter()
+        .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
+        .collect_vec();
+    let client: Arc<Client> = clients[0].into();
+    for i in NUM_VALIDATORS..NUM_ACCOUNTS {
+        let account = &accounts[i];
+        assert_eq!(
+            clients.query_balance(account),
+            *balances.get(account).unwrap(),
+            "Account balance mismatch for account {}",
+            account
+        );
+    }
+
+    let shards_manager_senders: HashMap<_, Sender<ShardsManagerRequestFromNetwork>> = 
+        near_network::test_loop::make_sender_map(node_datas);
+    Arc::new(move |request| match request {
+        NetworkRequests::PartialEncodedChunkRequest { target, request, .. } => {
+            // Save route information in ROUTE_LOOKUP
+            let route_back = ROUTE_LOOKUP.add_route(&my_account_id);
+            let target = target.account_id.unwrap();
+            assert!(target != my_account_id, "Sending message to self not supported.");
+            let sender = shards_manager_senders.get(&target).unwrap();
+            sender.send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
+                partial_encoded_chunk_request: request,
+                route_back,
+            });
+            None
+        }
+        NetworkRequests::PartialEncodedChunkResponse { route_back, response } => {
+            // Use route_back information to send the response back to the correct client.
+            let target = ROUTE_LOOKUP.get_destination(route_back);
+            assert!(target != my_account_id, "Sending message to self not supported.");
+            let sender = shards_manager_senders.get(&target).unwrap();
+            sender.send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
+                partial_encoded_chunk_response: response,
+                received_time: clock.now(),
+            });
+            None
+        }
+        NetworkRequests::PartialEncodedChunkMessage { account_id, partial_encoded_chunk } => {
+            assert!(account_id != my_account_id, "Sending message to self not supported.");
+            let sender = shards_manager_senders.get(&account_id).unwrap();
+            sender.send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
+                partial_encoded_chunk.into(),
+            ));
+            None
+        }
+        NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
+            assert!(account_id != my_account_id, "Sending message to self not supported.");
+            let sender = shards_manager_senders.get(&account_id).unwrap();
+            sender
+                .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(forward));
+            None
+        }
+        _ => Some(request),
+    })
+}
 
 pub struct TestLoopBuilder {
     test_loop: TestLoopV2,
@@ -286,8 +363,9 @@ impl TestLoopBuilder {
         network_adapters: &Vec<Arc<LateBoundSender<TestLoopSender<TestLoopPeerManagerActor>>>>,
     ) {
         for (idx, data) in datas.iter().enumerate() {
-            let peer_manager_actor =
+            let mut peer_manager_actor =
                 TestLoopPeerManagerActor::new(self.test_loop.clock(), &data.account_id, datas);
+            peer_manager_actor.register_override_handler(network_message_to_shards_manager_override_handler(&self.test_loop, &data.account_id, datas);
             self.test_loop.register_actor_for_index(
                 idx,
                 peer_manager_actor,
