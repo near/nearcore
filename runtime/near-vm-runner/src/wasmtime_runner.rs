@@ -300,7 +300,7 @@ impl crate::runner::VM for WasmtimeVM {
             method_name,
             |mut logic, memory, mut store, module| {
                 let mut linker = Linker::new(&(&self.engine));
-                imports::wasmtime::link(&mut linker, memory, &store, &mut logic);
+                link(&mut linker, memory, &store, &mut logic);
                 match module.get_export(method_name) {
                     Some(export) => match export {
                         Func(func_type) => {
