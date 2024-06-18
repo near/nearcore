@@ -23,6 +23,7 @@ tokio = { workspace = true, features = ["rt", "macros"] }
 tracing.workspace = true
 
 near-async-derive.workspace = true
+# fix_me: we use it only for logging. i think, it's a bit too much...
 near-o11y.workspace = true
 near-performance-metrics.workspace = true
 near-time = { workspace = true, features = ["clock"] }

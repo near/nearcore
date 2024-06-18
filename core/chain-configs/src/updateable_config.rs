@@ -1,6 +1,6 @@
-#[cfg(feature = "metrics")]
-use near_async::time::Clock;
 use near_primitives::types::BlockHeight;
+#[cfg(feature = "metrics")]
+use near_time::Clock;
 use serde::{Deserialize, Serialize, Serializer};
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
@@ -102,6 +102,6 @@ pub struct UpdateableClientConfig {
 
     /// Time limit for adding transactions in produce_chunk()
     #[serde(default)]
-    #[serde(with = "near_async::time::serde_opt_duration_as_std")]
+    #[serde(with = "near_time::serde_opt_duration_as_std")]
     pub produce_chunk_add_transactions_time_limit: Option<Duration>,
 }
