@@ -366,7 +366,7 @@ impl FlatStorage {
     //              new_head
     //
     // The segment [new_head, block_hash] contains two blocks with flat state changes.
-    pub fn update_flat_head_impl(
+    fn update_flat_head_impl(
         &self,
         block_hash: &CryptoHash,
         strict: bool,
