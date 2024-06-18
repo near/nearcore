@@ -11,7 +11,6 @@ use crate::runner::VMResult;
 use crate::{get_contract_cache_key, imports, ContractCode};
 use near_parameters::vm::{Config, VMKind};
 use near_parameters::RuntimeFeesConfig;
-use near_primitives_core::hash::CryptoHash;
 use std::borrow::Cow;
 use std::ffi::c_void;
 use wasmer_runtime::units::Pages;
@@ -417,8 +416,6 @@ impl Wasmer0VM {
 impl crate::runner::VM for Wasmer0VM {
     fn run(
         &self,
-        _code_hash: CryptoHash,
-        code: Option<&ContractCode>,
         method_name: &str,
         ext: &mut dyn External,
         context: &VMContext,
@@ -426,10 +423,8 @@ impl crate::runner::VM for Wasmer0VM {
         promise_results: &[PromiseResult],
         cache: Option<&dyn ContractRuntimeCache>,
     ) -> Result<VMOutcome, VMRunnerError> {
-        let Some(code) = code else {
-            return Err(VMRunnerError::CacheError(CacheError::ReadError(std::io::Error::from(
-                std::io::ErrorKind::NotFound,
-            ))));
+        let Some(code) = ext.get_contract() else {
+            return Err(VMRunnerError::ContractCodeNotPresent);
         };
         if !cfg!(target_arch = "x86") && !cfg!(target_arch = "x86_64") {
             // TODO(#1940): Remove once NaN is standardized by the VM.
@@ -459,7 +454,7 @@ impl crate::runner::VM for Wasmer0VM {
         }
 
         // TODO: consider using get_module() here, once we'll go via deployment path.
-        let module = self.compile_and_load(code, cache)?;
+        let module = self.compile_and_load(&code, cache)?;
         let module = match module {
             Ok(x) => x,
             // Note on backwards-compatibility: This error used to be an error

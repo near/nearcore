@@ -190,7 +190,7 @@ impl TrieViewer {
     ) -> Result<Vec<u8>, errors::CallFunctionError> {
         let now = Instant::now();
         let root = *state_update.get_root();
-        let mut account = get_account(&state_update, contract_id)?.ok_or_else(|| {
+        let account = get_account(&state_update, contract_id)?.ok_or_else(|| {
             errors::CallFunctionError::AccountDoesNotExist {
                 requested_account_id: contract_id.clone(),
             }
@@ -204,6 +204,7 @@ impl TrieViewer {
             &mut state_update,
             &mut receipt_manager,
             contract_id,
+            &account,
             &empty_hash,
             &view_state.epoch_id,
             &view_state.prev_block_hash,
@@ -251,7 +252,6 @@ impl TrieViewer {
         let outcome = execute_function_call(
             &apply_state,
             &mut runtime_ext,
-            &mut account,
             originator_id,
             &action_receipt,
             &[],

@@ -884,7 +884,7 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
     let n_iters = 10;
 
     let code = ContractCode::new(code.to_vec(), None);
-    let mut fake_external = MockedExternal::new();
+    let mut fake_external = MockedExternal::with_code(code.clone_for_tests());
     let config_store = RuntimeConfigStore::new(None);
     let config = config_store.get_config(PROTOCOL_VERSION).wasm_config.clone();
     let fees = RuntimeFeesConfig::test();
@@ -897,8 +897,6 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
             .runtime(config.clone())
             .unwrap()
             .run(
-                *code.hash(),
-                Some(&code),
                 "cpu_ram_soak_test",
                 &mut fake_external,
                 &context,

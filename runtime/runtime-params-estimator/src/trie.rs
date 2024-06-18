@@ -249,7 +249,7 @@ fn read_node_from_accounting_cache_ext(
             // Create a new cache and load nodes into it as preparation.
             let caching_storage = testbed.trie_caching_storage();
             let mut accounting_cache = TrieAccountingCache::new(None);
-            accounting_cache.set_enabled(true);
+            accounting_cache.enable_switch().set(true);
             let _dummy_sum = read_raw_nodes_from_storage(
                 &caching_storage,
                 &mut accounting_cache,
