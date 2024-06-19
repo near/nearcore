@@ -10,14 +10,13 @@ mod tests;
 pub(crate) mod testonly;
 
 /// Address of the format "<domain/ip>:<port>" of STUN servers.
-// TODO(gprusak): turn into a proper struct implementing Display and FromStr.
 pub type ServerAddr = String;
 
 pub(crate) type Error = stun::Error;
 
 /// Convert from ServerAddr to SocketAddr via DNS resolution.
 /// Looks for IPv4 or IPv6 according to `want_ipv4`.
-pub(crate) async fn lookup_host(addr: ServerAddr, want_ipv4: bool) -> Option<SocketAddr> {
+pub(crate) async fn lookup_host(addr: &ServerAddr, want_ipv4: bool) -> Option<SocketAddr> {
     for socket_addr in tokio::net::lookup_host(addr).await.ok()? {
         if want_ipv4 == socket_addr.is_ipv4() {
             return Some(socket_addr);
