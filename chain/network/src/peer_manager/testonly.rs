@@ -181,7 +181,9 @@ impl ActorHandler {
     pub async fn send_outbound_connect(&self, peer_info: &PeerInfo, tier: tcp::Tier) {
         let addr = self.actix.addr.clone();
         let peer_info = peer_info.clone();
-        let stream = tcp::Stream::connect(&peer_info, tier).await.unwrap();
+        let stream = tcp::Stream::connect(&peer_info, tier, &config::SocketOptions::default())
+            .await
+            .unwrap();
         addr.do_send(PeerManagerMessageRequest::OutboundTcpConnect(stream).with_span_context());
     }
 
@@ -194,7 +196,9 @@ impl ActorHandler {
         let events = self.events.clone();
         let peer_info = peer_info.clone();
         async move {
-            let stream = tcp::Stream::connect(&peer_info, tier).await.unwrap();
+            let stream = tcp::Stream::connect(&peer_info, tier, &config::SocketOptions::default())
+                .await
+                .unwrap();
             let mut events = events.from_now();
             let stream_id = stream.id();
             addr.do_send(PeerManagerMessageRequest::OutboundTcpConnect(stream).with_span_context());

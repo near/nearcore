@@ -2,7 +2,7 @@
 version = "0.0.0"                               # managed by cargo-workspaces, see below
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2021"
-rust-version = "1.78.0"
+rust-version = "1.79.0"
 repository = "https://github.com/near/nearcore"
 license = "MIT OR Apache-2.0"
 
@@ -12,6 +12,8 @@ license = "MIT OR Apache-2.0"
 # Most crates are not stable on purpose, as maintaining API compatibility is a
 # significant developer time expense. Please think thoroughly before adding
 # anything to the list of stable crates.
+# Only bump  0.x.* to 0.(x+1).0 on any nearcore release as nearcore does not guarantee
+# semver compatibility. i.e. api can change without a protocol upgrade.
 version = "0.20.1"
 exclude = ["neard"]
 
@@ -159,7 +161,7 @@ criterion = { version = "0.5.1", default_features = false, features = [
 crossbeam = "0.8"
 crossbeam-channel = "0.5.8"
 csv = "1.2.1"
-curve25519-dalek = { version = "4.1.1", default-features = false, features = [
+curve25519-dalek = { version = "4.1.3", default-features = false, features = [
     "alloc",
     "precomputed-tables",
     "rand_core",

@@ -1,4 +1,4 @@
-FROM rust:1.78-buster as builder
+FROM rust:1.79-buster as builder
 
 ADD Cargo.toml /build/Cargo.toml
 ADD Cargo.lock /build/Cargo.lock

@@ -3366,7 +3366,11 @@ fn test_node_shutdown_with_old_protocol_version() {
 
 #[test]
 fn test_block_ordinal() {
-    let mut env = TestEnv::default_builder().mock_epoch_managers().build();
+    // Ensure that GC will not happen.
+    let epoch_length = 200;
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    genesis.config.epoch_length = epoch_length;
+    let mut env = TestEnv::builder(&genesis.config).mock_epoch_managers().build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     assert_eq!(genesis_block.header().block_ordinal(), 1);
     let mut ordinal = 1;
@@ -3589,12 +3593,12 @@ fn test_long_chain_with_restart_from_snapshot() {
 mod contract_precompilation_tests {
     use super::*;
     use near_primitives::test_utils::MockEpochInfoProvider;
-    use near_primitives::views::ViewApplyState;
     use near_store::TrieUpdate;
     use near_vm_runner::{
         get_contract_cache_key, ContractCode, ContractRuntimeCache, FilesystemContractRuntimeCache,
     };
     use node_runtime::state_viewer::TrieViewer;
+    use node_runtime::state_viewer::ViewApplyState;
 
     const EPOCH_LENGTH: u64 = 25;
 

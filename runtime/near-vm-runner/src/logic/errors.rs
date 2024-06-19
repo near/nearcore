@@ -29,6 +29,8 @@ pub enum VMRunnerError {
     Nondeterministic(String),
     #[error("unknown error during contract execution: {debug_message}")]
     WasmUnknownError { debug_message: String },
+    #[error("account has no associated contract code")]
+    ContractCodeNotPresent,
 }
 
 /// Permitted errors that cause a function call to fail gracefully.
@@ -65,6 +67,7 @@ pub enum CacheError {
     #[error("cache serialization error")]
     SerializationError { hash: [u8; 32] },
 }
+
 /// A kind of a trap happened during execution of a binary
 #[derive(Debug, Clone, PartialEq, Eq, strum::IntoStaticStr)]
 pub enum WasmTrap {

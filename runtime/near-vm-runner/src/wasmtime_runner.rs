@@ -1,7 +1,7 @@
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{
-    CacheError, CompilationError, FunctionCallError, MethodResolveError, PrepareError,
-    VMLogicError, VMRunnerError, WasmTrap,
+    CompilationError, FunctionCallError, MethodResolveError, PrepareError, VMLogicError,
+    VMRunnerError, WasmTrap,
 };
 use crate::logic::types::PromiseResult;
 use crate::logic::Config;
@@ -9,7 +9,6 @@ use crate::logic::{External, MemSlice, MemoryLike, VMContext, VMLogic, VMOutcome
 use crate::{imports, prepare, ContractCode, ContractRuntimeCache};
 use near_parameters::vm::VMKind;
 use near_parameters::RuntimeFeesConfig;
-use near_primitives_core::hash::CryptoHash;
 use std::borrow::Cow;
 use std::cell::{RefCell, UnsafeCell};
 use std::ffi::c_void;
@@ -121,15 +120,9 @@ impl IntoVMError for anyhow::Error {
     }
 }
 
-#[cfg(not(feature = "lightbeam"))]
 #[allow(clippy::needless_pass_by_ref_mut)]
 pub fn get_engine(config: &mut wasmtime::Config) -> Engine {
     Engine::new(config).unwrap()
-}
-
-#[cfg(feature = "lightbeam")]
-pub fn get_engine(config: &mut wasmtime::Config) -> Engine {
-    Engine::new(config.strategy(wasmtime::Strategy::Lightbeam).unwrap()).unwrap()
 }
 
 pub(crate) fn wasmtime_vm_hash() -> u64 {
@@ -158,8 +151,6 @@ impl WasmtimeVM {
 impl crate::runner::VM for WasmtimeVM {
     fn run(
         &self,
-        _code_hash: CryptoHash,
-        code: Option<&ContractCode>,
         method_name: &str,
         ext: &mut dyn External,
         context: &VMContext,
@@ -167,10 +158,8 @@ impl crate::runner::VM for WasmtimeVM {
         promise_results: &[PromiseResult],
         _cache: Option<&dyn ContractRuntimeCache>,
     ) -> Result<VMOutcome, VMRunnerError> {
-        let Some(code) = code else {
-            return Err(VMRunnerError::CacheError(CacheError::ReadError(std::io::Error::from(
-                std::io::ErrorKind::NotFound,
-            ))));
+        let Some(code) = ext.get_contract() else {
+            return Err(VMRunnerError::ContractCodeNotPresent);
         };
         let mut config = self.default_wasmtime_config();
         let engine = get_engine(&mut config);
@@ -320,6 +309,7 @@ fn link<'a, 'b>(
                 });
                 unsafe {
                     // Transmute the lifetime of caller so it's possible to put it in a thread-local.
+                    #[allow(clippy::missing_transmute_annotations)]
                     crate::wasmtime_runner::CALLER.with(|runner_caller| *runner_caller.borrow_mut() = std::mem::transmute(caller));
                 }
                 let logic: &mut VMLogic<'_> = unsafe { &mut *(data as *mut VMLogic<'_>) };

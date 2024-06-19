@@ -82,12 +82,6 @@ pub struct ViewClientRequestManager {
     pub tx_status_requests: lru::LruCache<CryptoHash, Instant>,
     /// Transaction status response
     pub tx_status_response: lru::LruCache<CryptoHash, FinalExecutionOutcomeView>,
-    /// Query requests that need to be forwarded to other shards
-    pub query_requests: lru::LruCache<String, Instant>,
-    /// Query responses from other nodes (can be errors)
-    pub query_responses: lru::LruCache<String, Result<QueryResponse, String>>,
-    /// Receipt outcome requests
-    pub receipt_outcome_requests: lru::LruCache<CryptoHash, Instant>,
 }
 
 pub type ViewClientActor = SyncActixWrapper<ViewClientActorInner>;
@@ -114,11 +108,6 @@ impl ViewClientRequestManager {
         Self {
             tx_status_requests: lru::LruCache::new(NonZeroUsize::new(QUERY_REQUEST_LIMIT).unwrap()),
             tx_status_response: lru::LruCache::new(NonZeroUsize::new(QUERY_REQUEST_LIMIT).unwrap()),
-            query_requests: lru::LruCache::new(NonZeroUsize::new(QUERY_REQUEST_LIMIT).unwrap()),
-            query_responses: lru::LruCache::new(NonZeroUsize::new(QUERY_REQUEST_LIMIT).unwrap()),
-            receipt_outcome_requests: lru::LruCache::new(
-                NonZeroUsize::new(QUERY_REQUEST_LIMIT).unwrap(),
-            ),
         }
     }
 }

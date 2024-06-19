@@ -398,6 +398,15 @@ static CONGESTION_OUTGOING_GAS: Lazy<IntGaugeVec> = Lazy::new(|| {
     .unwrap()
 });
 
+pub(crate) static CHUNK_RECEIPTS_LIMITED_BY: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_chunk_receipts_limited_by",
+        "Number of chunks where the number of processed receipts was limited by a certain factor.",
+        &["shard_id", "limited_by"],
+    )
+    .unwrap()
+});
+
 /// Buckets used for burned gas in receipts.
 ///
 /// The maximum possible is 1300 Tgas for a full chunk.

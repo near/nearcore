@@ -73,7 +73,7 @@ use near_primitives::network::PeerId;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::StateSyncInfo;
 use near_primitives::sharding::{
-    ChunkHash, EncodedShardChunk, PartialEncodedChunk, ShardChunk, ShardChunkHeader, ShardInfo,
+    EncodedShardChunk, PartialEncodedChunk, ShardChunk, ShardChunkHeader, ShardInfo,
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -200,6 +200,12 @@ pub struct Client {
     chunk_distribution_network: Option<ChunkDistributionNetwork>,
 }
 
+impl AsRef<Client> for Client {
+    fn as_ref(&self) -> &Client {
+        self
+    }
+}
+
 impl Client {
     pub(crate) fn update_client_config(&self, update_client_config: UpdateableClientConfig) {
         self.config.expected_shutdown.update(update_client_config.expected_shutdown);
@@ -208,30 +214,6 @@ impl Client {
             .produce_chunk_add_transactions_time_limit
             .update(update_client_config.produce_chunk_add_transactions_time_limit);
     }
-}
-
-// Debug information about the upcoming block.
-#[derive(Default)]
-pub struct BlockDebugStatus {
-    // How long is this block 'in progress' (time since we first saw it).
-    pub in_progress_for: Option<Duration>,
-    // How long is this block in orphan pool.
-    pub in_orphan_for: Option<Duration>,
-    // List of chunk hashes that belong to this block.
-    pub chunk_hashes: Vec<ChunkHash>,
-
-    // Chunk statuses are below:
-    // We first sent the request to fetch the chunk
-    // Later we get the response from the peer and we try to reconstruct it.
-    // If reconstructions succeeds, the chunk will be marked as complete.
-    // If it fails (or fragments are missing) - we're going to re-request the chunk again.
-
-    // Chunks that we reqeusted (sent the request to peers).
-    pub chunks_requested: HashSet<ChunkHash>,
-    // Chunks for which we've received the response.
-    pub chunks_received: HashSet<ChunkHash>,
-    // Chunks completed - fully rebuild and present in database.
-    pub chunks_completed: HashSet<ChunkHash>,
 }
 
 pub struct ProduceChunkResult {

@@ -879,7 +879,9 @@ impl Runtime {
                 compute_usage: Some(result.compute_usage),
                 tokens_burnt,
                 executor_id: account_id.clone(),
-                metadata: ExecutionMetadata::V3(result.profile),
+                metadata: ExecutionMetadata::V3(Box::new(conversions::Convert::convert(
+                    *result.profile,
+                ))),
             },
         })
     }
@@ -1822,6 +1824,23 @@ impl Runtime {
             compute_limit,
             proof_size_limit,
         )?;
+
+        let shard_id_str = processing_state.apply_state.shard_id.to_string();
+        if processing_state.total.compute >= compute_limit {
+            metrics::CHUNK_RECEIPTS_LIMITED_BY
+                .with_label_values(&[shard_id_str.as_str(), "compute_limit"])
+                .inc();
+        } else if proof_size_limit.is_some_and(|limit| {
+            processing_state.state_update.trie.recorded_storage_size_upper_bound() > limit
+        }) {
+            metrics::CHUNK_RECEIPTS_LIMITED_BY
+                .with_label_values(&[shard_id_str.as_str(), "storage_proof_size_limit"])
+                .inc();
+        } else {
+            metrics::CHUNK_RECEIPTS_LIMITED_BY
+                .with_label_values(&[shard_id_str.as_str(), "unlimited"])
+                .inc();
+        }
 
         Ok(ProcessReceiptsResult {
             promise_yield_result,

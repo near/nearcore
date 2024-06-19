@@ -1937,10 +1937,7 @@ impl Chain {
             tracing::debug!(target: "chain", shard_id,need_flat_storage_update, "Updating flat storage");
 
             if need_flat_storage_update {
-                let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
-                let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
-                flat_storage_manager.update_flat_storage_for_shard(shard_uid, &block)?;
-                self.garbage_collect_memtrie_roots(&block, shard_uid);
+                self.update_flat_storage_and_memtrie(&block, shard_id)?;
             }
         }
 
@@ -1990,7 +1987,65 @@ impl Chain {
         Ok(AcceptedBlock { hash: *block.hash(), status: block_status, provenance })
     }
 
-    fn garbage_collect_memtrie_roots(&self, block: &Block, shard_uid: ShardUId) {
+    /// Gets new flat storage head candidate for given `shard_id` and newly
+    /// processed `block`.
+    /// It will be `block.last_final_block().chunk(shard_id).prev_block_hash()`
+    /// if all necessary conditions are met.
+    /// This is required for `StateSnapshot` to be able to make snapshot of
+    /// flat storage at the epoch boundary.
+    fn get_new_flat_storage_head(
+        &self,
+        block: &Block,
+        shard_id: ShardId,
+    ) -> Result<Option<CryptoHash>, Error> {
+        let epoch_id = block.header().epoch_id();
+        let last_final_block_hash = *block.header().last_final_block();
+        // If final block doesn't exist yet, skip getting candidate.
+        if last_final_block_hash == CryptoHash::default() {
+            return Ok(None);
+        }
+
+        let last_final_block = self.get_block(&last_final_block_hash)?;
+        let last_final_block_epoch_id = last_final_block.header().epoch_id();
+        // If shard layout was changed, the update is impossible so we skip
+        // getting candidate.
+        if self.epoch_manager.get_shard_layout(last_final_block_epoch_id)
+            != self.epoch_manager.get_shard_layout(epoch_id)
+        {
+            return Ok(None);
+        }
+
+        let last_final_block_chunks = last_final_block.chunks();
+        let chunk_header = last_final_block_chunks
+            .iter()
+            .find(|chunk| chunk.shard_id() == shard_id)
+            .ok_or_else(|| Error::InvalidShardId(shard_id))?;
+        let new_flat_head = *chunk_header.prev_block_hash();
+        if new_flat_head == CryptoHash::default() {
+            return Ok(None);
+        }
+        Ok(Some(new_flat_head))
+    }
+
+    /// Update flat storage and memtrie for given `shard_id` and newly
+    /// processed `block`.
+    fn update_flat_storage_and_memtrie(
+        &self,
+        block: &Block,
+        shard_id: ShardId,
+    ) -> Result<(), Error> {
+        let epoch_id = block.header().epoch_id();
+        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
+
+        // Update flat storage.
+        let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
+        if flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_some() {
+            if let Some(new_flat_head) = self.get_new_flat_storage_head(block, shard_id)? {
+                flat_storage_manager.update_flat_storage_for_shard(shard_uid, new_flat_head)?;
+            }
+        }
+
+        // Garbage collect memtrie roots.
         let tries = self.runtime_adapter.get_tries();
         let last_final_block = block.header().last_final_block();
         if last_final_block != &CryptoHash::default() {
@@ -1999,6 +2054,7 @@ impl Chain {
                 tries.delete_memtrie_roots_up_to_height(shard_uid, prev_height);
             }
         }
+        Ok(())
     }
 
     /// Preprocess a block before applying chunks, verify that we have the necessary information
@@ -2905,7 +2961,7 @@ impl Chain {
         let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
         if let Some(flat_storage) = flat_storage_manager.get_flat_storage_for_shard(shard_uid) {
             let header = self.get_block_header(&sync_hash)?;
-            flat_storage.update_flat_head(header.prev_hash(), true).unwrap();
+            flat_storage.update_flat_head(header.prev_hash()).unwrap();
         }
 
         Ok(())
@@ -3110,10 +3166,7 @@ impl Chain {
                 shard_id,
                 true,
             ) {
-                let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
-                let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
-                flat_storage_manager.update_flat_storage_for_shard(shard_uid, &block)?;
-                self.garbage_collect_memtrie_roots(&block, shard_uid);
+                self.update_flat_storage_and_memtrie(&block, shard_id)?;
             }
         }
 

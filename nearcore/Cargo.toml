@@ -185,8 +185,9 @@ statelessnet_protocol = [
 ]
 sandbox = [
   "near-client/sandbox",
-  "node-runtime/sandbox",
   "near-jsonrpc/sandbox",
+  "near-o11y/sandbox",
+  "node-runtime/sandbox",
 ]
 io_trace = ["near-vm-runner/io_trace"]
 

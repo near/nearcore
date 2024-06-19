@@ -303,7 +303,7 @@ mod trie_storage_tests {
         let mut accounting_cache = TrieAccountingCache::new(None);
         let key = hash(&value);
 
-        accounting_cache.set_enabled(true);
+        accounting_cache.enable_switch().set(true);
         let _ = accounting_cache.retrieve_raw_bytes_with_accounting(&key, &trie_caching_storage);
 
         let count_before: TrieNodesCount = accounting_cache.get_trie_nodes_count();
@@ -339,7 +339,7 @@ mod trie_storage_tests {
 
         // Move to CachingChunk mode. Retrieval should increment the counter, because it is the first time we accessed
         // item while caching chunk.
-        accounting_cache.set_enabled(true);
+        accounting_cache.enable_switch().set(true);
         let count_before = accounting_cache.get_trie_nodes_count();
         let result =
             accounting_cache.retrieve_raw_bytes_with_accounting(&key, &trie_caching_storage);
@@ -361,7 +361,7 @@ mod trie_storage_tests {
 
         // Even if we switch to caching shard, retrieval shouldn't increment the counter. Accounting cache only grows and is
         // dropped only when trie caching storage is dropped.
-        accounting_cache.set_enabled(true);
+        accounting_cache.enable_switch().set(true);
         let count_before = accounting_cache.get_trie_nodes_count();
         let result =
             accounting_cache.retrieve_raw_bytes_with_accounting(&key, &trie_caching_storage);
@@ -393,12 +393,12 @@ mod trie_storage_tests {
         let value = &values[0];
         let key = hash(&value);
 
-        accounting_cache.set_enabled(true);
+        accounting_cache.enable_switch().set(true);
         let result =
             accounting_cache.retrieve_raw_bytes_with_accounting(&key, &trie_caching_storage);
         assert_eq!(result.unwrap().as_ref(), value);
 
-        accounting_cache.set_enabled(true);
+        accounting_cache.enable_switch().set(true);
         for value in values[1..].iter() {
             let result = accounting_cache
                 .retrieve_raw_bytes_with_accounting(&hash(value), &trie_caching_storage);

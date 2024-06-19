@@ -56,7 +56,12 @@ near-test-contracts.workspace = true
 testlib.workspace = true
 
 [features]
-sandbox = ["node-runtime/sandbox", "near-chain/sandbox", "near-client/sandbox"]
+sandbox = [
+  "near-chain/sandbox",
+  "near-client/sandbox",
+  "near-o11y/sandbox",
+  "node-runtime/sandbox",
+]
 protocol_feature_nonrefundable_transfer_nep491 = [
   "near-primitives/protocol_feature_nonrefundable_transfer_nep491",
 ]
