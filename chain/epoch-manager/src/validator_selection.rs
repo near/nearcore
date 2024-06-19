@@ -633,7 +633,7 @@ mod tests {
     use super::*;
     use near_crypto::{KeyType, PublicKey};
     use near_primitives::account::id::AccountIdRef;
-    use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochInfoV3};
+    use near_primitives::epoch_manager::epoch_info::EpochInfo;
     use near_primitives::epoch_manager::ValidatorSelectionConfig;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::validator_stake::ValidatorStake;
