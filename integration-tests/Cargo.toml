@@ -60,7 +60,7 @@ near-o11y.workspace = true
 near-telemetry.workspace = true
 near-test-contracts.workspace = true
 near-performance-metrics.workspace = true
-near-vm-runner = { workspace = true, features = ["prepare"] }
+near-vm-runner = { workspace = true, features = [ "prepare" ] }
 near-wallet-contract.workspace = true
 nearcore.workspace = true
 node-runtime.workspace = true
