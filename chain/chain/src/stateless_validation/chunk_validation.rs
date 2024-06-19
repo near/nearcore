@@ -491,7 +491,6 @@ pub fn validate_chunk_state_witness(
     // Finally, verify that the newly proposed chunk matches everything we have computed.
     let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
     validate_chunk_with_chunk_extra_and_receipts_root(
-        protocol_version,
         &chunk_extra,
         &state_witness.chunk_header,
         &outgoing_receipts_root,

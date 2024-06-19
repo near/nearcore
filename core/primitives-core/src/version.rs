@@ -157,11 +157,6 @@ pub enum ProtocolFeature {
     PerReceiptHardStorageProofLimit,
     /// Cross-shard congestion control according to https://github.com/near/NEPs/pull/539.
     CongestionControl,
-    /// The allowed shard validation for congestion control. This is only needed
-    /// for statelessnet where it's released separately from the main
-    /// CongestionControl feature.
-    /// TODO(congestion_control) - remove it on stabilization
-    CongestionControlAllowedShardValidation,
     // Stateless validation: Distribute state witness as reed solomon encoded parts
     PartialEncodedStateWitness,
     /// Size limits for transactions included in a ChunkStateWitness.
@@ -230,8 +225,7 @@ impl ProtocolFeature {
             ProtocolFeature::SimpleNightshadeTestonly => 79,
 
             // StatelessNet features
-            ProtocolFeature::CongestionControl
-            | ProtocolFeature::CongestionControlAllowedShardValidation => 80,
+            ProtocolFeature::CongestionControl => 80,
             ProtocolFeature::StatelessValidationV0
             | ProtocolFeature::LowerValidatorKickoutPercentForDebugging => 81,
             ProtocolFeature::SingleShardTracking => 82,
