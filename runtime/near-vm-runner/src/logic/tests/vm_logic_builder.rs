@@ -43,7 +43,7 @@ impl VMLogicBuilder {
             &self.config,
             &self.fees_config,
             &self.promise_results,
-            &mut self.memory,
+            self.memory.clone(),
         ))
     }
 

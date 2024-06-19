@@ -43,7 +43,7 @@ pub struct VMLogic<'a> {
     /// results of the methods that made the callback are stored in this collection.
     promise_results: &'a [PromiseResult],
     /// Pointer to the guest memory.
-    memory: super::vmstate::Memory<'a>,
+    memory: super::vmstate::Memory,
 
     /// Keeping track of the current account balance, which can decrease when we create promises
     /// and attach balance to them.
@@ -135,7 +135,7 @@ impl<'a> VMLogic<'a> {
         config: &'a Config,
         fees_config: &'a RuntimeFeesConfig,
         promise_results: &'a [PromiseResult],
-        memory: &'a mut dyn MemoryLike,
+        memory: impl MemoryLike + 'static,
     ) -> Self {
         // Overflow should be checked before calling VMLogic.
         let current_account_balance = context.account_balance + context.attached_deposit;
@@ -194,7 +194,7 @@ impl<'a> VMLogic<'a> {
     }
 
     #[cfg(test)]
-    pub(super) fn memory(&mut self) -> &mut super::vmstate::Memory<'a> {
+    pub(super) fn memory(&mut self) -> &mut super::vmstate::Memory {
         &mut self.memory
     }
 

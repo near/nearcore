@@ -250,7 +250,7 @@ impl WasmtimeVM {
         )?;
 
         let mut store = Store::new(&self.engine, ());
-        let mut memory = WasmtimeMemory::new(
+        let memory = WasmtimeMemory::new(
             &mut store,
             self.config.limit_config.initial_memory_pages,
             self.config.limit_config.max_memory_pages,
@@ -258,7 +258,7 @@ impl WasmtimeVM {
         .unwrap();
         let memory_copy = memory.0;
         let mut logic =
-            VMLogic::new(ext, context, &self.config, fees_config, promise_results, &mut memory);
+            VMLogic::new(ext, context, &self.config, fees_config, promise_results, memory);
         let result = logic.before_loading_executable(method_name, wasm_bytes);
         if let Err(e) = result {
             return Ok(VMOutcome::abort(logic, e));
