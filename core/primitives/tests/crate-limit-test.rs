@@ -34,7 +34,7 @@ fn process_output(output: Output, threshold: usize) {
 #[test]
 fn test_crate_count() {
     // Run `cargo tree -p near-primitives --edges=normal` and capture the output
-    let output = Command::new(env!("CARGO"))
+    let output = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string()))
         .arg("tree")
         .arg("-p")
         .arg("near-primitives")
@@ -48,7 +48,7 @@ fn test_crate_count() {
 #[test]
 fn test_crate_count_no_default() {
     // Run `cargo tree -p near-primitives --edges=normal` and capture the output
-    let output = Command::new(env!("CARGO"))
+    let output = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string()))
         .arg("tree")
         .arg("-p")
         .arg("near-primitives")
