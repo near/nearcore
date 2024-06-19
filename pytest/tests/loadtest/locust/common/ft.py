@@ -92,11 +92,13 @@ class FTContract:
 
         accounts = [create_account() for _ in range(num)]
         node.prepare_accounts(accounts,
-                            parent,
-                            balance=7,
-                            msg="create passive user")
+                              parent,
+                              balance=7,
+                              msg="create passive user")
         with futures.ThreadPoolExecutor() as executor:
-            futures.wait(executor.submit(self.register_passive_user, node, account) for account in accounts)
+            futures.wait(
+                executor.submit(self.register_passive_user, node, account)
+                for account in accounts)
 
 
 class TransferFT(FunctionCall):
