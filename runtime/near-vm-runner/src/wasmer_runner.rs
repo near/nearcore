@@ -13,6 +13,7 @@ use near_parameters::vm::{Config, VMKind};
 use near_parameters::RuntimeFeesConfig;
 use std::borrow::Cow;
 use std::ffi::c_void;
+use std::sync::Arc;
 use wasmer_runtime::units::Pages;
 use wasmer_runtime::wasm::MemoryDescriptor;
 use wasmer_runtime::Memory;
@@ -295,11 +296,11 @@ pub(crate) fn wasmer0_vm_hash() -> u64 {
 }
 
 pub(crate) struct Wasmer0VM {
-    config: Config,
+    config: Arc<Config>,
 }
 
 impl Wasmer0VM {
-    pub(crate) fn new(config: Config) -> Self {
+    pub(crate) fn new(config: Arc<Config>) -> Self {
         Self { config }
     }
 
@@ -419,8 +420,8 @@ impl crate::runner::VM for Wasmer0VM {
         method_name: &str,
         ext: &mut dyn External,
         context: &VMContext,
-        fees_config: &RuntimeFeesConfig,
-        promise_results: &[PromiseResult],
+        fees_config: Arc<RuntimeFeesConfig>,
+        promise_results: std::sync::Arc<[PromiseResult]>,
         cache: Option<&dyn ContractRuntimeCache>,
     ) -> Result<VMOutcome, VMRunnerError> {
         let Some(code) = ext.get_contract() else {
@@ -445,8 +446,14 @@ impl crate::runner::VM for Wasmer0VM {
         // Note that we don't clone the actual backing memory, just increase the RC.
         let memory_copy = memory.clone();
 
-        let mut logic =
-            VMLogic::new(ext, context, &self.config, fees_config, promise_results, memory);
+        let mut logic = VMLogic::new(
+            ext,
+            context,
+            Arc::clone(&self.config),
+            fees_config,
+            promise_results,
+            memory,
+        );
 
         let result = logic.before_loading_executable(method_name, code.code().len() as u64);
         if let Err(e) = result {

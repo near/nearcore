@@ -85,7 +85,8 @@ impl RuntimeConfigStore {
         #[cfg(feature = "calimero_zero_storage")]
         {
             let mut initial_config = RuntimeConfig::new(&params).unwrap_or_else(|err| panic!("Failed generating `RuntimeConfig` from parameters for base parameter file. Error: {err}"));
-            initial_config.fees.storage_usage_config.storage_amount_per_byte = 0;
+            let fees = Arc::make_mut(&mut initial_config.fees);
+            fees.storage_usage_config.storage_amount_per_byte = 0;
             store.insert(0, Arc::new(initial_config));
         }
 
@@ -100,17 +101,26 @@ impl RuntimeConfigStore {
             #[cfg(feature = "calimero_zero_storage")]
             {
                 let mut runtime_config = RuntimeConfig::new(&params).unwrap_or_else(|err| panic!("Failed generating `RuntimeConfig` from parameters for version {protocol_version}. Error: {err}"));
-                runtime_config.fees.storage_usage_config.storage_amount_per_byte = 0;
+                let fees = Arc::make_mut(&mut runtime_config.fees);
+                fees.storage_usage_config.storage_amount_per_byte = 0;
                 store.insert(*protocol_version, Arc::new(runtime_config));
             }
         }
 
         if let Some(runtime_config) = genesis_runtime_config {
-            let mut config = runtime_config.clone();
-            store.insert(0, Arc::new(config.clone()));
-
-            config.fees.storage_usage_config.storage_amount_per_byte = 10u128.pow(19);
-            store.insert(42, Arc::new(config));
+            let mut fees = crate::RuntimeFeesConfig::clone(&runtime_config.fees);
+            fees.storage_usage_config.storage_amount_per_byte = 10u128.pow(19);
+            store.insert(
+                42,
+                Arc::new(RuntimeConfig {
+                    fees: Arc::new(fees),
+                    wasm_config: Arc::clone(&runtime_config.wasm_config),
+                    account_creation_config: runtime_config.account_creation_config.clone(),
+                    congestion_control_config: runtime_config.congestion_control_config,
+                    witness_config: runtime_config.witness_config,
+                }),
+            );
+            store.insert(0, Arc::new(runtime_config.clone()));
         }
 
         Self { store }

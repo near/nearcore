@@ -5,6 +5,7 @@ use near_crypto::SecretKey;
 use near_primitives::checked_feature;
 use near_primitives::state_record::StateRecord;
 use near_primitives::version::PROTOCOL_VERSION;
+use std::sync::Arc;
 use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
 
 fn create_runtime_node() -> RuntimeNode {
@@ -21,7 +22,8 @@ fn create_runtime_with_expensive_storage() -> RuntimeNode {
     add_test_contract(&mut genesis, &bob_account());
     // Set expensive state requirements and add alice more money.
     let mut runtime_config = RuntimeConfig::test();
-    runtime_config.fees.storage_usage_config.storage_amount_per_byte = TESTING_INIT_BALANCE / 1000;
+    let fees = Arc::make_mut(&mut runtime_config.fees);
+    fees.storage_usage_config.storage_amount_per_byte = TESTING_INIT_BALANCE / 1000;
     let records = genesis.force_read_records().as_mut();
     match &mut records[0] {
         StateRecord::Account { account, .. } => account.set_amount(TESTING_INIT_BALANCE * 10000),
