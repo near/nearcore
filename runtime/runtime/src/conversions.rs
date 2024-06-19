@@ -49,6 +49,9 @@ mod compilation_error {
                 },
                 From::PrepareError(pe) => Self::PrepareError(super::Convert::convert(pe)),
                 From::WasmerCompileError { msg } => Self::WasmerCompileError { msg },
+                // Intentionally converting into "Wasmer" error here in order to avoid
+                // this particular detail being visible to the protocol unnecessarily.
+                From::WasmtimeCompileError { msg } => Self::WasmerCompileError { msg },
             }
         }
     }
