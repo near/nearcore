@@ -358,7 +358,8 @@ impl TestReshardingEnv {
                 run_catchup(client, &[])?;
             }
             while wait_for_all_blocks_in_processing(&mut client.chain) {
-                let (_, errors) = client.postprocess_ready_blocks(None, should_produce_chunk, &signer);
+                let (_, errors) =
+                    client.postprocess_ready_blocks(None, should_produce_chunk, &signer);
                 assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
             }
             // manually invoke gc

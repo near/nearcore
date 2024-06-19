@@ -538,7 +538,11 @@ impl Doomslug {
         ret
     }
 
-    fn create_approval(&self, target_height: BlockHeight, signer: &Option<Arc<ValidatorSigner>>) -> Option<Approval> {
+    fn create_approval(
+        &self,
+        target_height: BlockHeight,
+        signer: &Option<Arc<ValidatorSigner>>,
+    ) -> Option<Approval> {
         signer.as_ref().map(|signer| {
             Approval::new(self.tip.block_hash, self.tip.height, target_height, &*signer)
         })

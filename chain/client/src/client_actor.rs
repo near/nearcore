@@ -318,8 +318,7 @@ impl ClientActorInner {
         if let Some(vs) = &client.validator_signer.get() {
             info!(target: "client", "Starting validator node: {}", vs.validator_id());
         }
-        let info_helper =
-            InfoHelper::new(clock.clone(), telemetry_sender, &config);
+        let info_helper = InfoHelper::new(clock.clone(), telemetry_sender, &config);
 
         let now = clock.now_utc();
         Ok(ClientActorInner {
@@ -546,7 +545,11 @@ impl Handler<BlockApproval> for ClientActorInner {
         let BlockApproval(approval, peer_id) = msg;
         debug!(target: "client", "Receive approval {:?} from peer {:?}", approval, peer_id);
         let validator_signer = self.client.validator_signer.get();
-        self.client.collect_block_approval(&approval, ApprovalType::PeerApproval(peer_id), &validator_signer);
+        self.client.collect_block_approval(
+            &approval,
+            ApprovalType::PeerApproval(peer_id),
+            &validator_signer,
+        );
     }
 }
 
@@ -901,7 +904,11 @@ impl ClientActorInner {
 
     /// Check if client Account Id should be sent and send it.
     /// Account Id is sent when is not current a validator but are becoming a validator soon.
-    fn check_send_announce_account(&mut self, prev_block_hash: CryptoHash, validator_signer: &Option<Arc<ValidatorSigner>>) {
+    fn check_send_announce_account(
+        &mut self,
+        prev_block_hash: CryptoHash,
+        validator_signer: &Option<Arc<ValidatorSigner>>,
+    ) {
         // If no peers, there is no one to announce to.
         if self.network_info.num_connected_peers == 0 {
             debug!(target: "client", "No peers: skip account announce");
@@ -937,11 +944,8 @@ impl ClientActorInner {
             debug!(target: "client", "Sending announce account for {}", signer.validator_id());
             self.last_validator_announce_time = Some(now);
 
-            let signature = signer.sign_account_announce(
-                signer.validator_id(),
-                &self.node_id,
-                &next_epoch_id,
-            );
+            let signature =
+                signer.sign_account_announce(signer.validator_id(), &self.node_id, &next_epoch_id);
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::AnnounceAccount(AnnounceAccount {
                     account_id: signer.validator_id().clone(),
@@ -1033,7 +1037,10 @@ impl ClientActorInner {
 
     /// Retrieves latest height, and checks if must produce next block.
     /// Otherwise wait for block arrival or suggest to skip after timeout.
-    fn handle_block_production(&mut self, signer: &Option<Arc<ValidatorSigner>>) -> Result<(), Error> {
+    fn handle_block_production(
+        &mut self,
+        signer: &Option<Arc<ValidatorSigner>>,
+    ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "client", "handle_block_production").entered();
         // If syncing, don't try to produce blocks.
         if self.client.sync_status.is_syncing() {
@@ -1238,9 +1245,11 @@ impl ClientActorInner {
     /// and we want to prioritize block processing.
     fn try_process_unfinished_blocks(&mut self, signer: &Option<Arc<ValidatorSigner>>) {
         let _span = debug_span!(target: "client", "try_process_unfinished_blocks").entered();
-        let (accepted_blocks, errors) = self
-            .client
-            .postprocess_ready_blocks(Some(self.myself_sender.apply_chunks_done.clone()), true, signer);
+        let (accepted_blocks, errors) = self.client.postprocess_ready_blocks(
+            Some(self.myself_sender.apply_chunks_done.clone()),
+            true,
+            signer,
+        );
         if !errors.is_empty() {
             error!(target: "client", ?errors, "try_process_unfinished_blocks got errors");
         }
@@ -1274,9 +1283,11 @@ impl ClientActorInner {
                     || self.client.is_validator(&head.next_epoch_id, &head.last_block_hash, &signer)
                 {
                     for approval in approvals {
-                        if let Err(e) =
-                            self.client.send_approval(&self.client.doomslug.get_tip().0, approval, &signer)
-                        {
+                        if let Err(e) = self.client.send_approval(
+                            &self.client.doomslug.get_tip().0,
+                            approval,
+                            &signer,
+                        ) {
                             error!("Error while sending an approval {:?}", e);
                         }
                     }
@@ -1288,7 +1299,11 @@ impl ClientActorInner {
 
     /// Produce block if we are block producer for given `next_height` height.
     /// Can return error, should be called with `produce_block` to handle errors and reschedule.
-    fn produce_block(&mut self, next_height: BlockHeight, signer: &Option<Arc<ValidatorSigner>>) -> Result<(), Error> {
+    fn produce_block(
+        &mut self,
+        next_height: BlockHeight,
+        signer: &Option<Arc<ValidatorSigner>>,
+    ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "client", "produce_block", next_height).entered();
         let Some(block) = self.client.produce_block_on_head(next_height, false)? else {
             return Ok(());
@@ -1380,7 +1395,11 @@ impl ClientActorInner {
     }
 
     /// Process all blocks that were accepted by calling other relevant services.
-    fn process_accepted_blocks(&mut self, accepted_blocks: Vec<CryptoHash>, signer: &Option<Arc<ValidatorSigner>>) {
+    fn process_accepted_blocks(
+        &mut self,
+        accepted_blocks: Vec<CryptoHash>,
+        signer: &Option<Arc<ValidatorSigner>>,
+    ) {
         let _span = tracing::debug_span!(
             target: "client",
             "process_accepted_blocks",
@@ -1394,7 +1413,12 @@ impl ClientActorInner {
         }
     }
 
-    fn receive_headers(&mut self, headers: Vec<BlockHeader>, peer_id: PeerId, signer: &Option<Arc<ValidatorSigner>>) -> bool {
+    fn receive_headers(
+        &mut self,
+        headers: Vec<BlockHeader>,
+        peer_id: PeerId,
+        signer: &Option<Arc<ValidatorSigner>>,
+    ) -> bool {
         let _span =
             debug_span!(target: "client", "receive_headers", num_headers = headers.len(), ?peer_id)
                 .entered();
@@ -2125,7 +2149,9 @@ impl Handler<ChunkStateWitnessMessage> for ClientActorInner {
     fn handle(&mut self, msg: ChunkStateWitnessMessage) {
         let ChunkStateWitnessMessage { witness, raw_witness_size } = msg;
         let signer = self.client.validator_signer.get();
-        if let Err(err) = self.client.process_chunk_state_witness(witness, raw_witness_size, None, signer) {
+        if let Err(err) =
+            self.client.process_chunk_state_witness(witness, raw_witness_size, None, signer)
+        {
             tracing::error!(target: "client", ?err, "Error processing chunk state witness");
         }
     }

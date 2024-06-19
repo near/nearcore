@@ -47,7 +47,8 @@ impl Client {
         let signer = self.validator_signer.get();
         self.start_process_block(block, provenance, None, &signer)?;
         wait_for_all_blocks_in_processing(&mut self.chain);
-        let (accepted_blocks, errors) = self.postprocess_ready_blocks(None, should_produce_chunk, &signer);
+        let (accepted_blocks, errors) =
+            self.postprocess_ready_blocks(None, should_produce_chunk, &signer);
         if !allow_errors {
             assert!(errors.is_empty(), "unexpected errors when processing blocks: {errors:#?}");
         }

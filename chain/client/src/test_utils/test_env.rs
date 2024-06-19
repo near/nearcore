@@ -78,7 +78,6 @@ pub struct StateWitnessPropagationOutput {
     pub found_differing_post_state_root_due_to_state_transitions: bool,
 }
 
-
 impl TestEnv {
     pub fn default_builder() -> TestEnvBuilder {
         let clock = Clock::real();

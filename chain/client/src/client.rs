@@ -838,14 +838,7 @@ impl Client {
             return Ok(None);
         }
 
-        self.produce_chunk(
-            prev_block,
-            epoch_id,
-            last_header,
-            next_height,
-            shard_id,
-            signer,
-        )
+        self.produce_chunk(prev_block, epoch_id, last_header, next_height, shard_id, signer)
     }
 
     #[instrument(target = "client", level = "debug", "produce_chunk", skip_all, fields(
@@ -1078,7 +1071,11 @@ impl Client {
         Ok(prepared_transactions)
     }
 
-    fn send_challenges(&mut self, challenges: Vec<ChallengeBody>, signer: &Option<Arc<ValidatorSigner>>) {
+    fn send_challenges(
+        &mut self,
+        challenges: Vec<ChallengeBody>,
+        signer: &Option<Arc<ValidatorSigner>>,
+    ) {
         if let Some(validator_signer) = &signer {
             for body in challenges {
                 let challenge = Challenge::produce(body, &**validator_signer);
@@ -1113,7 +1110,13 @@ impl Client {
             was_requested)
         .entered();
 
-        let res = self.receive_block_impl(block, peer_id, was_requested, apply_chunks_done_sender, &validator_signer);
+        let res = self.receive_block_impl(
+            block,
+            peer_id,
+            was_requested,
+            apply_chunks_done_sender,
+            &validator_signer,
+        );
         // Log the errors here. Note that the real error handling logic is already
         // done within process_block_impl, this is just for logging.
         if let Err(err) = res {
@@ -1293,8 +1296,7 @@ impl Client {
         let mut block_processing_artifacts = BlockProcessingArtifact::default();
 
         let result = {
-            let me = signer.as_ref()
-                .map(|vs| vs.validator_id().clone());
+            let me = signer.as_ref().map(|vs| vs.validator_id().clone());
             self.chain.start_process_block_async(
                 &me,
                 block,
@@ -1974,7 +1976,12 @@ impl Client {
         self.process_block_processing_artifact(blocks_processing_artifacts, signer);
     }
 
-    pub fn is_validator(&self, epoch_id: &EpochId, block_hash: &CryptoHash, signer: &Option<Arc<ValidatorSigner>>) -> bool {
+    pub fn is_validator(
+        &self,
+        epoch_id: &EpochId,
+        block_hash: &CryptoHash,
+        signer: &Option<Arc<ValidatorSigner>>,
+    ) -> bool {
         match signer {
             None => false,
             Some(signer) => {
@@ -2042,7 +2049,12 @@ impl Client {
     /// * `approval` - the approval to be collected
     /// * `approval_type`  - whether the approval was just produced by us (in which case skip validation,
     ///                      only check whether we are the next block producer and store in Doomslug)
-    pub fn collect_block_approval(&mut self, approval: &Approval, approval_type: ApprovalType, signer: &Option<Arc<ValidatorSigner>>) {
+    pub fn collect_block_approval(
+        &mut self,
+        approval: &Approval,
+        approval_type: ApprovalType,
+        signer: &Option<Arc<ValidatorSigner>>,
+    ) {
         let Approval { inner, account_id, target_height, signature } = approval;
 
         let parent_hash = match inner {
@@ -2125,8 +2137,7 @@ impl Client {
             match self.epoch_manager.get_block_producer(&next_block_epoch_id, *target_height) {
                 Err(_) => false,
                 Ok(target_block_producer) => {
-                    Some(&target_block_producer)
-                        == signer.as_ref().map(|x| x.validator_id())
+                    Some(&target_block_producer) == signer.as_ref().map(|x| x.validator_id())
                 }
             };
 
@@ -2158,7 +2169,12 @@ impl Client {
     }
 
     /// Forwards given transaction to upcoming validators.
-    fn forward_tx(&self, epoch_id: &EpochId, tx: &SignedTransaction, signer: &Option<Arc<ValidatorSigner>>) -> Result<(), Error> {
+    fn forward_tx(
+        &self,
+        epoch_id: &EpochId,
+        tx: &SignedTransaction,
+        signer: &Option<Arc<ValidatorSigner>>,
+    ) -> Result<(), Error> {
         let shard_id =
             self.epoch_manager.account_id_to_shard_id(tx.transaction.signer_id(), epoch_id)?;
         // Use the header head to make sure the list of validators is as
@@ -2243,7 +2259,11 @@ impl Client {
 
     /// If we're a validator in one of the next few chunks, but epoch switch could happen soon,
     /// we forward to a validator from next epoch.
-    fn possibly_forward_tx_to_next_epoch(&mut self, tx: &SignedTransaction, signer: &Option<Arc<ValidatorSigner>>) -> Result<(), Error> {
+    fn possibly_forward_tx_to_next_epoch(
+        &mut self,
+        tx: &SignedTransaction,
+        signer: &Option<Arc<ValidatorSigner>>,
+    ) -> Result<(), Error> {
         let head = self.chain.head()?;
         if let Some(next_epoch_id) = self.get_next_epoch_id_if_at_boundary(&head)? {
             self.forward_tx(&next_epoch_id, tx, signer)?;
@@ -2401,7 +2421,11 @@ impl Client {
     }
 
     /// Determine if I am a validator in next few blocks for specified shard, assuming epoch doesn't change.
-    fn active_validator(&self, shard_id: ShardId, signer: &Option<Arc<ValidatorSigner>>) -> Result<bool, Error> {
+    fn active_validator(
+        &self,
+        shard_id: ShardId,
+        signer: &Option<Arc<ValidatorSigner>>,
+    ) -> Result<bool, Error> {
         let head = self.chain.head()?;
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash)?;
 

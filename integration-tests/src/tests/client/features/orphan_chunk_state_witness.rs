@@ -152,7 +152,8 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
             let processing_done_tracker = ProcessingDoneTracker::new();
             witness_processing_done_waiters.push(processing_done_tracker.make_waiter());
             let client = env.client(&account_id);
-            client.process_chunk_state_witness(
+            client
+                .process_chunk_state_witness(
                     state_witness.clone(),
                     raw_witness_size,
                     Some(processing_done_tracker),
@@ -224,7 +225,9 @@ fn test_orphan_witness_valid() {
     // The witness should become an orphaned witness and it should be saved to the orphan pool.
     let witness_size = borsh_size(&witness);
     let client = env.client(&excluded_validator);
-    client.process_chunk_state_witness(witness, witness_size, None, client.validator_signer.get()).unwrap();
+    client
+        .process_chunk_state_witness(witness, witness_size, None, client.validator_signer.get())
+        .unwrap();
 
     let block_processed = env
         .client(&excluded_validator)
@@ -321,7 +324,8 @@ fn test_orphan_witness_not_fully_validated() {
     // The witness will later be fully validated when the required block arrives.
     let witness_size = borsh_size(&witness);
     let client = env.client(&excluded_validator);
-    client.process_chunk_state_witness(witness, witness_size, None, client.validator_signer.get())
+    client
+        .process_chunk_state_witness(witness, witness_size, None, client.validator_signer.get())
         .unwrap();
 }
 

@@ -1228,10 +1228,8 @@ pub fn load_validator_key(validator_file: &Path) -> anyhow::Result<Option<Arc<Va
     match InMemoryValidatorSigner::from_file(&validator_file) {
         Ok(signer) => Ok(Some(Arc::new(signer.into()))),
         Err(_) => {
-            let error_message = format!(
-                "Failed initializing validator signer from {}",
-                validator_file.display()
-            );
+            let error_message =
+                format!("Failed initializing validator signer from {}", validator_file.display());
             Err(anyhow!(error_message))
         }
     }

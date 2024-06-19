@@ -818,8 +818,12 @@ fn test_processing_blocks_async() {
     blocks.shuffle(&mut rng);
     for ind in 0..blocks.len() {
         let signer = env.clients[1].validator_signer.get();
-        let _ =
-            env.clients[1].start_process_block(blocks[ind].clone().into(), Provenance::NONE, None, &signer);
+        let _ = env.clients[1].start_process_block(
+            blocks[ind].clone().into(),
+            Provenance::NONE,
+            None,
+            &signer,
+        );
     }
 
     env.process_shards_manager_responses_and_finish_processing_blocks(1);

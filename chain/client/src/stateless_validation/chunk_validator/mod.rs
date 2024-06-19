@@ -324,6 +324,11 @@ impl Client {
             )));
         }
 
-        self.chunk_validator.start_validating_chunk(witness, &self.chain, processing_done_tracker, signer)
+        self.chunk_validator.start_validating_chunk(
+            witness,
+            &self.chain,
+            processing_done_tracker,
+            signer,
+        )
     }
 }

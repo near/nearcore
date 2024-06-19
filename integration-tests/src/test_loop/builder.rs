@@ -13,7 +13,8 @@ use near_chain::state_snapshot_actor::{
 use near_chain::types::RuntimeAdapter;
 use near_chain::ChainGenesis;
 use near_chain_configs::{
-    ClientConfig, DumpConfig, ExternalStorageConfig, ExternalStorageLocation, Genesis, MutableConfigValue, StateSyncConfig, SyncConfig
+    ClientConfig, DumpConfig, ExternalStorageConfig, ExternalStorageLocation, Genesis,
+    MutableConfigValue, StateSyncConfig, SyncConfig,
 };
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::client_actor::ClientActorInner;

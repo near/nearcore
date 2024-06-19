@@ -1054,8 +1054,7 @@ mod tests {
 
         // Then check that get_num_validators returns the correct number of validators.
         let client_config = ClientConfig::test(false, 1230, 2340, 50, false, true, true, true);
-        let mut info_helper =
-            InfoHelper::new(Clock::real(), noop().into_sender(), &client_config);
+        let mut info_helper = InfoHelper::new(Clock::real(), noop().into_sender(), &client_config);
         assert_eq!(
             num_validators,
             info_helper.get_num_validators(&epoch_manager_adapter, &epoch_id, &last_block_hash)
