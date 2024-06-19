@@ -95,8 +95,7 @@ class FTContract:
                             parent,
                             balance=7,
                             msg="create passive user")
-        from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor() as executor:
+        with futures.ThreadPoolExecutor() as executor:
             futures.wait(executor.submit(self.register_passive_user, node, account) for account in accounts)
 
 
