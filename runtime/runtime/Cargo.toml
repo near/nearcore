@@ -29,12 +29,7 @@ near-parameters.workspace = true
 near-primitives.workspace = true
 near-primitives-core.workspace = true
 near-store.workspace = true
-near-vm-runner = { workspace = true, features = [
-  "wasmer0_vm",
-  "wasmer2_vm",
-  "near_vm",
-  "wasmtime_vm",
-] }
+near-vm-runner = { workspace = true, features = [ "wasmer0_vm", "wasmer2_vm", "near_vm", "wasmtime_vm" ] }
 near-wallet-contract.workspace = true
 
 [features]
@@ -66,7 +61,10 @@ nightly_protocol = [
 protocol_feature_nonrefundable_transfer_nep491 = []
 no_cpu_compatibility_checks = ["near-vm-runner/no_cpu_compatibility_checks"]
 
-no_cache = ["near-vm-runner/no_cache", "near-store/no_cache"]
+no_cache = [
+  "near-vm-runner/no_cache",
+  "near-store/no_cache",
+]
 
 sandbox = ["near-o11y/sandbox", "near-vm-runner/sandbox"]
 test_features = [
