@@ -364,7 +364,6 @@ fn test_stateless_validators_with_multi_test_loop() {
             client_config.clone(),
             PeerId::random(),
             builder.sender().for_index(idx).into_multi_sender(),
-            MutableConfigValue::new(None, "validator_signer"),
             noop().into_sender(),
             None,
             Default::default(),

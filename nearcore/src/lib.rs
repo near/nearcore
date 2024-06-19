@@ -496,11 +496,11 @@ pub fn start_with_config_and_synchronization(
         trie_metrics_arbiter,
         state_snapshot_arbiter,
         gc_arbiter,
+        partial_witness_arbiter,
     ];
     if let Some(db_metrics_arbiter) = db_metrics_arbiter {
         arbiters.push(db_metrics_arbiter);
     }
-    arbiters.push(partial_witness_arbiter);
 
     Ok(NearNode {
         client: client_actor,

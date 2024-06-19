@@ -21,8 +21,7 @@ use num_rational::Ratio;
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
 use near_chain_configs::{
-    default_produce_chunk_add_transactions_time_limit, Genesis, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
-    NEAR_BASE,
+    default_produce_chunk_add_transactions_time_limit, Genesis, MutableConfigValue, DEFAULT_GC_NUM_EPOCHS_TO_KEEP, NEAR_BASE
 };
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_o11y::testonly::init_test_logger;
@@ -1619,7 +1618,7 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
         ChainConfig::test(),
         None,
         Arc::new(RayonAsyncComputationSpawner),
-        None,
+        MutableConfigValue::new(None, "validator_signer"),
     )
     .unwrap();
 

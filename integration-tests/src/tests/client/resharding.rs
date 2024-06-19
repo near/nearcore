@@ -352,12 +352,13 @@ impl TestReshardingEnv {
             // because we want to call run_catchup before finish processing this block. This simulates
             // that catchup and block processing run in parallel.
             let block = MaybeValidated::from(block.clone());
-            client.start_process_block(block, Provenance::NONE, None).unwrap();
+            let signer = client.validator_signer.get();
+            client.start_process_block(block, Provenance::NONE, None, &signer).unwrap();
             if should_catchup {
                 run_catchup(client, &[])?;
             }
             while wait_for_all_blocks_in_processing(&mut client.chain) {
-                let (_, errors) = client.postprocess_ready_blocks(None, should_produce_chunk);
+                let (_, errors) = client.postprocess_ready_blocks(None, should_produce_chunk, &signer);
                 assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
             }
             // manually invoke gc

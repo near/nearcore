@@ -172,7 +172,6 @@ fn test_client_with_simple_test_loop() {
         client_config,
         PeerId::random(),
         noop().into_multi_sender(),
-        MutableConfigValue::new(None, "validator_signer"),
         noop().into_sender(),
         None,
         Default::default(),

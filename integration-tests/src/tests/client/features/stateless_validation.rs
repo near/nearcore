@@ -405,7 +405,8 @@ fn test_chunk_state_witness_bad_shard_id() {
 
     // Client should reject this ChunkStateWitness and the error message should mention "shard"
     tracing::info!(target: "test", "Processing invalid ChunkStateWitness");
-    let res = env.clients[0].process_chunk_state_witness(witness, witness_size, None);
+    let signer = env.clients[0].validator_signer.get();
+    let res = env.clients[0].process_chunk_state_witness(witness, witness_size, None, signer);
     let error = res.unwrap_err();
     let error_message = format!("{}", error).to_lowercase();
     tracing::info!(target: "test", "error message: {}", error_message);
@@ -521,6 +522,7 @@ fn test_invalid_transactions() {
                     &prev_chunk_header,
                     &shard_chunk,
                     transactions_storage_proof,
+                    &client.validator_signer.get(),
                 )
                 .unwrap();
 

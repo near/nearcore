@@ -126,7 +126,7 @@ impl StateSyncDumper {
                         dump_config.restart_dump_for_shards.clone().unwrap_or_default(),
                         external.clone(),
                         dump_config.iteration_delay.unwrap_or(Duration::seconds(10)),
-                        self.validator.get().map(|v| v.validator_id().clone()),
+                        self.validator.clone(),
                         keep_running.clone(),
                     )
                     .boxed(),
@@ -335,7 +335,7 @@ async fn state_sync_dump(
     restart_dump_for_shards: Vec<ShardId>,
     external: ExternalConnection,
     iteration_delay: Duration,
-    account_id: Option<AccountId>,
+    validator: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
     keep_running: Arc<AtomicBool>,
 ) {
     tracing::info!(target: "state_sync_dump", shard_id, "Running StateSyncDump loop");
@@ -349,6 +349,7 @@ async fn state_sync_dump(
     // Note that without this check the state dumping thread is unstoppable, i.e. non-interruptable.
     while keep_running.load(std::sync::atomic::Ordering::Relaxed) {
         tracing::debug!(target: "state_sync_dump", shard_id, "Running StateSyncDump loop iteration");
+        let account_id = validator.get().map(|v| v.validator_id().clone());
         let current_state = get_current_state(
             &chain,
             &shard_id,

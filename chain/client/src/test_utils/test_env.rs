@@ -78,6 +78,7 @@ pub struct StateWitnessPropagationOutput {
     pub found_differing_post_state_root_due_to_state_transitions: bool,
 }
 
+
 impl TestEnv {
     pub fn default_builder() -> TestEnvBuilder {
         let clock = Clock::real();
@@ -374,10 +375,12 @@ impl TestEnv {
                     let processing_done_tracker = ProcessingDoneTracker::new();
                     witness_processing_done_waiters.push(processing_done_tracker.make_waiter());
 
-                    let processing_result = self.client(&account_id).process_chunk_state_witness(
+                    let client = self.client(&account_id);
+                    let processing_result = client.process_chunk_state_witness(
                         state_witness.clone(),
                         raw_witness_size,
                         Some(processing_done_tracker),
+                        client.validator_signer.get(),
                     );
                     if !allow_errors {
                         processing_result.unwrap();
