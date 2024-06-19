@@ -1,3 +1,4 @@
+from concurrent import futures
 import random
 import string
 import sys
@@ -96,11 +97,7 @@ class FTContract:
                             msg="create passive user")
         from concurrent.futures import ThreadPoolExecutor
         with ThreadPoolExecutor() as executor:
-            running_tasks = [
-                    executor.submit(self.register_passive_user, node, account)
-                    for account in accounts]
-            for running_task in running_tasks:
-                running_task.result()
+            futures.wait(executor.submit(self.register_passive_user, node, account) for account in accounts)
 
 
 class TransferFT(FunctionCall):
