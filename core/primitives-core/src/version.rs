@@ -230,17 +230,17 @@ impl ProtocolFeature {
             ProtocolFeature::SimpleNightshadeTestonly => 79,
 
             // StatelessNet features
-            ProtocolFeature::StatelessValidationV0 => 80,
-            ProtocolFeature::LowerValidatorKickoutPercentForDebugging => 81,
+            ProtocolFeature::CongestionControl
+            | ProtocolFeature::CongestionControlAllowedShardValidation => 80,
+            ProtocolFeature::StatelessValidationV0
+            | ProtocolFeature::LowerValidatorKickoutPercentForDebugging => 81,
             ProtocolFeature::SingleShardTracking => 82,
             ProtocolFeature::StateWitnessSizeLimit => 83,
             ProtocolFeature::PerReceiptHardStorageProofLimit => 85,
             ProtocolFeature::PartialEncodedStateWitness => 86,
             ProtocolFeature::WitnessTransactionLimits
-            | ProtocolFeature::CongestionControl
             | ProtocolFeature::OutgoingReceiptsSizeLimit => 87,
-            ProtocolFeature::CongestionControlAllowedShardValidation
-            | ProtocolFeature::NoChunkOnlyProducers => 88,
+            ProtocolFeature::NoChunkOnlyProducers => 88,
             ProtocolFeature::ChangePartialWitnessDataPartsRequired => 89,
             ProtocolFeature::BiggerCombinedTransactionLimit => 90,
 
