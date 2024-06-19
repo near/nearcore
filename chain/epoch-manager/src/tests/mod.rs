@@ -3254,10 +3254,7 @@ fn test_increase_block_producer_seats() {
     let epoch_config = EpochConfig {
         epoch_length: 5,
         num_block_producer_seats: 20,
-        num_block_producer_seats_per_shard: get_num_seats_per_shard(
-            1,
-            20,
-        ),
+        num_block_producer_seats_per_shard: get_num_seats_per_shard(1, 20),
         avg_hidden_validator_seats_per_shard: vec![],
         block_producer_kickout_threshold: 90,
         chunk_producer_kickout_threshold: 90,
@@ -3275,7 +3272,8 @@ fn test_increase_block_producer_seats() {
         shard_layout: ShardLayout::v0(1, 0),
         validator_max_kickout_stake_perc: 100,
     };
-    let config = AllEpochConfig::new(true, epoch_config, near_primitives_core::chains::STATELESSNET);
+    let config =
+        AllEpochConfig::new(true, epoch_config, near_primitives_core::chains::STATELESSNET);
     let reward_calculator = default_reward_calculator();
     let validators: Vec<(AccountId, u128)> = vec![("test0".parse().unwrap(), 1_000_000)];
     // use a small number so that any protocol version is higher

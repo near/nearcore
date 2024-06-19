@@ -42,6 +42,7 @@ protocol_feature_fix_staking_threshold = [
 nightly = [
   "near-chain-configs/nightly",
   "near-o11y/nightly",
+  "near-primitives-core/nightly",
   "near-primitives/nightly",
   "near-store/nightly",
   "nightly_protocol",
@@ -50,6 +51,7 @@ nightly = [
 nightly_protocol = [
   "near-chain-configs/nightly_protocol",
   "near-o11y/nightly_protocol",
+  "near-primitives-core/nightly_protocol",
   "near-primitives/nightly_protocol",
   "near-store/nightly_protocol",
 ]
