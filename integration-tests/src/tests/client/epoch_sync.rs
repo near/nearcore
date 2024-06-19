@@ -1,5 +1,5 @@
-use crate::nearcore_utils::{add_blocks, setup_configs_with_epoch_length};
-use crate::test_helpers::heavy_test;
+use crate::tests::nearcore_utils::{add_blocks, setup_configs_with_epoch_length};
+use crate::tests::test_helpers::heavy_test;
 use actix::Actor;
 use actix_rt::System;
 use futures::{future, FutureExt};
