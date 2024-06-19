@@ -3247,17 +3247,35 @@ fn test_possible_epochs_of_height_around_tip() {
 #[test]
 #[should_panic(expected = "Increasing the number of block producer seat is not supported")]
 fn test_increase_block_producer_seats() {
+    use near_primitives::epoch_manager::ValidatorSelectionConfig;
+    use near_primitives::utils::get_num_seats_per_shard;
+
     let store = create_test_store();
-    let config = epoch_config_with_production_config(
-        5,
-        1,
-        20,
-        20,
-        90,
-        90,
-        90,
-        true
-    );
+    let epoch_config = EpochConfig {
+        epoch_length: 5,
+        num_block_producer_seats: 20,
+        num_block_producer_seats_per_shard: get_num_seats_per_shard(
+            1,
+            20,
+        ),
+        avg_hidden_validator_seats_per_shard: vec![],
+        block_producer_kickout_threshold: 90,
+        chunk_producer_kickout_threshold: 90,
+        chunk_validator_only_kickout_threshold: 90,
+        target_validator_mandates_per_shard: 68,
+        fishermen_threshold: 0,
+        online_min_threshold: Ratio::new(90, 100),
+        online_max_threshold: Ratio::new(99, 100),
+        protocol_upgrade_stake_threshold: Ratio::new(80, 100),
+        minimum_stake_divisor: 1,
+        validator_selection_config: ValidatorSelectionConfig {
+            num_chunk_producer_seats: 20,
+            ..Default::default()
+        },
+        shard_layout: ShardLayout::v0(1, 0),
+        validator_max_kickout_stake_perc: 100,
+    };
+    let config = AllEpochConfig::new(true, epoch_config, near_primitives_core::chains::STATELESSNET);
     let reward_calculator = default_reward_calculator();
     let validators: Vec<(AccountId, u128)> = vec![("test0".parse().unwrap(), 1_000_000)];
     // use a small number so that any protocol version is higher

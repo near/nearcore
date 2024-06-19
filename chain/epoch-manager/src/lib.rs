@@ -244,8 +244,21 @@ impl EpochManager {
             .unwrap_or_default();
         let genesis_num_block_producer_seats =
             config.for_protocol_version(genesis_protocol_version).num_block_producer_seats;
+        // The following checks that the number of block producer seats does not accidentally increase during
+        // a protocol version change. If `num_block_producer_seats` is larger than `genesis_num_block_producer_seats`,
+        // the number of block producers will be larger than `total_num_parts` and will cause a hard-to-debug issue
+        // in chunk part distribution that will lead to chunk misses. To prevent that from happening, a node will not
+        // be able to start if such a protocol change is implemented.
+        // This check only applies when chain id is one of `mocknet`, `statelessnet`, `testnet`, or `mainnet`.
         if config.for_protocol_version(PROTOCOL_VERSION).num_block_producer_seats
             > genesis_num_block_producer_seats
+            && [
+                near_primitives_core::chains::MOCKNET,
+                near_primitives_core::chains::STATELESSNET,
+                near_primitives_core::chains::TESTNET,
+                near_primitives_core::chains::MAINNET,
+            ]
+            .contains(&config.chain_id())
         {
             panic!("Increasing the number of block producer seat is not supported due to chunk part computation");
         }

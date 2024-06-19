@@ -32,6 +32,7 @@ near-store.workspace = true
 near-chain-configs.workspace = true
 near-chain-primitives.workspace = true
 near-cache.workspace = true
+near-primitives-core.workspace = true
 
 [features]
 expensive_tests = []
