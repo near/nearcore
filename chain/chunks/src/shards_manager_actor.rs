@@ -2017,7 +2017,7 @@ impl ShardsManagerActor {
         let _timer = metrics::DISTRIBUTE_ENCODED_CHUNK_TIME
             .with_label_values(&[&shard_id.to_string()])
             .start_timer();
-        // TODO: if the number of validators exceeds the number of parts, this logic must be changed
+        // It is guaranteed that the number of parts will be no smaller than the number of block producers
         let chunk_header = encoded_chunk.cloned_header();
         let prev_block_hash = chunk_header.prev_block_hash();
         let _span = tracing::debug_span!(
