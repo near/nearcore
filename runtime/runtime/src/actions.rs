@@ -36,7 +36,7 @@ use near_store::{
     StorageError, TrieUpdate,
 };
 use near_vm_runner::logic::errors::{
-    CacheError, CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
+    CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
 };
 use near_vm_runner::logic::types::PromiseResult;
 use near_vm_runner::logic::{VMContext, VMOutcome};
@@ -44,33 +44,10 @@ use near_vm_runner::precompile_contract;
 use near_vm_runner::ContractCode;
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
 
-use std::sync::Arc;
-
-/// Returns `ContractCode` (if exists) for the given `account` or returns `StorageError`.
-/// For ETH-implicit accounts returns `Wallet Contract` implementation that it is a part
-/// of the protocol and it's cached in memory.
-fn get_contract_code(
-    runtime_ext: &RuntimeExt,
-    account: &Account,
-    protocol_version: ProtocolVersion,
-) -> Result<Option<Arc<ContractCode>>, StorageError> {
-    let account_id = runtime_ext.account_id();
-    let code_hash = account.code_hash();
-    if checked_feature!("stable", EthImplicitAccounts, protocol_version)
-        && account_id.get_account_type() == AccountType::EthImplicitAccount
-    {
-        let chain_id = runtime_ext.chain_id();
-        assert!(&code_hash == wallet_contract_magic_bytes(&chain_id).hash());
-        return Ok(Some(wallet_contract(&chain_id)));
-    }
-    Ok(runtime_ext.get_code(code_hash).map(Arc::new))
-}
-
 /// Runs given function call with given context / apply state.
 pub(crate) fn execute_function_call(
     apply_state: &ApplyState,
     runtime_ext: &mut RuntimeExt,
-    account: &Account,
     predecessor_id: &AccountId,
     action_receipt: &ActionReceipt,
     promise_results: &[PromiseResult],
@@ -103,9 +80,9 @@ pub(crate) fn execute_function_call(
         block_height: apply_state.block_height,
         block_timestamp: apply_state.block_timestamp,
         epoch_height: apply_state.epoch_height,
-        account_balance: account.amount(),
-        account_locked_balance: account.locked(),
-        storage_usage: account.storage_usage(),
+        account_balance: runtime_ext.account().amount(),
+        account_locked_balance: runtime_ext.account().locked(),
+        storage_usage: runtime_ext.account().storage_usage(),
         attached_deposit: function_call.deposit,
         prepaid_gas: function_call.gas,
         random_seed,
@@ -118,16 +95,13 @@ pub(crate) fn execute_function_call(
     // charge only for trie nodes touched during function calls.
     // TODO (#5920): Consider using RAII for switching the state back
 
-    let protocol_version = runtime_ext.protocol_version();
-    if checked_feature!("stable", ChunkNodesCache, protocol_version) {
-        runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingChunk);
-    }
-
     near_vm_runner::reset_metrics();
-
-    let result_from_cache = near_vm_runner::run(
-        account,
-        None,
+    let mode = match checked_feature!("stable", ChunkNodesCache, runtime_ext.protocol_version()) {
+        true => Some(TrieCacheMode::CachingChunk),
+        false => None,
+    };
+    let mode_guard = runtime_ext.trie_update.with_trie_cache_mode(mode);
+    let result = near_vm_runner::run(
         &function_call.method_name,
         runtime_ext,
         &context,
@@ -136,49 +110,7 @@ pub(crate) fn execute_function_call(
         promise_results,
         apply_state.cache.as_deref(),
     );
-    let result = match result_from_cache {
-        Err(VMRunnerError::CacheError(CacheError::ReadError(err)))
-            if err.kind() == std::io::ErrorKind::NotFound =>
-        {
-            if checked_feature!("stable", ChunkNodesCache, protocol_version) {
-                runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingShard);
-            }
-            let code = match get_contract_code(
-                &runtime_ext,
-                account,
-                apply_state.current_protocol_version,
-            ) {
-                Ok(Some(code)) => code,
-                Ok(None) => {
-                    let error =
-                        FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
-                            account_id: account_id.as_str().into(),
-                        });
-                    return Ok(VMOutcome::nop_outcome(error));
-                }
-                Err(e) => {
-                    return Err(RuntimeError::StorageError(e));
-                }
-            };
-            if checked_feature!("stable", ChunkNodesCache, protocol_version) {
-                runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingChunk);
-            }
-            let r = near_vm_runner::run(
-                account,
-                Some(&code),
-                &function_call.method_name,
-                runtime_ext,
-                &context,
-                &config.wasm_config,
-                &config.fees,
-                promise_results,
-                apply_state.cache.as_deref(),
-            );
-            r
-        }
-        res => res,
-    };
-
+    drop(mode_guard);
     near_vm_runner::report_metrics(
         &apply_state.shard_id.to_string(),
         &apply_state
@@ -187,42 +119,45 @@ pub(crate) fn execute_function_call(
             .map_or_else(|| String::from("unknown"), |r| r.to_string()),
     );
 
-    if checked_feature!("stable", ChunkNodesCache, protocol_version) {
-        runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingShard);
-    }
-
     // There are many specific errors that the runtime can encounter.
     // Some can be translated to the more general `RuntimeError`, which allows to pass
     // the error up to the caller. For all other cases, panicking here is better
     // than leaking the exact details further up.
     // Note that this does not include errors caused by user code / input, those are
     // stored in outcome.aborted.
-    let mut outcome = result.map_err(|e| match e {
-        VMRunnerError::ExternalError(any_err) => {
+    let mut outcome = match result {
+        Err(VMRunnerError::ContractCodeNotPresent) => {
+            let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
+                account_id: account_id.as_str().into(),
+            });
+            return Ok(VMOutcome::nop_outcome(error));
+        }
+        Err(VMRunnerError::ExternalError(any_err)) => {
             let err: ExternalError =
                 any_err.downcast().expect("Downcasting AnyError should not fail");
-            match err {
+            return Err(match err {
                 ExternalError::StorageError(err) => err.into(),
                 ExternalError::ValidatorError(err) => RuntimeError::ValidatorError(err),
-            }
+            });
         }
-        VMRunnerError::InconsistentStateError(err @ InconsistentStateError::IntegerOverflow) => {
-            StorageError::StorageInconsistentState(err.to_string()).into()
-        }
-        VMRunnerError::CacheError(err) => {
+        Err(VMRunnerError::InconsistentStateError(
+            err @ InconsistentStateError::IntegerOverflow,
+        )) => return Err(StorageError::StorageInconsistentState(err.to_string()).into()),
+        Err(VMRunnerError::CacheError(err)) => {
             metrics::FUNCTION_CALL_PROCESSED_CACHE_ERRORS.with_label_values(&[(&err).into()]).inc();
-            StorageError::StorageInconsistentState(err.to_string()).into()
+            return Err(StorageError::StorageInconsistentState(err.to_string()).into());
         }
-        VMRunnerError::LoadingError(msg) => {
+        Err(VMRunnerError::LoadingError(msg)) => {
             panic!("Contract runtime failed to load a contrct: {msg}")
         }
-        VMRunnerError::Nondeterministic(msg) => {
+        Err(VMRunnerError::Nondeterministic(msg)) => {
             panic!("Contract runner returned non-deterministic error '{}', aborting", msg)
         }
-        VMRunnerError::WasmUnknownError { debug_message } => {
+        Err(VMRunnerError::WasmUnknownError { debug_message }) => {
             panic!("Wasmer returned unknown message: {}", debug_message)
         }
-    })?;
+        Ok(r) => r,
+    };
 
     if !view_config.is_some() {
         let unused_gas = function_call.gas.saturating_sub(outcome.used_gas);
@@ -259,6 +194,7 @@ pub(crate) fn action_function_call(
         state_update,
         &mut receipt_manager,
         account_id,
+        account,
         action_hash,
         &apply_state.epoch_id,
         &apply_state.prev_block_hash,
@@ -269,7 +205,6 @@ pub(crate) fn action_function_call(
     let outcome = execute_function_call(
         apply_state,
         &mut runtime_ext,
-        account,
         receipt.predecessor_id(),
         action_receipt,
         promise_results,

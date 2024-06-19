@@ -488,4 +488,10 @@ pub trait External {
     ///
     /// Panics if `ReceiptIndex` is invalid.
     fn get_receipt_receiver(&self, receipt_index: ReceiptIndex) -> &AccountId;
+
+    /// Hash of the contract for the current account.
+    fn code_hash(&self) -> CryptoHash;
+
+    /// Get the contract code
+    fn get_contract(&self) -> Option<std::sync::Arc<crate::ContractCode>>;
 }

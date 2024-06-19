@@ -320,7 +320,9 @@ class NearNodeProxy:
                     # using retrying lib here to poll until a response is ready
                     self.poll_tx_result(meta, tx)
         except NearError as err:
-            logging.warn(f"marking an error {err.message}, {err.details}")
+            logging.warn(
+                f"marking an error for transaction '{locust_name}' (id={signed_tx.id}): {err.message}, {err.details}"
+            )
             meta["exception"] = err
 
         meta["response_time"] = (time.perf_counter() -
@@ -357,7 +359,9 @@ class NearNodeProxy:
                     details=submit_response)
                 meta["response"] = submit_response.content
         except NearError as err:
-            logging.warn(f"marking an error {err.message}, {err.details}")
+            logging.warn(
+                f"marking an error for transaction '{locust_name}' (id={signed_tx.id}): {err.message}, {err.details}"
+            )
             meta["exception"] = err
 
         meta["response_time"] = (time.perf_counter() -
@@ -567,10 +571,10 @@ class NearUser(User):
                                                        self.user_suffix)
         self.account = Account(key.Key.from_random(self.account_id))
         if not self.node.account_exists(self.account_id):
-            self.send_tx_retry(
-                CreateSubAccount(NearUser.funding_account,
-                                 self.account.key,
-                                 balance=NearUser.INIT_BALANCE))
+            self.send_tx_retry(CreateSubAccount(NearUser.funding_account,
+                                                self.account.key,
+                                                balance=NearUser.INIT_BALANCE),
+                               locust_name="Init NearUser")
         self.account.refresh_nonce(self.node.node)
 
     def send_tx(self, tx: Transaction, locust_name="generic send_tx"):

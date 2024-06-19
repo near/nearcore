@@ -29,6 +29,8 @@ pub enum VMRunnerError {
     Nondeterministic(String),
     #[error("unknown error during contract execution: {debug_message}")]
     WasmUnknownError { debug_message: String },
+    #[error("account has no associated contract code")]
+    ContractCodeNotPresent,
 }
 
 /// Permitted errors that cause a function call to fail gracefully.
@@ -65,6 +67,7 @@ pub enum CacheError {
     #[error("cache serialization error")]
     SerializationError { hash: [u8; 32] },
 }
+
 /// A kind of a trap happened during execution of a binary
 #[derive(Debug, Clone, PartialEq, Eq, strum::IntoStaticStr)]
 pub enum WasmTrap {
@@ -105,6 +108,12 @@ pub enum CompilationError {
     /// We expect our runtime-independent preparation code to fully catch all invalid wasms,
     /// but, if it ever misses something we’ll emit this error
     WasmerCompileError {
+        msg: String,
+    },
+    /// This is for defense in depth.
+    /// We expect our runtime-independent preparation code to fully catch all invalid wasms,
+    /// but, if it ever misses something we’ll emit this error
+    WasmtimeCompileError {
         msg: String,
     },
 }
@@ -338,6 +347,9 @@ impl fmt::Display for CompilationError {
             CompilationError::PrepareError(p) => write!(f, "PrepareError: {}", p),
             CompilationError::WasmerCompileError { msg } => {
                 write!(f, "Wasmer compilation error: {}", msg)
+            }
+            CompilationError::WasmtimeCompileError { msg } => {
+                write!(f, "Wasmtime compilation error: {}", msg)
             }
         }
     }

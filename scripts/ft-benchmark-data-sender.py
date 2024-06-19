@@ -4,15 +4,11 @@ from datetime import datetime
 from time import sleep
 import numpy as np
 import subprocess
-import psycopg2
-from psycopg2 import sql
-from os import getenv, chdir
+from os import chdir
 import os
 import json
 import tempfile
-
-# Duration of experiment in hours
-DURATION = 2
+import argparse
 
 # TPS polling interval in seconds
 POLL_INTERVAL = 30
@@ -89,17 +85,35 @@ def get_commit() -> tuple[str, datetime]:
 
 
 def commit_to_db(data: dict) -> None:
+    print(data)
     chdir(os.path.expanduser("~/nearcore/benchmarks/continous/db/tool"))
-    with tempfile.NamedTemporaryFile() as fp:
+    with tempfile.NamedTemporaryFile(mode="w", encoding='utf-8') as fp:
         json.dump(data, fp)
-        fp.close()
+        fp.flush()
+        os.fsync(fp.fileno())
         subprocess.run(f"cargo run -p cli -- insert-ft-transfer {fp.name}",
                        shell=True)
+        fp.close()
 
 
 # TODO: send signal to this process if ft-benchmark.sh decided to switch neard to another commit.
 # add handling of this signal to this script
 if __name__ == "__main__":
+
+    parser = argparse.ArgumentParser(
+        description=
+        "Collect data from local prometheus and send to ft-benchmark db.")
+    parser.add_argument('--duration',
+                        type=int,
+                        required=True,
+                        help='Duration of experiment in seconds')
+    parser.add_argument('--users',
+                        type=int,
+                        required=True,
+                        help='Number of users')
+    args = parser.parse_args()
+    DURATION = args.duration / 3600
+
     state_size = (int(
         subprocess.check_output(["du", "-s", "~/.near/localnet/node0/data"],
                                 stderr=subprocess.PIPE,
@@ -107,6 +121,9 @@ if __name__ == "__main__":
     processed_transactions = []
     time_begin = datetime.now()
     while True:
+        print(
+            f"Data sender loop. Time elapsed: {(datetime.now() - time_begin).seconds} seconds"
+        )
         if (datetime.now() - time_begin).seconds / 3600 > DURATION:
             break
         processed_transactions.append(calculate_processed_transactions())
@@ -132,10 +149,9 @@ if __name__ == "__main__":
         "disjoint_workloads":
             False,  # TODO: probably should be filled by terraform
         "num_shards": calculate_shards(),
-        "num_unique_users":
-            1000,  # TODO: probably should be filled by terraform or ft-benchmark.sh
+        "num_unique_users": args.users,
         "size_state_bytes": state_size,
         "tps": int(average_tps),
-        "total_transactions": processed_transactions[-1],
+        "total_transactions": int(processed_transactions[-1]),
     }
     commit_to_db(response)

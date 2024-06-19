@@ -8,8 +8,6 @@ mod imports;
 #[cfg(feature = "prepare")]
 mod instrument;
 pub mod logic;
-#[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
-mod memory;
 #[cfg(feature = "metrics")]
 mod metrics;
 #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]

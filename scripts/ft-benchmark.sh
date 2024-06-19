@@ -30,6 +30,8 @@ LOG_DIR=scripts/ft-benchmark-logs
 MAIN_LOG_FILE=$LOG_DIR/${NEW_COMMIT_HASH}.log
 exec > >(tee -a $MAIN_LOG_FILE) 2>&1
 
+# TODO: Use ./start-benchmark.sh insread.
+
 # Stop previous experiment
 pkill -9 locust || true
 nearup stop 
