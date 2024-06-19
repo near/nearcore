@@ -1,14 +1,14 @@
 use crate::metadata::DbKind;
 use crate::{DBCol, Store, StoreUpdate};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_primitives::epoch_manager::epoch_info::EpochSummary;
+use itertools::Itertools;
+use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochSummary};
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::dec_format;
 use near_primitives::state::FlatStateValue;
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof};
 use near_primitives::types::{
-    validator_stake::ValidatorStake, AccountId, Balance, EpochId, NumBlocks, ShardId, ValidatorId,
+    validator_stake::ValidatorStake, AccountId, EpochId, ShardId, ValidatorId,
     ValidatorKickoutReason, ValidatorStats,
 };
 use near_primitives::types::{BlockChunkValidatorStats, ChunkStats};
@@ -240,30 +240,6 @@ pub fn migrate_37_to_38(store: &Store) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// `ValidatorKickoutReason` enum layout before DB version 39, included.
-#[derive(BorshSerialize, BorshDeserialize, serde::Deserialize)]
-pub enum LegacyValidatorKickoutReasonV39 {
-    /// Slashed validators are kicked out.
-    Slashed,
-    /// Validator didn't produce enough blocks.
-    NotEnoughBlocks { produced: NumBlocks, expected: NumBlocks },
-    /// Validator didn't produce enough chunks.
-    NotEnoughChunks { produced: NumBlocks, expected: NumBlocks },
-    /// Validator unstaked themselves.
-    Unstaked,
-    /// Validator stake is now below threshold
-    NotEnoughStake {
-        #[serde(with = "dec_format", rename = "stake_u128")]
-        stake: Balance,
-        #[serde(with = "dec_format", rename = "threshold_u128")]
-        threshold: Balance,
-    },
-    /// Enough stake but is not chosen because of seat limits.
-    DidNotGetASeat,
-    /// Validator didn't produce enough chunk endorsements.
-    NotEnoughChunkEndorsements { produced: NumBlocks, expected: NumBlocks },
-}
-
 /// `EpochSummary` struct at DB version 39.
 #[derive(BorshSerialize, BorshDeserialize)]
 struct LegacyEpochSummaryV39 {
@@ -271,7 +247,7 @@ struct LegacyEpochSummaryV39 {
     /// Proposals from the epoch, only the latest one per account
     pub all_proposals: Vec<ValidatorStake>,
     /// Kickout set, includes slashed
-    pub validator_kickout: HashMap<AccountId, LegacyValidatorKickoutReasonV39>,
+    pub validator_kickout: HashMap<AccountId, near_primitives::LegacyValidatorKickoutReasonV39>,
     /// Only for validators who met the threshold and didn't get slashed
     pub validator_block_chunk_stats: HashMap<AccountId, BlockChunkValidatorStats>,
     /// Protocol version for next epoch.
@@ -292,7 +268,7 @@ struct LegacyEpochSummaryV38 {
     /// Proposals from the epoch, only the latest one per account
     pub all_proposals: Vec<ValidatorStake>,
     /// Kickout set, includes slashed
-    pub validator_kickout: HashMap<AccountId, LegacyValidatorKickoutReasonV39>,
+    pub validator_kickout: HashMap<AccountId, near_primitives::LegacyValidatorKickoutReasonV39>,
     /// Only for validators who met the threshold and didn't get slashed
     pub validator_block_chunk_stats: HashMap<AccountId, LegacyBlockChunkValidatorStatsV38>,
     /// Protocol version for next epoch.
@@ -387,7 +363,8 @@ pub fn migrate_38_to_39(store: &Store) -> anyhow::Result<()> {
 
 /// Migrates the database from version 39 to 40.
 ///
-/// Rewrites ValidatorKickoutReason to introduce NotEnoughChunkEndorsements variant
+/// Rewrites ValidatorKickoutReason to introduce NotEnoughChunkEndorsements variant.
+/// For convenience, migrates all EpochInfos to V4 to achieve that.
 pub fn migrate_39_to_40(store: &Store) -> anyhow::Result<()> {
     if cfg!(feature = "statelessnet_protocol") {
         tracing::info!(
@@ -396,31 +373,6 @@ pub fn migrate_39_to_40(store: &Store) -> anyhow::Result<()> {
             Skipping migration from 39 to 40."
         );
         return Ok(());
-    }
-
-    impl From<LegacyValidatorKickoutReasonV39> for ValidatorKickoutReason {
-        fn from(reason: LegacyValidatorKickoutReasonV39) -> Self {
-            match reason {
-                LegacyValidatorKickoutReasonV39::Slashed => ValidatorKickoutReason::Slashed,
-                LegacyValidatorKickoutReasonV39::NotEnoughBlocks { produced, expected } => {
-                    ValidatorKickoutReason::NotEnoughBlocks { produced, expected }
-                }
-                LegacyValidatorKickoutReasonV39::NotEnoughChunks { produced, expected } => {
-                    ValidatorKickoutReason::NotEnoughChunks { produced, expected }
-                }
-                LegacyValidatorKickoutReasonV39::Unstaked => ValidatorKickoutReason::Unstaked,
-                LegacyValidatorKickoutReasonV39::NotEnoughStake { stake, threshold } => {
-                    ValidatorKickoutReason::NotEnoughStake { stake, threshold }
-                }
-                LegacyValidatorKickoutReasonV39::DidNotGetASeat => {
-                    ValidatorKickoutReason::DidNotGetASeat
-                }
-                LegacyValidatorKickoutReasonV39::NotEnoughChunkEndorsements {
-                    produced,
-                    expected,
-                } => ValidatorKickoutReason::NotEnoughChunkEndorsements { produced, expected },
-            }
-        }
     }
 
     let mut update = store.store_update();
@@ -444,6 +396,115 @@ pub fn migrate_39_to_40(store: &Store) -> anyhow::Result<()> {
         update.set(DBCol::EpochValidatorInfo, &key, &borsh::to_vec(&new_value)?);
     }
 
+    for result in store.iter(DBCol::EpochInfo) {
+        let (key, old_value) = result?;
+        if key.as_ref() == AGGREGATOR_KEY {
+            continue;
+        }
+        println!("key: {:?}, value len = {}, first byte = {}", key, old_value.len(), old_value[0]);
+        let old_epoch_info =
+            near_primitives::epoch_manager::epoch_info::LegacyEpochInfo::try_from_slice(
+                old_value.as_ref(),
+            )
+            .unwrap();
+        let new_epoch_info = match old_epoch_info {
+            near_primitives::epoch_manager::epoch_info::LegacyEpochInfo::V1(
+                near_primitives::epoch_manager::epoch_info::EpochInfoV1 {
+                    epoch_height,
+                    validators,
+                    validator_to_index,
+                    block_producers_settlement,
+                    chunk_producers_settlement,
+                    stake_change,
+                    validator_reward,
+                    validator_kickout,
+                    minted_amount,
+                    seat_price,
+                    protocol_version,
+                    ..
+                },
+            ) => EpochInfo::new(
+                epoch_height,
+                validators.into_iter().map(|v| ValidatorStake::V1(v)).collect_vec(),
+                validator_to_index,
+                block_producers_settlement,
+                chunk_producers_settlement,
+                stake_change,
+                validator_reward,
+                validator_kickout.into_iter().map(|(k, v)| (k, v.into())).collect(),
+                minted_amount,
+                seat_price,
+                protocol_version,
+                Default::default(),
+                Default::default(),
+            ),
+            near_primitives::epoch_manager::epoch_info::LegacyEpochInfo::V2(
+                near_primitives::epoch_manager::epoch_info::EpochInfoV2 {
+                    epoch_height,
+                    validators,
+                    validator_to_index,
+                    block_producers_settlement,
+                    chunk_producers_settlement,
+                    stake_change,
+                    validator_reward,
+                    validator_kickout,
+                    minted_amount,
+                    seat_price,
+                    protocol_version,
+                    ..
+                },
+            ) => EpochInfo::new(
+                epoch_height,
+                validators,
+                validator_to_index,
+                block_producers_settlement,
+                chunk_producers_settlement,
+                stake_change,
+                validator_reward,
+                validator_kickout.into_iter().map(|(k, v)| (k, v.into())).collect(),
+                minted_amount,
+                seat_price,
+                protocol_version,
+                Default::default(),
+                Default::default(),
+            ),
+            near_primitives::epoch_manager::epoch_info::LegacyEpochInfo::V3(
+                near_primitives::epoch_manager::epoch_info::EpochInfoV3 {
+                    epoch_height,
+                    validators,
+                    validator_to_index,
+                    block_producers_settlement,
+                    chunk_producers_settlement,
+                    stake_change,
+                    validator_reward,
+                    validator_kickout,
+                    minted_amount,
+                    seat_price,
+                    protocol_version,
+                    rng_seed,
+                    ..
+                },
+            ) => EpochInfo::new(
+                epoch_height,
+                validators,
+                validator_to_index,
+                block_producers_settlement,
+                chunk_producers_settlement,
+                stake_change,
+                validator_reward,
+                validator_kickout.into_iter().map(|(k, v)| (k, v.into())).collect(),
+                minted_amount,
+                seat_price,
+                protocol_version,
+                rng_seed,
+                Default::default(),
+            ),
+            near_primitives::epoch_manager::epoch_info::LegacyEpochInfo::V4(epoch_info) => {
+                EpochInfo::V4(epoch_info)
+            }
+        };
+        update.set(DBCol::EpochInfo, &key, &borsh::to_vec(&new_epoch_info)?);
+    }
     update.commit()?;
     Ok(())
 }

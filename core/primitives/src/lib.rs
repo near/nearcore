@@ -1,3 +1,4 @@
+pub use epoch_manager::epoch_info::LegacyValidatorKickoutReasonV39;
 pub use near_primitives_core::account;
 pub use near_primitives_core::apply;
 pub use near_primitives_core::borsh;

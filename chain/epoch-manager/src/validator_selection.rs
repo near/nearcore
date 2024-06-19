@@ -1293,18 +1293,16 @@ mod tests {
     fn create_prev_epoch_info<T: IntoValidatorStake + Copy>(
         epoch_height: u64,
         prev_validators: &[T],
-        prev_fishermen: &[T],
+        _prev_fishermen: &[T],
     ) -> EpochInfo {
-        let mut result: EpochInfoV3 = Default::default();
+        let mut result: near_primitives::epoch_manager::epoch_info::EpochInfoV4 =
+            Default::default();
 
         result.epoch_height = epoch_height;
         result.validators = create_proposals(prev_validators);
-        result.fishermen = create_proposals(prev_fishermen);
-
         result.validator_to_index = to_map(&result.validators);
-        result.fishermen_to_index = to_map(&result.fishermen);
 
-        EpochInfo::V3(result)
+        EpochInfo::V4(result)
     }
 
     fn to_map(vs: &[ValidatorStake]) -> HashMap<AccountId, ValidatorId> {
