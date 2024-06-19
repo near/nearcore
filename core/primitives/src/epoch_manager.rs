@@ -257,9 +257,8 @@ impl AllEpochConfig {
             config.validator_selection_config.num_chunk_only_producer_seats = 200;
         }
 
-        // Adjust the number of block and chunk producers for all chains except
-        // mainnet, to make it easier to test the change.
-        if chain_id != near_primitives_core::chains::MAINNET
+        // Adjust the number of block and chunk producers for testnet, to make it easier to test the change.
+        if chain_id == near_primitives_core::chains::TESTNET
             && checked_feature!("stable", TestnetFewerBlockProducers, protocol_version)
             && !checked_feature!("stable", NoChunkOnlyProducers, protocol_version)
         {
