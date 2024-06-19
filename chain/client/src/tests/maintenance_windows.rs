@@ -15,8 +15,8 @@ fn test_get_maintenance_windows_for_validator() {
     run_actix(async {
         let actor_handles = setup_no_network(
             Clock::real(),
-            vec!["test".parse().unwrap(), "other".parse().unwrap()],
-            "other".parse().unwrap(),
+            vec!["test".parse().unwrap(), "validator".parse().unwrap()],
+            "validator".parse().unwrap(),
             true,
             true,
         );

@@ -682,7 +682,6 @@ pub mod epoch_info {
         /// Seat price of this epoch.
         pub seat_price: Balance,
         /// Current protocol version during this epoch.
-        #[default(PROTOCOL_VERSION)]
         pub protocol_version: ProtocolVersion,
     }
 
@@ -816,7 +815,6 @@ pub mod epoch_info {
         /// Seat price of this epoch.
         pub seat_price: Balance,
         /// Current protocol version during this epoch.
-        #[default(PROTOCOL_VERSION)]
         pub protocol_version: ProtocolVersion,
     }
 
@@ -848,7 +846,6 @@ pub mod epoch_info {
         pub validator_kickout: HashMap<AccountId, LegacyValidatorKickoutReasonV39>,
         pub minted_amount: Balance,
         pub seat_price: Balance,
-        #[default(PROTOCOL_VERSION)]
         pub protocol_version: ProtocolVersion,
         // stuff for selecting validators at each height
         pub rng_seed: RngSeed,
@@ -1148,12 +1145,15 @@ pub mod epoch_info {
         }
 
         pub fn sample_block_producer(&self, height: BlockHeight) -> ValidatorId {
-            match &self {
-                Self::V4(v4) => {
-                    let seed = Self::block_produce_seed(height, &v4.rng_seed);
-                    v4.block_producers_settlement[v4.block_producers_sampler.sample(seed)]
-                }
-                _ => unimplemented!(),
+            let Self::V4(v4) = &self else {
+                unimplemented!();
+            };
+            if checked_feature!("stable", AliasValidatorSelectionAlgorithm, v4.protocol_version) {
+                let seed = Self::block_produce_seed(height, &v4.rng_seed);
+                v4.block_producers_settlement[v4.block_producers_sampler.sample(seed)]
+            } else {
+                let bp_settlement = &v4.block_producers_settlement;
+                bp_settlement[(height % (bp_settlement.len() as u64)) as usize]
             }
         }
 
@@ -1162,16 +1162,21 @@ pub mod epoch_info {
             height: BlockHeight,
             shard_id: ShardId,
         ) -> Option<ValidatorId> {
-            match &self {
-                Self::V4(v4) => {
-                    let protocol_version = self.protocol_version();
-                    let seed =
-                        Self::chunk_produce_seed(protocol_version, &v4.rng_seed, height, shard_id);
-                    let shard_id = shard_id as usize;
-                    let sample = v4.chunk_producers_sampler.get(shard_id)?.sample(seed);
-                    v4.chunk_producers_settlement.get(shard_id)?.get(sample).copied()
-                }
-                _ => unimplemented!(),
+            let Self::V4(v4) = &self else {
+                unimplemented!();
+            };
+
+            let protocol_version = v4.protocol_version;
+            if checked_feature!("stable", AliasValidatorSelectionAlgorithm, protocol_version) {
+                let seed =
+                    Self::chunk_produce_seed(protocol_version, &v4.rng_seed, height, shard_id);
+                let shard_id = shard_id as usize;
+                let sample = v4.chunk_producers_sampler.get(shard_id)?.sample(seed);
+                v4.chunk_producers_settlement.get(shard_id)?.get(sample).copied()
+            } else {
+                let cp_settlement = &v4.chunk_producers_settlement;
+                let shard_cps = cp_settlement.get(shard_id as usize)?;
+                shard_cps.get((height as u64 % (shard_cps.len() as u64)) as usize).copied()
             }
         }
 
@@ -1179,13 +1184,17 @@ pub mod epoch_info {
             &self,
             height: BlockHeight,
         ) -> ChunkValidatorStakeAssignment {
-            match &self {
-                Self::V4(v4) => {
-                    let mut rng = Self::chunk_validate_rng(&v4.rng_seed, height);
-                    v4.validator_mandates.sample(&mut rng)
-                }
-                _ => unimplemented!(),
+            let Self::V4(v4) = &self else {
+                unimplemented!();
+            };
+
+            let protocol_version = v4.protocol_version;
+            if !checked_feature!("stable", StatelessValidationV0, protocol_version) {
+                return Default::default();
             }
+
+            let mut rng = Self::chunk_validate_rng(&v4.rng_seed, height);
+            v4.validator_mandates.sample(&mut rng)
         }
 
         /// 32 bytes from epoch_seed, 8 bytes from height
