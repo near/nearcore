@@ -1,7 +1,7 @@
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{
-    CompilationError, FunctionCallError, MethodResolveError, PrepareError, VMLogicError,
-    VMRunnerError, WasmTrap,
+    CacheError, CompilationError, FunctionCallError, MethodResolveError, PrepareError,
+    VMLogicError, VMRunnerError, WasmTrap,
 };
 use crate::logic::types::PromiseResult;
 use crate::logic::Config;
@@ -193,52 +193,52 @@ impl WasmtimeVM {
         method_name: &str,
         closure: impl FnOnce(VMLogic, Memory, Store<()>, Module) -> Result<VMOutcome, VMRunnerError>,
     ) -> VMResult<VMOutcome> {
+        let code_hash = ext.code_hash();
         type MemoryCacheType = (u64, Result<Module, CompilationError>);
         let to_any = |v: MemoryCacheType| -> Box<dyn std::any::Any + Send> { Box::new(v) };
         let (wasm_bytes, module_result) = cache.memory_cache().try_lookup(
             code_hash,
-            || match code {
-                None => {
-                    let key = get_contract_cache_key(code_hash, &self.config);
-                    let cache_record = cache.get(&key).map_err(CacheError::ReadError)?;
-                    let Some(code) = cache_record else {
-                        return Err(VMRunnerError::CacheError(CacheError::ReadError(
-                            std::io::Error::from(std::io::ErrorKind::NotFound),
-                        )));
+            || {
+                let key = get_contract_cache_key(code_hash, &self.config);
+                let cache_record = cache.get(&key).map_err(CacheError::ReadError)?;
+                let Some(compiled_contract_info) = cache_record else {
+                    let Some(code) = ext.get_contract() else {
+                        return Err(VMRunnerError::ContractCodeNotPresent);
                     };
-                    match &code.compiled {
-                        CompiledContract::CompileModuleError(err) => {
-                            Ok::<_, VMRunnerError>(to_any((code.wasm_bytes, Err(err.clone()))))
-                        }
-                        CompiledContract::Code(serialized_module) => {
-                            unsafe {
-                                // (UN-)SAFETY: the `serialized_module` must have been produced by
-                                // a prior call to `serialize`.
-                                //
-                                // In practice this is not necessarily true. One could have
-                                // forgotten to change the cache key when upgrading the version of
-                                // the near_vm library or the database could have had its data
-                                // corrupted while at rest.
-                                //
-                                // There should definitely be some validation in near_vm to ensure
-                                // we load what we think we load.
-                                let module = Module::deserialize(&self.engine, &serialized_module)
-                                    .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?;
-                                Ok(to_any((code.wasm_bytes, Ok(module))))
-                            }
+                    return Ok(to_any((
+                        code.code().len() as u64,
+                        match self.compile_and_cache(&code, cache)? {
+                            Ok(serialized_module) => Ok(unsafe {
+                                Module::deserialize(&self.engine, serialized_module)
+                                    .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?
+                            }),
+                            Err(err) => Err(err),
+                        },
+                    )));
+                };
+                match &compiled_contract_info.compiled {
+                    CompiledContract::CompileModuleError(err) => Ok::<_, VMRunnerError>(to_any((
+                        compiled_contract_info.wasm_bytes,
+                        Err(err.clone()),
+                    ))),
+                    CompiledContract::Code(serialized_module) => {
+                        unsafe {
+                            // (UN-)SAFETY: the `serialized_module` must have been produced by
+                            // a prior call to `serialize`.
+                            //
+                            // In practice this is not necessarily true. One could have
+                            // forgotten to change the cache key when upgrading the version of
+                            // the near_vm library or the database could have had its data
+                            // corrupted while at rest.
+                            //
+                            // There should definitely be some validation in near_vm to ensure
+                            // we load what we think we load.
+                            let module = Module::deserialize(&self.engine, &serialized_module)
+                                .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?;
+                            Ok(to_any((compiled_contract_info.wasm_bytes, Ok(module))))
                         }
                     }
                 }
-                Some(code) => Ok(to_any((
-                    code.code().len() as u64,
-                    match self.compile_and_cache(code, cache)? {
-                        Ok(serialized_module) => Ok(unsafe {
-                            Module::deserialize(&self.engine, serialized_module)
-                                .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?
-                        }),
-                        Err(err) => Err(err),
-                    },
-                ))),
             },
             move |value| {
                 let &(wasm_bytes, ref downcast) = value
@@ -279,8 +279,6 @@ impl WasmtimeVM {
 impl crate::runner::VM for WasmtimeVM {
     fn run(
         &self,
-        code_hash: CryptoHash,
-        code: Option<&ContractCode>,
         method_name: &str,
         ext: &mut dyn External,
         context: &VMContext,
@@ -290,8 +288,6 @@ impl crate::runner::VM for WasmtimeVM {
     ) -> Result<VMOutcome, VMRunnerError> {
         let cache = cache.unwrap_or(&NoContractRuntimeCache);
         self.with_compiled_and_loaded(
-            code_hash,
-            code,
             cache,
             ext,
             context,
