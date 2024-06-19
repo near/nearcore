@@ -22,9 +22,13 @@ chrono.workspace = true
 derive_more.workspace = true
 easy-ext.workspace = true
 hex.workspace = true
+itertools = { workspace = true, optional = true }
 num-rational.workspace = true
 once_cell.workspace = true
 primitive-types.workspace = true
+rand = { workspace = true, optional = true }
+rand_chacha = { workspace = true, optional = true }
+reed-solomon-erasure = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 serde_with.workspace = true
@@ -36,11 +40,6 @@ thiserror.workspace = true
 tracing.workspace = true
 zstd.workspace = true
 enum-map.workspace = true
-
-itertools = { workspace = true, optional = true }
-reed-solomon-erasure = { workspace = true, optional = true }
-rand = { workspace = true, optional = true }
-rand_chacha = { workspace = true, optional = true }
 
 near-time.workspace = true
 near-crypto.workspace = true
