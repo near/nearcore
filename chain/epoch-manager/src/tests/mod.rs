@@ -3242,3 +3242,35 @@ fn test_possible_epochs_of_height_around_tip() {
         }
     }
 }
+
+#[cfg(feature = "nightly")]
+#[test]
+#[should_panic(expected = "Increasing the number of block producer seat is not supported")]
+fn test_increase_block_producer_seats() {
+    let store = create_test_store();
+    let config = epoch_config_with_production_config(
+        5,
+        1,
+        20,
+        20,
+        90,
+        90,
+        90,
+        true
+    );
+    let reward_calculator = default_reward_calculator();
+    let validators: Vec<(AccountId, u128)> = vec![("test0".parse().unwrap(), 1_000_000)];
+    // use a small number so that any protocol version is higher
+    let genesis_protocol_version = 0;
+    EpochManager::new(
+        store,
+        config,
+        genesis_protocol_version,
+        reward_calculator,
+        validators
+            .iter()
+            .map(|(account_id, balance)| stake(account_id.clone(), *balance))
+            .collect(),
+    )
+    .unwrap();
+}

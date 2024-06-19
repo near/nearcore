@@ -20,7 +20,9 @@ use near_primitives::types::{
     EpochInfoProvider, NumSeats, ShardId, ValidatorId, ValidatorInfoIdentifier,
     ValidatorKickoutReason, ValidatorStats,
 };
-use near_primitives::version::{ProtocolVersion, UPGRADABILITY_FIX_PROTOCOL_VERSION};
+use near_primitives::version::{
+    ProtocolVersion, PROTOCOL_VERSION, UPGRADABILITY_FIX_PROTOCOL_VERSION,
+};
 use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
 };
@@ -242,6 +244,11 @@ impl EpochManager {
             .unwrap_or_default();
         let genesis_num_block_producer_seats =
             config.for_protocol_version(genesis_protocol_version).num_block_producer_seats;
+        if config.for_protocol_version(PROTOCOL_VERSION).num_block_producer_seats
+            > genesis_num_block_producer_seats
+        {
+            panic!("Increasing the number of block producer seat is not supported due to chunk part computation");
+        }
         let mut epoch_manager = EpochManager {
             store,
             config,
