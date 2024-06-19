@@ -14,11 +14,12 @@ use node_runtime::bootstrap_congestion_info;
 
 use crate::util::load_trie;
 
-/// A set of command for inspecting and debugging the congestion control
+/// A set of commands for inspecting and debugging the congestion control
 /// feature. The typical scenarios are:
 /// 1) Run the print command and the bootstrap command and compare the results.
 /// 2) Run the prepare-benchmark command and the bootstrap command to see how
-///    long it takes to bootstrap the congestion info.
+///    long it takes to bootstrap the congestion info. Please note that this
+///    will corrupt the database and it should not be used on production nodes.
 #[derive(clap::Subcommand)]
 pub enum CongestionControlCmd {
     /// Print the congestion information.
@@ -131,10 +132,18 @@ pub struct PrepareBenchmarkCmd {
     // By default each receipts is 10kB.
     #[arg(long, default_value = "10000")]
     receipt_size: u32,
+    // If set to true the command will not ask for confirmation.
+    #[arg(long, default_value = "false")]
+    yes: bool,
 }
 
 impl PrepareBenchmarkCmd {
     fn run(&self, home_dir: &Path, near_config: &NearConfig, store: Store) {
+        if !self.should_run() {
+            println!("aborted");
+            return;
+        }
+
         let (epoch_manager, runtime, state_roots, block_header) =
             load_trie(store, home_dir, near_config);
 
@@ -151,6 +160,21 @@ impl PrepareBenchmarkCmd {
             let state_root = self.add_receipts(tries, shard_uid, state_root);
             println!("new - {:?} - {:?}", shard_id, state_root);
         }
+    }
+
+    fn should_run(&self) -> bool {
+        println!("WARNING: This command will corrupt the database.");
+
+        if self.yes {
+            return true;
+        }
+        println!("WARNING: To bypass this confirmation use the --yes flag.");
+        println!("WARNING: Do you want to continue? [y/N]");
+
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input).unwrap();
+        let input = input.trim().to_lowercase();
+        input == "y" || input == "yes"
     }
 
     fn add_receipts(
