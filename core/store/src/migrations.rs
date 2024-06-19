@@ -401,7 +401,6 @@ pub fn migrate_39_to_40(store: &Store) -> anyhow::Result<()> {
         if key.as_ref() == AGGREGATOR_KEY {
             continue;
         }
-        println!("key: {:?}, value len = {}, first byte = {}", key, old_value.len(), old_value[0]);
         let old_epoch_info =
             near_primitives::epoch_manager::epoch_info::LegacyEpochInfo::try_from_slice(
                 old_value.as_ref(),
