@@ -42,3 +42,21 @@ select setting from pg_settings where name = 'max_connections';
 ## Remote connection
 
 To connect to the database remotely, you can execute the `psql` recipe in the [`Justfile`](./Justfile).
+
+
+# Adding results of you benchmark automatically.
+
+Once you finished with accesses setup (or you can just use on of our GCP where everything already setted up), you can post results of your benchmark to database just by running (from `nearcore/`):
+```bash
+python3 scripts/run-ft-benchmark.py --time <BENCHMARK_DURATION> --users <AMOUNT_OF_USERS> --shards <SHARDS> --nodes <NODES> --rump-up <RUMP_UP_RATE> --user <ACTOR_NAME>
+```
+
+Where `BENCHMARK_DURATION` is duration of experiment (setup time not included) in format `\d+[smh]` (for example `30s`, `15m`, `2h`).
+<RUMP_UP_RATE> is integer which means "how many users should be added every second".
+
+Currently everything (nodes and locust) is running on same machine you run this command, so be careful increasing `NODES`.
+
+For first try you can just let script to use default parameters:
+```bash
+python3 scripts/run-ft-benchmark.py --user alice
+```
