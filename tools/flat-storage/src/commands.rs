@@ -612,7 +612,7 @@ impl FlatStorageCommand {
             MoveFlatHeadMode::Forward { new_flat_head_height } => {
                 let header = chain_store.get_block_header_by_height(new_flat_head_height)?;
                 println!("Moving flat head for shard {shard_uid} forward to header: {header:?}");
-                flat_storage.update_flat_head(header.hash(), true)?;
+                flat_storage.update_flat_head(header.hash())?;
             }
             MoveFlatHeadMode::Back { blocks } => {
                 println!("Moving flat head for shard {shard_uid} back by {blocks} blocks");
