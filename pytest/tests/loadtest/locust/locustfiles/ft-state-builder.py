@@ -1,5 +1,14 @@
 """
 A workload to prepare the state for Fungible Token operations.
+
+Suggested run command:
+```
+locust -H 127.0.0.1:3030  -f locustfiles/ft-state-builder.py  --funding-key=$KEY --users 500 --headless
+```
+
+In particular:
+- Not using a multi-worker setup, to avoid balance issues
+- 500 users was the best performing number when testing on the own-mainnet-provided machine
 """
 
 import logging
