@@ -2662,6 +2662,7 @@ dependencies = [
  "near-test-contracts",
  "near-vm-runner",
  "nearcore",
+ "node-runtime",
  "tempfile",
 ]
 

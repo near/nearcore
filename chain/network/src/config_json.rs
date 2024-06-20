@@ -72,7 +72,7 @@ fn default_peer_expiration_duration() -> Duration {
 /// a centralized entity (and DNS used for domain resolution),
 /// prefer to set up your own STUN server, or (even better)
 /// use public_addrs instead.
-fn default_trusted_stun_servers() -> Vec<stun::ServerAddr> {
+pub(crate) fn default_trusted_stun_servers() -> Vec<stun::ServerAddr> {
     vec![
         "stun.l.google.com:19302".to_string(),
         "stun1.l.google.com:19302".to_string(),

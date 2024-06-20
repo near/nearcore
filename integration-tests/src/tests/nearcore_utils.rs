@@ -1,4 +1,3 @@
-use crate::genesis_helpers::genesis_block;
 use actix::Addr;
 use near_async::time::Clock;
 use near_chain::Block;
@@ -18,6 +17,8 @@ use near_primitives::types::{BlockHeightDelta, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use nearcore::{load_test_config, NearConfig};
+
+use super::genesis_helpers::genesis_block;
 
 // This assumes that there is no height skipped. Otherwise epoch hash calculation will be wrong.
 pub fn add_blocks(

@@ -402,7 +402,10 @@ async fn stun_self_discovery() {
     let stun_server2 = stun::testonly::Server::new().await;
     let mut cfg = chain.make_config(rng);
     let vc = cfg.validator.as_mut().unwrap();
-    vc.proxies = config::ValidatorProxies::Dynamic(vec![stun_server1.addr(), stun_server2.addr()]);
+    vc.proxies = config::ValidatorProxies::Dynamic(vec![
+        stun_server1.addr().to_string(),
+        stun_server2.addr().to_string(),
+    ]);
 
     tracing::info!(target:"test", "spawn a node and advertize AccountData.");
     let pm = start_pm(clock.clock(), TestDB::new(), cfg, chain.clone()).await;
