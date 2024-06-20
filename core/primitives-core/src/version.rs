@@ -219,11 +219,6 @@ impl ProtocolFeature {
             ProtocolFeature::DecreaseFunctionCallBaseCost => 66,
             ProtocolFeature::YieldExecution => 67,
 
-            // This protocol version is reserved for use in resharding tests. An extra resharding
-            // is simulated on top of the latest shard layout in production. Note that later
-            // protocol versions will still have the production layout.
-            ProtocolFeature::SimpleNightshadeTestonly => 79,
-
             // Congestion control should be enabled BEFORE stateless validation, so it has a lower version.
             ProtocolFeature::CongestionControl => 80,
             
@@ -239,6 +234,11 @@ impl ProtocolFeature {
             | ProtocolFeature::NoChunkOnlyProducers
             | ProtocolFeature::ChangePartialWitnessDataPartsRequired
             | ProtocolFeature::BiggerCombinedTransactionLimit => 81,
+
+            // This protocol version is reserved for use in resharding tests. An extra resharding
+            // is simulated on top of the latest shard layout in production. Note that later
+            // protocol versions will still have the production layout.
+            ProtocolFeature::SimpleNightshadeTestonly => 100,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
@@ -269,7 +269,7 @@ const STABLE_PROTOCOL_VERSION: ProtocolVersion = 67;
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "statelessnet_protocol") {
     // Current StatelessNet protocol version.
-    90
+    81
 } else if cfg!(feature = "nightly_protocol") {
     // On nightly, pick big enough version to support all features.
     143
