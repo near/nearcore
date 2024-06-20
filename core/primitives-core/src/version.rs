@@ -221,7 +221,7 @@ impl ProtocolFeature {
 
             // Congestion control should be enabled BEFORE stateless validation, so it has a lower version.
             ProtocolFeature::CongestionControl => 80,
-            
+
             // Stateless validation features.
             ProtocolFeature::StatelessValidationV0
             | ProtocolFeature::LowerValidatorKickoutPercentForDebugging
