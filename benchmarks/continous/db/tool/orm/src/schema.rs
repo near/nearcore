@@ -16,5 +16,7 @@ diesel::table! {
         tps -> Int4,
         total_transactions -> Int8,
         time_end -> Timestamptz,
+        initiator -> Text,
+        context -> Text,
     }
 }

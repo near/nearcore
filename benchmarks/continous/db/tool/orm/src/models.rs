@@ -28,4 +28,8 @@ pub struct NewFtTransfer {
     pub size_state_bytes: i64,
     pub tps: i32,
     pub total_transactions: i64,
+    /// Specifies who ran the benchmark.
+    pub initiator: String,
+    /// Describes the context, e.g. *scheduled continuous benchmark run*.
+    pub context: String,
 }
