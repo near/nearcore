@@ -900,7 +900,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
             data,
             signature,
         ) {
-            Err(Error::NotAValidator) => {
+            Err(Error::NotAValidator(_)) => {
                 let (fisherman, is_slashed) =
                     self.get_fisherman_by_account_id(epoch_id, last_known_block_hash, account_id)?;
                 if is_slashed {
@@ -1048,7 +1048,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
             chunk_header.height_created(),
         )?;
         if !chunk_validator_assignments.contains(&endorsement.account_id) {
-            return Err(Error::NotAValidator);
+            return Err(Error::NotAValidator(format!("verify chunk endorsement")));
         }
         let validator =
             epoch_manager.get_validator_by_account_id(&epoch_id, &endorsement.account_id)?;

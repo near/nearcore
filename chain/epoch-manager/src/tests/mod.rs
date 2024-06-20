@@ -2848,7 +2848,7 @@ fn test_verify_chunk_endorsements() {
     let err =
         epoch_manager.verify_chunk_endorsement(&chunk_header, &chunk_endorsement).unwrap_err();
     match err {
-        Error::NotAValidator => (),
+        Error::NotAValidator(_) => (),
         _ => assert!(false, "Expected NotAValidator error but got {:?}", err),
     }
 }

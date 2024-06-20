@@ -77,7 +77,7 @@ impl Client {
         Ok(HandleOrphanWitnessOutcome::SavedToPool)
     }
 
-    fn process_ready_orphan_witnesses(&mut self, new_block: &Block, signer: Arc<ValidatorSigner>) {
+    fn process_ready_orphan_witnesses(&mut self, new_block: &Block, signer: &Arc<ValidatorSigner>) {
         let ready_witnesses = self
             .chunk_validator
             .orphan_witness_pool
@@ -92,12 +92,9 @@ impl Client {
                 witness_prev_block = ?header.prev_block_hash(),
                 "Processing an orphaned ChunkStateWitness, its previous block has arrived."
             );
-            if let Err(err) = self.process_chunk_state_witness_with_prev_block(
-                witness,
-                new_block,
-                None,
-                signer.clone(),
-            ) {
+            if let Err(err) =
+                self.process_chunk_state_witness_with_prev_block(witness, new_block, None, signer)
+            {
                 tracing::error!(target: "client", ?err, "Error processing orphan chunk state witness");
             }
         }
@@ -112,7 +109,7 @@ impl Client {
         signer: &Option<Arc<ValidatorSigner>>,
     ) {
         if let Some(signer) = signer {
-            self.process_ready_orphan_witnesses(new_block, signer.clone());
+            self.process_ready_orphan_witnesses(new_block, signer);
         } else {
             tracing::error!(target: "client", new_block=?new_block.hash(), "Cannot process ready orphan witnesses - not a validator");
         }

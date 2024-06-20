@@ -148,7 +148,9 @@ pub struct Client {
     pub sharded_tx_pool: ShardedTransactionPool,
     /// Network adapter.
     pub network_adapter: PeerManagerAdapter,
-    /// Signer for block producer (if present).
+    /// Signer for block producer (if present). This field is mutable and optional. Use with caution!
+    /// Lock the value of mutable validator signer for the duration of a request to ensure consistency.
+    /// Please note that the locked value should not be stored anywhere or passed through the thread boundary.
     pub validator_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
     /// Approvals for which we do not have the block yet
     pub pending_approvals:
@@ -826,7 +828,7 @@ impl Client {
         last_header: ShardChunkHeader,
         next_height: BlockHeight,
         shard_id: ShardId,
-        signer: Option<Arc<ValidatorSigner>>,
+        signer: Option<&Arc<ValidatorSigner>>,
     ) -> Result<Option<ProduceChunkResult>, Error> {
         let signer = signer.ok_or_else(|| {
             Error::ChunkProducer("Called without block producer info.".to_string())
@@ -860,7 +862,7 @@ impl Client {
         last_header: ShardChunkHeader,
         next_height: BlockHeight,
         shard_id: ShardId,
-        validator_signer: Arc<ValidatorSigner>,
+        validator_signer: &Arc<ValidatorSigner>,
     ) -> Result<Option<ProduceChunkResult>, Error> {
         let span = tracing::Span::current();
         let timer = Instant::now();
@@ -1680,7 +1682,7 @@ impl Client {
                 && !self.sync_status.is_syncing()
                 && !skip_produce_chunk
             {
-                self.produce_chunks(&block, signer);
+                self.produce_chunks(&block, &signer);
             } else {
                 info!(target: "client", "not producing a chunk");
             }
@@ -1775,7 +1777,7 @@ impl Client {
     }
 
     // Produce new chunks
-    fn produce_chunks(&mut self, block: &Block, signer: Arc<ValidatorSigner>) {
+    fn produce_chunks(&mut self, block: &Block, signer: &Arc<ValidatorSigner>) {
         let validator_id = signer.validator_id().clone();
         let _span = debug_span!(
             target: "client",
@@ -1824,7 +1826,7 @@ impl Client {
                 last_header.clone(),
                 next_height,
                 shard_id,
-                Some(signer.clone()),
+                Some(signer),
             ) {
                 Ok(Some(result)) => {
                     let shard_chunk = self

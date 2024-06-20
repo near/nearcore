@@ -83,7 +83,7 @@ impl ChunkValidator {
         state_witness: ChunkStateWitness,
         chain: &Chain,
         processing_done_tracker: Option<ProcessingDoneTracker>,
-        signer: Arc<ValidatorSigner>,
+        signer: &Arc<ValidatorSigner>,
     ) -> Result<(), Error> {
         let prev_block_hash = state_witness.chunk_header.prev_block_hash();
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
@@ -131,7 +131,7 @@ impl ChunkValidator {
                     send_chunk_endorsement_to_block_producers(
                         &chunk_header,
                         epoch_manager.as_ref(),
-                        signer.as_ref(),
+                        signer,
                         &network_sender,
                         chunk_endorsement_tracker.as_ref(),
                     );
@@ -153,6 +153,7 @@ impl ChunkValidator {
 
         let runtime_adapter = self.runtime_adapter.clone();
         let cache = self.main_state_transition_result_cache.clone();
+        let signer = signer.clone();
         self.validation_spawner.spawn("stateless_validation", move || {
             // processing_done_tracker must survive until the processing is finished.
             let _processing_done_tracker_capture: Option<ProcessingDoneTracker> =
@@ -277,7 +278,7 @@ impl Client {
                 witness,
                 &block,
                 processing_done_tracker,
-                signer,
+                &signer,
             ),
             Err(Error::DBNotFoundErr(_)) => {
                 // Previous block isn't available at the moment, add this witness to the orphan pool.
@@ -314,7 +315,7 @@ impl Client {
         witness: ChunkStateWitness,
         prev_block: &Block,
         processing_done_tracker: Option<ProcessingDoneTracker>,
-        signer: Arc<ValidatorSigner>,
+        signer: &Arc<ValidatorSigner>,
     ) -> Result<(), Error> {
         if witness.chunk_header.prev_block_hash() != prev_block.hash() {
             return Err(Error::Other(format!(

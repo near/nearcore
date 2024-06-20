@@ -57,10 +57,14 @@ pub enum ValidatorProxies {
 
 #[derive(Clone)]
 pub struct ValidatorConfig {
+    /// Contains signer key for this node. This field is mutable and optional. Use with caution!
+    /// Lock the value of mutable validator signer for the duration of a request to ensure consistency.
+    /// Please note that the locked value should not be stored anywhere or passed through the thread boundary.
     pub signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
     pub proxies: ValidatorProxies,
 }
 
+/// A snapshot of ValidatorConfig. Use to freeze the value of the mutable validator signer field.
 pub struct FrozenValidatorConfig<'a> {
     pub signer: Option<Arc<ValidatorSigner>>,
     pub proxies: &'a ValidatorProxies,
