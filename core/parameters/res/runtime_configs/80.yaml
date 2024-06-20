@@ -24,10 +24,10 @@ max_congestion_memory_consumption: {
   old : 9_223_372_036_854_775_807,
   new : 1_000_000_000,
 }
-# 5 missed chunks
+# 2 missed chunks
 max_congestion_missed_chunks: { 
   old : 9_223_372_036_854_775_807,
-  new : 5,
+  new : 2,
 }
 
 # 300 PGAS
