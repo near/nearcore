@@ -9,6 +9,8 @@ import unittest
 import sys, time
 import pathlib
 
+from utils import wait_for_blocks
+
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from configured_logger import logger
@@ -25,7 +27,7 @@ class ValidatorSwitchKeyQuickTest(unittest.TestCase):
         # that it will be assigned to when becoming a validator.
         config_map = {
             2: {
-                "tracked_shards": [0, 2],
+                "tracked_shards": [0],
                 "store.load_mem_tries_for_tracked_shards": True,
             }
         }
@@ -36,13 +38,13 @@ class ValidatorSwitchKeyQuickTest(unittest.TestCase):
                            ["block_producer_kickout_threshold", 10],
                            ["chunk_producer_kickout_threshold", 10]],
                           config_map)
-        time.sleep(2)
+        wait_for_blocks(old_validator, count=1)
 
         new_validator.reset_validator_key(other_validator.validator_key)
         other_validator.kill()
         new_validator.reload_updateable_config()
         new_validator.stop_checking_store()
-        time.sleep(2)
+        wait_for_blocks(old_validator, count=1)
 
         block = old_validator.get_latest_block()
         max_height = block.height + 4 * EPOCH_LENGTH
@@ -52,7 +54,6 @@ class ValidatorSwitchKeyQuickTest(unittest.TestCase):
             assert time.time() - start_time < TIMEOUT, 'Validators got stuck'
 
             info = old_validator.json_rpc('validators', 'latest')
-            print(info)
             next_validators = info['result']['next_validators']
             account_ids = [v['account_id'] for v in next_validators]
             # We copied over 'test0' validator key, along with validator account ID.
@@ -84,7 +85,7 @@ class ValidatorSwitchKeyQuickTest(unittest.TestCase):
                 # If nodes are synchronized and the current height is close to `max_height` we can finish.
                 return
 
-            time.sleep(1)
+            wait_for_blocks(old_validator, count=1)
 
         assert False, 'Nodes are not synced'
 
