@@ -224,19 +224,21 @@ impl ProtocolFeature {
             // protocol versions will still have the production layout.
             ProtocolFeature::SimpleNightshadeTestonly => 79,
 
-            // StatelessNet features
+            // Congestion control should be enabled BEFORE stateless validation, so it has a lower version.
             ProtocolFeature::CongestionControl => 80,
+            
+            // Stateless validation features.
             ProtocolFeature::StatelessValidationV0
-            | ProtocolFeature::LowerValidatorKickoutPercentForDebugging => 81,
-            ProtocolFeature::SingleShardTracking => 82,
-            ProtocolFeature::StateWitnessSizeLimit => 83,
-            ProtocolFeature::PerReceiptHardStorageProofLimit => 85,
-            ProtocolFeature::PartialEncodedStateWitness => 86,
-            ProtocolFeature::WitnessTransactionLimits
-            | ProtocolFeature::OutgoingReceiptsSizeLimit => 87,
-            ProtocolFeature::NoChunkOnlyProducers => 88,
-            ProtocolFeature::ChangePartialWitnessDataPartsRequired => 89,
-            ProtocolFeature::BiggerCombinedTransactionLimit => 90,
+            | ProtocolFeature::LowerValidatorKickoutPercentForDebugging
+            | ProtocolFeature::SingleShardTracking
+            | ProtocolFeature::StateWitnessSizeLimit
+            | ProtocolFeature::PerReceiptHardStorageProofLimit
+            | ProtocolFeature::PartialEncodedStateWitness
+            | ProtocolFeature::WitnessTransactionLimits
+            | ProtocolFeature::OutgoingReceiptsSizeLimit
+            | ProtocolFeature::NoChunkOnlyProducers
+            | ProtocolFeature::ChangePartialWitnessDataPartsRequired
+            | ProtocolFeature::BiggerCombinedTransactionLimit => 81,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]

@@ -1,9 +1,11 @@
-
-# State Witness
+# State Witness size limits.
 
 max_transaction_size: {old: 4_194_304, new: 1_572_864}
+
+per_receipt_storage_proof_size_limit: {old: 999_999_999_999_999, new: 4_000_000}
+main_storage_proof_size_soft_limit: {old: 999_999_999_999_999, new: 3_000_000}
+
 max_receipt_size: {old: 999_999_999_999_999, new: 4_194_304}
-combined_transactions_size_limit: {old: 999_999_999_999_999, new: 2_097_152}
 new_transactions_validation_state_size_soft_limit: {old: 999_999_999_999_999, new: 572_864}
 
 # 100 kiB
@@ -11,3 +13,5 @@ outgoing_receipts_usual_size_limit: {old: 999_999_999_999_999, new: 102_400}
 
 # 4.5 MiB
 outgoing_receipts_big_size_limit: {old: 999_999_999_999_999, new: 4_718_592}
+
+combined_transactions_size_limit: {old: 999_999_999_999_999, new: 4_194_304}
