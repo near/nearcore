@@ -1,11 +1,21 @@
 use near_async::time::Utc;
 use near_primitives::block::BlockValidityError;
 use near_primitives::challenge::{ChunkProofs, ChunkState};
-use near_primitives::errors::{EpochError, StorageError};
+use near_primitives::errors::{EpochError, FunctionCallError, StorageError};
 use near_primitives::shard_layout::ShardLayoutError;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use std::io;
+
+#[derive(Debug)]
+pub enum HostError {
+    GuestPanic { panic_msg: String },
+}
+
+#[derive(Debug)]
+pub enum MyFunctionCallError {
+    HostError(HostError),
+}
 
 #[derive(thiserror::Error, Debug)]
 pub enum QueryError {
@@ -41,9 +51,9 @@ pub enum QueryError {
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
-    #[error("Function call returned an error: {error_message}")]
+    #[error("Function call returned an error: the message haha")]
     ContractExecutionError {
-        error_message: String,
+        error_message: MyFunctionCallError,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
