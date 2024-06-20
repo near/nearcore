@@ -4,11 +4,10 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::epoch_manager::epoch_info::EpochSummary;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::dec_format;
 use near_primitives::state::FlatStateValue;
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof};
 use near_primitives::types::{
-    validator_stake::ValidatorStake, AccountId, Balance, EpochId, NumBlocks, ShardId, ValidatorId,
+    validator_stake::ValidatorStake, AccountId, EpochId, ShardId, ValidatorId,
     ValidatorKickoutReason, ValidatorStats,
 };
 use near_primitives::types::{BlockChunkValidatorStats, ChunkStats};
