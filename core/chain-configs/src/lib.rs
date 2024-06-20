@@ -3,7 +3,9 @@ mod genesis_config;
 pub mod genesis_validate;
 #[cfg(feature = "metrics")]
 mod metrics;
+#[cfg(feature = "test_genesis")]
 pub mod test_genesis;
+#[cfg(feature = "test_utils")]
 pub mod test_utils;
 mod updateable_config;
 

@@ -91,6 +91,7 @@ pub struct InMemorySigner {
 }
 
 impl InMemorySigner {
+    #[cfg(feature = "rand")]
     pub fn from_seed(account_id: AccountId, key_type: KeyType, seed: &str) -> Self {
         let secret_key = SecretKey::from_seed(key_type, seed);
         Self { account_id, public_key: secret_key.public_key(), secret_key }

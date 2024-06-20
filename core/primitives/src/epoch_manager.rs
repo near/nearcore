@@ -621,15 +621,14 @@ pub mod epoch_info {
     use crate::epoch_manager::ValidatorWeight;
     use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
     use crate::types::{BlockChunkValidatorStats, ValidatorKickoutReason};
-    use crate::validator_mandates::{ChunkValidatorStakeAssignment, ValidatorMandates};
+    use crate::validator_mandates::ValidatorMandates;
     use crate::version::PROTOCOL_VERSION;
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_primitives_core::hash::CryptoHash;
     use near_primitives_core::types::{
         AccountId, Balance, EpochHeight, ProtocolVersion, ValidatorId,
     };
-    use rand::SeedableRng;
-    use rand_chacha::ChaCha20Rng;
+
     use smart_default::SmartDefault;
     use std::collections::{BTreeMap, HashMap};
 
@@ -1220,10 +1219,11 @@ pub mod epoch_info {
             }
         }
 
+        #[cfg(feature = "rand")]
         pub fn sample_chunk_validators(
             &self,
             height: BlockHeight,
-        ) -> ChunkValidatorStakeAssignment {
+        ) -> crate::validator_mandates::ChunkValidatorStakeAssignment {
             // Chunk validator assignment was introduced with `V4`.
             match &self {
                 Self::V1(_) | Self::V2(_) | Self::V3(_) => Default::default(),
@@ -1265,11 +1265,14 @@ pub mod epoch_info {
                 hash(&buffer).0
             }
         }
+    }
 
+    #[cfg(feature = "rand")]
+    impl EpochInfo {
         /// Returns a new RNG obtained from combining the provided `seed` and `height`.
         ///
         /// The returned RNG can be used to shuffle slices via [`rand::seq::SliceRandom`].
-        fn chunk_validate_rng(seed: &RngSeed, height: BlockHeight) -> ChaCha20Rng {
+        fn chunk_validate_rng(seed: &RngSeed, height: BlockHeight) -> rand_chacha::ChaCha20Rng {
             // A deterministic seed is produces using the block height and the provided seed.
             // This is important as all nodes need to agree on the set and order of chunk_validators
             let mut buffer = [0u8; 40];
@@ -1281,18 +1284,18 @@ pub mod epoch_info {
             // https://docs.rs/rand_core/0.6.2/rand_core/trait.SeedableRng.html#associated-types
             // Therefore `buffer` is hashed to obtain a `[u8; 32]`.
             let seed = hash(&buffer);
-            SeedableRng::from_seed(seed.0)
+            rand::SeedableRng::from_seed(seed.0)
         }
 
         /// Returns a new RNG used for random chunk producer modifications
         /// during shard assignments.
-        pub fn shard_assignment_rng(seed: &RngSeed) -> ChaCha20Rng {
+        pub fn shard_assignment_rng(seed: &RngSeed) -> rand_chacha::ChaCha20Rng {
             let mut buffer = [0u8; 62];
             buffer[0..32].copy_from_slice(seed);
             // Do this to avoid any possibility of colliding with any other rng.
             buffer[32..62].copy_from_slice(b"shard_assignment_shuffling_rng");
             let seed = hash(&buffer);
-            SeedableRng::from_seed(seed.0)
+            rand::SeedableRng::from_seed(seed.0)
         }
     }
 

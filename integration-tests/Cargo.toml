@@ -60,13 +60,14 @@ near-o11y.workspace = true
 near-telemetry.workspace = true
 near-test-contracts.workspace = true
 near-performance-metrics.workspace = true
-near-vm-runner = { workspace = true, features = [ "prepare" ] }
+near-vm-runner = { workspace = true, features = ["prepare"] }
 near-wallet-contract.workspace = true
 nearcore.workspace = true
 node-runtime.workspace = true
 testlib.workspace = true
 
 [dev-dependencies]
+near-primitives = { workspace = true, features = ["clock", "solomon", "rand"] }
 assert_matches.workspace = true
 aurora-engine-transactions.workspace = true
 aurora-engine-types.workspace = true
