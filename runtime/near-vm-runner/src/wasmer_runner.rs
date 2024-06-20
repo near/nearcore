@@ -438,7 +438,7 @@ impl crate::runner::VM for Wasmer0VM {
             panic!("AVX support is required in order to run Wasmer VM Singlepass backend.");
         }
 
-        let mut memory = WasmerMemory::new(
+        let memory = WasmerMemory::new(
             self.config.limit_config.initial_memory_pages,
             self.config.limit_config.max_memory_pages,
         );
@@ -446,7 +446,7 @@ impl crate::runner::VM for Wasmer0VM {
         let memory_copy = memory.clone();
 
         let mut logic =
-            VMLogic::new(ext, context, &self.config, fees_config, promise_results, &mut memory);
+            VMLogic::new(ext, context, &self.config, fees_config, promise_results, memory);
 
         let result = logic.before_loading_executable(method_name, code.code().len() as u64);
         if let Err(e) = result {
