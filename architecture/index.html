@@ -322,7 +322,7 @@ the other hand, are sent to <code>ClientActor</code> for further processing.</p>
 <p>This crate contains the main entry point to runtime -- <code>Runtime::apply</code>. This
 function takes <code>ApplyState</code>, which contains necessary information passed from
 chain to runtime, a list of <code>SignedTransaction</code> and a list of <code>Receipt</code>, and
-returns a <code>ApplyResult</code>, which includes state changes, execution outcomes, etc.</p>
+returns an <code>ApplyResult</code>, which includes state changes, execution outcomes, etc.</p>
 <p><strong>Architecture Invariant:</strong> The state update is only finalized at the end of
 <code>apply</code>. During all intermediate steps state changes can be reverted.</p>
 <h3 id="runtimenear-vm-logic"><a class="header" href="#runtimenear-vm-logic"><code>runtime/near-vm-logic</code></a></h3>
@@ -392,7 +392,7 @@ expensive --timeout=1800 near-client near_client tests::catching_up::test_catchu
 If it takes just a couple seconds then it’s probably fine.  Anything
 slower should probably be classified as an expensive test.  In
 particular, if libtest complains the test takes more than 60 seconds
-then it definitely is and expensive test.</p>
+then it definitely is an expensive test.</p>
 
                     </main>
 

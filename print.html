@@ -346,7 +346,7 @@ the other hand, are sent to <code>ClientActor</code> for further processing.</p>
 <p>This crate contains the main entry point to runtime -- <code>Runtime::apply</code>. This
 function takes <code>ApplyState</code>, which contains necessary information passed from
 chain to runtime, a list of <code>SignedTransaction</code> and a list of <code>Receipt</code>, and
-returns a <code>ApplyResult</code>, which includes state changes, execution outcomes, etc.</p>
+returns an <code>ApplyResult</code>, which includes state changes, execution outcomes, etc.</p>
 <p><strong>Architecture Invariant:</strong> The state update is only finalized at the end of
 <code>apply</code>. During all intermediate steps state changes can be reverted.</p>
 <h3 id="runtimenear-vm-logic"><a class="header" href="#runtimenear-vm-logic"><code>runtime/near-vm-logic</code></a></h3>
@@ -416,7 +416,7 @@ expensive --timeout=1800 near-client near_client tests::catching_up::test_catchu
 If it takes just a couple seconds then it’s probably fine.  Anything
 slower should probably be classified as an expensive test.  In
 particular, if libtest complains the test takes more than 60 seconds
-then it definitely is and expensive test.</p>
+then it definitely is an expensive test.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="how-neard-works"><a class="header" href="#how-neard-works">How neard works</a></h1>
 <p>This chapter describes how neard works with a focus on implementation details
 and practical scenarios. To get a better understanding of how the protocol
@@ -1655,20 +1655,20 @@ eventually limited by the receipt sizes and what we can send within a block time
 through the network links. But if we only look at that limit, we can send very
 many receipts with a lot of gas attached to them. Thus, the model considers it
 unlimited.</p>
-<p>Okay, we have the capacities of the network modeled. Now let's look how a
+<p>Okay, we have the capacities of the network modeled. Now let's look at how a
 receipt execution maps onto it.</p>
 <p>Let's say a receipt starts at shard 1 with 300 Tgas. While executing, it burns 100 Tgas and
 creates an outgoing receipts with 200 Tgas to another shard. We can represent this in the flow network with 
 100 Tgas to the sink of shard 1 and 200 Tgas to shard 2. </p>
 <p><img src="architecture/how/../../images/congestion/receipt_flow_example_0.svg" alt="graph" /></p>
-<p>Note: The graph includes the execution of the next block with the 200 Tgas to th
+<p>Note: The graph includes the execution of the next block with the 200 Tgas to the
 sink of shard 2. This should be interpreted as if we continue sending the exact
 same workload on all shards every block. Then we reach this steady state where
 we continue to have these gas assignments per edge.</p>
 <p>Now we can do some flow analysis. It is immediately obvious that the total
 outflow per is limited to N * 1000 Tgas but the incoming flow is unlimited.</p>
 <p>For a finite amount of time, we can accept more inflow than outflow, we just have to add buffers to store what we cannot execute, yet. But to stay within finite memory requirements, we need to fall back to a flow diagram where outflows are greater or equal to inflows within a finite time frame.</p>
-<p>Next, we look at a ideas one at the time before combining some of them into the
+<p>Next, we look at ideas one at a time before combining some of them into the
 cross-shard congestion design proposed in
 <a href="https://github.com/near/NEPs/pull/539">NEP-539</a>.</p>
 <h2 id="idea-1-compute-the-minimum-max-flow-and-stay-below-that-limit"><a class="header" href="#idea-1-compute-the-minimum-max-flow-and-stay-below-that-limit">Idea 1: Compute the minimum max-flow and stay below that limit</a></h2>
@@ -1736,7 +1736,7 @@ receiving shard already has too high memory usage.</p>
 <p><img src="architecture/how/../../images/congestion/receipt_flow_example_3_1.svg" alt="graph" /></p>
 <h2 id="idea-4-keep-minimum-incoming-queue-length-to-avoid-deadlocks"><a class="header" href="#idea-4-keep-minimum-incoming-queue-length-to-avoid-deadlocks">Idea 4: Keep minimum incoming queue length to avoid deadlocks</a></h2>
 <p>This is the final idea we need. To avoid deadlocks, we ensure that we can always
-send receipts to a shard that has not enough work in the delayed receipts queue
+send receipts to a shard that does not have enough work in the delayed receipts queue
 already.</p>
 <p>Basically, the backpressure limits from idea 3 are only applied to incoming
 receipts but not for the total size. This guarantees that in the congested
