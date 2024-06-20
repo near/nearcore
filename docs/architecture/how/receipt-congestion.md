@@ -27,7 +27,7 @@ through the network links. But if we only look at that limit, we can send very
 many receipts with a lot of gas attached to them. Thus, the model considers it
 unlimited.
 
-Okay, we have the capacities of the network modeled. Now let's look how a
+Okay, we have the capacities of the network modeled. Now let's look at how a
 receipt execution maps onto it.
 
 Let's say a receipt starts at shard 1 with 300 Tgas. While executing, it burns 100 Tgas and
@@ -36,7 +36,7 @@ creates an outgoing receipts with 200 Tgas to another shard. We can represent th
 
 ![graph](../../images/congestion/receipt_flow_example_0.svg)
 
-Note: The graph includes the execution of the next block with the 200 Tgas to th
+Note: The graph includes the execution of the next block with the 200 Tgas to the
 sink of shard 2. This should be interpreted as if we continue sending the exact
 same workload on all shards every block. Then we reach this steady state where
 we continue to have these gas assignments per edge.
@@ -46,7 +46,7 @@ outflow per is limited to N * 1000 Tgas but the incoming flow is unlimited.
 
 For a finite amount of time, we can accept more inflow than outflow, we just have to add buffers to store what we cannot execute, yet. But to stay within finite memory requirements, we need to fall back to a flow diagram where outflows are greater or equal to inflows within a finite time frame.
 
-Next, we look at a ideas one at the time before combining some of them into the
+Next, we look at ideas one at a time before combining some of them into the
 cross-shard congestion design proposed in
 [NEP-539](https://github.com/near/NEPs/pull/539).
 
@@ -142,7 +142,7 @@ receiving shard already has too high memory usage.
 ## Idea 4: Keep minimum incoming queue length to avoid deadlocks
 
 This is the final idea we need. To avoid deadlocks, we ensure that we can always
-send receipts to a shard that has not enough work in the delayed receipts queue
+send receipts to a shard that does not have enough work in the delayed receipts queue
 already.
 
 Basically, the backpressure limits from idea 3 are only applied to incoming

@@ -22,6 +22,7 @@ pub mod profile_data_v2;
 pub mod profile_data_v3;
 pub mod rand;
 pub mod receipt;
+#[cfg(feature = "solomon")]
 pub mod reed_solomon;
 pub mod runtime;
 pub mod sandbox;

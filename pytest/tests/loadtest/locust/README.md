@@ -8,8 +8,7 @@ only about generating the load.
 
 ## Install
 ```sh
-pip3 install locust
-# Run in nearcore directory.
+# Run in nearcore directory. Locust is installed as a part of these dependencies.
 pip3 install -r pytest/requirements.txt
 ```
 

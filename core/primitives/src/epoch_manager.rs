@@ -255,9 +255,8 @@ impl AllEpochConfig {
             config.validator_selection_config.num_chunk_only_producer_seats = 200;
         }
 
-        // Adjust the number of block and chunk producers for all chains except
-        // mainnet, to make it easier to test the change.
-        if chain_id != near_primitives_core::chains::MAINNET
+        // Adjust the number of block and chunk producers for testnet, to make it easier to test the change.
+        if chain_id == near_primitives_core::chains::TESTNET
             && checked_feature!("stable", TestnetFewerBlockProducers, protocol_version)
             && !checked_feature!("stable", NoChunkOnlyProducers, protocol_version)
         {
@@ -628,8 +627,7 @@ pub mod epoch_info {
     use near_primitives_core::types::{
         AccountId, Balance, EpochHeight, NumBlocks, ProtocolVersion, ValidatorId,
     };
-    use rand::SeedableRng;
-    use rand_chacha::ChaCha20Rng;
+
     use smart_default::SmartDefault;
     use std::collections::{BTreeMap, HashMap};
 
@@ -1146,7 +1144,7 @@ pub mod epoch_info {
 
         pub fn sample_block_producer(&self, height: BlockHeight) -> ValidatorId {
             let Self::V4(v4) = &self else {
-                unimplemented!();
+                panic!("Only EpochInfoV4 is supported");
             };
             if checked_feature!("stable", AliasValidatorSelectionAlgorithm, v4.protocol_version) {
                 let seed = Self::block_produce_seed(height, &v4.rng_seed);
@@ -1163,7 +1161,7 @@ pub mod epoch_info {
             shard_id: ShardId,
         ) -> Option<ValidatorId> {
             let Self::V4(v4) = &self else {
-                unimplemented!();
+                panic!("Only EpochInfoV4 is supported");
             };
 
             let protocol_version = v4.protocol_version;
@@ -1180,12 +1178,13 @@ pub mod epoch_info {
             }
         }
 
+        #[cfg(feature = "rand")]
         pub fn sample_chunk_validators(
             &self,
             height: BlockHeight,
         ) -> ChunkValidatorStakeAssignment {
             let Self::V4(v4) = &self else {
-                unimplemented!();
+                panic!("Only EpochInfoV4 is supported");
             };
 
             let protocol_version = v4.protocol_version;
@@ -1228,11 +1227,14 @@ pub mod epoch_info {
                 hash(&buffer).0
             }
         }
+    }
 
+    #[cfg(feature = "rand")]
+    impl EpochInfo {
         /// Returns a new RNG obtained from combining the provided `seed` and `height`.
         ///
         /// The returned RNG can be used to shuffle slices via [`rand::seq::SliceRandom`].
-        fn chunk_validate_rng(seed: &RngSeed, height: BlockHeight) -> ChaCha20Rng {
+        fn chunk_validate_rng(seed: &RngSeed, height: BlockHeight) -> rand_chacha::ChaCha20Rng {
             // A deterministic seed is produces using the block height and the provided seed.
             // This is important as all nodes need to agree on the set and order of chunk_validators
             let mut buffer = [0u8; 40];
@@ -1244,18 +1246,18 @@ pub mod epoch_info {
             // https://docs.rs/rand_core/0.6.2/rand_core/trait.SeedableRng.html#associated-types
             // Therefore `buffer` is hashed to obtain a `[u8; 32]`.
             let seed = hash(&buffer);
-            SeedableRng::from_seed(seed.0)
+            rand::SeedableRng::from_seed(seed.0)
         }
 
         /// Returns a new RNG used for random chunk producer modifications
         /// during shard assignments.
-        pub fn shard_assignment_rng(seed: &RngSeed) -> ChaCha20Rng {
+        pub fn shard_assignment_rng(seed: &RngSeed) -> rand_chacha::ChaCha20Rng {
             let mut buffer = [0u8; 62];
             buffer[0..32].copy_from_slice(seed);
             // Do this to avoid any possibility of colliding with any other rng.
             buffer[32..62].copy_from_slice(b"shard_assignment_shuffling_rng");
             let seed = hash(&buffer);
-            SeedableRng::from_seed(seed.0)
+            rand::SeedableRng::from_seed(seed.0)
         }
     }
 

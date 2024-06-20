@@ -254,7 +254,7 @@ impl TrieViewer {
             &mut runtime_ext,
             originator_id,
             &action_receipt,
-            &[],
+            [].into(),
             &function_call,
             &empty_hash,
             config,

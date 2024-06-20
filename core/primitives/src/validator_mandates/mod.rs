@@ -1,10 +1,6 @@
-use std::collections::HashMap;
-
 use crate::types::{validator_stake::ValidatorStake, ValidatorId};
 use borsh::{BorshDeserialize, BorshSerialize};
-use itertools::Itertools;
 use near_primitives_core::types::Balance;
-use rand::{seq::SliceRandom, Rng};
 
 mod compute_price;
 
@@ -102,95 +98,105 @@ impl ValidatorMandates {
 
         Self { config, stake_per_mandate, mandates, partials }
     }
+}
 
-    /// Returns a validator assignment obtained by shuffling mandates and assigning them to shards.
-    /// Shard ids are shuffled as well in this process to avoid a bias lower shard ids, see
-    /// [`ShuffledShardIds`].
-    ///
-    /// It clones mandates since [`ValidatorMandates`] is supposed to be valid for an epoch, while a
-    /// new assignment is calculated at every height.
-    pub fn sample<R>(&self, rng: &mut R) -> ChunkValidatorStakeAssignment
-    where
-        R: Rng + ?Sized,
-    {
-        // Shuffling shard ids to avoid a bias towards lower ids, see [`ShuffledShardIds`]. We
-        // do two separate shuffes for full and partial mandates to reduce the likelihood of
-        // assigning fewer full _and_ partial mandates to the _same_ shard.
-        let shard_ids_for_mandates = ShuffledShardIds::new(rng, self.config.num_shards);
-        let shard_ids_for_partials = ShuffledShardIds::new(rng, self.config.num_shards);
+#[cfg(feature = "rand")]
+mod validator_mandates_sample {
+    use super::*;
+    use itertools::Itertools;
+    use rand::{seq::SliceRandom, Rng};
 
-        let shuffled_mandates = self.shuffled_mandates(rng);
-        let shuffled_partials = self.shuffled_partials(rng);
+    impl ValidatorMandates {
+        /// Returns a validator assignment obtained by shuffling mandates and assigning them to shards.
+        /// Shard ids are shuffled as well in this process to avoid a bias lower shard ids, see
+        /// [`ShuffledShardIds`].
+        ///
+        /// It clones mandates since [`ValidatorMandates`] is supposed to be valid for an epoch, while a
+        /// new assignment is calculated at every height.
+        pub fn sample<R>(&self, rng: &mut R) -> ChunkValidatorStakeAssignment
+        where
+            R: Rng + ?Sized,
+        {
+            // Shuffling shard ids to avoid a bias towards lower ids, see [`ShuffledShardIds`]. We
+            // do two separate shuffes for full and partial mandates to reduce the likelihood of
+            // assigning fewer full _and_ partial mandates to the _same_ shard.
+            let shard_ids_for_mandates = ShuffledShardIds::new(rng, self.config.num_shards);
+            let shard_ids_for_partials = ShuffledShardIds::new(rng, self.config.num_shards);
 
-        // Distribute shuffled mandates and partials across shards. For each shard with `shard_id`
-        // in `[0, num_shards)`, we take the elements of the vector with index `i` such that `i %
-        // num_shards == shard_id`.
-        //
-        // Assume, for example, there are 10 mandates and 4 shards. Then for `shard_id = 1` we
-        // collect the mandates with indices 1, 5, and 9.
-        let stake_per_mandate = self.stake_per_mandate;
-        let mut stake_assignment_per_shard = vec![HashMap::new(); self.config.num_shards];
-        for shard_id in 0..self.config.num_shards {
-            // Achieve shard id shuffling by writing to the position of the alias of `shard_id`.
-            let mandates_assignment =
-                &mut stake_assignment_per_shard[shard_ids_for_mandates.get_alias(shard_id)];
+            let shuffled_mandates = self.shuffled_mandates(rng);
+            let shuffled_partials = self.shuffled_partials(rng);
 
-            // For the current `shard_id`, collect mandates with index `i` such that
-            // `i % num_shards == shard_id`.
-            for idx in (shard_id..shuffled_mandates.len()).step_by(self.config.num_shards) {
-                let validator_id = shuffled_mandates[idx];
-                *mandates_assignment.entry(validator_id).or_default() += stake_per_mandate;
+            // Distribute shuffled mandates and partials across shards. For each shard with `shard_id`
+            // in `[0, num_shards)`, we take the elements of the vector with index `i` such that `i %
+            // num_shards == shard_id`.
+            //
+            // Assume, for example, there are 10 mandates and 4 shards. Then for `shard_id = 1` we
+            // collect the mandates with indices 1, 5, and 9.
+            let stake_per_mandate = self.stake_per_mandate;
+            let mut stake_assignment_per_shard =
+                vec![std::collections::HashMap::new(); self.config.num_shards];
+            for shard_id in 0..self.config.num_shards {
+                // Achieve shard id shuffling by writing to the position of the alias of `shard_id`.
+                let mandates_assignment =
+                    &mut stake_assignment_per_shard[shard_ids_for_mandates.get_alias(shard_id)];
+
+                // For the current `shard_id`, collect mandates with index `i` such that
+                // `i % num_shards == shard_id`.
+                for idx in (shard_id..shuffled_mandates.len()).step_by(self.config.num_shards) {
+                    let validator_id = shuffled_mandates[idx];
+                    *mandates_assignment.entry(validator_id).or_default() += stake_per_mandate;
+                }
+
+                // Achieve shard id shuffling by writing to the position of the alias of `shard_id`.
+                let partials_assignment =
+                    &mut stake_assignment_per_shard[shard_ids_for_partials.get_alias(shard_id)];
+
+                // For the current `shard_id`, collect partials with index `i` such that
+                // `i % num_shards == shard_id`.
+                for idx in (shard_id..shuffled_partials.len()).step_by(self.config.num_shards) {
+                    let (validator_id, partial_weight) = shuffled_partials[idx];
+                    *partials_assignment.entry(validator_id).or_default() += partial_weight;
+                }
             }
 
-            // Achieve shard id shuffling by writing to the position of the alias of `shard_id`.
-            let partials_assignment =
-                &mut stake_assignment_per_shard[shard_ids_for_partials.get_alias(shard_id)];
-
-            // For the current `shard_id`, collect partials with index `i` such that
-            // `i % num_shards == shard_id`.
-            for idx in (shard_id..shuffled_partials.len()).step_by(self.config.num_shards) {
-                let (validator_id, partial_weight) = shuffled_partials[idx];
-                *partials_assignment.entry(validator_id).or_default() += partial_weight;
+            // Deterministically shuffle the validator order for each shard
+            let mut ordered_stake_assignment_per_shard = Vec::with_capacity(self.config.num_shards);
+            for shard_id in 0..self.config.num_shards {
+                // first sort the validators by id then shuffle using rng
+                let stake_assignment = &stake_assignment_per_shard[shard_id];
+                let mut ordered_validator_ids = stake_assignment.keys().sorted().collect_vec();
+                ordered_validator_ids.shuffle(rng);
+                let ordered_mandate_assignment = ordered_validator_ids
+                    .into_iter()
+                    .map(|validator_id| (*validator_id, stake_assignment[validator_id]))
+                    .collect_vec();
+                ordered_stake_assignment_per_shard.push(ordered_mandate_assignment);
             }
+
+            ordered_stake_assignment_per_shard
         }
 
-        // Deterministically shuffle the validator order for each shard
-        let mut ordered_stake_assignment_per_shard = Vec::with_capacity(self.config.num_shards);
-        for shard_id in 0..self.config.num_shards {
-            // first sort the validators by id then shuffle using rng
-            let stake_assignment = &stake_assignment_per_shard[shard_id];
-            let mut ordered_validator_ids = stake_assignment.keys().sorted().collect_vec();
-            ordered_validator_ids.shuffle(rng);
-            let ordered_mandate_assignment = ordered_validator_ids
-                .into_iter()
-                .map(|validator_id| (*validator_id, stake_assignment[validator_id]))
-                .collect_vec();
-            ordered_stake_assignment_per_shard.push(ordered_mandate_assignment);
+        /// Clones the contained mandates and shuffles them. Cloning is required as a shuffle happens at
+        /// every height while the `ValidatorMandates` are to be valid for an epoch.
+        pub(super) fn shuffled_mandates<R>(&self, rng: &mut R) -> Vec<ValidatorId>
+        where
+            R: Rng + ?Sized,
+        {
+            let mut shuffled_mandates = self.mandates.clone();
+            shuffled_mandates.shuffle(rng);
+            shuffled_mandates
         }
 
-        ordered_stake_assignment_per_shard
-    }
-
-    /// Clones the contained mandates and shuffles them. Cloning is required as a shuffle happens at
-    /// every height while the `ValidatorMandates` are to be valid for an epoch.
-    fn shuffled_mandates<R>(&self, rng: &mut R) -> Vec<ValidatorId>
-    where
-        R: Rng + ?Sized,
-    {
-        let mut shuffled_mandates = self.mandates.clone();
-        shuffled_mandates.shuffle(rng);
-        shuffled_mandates
-    }
-
-    /// Clones the contained partials and shuffles them. Cloning is required as a shuffle happens at
-    /// every height while the `ValidatorMandates` are to be valid for an epoch.
-    fn shuffled_partials<R>(&self, rng: &mut R) -> Vec<(ValidatorId, Balance)>
-    where
-        R: Rng + ?Sized,
-    {
-        let mut shuffled_partials = self.partials.clone();
-        shuffled_partials.shuffle(rng);
-        shuffled_partials
+        /// Clones the contained partials and shuffles them. Cloning is required as a shuffle happens at
+        /// every height while the `ValidatorMandates` are to be valid for an epoch.
+        pub(super) fn shuffled_partials<R>(&self, rng: &mut R) -> Vec<(ValidatorId, Balance)>
+        where
+            R: Rng + ?Sized,
+        {
+            let mut shuffled_partials = self.partials.clone();
+            shuffled_partials.shuffle(rng);
+            shuffled_partials
+        }
     }
 }
 
@@ -225,11 +231,14 @@ struct ShuffledShardIds {
     shuffled_ids: Vec<usize>,
 }
 
+#[cfg(feature = "rand")]
 impl ShuffledShardIds {
     fn new<R>(rng: &mut R, num_shards: usize) -> Self
     where
-        R: Rng + ?Sized,
+        R: rand::Rng + ?Sized,
     {
+        use rand::seq::SliceRandom;
+
         let mut shuffled_ids = (0..num_shards).collect::<Vec<_>>();
         shuffled_ids.shuffle(rng);
         Self { shuffled_ids }

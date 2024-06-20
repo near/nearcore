@@ -88,6 +88,8 @@ pub const PROTOCOL_UPGRADE_SCHEDULE: Lazy<ProtocolUpgradeVotingSchedule> = Lazy:
 /// the new version.  This gives non-validator nodes time to upgrade.  See
 /// <https://github.com/near/NEPs/issues/205>
 pub fn get_protocol_version(next_epoch_protocol_version: ProtocolVersion) -> ProtocolVersion {
-    let now = chrono::Utc::now();
-    PROTOCOL_UPGRADE_SCHEDULE.get_protocol_version(now, next_epoch_protocol_version)
+    let now = near_time::Utc::now_utc();
+    let chrono = chrono::DateTime::from_timestamp(now.unix_timestamp(), now.nanosecond());
+    PROTOCOL_UPGRADE_SCHEDULE
+        .get_protocol_version(chrono.unwrap_or_default(), next_epoch_protocol_version)
 }

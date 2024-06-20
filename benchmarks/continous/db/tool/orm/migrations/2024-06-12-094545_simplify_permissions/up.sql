@@ -1,7 +1,7 @@
 -- Cleanup permissions granted previously. See comment below for motivation.
 revoke select on ft_transfers from grafana_reader;
 revoke select on ft_transfers from benchmark_runner;
-revoke insert on ft_transfers from benchmar_runner;
+revoke insert on ft_transfers from benchmark_runner;
 
 -- Granting individual permissions like done previously is tedious and error
 -- prone. In addition it must be repeated for all new tables.
