@@ -1,5 +1,3 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc, time::Instant};
-
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_epoch_manager::EpochManager;
 use near_primitives::shard_layout::ShardLayout;
@@ -12,6 +10,11 @@ use near_primitives::trie_key::trie_key_parsers::{
 use near_primitives_core::types::ShardId;
 use near_store::{ShardUId, Store, Trie, TrieDBStorage};
 use nearcore::NearConfig;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
+use std::sync::Arc;
+use std::time::Instant;
 
 #[derive(Clone)]
 pub enum TrieIterationType {
@@ -147,7 +150,7 @@ impl TrieIterationBenchmarkCmd {
         let state_root = chunk_header.prev_state_root();
         let storage = TrieDBStorage::new(store.clone(), shard_uid);
         let flat_storage_chunk_view = None;
-        Trie::new(Rc::new(storage), state_root, flat_storage_chunk_view)
+        Trie::new(Arc::new(storage), state_root, flat_storage_chunk_view)
     }
 
     fn iter_trie(&self, trie: &Trie) {

@@ -33,7 +33,6 @@ use near_primitives::state_record::is_contract_code_key;
 use near_primitives::types::{ShardId, StateRoot};
 use near_vm_runner::ContractCode;
 use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
 use std::sync::Arc;
 
 use super::TrieRefcountDeltaMap;
@@ -243,7 +242,7 @@ impl Trie {
             .with_label_values(&[&shard_id.to_string()])
             .start_timer();
         let local_state_part_trie =
-            Trie::new(Rc::new(TrieMemoryPartialStorage::default()), StateRoot::new(), None);
+            Trie::new(Arc::new(TrieMemoryPartialStorage::default()), StateRoot::new(), None);
         let local_state_part_nodes =
             local_state_part_trie.update(all_state_part_items.into_iter())?.insertions;
         let local_trie_creation_duration = local_trie_creation_timer.stop_and_record();
@@ -264,7 +263,7 @@ impl Trie {
                 .map(|entry| (*entry.hash(), entry.payload().to_vec().into())),
         );
         let final_trie =
-            Trie::new(Rc::new(TrieMemoryPartialStorage::new(all_nodes)), self.root, None);
+            Trie::new(Arc::new(TrieMemoryPartialStorage::new(all_nodes)), self.root, None);
 
         final_trie.visit_nodes_for_state_part(part_id)?;
         let final_trie_storage = final_trie.storage.as_partial_storage().unwrap();
@@ -434,7 +433,7 @@ impl Trie {
         trie.visit_nodes_for_state_part(part_id)?;
         let storage = trie.storage.as_partial_storage().unwrap();
 
-        if storage.visited_nodes.borrow().len() != num_nodes {
+        if storage.visited_nodes.read().expect("read visited_nodes").len() != num_nodes {
             // As all nodes belonging to state part were visited, there is some
             // unexpected data in downloaded state part.
             return Err(StorageError::UnexpectedTrieValue);
