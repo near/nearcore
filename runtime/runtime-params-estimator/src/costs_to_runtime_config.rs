@@ -1,14 +1,13 @@
+use crate::cost::Cost;
+use crate::cost_table::CostTable;
+use anyhow::Context;
 use near_parameters::vm::Config as VMConfig;
 use near_parameters::{
     AccountCreationConfig, ActionCosts, ExtCosts, ExtCostsConfig, Fee, ParameterCost,
     RuntimeConfig, RuntimeConfigStore, RuntimeFeesConfig,
 };
 use near_primitives::version::PROTOCOL_VERSION;
-
-use anyhow::Context;
-
-use crate::cost::Cost;
-use crate::cost_table::CostTable;
+use std::sync::Arc;
 
 /// Turn a [`CostTable`] into a [`RuntimeConfig`].
 ///
@@ -29,14 +28,14 @@ pub fn costs_to_runtime_config(cost_table: &CostTable) -> anyhow::Result<Runtime
     let vm_limit_config = latest_runtime_config.wasm_config.limit_config.clone();
 
     let res = RuntimeConfig {
-        fees: runtime_fees_config(cost_table)?,
-        wasm_config: VMConfig {
+        fees: Arc::new(runtime_fees_config(cost_table)?),
+        wasm_config: Arc::new(VMConfig {
             ext_costs: ext_costs_config(cost_table)?,
             grow_mem_cost: 1,
             regular_op_cost: u32::try_from(regular_op_cost).unwrap(),
             limit_config: vm_limit_config,
-            ..latest_runtime_config.wasm_config
-        },
+            ..*latest_runtime_config.wasm_config
+        }),
         account_creation_config: AccountCreationConfig::default(),
         congestion_control_config: latest_runtime_config.congestion_control_config,
         witness_config: latest_runtime_config.witness_config,
@@ -73,7 +72,7 @@ fn runtime_fees_config(cost_table: &CostTable) -> anyhow::Result<RuntimeFeesConf
             ActionCosts::new_data_receipt_base => fee(Cost::DataReceiptCreationBase)?,
             ActionCosts::new_data_receipt_byte => fee(Cost::DataReceiptCreationPerByte)?,
         },
-        ..actual_fees_config.clone()
+        ..RuntimeFeesConfig::clone(&actual_fees_config)
     };
     Ok(res)
 }

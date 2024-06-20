@@ -475,19 +475,19 @@ impl AnyCache {
 /// is already in the cache, or if cache is `None`.
 pub fn precompile_contract(
     code: &ContractCode,
-    config: &Config,
+    config: Arc<Config>,
     cache: Option<&dyn ContractRuntimeCache>,
 ) -> Result<Result<ContractPrecompilatonResult, CompilationError>, CacheError> {
     let _span = tracing::debug_span!(target: "vm", "precompile_contract").entered();
     let vm_kind = config.vm_kind;
     let runtime = vm_kind
-        .runtime(config.clone())
+        .runtime(Arc::clone(&config))
         .unwrap_or_else(|| panic!("the {vm_kind:?} runtime has not been enabled at compile time"));
     let cache = match cache {
         Some(it) => it,
         None => return Ok(Ok(ContractPrecompilatonResult::CacheNotAvailable)),
     };
-    let key = get_contract_cache_key(*code.hash(), config);
+    let key = get_contract_cache_key(*code.hash(), &config);
     // Check if we already cached with such a key.
     if cache.has(&key).map_err(CacheError::ReadError)? {
         return Ok(Ok(ContractPrecompilatonResult::ContractAlreadyInCache));

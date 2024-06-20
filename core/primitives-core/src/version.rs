@@ -157,11 +157,6 @@ pub enum ProtocolFeature {
     PerReceiptHardStorageProofLimit,
     /// Cross-shard congestion control according to <https://github.com/near/NEPs/pull/539>.
     CongestionControl,
-    /// The allowed shard validation for congestion control. This is only needed
-    /// for statelessnet where it's released separately from the main
-    /// CongestionControl feature.
-    /// TODO(congestion_control) - remove it on stabilization
-    CongestionControlAllowedShardValidation,
     // Stateless validation: Distribute state witness as reed solomon encoded parts
     PartialEncodedStateWitness,
     /// Size limits for transactions included in a ChunkStateWitness.
@@ -230,17 +225,16 @@ impl ProtocolFeature {
             ProtocolFeature::SimpleNightshadeTestonly => 79,
 
             // StatelessNet features
-            ProtocolFeature::StatelessValidationV0 => 80,
-            ProtocolFeature::LowerValidatorKickoutPercentForDebugging => 81,
+            ProtocolFeature::CongestionControl => 80,
+            ProtocolFeature::StatelessValidationV0
+            | ProtocolFeature::LowerValidatorKickoutPercentForDebugging => 81,
             ProtocolFeature::SingleShardTracking => 82,
             ProtocolFeature::StateWitnessSizeLimit => 83,
             ProtocolFeature::PerReceiptHardStorageProofLimit => 85,
             ProtocolFeature::PartialEncodedStateWitness => 86,
             ProtocolFeature::WitnessTransactionLimits
-            | ProtocolFeature::CongestionControl
             | ProtocolFeature::OutgoingReceiptsSizeLimit => 87,
-            ProtocolFeature::CongestionControlAllowedShardValidation
-            | ProtocolFeature::NoChunkOnlyProducers => 88,
+            ProtocolFeature::NoChunkOnlyProducers => 88,
             ProtocolFeature::ChangePartialWitnessDataPartsRequired => 89,
             ProtocolFeature::BiggerCombinedTransactionLimit => 90,
 
