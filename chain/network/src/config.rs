@@ -64,6 +64,7 @@ pub struct ValidatorConfig {
     pub proxies: ValidatorProxies,
 }
 
+/// A snapshot of ValidatorConfig. Use to freeze the value of the mutable validator signer field.
 pub struct FrozenValidatorConfig<'a> {
     pub signer: Option<Arc<ValidatorSigner>>,
     pub proxies: &'a ValidatorProxies,
