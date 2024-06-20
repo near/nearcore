@@ -701,11 +701,11 @@ pub mod epoch_info {
     #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, serde::Serialize)]
     pub enum EpochInfo {
         #[allow(unused)]
-        V1,
+        _UnusedV1,
         #[allow(unused)]
-        V2,
+        _UnusedV2,
         #[allow(unused)]
-        V3,
+        _UnusedV3,
         V4(EpochInfoV4),
     }
 
@@ -945,7 +945,7 @@ pub mod epoch_info {
         pub fn epoch_height_mut(&mut self) -> &mut EpochHeight {
             match self {
                 Self::V4(v4) => &mut v4.epoch_height,
-                _ => unimplemented!(),
+                _ => panic!("Only EpochInfoV4 is supported"),
             }
         }
 
@@ -953,7 +953,7 @@ pub mod epoch_info {
         pub fn epoch_height(&self) -> EpochHeight {
             match self {
                 Self::V4(v4) => v4.epoch_height,
-                _ => unimplemented!(),
+                _ => panic!("Only EpochInfoV4 is supported"),
             }
         }
 
@@ -961,7 +961,7 @@ pub mod epoch_info {
         pub fn seat_price(&self) -> Balance {
             match self {
                 Self::V4(v4) => v4.seat_price,
-                _ => unimplemented!(),
+                _ => panic!("Only EpochInfoV4 is supported"),
             }
         }
 
@@ -969,7 +969,7 @@ pub mod epoch_info {
         pub fn minted_amount(&self) -> Balance {
             match self {
                 Self::V4(v4) => v4.minted_amount,
-                _ => unimplemented!(),
+                _ => panic!("Only EpochInfoV4 is supported"),
             }
         }
 
@@ -977,7 +977,7 @@ pub mod epoch_info {
         pub fn block_producers_settlement(&self) -> &[ValidatorId] {
             match self {
                 Self::V4(v4) => &v4.block_producers_settlement,
-                _ => unimplemented!(),
+                _ => panic!("Only EpochInfoV4 is supported"),
             }
         }
 
@@ -985,7 +985,7 @@ pub mod epoch_info {
         pub fn chunk_producers_settlement(&self) -> &[Vec<ValidatorId>] {
             match self {
                 Self::V4(v4) => &v4.chunk_producers_settlement,
-                _ => unimplemented!(),
+                _ => panic!("Only EpochInfoV4 is supported"),
             }
         }
 
@@ -993,7 +993,7 @@ pub mod epoch_info {
         pub fn chunk_producers_settlement_mut(&mut self) -> &mut Vec<Vec<ValidatorId>> {
             match self {
                 Self::V4(v4) => &mut v4.chunk_producers_settlement,
-                _ => unimplemented!(),
+                _ => panic!("Only EpochInfoV4 is supported"),
             }
         }
 
@@ -1001,7 +1001,7 @@ pub mod epoch_info {
         pub fn validator_kickout(&self) -> &HashMap<AccountId, ValidatorKickoutReason> {
             match self {
                 Self::V4(v4) => &v4.validator_kickout,
-                _ => unimplemented!(),
+                _ => panic!("Only EpochInfoV4 is supported"),
             }
         }
 
@@ -1009,7 +1009,7 @@ pub mod epoch_info {
         pub fn protocol_version(&self) -> ProtocolVersion {
             match self {
                 Self::V4(v4) => v4.protocol_version,
-                _ => unimplemented!(),
+                _ => panic!("Only EpochInfoV4 is supported"),
             }
         }
 
@@ -1017,7 +1017,7 @@ pub mod epoch_info {
         pub fn stake_change(&self) -> &BTreeMap<AccountId, Balance> {
             match self {
                 Self::V4(v4) => &v4.stake_change,
-                _ => unimplemented!(),
+                _ => panic!("Only EpochInfoV4 is supported"),
             }
         }
 
@@ -1025,7 +1025,7 @@ pub mod epoch_info {
         pub fn validator_reward(&self) -> &HashMap<AccountId, Balance> {
             match self {
                 Self::V4(v4) => &v4.validator_reward,
-                _ => unimplemented!(),
+                _ => panic!("Only EpochInfoV4 is supported"),
             }
         }
 
@@ -1033,7 +1033,7 @@ pub mod epoch_info {
         pub fn validators_iter(&self) -> ValidatorStakeIter {
             match self {
                 Self::V4(v4) => ValidatorStakeIter::new(&v4.validators),
-                _ => unimplemented!(),
+                _ => panic!("Only EpochInfoV4 is supported"),
             }
         }
 
@@ -1041,7 +1041,7 @@ pub mod epoch_info {
         pub fn fishermen_iter(&self) -> ValidatorStakeIter {
             match self {
                 Self::V4(v4) => ValidatorStakeIter::new(&v4._fishermen),
-                _ => unimplemented!(),
+                _ => panic!("Only EpochInfoV4 is supported"),
             }
         }
 
@@ -1049,7 +1049,7 @@ pub mod epoch_info {
         pub fn validator_stake(&self, validator_id: u64) -> Balance {
             match self {
                 Self::V4(v4) => v4.validators[validator_id as usize].stake(),
-                _ => unimplemented!(),
+                _ => panic!("Only EpochInfoV4 is supported"),
             }
         }
 
@@ -1057,7 +1057,7 @@ pub mod epoch_info {
         pub fn validator_account_id(&self, validator_id: u64) -> &AccountId {
             match self {
                 Self::V4(v4) => v4.validators[validator_id as usize].account_id(),
-                _ => unimplemented!(),
+                _ => panic!("Only EpochInfoV4 is supported"),
             }
         }
 
@@ -1065,14 +1065,14 @@ pub mod epoch_info {
         pub fn account_is_validator(&self, account_id: &AccountId) -> bool {
             match self {
                 Self::V4(v4) => v4.validator_to_index.contains_key(account_id),
-                _ => unimplemented!(),
+                _ => panic!("Only EpochInfoV4 is supported"),
             }
         }
 
         pub fn get_validator_id(&self, account_id: &AccountId) -> Option<&ValidatorId> {
             match self {
                 Self::V4(v4) => v4.validator_to_index.get(account_id),
-                _ => unimplemented!(),
+                _ => panic!("Only EpochInfoV4 is supported"),
             }
         }
 
@@ -1082,7 +1082,7 @@ pub mod epoch_info {
                     .validator_to_index
                     .get(account_id)
                     .map(|validator_id| v4.validators[*validator_id as usize].clone()),
-                _ => unimplemented!(),
+                _ => panic!("Only EpochInfoV4 is supported"),
             }
         }
 
@@ -1090,7 +1090,7 @@ pub mod epoch_info {
         pub fn get_validator(&self, validator_id: u64) -> ValidatorStake {
             match self {
                 Self::V4(v4) => v4.validators[validator_id as usize].clone(),
-                _ => unimplemented!(),
+                _ => panic!("Only EpochInfoV4 is supported"),
             }
         }
 
@@ -1098,7 +1098,7 @@ pub mod epoch_info {
         pub fn account_is_fisherman(&self, account_id: &AccountId) -> bool {
             match self {
                 Self::V4(v4) => v4._fishermen_to_index.contains_key(account_id),
-                _ => unimplemented!(),
+                _ => panic!("Only EpochInfoV4 is supported"),
             }
         }
 
@@ -1108,7 +1108,7 @@ pub mod epoch_info {
                     ._fishermen_to_index
                     .get(account_id)
                     .map(|validator_id| v4._fishermen[*validator_id as usize].clone()),
-                _ => unimplemented!(),
+                _ => panic!("Only EpochInfoV4 is supported"),
             }
         }
 
@@ -1116,7 +1116,7 @@ pub mod epoch_info {
         pub fn get_fisherman(&self, fisherman_id: u64) -> ValidatorStake {
             match self {
                 Self::V4(v4) => v4._fishermen[fisherman_id as usize].clone(),
-                _ => unimplemented!(),
+                _ => panic!("Only EpochInfoV4 is supported"),
             }
         }
 
@@ -1124,7 +1124,7 @@ pub mod epoch_info {
         pub fn validators_len(&self) -> usize {
             match self {
                 Self::V4(v4) => v4.validators.len(),
-                _ => unimplemented!(),
+                _ => panic!("Only EpochInfoV4 is supported"),
             }
         }
 
@@ -1132,7 +1132,7 @@ pub mod epoch_info {
         pub fn rng_seed(&self) -> RngSeed {
             match self {
                 Self::V4(v4) => v4.rng_seed,
-                _ => unimplemented!(),
+                _ => panic!("Only EpochInfoV4 is supported"),
             }
         }
 
@@ -1140,7 +1140,7 @@ pub mod epoch_info {
         pub fn validator_mandates(&self) -> ValidatorMandates {
             match self {
                 Self::V4(v4) => v4.validator_mandates.clone(),
-                _ => unimplemented!(),
+                _ => panic!("Only EpochInfoV4 is supported"),
             }
         }
 
