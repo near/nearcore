@@ -16,6 +16,7 @@ use near_parameters::RuntimeFeesConfig;
 use std::borrow::Cow;
 use std::cell::{RefCell, UnsafeCell};
 use std::ffi::c_void;
+use std::sync::Arc;
 use wasmtime::ExternType::Func;
 use wasmtime::{Engine, Linker, Memory, MemoryType, Module, Store};
 
@@ -143,12 +144,12 @@ pub(crate) fn wasmtime_vm_hash() -> u64 {
 }
 
 pub(crate) struct WasmtimeVM {
-    config: Config,
+    config: Arc<Config>,
     engine: wasmtime::Engine,
 }
 
 impl WasmtimeVM {
-    pub(crate) fn new(config: Config) -> Self {
+    pub(crate) fn new(config: Arc<Config>) -> Self {
         Self { engine: get_engine(&default_wasmtime_config(&config)), config }
     }
 
@@ -188,8 +189,8 @@ impl WasmtimeVM {
         cache: &dyn ContractRuntimeCache,
         ext: &mut dyn External,
         context: &VMContext,
-        fees_config: &RuntimeFeesConfig,
-        promise_results: &[PromiseResult],
+        fees_config: Arc<RuntimeFeesConfig>,
+        promise_results: Arc<[PromiseResult]>,
         method_name: &str,
         closure: impl FnOnce(VMLogic, Memory, Store<()>, Module) -> Result<VMOutcome, VMRunnerError>,
     ) -> VMResult<VMOutcome> {
@@ -257,8 +258,14 @@ impl WasmtimeVM {
         )
         .unwrap();
         let memory_copy = memory.0;
-        let mut logic =
-            VMLogic::new(ext, context, &self.config, fees_config, promise_results, memory);
+        let mut logic = VMLogic::new(
+            ext,
+            context,
+            Arc::clone(&self.config),
+            fees_config,
+            promise_results,
+            memory,
+        );
         let result = logic.before_loading_executable(method_name, wasm_bytes);
         if let Err(e) = result {
             return Ok(VMOutcome::abort(logic, e));
@@ -282,8 +289,8 @@ impl crate::runner::VM for WasmtimeVM {
         method_name: &str,
         ext: &mut dyn External,
         context: &VMContext,
-        fees_config: &RuntimeFeesConfig,
-        promise_results: &[PromiseResult],
+        fees_config: Arc<RuntimeFeesConfig>,
+        promise_results: Arc<[PromiseResult]>,
         cache: Option<&dyn ContractRuntimeCache>,
     ) -> Result<VMOutcome, VMRunnerError> {
         let cache = cache.unwrap_or(&NoContractRuntimeCache);

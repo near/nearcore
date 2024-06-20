@@ -185,7 +185,7 @@ impl From<crate::RuntimeConfig> for RuntimeConfigView {
                     .fees
                     .pessimistic_gas_price_inflation_ratio,
             },
-            wasm_config: VMConfigView::from(config.wasm_config),
+            wasm_config: VMConfigView::from(crate::vm::Config::clone(&config.wasm_config)),
             account_creation_config: AccountCreationConfigView {
                 min_allowed_top_level_account_length: config
                     .account_creation_config

@@ -495,7 +495,12 @@ impl NightshadeRuntime {
                 let contract_cache = compiled_contract_cache.as_deref();
                 let slot_sender = slot_sender.clone();
                 scope.spawn(move |_| {
-                    precompile_contract(&code, &runtime_config.wasm_config, contract_cache).ok();
+                    precompile_contract(
+                        &code,
+                        Arc::clone(&runtime_config.wasm_config),
+                        contract_cache,
+                    )
+                    .ok();
                     // If this fails, it just means there won't be any more attempts to recv the
                     // slots
                     let _ = slot_sender.send(());

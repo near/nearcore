@@ -1,5 +1,4 @@
 use assert_matches::assert_matches;
-
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
@@ -15,6 +14,7 @@ use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::{FinalExecutionStatus, QueryRequest, QueryResponseKind};
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use node_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT;
+use std::sync::Arc;
 
 /// Assert that an account exists and has zero balance
 fn assert_zero_balance_account(env: &TestEnv, account_id: &AccountId) {
@@ -123,12 +123,14 @@ fn test_zero_balance_account_add_key() {
     // create free runtime config for transaction costs to make it easier to assert
     // the exact amount of tokens on accounts
     let mut runtime_config = RuntimeConfig::free();
-    runtime_config.fees.storage_usage_config = StorageUsageConfig {
+    let fees = Arc::make_mut(&mut runtime_config.fees);
+    fees.storage_usage_config = StorageUsageConfig {
         storage_amount_per_byte: 10u128.pow(19),
         num_bytes_account: 100,
         num_extra_bytes_record: 40,
     };
-    runtime_config.wasm_config.ext_costs = ExtCostsConfig::test();
+    let wasm_config = Arc::make_mut(&mut runtime_config.wasm_config);
+    wasm_config.ext_costs = ExtCostsConfig::test();
     let runtime_config_store = RuntimeConfigStore::with_one_config(runtime_config);
     let mut env = TestEnv::builder(&genesis.config)
         .nightshade_runtimes_with_runtime_config_store(&genesis, vec![runtime_config_store])

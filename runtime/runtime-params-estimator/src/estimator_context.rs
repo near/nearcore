@@ -123,11 +123,11 @@ impl<'c> EstimatorContext<'c> {
     fn make_apply_state(cache: FilesystemContractRuntimeCache) -> ApplyState {
         let mut runtime_config =
             RuntimeConfigStore::new(None).get_config(PROTOCOL_VERSION).as_ref().clone();
-        runtime_config.wasm_config.enable_all_features();
-        runtime_config.wasm_config.make_free();
-
+        let wasm_config = Arc::make_mut(&mut runtime_config.wasm_config);
+        wasm_config.enable_all_features();
+        wasm_config.make_free();
         // Override vm limits config to simplify block processing.
-        runtime_config.wasm_config.limit_config = LimitConfig {
+        wasm_config.limit_config = LimitConfig {
             max_total_log_length: u64::MAX,
             max_number_registers: u64::MAX,
             max_gas_burnt: u64::MAX,
@@ -141,7 +141,7 @@ impl<'c> EstimatorContext<'c> {
 
             max_total_prepaid_gas: u64::MAX,
 
-            ..runtime_config.wasm_config.limit_config
+            ..wasm_config.limit_config
         };
         runtime_config.account_creation_config.min_allowed_top_level_account_length = 0;
 
