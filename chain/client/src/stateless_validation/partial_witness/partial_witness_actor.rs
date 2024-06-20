@@ -33,8 +33,9 @@ use super::partial_witness_tracker::PartialEncodedStateWitnessTracker;
 pub struct PartialWitnessActor {
     /// Adapter to send messages to the network.
     network_adapter: PeerManagerAdapter,
-    /// Validator signer to sign the state witness.
-    /// This field is mutable and optional. Use with caution!
+    /// Validator signer to sign the state witness. This field is mutable and optional. Use with caution!
+    /// Lock the value of mutable validator signer for the duration of a request to ensure consistency.
+    /// Please note that the locked value should not be stored anywhere or passed through the thread boundary.
     my_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
     /// Epoch manager to get the set of chunk validators
     epoch_manager: Arc<dyn EpochManagerAdapter>,

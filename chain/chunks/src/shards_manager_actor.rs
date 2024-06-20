@@ -244,8 +244,9 @@ impl RequestPool {
 
 pub struct ShardsManagerActor {
     clock: time::Clock,
-    /// Contains validator info about this node.
-    /// This field is mutable and optional. Use with caution!
+    /// Contains validator info about this node. This field is mutable and optional. Use with caution!
+    /// Lock the value of mutable validator signer for the duration of a request to ensure consistency.
+    /// Please note that the locked value should not be stored anywhere or passed through the thread boundary.
     validator_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
     store: ReadOnlyChunksStore,
 

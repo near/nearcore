@@ -91,7 +91,9 @@ pub struct ViewClientActorInner {
     clock: Clock,
     pub adv: crate::adversarial::Controls,
 
-    /// Validator account (if present).
+    /// Validator account (if present). This field is mutable and optional. Use with caution!
+    /// Lock the value of mutable validator signer for the duration of a request to ensure consistency.
+    /// Please note that the locked value should not be stored anywhere or passed through the thread boundary.
     validator: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
     chain: Chain,
     epoch_manager: Arc<dyn EpochManagerAdapter>,

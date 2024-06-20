@@ -36,6 +36,9 @@ pub struct StateSyncDumper {
     pub epoch_manager: Arc<dyn EpochManagerAdapter>,
     pub shard_tracker: ShardTracker,
     pub runtime: Arc<dyn RuntimeAdapter>,
+    /// Contains validator key for this node. This field is mutable and optional. Use with caution!
+    /// Lock the value of mutable validator signer for the duration of a request to ensure consistency.
+    /// Please note that the locked value should not be stored anywhere or passed through the thread boundary.
     pub validator: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
     pub dump_future_runner: Box<dyn Fn(BoxFuture<'static, ()>) -> Box<dyn FnOnce()>>,
     pub handle: Option<StateSyncDumpHandle>,

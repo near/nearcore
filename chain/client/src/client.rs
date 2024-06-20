@@ -148,7 +148,9 @@ pub struct Client {
     pub sharded_tx_pool: ShardedTransactionPool,
     /// Network adapter.
     pub network_adapter: PeerManagerAdapter,
-    /// Signer for block producer (if present).
+    /// Signer for block producer (if present). This field is mutable and optional. Use with caution!
+    /// Lock the value of mutable validator signer for the duration of a request to ensure consistency.
+    /// Please note that the locked value should not be stored anywhere or passed through the thread boundary.
     pub validator_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
     /// Approvals for which we do not have the block yet
     pub pending_approvals:
