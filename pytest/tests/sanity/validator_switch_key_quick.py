@@ -48,17 +48,18 @@ class ValidatorSwitchKeyQuickTest(unittest.TestCase):
 
         block = old_validator.get_latest_block()
         max_height = block.height + 4 * EPOCH_LENGTH
+        target_height = max_height - EPOCH_LENGTH // 2
         start_time = time.time()
 
         while True:
-            assert time.time() - start_time < TIMEOUT, 'Validators got stuck'
+            self.assertLess(time.time() - start_time, TIMEOUT, 'Validators got stuck')
 
             info = old_validator.json_rpc('validators', 'latest')
             next_validators = info['result']['next_validators']
             account_ids = [v['account_id'] for v in next_validators]
             # We copied over 'test0' validator key, along with validator account ID.
             # Therefore, despite nodes[0] being stopped, 'test0' still figures as active validator.
-            assert sorted(account_ids) == ['test0', 'test1']
+            self.assertEqual(sorted(account_ids), ['test0', 'test1'])
 
             last_block_per_node = [
                 new_validator.get_latest_block(),
@@ -67,8 +68,8 @@ class ValidatorSwitchKeyQuickTest(unittest.TestCase):
             height_per_node = list(
                 map(lambda block: block.height, last_block_per_node))
             logger.info(height_per_node)
-            if max(height_per_node) > max_height:
-                break
+
+            self.assertLess(max(height_per_node), max_height, 'Nodes are not synced')
 
             synchronized = True
             for i, node in enumerate([new_validator, old_validator]):
@@ -80,14 +81,13 @@ class ValidatorSwitchKeyQuickTest(unittest.TestCase):
 
             # Both validators should be synchronized
             logger.info(f'Synchronized {synchronized}')
-            if height_per_node[
-                    0] > max_height - EPOCH_LENGTH // 2 and synchronized:
+            if synchronized and height_per_node[0] > target_height:
                 # If nodes are synchronized and the current height is close to `max_height` we can finish.
                 return
 
             wait_for_blocks(old_validator, count=1)
 
-        assert False, 'Nodes are not synced'
+        self.fail()
 
 
 if __name__ == '__main__':
