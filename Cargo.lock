@@ -3188,6 +3188,7 @@ dependencies = [
  "primitive-types 0.10.1",
  "rand",
  "reed-solomon-erasure",
+ "regex",
  "rlp",
  "serde",
  "serde_json",
