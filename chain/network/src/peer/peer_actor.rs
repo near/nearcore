@@ -307,6 +307,8 @@ impl PeerActor {
         let my_node_info = PeerInfo {
             id: network_state.config.node_id(),
             addr: network_state.config.node_addr.as_ref().map(|a| **a),
+            // TODO(validator-key-hot-swap) Consider using mutable validator signer instead of PeerInfo.account_id ?
+            // That likely requires bigger changes and account_id here is later used for debug / logging purposes only.
             account_id: network_state.config.validator.account_id(),
         };
         // recv is the HandshakeSignal returned by this spawn_inner() call.

@@ -854,7 +854,7 @@ impl Client {
         last_header: ShardChunkHeader,
         next_height: BlockHeight,
         shard_id: ShardId,
-        signer: Arc<ValidatorSigner>,
+        validator_signer: Arc<ValidatorSigner>,
     ) -> Result<Option<ProduceChunkResult>, Error> {
         let span = tracing::Span::current();
         let timer = Instant::now();
@@ -873,7 +873,7 @@ impl Client {
             }
         }
 
-        debug!(target: "client", me = ?signer.validator_id(), next_height, shard_id, "Producing chunk");
+        debug!(target: "client", me = ?validator_signer.validator_id(), next_height, shard_id, "Producing chunk");
 
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
         let chunk_extra = self
@@ -928,14 +928,14 @@ impl Client {
             outgoing_receipts_root,
             tx_root,
             congestion_info,
-            &*signer,
+            &*validator_signer,
             &mut self.rs_for_chunk_production,
             protocol_version,
         )?;
 
         span.record("chunk_hash", tracing::field::debug(encoded_chunk.chunk_hash()));
         debug!(target: "client",
-            me = %signer.validator_id(),
+            me = %validator_signer.validator_id(),
             chunk_hash = ?encoded_chunk.chunk_hash(),
             %prev_block_hash,
             num_filtered_transactions,
@@ -1095,14 +1095,14 @@ impl Client {
         peer_id: PeerId,
         was_requested: bool,
         apply_chunks_done_sender: Option<Sender<ApplyChunksDoneMessage>>,
+        signer: &Option<Arc<ValidatorSigner>>,
     ) {
         let hash = *block.hash();
         let prev_hash = *block.header().prev_hash();
-        let validator_signer = self.validator_signer.get();
         let _span = tracing::debug_span!(
             target: "client",
             "receive_block",
-            me = ?validator_signer.as_ref().map(|vs| vs.validator_id()),
+            me = ?signer.as_ref().map(|vs| vs.validator_id()),
             %prev_hash,
             %hash,
             height = block.header().height(),
@@ -1115,7 +1115,7 @@ impl Client {
             peer_id,
             was_requested,
             apply_chunks_done_sender,
-            &validator_signer,
+            signer,
         );
         // Log the errors here. Note that the real error handling logic is already
         // done within process_block_impl, this is just for logging.
@@ -1451,6 +1451,7 @@ impl Client {
         partial_chunk: PartialEncodedChunk,
         shard_chunk: Option<ShardChunk>,
         apply_chunks_done_sender: Option<Sender<ApplyChunksDoneMessage>>,
+        signer: &Option<Arc<ValidatorSigner>>,
     ) {
         let chunk_header = partial_chunk.cloned_header();
         self.chain.blocks_delay_tracker.mark_chunk_completed(&chunk_header);
@@ -1464,9 +1465,8 @@ impl Client {
         self.chunk_endorsement_tracker.process_pending_endorsements(&chunk_header);
         // We're marking chunk as accepted.
         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
-        let validator_signer = self.validator_signer.get();
         // If this was the last chunk that was missing for a block, it will be processed now.
-        self.process_blocks_with_missing_chunks(apply_chunks_done_sender, &validator_signer);
+        self.process_blocks_with_missing_chunks(apply_chunks_done_sender, &signer);
     }
 
     /// Called asynchronously when the ShardsManager finishes processing a chunk but the chunk

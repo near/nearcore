@@ -1,5 +1,5 @@
 use crate::accounts_data::{AccountDataCacheSnapshot, LocalAccountData};
-use crate::config;
+use crate::config::{self, FrozenValidatorConfig};
 use crate::network_protocol::{
     AccountData, PeerAddr, PeerInfo, PeerMessage, SignedAccountData, SyncAccountsData,
 };
@@ -18,25 +18,23 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 impl super::NetworkState {
-    // Returns ValidatorConfig of this node iff it belongs to TIER1 according to `accounts_data`.
-    pub fn tier1_validator_config(
+    // Returns a snapshot of ValidatorConfig of this node iff it belongs to TIER1 according to `accounts_data`.
+    fn tier1_validator_config(
         &self,
         accounts_data: &AccountDataCacheSnapshot,
-    ) -> Option<&config::ValidatorConfig> {
+    ) -> Option<FrozenValidatorConfig> {
         if self.config.tier1.is_none() {
             return None;
         }
-        if self
-            .config
-            .validator
-            .signer
-            .get()
+        let signer = self.config.validator.signer.get();
+        if signer
+            .as_ref()
             .filter(|signer| accounts_data.keys.contains(&signer.public_key()))
             .is_none()
         {
             return None;
         }
-        Some(&self.config.validator)
+        Some(FrozenValidatorConfig { signer, proxies: &self.config.validator.proxies })
     }
 
     async fn tier1_connect_to_my_proxies(
@@ -102,7 +100,7 @@ impl super::NetworkState {
         let accounts_data = self.accounts_data.load();
 
         let vc = self.tier1_validator_config(&accounts_data)?;
-        let signer = vc.signer.get()?;
+        let signer = vc.signer?;
         let proxies = match (&self.config.node_addr, &vc.proxies) {
             (None, _) => vec![],
             (_, config::ValidatorProxies::Static(peer_addrs)) => peer_addrs.clone(),
@@ -280,7 +278,7 @@ impl super::NetworkState {
         // Construct a safe set of connections.
         let mut safe_set: HashSet<PeerId> = safe.values().map(|v| (*v).clone()).collect();
         // Add proxies of our node to the safe set.
-        if let Some(vc) = validator_cfg {
+        if let Some(vc) = validator_cfg.as_ref() {
             match &vc.proxies {
                 config::ValidatorProxies::Dynamic(_) => {
                     safe_set.insert(self.config.node_id());
@@ -300,7 +298,7 @@ impl super::NetworkState {
             }
         }
         if let Some(vc) = validator_cfg {
-            let validator_signer = if let Some(v) = vc.signer.get() { v } else { return };
+            let validator_signer = if let Some(v) = vc.signer { v } else { return };
             // Try to establish new TIER1 connections to accounts in random order.
             let mut handles = vec![];
             let mut account_keys: Vec<_> = proxies_by_account.keys().copied().collect();

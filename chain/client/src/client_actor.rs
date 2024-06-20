@@ -505,11 +505,13 @@ impl Handler<BlockResponse> for ClientActorInner {
                 // blocks other than the few special ones that State Sync expects.
                 return;
             }
+            let signer = self.client.validator_signer.get();
             self.client.receive_block(
                 block,
                 peer_id,
                 was_requested,
                 Some(self.myself_sender.apply_chunks_done.clone()),
+                &signer,
             );
         } else {
             match self.client.epoch_manager.get_epoch_id_from_prev_block(block.header().prev_hash())
@@ -2109,10 +2111,12 @@ impl Handler<ShardsManagerResponse> for ClientActorInner {
     fn handle(&mut self, msg: ShardsManagerResponse) {
         match msg {
             ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk } => {
+                let signer = self.client.validator_signer.get();
                 self.client.on_chunk_completed(
                     partial_chunk,
                     shard_chunk,
                     Some(self.myself_sender.apply_chunks_done.clone()),
+                    &signer,
                 );
             }
             ShardsManagerResponse::InvalidChunk(encoded_chunk) => {

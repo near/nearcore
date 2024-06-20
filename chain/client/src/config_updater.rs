@@ -7,6 +7,7 @@ use tokio::sync::broadcast::Receiver;
 pub struct ConfigUpdater {
     /// Receives config updates while the node is running.
     rx_config_update: Receiver<Result<UpdateableConfigs, Arc<UpdateableConfigLoaderError>>>,
+
     /// Represents the latest Error of reading the dynamically reloadable configs.
     updateable_configs_error: Option<Arc<UpdateableConfigLoaderError>>,
 }

@@ -297,7 +297,8 @@ impl TestEnv {
         while let Some(msg) = self.client_adapters[id].pop() {
             match msg {
                 ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk } => {
-                    self.clients[id].on_chunk_completed(partial_chunk, shard_chunk, None);
+                    let signer = self.clients[id].validator_signer.get();
+                    self.clients[id].on_chunk_completed(partial_chunk, shard_chunk, None, &signer);
                 }
                 ShardsManagerResponse::InvalidChunk(encoded_chunk) => {
                     self.clients[id].on_invalid_chunk(encoded_chunk);

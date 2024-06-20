@@ -61,9 +61,18 @@ pub struct ValidatorConfig {
     pub proxies: ValidatorProxies,
 }
 
+pub struct FrozenValidatorConfig<'a> {
+    pub signer: Option<Arc<ValidatorSigner>>,
+    pub proxies: &'a ValidatorProxies,
+}
+
 impl ValidatorConfig {
     pub fn account_id(&self) -> Option<AccountId> {
         self.signer.get().map(|s| s.validator_id().clone())
+    }
+
+    pub fn frozen_view(&self) -> FrozenValidatorConfig {
+        FrozenValidatorConfig { signer: self.signer.get(), proxies: &self.proxies }
     }
 }
 
