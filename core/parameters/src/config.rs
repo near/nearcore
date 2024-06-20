@@ -1,12 +1,12 @@
 //! Settings of the parameters of the runtime.
+use super::parameter_table::InvalidConfigError;
 use crate::config_store::INITIAL_TESTNET_CONFIG;
 use crate::cost::RuntimeFeesConfig;
 use crate::parameter_table::ParameterTable;
 use near_account_id::AccountId;
 use near_primitives_core::types::{Balance, Gas};
 use near_primitives_core::version::PROTOCOL_VERSION;
-
-use super::parameter_table::InvalidConfigError;
+use std::sync::Arc;
 
 // Lowered promise yield timeout length used in integration tests.
 // The resharding tests for yield timeouts take too long to run otherwise.
@@ -19,12 +19,12 @@ pub struct RuntimeConfig {
     ///
     /// This contains parameters that are required by the WASM runtime and the
     /// transaction runtime.
-    pub fees: RuntimeFeesConfig,
+    pub fees: Arc<RuntimeFeesConfig>,
     /// Config of wasm operations, also includes wasm gas costs.
     ///
     /// This contains all the configuration parameters that are only required by
     /// the WASM runtime.
-    pub wasm_config: crate::vm::Config,
+    pub wasm_config: Arc<crate::vm::Config>,
     /// Config that defines rules for account creation.
     pub account_creation_config: AccountCreationConfig,
     /// The configuration for congestion control.
@@ -54,8 +54,8 @@ impl RuntimeConfig {
         wasm_config.limit_config.yield_timeout_length_in_blocks = TEST_CONFIG_YIELD_TIMEOUT_LENGTH;
 
         RuntimeConfig {
-            fees: RuntimeFeesConfig::test(),
-            wasm_config,
+            fees: Arc::new(RuntimeFeesConfig::test()),
+            wasm_config: Arc::new(wasm_config),
             account_creation_config: AccountCreationConfig::default(),
             congestion_control_config: runtime_config.congestion_control_config,
             witness_config: runtime_config.witness_config,
@@ -70,8 +70,8 @@ impl RuntimeConfig {
         wasm_config.make_free();
 
         Self {
-            fees: RuntimeFeesConfig::free(),
-            wasm_config,
+            fees: Arc::new(RuntimeFeesConfig::free()),
+            wasm_config: Arc::new(wasm_config),
             account_creation_config: AccountCreationConfig::default(),
             congestion_control_config: runtime_config.congestion_control_config,
             witness_config: runtime_config.witness_config,

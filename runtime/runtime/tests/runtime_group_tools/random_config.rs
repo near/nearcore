@@ -10,7 +10,7 @@ pub fn random_config() -> RuntimeConfig {
         execution: rng.next_u64() % 1000,
     };
     RuntimeConfig {
-        fees: RuntimeFeesConfig {
+        fees: std::sync::Arc::new(RuntimeFeesConfig {
             action_fees: enum_map::enum_map! {
                 _ => random_fee(),
             },
@@ -24,7 +24,7 @@ pub fn random_config() -> RuntimeConfig {
                 (101 + rng.next_u32() % 10).try_into().unwrap(),
                 100,
             ),
-        },
+        }),
         ..RuntimeConfig::test()
     }
 }

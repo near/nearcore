@@ -214,17 +214,17 @@ impl TestBuilder {
 
                 let mut fake_external = MockedExternal::with_code(self.code.clone_for_tests());
                 let config = runtime_config.wasm_config.clone();
-                let fees = RuntimeFeesConfig::test();
+                let fees = Arc::new(RuntimeFeesConfig::test());
                 let context = self.context.clone();
 
-                let promise_results = vec![];
+                let promise_results = [].into();
 
                 let Some(runtime) = vm_kind.runtime(config) else {
                     panic!("runtime for {:?} has not been compiled", vm_kind);
                 };
                 println!("Running {:?} for protocol version {}", vm_kind, protocol_version);
                 let outcome = runtime
-                    .run(&self.method, &mut fake_external, &context, &fees, &promise_results, None)
+                    .run(&self.method, &mut fake_external, &context, fees, promise_results, None)
                     .expect("execution failed");
 
                 let mut got = String::new();

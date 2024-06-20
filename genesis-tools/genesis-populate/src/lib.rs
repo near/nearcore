@@ -184,7 +184,7 @@ impl GenesisBuilder {
         let mut state_update =
             self.state_updates.remove(&shard_idx).expect("State updates are always available");
         let protocol_config = self.runtime.get_protocol_config(&EpochId::default())?;
-        let storage_usage_config = protocol_config.runtime_config.fees.storage_usage_config;
+        let storage_usage_config = protocol_config.runtime_config.fees.storage_usage_config.clone();
 
         // Compute storage usage and update accounts.
         for (account_id, storage_usage) in compute_storage_usage(&records, &storage_usage_config) {

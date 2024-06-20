@@ -23,7 +23,7 @@ pub(crate) fn test_vm_config() -> near_parameters::vm::Config {
     let config = store.get_config(PROTOCOL_VERSION).wasm_config.clone();
     near_parameters::vm::Config {
         vm_kind: config.vm_kind.replace_with_wasmtime_if_unsupported(),
-        ..config
+        ..near_parameters::vm::Config::clone(&config)
     }
 }
 
