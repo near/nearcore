@@ -1,3 +1,0 @@
-combined_transactions_size_limit: {old: 2_097_152, new: 4_194_304}
-
-max_congestion_missed_chunks: { old : 2, new : 5 }
