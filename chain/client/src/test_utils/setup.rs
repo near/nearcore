@@ -90,7 +90,6 @@ pub fn setup(
     network_adapter: PeerManagerAdapter,
     transaction_validity_period: NumBlocks,
     genesis_time: Utc,
-    // ctx: &Context<ClientActor>,
     chunk_distribution_config: Option<ChunkDistributionNetworkConfig>,
 ) -> (
     Addr<ClientActor>,
@@ -267,7 +266,7 @@ pub fn setup_only_view(
         },
         None,
         Arc::new(RayonAsyncComputationSpawner),
-        None,
+        MutableConfigValue::new(None, "validator_signer"),
     )
     .unwrap();
 
@@ -1063,7 +1062,7 @@ pub fn setup_synchronous_shards_manager(
         }, // irrelevant
         None,
         Arc::new(RayonAsyncComputationSpawner),
-        None,
+        MutableConfigValue::new(None, "validator_signer"),
     )
     .unwrap();
     let chain_head = chain.head().unwrap();

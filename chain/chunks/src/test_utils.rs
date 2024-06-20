@@ -27,9 +27,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use crate::adapter::ShardsManagerRequestFromClient;
 use crate::client::ShardsManagerResponse;
 use crate::shards_manager_actor::ShardsManagerActor;
-use crate::test_loop::ShardsManagerResendChunkRequests;
 
-/// Deprecated. Use `MockChainForShardsManager`.
 pub struct ChunkTestFixture {
     pub store: Store,
     pub epoch_manager: EpochManagerHandle,
@@ -280,6 +278,9 @@ impl MockClientAdapterForShardsManager {
         self.requests.write().unwrap().pop_front()
     }
 }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ShardsManagerResendChunkRequests;
 
 // Allows ShardsManagerActor-like behavior, except without having to spawn an actor,
 // and without having to manually route ShardsManagerRequest messages. This only works

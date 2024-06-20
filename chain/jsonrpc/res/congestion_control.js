@@ -17,6 +17,13 @@ function toMiB(bytes) {
     return (bytes / (1024 * 1024)).toFixed(2)
 }
 
+function toCongestionLevelCell(level) {
+    if (level == null) {
+        return <td className="not_available">N/A</td>
+    }
+    return <td>{level.toFixed(2)}</td> 
+}
+
 function BlocksTable({ rows }) {
     let numShards = 0;
     for (let row of rows) {
@@ -27,7 +34,7 @@ function BlocksTable({ rows }) {
     const header = <tr>
         <th>Height</th>
         {[...Array(numShards).keys()].map(i =>
-            <th key={i} colSpan="4">Shard {i} (delayed(Tgas)/buffered(Tgas)/receipt(MiB)/allowed(shard))</th>)}
+            <th key={i} colSpan="5">Shard {i} (congestion_level/delayed(Tgas)/buffered(Tgas)/receipt(MiB)/allowed(shard))</th>)}
     </tr>;
 
     // One 'tr' element per row.
@@ -40,6 +47,7 @@ function BlocksTable({ rows }) {
             if (chunk.congestion_info) {
                 const info = chunk.congestion_info.V1;
                 chunkCells.push(<React.Fragment key={shardId}>
+                    {toCongestionLevelCell(chunk.congestion_level)}
                     <td>{toTgas(info.delayed_receipts_gas)}</td>
                     <td>{toTgas(info.buffered_receipts_gas)}</td>
                     <td>{toMiB(info.receipt_bytes)}</td>
@@ -47,6 +55,7 @@ function BlocksTable({ rows }) {
                 </React.Fragment>);
             } else {
                 chunkCells.push(<React.Fragment key={shardId}>
+                    {toCongestionLevelCell(chunk.congestion_level)}
                     <td className="not_available">N/A</td>
                     <td className="not_available">N/A</td>
                     <td className="not_available">N/A</td>

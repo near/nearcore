@@ -157,12 +157,23 @@ pub enum ProtocolFeature {
     PerReceiptHardStorageProofLimit,
     /// Cross-shard congestion control according to <https://github.com/near/NEPs/pull/539>.
     CongestionControl,
+    /// The allowed shard validation for congestion control. This is only needed
+    /// for statelessnet where it's released separately from the main
+    /// CongestionControl feature.
+    /// TODO(congestion_control) - remove it on stabilization
+    CongestionControlAllowedShardValidation,
     // Stateless validation: Distribute state witness as reed solomon encoded parts
     PartialEncodedStateWitness,
     /// Size limits for transactions included in a ChunkStateWitness.
     WitnessTransactionLimits,
     /// Size limit on outgoing receipts.
     OutgoingReceiptsSizeLimit,
+    /// No chunk-only producers in stateless validation
+    NoChunkOnlyProducers,
+    /// Decrease the ratio of data parts in the Reed Solomon encoding for partial witness distribution.
+    ChangePartialWitnessDataPartsRequired,
+    /// Increase the `combined_transactions_size_limit` to 4MiB to allow higher throughput.
+    BiggerCombinedTransactionLimit,
 }
 
 impl ProtocolFeature {
@@ -228,6 +239,10 @@ impl ProtocolFeature {
             ProtocolFeature::WitnessTransactionLimits
             | ProtocolFeature::CongestionControl
             | ProtocolFeature::OutgoingReceiptsSizeLimit => 87,
+            ProtocolFeature::CongestionControlAllowedShardValidation
+            | ProtocolFeature::NoChunkOnlyProducers => 88,
+            ProtocolFeature::ChangePartialWitnessDataPartsRequired => 89,
+            ProtocolFeature::BiggerCombinedTransactionLimit => 90,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
@@ -258,7 +273,7 @@ const STABLE_PROTOCOL_VERSION: ProtocolVersion = 67;
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "statelessnet_protocol") {
     // Current StatelessNet protocol version.
-    87
+    90
 } else if cfg!(feature = "nightly_protocol") {
     // On nightly, pick big enough version to support all features.
     143

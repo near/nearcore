@@ -1,5 +1,8 @@
 use crate::conversions::Convert;
 use crate::receipt_manager::ReceiptManager;
+use near_primitives::account::id::AccountType;
+use near_primitives::account::Account;
+use near_primitives::checked_feature;
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
@@ -11,11 +14,14 @@ use near_vm_runner::logic::errors::{AnyError, VMLogicError};
 use near_vm_runner::logic::types::ReceiptIndex;
 use near_vm_runner::logic::{External, StorageGetMode, ValuePtr};
 use near_vm_runner::ContractCode;
+use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
+use std::sync::Arc;
 
 pub struct RuntimeExt<'a> {
-    trie_update: &'a mut TrieUpdate,
+    pub(crate) trie_update: &'a mut TrieUpdate,
     pub(crate) receipt_manager: &'a mut ReceiptManager,
     account_id: &'a AccountId,
+    account: &'a Account,
     action_hash: &'a CryptoHash,
     data_count: u64,
     epoch_id: &'a EpochId,
@@ -58,6 +64,7 @@ impl<'a> RuntimeExt<'a> {
         trie_update: &'a mut TrieUpdate,
         receipt_manager: &'a mut ReceiptManager,
         account_id: &'a AccountId,
+        account: &'a Account,
         action_hash: &'a CryptoHash,
         epoch_id: &'a EpochId,
         prev_block_hash: &'a CryptoHash,
@@ -69,6 +76,7 @@ impl<'a> RuntimeExt<'a> {
             trie_update,
             receipt_manager,
             account_id,
+            account,
             action_hash,
             data_count: 0,
             epoch_id,
@@ -84,16 +92,13 @@ impl<'a> RuntimeExt<'a> {
         self.account_id
     }
 
-    pub fn get_code(&self, code_hash: CryptoHash) -> Option<ContractCode> {
-        self.trie_update.get_code(self.account_id.clone(), code_hash)
+    #[inline]
+    pub fn account(&self) -> &'a Account {
+        self.account
     }
 
     pub fn create_storage_key(&self, key: &[u8]) -> TrieKey {
         TrieKey::ContractData { account_id: self.account_id.clone(), key: key.to_vec() }
-    }
-
-    pub fn set_trie_cache_mode(&mut self, state: TrieCacheMode) {
-        self.trie_update.set_trie_cache_mode(state);
     }
 
     #[inline]
@@ -353,5 +358,28 @@ impl<'a> External for RuntimeExt<'a> {
 
     fn get_receipt_receiver(&self, receipt_index: ReceiptIndex) -> &AccountId {
         self.receipt_manager.get_receipt_receiver(receipt_index)
+    }
+
+    fn code_hash(&self) -> CryptoHash {
+        self.account.code_hash()
+    }
+
+    fn get_contract(&self) -> Option<Arc<ContractCode>> {
+        let account_id = self.account_id();
+        let code_hash = self.code_hash();
+        let version = self.current_protocol_version;
+        if checked_feature!("stable", EthImplicitAccounts, self.current_protocol_version)
+            && account_id.get_account_type() == AccountType::EthImplicitAccount
+        {
+            let chain_id = self.chain_id();
+            assert!(&code_hash == wallet_contract_magic_bytes(&chain_id).hash());
+            return Some(wallet_contract(&chain_id));
+        }
+        let mode = match checked_feature!("stable", ChunkNodesCache, version) {
+            true => Some(TrieCacheMode::CachingShard),
+            false => None,
+        };
+        let _guard = self.trie_update.with_trie_cache_mode(mode);
+        self.trie_update.get_code(self.account_id.clone(), code_hash).map(Arc::new)
     }
 }

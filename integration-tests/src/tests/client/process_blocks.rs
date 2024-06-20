@@ -1872,7 +1872,8 @@ fn test_gc_tail_update() {
         blocks.push(block);
     }
     let headers = blocks.iter().map(|b| b.header().clone()).collect::<Vec<_>>();
-    env.clients[1].sync_block_headers(headers).unwrap();
+    let signer = env.clients[1].validator_signer.get();
+    env.clients[1].sync_block_headers(headers, &signer).unwrap();
     // simulate save sync hash block
     let prev_sync_block = blocks[blocks.len() - 3].clone();
     let prev_sync_hash = *prev_sync_block.hash();
@@ -2290,12 +2291,13 @@ fn test_validate_chunk_extra() {
     let mut chain_store =
         ChainStore::new(env.clients[0].chain.chain_store().store().clone(), genesis_height, true);
     let chunk_header = encoded_chunk.cloned_header();
-    let validator_id = env.clients[0].validator_signer.get().unwrap().validator_id().clone();
+    let signer = env.clients[0].validator_signer.get();
+    let validator_id = signer.as_ref().unwrap().validator_id().clone();
     env.clients[0]
         .persist_and_distribute_encoded_chunk(encoded_chunk, merkle_paths, receipts, validator_id)
         .unwrap();
     env.clients[0].chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
-    env.clients[0].process_blocks_with_missing_chunks(None);
+    env.clients[0].process_blocks_with_missing_chunks(None, &signer);
     let accepted_blocks = env.clients[0].finish_block_in_processing(block1.hash());
     assert_eq!(accepted_blocks.len(), 1);
     env.resume_block_processing(block2.hash());
@@ -3364,7 +3366,11 @@ fn test_node_shutdown_with_old_protocol_version() {
 
 #[test]
 fn test_block_ordinal() {
-    let mut env = TestEnv::default_builder().mock_epoch_managers().build();
+    // Ensure that GC will not happen.
+    let epoch_length = 200;
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    genesis.config.epoch_length = epoch_length;
+    let mut env = TestEnv::builder(&genesis.config).mock_epoch_managers().build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     assert_eq!(genesis_block.header().block_ordinal(), 1);
     let mut ordinal = 1;
@@ -3587,12 +3593,12 @@ fn test_long_chain_with_restart_from_snapshot() {
 mod contract_precompilation_tests {
     use super::*;
     use near_primitives::test_utils::MockEpochInfoProvider;
-    use near_primitives::views::ViewApplyState;
     use near_store::TrieUpdate;
     use near_vm_runner::{
         get_contract_cache_key, ContractCode, ContractRuntimeCache, FilesystemContractRuntimeCache,
     };
     use node_runtime::state_viewer::TrieViewer;
+    use node_runtime::state_viewer::ViewApplyState;
 
     const EPOCH_LENGTH: u64 = 25;
 

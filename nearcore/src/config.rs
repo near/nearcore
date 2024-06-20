@@ -1222,19 +1222,16 @@ impl From<NodeKeyFile> for KeyFile {
 }
 
 pub fn load_validator_key(validator_file: &Path) -> anyhow::Result<Option<Arc<ValidatorSigner>>> {
-    if validator_file.exists() {
-        match InMemoryValidatorSigner::from_file(&validator_file) {
-            Ok(signer) => Ok(Some(Arc::new(signer.into()))),
-            Err(_) => {
-                let error_message = format!(
-                    "Failed initializing validator signer from {}",
-                    validator_file.display()
-                );
-                Err(anyhow!(error_message))
-            }
+    if !validator_file.exists() {
+        return Ok(None);
+    }
+    match InMemoryValidatorSigner::from_file(&validator_file) {
+        Ok(signer) => Ok(Some(Arc::new(signer.into()))),
+        Err(_) => {
+            let error_message =
+                format!("Failed initializing validator signer from {}", validator_file.display());
+            Err(anyhow!(error_message))
         }
-    } else {
-        Ok(None)
     }
 }
 

@@ -166,15 +166,20 @@ def on_locust_init(environment, **kwargs):
     num_ft_contracts = environment.parsed_options.num_ft_contracts
     funding_account = NearUser.funding_account
     parent_id = funding_account.key.account_id
+    run_id = environment.parsed_options.run_id
 
     funding_account.refresh_nonce(node.node)
 
     environment.ft_contracts = []
     # TODO: Create accounts in parallel
     for i in range(num_ft_contracts):
-        account_id = environment.account_generator.random_account_id(
-            parent_id, '_ft')
-        contract_key = key.Key.from_random(account_id)
+        if environment.parsed_options.fixed_contract_names:
+            account_id = f"ft{run_id}_{i}.{parent_id}"
+            contract_key = key.Key.from_seed_testonly(account_id)
+        else:
+            account_id = environment.account_generator.random_account_id(
+                parent_id, '_ft')
+            contract_key = key.Key.from_random(account_id)
         ft_account = Account(contract_key)
         ft_contract = FTContract(ft_account, ft_account, ft_contract_code)
         ft_contract.install(node, funding_account)
@@ -190,8 +195,13 @@ def _(parser):
     parser.add_argument(
         "--num-ft-contracts",
         type=int,
-        required=False,
         default=4,
         help=
         "How many different FT contracts to spawn from this worker (FT contracts are never shared between workers)"
+    )
+    parser.add_argument(
+        "--fixed-contract-names",
+        action='store_true',
+        help=
+        "Whether the names of FT contracts will deterministically based on worker id and run id."
     )

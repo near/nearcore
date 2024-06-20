@@ -82,12 +82,6 @@ pub struct ViewClientRequestManager {
     pub tx_status_requests: lru::LruCache<CryptoHash, Instant>,
     /// Transaction status response
     pub tx_status_response: lru::LruCache<CryptoHash, FinalExecutionOutcomeView>,
-    /// Query requests that need to be forwarded to other shards
-    pub query_requests: lru::LruCache<String, Instant>,
-    /// Query responses from other nodes (can be errors)
-    pub query_responses: lru::LruCache<String, Result<QueryResponse, String>>,
-    /// Receipt outcome requests
-    pub receipt_outcome_requests: lru::LruCache<CryptoHash, Instant>,
 }
 
 pub type ViewClientActor = SyncActixWrapper<ViewClientActorInner>;
@@ -114,11 +108,6 @@ impl ViewClientRequestManager {
         Self {
             tx_status_requests: lru::LruCache::new(NonZeroUsize::new(QUERY_REQUEST_LIMIT).unwrap()),
             tx_status_response: lru::LruCache::new(NonZeroUsize::new(QUERY_REQUEST_LIMIT).unwrap()),
-            query_requests: lru::LruCache::new(NonZeroUsize::new(QUERY_REQUEST_LIMIT).unwrap()),
-            query_responses: lru::LruCache::new(NonZeroUsize::new(QUERY_REQUEST_LIMIT).unwrap()),
-            receipt_outcome_requests: lru::LruCache::new(
-                NonZeroUsize::new(QUERY_REQUEST_LIMIT).unwrap(),
-            ),
         }
     }
 }
@@ -517,6 +506,7 @@ impl ViewClientActorInner {
         tx_hash: CryptoHash,
         signer_account_id: AccountId,
         fetch_receipt: bool,
+        validator_signer: &Option<Arc<ValidatorSigner>>,
     ) -> Result<TxStatusView, TxStatusError> {
         {
             // TODO(telezhnaya): take into account `fetch_receipt()`
@@ -541,7 +531,7 @@ impl ViewClientActorInner {
             .map_err(|err| TxStatusError::InternalError(err.to_string()))?;
         // Check if we are tracking this shard.
         if self.shard_tracker.care_about_shard(
-            self.validator.get().map(|v| v.validator_id().clone()).as_ref(),
+            validator_signer.as_ref().map(|v| v.validator_id()),
             &head.prev_block_hash,
             target_shard_id,
             true,
@@ -790,7 +780,8 @@ impl Handler<TxStatus> for ViewClientActorInner {
         tracing::debug!(target: "client", ?msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["TxStatus"]).start_timer();
-        self.get_tx_status(msg.tx_hash, msg.signer_account_id, msg.fetch_receipt)
+        let validator_signer = self.validator.get();
+        self.get_tx_status(msg.tx_hash, msg.signer_account_id, msg.fetch_receipt, &validator_signer)
     }
 }
 
@@ -1208,8 +1199,10 @@ impl Handler<TxStatusRequest> for ViewClientActorInner {
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["TxStatusRequest"]).start_timer();
         let TxStatusRequest { tx_hash, signer_account_id } = msg;
-        if let Ok(Some(result)) =
-            self.get_tx_status(tx_hash, signer_account_id, false).map(|s| s.execution_outcome)
+        let validator_signer = self.validator.get();
+        if let Ok(Some(result)) = self
+            .get_tx_status(tx_hash, signer_account_id, false, &validator_signer)
+            .map(|s| s.execution_outcome)
         {
             Some(Box::new(result.into_outcome()))
         } else {

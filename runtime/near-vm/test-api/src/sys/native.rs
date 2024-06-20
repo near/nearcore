@@ -171,6 +171,7 @@ macro_rules! impl_native_traits {
                     match self.arg_kind() {
                         VMFunctionKind::Static => {
                             let results = catch_unwind(AssertUnwindSafe(|| unsafe {
+                                #[allow(clippy::missing_transmute_annotations)]
                                 let f = std::mem::transmute::<_, unsafe extern "C" fn( VMFunctionEnvironment, $( $x, )*) -> Rets::CStruct>(self.address());
                                 // We always pass the vmctx
                                 f( self.vmctx(), $( $x, )* )

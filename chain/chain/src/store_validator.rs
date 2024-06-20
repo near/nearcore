@@ -382,7 +382,7 @@ impl StoreValidator {
 #[cfg(test)]
 mod tests {
     use near_async::time::Clock;
-    use near_chain_configs::Genesis;
+    use near_chain_configs::{Genesis, MutableConfigValue};
     use near_epoch_manager::EpochManager;
     use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
@@ -418,7 +418,7 @@ mod tests {
             ChainConfig::test(),
             None,
             Arc::new(RayonAsyncComputationSpawner),
-            None,
+            MutableConfigValue::new(None, "validator_signer"),
         )
         .unwrap();
         (
