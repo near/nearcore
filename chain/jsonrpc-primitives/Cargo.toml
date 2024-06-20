@@ -27,12 +27,12 @@ near-client-primitives = { workspace = true, optional = true }
 [features]
 nightly_protocol = [
   "near-chain-configs/nightly_protocol",
-  "near-client-primitives/nightly_protocol",
+  "near-client-primitives?/nightly_protocol",
   "near-primitives/nightly_protocol",
 ]
 nightly = [
   "near-chain-configs/nightly",
-  "near-client-primitives/nightly",
+  "near-client-primitives?/nightly",
   "near-primitives/nightly",
   "nightly_protocol",
 ]
