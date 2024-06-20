@@ -51,7 +51,7 @@ impl Server {
     }
 
     pub fn addr(&self) -> super::SocketAddr {
-        self.addr.clone()
+        self.addr
     }
 
     /// Closes the STUN server. close() is async so it cannot be implemented as Drop.
