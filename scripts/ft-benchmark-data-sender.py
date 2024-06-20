@@ -153,5 +153,7 @@ if __name__ == "__main__":
         "size_state_bytes": state_size,
         "tps": int(average_tps),
         "total_transactions": int(processed_transactions[-1]),
+        "initiator": "crt cron job",
+        "context": "continuous benchmark run",
     }
     commit_to_db(response)
