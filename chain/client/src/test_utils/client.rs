@@ -153,7 +153,7 @@ fn create_chunk_on_height_for_shard(
                 .unwrap(),
             next_height,
             shard_id,
-            signer,
+            signer.as_ref(),
         )
         .unwrap()
         .unwrap()
@@ -192,7 +192,7 @@ pub fn create_chunk(
             last_block.chunks()[0].clone(),
             next_height,
             0,
-            signer.clone(),
+            signer.as_ref(),
         )
         .unwrap()
         .unwrap();

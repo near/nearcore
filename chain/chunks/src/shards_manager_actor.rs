@@ -2096,9 +2096,10 @@ impl ShardsManagerActor {
         )
         .entered();
         let me = self.validator_signer.get().map(|signer| signer.validator_id().clone());
+        let me = me.as_ref();
         match request {
             ShardsManagerRequestFromClient::ProcessChunkHeaderFromBlock(chunk_header) => {
-                if let Err(e) = self.process_chunk_header_from_block(&chunk_header, me.as_ref()) {
+                if let Err(e) = self.process_chunk_header_from_block(&chunk_header, me) {
                     warn!(target: "chunks", "Error processing chunk header from block: {:?}", e);
                 }
             }
@@ -2116,37 +2117,30 @@ impl ShardsManagerActor {
                     encoded_chunk,
                     &merkle_paths,
                     outgoing_receipts,
-                    me.as_ref(),
+                    me,
                 ) {
                     warn!(target: "chunks", "Error distributing encoded chunk: {:?}", e);
                 }
             }
             ShardsManagerRequestFromClient::RequestChunks { chunks_to_request, prev_hash } => {
-                self.request_chunks(chunks_to_request, prev_hash, me.as_ref())
+                self.request_chunks(chunks_to_request, prev_hash, me)
             }
             ShardsManagerRequestFromClient::RequestChunksForOrphan {
                 chunks_to_request,
                 epoch_id,
                 ancestor_hash,
-            } => self.request_chunks_for_orphan(
-                chunks_to_request,
-                &epoch_id,
-                ancestor_hash,
-                me.as_ref(),
-            ),
+            } => self.request_chunks_for_orphan(chunks_to_request, &epoch_id, ancestor_hash, me),
             ShardsManagerRequestFromClient::CheckIncompleteChunks(prev_block_hash) => {
-                self.check_incomplete_chunks(&prev_block_hash, me.as_ref())
+                self.check_incomplete_chunks(&prev_block_hash, me)
             }
             ShardsManagerRequestFromClient::ProcessOrRequestChunk {
                 candidate_chunk,
                 request_header,
                 prev_hash,
             } => {
-                if let Err(err) =
-                    self.process_partial_encoded_chunk(candidate_chunk.into(), me.as_ref())
-                {
+                if let Err(err) = self.process_partial_encoded_chunk(candidate_chunk.into(), me) {
                     warn!(target: "chunks", ?err, "Error processing partial encoded chunk");
-                    self.request_chunk_single(&request_header, prev_hash, false, me.as_ref());
+                    self.request_chunk_single(&request_header, prev_hash, false, me);
                 }
             }
             ShardsManagerRequestFromClient::ProcessOrRequestChunkForOrphan {
@@ -2155,15 +2149,13 @@ impl ShardsManagerActor {
                 ancestor_hash,
                 epoch_id,
             } => {
-                if let Err(e) =
-                    self.process_partial_encoded_chunk(candidate_chunk.into(), me.as_ref())
-                {
+                if let Err(e) = self.process_partial_encoded_chunk(candidate_chunk.into(), me) {
                     warn!(target: "chunks", "Error processing partial encoded chunk: {:?}", e);
                     self.request_chunks_for_orphan(
                         vec![request_header],
                         &epoch_id,
                         ancestor_hash,
-                        me.as_ref(),
+                        me,
                     );
                 }
             }
@@ -2178,10 +2170,10 @@ impl ShardsManagerActor {
         )
         .entered();
         let me = self.validator_signer.get().map(|signer| signer.validator_id().clone());
+        let me = me.as_ref();
         match request {
             ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(partial_encoded_chunk) => {
-                if let Err(e) =
-                    self.process_partial_encoded_chunk(partial_encoded_chunk.into(), me.as_ref())
+                if let Err(e) = self.process_partial_encoded_chunk(partial_encoded_chunk.into(), me)
                 {
                     warn!(target: "chunks", "Error processing partial encoded chunk: {:?}", e);
                 }
@@ -2189,10 +2181,9 @@ impl ShardsManagerActor {
             ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(
                 partial_encoded_chunk_forward,
             ) => {
-                if let Err(e) = self.process_partial_encoded_chunk_forward(
-                    partial_encoded_chunk_forward,
-                    me.as_ref(),
-                ) {
+                if let Err(e) =
+                    self.process_partial_encoded_chunk_forward(partial_encoded_chunk_forward, me)
+                {
                     warn!(target: "chunks", "Error processing partial encoded chunk forward: {:?}", e);
                 }
             }
@@ -2203,10 +2194,9 @@ impl ShardsManagerActor {
                 metrics::PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY.observe(
                     (self.clock.now().signed_duration_since(received_time)).as_seconds_f64(),
                 );
-                if let Err(e) = self.process_partial_encoded_chunk_response(
-                    partial_encoded_chunk_response,
-                    me.as_ref(),
-                ) {
+                if let Err(e) =
+                    self.process_partial_encoded_chunk_response(partial_encoded_chunk_response, me)
+                {
                     warn!(target: "chunks", "Error processing partial encoded chunk response: {:?}", e);
                 }
             }
@@ -2217,7 +2207,7 @@ impl ShardsManagerActor {
                 self.process_partial_encoded_chunk_request(
                     partial_encoded_chunk_request,
                     route_back,
-                    me.as_ref(),
+                    me,
                 );
             }
         }
