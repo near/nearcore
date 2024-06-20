@@ -6,7 +6,6 @@ use futures::{future, FutureExt};
 use serde_json::json;
 
 use near_actix_test_utils::run_actix;
-use near_async::time::Clock;
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_jsonrpc::client::{new_client, ChunkId};
 use near_jsonrpc_primitives::types::query::QueryResponseKind;
@@ -17,6 +16,7 @@ use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockId, BlockReference, EpochId, SyncCheckpoint};
 use near_primitives::views::QueryRequest;
+use near_time::Clock;
 
 use near_jsonrpc_tests::{self as test_utils, test_with_client};
 

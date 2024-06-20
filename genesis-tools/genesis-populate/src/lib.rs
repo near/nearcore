@@ -4,7 +4,6 @@ pub mod state_dump;
 
 use crate::state_dump::StateDump;
 use indicatif::{ProgressBar, ProgressStyle};
-use near_async::time::Utc;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Block, Chain, ChainStore};
 use near_chain_configs::Genesis;
@@ -25,6 +24,7 @@ use near_store::genesis::{compute_storage_usage, initialize_genesis_state};
 use near_store::{
     get_account, get_genesis_state_roots, set_access_key, set_account, set_code, Store, TrieUpdate,
 };
+use near_time::Utc;
 use near_vm_runner::logic::ProtocolVersion;
 use near_vm_runner::ContractCode;
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};

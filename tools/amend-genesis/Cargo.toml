@@ -20,7 +20,7 @@ serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 
-near-async.workspace = true
+near-time.workspace = true
 near-chain-configs.workspace = true
 near-crypto.workspace = true
 near-primitives.workspace = true

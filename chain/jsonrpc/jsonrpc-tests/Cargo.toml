@@ -20,6 +20,7 @@ borsh.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
+near-time.workspace = true
 near-async.workspace = true
 near-chain-configs.workspace = true
 near-crypto.workspace = true
@@ -61,7 +62,5 @@ nightly_protocol = [
   "near-primitives/nightly_protocol",
   "near-store/nightly_protocol",
 ]
-statelessnet_protocol = [
-  "near-primitives/statelessnet_protocol",
-]
+statelessnet_protocol = ["near-primitives/statelessnet_protocol"]
 sandbox = ["near-jsonrpc/sandbox", "near-o11y/sandbox"]

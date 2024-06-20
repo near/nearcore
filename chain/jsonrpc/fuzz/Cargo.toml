@@ -24,7 +24,7 @@ serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 
-near-async.workspace = true
+near-time.workspace = true
 near-jsonrpc.workspace = true
 near-jsonrpc-primitives.workspace = true
 near-jsonrpc-tests.workspace = true

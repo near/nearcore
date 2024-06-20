@@ -1,4 +1,3 @@
-use near_async::time;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use std::fs::{File, OpenOptions};
@@ -74,7 +73,7 @@ impl LatenciesCsv {
         &mut self,
         peer_id: &PeerId,
         account_id: Option<&AccountId>,
-        latency: time::Duration,
+        latency: near_time::Duration,
     ) -> io::Result<()> {
         let id = account_id.map_or_else(|| format!("{}", peer_id), |a| format!("{}", a));
         write!(
