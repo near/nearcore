@@ -240,44 +240,6 @@ pub fn migrate_37_to_38(store: &Store) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// `ValidatorKickoutReason` enum layout before DB version 39, included.
-#[derive(BorshSerialize, BorshDeserialize, serde::Deserialize)]
-pub enum LegacyValidatorKickoutReasonV39 {
-    /// Slashed validators are kicked out.
-    Slashed,
-    /// Validator didn't produce enough blocks.
-    NotEnoughBlocks { produced: NumBlocks, expected: NumBlocks },
-    /// Validator didn't produce enough chunks.
-    NotEnoughChunks { produced: NumBlocks, expected: NumBlocks },
-    /// Validator unstaked themselves.
-    Unstaked,
-    /// Validator stake is now below threshold
-    NotEnoughStake {
-        #[serde(with = "dec_format", rename = "stake_u128")]
-        stake: Balance,
-        #[serde(with = "dec_format", rename = "threshold_u128")]
-        threshold: Balance,
-    },
-    /// Enough stake but is not chosen because of seat limits.
-    DidNotGetASeat,
-    /// Validator didn't produce enough chunk endorsements.
-    NotEnoughChunkEndorsements { produced: NumBlocks, expected: NumBlocks },
-}
-
-/// `EpochSummary` struct at DB version 39.
-#[derive(BorshSerialize, BorshDeserialize)]
-struct LegacyEpochSummaryV39 {
-    pub prev_epoch_last_block_hash: CryptoHash,
-    /// Proposals from the epoch, only the latest one per account
-    pub all_proposals: Vec<ValidatorStake>,
-    /// Kickout set, includes slashed
-    pub validator_kickout: HashMap<AccountId, LegacyValidatorKickoutReasonV39>,
-    /// Only for validators who met the threshold and didn't get slashed
-    pub validator_block_chunk_stats: HashMap<AccountId, BlockChunkValidatorStats>,
-    /// Protocol version for next epoch.
-    pub next_next_epoch_version: ProtocolVersion,
-}
-
 /// `ValidatorKickoutReason` struct layout before DB version 38, included.
 #[derive(BorshDeserialize)]
 struct LegacyBlockChunkValidatorStatsV38 {
@@ -292,7 +254,7 @@ struct LegacyEpochSummaryV38 {
     /// Proposals from the epoch, only the latest one per account
     pub all_proposals: Vec<ValidatorStake>,
     /// Kickout set, includes slashed
-    pub validator_kickout: HashMap<AccountId, LegacyValidatorKickoutReasonV39>,
+    pub validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
     /// Only for validators who met the threshold and didn't get slashed
     pub validator_block_chunk_stats: HashMap<AccountId, LegacyBlockChunkValidatorStatsV38>,
     /// Protocol version for next epoch.
@@ -358,7 +320,7 @@ pub fn migrate_38_to_39(store: &Store) -> anyhow::Result<()> {
     for result in store.iter(DBCol::EpochValidatorInfo) {
         let (key, old_value) = result?;
         let legacy_summary = LegacyEpochSummaryV38::try_from_slice(&old_value)?;
-        let new_value = LegacyEpochSummaryV39 {
+        let new_value = EpochSummary {
             prev_epoch_last_block_hash: legacy_summary.prev_epoch_last_block_hash,
             all_proposals: legacy_summary.all_proposals,
             validator_kickout: legacy_summary.validator_kickout,
@@ -377,69 +339,6 @@ pub fn migrate_38_to_39(store: &Store) -> anyhow::Result<()> {
                 })
                 .collect(),
             next_next_epoch_version: legacy_summary.next_version,
-        };
-        update.set(DBCol::EpochValidatorInfo, &key, &borsh::to_vec(&new_value)?);
-    }
-
-    update.commit()?;
-    Ok(())
-}
-
-/// Migrates the database from version 39 to 40.
-///
-/// Rewrites ValidatorKickoutReason to introduce NotEnoughChunkEndorsements variant
-pub fn migrate_39_to_40(store: &Store) -> anyhow::Result<()> {
-    if cfg!(feature = "statelessnet_protocol") {
-        tracing::info!(
-            target: "migrations",
-            "For statelessnet, ValidatorKickoutReason is already at correct format. \
-            Skipping migration from 39 to 40."
-        );
-        return Ok(());
-    }
-
-    impl From<LegacyValidatorKickoutReasonV39> for ValidatorKickoutReason {
-        fn from(reason: LegacyValidatorKickoutReasonV39) -> Self {
-            match reason {
-                LegacyValidatorKickoutReasonV39::Slashed => ValidatorKickoutReason::Slashed,
-                LegacyValidatorKickoutReasonV39::NotEnoughBlocks { produced, expected } => {
-                    ValidatorKickoutReason::NotEnoughBlocks { produced, expected }
-                }
-                LegacyValidatorKickoutReasonV39::NotEnoughChunks { produced, expected } => {
-                    ValidatorKickoutReason::NotEnoughChunks { produced, expected }
-                }
-                LegacyValidatorKickoutReasonV39::Unstaked => ValidatorKickoutReason::Unstaked,
-                LegacyValidatorKickoutReasonV39::NotEnoughStake { stake, threshold } => {
-                    ValidatorKickoutReason::NotEnoughStake { stake, threshold }
-                }
-                LegacyValidatorKickoutReasonV39::DidNotGetASeat => {
-                    ValidatorKickoutReason::DidNotGetASeat
-                }
-                LegacyValidatorKickoutReasonV39::NotEnoughChunkEndorsements {
-                    produced,
-                    expected,
-                } => ValidatorKickoutReason::NotEnoughChunkEndorsements { produced, expected },
-            }
-        }
-    }
-
-    let mut update = store.store_update();
-    // Update EpochSummary
-    for result in store.iter(DBCol::EpochValidatorInfo) {
-        let (key, old_value) = result?;
-        let legacy_summary = LegacyEpochSummaryV39::try_from_slice(&old_value)?;
-        let legacy_validator_kickout = legacy_summary.validator_kickout;
-        let validator_kickout: HashMap<AccountId, ValidatorKickoutReason> =
-            legacy_validator_kickout
-                .into_iter()
-                .map(|(account, kickout)| (account, kickout.into()))
-                .collect();
-        let new_value = EpochSummary {
-            prev_epoch_last_block_hash: legacy_summary.prev_epoch_last_block_hash,
-            all_proposals: legacy_summary.all_proposals,
-            validator_kickout,
-            validator_block_chunk_stats: legacy_summary.validator_block_chunk_stats,
-            next_next_epoch_version: legacy_summary.next_next_epoch_version,
         };
         update.set(DBCol::EpochValidatorInfo, &key, &borsh::to_vec(&new_value)?);
     }
