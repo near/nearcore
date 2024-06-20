@@ -138,7 +138,7 @@ impl PartialWitnessActor {
         let signer = match self.my_signer.get() {
             Some(signer) => signer,
             None => {
-                return Err(Error::NotAValidator);
+                return Err(Error::NotAValidator(format!("distribute state witness")));
             }
         };
 
@@ -292,7 +292,7 @@ impl PartialWitnessActor {
         let signer = match self.my_signer.get() {
             Some(signer) => signer,
             None => {
-                return Err(Error::NotAValidator);
+                return Err(Error::NotAValidator(format!("handle partial encoded state witness")));
             }
         };
 
@@ -316,7 +316,9 @@ impl PartialWitnessActor {
         let signer = match self.my_signer.get() {
             Some(signer) => signer,
             None => {
-                return Err(Error::NotAValidator);
+                return Err(Error::NotAValidator(format!(
+                    "handle partial encoded state witness forward"
+                )));
             }
         };
 
