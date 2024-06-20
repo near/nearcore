@@ -234,6 +234,10 @@ impl ListenerAddr {
         socket.bind(self.0)?;
         Ok(Listener(socket.listen(LISTENER_BACKLOG)?))
     }
+
+    pub(crate) fn is_ipv4(&self) -> bool {
+        self.0.is_ipv4()
+    }
 }
 
 pub(crate) struct Listener(tokio::net::TcpListener);

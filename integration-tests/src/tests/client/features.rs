@@ -16,15 +16,12 @@ mod increase_deployment_cost;
 mod increase_storage_compute_cost;
 mod limit_contract_functions_number;
 mod lower_storage_key_limit;
-mod multinode_stateless_validators;
-mod multinode_test_loop_example;
 mod nearvm;
 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
 mod nonrefundable_transfer;
 mod orphan_chunk_state_witness;
 mod restore_receipts_after_fix_apply_chunks;
 mod restrict_tla;
-mod simple_test_loop_example;
 mod stateless_validation;
 mod storage_proof_size_limit;
 mod wallet_contract;

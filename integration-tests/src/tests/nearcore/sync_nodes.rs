@@ -1,6 +1,6 @@
-use crate::genesis_helpers::genesis_block;
-use crate::nearcore_utils::{add_blocks, setup_configs};
-use crate::test_helpers::heavy_test;
+use crate::tests::genesis_helpers::genesis_block;
+use crate::tests::nearcore_utils::{add_blocks, setup_configs};
+use crate::tests::test_helpers::heavy_test;
 use actix::{Actor, System};
 use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
