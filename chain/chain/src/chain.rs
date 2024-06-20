@@ -3525,7 +3525,7 @@ impl Chain {
         let epoch_id = block_header.epoch_id();
         // Use epoch manager because block is not in DB yet.
         // Let "epoch" be the epoch at which we enable stateless validation.
-        // We need to start storing the state witness from the last block of the previous epoch.
+        // We need to start producing the state witness from the last block of the previous epoch.
         // To return true for the last block as input to this function, we need "next_protocol_version" to be
         // StatelessValidationV0, hence we use block_header.hash() instead of block_header.prev_hash().
         let next_epoch_id =
