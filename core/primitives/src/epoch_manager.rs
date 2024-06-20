@@ -620,7 +620,7 @@ pub mod epoch_info {
     use crate::serialize::dec_format;
     use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
     use crate::types::{BlockChunkValidatorStats, ValidatorKickoutReason, ValidatorStakeV1};
-    use crate::validator_mandates::{ChunkValidatorStakeAssignment, ValidatorMandates};
+    use crate::validator_mandates::ValidatorMandates;
     use crate::version::PROTOCOL_VERSION;
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_primitives_core::hash::CryptoHash;
@@ -1182,7 +1182,7 @@ pub mod epoch_info {
         pub fn sample_chunk_validators(
             &self,
             height: BlockHeight,
-        ) -> ChunkValidatorStakeAssignment {
+        ) -> crate::validator_mandates::ChunkValidatorStakeAssignment {
             let Self::V4(v4) = &self else {
                 panic!("Only EpochInfoV4 is supported");
             };
