@@ -1,4 +1,3 @@
-use crate::test_helpers::heavy_test;
 use actix::Addr;
 use actix_rt::ArbiterHandle;
 use futures::future;
@@ -10,6 +9,8 @@ use near_network::test_utils::convert_boot_nodes;
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards};
 use nearcore::{load_test_config, start_with_config};
+
+use crate::tests::test_helpers::heavy_test;
 
 fn start_nodes(
     temp_dir: &std::path::Path,
