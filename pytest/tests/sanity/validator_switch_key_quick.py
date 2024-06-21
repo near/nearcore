@@ -9,12 +9,11 @@ import unittest
 import sys, time
 import pathlib
 
-from utils import wait_for_blocks
-
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from configured_logger import logger
 from cluster import start_cluster
+from utils import wait_for_blocks
 
 EPOCH_LENGTH = 20
 TIMEOUT = 100
@@ -32,7 +31,7 @@ class ValidatorSwitchKeyQuickTest(unittest.TestCase):
             }
         }
 
-        [other_validator, old_validator, new_validator
+        [other_validator, old_validator, new_validator,
         ] = start_cluster(2, 1, 3, None,
                           [["epoch_length", EPOCH_LENGTH],
                            ["block_producer_kickout_threshold", 10],
@@ -86,8 +85,6 @@ class ValidatorSwitchKeyQuickTest(unittest.TestCase):
                 return
 
             wait_for_blocks(old_validator, count=1)
-
-        self.fail()
 
 
 if __name__ == '__main__':

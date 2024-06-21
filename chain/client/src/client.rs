@@ -209,12 +209,14 @@ impl AsRef<Client> for Client {
 }
 
 impl Client {
-    pub(crate) fn update_client_config(&self, update_client_config: UpdateableClientConfig) {
-        self.config.expected_shutdown.update(update_client_config.expected_shutdown);
-        self.config.resharding_config.update(update_client_config.resharding_config);
-        self.config
+    pub(crate) fn update_client_config(&self, update_client_config: UpdateableClientConfig) -> bool {
+        let mut is_updated = false;
+        is_updated |= self.config.expected_shutdown.update(update_client_config.expected_shutdown);
+        is_updated |= self.config.resharding_config.update(update_client_config.resharding_config);
+        is_updated |= self.config
             .produce_chunk_add_transactions_time_limit
             .update(update_client_config.produce_chunk_add_transactions_time_limit);
+        is_updated
     }
 
     /// Updates client's mutable validator signer.

@@ -1163,13 +1163,11 @@ impl ClientActorInner {
     fn check_triggers(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) -> Duration {
         let _span = tracing::debug_span!(target: "client", "check_triggers").entered();
         if let Some(config_updater) = &mut self.config_updater {
-            config_updater.try_update(
-                &|updateable_client_config| {
-                    self.client.update_client_config(updateable_client_config)
-                },
+            let update_result = config_updater.try_update(
+                &|updateable_client_config| self.client.update_client_config(updateable_client_config),
                 &|validator_signer| self.client.update_validator_signer(validator_signer),
             );
-            if config_updater.was_validator_signer_updated() {
+            if update_result.validator_signer_updated {
                 // Request PeerManager to advertise tier1 proxies.
                 // It is needed to advertise that our validator key changed.
                 self.network_adapter.send(PeerManagerMessageRequest::AdvertiseTier1Proxies);
