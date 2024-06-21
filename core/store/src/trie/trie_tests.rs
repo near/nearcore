@@ -149,13 +149,13 @@ mod nodes_counter_tests {
         NibbleSlice::encode_nibbles(&nibbles, false).into_vec()
     }
 
-    fn create_trie(items: &[(Vec<u8>, Option<Vec<u8>>)]) -> Arc<Trie> {
+    fn create_trie(items: &[(Vec<u8>, Option<Vec<u8>>)]) -> Trie {
         let tries = TestTriesBuilder::new().build();
         let shard_uid = ShardUId { version: 1, shard_id: 0 };
         let trie_changes = simplify_changes(&items);
         let state_root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, trie_changes);
         let trie = tries.get_trie_for_shard(shard_uid, state_root);
-        Arc::new(trie)
+        trie
     }
 
     // Get values corresponding to keys one by one, returning vector of numbers of touched nodes for each `get`.
