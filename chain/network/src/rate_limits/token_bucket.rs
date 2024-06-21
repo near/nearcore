@@ -55,12 +55,7 @@ impl TokenBucket {
     ) -> Result<Self, TokenBucketError> {
         let size = to_tokens_with_parts(maximum_size.min(initial_size));
         let size = AtomicU64::new(size);
-        if refill_rate < 0.0 {
-            return Err(TokenBucketError::InvalidRefillRate(refill_rate));
-        }
-        if !refill_rate.is_normal() && refill_rate != 0.0 {
-            return Err(TokenBucketError::InvalidRefillRate(refill_rate));
-        }
+        TokenBucket::validate_refill_rate(refill_rate)?;
         Ok(Self { maximum_size, size, refill_rate })
     }
 
@@ -101,6 +96,18 @@ impl TokenBucket {
                 .min(to_tokens_with_parts(self.maximum_size));
             Some(new_size)
         });
+    }
+
+    /// Returns an error if the value provided is not in the correct range for
+    /// `refill_rate`.
+    pub(crate) fn validate_refill_rate(refill_rate: f32) -> Result<(), TokenBucketError> {
+        if refill_rate < 0.0 {
+            return Err(TokenBucketError::InvalidRefillRate(refill_rate));
+        }
+        if !refill_rate.is_normal() && refill_rate != 0.0 {
+            return Err(TokenBucketError::InvalidRefillRate(refill_rate));
+        }
+        Ok(())
     }
 
     #[cfg(test)]
