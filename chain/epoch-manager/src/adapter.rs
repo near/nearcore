@@ -1125,6 +1125,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
     #[cfg(feature = "new_epoch_sync")]
     fn force_update_aggregator(&self, epoch_id: &EpochId, hash: &CryptoHash) {
         let mut epoch_manager = self.write();
-        epoch_manager.epoch_info_aggregator = EpochInfoAggregator::new(epoch_id.clone(), *hash);
+        epoch_manager.epoch_info_aggregator = EpochInfoAggregator::new(*epoch_id, *hash);
     }
 }
