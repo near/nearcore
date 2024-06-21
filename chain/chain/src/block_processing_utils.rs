@@ -16,6 +16,32 @@ use std::sync::Arc;
 /// This number will likely never be hit unless there are many forks in the chain.
 pub(crate) const MAX_PROCESSING_BLOCKS: usize = 5;
 
+#[derive(Clone)]
+pub struct ApplyChunksDoneTracker(Arc<OnceCell<()>>);
+
+impl ApplyChunksDoneTracker {
+    pub fn new() -> Self {
+        Self(Arc::new(OnceCell::new()))
+    }
+
+    pub fn wait_until_done(&self) {
+        self.0.wait();
+    }
+
+    pub fn set_done(&mut self) -> Result<(), ()> {
+        self.0.set(())
+    }
+}
+
+//#[cfg(feature = "test_features")]
+impl Drop for ApplyChunksDoneTracker {
+    fn drop(&mut self) {
+        if let None = self.0.get() {
+            self.0.set(()).unwrap();
+        }
+    }
+}
+
 /// Contains information from preprocessing a block
 pub(crate) struct BlockPreprocessInfo {
     pub(crate) is_caught_up: bool,
@@ -27,7 +53,7 @@ pub(crate) struct BlockPreprocessInfo {
     /// This field will be set when the apply_chunks has finished.
     /// This is used to provide a way for caller to wait for the finishing of applying chunks of
     /// a block
-    pub(crate) apply_chunks_done: Arc<OnceCell<()>>,
+    pub(crate) apply_chunks_done_tracker: ApplyChunksDoneTracker,
     /// This is used to calculate block processing time metric
     pub(crate) block_start_processing_time: Instant,
 }
@@ -129,7 +155,7 @@ impl BlocksInProcessing {
     /// Returns true if new blocks are done applying chunks
     pub(crate) fn wait_for_all_blocks(&self) -> bool {
         for (_, (_, block_preprocess_info)) in self.preprocessed_blocks.iter() {
-            let _ = block_preprocess_info.apply_chunks_done.wait();
+            let _ = block_preprocess_info.apply_chunks_done_tracker.wait_until_done();
         }
         !self.preprocessed_blocks.is_empty()
     }
@@ -144,8 +170,8 @@ impl BlocksInProcessing {
             .get(block_hash)
             .ok_or(BlockNotInPoolError)?
             .1
-            .apply_chunks_done
-            .wait();
+            .apply_chunks_done_tracker
+            .wait_until_done();
         Ok(())
     }
 }
