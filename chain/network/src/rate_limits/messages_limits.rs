@@ -272,6 +272,8 @@ mod tests {
         assert!(limits.buckets[BlockApproval].as_ref().unwrap().acquire(2));
         // Bucket should not exist due to a config error.
         assert!(limits.buckets[BlockHeaders].is_none());
+        // Buckets are not instantiated for message types not present in the config.
+        assert!(limits.buckets[RequestUpdateNonce].is_none());
     }
 
     #[test]
