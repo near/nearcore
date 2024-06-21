@@ -55,7 +55,7 @@ jobs:
       - name: Set vars for workflow
         if: ${{ github.event_name == 'workflow_dispatch'}}
         run: |
-          echo "RELEASE_NAME={{ github.event.inputs.release }}" >> $GITHUB_ENV
+          echo "RELEASE_NAME=${{ github.event.inputs.release }}" >> $GITHUB_ENV
 
       - name: Neard binary build and upload to S3
         run: ./scripts/binary_release.sh ${{ env.RELEASE_NAME }}
