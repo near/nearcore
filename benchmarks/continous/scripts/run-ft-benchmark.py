@@ -26,7 +26,7 @@ def remove_lock_file() -> None:
 def run_benchmark(repo_dir: str, time: str, users: int, shards: int, nodes: int,
                   rump_up: int) -> None:
     benchmark_command = (
-        f"./scripts/start-benchmark.sh {time} {users} {shards} {nodes} {rump_up}"
+        f"./benchmarks/continous/scripts/start-benchmark.sh {time} {users} {shards} {nodes} {rump_up}"
     )
     subprocess.run(benchmark_command, cwd=repo_dir, shell=True, check=True)
 

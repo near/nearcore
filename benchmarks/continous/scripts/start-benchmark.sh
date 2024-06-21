@@ -33,6 +33,6 @@ sleep 30
 
 # Run data collector
 cd ~/nearcore
-python3 scripts/ft-benchmark-data-sender.py --duration $TIME --users $USERS
+python3 benchmarks/continous/scripts/ft-benchmark-data-sender.py --duration $TIME --users $USERS
 
 echo "Benchmark completed."
