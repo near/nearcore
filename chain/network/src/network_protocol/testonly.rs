@@ -213,8 +213,14 @@ impl ChunkSet {
         let shard_ids: Vec<_> = (0..4).collect();
         // TODO: these are always genesis chunks.
         // Consider making this more realistic.
-        let chunks =
-            genesis_chunks(vec![StateRoot::new()], &shard_ids, 1000, 0, version::PROTOCOL_VERSION);
+        let chunks = genesis_chunks(
+            vec![StateRoot::new()],
+            vec![Default::default(); shard_ids.len()],
+            &shard_ids,
+            1000,
+            0,
+            version::PROTOCOL_VERSION,
+        );
         self.chunks.extend(chunks.iter().map(|c| (c.chunk_hash(), c.clone())));
         chunks
     }

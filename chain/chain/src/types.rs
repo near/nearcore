@@ -6,6 +6,7 @@ use near_chain_configs::ProtocolConfig;
 use near_chain_configs::ReshardingConfig;
 use near_chain_primitives::Error;
 pub use near_epoch_manager::EpochManagerAdapter;
+use near_parameters::RuntimeConfig;
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::apply::ApplyChunkReason;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
@@ -524,6 +525,9 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> bool;
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
+
+    fn get_runtime_config(&self, protocol_version: ProtocolVersion)
+        -> Result<RuntimeConfig, Error>;
 }
 
 /// The last known / checked height and time when we have processed it.
@@ -550,8 +554,14 @@ mod tests {
     #[test]
     fn test_block_produce() {
         let shard_ids: Vec<_> = (0..32).collect();
-        let genesis_chunks =
-            genesis_chunks(vec![Trie::EMPTY_ROOT], &shard_ids, 1_000_000, 0, PROTOCOL_VERSION);
+        let genesis_chunks = genesis_chunks(
+            vec![Trie::EMPTY_ROOT],
+            vec![Default::default(); shard_ids.len()],
+            &shard_ids,
+            1_000_000,
+            0,
+            PROTOCOL_VERSION,
+        );
         let genesis_bps: Vec<ValidatorStake> = Vec::new();
         let genesis = Block::genesis(
             PROTOCOL_VERSION,
