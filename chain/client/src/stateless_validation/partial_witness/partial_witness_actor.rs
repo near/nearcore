@@ -186,7 +186,7 @@ impl PartialWitnessActor {
                 // It's fine to unwrap part here as we just constructed the parts above and we expect
                 // all of them to be present.
                 let partial_witness = PartialEncodedStateWitness::new(
-                    epoch_id.clone(),
+                    epoch_id,
                     chunk_header.clone(),
                     part_ord,
                     part.unwrap().to_vec(),

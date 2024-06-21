@@ -822,7 +822,7 @@ fn test_get_validator_info() {
          expected_blocks: &mut [u64; 2],
          expected_chunks: &mut [u64; 2],
          expected_endorsements: &mut [u64; 2]| {
-            let epoch_id = env.head.epoch_id.clone();
+            let epoch_id = env.head.epoch_id;
             let height = env.head.height;
             let em = env.runtime.epoch_manager.read();
             let bp = em.get_block_producer_info(&epoch_id, height).unwrap();
@@ -860,7 +860,7 @@ fn test_get_validator_info() {
     );
     assert!(env
         .epoch_manager
-        .get_validator_info(ValidatorInfoIdentifier::EpochId(env.head.epoch_id.clone()))
+        .get_validator_info(ValidatorInfoIdentifier::EpochId(env.head.epoch_id))
         .is_err());
     env.step_default(vec![]);
     update_validator_stats(

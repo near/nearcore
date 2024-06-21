@@ -1458,7 +1458,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             block_height: height,
             prev_block_hash: *prev_block_hash,
             block_hash: *block_hash,
-            epoch_id: epoch_id.clone(),
+            epoch_id: *epoch_id,
             epoch_height,
             block_timestamp,
             current_protocol_version,

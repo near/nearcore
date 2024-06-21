@@ -1690,7 +1690,7 @@ impl ClientActorInner {
         let me = signer.as_ref().map(|x| x.validator_id().clone());
         let block_header = self.client.chain.get_block_header(&sync_hash);
         let block_header = unwrap_and_report_state_sync_result!(block_header);
-        let epoch_id = block_header.epoch_id().clone();
+        let epoch_id = *block_header.epoch_id();
         let shards_to_sync = get_shards_cares_about_this_or_next_epoch(
             me.as_ref(),
             true,

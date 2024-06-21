@@ -279,8 +279,8 @@ impl Client {
         let epoch_sync = EpochSync::new(
             clock.clone(),
             network_adapter.clone(),
-            genesis_block.header().epoch_id().clone(),
-            genesis_block.header().next_epoch_id().clone(),
+            *genesis_block.header().epoch_id(),
+            *genesis_block.header().next_epoch_id(),
             epoch_manager
                 .get_epoch_block_producers_ordered(
                     genesis_block.header().epoch_id(),
@@ -597,7 +597,7 @@ impl Client {
 
         let prev = self.chain.get_block_header(&prev_hash)?;
         let prev_height = prev.height();
-        let prev_epoch_id = prev.epoch_id().clone();
+        let prev_epoch_id = *prev.epoch_id();
         let prev_next_bp_hash = *prev.next_bp_hash();
 
         // Check and update the doomslug tip here. This guarantees that our endorsement will be in the
@@ -699,7 +699,7 @@ impl Client {
             Chain::compute_bp_hash(
                 self.epoch_manager.as_ref(),
                 next_epoch_id,
-                epoch_id.clone(),
+                epoch_id,
                 &prev_hash,
             )?
         } else {
@@ -2114,7 +2114,7 @@ impl Client {
                 &parent_hash,
                 account_id,
             ) {
-                Ok(_) => next_block_epoch_id.clone(),
+                Ok(_) => next_block_epoch_id,
                 Err(EpochError::NotAValidator(_, _)) => {
                     match self.epoch_manager.get_next_epoch_id_from_prev_block(&parent_hash) {
                         Ok(next_block_next_epoch_id) => next_block_next_epoch_id,
@@ -2486,7 +2486,7 @@ impl Client {
                             true,
                         ),
                         shards_to_split,
-                        BlocksCatchUpState::new(sync_hash, epoch_id.clone()),
+                        BlocksCatchUpState::new(sync_hash, *epoch_id),
                     )
                 });
 
@@ -2761,7 +2761,7 @@ impl Client {
             }
         }
         let account_keys = Arc::new(account_keys);
-        self.tier1_accounts_cache = Some((tip.epoch_id.clone(), account_keys.clone()));
+        self.tier1_accounts_cache = Some((tip.epoch_id, account_keys.clone()));
         Ok(account_keys)
     }
 

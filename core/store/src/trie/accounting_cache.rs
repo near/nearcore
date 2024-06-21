@@ -6,19 +6,18 @@ use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use std::collections::HashMap;
-use std::rc::Rc;
 use std::sync::Arc;
 
 /// Switch that controls whether the `TrieAccountingCache` is enabled.
-pub struct TrieAccountingCacheSwitch(Rc<std::cell::Cell<bool>>);
+pub struct TrieAccountingCacheSwitch(Arc<std::sync::atomic::AtomicBool>);
 
 impl TrieAccountingCacheSwitch {
     pub fn set(&self, enabled: bool) {
-        self.0.set(enabled);
+        self.0.store(enabled, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn enabled(&self) -> bool {
-        self.0.get()
+        self.0.load(std::sync::atomic::Ordering::Relaxed)
     }
 }
 
@@ -97,7 +96,7 @@ impl TrieAccountingCache {
     }
 
     pub fn enable_switch(&self) -> TrieAccountingCacheSwitch {
-        TrieAccountingCacheSwitch(Rc::clone(&self.enable.0))
+        TrieAccountingCacheSwitch(Arc::clone(&self.enable.0))
     }
 
     /// Retrieve raw bytes from the cache if it exists, otherwise retrieve it

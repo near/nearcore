@@ -57,7 +57,7 @@ pub(crate) fn execute_function_call(
     is_last_action: bool,
     view_config: Option<ViewConfig>,
 ) -> Result<VMOutcome, RuntimeError> {
-    let account_id = runtime_ext.account_id();
+    let account_id = runtime_ext.account_id().clone();
     tracing::debug!(target: "runtime", %account_id, "Calling the contract");
     // Output data receipts are ignored if the function call is not the last action in the batch.
     let output_data_receivers: Vec<_> = if is_last_action {
@@ -180,7 +180,7 @@ pub(crate) fn action_function_call(
     action_hash: &CryptoHash,
     config: &RuntimeConfig,
     is_last_action: bool,
-    epoch_info_provider: &dyn EpochInfoProvider,
+    epoch_info_provider: &(dyn EpochInfoProvider),
 ) -> Result<(), RuntimeError> {
     if account.amount().checked_add(function_call.deposit).is_none() {
         return Err(StorageError::StorageInconsistentState(
@@ -193,12 +193,12 @@ pub(crate) fn action_function_call(
     let mut runtime_ext = RuntimeExt::new(
         state_update,
         &mut receipt_manager,
-        account_id,
-        account,
-        action_hash,
-        &apply_state.epoch_id,
-        &apply_state.prev_block_hash,
-        &apply_state.block_hash,
+        account_id.clone(),
+        account.clone(),
+        *action_hash,
+        apply_state.epoch_id,
+        apply_state.prev_block_hash,
+        apply_state.block_hash,
         epoch_info_provider,
         apply_state.current_protocol_version,
     );

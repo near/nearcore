@@ -468,18 +468,18 @@ impl TestBlockBuilder {
     pub fn new(clock: near_time::Clock, prev: &Block, signer: Arc<ValidatorSigner>) -> Self {
         let mut tree = crate::merkle::PartialMerkleTree::default();
         tree.insert(*prev.hash());
-
+        let next_epoch_id = if prev.header().is_genesis() {
+            EpochId(*prev.hash())
+        } else {
+            *prev.header().next_epoch_id()
+        };
         Self {
             clock,
             prev: prev.clone(),
             signer,
             height: prev.header().height() + 1,
-            epoch_id: prev.header().epoch_id().clone(),
-            next_epoch_id: if prev.header().is_genesis() {
-                EpochId(*prev.hash())
-            } else {
-                prev.header().next_epoch_id().clone()
-            },
+            epoch_id: *prev.header().epoch_id(),
+            next_epoch_id,
             next_bp_hash: *prev.header().next_bp_hash(),
             approvals: vec![],
             block_merkle_root: tree.root(),

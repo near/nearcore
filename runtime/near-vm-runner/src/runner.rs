@@ -49,7 +49,7 @@ pub(crate) type VMResult<T = VMOutcome> = Result<T, VMRunnerError>;
 ))]
 pub fn run(
     method_name: &str,
-    ext: &mut dyn External,
+    ext: &mut (dyn External + Send),
     context: &VMContext,
     wasm_config: Arc<Config>,
     fees_config: Arc<RuntimeFeesConfig>,

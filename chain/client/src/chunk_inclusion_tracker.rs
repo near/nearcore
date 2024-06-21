@@ -125,9 +125,8 @@ impl ChunkInclusionTracker {
     }
 
     fn is_banned(&self, epoch_id: &EpochId, chunk_info: &ChunkInfo) -> bool {
-        let banned = self
-            .banned_chunk_producers
-            .contains(&(epoch_id.clone(), chunk_info.chunk_producer.clone()));
+        let banned =
+            self.banned_chunk_producers.contains(&(*epoch_id, chunk_info.chunk_producer.clone()));
         if banned {
             tracing::warn!(
                 target: "client",
@@ -186,7 +185,7 @@ impl ChunkInclusionTracker {
     pub fn get_banned_chunk_producers(&self) -> Vec<(EpochId, Vec<AccountId>)> {
         let mut banned_chunk_producers: HashMap<EpochId, Vec<_>> = HashMap::new();
         for ((epoch_id, account_id), _) in self.banned_chunk_producers.iter() {
-            banned_chunk_producers.entry(epoch_id.clone()).or_default().push(account_id.clone());
+            banned_chunk_producers.entry(*epoch_id).or_default().push(account_id.clone());
         }
         banned_chunk_producers.into_iter().collect_vec()
     }

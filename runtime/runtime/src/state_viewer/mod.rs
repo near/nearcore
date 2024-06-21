@@ -186,7 +186,7 @@ impl TrieViewer {
         method_name: &str,
         args: &[u8],
         logs: &mut Vec<String>,
-        epoch_info_provider: &dyn EpochInfoProvider,
+        epoch_info_provider: &(dyn EpochInfoProvider),
     ) -> Result<Vec<u8>, errors::CallFunctionError> {
         let now = Instant::now();
         let root = *state_update.get_root();
@@ -203,12 +203,12 @@ impl TrieViewer {
         let mut runtime_ext = RuntimeExt::new(
             &mut state_update,
             &mut receipt_manager,
-            contract_id,
-            &account,
-            &empty_hash,
-            &view_state.epoch_id,
-            &view_state.prev_block_hash,
-            &view_state.block_hash,
+            contract_id.clone(),
+            account,
+            empty_hash,
+            view_state.epoch_id,
+            view_state.prev_block_hash,
+            view_state.block_hash,
             epoch_info_provider,
             view_state.current_protocol_version,
         );
@@ -221,7 +221,7 @@ impl TrieViewer {
             prev_block_hash: view_state.prev_block_hash,
             block_hash: view_state.block_hash,
             shard_id: view_state.shard_id,
-            epoch_id: view_state.epoch_id.clone(),
+            epoch_id: view_state.epoch_id,
             epoch_height: view_state.epoch_height,
             gas_price: 0,
             block_timestamp: view_state.block_timestamp,

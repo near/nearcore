@@ -808,7 +808,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
     > {
         let epoch_manager = self.read();
         let last_block_info = epoch_manager.get_block_info(prev_epoch_last_block_hash)?;
-        let prev_epoch_id = last_block_info.epoch_id().clone();
+        let prev_epoch_id = *last_block_info.epoch_id();
         Ok((
             epoch_manager.get_block_info(last_block_info.epoch_first_block())?,
             epoch_manager.get_block_info(last_block_info.prev_hash())?,
@@ -1125,6 +1125,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
     #[cfg(feature = "new_epoch_sync")]
     fn force_update_aggregator(&self, epoch_id: &EpochId, hash: &CryptoHash) {
         let mut epoch_manager = self.write();
-        epoch_manager.epoch_info_aggregator = EpochInfoAggregator::new(epoch_id.clone(), *hash);
+        epoch_manager.epoch_info_aggregator = EpochInfoAggregator::new(*epoch_id, *hash);
     }
 }

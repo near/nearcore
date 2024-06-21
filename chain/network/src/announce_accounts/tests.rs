@@ -16,7 +16,7 @@ fn announcement_same_epoch() {
     let announce0 = AnnounceAccount {
         account_id: "near0".parse().unwrap(),
         peer_id: peer_id0.clone(),
-        epoch_id: epoch_id0.clone(),
+        epoch_id: epoch_id0,
         signature: Signature::default(),
     };
 
