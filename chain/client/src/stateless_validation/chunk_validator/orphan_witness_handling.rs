@@ -110,8 +110,6 @@ impl Client {
     ) {
         if let Some(signer) = signer {
             self.process_ready_orphan_witnesses(new_block, signer);
-        } else {
-            tracing::error!(target: "client", new_block=?new_block.hash(), "Cannot process ready orphan witnesses - not a validator");
         }
 
         // Remove all orphan witnesses that are below the last final block of the new block.
