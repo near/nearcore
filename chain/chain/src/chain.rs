@@ -321,7 +321,11 @@ impl Chain {
         let state_roots = get_genesis_state_roots(runtime_adapter.store())?
             .expect("genesis should be initialized.");
         let congestion_infos =
-            get_genesis_congestion_infos(epoch_manager, runtime_adapter, &state_roots)?;
+            get_genesis_congestion_infos(epoch_manager, runtime_adapter, &state_roots);
+        let congestion_infos = congestion_infos.map_err(|err| {
+            tracing::error!(target: "chain", ?err, "Failed to get the genesis congestion infos.");
+            err
+        })?;
         let genesis_chunks = genesis_chunks(
             state_roots,
             congestion_infos,
@@ -361,7 +365,8 @@ impl Chain {
             epoch_manager.as_ref(),
             runtime_adapter.as_ref(),
             chain_genesis,
-        )?;
+        )
+        .unwrap();
         let (sc, rc) = unbounded();
         Ok(Chain {
             clock: clock.clone(),
@@ -3947,7 +3952,9 @@ fn get_congestion_info(
     if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
         return Ok(None);
     }
-    let trie = runtime.get_trie_for_shard(shard_id, prev_hash, state_root, true)?;
+    // Get the view trie because it's possible that the chain is ahead of
+    // genesis and doesn't have this block in flat state and memtrie.
+    let trie = runtime.get_view_trie_for_shard(shard_id, prev_hash, state_root)?;
     let runtime_config = runtime.get_runtime_config(protocol_version)?;
     let congestion_info = bootstrap_congestion_info(&trie, &runtime_config, shard_id)?;
     Ok(Some(congestion_info))

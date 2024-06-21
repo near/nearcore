@@ -1471,7 +1471,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         _protocol_version: ProtocolVersion,
     ) -> Result<RuntimeConfig, Error> {
-        unreachable!("get_runtime_config should not be called in KeyValueRuntime");
+        Ok(RuntimeConfig::test())
     }
 
     fn will_shard_layout_change_next_epoch(

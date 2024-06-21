@@ -79,7 +79,7 @@ impl StateSyncDumper {
         };
 
         // Determine how many threads to start.
-        // TODO: Handle the case of changing the shard layout.
+        // TODO(resharding): Handle the case of changing the shard layout.
         let shard_ids = {
             // Sadly, `Chain` is not `Send` and each thread needs to create its own `Chain` instance.
             let chain = Chain::new_for_view_client(
