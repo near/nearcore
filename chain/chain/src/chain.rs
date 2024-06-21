@@ -97,6 +97,7 @@ use near_store::config::StateSnapshotType;
 use near_store::flat::{store_helper, FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::get_genesis_state_roots;
 use near_store::DBCol;
+use node_runtime::bootstrap_congestion_info;
 use once_cell::sync::OnceCell;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -319,8 +320,11 @@ impl Chain {
     ) -> Result<Block, Error> {
         let state_roots = get_genesis_state_roots(runtime_adapter.store())?
             .expect("genesis should be initialized.");
+        let congestion_infos =
+            get_genesis_congestion_infos(epoch_manager, runtime_adapter, &state_roots)?;
         let genesis_chunks = genesis_chunks(
             state_roots,
+            congestion_infos,
             &epoch_manager.shard_ids(&EpochId::default())?,
             chain_genesis.gas_limit,
             chain_genesis.height,
@@ -405,13 +409,18 @@ impl Chain {
         // Get runtime initial state and create genesis block out of it.
         let state_roots = get_genesis_state_roots(runtime_adapter.store())?
             .expect("genesis should be initialized.");
-        let mut chain_store = ChainStore::new(
-            runtime_adapter.store().clone(),
-            chain_genesis.height,
-            chain_config.save_trie_changes,
+        let congestion_infos = get_genesis_congestion_infos(
+            epoch_manager.as_ref(),
+            runtime_adapter.as_ref(),
+            &state_roots,
         );
+        let congestion_infos = congestion_infos.map_err(|err| {
+            tracing::error!(target: "chain", ?err, "Failed to get the genesis congestion infos.");
+            err
+        })?;
         let genesis_chunks = genesis_chunks(
             state_roots.clone(),
+            congestion_infos,
             &epoch_manager.shard_ids(&EpochId::default())?,
             chain_genesis.gas_limit,
             chain_genesis.height,
@@ -430,6 +439,12 @@ impl Chain {
                 EpochId::default(),
                 &CryptoHash::default(),
             )?,
+        );
+
+        let mut chain_store = ChainStore::new(
+            runtime_adapter.store().clone(),
+            chain_genesis.height,
+            chain_config.save_trie_changes,
         );
 
         // Check if we have a head in the store, otherwise pick genesis block.
@@ -3901,6 +3916,41 @@ impl Chain {
             CachedParts::BitArray(bit_array)
         })
     }
+}
+
+pub fn get_genesis_congestion_infos(
+    epoch_manager: &dyn EpochManagerAdapter,
+    runtime: &dyn RuntimeAdapter,
+    state_roots: &Vec<CryptoHash>,
+) -> Result<Vec<Option<CongestionInfo>>, Error> {
+    let prev_hash = CryptoHash::default();
+    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_hash)?;
+    let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+
+    let mut result = vec![];
+    for (shard_id, &state_root) in state_roots.iter().enumerate() {
+        let shard_id = shard_id as ShardId;
+        let congestion_info =
+            get_congestion_info(runtime, protocol_version, &prev_hash, shard_id, state_root)?;
+        result.push(congestion_info);
+    }
+    Ok(result)
+}
+
+fn get_congestion_info(
+    runtime: &dyn RuntimeAdapter,
+    protocol_version: ProtocolVersion,
+    prev_hash: &CryptoHash,
+    shard_id: ShardId,
+    state_root: StateRoot,
+) -> Result<Option<CongestionInfo>, Error> {
+    if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
+        return Ok(None);
+    }
+    let trie = runtime.get_trie_for_shard(shard_id, prev_hash, state_root, true)?;
+    let runtime_config = runtime.get_runtime_config(protocol_version)?;
+    let congestion_info = bootstrap_congestion_info(&trie, &runtime_config, shard_id)?;
+    Ok(Some(congestion_info))
 }
 
 fn shard_id_out_of_bounds(shard_id: ShardId) -> Error {

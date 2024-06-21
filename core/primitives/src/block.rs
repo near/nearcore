@@ -16,7 +16,6 @@ use crate::validator_signer::ValidatorSigner;
 use crate::version::{ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
-use near_primitives_core::version::ProtocolFeature;
 use near_time::Utc;
 use primitive_types::U256;
 use std::collections::BTreeMap;
@@ -93,6 +92,7 @@ type ShardChunkReedSolomon = reed_solomon_erasure::galois_8::ReedSolomon;
 #[cfg(feature = "solomon")]
 pub fn genesis_chunks(
     state_roots: Vec<crate::types::StateRoot>,
+    congestion_infos: Vec<Option<CongestionInfo>>,
     shard_ids: &[crate::types::ShardId],
     initial_gas_limit: Gas,
     genesis_height: BlockHeight,
@@ -108,11 +108,6 @@ pub fn genesis_chunks(
         std::iter::repeat(state_roots[0]).take(shard_ids.len()).collect()
     };
 
-    // TODO here the congestion info should match the state roots
-    let congestion_info = ProtocolFeature::CongestionControl
-        .enabled(genesis_protocol_version)
-        .then_some(CongestionInfo::default());
-
     let mut chunks = vec![];
 
     let num = shard_ids.len();
@@ -120,6 +115,7 @@ pub fn genesis_chunks(
 
     for shard_id in 0..num {
         let state_root = state_roots[shard_id];
+        let congestion_info = congestion_infos[shard_id];
         let shard_id = shard_id as ShardId;
 
         let encoded_chunk = genesis_chunk(
