@@ -153,7 +153,7 @@ async fn owned_account_mismatch() {
     let mut events = pm.events.from_now();
     let mut stream = Stream::new(Some(Encoding::Proto), stream);
     let cfg = chain.make_config(rng);
-    let vc = cfg.validator.clone().unwrap();
+    let signer = cfg.validator.signer.get().unwrap();
     stream
         .write(&PeerMessage::Tier2Handshake(Handshake {
             protocol_version: PROTOCOL_VERSION,
@@ -170,12 +170,12 @@ async fn owned_account_mismatch() {
             ),
             owned_account: Some(
                 OwnedAccount {
-                    account_key: vc.signer.public_key().clone(),
+                    account_key: signer.public_key(),
                     // random peer_id, different than the expected cfg.node_id().
                     peer_id: data::make_peer_id(rng),
                     timestamp: clock.now_utc(),
                 }
-                .sign(vc.signer.as_ref()),
+                .sign(&signer),
             ),
         }))
         .await;
@@ -223,7 +223,7 @@ async fn owned_account_conflict() {
         ClosingReason::RejectedByPeerManager(RegisterPeerError::PoolError(
             connection::PoolError::AlreadyConnectedAccount {
                 peer_id: cfg1.node_id(),
-                account_key: cfg1.validator.as_ref().unwrap().signer.public_key(),
+                account_key: cfg1.validator.signer.get().unwrap().public_key(),
             }
         ))
     );
@@ -282,7 +282,7 @@ async fn invalid_edge() {
             let port = stream.local_addr.port();
             let mut events = pm.events.from_now();
             let mut stream = Stream::new(Some(Encoding::Proto), stream);
-            let vc = cfg.validator.clone().unwrap();
+            let signer = cfg.validator.signer.get().unwrap();
             let handshake = Handshake {
                 protocol_version: PROTOCOL_VERSION,
                 oldest_supported_version: PROTOCOL_VERSION,
@@ -293,11 +293,11 @@ async fn invalid_edge() {
                 partial_edge_info: edge.clone(),
                 owned_account: Some(
                     OwnedAccount {
-                        account_key: vc.signer.public_key().clone(),
+                        account_key: signer.public_key(),
                         peer_id: cfg.node_id(),
                         timestamp: clock.now_utc(),
                     }
-                    .sign(vc.signer.as_ref()),
+                    .sign(&signer),
                 ),
             };
             let handshake = match tier {

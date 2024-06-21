@@ -87,6 +87,7 @@ use near_primitives::unwrap_or_return;
 #[cfg(feature = "new_epoch_sync")]
 use near_primitives::utils::index_to_bytes;
 use near_primitives::utils::MaybeValidated;
+use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::{ProtocolFeature, ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::{
     BlockStatusView, DroppedReason, ExecutionOutcomeWithIdView, ExecutionStatusView,
@@ -400,7 +401,7 @@ impl Chain {
         chain_config: ChainConfig,
         snapshot_callbacks: Option<SnapshotCallbacks>,
         apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
-        validator_account_id: Option<&AccountId>,
+        validator: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
     ) -> Result<Chain, Error> {
         // Get runtime initial state and create genesis block out of it.
         let state_roots = get_genesis_state_roots(runtime_adapter.store())?
@@ -539,7 +540,7 @@ impl Chain {
             .iter()
             .filter(|shard_uid| {
                 shard_tracker.care_about_shard(
-                    validator_account_id,
+                    validator.get().map(|v| v.validator_id().clone()).as_ref(),
                     &tip.prev_block_hash,
                     shard_uid.shard_id(),
                     true,

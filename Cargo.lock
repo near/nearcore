@@ -4450,6 +4450,7 @@ dependencies = [
  "itertools",
  "lru 0.12.3",
  "near-async",
+ "near-chain-configs",
  "near-crypto",
  "near-fmt",
  "near-o11y",
