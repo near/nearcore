@@ -162,8 +162,9 @@ pub struct SetChainInfo(pub ChainInfo);
 #[rtype(result = "PeerManagerMessageResponse")]
 pub enum PeerManagerMessageRequest {
     NetworkRequests(NetworkRequests),
-    /// Request PeerManager to advertise tier 1 proxies.
-    /// Used internally.
+    /// Request PeerManager to call `tier1_advertise_proxies()`. Used internally.
+    /// The effect would be accounts data known by this node broadcasted to other tier1 nodes.
+    /// That includes info about validator signer of this node.
     AdvertiseTier1Proxies,
     /// Request PeerManager to connect to the given peer.
     /// Used in tests and internally by PeerManager.
