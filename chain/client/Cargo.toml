@@ -67,6 +67,7 @@ near-vm-runner.workspace = true
 
 [dev-dependencies]
 assert_matches.workspace = true
+near-primitives = { workspace = true, features = ["clock", "solomon", "rand"] }
 near-actix-test-utils.workspace = true
 
 [features]
@@ -123,9 +124,5 @@ sandbox = [
   "near-chain/sandbox",
   "near-o11y/sandbox",
 ]
-new_epoch_sync = [
-  "near-chain/new_epoch_sync"
-]
-statelessnet_protocol = [
-  "near-chain/statelessnet_protocol",
-]
+new_epoch_sync = ["near-chain/new_epoch_sync"]
+statelessnet_protocol = ["near-chain/statelessnet_protocol"]

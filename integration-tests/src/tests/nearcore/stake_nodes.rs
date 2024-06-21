@@ -8,8 +8,8 @@ use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_primitives::num_rational::Ratio;
 use rand::Rng;
 
-use crate::genesis_helpers::genesis_hash;
-use crate::test_helpers::heavy_test;
+use crate::tests::genesis_helpers::genesis_hash;
+use crate::tests::test_helpers::heavy_test;
 use near_actix_test_utils::run_actix;
 use near_chain_configs::{Genesis, NEAR_BASE};
 use near_client::{ClientActor, GetBlock, ProcessTxRequest, Query, Status, ViewClientActor};

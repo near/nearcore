@@ -12,14 +12,14 @@ fn vm_receipts<'a>(ext: &'a MockedExternal) -> Vec<impl serde::Serialize + 'a> {
 
 #[test]
 fn test_promise_results() {
-    let promise_results = vec![
+    let promise_results = [
         PromiseResult::Successful(b"test".to_vec()),
         PromiseResult::Failed,
         PromiseResult::NotReady,
     ];
 
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.promise_results = promise_results;
+    logic_builder.promise_results = promise_results.into();
     let mut logic = logic_builder.build();
 
     assert_eq!(logic.promise_results_count(), Ok(3), "Total count of registers must be 3");

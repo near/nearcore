@@ -8,21 +8,28 @@ use crate::tests::{create_context, with_vm_variants};
 use crate::ContractCode;
 use near_parameters::vm::VMKind;
 use near_parameters::RuntimeFeesConfig;
+use std::sync::Arc;
 
 #[test]
 pub fn test_ts_contract() {
-    let config = test_vm_config();
+    let config = Arc::new(test_vm_config());
     with_vm_variants(&config, |vm_kind: VMKind| {
         let code = ContractCode::new(near_test_contracts::ts_contract().to_vec(), None);
         let mut fake_external = MockedExternal::with_code(code);
         let context = create_context(Vec::new());
-        let fees = RuntimeFeesConfig::test();
+        let fees = Arc::new(RuntimeFeesConfig::test());
 
         // Call method that panics.
-        let promise_results = vec![];
+        let promise_results = [].into();
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
-        let result =
-            runtime.run("try_panic", &mut fake_external, &context, &fees, &promise_results, None);
+        let result = runtime.run(
+            "try_panic",
+            &mut fake_external,
+            &context,
+            Arc::clone(&fees),
+            Arc::clone(&promise_results),
+            None,
+        );
         let outcome = result.expect("execution failed");
         assert_eq!(
             outcome.aborted,
@@ -34,7 +41,14 @@ pub fn test_ts_contract() {
         // Call method that writes something into storage.
         let context = create_context(b"foo bar".to_vec());
         runtime
-            .run("try_storage_write", &mut fake_external, &context, &fees, &promise_results, None)
+            .run(
+                "try_storage_write",
+                &mut fake_external,
+                &context,
+                Arc::clone(&fees),
+                Arc::clone(&promise_results),
+                None,
+            )
             .expect("bad failure");
         // Verify by looking directly into the storage of the host.
         {
@@ -48,7 +62,14 @@ pub fn test_ts_contract() {
         // Call method that reads the value from storage using registers.
         let context = create_context(b"foo".to_vec());
         let outcome = runtime
-            .run("try_storage_read", &mut fake_external, &context, &fees, &promise_results, None)
+            .run(
+                "try_storage_read",
+                &mut fake_external,
+                &context,
+                Arc::clone(&fees),
+                Arc::clone(&promise_results),
+                None,
+            )
             .expect("execution failed");
 
         if let ReturnData::Value(value) = outcome.return_data {

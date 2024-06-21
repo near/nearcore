@@ -397,7 +397,7 @@ impl From<EpochError> for Error {
             EpochError::EpochOutOfBounds(epoch_id) => Error::EpochOutOfBounds(epoch_id),
             EpochError::MissingBlock(h) => Error::DBNotFoundErr(format!("epoch block: {h}")),
             EpochError::NotAValidator(account_id, epoch_id) => {
-                Error::NotAValidator(format!("account_id: {account_id}, epoch_id: {epoch_id"))
+                Error::NotAValidator(format!("account_id: {account_id}, epoch_id: {epoch_id:?}"))
             }
             err => Error::ValidatorError(err.to_string()),
         }

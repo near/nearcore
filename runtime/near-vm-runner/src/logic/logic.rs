@@ -19,6 +19,7 @@ use near_primitives_core::types::{
     AccountId, Balance, Compute, EpochHeight, Gas, GasWeight, StorageUsage,
 };
 use std::mem::size_of;
+use std::sync::Arc;
 use ExtCosts::*;
 
 pub type Result<T, E = VMLogicError> = ::std::result::Result<T, E>;
@@ -36,14 +37,14 @@ pub struct VMLogic<'a> {
     /// Part of Context API and Economics API that was extracted from the receipt.
     context: &'a VMContext,
     /// All gas and economic parameters required during contract execution.
-    pub(crate) config: &'a Config,
-    /// Fees for creating (async) actions on runtime.
-    fees_config: &'a RuntimeFeesConfig,
+    pub(crate) config: Arc<Config>,
+    /// Fees charged for various operations that contract may execute.
+    fees_config: Arc<RuntimeFeesConfig>,
     /// If this method execution is invoked directly as a callback by one or more contract calls the
     /// results of the methods that made the callback are stored in this collection.
-    promise_results: &'a [PromiseResult],
+    promise_results: Arc<[PromiseResult]>,
     /// Pointer to the guest memory.
-    memory: super::vmstate::Memory<'a>,
+    memory: super::vmstate::Memory,
 
     /// Keeping track of the current account balance, which can decrease when we create promises
     /// and attach balance to them.
@@ -132,10 +133,10 @@ impl<'a> VMLogic<'a> {
     pub fn new(
         ext: &'a mut dyn External,
         context: &'a VMContext,
-        config: &'a Config,
-        fees_config: &'a RuntimeFeesConfig,
-        promise_results: &'a [PromiseResult],
-        memory: &'a mut dyn MemoryLike,
+        config: Arc<Config>,
+        fees_config: Arc<RuntimeFeesConfig>,
+        promise_results: Arc<[PromiseResult]>,
+        memory: impl MemoryLike + 'static,
     ) -> Self {
         // Overflow should be checked before calling VMLogic.
         let current_account_balance = context.account_balance + context.attached_deposit;
@@ -157,6 +158,7 @@ impl<'a> VMLogic<'a> {
             ext.get_recorded_storage_size(),
             config.limit_config.per_receipt_storage_proof_size_limit,
         );
+        let remaining_stack = u64::from(config.limit_config.max_stack_height);
         Self {
             ext,
             context,
@@ -174,7 +176,7 @@ impl<'a> VMLogic<'a> {
             registers: Default::default(),
             promises: vec![],
             total_log_length: 0,
-            remaining_stack: u64::from(config.limit_config.max_stack_height),
+            remaining_stack,
         }
     }
 
@@ -194,7 +196,7 @@ impl<'a> VMLogic<'a> {
     }
 
     #[cfg(test)]
-    pub(super) fn memory(&mut self) -> &mut super::vmstate::Memory<'a> {
+    pub(super) fn memory(&mut self) -> &mut super::vmstate::Memory {
         &mut self.memory
     }
 
@@ -1798,14 +1800,14 @@ impl<'a> VMLogic<'a> {
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         let receiver_id = self.ext.get_receipt_receiver(receipt_idx);
         let send_fee = transfer_send_fee(
-            self.fees_config,
+            &self.fees_config,
             sir,
             self.config.implicit_account_creation,
             self.config.eth_implicit_accounts,
             receiver_id.get_account_type(),
         );
         let exec_fee = transfer_exec_fee(
-            self.fees_config,
+            &self.fees_config,
             self.config.implicit_account_creation,
             self.config.eth_implicit_accounts,
             receiver_id.get_account_type(),

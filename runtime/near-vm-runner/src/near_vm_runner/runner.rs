@@ -93,12 +93,12 @@ fn translate_runtime_error(
 }
 
 pub(crate) struct NearVM {
-    pub(crate) config: Config,
+    pub(crate) config: Arc<Config>,
     pub(crate) engine: UniversalEngine,
 }
 
 impl NearVM {
-    pub(crate) fn new_for_target(config: Config, target: near_vm_compiler::Target) -> Self {
+    pub(crate) fn new_for_target(config: Arc<Config>, target: near_vm_compiler::Target) -> Self {
         // We only support singlepass compiler at the moment.
         assert_eq!(VM_CONFIG.compiler, NearVmCompiler::Singlepass);
         let mut compiler = Singlepass::new();
@@ -137,7 +137,7 @@ impl NearVM {
         }
     }
 
-    pub(crate) fn new(config: Config) -> Self {
+    pub(crate) fn new(config: Arc<Config>) -> Self {
         use near_vm_compiler::{CpuFeature, Target, Triple};
         let target_features = if cfg!(feature = "no_cpu_compatibility_checks") {
             let mut fs = CpuFeature::set();
@@ -173,7 +173,7 @@ impl NearVM {
             .engine
             .compile_universal(&prepared_code, &self)
             .map_err(|err| {
-                tracing::error!(?err, "near_vm failed to compile the prepared code (this is defense-in-depth, the error was recovered from but should be reported to pagoda)");
+                tracing::error!(?err, "near_vm failed to compile the prepared code (this is defense-in-depth, the error was recovered from but should be reported to the developers)");
                 CompilationError::WasmerCompileError { msg: err.to_string() }
             })?;
         crate::metrics::compilation_duration(VMKind::NearVm, start.elapsed());
@@ -214,8 +214,8 @@ impl NearVM {
         cache: &dyn ContractRuntimeCache,
         ext: &mut dyn External,
         context: &VMContext,
-        fees_config: &RuntimeFeesConfig,
-        promise_results: &[PromiseResult],
+        fees_config: Arc<RuntimeFeesConfig>,
+        promise_results: Arc<[PromiseResult]>,
         method_name: &str,
         closure: impl FnOnce(VMMemory, VMLogic<'_>, &VMArtifact) -> Result<VMOutcome, VMRunnerError>,
     ) -> VMResult<VMOutcome> {
@@ -304,7 +304,7 @@ impl NearVM {
 
         crate::metrics::record_compiled_contract_cache_lookup(is_cache_hit);
 
-        let mut memory = NearVmMemory::new(
+        let memory = NearVmMemory::new(
             self.config.limit_config.initial_memory_pages,
             self.config.limit_config.max_memory_pages,
         )
@@ -312,8 +312,14 @@ impl NearVM {
         // FIXME: this mostly duplicates the `run_module` method.
         // Note that we don't clone the actual backing memory, just increase the RC.
         let vmmemory = memory.vm();
-        let mut logic =
-            VMLogic::new(ext, context, &self.config, fees_config, promise_results, &mut memory);
+        let mut logic = VMLogic::new(
+            ext,
+            context,
+            Arc::clone(&self.config),
+            fees_config,
+            promise_results,
+            memory,
+        );
 
         let result = logic.before_loading_executable(method_name, wasm_bytes);
         if let Err(e) = result {
@@ -588,8 +594,8 @@ impl crate::runner::VM for NearVM {
         method_name: &str,
         ext: &mut dyn External,
         context: &VMContext,
-        fees_config: &RuntimeFeesConfig,
-        promise_results: &[PromiseResult],
+        fees_config: Arc<RuntimeFeesConfig>,
+        promise_results: Arc<[PromiseResult]>,
         cache: Option<&dyn ContractRuntimeCache>,
     ) -> Result<VMOutcome, VMRunnerError> {
         let cache = cache.unwrap_or(&NoContractRuntimeCache);

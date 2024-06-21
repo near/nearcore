@@ -1,4 +1,3 @@
-use crate::test_helpers::heavy_test;
 use actix::System;
 use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
@@ -22,6 +21,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 use tracing::info;
+
+use crate::tests::test_helpers::heavy_test;
 
 /// Configuration for `test4` validator in tests.
 struct Test4Config {

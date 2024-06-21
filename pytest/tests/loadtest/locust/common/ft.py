@@ -1,3 +1,4 @@
+from concurrent import futures
 import random
 import string
 import sys
@@ -92,13 +93,12 @@ class FTContract:
         accounts = [create_account() for _ in range(num)]
         node.prepare_accounts(accounts,
                               parent,
-                              balance=0.3,
+                              balance=7,
                               msg="create passive user")
-        # TODO: this could also be done in parallel, actually in very simple
-        # ways since there are no nonce conflicts (transactions are signed by
-        # different users)
-        for account in accounts:
-            self.register_passive_user(node, account)
+        with futures.ThreadPoolExecutor() as executor:
+            futures.wait(
+                executor.submit(self.register_passive_user, node, account)
+                for account in accounts)
 
 
 class TransferFT(FunctionCall):

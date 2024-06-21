@@ -241,10 +241,6 @@ class NearNodeProxy:
         self.request_event = environment.events.request
         [url, port] = environment.host.rsplit(":", 1)
         self.node = cluster.RpcNode(url, port)
-        self.session = Session(connection_timeout=6,
-                               network_timeout=9,
-                               max_retries=5,
-                               retry_delay=0.1)
 
     def send_tx_retry(self, tx: Transaction, locust_name) -> dict:
         """
@@ -395,8 +391,13 @@ class NearNodeProxy:
             "jsonrpc": "2.0"
         }
         try:
-            return self.session.post(url="http://%s:%s" % self.node.rpc_addr(),
-                                     json=j)
+            # Create a new session each time to allow parallel requests through the same node proxy.
+            session = Session(connection_timeout=6,
+                              network_timeout=9,
+                              max_retries=5,
+                              retry_delay=0.1)
+            return session.post(url="http://%s:%s" % self.node.rpc_addr(),
+                                json=j)
         except Exception as e:
             raise RpcError(details=e)
 
@@ -850,7 +851,7 @@ def do_on_locust_init(environment):
     # every worker needs a funding account to create its users, eagerly create them in the master
     if isinstance(environment.runner, runners.MasterRunner):
         num_funding_accounts = environment.parsed_options.max_workers
-        funding_balance = 10000 * NearUser.INIT_BALANCE
+        funding_balance = 1000000 * NearUser.INIT_BALANCE
 
         def create_account(id):
             account_id = f"funds_worker_{id}.{master_funding_account.key.account_id}"

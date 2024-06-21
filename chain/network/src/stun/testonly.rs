@@ -50,8 +50,8 @@ impl Server {
         }
     }
 
-    pub fn addr(&self) -> super::ServerAddr {
-        self.addr.to_string()
+    pub fn addr(&self) -> super::SocketAddr {
+        self.addr
     }
 
     /// Closes the STUN server. close() is async so it cannot be implemented as Drop.
