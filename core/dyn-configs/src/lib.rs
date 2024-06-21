@@ -4,14 +4,13 @@ use near_async::time::Clock;
 use near_chain_configs::UpdateableClientConfig;
 use near_o11y::log_config::LogConfig;
 use near_primitives::validator_signer::ValidatorSigner;
-use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::broadcast::Sender;
 
 mod metrics;
 
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Clone, Default)]
 /// Contains the latest state of configs which can be updated at runtime.
 pub struct UpdateableConfigs {
     /// Contents of the file LOG_CONFIG_FILENAME.
