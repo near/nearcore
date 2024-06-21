@@ -808,7 +808,7 @@ mod test {
                 signer2.as_ref(),
                 *last_block.header().next_bp_hash(),
                 block_merkle_tree.root(),
-                clock.now_utc(),
+                clock.clock(),
             );
             block_merkle_tree.insert(*block.hash());
             chain2.process_block_header(block.header(), &mut Vec::new()).unwrap(); // just to validate

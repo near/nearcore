@@ -71,7 +71,7 @@ fn create_block() -> Block {
         &signer.into(),
         CryptoHash::default(),
         CryptoHash::default(),
-        Clock::real().now_utc(),
+        Clock::real(),
     )
 }
 

@@ -8,7 +8,7 @@ use crate::validator_signer::ValidatorSigner;
 use crate::version::{get_protocol_version, ProtocolVersion, PROTOCOL_VERSION};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{KeyType, PublicKey, Signature};
-use near_time::Utc;
+use near_time::{Clock, Utc};
 use std::sync::Arc;
 
 #[derive(
@@ -437,6 +437,7 @@ impl BlockHeader {
         next_bp_hash: CryptoHash,
         block_merkle_root: CryptoHash,
         prev_height: BlockHeight,
+        clock: Clock,
     ) -> Self {
         let inner_lite = BlockHeaderInnerLite {
             height,
@@ -539,7 +540,7 @@ impl BlockHeader {
                 prev_height,
                 epoch_sync_data_hash,
                 approvals,
-                latest_protocol_version: get_protocol_version(next_epoch_protocol_version),
+                latest_protocol_version: get_protocol_version(next_epoch_protocol_version, clock),
             };
             let (hash, signature) = signer.sign_block_header_parts(
                 prev_hash,
@@ -572,7 +573,7 @@ impl BlockHeader {
                 prev_height,
                 epoch_sync_data_hash,
                 approvals,
-                latest_protocol_version: get_protocol_version(next_epoch_protocol_version),
+                latest_protocol_version: get_protocol_version(next_epoch_protocol_version, clock),
             };
             let (hash, signature) = signer.sign_block_header_parts(
                 prev_hash,

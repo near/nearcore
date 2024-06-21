@@ -41,7 +41,7 @@ pub fn make_genesis_block(clock: &time::Clock, chunks: Vec<ShardChunk>) -> Block
 }
 
 pub fn make_block(
-    clock: &time::Clock,
+    clock: time::Clock,
     signer: &ValidatorSigner,
     prev: &Block,
     chunks: Vec<ShardChunk>,
@@ -67,7 +67,7 @@ pub fn make_block(
         signer,
         CryptoHash::default(),
         CryptoHash::default(),
-        clock.now_utc(),
+        clock,
     )
 }
 
@@ -248,7 +248,7 @@ impl Chain {
         for _ in 1..block_count {
             clock.advance(time::Duration::seconds(15));
             blocks.push(make_block(
-                &clock.clock(),
+                clock.clock(),
                 &signer.clone().into(),
                 blocks.last().unwrap(),
                 chunks.make(),

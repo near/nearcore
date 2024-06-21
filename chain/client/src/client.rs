@@ -706,11 +706,6 @@ impl Client {
             prev_next_bp_hash
         };
 
-        #[cfg(feature = "sandbox")]
-        let block_timestamp = self.clock.now_utc() + self.sandbox_delta_time();
-        #[cfg(not(feature = "sandbox"))]
-        let block_timestamp = self.clock.now_utc();
-
         // Get block extra from previous block.
         let block_merkle_tree = self.chain.chain_store().get_block_merkle_tree(&prev_hash)?;
         let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
@@ -802,7 +797,9 @@ impl Client {
             &*validator_signer,
             next_bp_hash,
             block_merkle_root,
-            block_timestamp,
+            self.clock.clone(),
+            #[cfg(feature = "sandbox")]
+            self.sandbox_delta_time(),
         );
 
         // Update latest known even before returning block out, to prevent race conditions.

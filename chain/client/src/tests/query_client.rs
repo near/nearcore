@@ -99,7 +99,7 @@ fn query_status_not_crash() {
                 &signer,
                 block.header.next_bp_hash,
                 block_merkle_tree.root(),
-                Clock::real().now_utc(),
+                Clock::real(),
             );
             next_block.mut_header().get_mut().inner_lite.timestamp =
                 (next_block.header().timestamp() + Duration::seconds(60)).unix_timestamp_nanos()

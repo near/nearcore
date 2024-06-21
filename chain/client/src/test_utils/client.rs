@@ -262,7 +262,7 @@ pub fn create_chunk(
         &*client.validator_signer.get().unwrap(),
         *last_block.header().next_bp_hash(),
         block_merkle_tree.root(),
-        client.clock.now_utc(),
+        client.clock.clone(),
     );
     (
         ProduceChunkResult {
