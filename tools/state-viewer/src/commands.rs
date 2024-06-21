@@ -615,7 +615,7 @@ pub(crate) fn print_chain(
                     chain_store.get_block_header(header.prev_hash()).unwrap().clone();
                 if let Ok(epoch_id) = epoch_manager.get_epoch_id_from_prev_block(header.prev_hash())
                 {
-                    cur_epoch_id = Some(epoch_id.clone());
+                    cur_epoch_id = Some(epoch_id);
                     match epoch_manager.is_next_block_epoch_start(header.prev_hash()) {
                         Ok(true) => {
                             println!("{:?}", account_id_to_blocks);
@@ -912,12 +912,10 @@ pub(crate) fn print_epoch_analysis(
     let epoch_infos: HashMap<EpochId, Arc<EpochInfo>> = HashMap::from_iter(
         epoch_ids
             .into_iter()
-            .map(|epoch_id| (epoch_id.clone(), epoch_manager.get_epoch_info(&epoch_id).unwrap())),
+            .map(|epoch_id| (epoch_id, epoch_manager.get_epoch_info(&epoch_id).unwrap())),
     );
     let epoch_heights_to_ids = BTreeMap::from_iter(
-        epoch_infos
-            .iter()
-            .map(|(epoch_id, epoch_info)| (epoch_info.epoch_height(), epoch_id.clone())),
+        epoch_infos.iter().map(|(epoch_id, epoch_info)| (epoch_info.epoch_height(), *epoch_id)),
     );
     let min_epoch_height = epoch_height;
     let max_stored_epoch_height = *epoch_heights_to_ids.keys().max().unwrap();

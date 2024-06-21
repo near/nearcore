@@ -767,12 +767,9 @@ mod test {
             let last_block = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
             let this_height = last_block.header().height() + 1;
             let (epoch_id, next_epoch_id) = if last_block.header().is_genesis() {
-                (last_block.header().next_epoch_id().clone(), EpochId(*last_block.hash()))
+                (*last_block.header().next_epoch_id(), EpochId(*last_block.hash()))
             } else {
-                (
-                    last_block.header().epoch_id().clone(),
-                    last_block.header().next_epoch_id().clone(),
-                )
+                (*last_block.header().epoch_id(), *last_block.header().next_epoch_id())
             };
             let block = Block::produce(
                 PROTOCOL_VERSION,

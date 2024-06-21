@@ -1536,7 +1536,7 @@ impl PeerActor {
             .into_iter()
             .map(|aa| {
                 let id = aa.account_id.clone();
-                (aa, old.get(&id).map(|old| old.epoch_id.clone()))
+                (aa, old.get(&id).map(|old| old.epoch_id))
             })
             .collect();
         match network_state.client.send_async(AnnounceAccountRequest(accounts)).await {

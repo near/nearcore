@@ -778,8 +778,8 @@ impl Tip {
             height: header.height(),
             last_block_hash: *header.hash(),
             prev_block_hash: *header.prev_hash(),
-            epoch_id: header.epoch_id().clone(),
-            next_epoch_id: header.next_epoch_id().clone(),
+            epoch_id: *header.epoch_id(),
+            next_epoch_id: *header.next_epoch_id(),
         }
     }
 }

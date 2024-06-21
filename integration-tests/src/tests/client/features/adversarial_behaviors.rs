@@ -257,7 +257,7 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
                 if &chunk_producer == &bad_chunk_producer {
                     invalid_chunks_in_this_block.insert(shard_id);
                     if !epochs_seen_invalid_chunk.contains(&epoch_id) {
-                        epochs_seen_invalid_chunk.insert(epoch_id.clone());
+                        epochs_seen_invalid_chunk.insert(epoch_id);
 
                         // This is the first block with invalid chunks in the current epoch.
                         // In pre-stateless validation protocol the first block with invalid chunks

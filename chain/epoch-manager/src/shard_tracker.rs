@@ -70,7 +70,7 @@ impl ShardTracker {
         match &self.tracked_config {
             TrackedConfig::Accounts(tracked_accounts) => {
                 let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
-                let tracking_mask = self.tracking_shards_cache.get_or_put(epoch_id.clone(), |_| {
+                let tracking_mask = self.tracking_shards_cache.get_or_put(*epoch_id, |_| {
                     let mut tracking_mask: Vec<_> =
                         shard_layout.shard_ids().map(|_| false).collect();
                     for account_id in tracked_accounts {

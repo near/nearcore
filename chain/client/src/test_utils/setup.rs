@@ -656,7 +656,7 @@ fn process_peer_manager_message_default(
         }
         NetworkRequests::AnnounceAccount(announce_account) => {
             let mut aa = announced_accounts.write().unwrap();
-            let key = (announce_account.account_id.clone(), announce_account.epoch_id.clone());
+            let key = (announce_account.account_id.clone(), announce_account.epoch_id);
             if aa.get(&key).is_none() {
                 aa.insert(key);
                 for actor_handles in connectors {

@@ -69,7 +69,7 @@ impl Client {
         }
 
         self.partial_witness_adapter.send(DistributeStateWitnessRequest {
-            epoch_id: epoch_id.clone(),
+            epoch_id: *epoch_id,
             chunk_header,
             state_witness,
         });

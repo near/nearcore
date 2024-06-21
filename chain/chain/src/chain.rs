@@ -987,8 +987,8 @@ impl Chain {
             if header.next_bp_hash()
                 != &Chain::compute_bp_hash(
                     self.epoch_manager.as_ref(),
-                    header.next_epoch_id().clone(),
-                    header.epoch_id().clone(),
+                    *header.next_epoch_id(),
+                    *header.epoch_id(),
                     header.prev_hash(),
                 )?
             {
@@ -2079,7 +2079,7 @@ impl Chain {
         // Check that we know the epoch of the block before we try to get the header
         // (so that a block from unknown epoch doesn't get marked as an orphan)
         if !self.epoch_manager.epoch_exists(header.epoch_id()) {
-            return Err(Error::EpochOutOfBounds(header.epoch_id().clone()));
+            return Err(Error::EpochOutOfBounds(*header.epoch_id()));
         }
 
         if block.chunks().len() != self.epoch_manager.shard_ids(header.epoch_id())?.len() {
@@ -2856,7 +2856,7 @@ impl Chain {
         num_parts: u64,
         state_parts_task_scheduler: &near_async::messaging::Sender<ApplyStatePartsRequest>,
     ) -> Result<(), Error> {
-        let epoch_id = self.get_block_header(&sync_hash)?.epoch_id().clone();
+        let epoch_id = *self.get_block_header(&sync_hash)?.epoch_id();
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
 
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
@@ -4266,13 +4266,13 @@ impl Chain {
         shard_id: ShardId,
     ) -> Result<Option<(CryptoHash, ShardId)>, Error> {
         let mut block_hash = *block_hash;
-        let mut epoch_id = self.get_block_header(&block_hash)?.epoch_id().clone();
+        let mut epoch_id = *self.get_block_header(&block_hash)?.epoch_id();
         let mut shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         // this corrects all the shard where the original shard will split to if sharding changes
         let mut shard_ids = vec![shard_id];
 
         while let Ok(next_block_hash) = self.chain_store.get_next_block_hash(&block_hash) {
-            let next_epoch_id = self.get_block_header(&next_block_hash)?.epoch_id().clone();
+            let next_epoch_id = *self.get_block_header(&next_block_hash)?.epoch_id();
             if next_epoch_id != epoch_id {
                 let next_shard_layout = self.epoch_manager.get_shard_layout(&next_epoch_id)?;
                 if next_shard_layout != shard_layout {
