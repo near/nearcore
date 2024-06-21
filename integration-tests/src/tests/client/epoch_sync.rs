@@ -116,14 +116,14 @@ fn test_continuous_epoch_sync_info_population() {
             env.clients[0].chain.chain_store().get_block_header(last_final_hash).unwrap();
 
         if *last_final_header.epoch_id() != last_epoch_id {
-            let epoch_id = last_epoch_id.clone();
+            let epoch_id = last_epoch_id;
 
             tracing::debug!("Checking epoch: {:?}", &epoch_id);
             assert!(env.clients[0].chain.chain_store().get_epoch_sync_info(&epoch_id).is_ok());
             tracing::debug!("OK");
         }
 
-        last_epoch_id = last_final_header.epoch_id().clone();
+        last_epoch_id = *last_final_header.epoch_id();
     }
 }
 
@@ -172,7 +172,7 @@ fn test_continuous_epoch_sync_info_population_on_header_sync() {
             // Save all finished epoch_ids
             let mut epoch_ids = epoch_ids.write().unwrap();
             for block in blocks[0..200].iter() {
-                epoch_ids.insert(block.header().epoch_id().clone());
+                epoch_ids.insert(*block.header().epoch_id());
             }
 
             // Start second node
@@ -274,7 +274,7 @@ fn test_epoch_sync_data_hash_from_epoch_sync_info() {
             env.clients[0].chain.chain_store().get_block_header(last_final_hash).unwrap();
 
         if *last_final_header.epoch_id() != last_epoch_id {
-            let epoch_id = last_epoch_id.clone();
+            let epoch_id = last_epoch_id;
 
             let epoch_sync_info =
                 env.clients[0].chain.chain_store().get_epoch_sync_info(&epoch_id).unwrap();
@@ -303,7 +303,7 @@ fn test_epoch_sync_data_hash_from_epoch_sync_info() {
             tracing::debug!("OK");
         }
 
-        last_epoch_id = last_final_header.epoch_id().clone();
+        last_epoch_id = *last_final_header.epoch_id();
     }
 }
 
