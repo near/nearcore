@@ -321,11 +321,7 @@ impl Chain {
         let state_roots = get_genesis_state_roots(runtime_adapter.store())?
             .expect("genesis should be initialized.");
         let congestion_infos =
-            get_genesis_congestion_infos(epoch_manager, runtime_adapter, &state_roots);
-        let congestion_infos = congestion_infos.map_err(|err| {
-            tracing::error!(target: "chain", ?err, "Failed to get the genesis congestion infos.");
-            err
-        })?;
+            get_genesis_congestion_infos(epoch_manager, runtime_adapter, &state_roots)?;
         let genesis_chunks = genesis_chunks(
             state_roots,
             congestion_infos,
