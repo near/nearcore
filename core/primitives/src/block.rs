@@ -16,7 +16,7 @@ use crate::validator_signer::ValidatorSigner;
 use crate::version::{ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
-use near_time::{Clock, Utc};
+use near_time::{Clock, Duration, Utc};
 use primitive_types::U256;
 use std::collections::BTreeMap;
 use std::ops::Index;
@@ -267,7 +267,7 @@ impl Block {
         next_bp_hash: CryptoHash,
         block_merkle_root: CryptoHash,
         clock: Clock,
-        #[cfg(feature = "sandbox")] sandbox_delta_time: near_time::Duration,
+        sandbox_delta_time: Option<Duration>,
     ) -> Self {
         // Collect aggregate of validators and gas usage/limits from chunks.
         let mut prev_validator_proposals = vec![];
@@ -299,7 +299,9 @@ impl Block {
         let new_total_supply = prev.total_supply() + minted_amount.unwrap_or(0) - balance_burnt;
         let now = clock.now_utc().unix_timestamp_nanos() as u64;
         #[cfg(feature = "sandbox")]
-        let now = now + sandbox_delta_time;
+        let now = now + sandbox_delta_time.unwrap().whole_nanoseconds() as u64;
+        #[cfg(not(feature = "sandbox"))]
+        debug_assert!(sandbox_delta_time.is_none());
         let time = if now <= prev.raw_timestamp() { prev.raw_timestamp() + 1 } else { now };
 
         let (vrf_value, vrf_proof) = signer.compute_vrf_with_proof(prev.random_value().as_ref());

@@ -85,6 +85,7 @@ pub fn add_blocks(
             next_bp_hash,
             block_merkle_tree.root(),
             clock.clone(),
+            None,
         );
         block_merkle_tree.insert(*block.hash());
         let _ = client.do_send(

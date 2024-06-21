@@ -540,6 +540,7 @@ impl TestBlockBuilder {
             self.next_bp_hash,
             self.block_merkle_root,
             self.clock,
+            None,
         )
     }
 }

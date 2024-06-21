@@ -263,6 +263,7 @@ pub fn create_chunk(
         *last_block.header().next_bp_hash(),
         block_merkle_tree.root(),
         client.clock.clone(),
+        None,
     );
     (
         ProduceChunkResult {

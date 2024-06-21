@@ -72,6 +72,7 @@ fn create_block() -> Block {
         CryptoHash::default(),
         CryptoHash::default(),
         Clock::real(),
+        None,
     )
 }
 
