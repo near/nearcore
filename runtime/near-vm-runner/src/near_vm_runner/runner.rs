@@ -6,7 +6,7 @@ use crate::logic::errors::{
 };
 use crate::logic::gas_counter::FastGasCounter;
 use crate::logic::types::PromiseResult;
-use crate::logic::{Config, External, VMContext, VMLogic, VMOutcome};
+use crate::logic::{Config, ExecutionResultState, External, VMContext, VMLogic, VMOutcome};
 use crate::near_vm_runner::{NearVmCompiler, NearVmEngine};
 use crate::runner::VMResult;
 use crate::{
@@ -214,10 +214,12 @@ impl NearVM {
         cache: &dyn ContractRuntimeCache,
         ext: &mut dyn External,
         context: &VMContext,
-        fees_config: Arc<RuntimeFeesConfig>,
-        promise_results: Arc<[PromiseResult]>,
         method_name: &str,
-        closure: impl FnOnce(VMMemory, VMLogic<'_>, &VMArtifact) -> Result<VMOutcome, VMRunnerError>,
+        closure: impl FnOnce(
+            ExecutionResultState,
+            &mut dyn External,
+            &VMArtifact,
+        ) -> Result<VMOutcome, VMRunnerError>,
     ) -> VMResult<VMOutcome> {
         // (wasm code size, compilation result)
         type MemoryCacheType = (u64, Result<VMArtifact, CompilationError>);
@@ -304,36 +306,20 @@ impl NearVM {
 
         crate::metrics::record_compiled_contract_cache_lookup(is_cache_hit);
 
-        let memory = NearVmMemory::new(
-            self.config.limit_config.initial_memory_pages,
-            self.config.limit_config.max_memory_pages,
-        )
-        .expect("Cannot create memory for a contract call");
-        // FIXME: this mostly duplicates the `run_module` method.
-        // Note that we don't clone the actual backing memory, just increase the RC.
-        let vmmemory = memory.vm();
-        let mut logic = VMLogic::new(
-            ext,
-            context,
-            Arc::clone(&self.config),
-            fees_config,
-            promise_results,
-            memory,
-        );
-
-        let result = logic.before_loading_executable(method_name, wasm_bytes);
+        let mut result_state = ExecutionResultState::new(&context, Arc::clone(&self.config));
+        let result = result_state.before_loading_executable(method_name, wasm_bytes);
         if let Err(e) = result {
-            return Ok(VMOutcome::abort(logic, e));
+            return Ok(VMOutcome::abort(result_state, e));
         }
         match artifact_result {
             Ok(artifact) => {
-                let result = logic.after_loading_executable(wasm_bytes);
+                let result = result_state.after_loading_executable(wasm_bytes);
                 if let Err(e) = result {
-                    return Ok(VMOutcome::abort(logic, e));
+                    return Ok(VMOutcome::abort(result_state, e));
                 }
-                closure(vmmemory, logic, &artifact)
+                closure(result_state, ext, &artifact)
             }
-            Err(e) => Ok(VMOutcome::abort(logic, FunctionCallError::CompilationError(e))),
+            Err(e) => Ok(VMOutcome::abort(result_state, FunctionCallError::CompilationError(e))),
         }
     }
 
@@ -603,20 +589,36 @@ impl crate::runner::VM for NearVM {
             cache,
             ext,
             context,
-            fees_config,
-            promise_results,
             method_name,
-            |vmmemory, mut logic, artifact| {
-                let import = build_imports(vmmemory, &mut logic, artifact.engine());
+            |result_state, ext, artifact| {
+                let memory = NearVmMemory::new(
+                    self.config.limit_config.initial_memory_pages,
+                    self.config.limit_config.max_memory_pages,
+                )
+                .expect("Cannot create memory for a contract call");
+                // FIXME: this mostly duplicates the `run_module` method.
+                // Note that we don't clone the actual backing memory, just increase the RC.
+                let vmmemory = memory.vm();
+                let mut logic =
+                    VMLogic::new(ext, context, fees_config, promise_results, result_state, memory);
+                let import = build_imports(
+                    vmmemory,
+                    &mut logic,
+                    Arc::clone(&self.config),
+                    artifact.engine(),
+                );
                 let entrypoint = match get_entrypoint_index(&*artifact, method_name) {
                     Ok(index) => index,
                     Err(e) => {
-                        return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(logic, e))
+                        return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(
+                            logic.result_state,
+                            e,
+                        ))
                     }
                 };
                 match self.run_method(&artifact, import, entrypoint)? {
-                    Ok(()) => Ok(VMOutcome::ok(logic)),
-                    Err(err) => Ok(VMOutcome::abort(logic, err)),
+                    Ok(()) => Ok(VMOutcome::ok(logic.result_state)),
+                    Err(err) => Ok(VMOutcome::abort(logic.result_state, err)),
                 }
             },
         )
@@ -638,6 +640,7 @@ impl crate::runner::VM for NearVM {
 
 pub(crate) struct NearVmImports<'engine, 'vmlogic, 'vmlogic_refs> {
     pub(crate) memory: VMMemory,
+    config: Arc<Config>,
     // Note: this same object is also referenced by the `metadata` field!
     pub(crate) vmlogic: &'vmlogic mut VMLogic<'vmlogic_refs>,
     pub(crate) metadata: Arc<ExportFunctionMetadata>,
@@ -753,7 +756,7 @@ impl<'e, 'l, 'lr> Resolver for NearVmImports<'e, 'l, 'lr> {
                     }
                 };
             }
-        imports::for_each_available_import!(self.vmlogic.config, add_import);
+        imports::for_each_available_import!(self.config, add_import);
         return None;
     }
 }
@@ -761,6 +764,7 @@ impl<'e, 'l, 'lr> Resolver for NearVmImports<'e, 'l, 'lr> {
 pub(crate) fn build_imports<'e, 'a, 'b>(
     memory: VMMemory,
     logic: &'a mut VMLogic<'b>,
+    config: Arc<Config>,
     engine: &'e UniversalEngine,
 ) -> NearVmImports<'e, 'a, 'b> {
     let metadata = unsafe {
@@ -769,7 +773,7 @@ pub(crate) fn build_imports<'e, 'a, 'b>(
         // contains this metadata.
         ExportFunctionMetadata::new(logic as *mut _ as *mut _, None, |ptr| ptr, |_| {})
     };
-    NearVmImports { memory, vmlogic: logic, metadata: Arc::new(metadata), engine }
+    NearVmImports { memory, config, vmlogic: logic, metadata: Arc::new(metadata), engine }
 }
 
 #[cfg(test)]
