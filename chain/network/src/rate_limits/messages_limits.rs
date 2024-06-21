@@ -60,18 +60,29 @@ impl RateLimits {
 
 /// Rate limit configuration for a single network message.
 #[derive(Clone)]
-struct SingleMessageConfig {
-    message_key: RateLimitedPeerMessageKey,
-    maximum_size: u32,
-    refill_rate: f32,
+pub struct SingleMessageConfig {
+    pub message_key: RateLimitedPeerMessageKey,
+    pub maximum_size: u32,
+    pub refill_rate: f32,
     /// Optional initial size. Defaults to `maximum_size` if absent.
-    initial_size: Option<u32>,
+    pub initial_size: Option<u32>,
+}
+
+impl SingleMessageConfig {
+    pub fn new(
+        message_key: RateLimitedPeerMessageKey,
+        maximum_size: u32,
+        refill_rate: f32,
+        initial_size: Option<u32>,
+    ) -> Self {
+        Self { message_key, maximum_size, refill_rate, initial_size }
+    }
 }
 
 /// Network messages rate limits configuration.
 #[derive(Default, Clone)]
 pub struct Config {
-    rate_limits: Vec<SingleMessageConfig>,
+    pub rate_limits: Vec<SingleMessageConfig>,
 }
 
 impl Config {
@@ -249,24 +260,9 @@ mod tests {
         use RateLimitedPeerMessageKey::*;
         let mut config = Config::default();
 
-        config.rate_limits.push(SingleMessageConfig {
-            message_key: Block,
-            maximum_size: 5,
-            refill_rate: 1.0,
-            initial_size: Some(1),
-        });
-        config.rate_limits.push(SingleMessageConfig {
-            message_key: BlockApproval,
-            maximum_size: 5,
-            refill_rate: 1.0,
-            initial_size: None,
-        });
-        config.rate_limits.push(SingleMessageConfig {
-            message_key: BlockHeaders,
-            maximum_size: 1,
-            refill_rate: -4.0,
-            initial_size: None,
-        });
+        config.rate_limits.push(SingleMessageConfig::new(Block, 5, 1.0, Some(1)));
+        config.rate_limits.push(SingleMessageConfig::new(BlockApproval, 5, 1.0, None));
+        config.rate_limits.push(SingleMessageConfig::new(BlockHeaders, 1, -4.0, None));
 
         let limits = RateLimits::from_config(&config);
 
@@ -284,31 +280,16 @@ mod tests {
         let mut config = Config::default();
         assert!(config.validate().is_ok());
 
-        config.rate_limits.push(SingleMessageConfig {
-            message_key: Block,
-            maximum_size: 0,
-            refill_rate: 1.0,
-            initial_size: None,
-        });
+        config.rate_limits.push(SingleMessageConfig::new(Block, 0, 1.0, None));
         assert!(config.validate().is_ok());
 
-        config.rate_limits.push(SingleMessageConfig {
-            message_key: BlockApproval,
-            maximum_size: 0,
-            refill_rate: -1.0,
-            initial_size: None,
-        });
+        config.rate_limits.push(SingleMessageConfig::new(BlockApproval, 0, -1.0, None));
         assert_eq!(
             config.validate(),
             Err(vec![(BlockApproval, TokenBucketError::InvalidRefillRate(-1.0))])
         );
 
-        config.rate_limits.push(SingleMessageConfig {
-            message_key: BlockHeaders,
-            maximum_size: 0,
-            refill_rate: -2.0,
-            initial_size: None,
-        });
+        config.rate_limits.push(SingleMessageConfig::new(BlockHeaders, 0, -2.0, None));
         assert_eq!(
             config.validate(),
             Err(vec![
@@ -323,18 +304,8 @@ mod tests {
         use RateLimitedPeerMessageKey::*;
         let mut config = Config::default();
 
-        config.rate_limits.push(SingleMessageConfig {
-            message_key: Block,
-            maximum_size: 5,
-            refill_rate: 1.0,
-            initial_size: Some(0),
-        });
-        config.rate_limits.push(SingleMessageConfig {
-            message_key: BlockApproval,
-            maximum_size: 5,
-            refill_rate: 1.0,
-            initial_size: Some(0),
-        });
+        config.rate_limits.push(SingleMessageConfig::new(Block, 5, 1.0, Some(0)));
+        config.rate_limits.push(SingleMessageConfig::new(BlockApproval, 5, 1.0, Some(0)));
 
         let limits = RateLimits::from_config(&config);
 
