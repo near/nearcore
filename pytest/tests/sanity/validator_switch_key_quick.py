@@ -37,13 +37,13 @@ class ValidatorSwitchKeyQuickTest(unittest.TestCase):
                            ["block_producer_kickout_threshold", 10],
                            ["chunk_producer_kickout_threshold", 10]],
                           config_map)
-        wait_for_blocks(old_validator, count=1)
+        wait_for_blocks(old_validator, count=2)
 
         new_validator.reset_validator_key(other_validator.validator_key)
         other_validator.kill()
         new_validator.reload_updateable_config()
         new_validator.stop_checking_store()
-        wait_for_blocks(old_validator, count=1)
+        wait_for_blocks(old_validator, count=2)
 
         block = old_validator.get_latest_block()
         max_height = block.height + 4 * EPOCH_LENGTH

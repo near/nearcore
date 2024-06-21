@@ -1,4 +1,3 @@
-use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::path::Path;
 use std::sync::Arc;
@@ -187,7 +186,7 @@ impl From<InMemoryValidatorSigner> for ValidatorSigner {
 
 /// Test-only signer that "signs" everything with 0s.
 /// Don't use in any production or code that requires signature verification.
-#[derive(smart_default::SmartDefault, Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(smart_default::SmartDefault, Clone, Debug, PartialEq)]
 pub struct EmptyValidatorSigner {
     #[default("test".parse().unwrap())]
     account_id: AccountId,
