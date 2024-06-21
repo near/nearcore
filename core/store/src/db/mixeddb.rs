@@ -66,8 +66,10 @@ impl MixedDB {
 impl Database for MixedDB {
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
         if let Some(first_result) = self.first_db().get_raw_bytes(col, key)? {
+            tracing::trace!(target: "mixeddb", ?col, "Returning from first DB");
             return Ok(Some(first_result));
         }
+        tracing::trace!(target: "mixeddb", ?col, "Returning from second DB");
         self.second_db().get_raw_bytes(col, key)
     }
 
@@ -75,13 +77,15 @@ impl Database for MixedDB {
         assert!(col.is_rc());
 
         if let Some(first_result) = self.first_db().get_with_rc_stripped(col, key)? {
+            tracing::trace!(target: "mixeddb", ?col, "Returning from first DB");
             return Ok(Some(first_result));
         }
+        tracing::trace!(target: "mixeddb", ?col, "Returning from second DB");
         self.second_db().get_with_rc_stripped(col, key)
     }
 
     fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
-        Self::merge_iter(self.read_db.iter(col), self.write_db.iter(col))
+        Self::merge_iter(self.first_db().iter(col), self.second_db().iter(col))
     }
 
     fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
@@ -110,7 +114,11 @@ impl Database for MixedDB {
         );
     }
 
+    /// The split db, in principle, should be read only and only used in view client.
+    /// However the view client *does* write to the db in order to update cache.
+    /// Hence we need to allow writing to the split db but only write to the hot db.
     fn write(&self, batch: DBTransaction) -> io::Result<()> {
+        tracing::trace!(target: "mixeddb", "Writing to writeDB");
         self.write_db.write(batch)
     }
 
