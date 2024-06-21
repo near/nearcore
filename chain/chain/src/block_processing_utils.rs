@@ -8,37 +8,80 @@ use near_primitives::challenge::{ChallengeBody, ChallengesResult};
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ReceiptProof, ShardChunkHeader, StateSyncInfo};
 use near_primitives::types::ShardId;
-use once_cell::sync::OnceCell;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::Duration;
 
 /// Max number of blocks that can be in the pool at once.
 /// This number will likely never be hit unless there are many forks in the chain.
 pub(crate) const MAX_PROCESSING_BLOCKS: usize = 5;
 
 #[derive(Clone)]
-pub struct ApplyChunksDoneTracker(Arc<OnceCell<()>>);
+pub struct ApplyChunksDoneTracker(Arc<(Mutex<bool>, Condvar)>);
 
 impl ApplyChunksDoneTracker {
     pub fn new() -> Self {
-        Self(Arc::new(OnceCell::new()))
+        Self(Arc::new((Mutex::new(false), Condvar::new())))
     }
 
+    /// Notifies all threads waiting on `wait_until_done` that apply chunks is done.
+    /// This should be called only once, otherwise it returns an error on the second call.
+    pub fn set_done(&mut self) -> Result<(), &'static str> {
+        let (lock, cvar) = &*self.0;
+        match lock.lock() {
+            Ok(mut guard) => {
+                if *guard {
+                    Err("Apply chunks done marker is already set to true.")
+                } else {
+                    *guard = true;
+                    cvar.notify_all();
+                    Ok(())
+                }
+            }
+            Err(_poisoned) => Err("Mutex is poisoned."),
+        }
+    }
+
+    /// Blocks the current thread until the `set_done` is called
+    /// to indicate that apply chunks is done.
     pub fn wait_until_done(&self) {
-        self.0.wait();
-    }
-
-    pub fn set_done(&mut self) -> Result<(), ()> {
-        self.0.set(())
+        const WAIT_TIMEOUT: Duration = Duration::from_millis(100);
+        let (lock, cvar) = &*self.0;
+        #[cfg(test)]
+        let mut total_wait_time = Duration::from_millis(0);
+        match lock.lock() {
+            Ok(mut guard) => loop {
+                match cvar.wait_timeout(guard, WAIT_TIMEOUT) {
+                    Ok(result) => {
+                        guard = result.0;
+                        let done = *guard;
+                        if done {
+                            break;
+                        }
+                        // In test, stop waiting at the first timeout.
+                        #[cfg(test)]
+                        if result.1.timed_out() {
+                            const TEST_MAX_TIMEOUT: Duration = Duration::from_millis(5000);
+                            total_wait_time += WAIT_TIMEOUT;
+                            if total_wait_time >= TEST_MAX_TIMEOUT {
+                                break;
+                            }
+                        }
+                    }
+                    Err(_poisoned) => break,
+                }
+            },
+            Err(_poisoned) => (),
+        }
     }
 }
 
-//#[cfg(feature = "test_features")]
 impl Drop for ApplyChunksDoneTracker {
     fn drop(&mut self) {
-        if let None = self.0.get() {
-            self.0.set(()).unwrap();
-        }
+        let (lock, cvar) = &*self.0;
+        let mut done = lock.lock().unwrap();
+        *done = true;
+        cvar.notify_all();
     }
 }
 
