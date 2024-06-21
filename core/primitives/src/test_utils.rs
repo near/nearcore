@@ -5,8 +5,7 @@ use crate::block_header::BlockHeader;
 use crate::challenge::Challenges;
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
-use crate::merkle::PartialMerkleTree;
-use crate::num_rational::Ratio;
+
 use crate::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
@@ -14,14 +13,12 @@ use crate::transaction::{
     TransactionV0, TransactionV1, TransferAction,
 };
 use crate::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce};
-use crate::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
+use crate::validator_signer::ValidatorSigner;
 use crate::version::PROTOCOL_VERSION;
 use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus};
 use near_crypto::vrf::Value;
-use near_crypto::{EmptySigner, InMemorySigner, KeyType, PublicKey, SecretKey, Signature, Signer};
-use near_primitives_core::account::id::AccountIdRef;
+use near_crypto::{EmptySigner, PublicKey, SecretKey, Signer};
 use near_primitives_core::types::{ProtocolVersion, ShardId};
-use near_time::Clock;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -453,21 +450,23 @@ impl BlockBody {
 /// // TODO(mm-near): change it to doc-tested code once we have easy way to create a genesis block.
 /// let signer = EmptyValidatorSigner::default().into();
 /// let test_block = test_utils::TestBlockBuilder::new(prev, signer).height(33).build();
+#[cfg(feature = "clock")]
 pub struct TestBlockBuilder {
-    clock: Clock,
+    clock: near_time::Clock,
     prev: Block,
     signer: Arc<ValidatorSigner>,
     height: u64,
     epoch_id: EpochId,
     next_epoch_id: EpochId,
     next_bp_hash: CryptoHash,
-    approvals: Vec<Option<Box<Signature>>>,
+    approvals: Vec<Option<Box<near_crypto::Signature>>>,
     block_merkle_root: CryptoHash,
 }
 
+#[cfg(feature = "clock")]
 impl TestBlockBuilder {
-    pub fn new(clock: Clock, prev: &Block, signer: Arc<ValidatorSigner>) -> Self {
-        let mut tree = PartialMerkleTree::default();
+    pub fn new(clock: near_time::Clock, prev: &Block, signer: Arc<ValidatorSigner>) -> Self {
+        let mut tree = crate::merkle::PartialMerkleTree::default();
         tree.insert(*prev.hash());
 
         Self {
@@ -502,13 +501,16 @@ impl TestBlockBuilder {
         self.next_bp_hash = next_bp_hash;
         self
     }
-    pub fn approvals(mut self, approvals: Vec<Option<Box<Signature>>>) -> Self {
+    pub fn approvals(mut self, approvals: Vec<Option<Box<near_crypto::Signature>>>) -> Self {
         self.approvals = approvals;
         self
     }
 
     /// Updates the merkle tree by adding the previous hash, and updates the new block's merkle_root.
-    pub fn block_merkle_tree(mut self, block_merkle_tree: &mut PartialMerkleTree) -> Self {
+    pub fn block_merkle_tree(
+        mut self,
+        block_merkle_tree: &mut crate::merkle::PartialMerkleTree,
+    ) -> Self {
         block_merkle_tree.insert(*self.prev.hash());
         self.block_merkle_root = block_merkle_tree.root();
         self
@@ -528,7 +530,7 @@ impl TestBlockBuilder {
             self.next_epoch_id,
             None,
             self.approvals,
-            Ratio::new(0, 1),
+            num_rational::Ratio::new(0, 1),
             0,
             0,
             Some(0),
@@ -715,10 +717,11 @@ pub fn encode(xs: &[u64]) -> Vec<u8> {
 
 // Helper function that creates a new signer for a given account, that uses the account name as seed.
 // Should be used only in tests.
+#[cfg(feature = "rand")]
 pub fn create_test_signer(account_name: &str) -> ValidatorSigner {
-    InMemoryValidatorSigner::from_seed(
+    crate::validator_signer::InMemoryValidatorSigner::from_seed(
         account_name.parse().unwrap(),
-        KeyType::ED25519,
+        near_crypto::KeyType::ED25519,
         account_name,
     )
     .into()
@@ -729,12 +732,22 @@ pub fn create_test_signer(account_name: &str) -> ValidatorSigner {
 /// This also works for predefined implicit accounts, where the signer will use the implicit key.
 ///
 /// Should be used only in tests.
-pub fn create_user_test_signer(account_name: &AccountIdRef) -> InMemorySigner {
+#[cfg(feature = "rand")]
+pub fn create_user_test_signer(
+    account_name: &near_primitives_core::account::id::AccountIdRef,
+) -> near_crypto::InMemorySigner {
     let account_id = account_name.to_owned();
     if account_id == near_implicit_test_account() {
-        InMemorySigner::from_secret_key(account_id, near_implicit_test_account_secret())
+        near_crypto::InMemorySigner::from_secret_key(
+            account_id,
+            near_implicit_test_account_secret(),
+        )
     } else {
-        InMemorySigner::from_seed(account_id, KeyType::ED25519, account_name.as_str())
+        near_crypto::InMemorySigner::from_seed(
+            account_id,
+            near_crypto::KeyType::ED25519,
+            account_name.as_str(),
+        )
     }
 }
 

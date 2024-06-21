@@ -34,7 +34,8 @@ fn setup_runtime(sender_id: AccountId, protocol_version: ProtocolVersion) -> Tes
 
     let mut config = RuntimeConfig::test();
     // Make 1 wasm op cost ~4 GGas, to let "loop_forever" finish more quickly.
-    config.wasm_config.regular_op_cost = u32::MAX;
+    let wasm_config = Arc::make_mut(&mut config.wasm_config);
+    wasm_config.regular_op_cost = u32::MAX;
     let runtime_configs = vec![RuntimeConfigStore::with_one_config(config)];
 
     TestEnv::builder(&genesis.config)

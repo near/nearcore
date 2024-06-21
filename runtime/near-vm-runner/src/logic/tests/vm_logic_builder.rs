@@ -4,12 +4,13 @@ use crate::logic::types::PromiseResult;
 use crate::logic::{Config, MemSlice, VMContext, VMLogic};
 use crate::tests::test_vm_config;
 use near_parameters::RuntimeFeesConfig;
+use std::sync::Arc;
 
 pub(super) struct VMLogicBuilder {
     pub ext: MockedExternal,
     pub config: Config,
     pub fees_config: RuntimeFeesConfig,
-    pub promise_results: Vec<PromiseResult>,
+    pub promise_results: Arc<[PromiseResult]>,
     pub memory: MockedMemory,
     pub context: VMContext,
 }
@@ -21,7 +22,7 @@ impl Default for VMLogicBuilder {
             fees_config: RuntimeFeesConfig::test(),
             ext: MockedExternal::default(),
             memory: MockedMemory::default(),
-            promise_results: vec![],
+            promise_results: [].into(),
             context: get_context(),
         }
     }
@@ -40,10 +41,10 @@ impl VMLogicBuilder {
         TestVMLogic::from(VMLogic::new(
             &mut self.ext,
             &self.context,
-            &self.config,
-            &self.fees_config,
-            &self.promise_results,
-            &mut self.memory,
+            Arc::new(self.config.clone()),
+            Arc::new(self.fees_config.clone()),
+            Arc::clone(&self.promise_results),
+            self.memory.clone(),
         ))
     }
 
@@ -57,7 +58,7 @@ impl VMLogicBuilder {
             fees_config: RuntimeFeesConfig::free(),
             ext: MockedExternal::default(),
             memory: MockedMemory::default(),
-            promise_results: vec![],
+            promise_results: [].into(),
             context: get_context(),
         }
     }

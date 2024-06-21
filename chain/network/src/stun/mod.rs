@@ -1,4 +1,5 @@
 use near_async::time;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use stun::message::Getter as _;
 
@@ -9,10 +10,20 @@ mod tests;
 pub(crate) mod testonly;
 
 /// Address of the format "<domain/ip>:<port>" of STUN servers.
-// TODO(gprusak): turn into a proper struct implementing Display and FromStr.
 pub type ServerAddr = String;
 
 pub(crate) type Error = stun::Error;
+
+/// Convert from ServerAddr to SocketAddr via DNS resolution.
+/// Looks for IPv4 or IPv6 according to `want_ipv4`.
+pub(crate) async fn lookup_host(addr: &ServerAddr, want_ipv4: bool) -> Option<SocketAddr> {
+    for socket_addr in tokio::net::lookup_host(addr).await.ok()? {
+        if want_ipv4 == socket_addr.is_ipv4() {
+            return Some(socket_addr);
+        }
+    }
+    None
+}
 
 const QUERY_TIMEOUT: time::Duration = time::Duration::seconds(5);
 
@@ -21,7 +32,7 @@ const QUERY_TIMEOUT: time::Duration = time::Duration::seconds(5);
 /// It should be used to determine the public IP of this machine.
 pub(crate) async fn query(
     clock: &time::Clock,
-    addr: &ServerAddr,
+    addr: &SocketAddr,
 ) -> Result<std::net::IpAddr, Error> {
     let socket = tokio::net::UdpSocket::bind("[::]:0").await?;
     socket.connect(addr).await?;

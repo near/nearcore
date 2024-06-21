@@ -1,9 +1,10 @@
 import argparse
 import os
 import subprocess
+from locust.util.timespan import parse_timespan
 
 LOCK_FILE = "/tmp/run-ft-benchmark.lock"
-REPO_DIR = "~/nearcore"
+REPO_DIR = os.path.expanduser("~/nearcore")
 
 
 def create_lock_file(user: str) -> None:
@@ -25,7 +26,7 @@ def remove_lock_file() -> None:
 def run_benchmark(repo_dir: str, time: str, users: int, shards: int, nodes: int,
                   rump_up: int) -> None:
     benchmark_command = (
-        f"./scripts/start_benchmark.sh {time} {users} {shards} {nodes} {rump_up}"
+        f"./scripts/start-benchmark.sh {time} {users} {shards} {nodes} {rump_up}"
     )
     subprocess.run(benchmark_command, cwd=repo_dir, shell=True, check=True)
 
@@ -49,13 +50,12 @@ def main() -> None:
     parser.add_argument('--nodes', type=int, default=1, help="Number of nodes")
     parser.add_argument('--rump-up', type=int, default=10, help="Rump-up rate")
     parser.add_argument('--user', type=str, default='unknown', help="User name")
-
     args = parser.parse_args()
-
+    time_seconds = parse_timespan(args.time)
     try:
         create_lock_file(args.user)
-        run_benchmark(REPO_DIR, args.time, args.users, args.shards, args.nodes,
-                      args.rump_up)
+        run_benchmark(REPO_DIR, time_seconds, args.users, args.shards,
+                      args.nodes, args.rump_up)
     except RuntimeError as e:
         print(e)
     finally:

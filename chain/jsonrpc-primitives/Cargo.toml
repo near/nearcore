@@ -19,7 +19,7 @@ thiserror.workspace = true
 time.workspace = true
 
 near-crypto.workspace = true
-near-primitives.workspace = true
+near-primitives = { workspace = true, features = ["rand"] }
 near-chain-configs.workspace = true
 near-rpc-error-macro.workspace = true
 near-client-primitives = { workspace = true, optional = true }

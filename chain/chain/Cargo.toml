@@ -34,7 +34,10 @@ yansi.workspace = true
 
 near-async.workspace = true
 near-cache.workspace = true
-near-chain-configs.workspace = true
+near-chain-configs = { workspace = true, features = [
+  "test_genesis",
+  "test_utils",
+] }
 near-chain-primitives.workspace = true
 near-client-primitives.workspace = true
 near-crypto.workspace = true
@@ -44,7 +47,7 @@ near-o11y.workspace = true
 near-performance-metrics.workspace = true
 near-performance-metrics-macros.workspace = true
 near-pool.workspace = true
-near-primitives.workspace = true
+near-primitives = { workspace = true, features = ["solomon", "rand"] }
 near-store.workspace = true
 node-runtime.workspace = true
 near-parameters.workspace = true
@@ -52,6 +55,7 @@ near-vm-runner.workspace = true
 near-mainnet-res.workspace = true
 
 [dev-dependencies]
+near-primitives = { workspace = true, features = ["clock"] }
 serde_json.workspace = true
 primitive-types.workspace = true
 insta.workspace = true
@@ -110,5 +114,8 @@ nightly_protocol = [
   "near-vm-runner/nightly_protocol",
   "node-runtime/nightly_protocol",
 ]
-statelessnet_protocol = ["near-store/statelessnet_protocol", "near-primitives/statelessnet_protocol"]
+statelessnet_protocol = [
+  "near-store/statelessnet_protocol",
+  "near-primitives/statelessnet_protocol",
+]
 sandbox = ["near-o11y/sandbox", "near-primitives/sandbox"]

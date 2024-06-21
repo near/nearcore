@@ -269,10 +269,14 @@ pub struct InMemoryValidatorSigner {
 }
 
 impl InMemoryValidatorSigner {
+    #[cfg(feature = "rand")]
+
     pub fn from_random(account_id: AccountId, key_type: KeyType) -> Self {
         let signer = Arc::new(InMemorySigner::from_random(account_id.clone(), key_type).into());
         Self { account_id, signer }
     }
+
+    #[cfg(feature = "rand")]
 
     pub fn from_seed(account_id: AccountId, key_type: KeyType, seed: &str) -> Self {
         let signer = Arc::new(InMemorySigner::from_seed(account_id.clone(), key_type, seed).into());

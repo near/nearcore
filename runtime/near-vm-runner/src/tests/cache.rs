@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 #[test]
 fn test_caches_compilation_error() {
-    let config = test_vm_config();
+    let config = Arc::new(test_vm_config());
     with_vm_variants(&config, |vm_kind: VMKind| {
         // The cache is currently properly implemented only for NearVM
         match vm_kind {
@@ -33,7 +33,7 @@ fn test_caches_compilation_error() {
         let terragas = 1000000000000u64;
         assert_eq!(cache.len(), 0);
         let outcome1 = make_cached_contract_call_vm(
-            &config,
+            Arc::clone(&config),
             &cache,
             code_hash,
             Some(&code),
@@ -45,7 +45,7 @@ fn test_caches_compilation_error() {
         println!("{:?}", cache);
         assert_eq!(cache.len(), 1);
         let outcome2 = make_cached_contract_call_vm(
-            &config,
+            Arc::clone(&config),
             &cache,
             code_hash,
             None,
@@ -60,7 +60,7 @@ fn test_caches_compilation_error() {
 
 #[test]
 fn test_does_not_cache_io_error() {
-    let config = test_vm_config();
+    let config = Arc::new(test_vm_config());
     with_vm_variants(&config, |vm_kind: VMKind| {
         match vm_kind {
             VMKind::NearVm => {}
@@ -75,7 +75,7 @@ fn test_does_not_cache_io_error() {
 
         cache.set_read_fault(true);
         let result = make_cached_contract_call_vm(
-            &config,
+            Arc::clone(&config),
             &cache,
             code_hash,
             None,
@@ -91,7 +91,7 @@ fn test_does_not_cache_io_error() {
 
         cache.set_write_fault(true);
         let result = make_cached_contract_call_vm(
-            &config,
+            Arc::clone(&config),
             &cache,
             code_hash,
             Some(&code),
@@ -108,7 +108,7 @@ fn test_does_not_cache_io_error() {
 }
 
 fn make_cached_contract_call_vm(
-    config: &Config,
+    config: Arc<Config>,
     cache: &dyn ContractRuntimeCache,
     code_hash: CryptoHash,
     code: Option<&ContractCode>,
@@ -123,11 +123,11 @@ fn make_cached_contract_call_vm(
     };
     fake_external.code_hash = code_hash;
     let mut context = create_context(vec![]);
-    let fees = RuntimeFeesConfig::test();
-    let promise_results = vec![];
+    let fees = Arc::new(RuntimeFeesConfig::test());
+    let promise_results = [].into();
     context.prepaid_gas = prepaid_gas;
-    let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
-    runtime.run(method_name, &mut fake_external, &context, &fees, &promise_results, Some(cache))
+    let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
+    runtime.run(method_name, &mut fake_external, &context, fees, promise_results, Some(cache))
 }
 
 #[test]
@@ -166,7 +166,7 @@ fn test_wasmer2_artifact_output_stability() {
     for seed in seeds {
         let contract = ContractCode::new(near_test_contracts::arbitrary_contract(seed), None);
 
-        let config = test_vm_config();
+        let config = Arc::new(test_vm_config());
         let prepared_code =
             prepare::prepare_contract(contract.code(), &config, VMKind::Wasmer2).unwrap();
         got_prepared_hashes.push(crate::utils::stable_hash((&contract.code(), &prepared_code)));
@@ -241,7 +241,7 @@ fn test_near_vm_artifact_output_stability() {
     for seed in seeds {
         let contract = ContractCode::new(near_test_contracts::arbitrary_contract(seed), None);
 
-        let config = test_vm_config();
+        let config = Arc::new(test_vm_config());
         let prepared_code =
             prepare::prepare_contract(contract.code(), &config, VMKind::NearVm).unwrap();
         got_prepared_hashes.push(crate::utils::stable_hash((&contract.code(), &prepared_code)));

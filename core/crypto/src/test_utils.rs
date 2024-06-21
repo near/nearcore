@@ -1,9 +1,7 @@
-use secp256k1::rand::SeedableRng;
-
-use crate::signature::{ED25519PublicKey, ED25519SecretKey, KeyType, PublicKey, SecretKey};
+use crate::signature::{KeyType, PublicKey, SecretKey};
 use crate::{InMemorySigner, Signature};
-use near_account_id::AccountId;
 
+#[cfg(feature = "rand")]
 fn ed25519_key_pair_from_seed(seed: &str) -> ed25519_dalek::SigningKey {
     let seed_bytes = seed.as_bytes();
     let len = std::cmp::min(ed25519_dalek::SECRET_KEY_LENGTH, seed_bytes.len());
@@ -12,7 +10,10 @@ fn ed25519_key_pair_from_seed(seed: &str) -> ed25519_dalek::SigningKey {
     ed25519_dalek::SigningKey::from_bytes(&seed)
 }
 
+#[cfg(feature = "rand")]
 fn secp256k1_secret_key_from_seed(seed: &str) -> secp256k1::SecretKey {
+    use secp256k1::rand::SeedableRng;
+
     let seed_bytes = seed.as_bytes();
     let len = std::cmp::min(32, seed_bytes.len());
     let mut seed: [u8; 32] = [b' '; 32];
@@ -22,11 +23,14 @@ fn secp256k1_secret_key_from_seed(seed: &str) -> secp256k1::SecretKey {
 }
 
 impl PublicKey {
+    #[cfg(feature = "rand")]
     pub fn from_seed(key_type: KeyType, seed: &str) -> Self {
         match key_type {
             KeyType::ED25519 => {
                 let keypair = ed25519_key_pair_from_seed(seed);
-                PublicKey::ED25519(ED25519PublicKey(keypair.verifying_key().to_bytes()))
+                PublicKey::ED25519(crate::signature::ED25519PublicKey(
+                    keypair.verifying_key().to_bytes(),
+                ))
             }
             KeyType::SECP256K1 => {
                 let secret_key = SecretKey::SECP256K1(secp256k1_secret_key_from_seed(seed));
@@ -37,11 +41,12 @@ impl PublicKey {
 }
 
 impl SecretKey {
+    #[cfg(feature = "rand")]
     pub fn from_seed(key_type: KeyType, seed: &str) -> Self {
         match key_type {
             KeyType::ED25519 => {
                 let keypair = ed25519_key_pair_from_seed(seed);
-                SecretKey::ED25519(ED25519SecretKey(keypair.to_keypair_bytes()))
+                SecretKey::ED25519(crate::signature::ED25519SecretKey(keypair.to_keypair_bytes()))
             }
             KeyType::SECP256K1 => SecretKey::SECP256K1(secp256k1_secret_key_from_seed(seed)),
         }
@@ -61,7 +66,8 @@ impl Signature {
 }
 
 impl InMemorySigner {
-    pub fn from_random(account_id: AccountId, key_type: KeyType) -> Self {
+    #[cfg(feature = "rand")]
+    pub fn from_random(account_id: near_account_id::AccountId, key_type: KeyType) -> Self {
         let secret_key = SecretKey::from_random(key_type);
         Self { account_id, public_key: secret_key.public_key(), secret_key }
     }

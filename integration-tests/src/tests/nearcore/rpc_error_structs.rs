@@ -4,7 +4,7 @@ use actix::{Actor, System};
 
 use futures::{future, FutureExt, TryFutureExt};
 
-use crate::genesis_helpers::genesis_block;
+use crate::tests::genesis_helpers::genesis_block;
 use crate::tests::nearcore::node_cluster::NodeCluster;
 use near_actix_test_utils::spawn_interruptible;
 use near_client::GetBlock;

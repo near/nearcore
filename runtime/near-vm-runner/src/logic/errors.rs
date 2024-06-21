@@ -110,6 +110,12 @@ pub enum CompilationError {
     WasmerCompileError {
         msg: String,
     },
+    /// This is for defense in depth.
+    /// We expect our runtime-independent preparation code to fully catch all invalid wasms,
+    /// but, if it ever misses something we’ll emit this error
+    WasmtimeCompileError {
+        msg: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
@@ -341,6 +347,9 @@ impl fmt::Display for CompilationError {
             CompilationError::PrepareError(p) => write!(f, "PrepareError: {}", p),
             CompilationError::WasmerCompileError { msg } => {
                 write!(f, "Wasmer compilation error: {}", msg)
+            }
+            CompilationError::WasmtimeCompileError { msg } => {
+                write!(f, "Wasmtime compilation error: {}", msg)
             }
         }
     }

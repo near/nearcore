@@ -3,7 +3,6 @@ import json
 import os
 import typing
 
-import ed25519
 from nacl.signing import SigningKey
 
 
@@ -20,14 +19,13 @@ class Key:
 
     @classmethod
     def from_random(cls, account_id: str) -> 'Key':
-        keys = ed25519.create_keypair(entropy=os.urandom)
-        return cls.from_keypair(account_id, keys)
+        return cls.from_keypair(account_id, SigningKey(os.urandom(32)))
 
     @classmethod
     def implicit_account(cls) -> 'Key':
-        keys = ed25519.create_keypair(entropy=os.urandom)
-        account_id = keys[1].to_bytes().hex()
-        return cls.from_keypair(account_id, keys)
+        key = SigningKey(os.urandom(32))
+        account_id = bytes(key.verify_key).hex()
+        return cls.from_keypair(account_id, key)
 
     @classmethod
     def from_json(cls, j: typing.Dict[str, str]):
@@ -50,13 +48,13 @@ class Key:
         # use the repeated seed string as secret key by injecting fake entropy
         fake_entropy = lambda length: (seed * (1 + int(length / len(seed)))
                                       ).encode()[:length]
-        keys = ed25519.create_keypair(entropy=fake_entropy)
-        return cls.from_keypair(account_id, keys)
+        return cls.from_keypair(account_id, SigningKey(fake_entropy(32)))
 
     @classmethod
-    def from_keypair(cls, account_id, keys):
-        sk = 'ed25519:' + base58.b58encode(keys[0].to_bytes()).decode('ascii')
-        pk = 'ed25519:' + base58.b58encode(keys[1].to_bytes()).decode('ascii')
+    def from_keypair(cls, account_id, key: SigningKey):
+        sk = 'ed25519:' + base58.b58encode(bytes(key)).decode('ascii')
+        pk = 'ed25519:' + base58.b58encode(bytes(
+            key.verify_key)).decode('ascii')
         return cls(account_id, pk, sk)
 
     def decoded_pk(self) -> bytes:

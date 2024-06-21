@@ -19,7 +19,7 @@ pub fn genesis_hash(genesis: &Genesis) -> CryptoHash {
 }
 
 /// Utility to generate genesis header from config for testing purposes.
-pub fn genesis_header(genesis: &Genesis) -> BlockHeader {
+fn genesis_header(genesis: &Genesis) -> BlockHeader {
     let dir = tempdir().unwrap();
     let store = create_test_store();
     initialize_genesis_state(store.clone(), genesis, None);
