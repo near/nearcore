@@ -16,6 +16,9 @@ use std::time::Duration;
 /// This number will likely never be hit unless there are many forks in the chain.
 pub(crate) const MAX_PROCESSING_BLOCKS: usize = 5;
 
+/// This is used to for the thread that applies chunks to notify other waiter threads.
+/// The thread applying the chunks should call `set_done` to send the notification.
+/// The waiter threads should call `wait_until_done` to wait (blocked) for the notification.
 #[derive(Clone)]
 pub struct ApplyChunksDoneTracker(Arc<(Mutex<bool>, Condvar)>);
 
@@ -25,7 +28,8 @@ impl ApplyChunksDoneTracker {
     }
 
     /// Notifies all threads waiting on `wait_until_done` that apply chunks is done.
-    /// This should be called only once, otherwise it returns an error on the second call.
+    /// This should be called only once.
+    /// Returns an error if it is called more than once or the mutex used internally is poisoned.
     pub fn set_done(&mut self) -> Result<(), &'static str> {
         let (lock, cvar) = &*self.0;
         match lock.lock() {
@@ -42,15 +46,16 @@ impl ApplyChunksDoneTracker {
         }
     }
 
-    /// Blocks the current thread until the `set_done` is called
+    /// Blocks the current thread until the `set_done` is called after applying the chunks.
     /// to indicate that apply chunks is done.
     pub fn wait_until_done(&self) {
-        const WAIT_TIMEOUT: Duration = Duration::from_millis(100);
+        #[cfg(feature = "testloop")]
+        let mut testloop_total_wait_time = Duration::from_millis(0);
+        
         let (lock, cvar) = &*self.0;
-        #[cfg(test)]
-        let mut total_wait_time = Duration::from_millis(0);
         match lock.lock() {
             Ok(mut guard) => loop {
+                const WAIT_TIMEOUT: Duration = Duration::from_millis(100);
                 match cvar.wait_timeout(guard, WAIT_TIMEOUT) {
                     Ok(result) => {
                         guard = result.0;
@@ -58,12 +63,14 @@ impl ApplyChunksDoneTracker {
                         if done {
                             break;
                         }
-                        // In test, stop waiting at the first timeout.
-                        #[cfg(test)]
+                        
+                        // In tests panics cause the waiter threads to miss the notification (see issue #11447).
+                        // Thus, we limit the total wait time for waiting for the notification. 
+                        #[cfg(feature = "testloop")]
                         if result.1.timed_out() {
-                            const TEST_MAX_TIMEOUT: Duration = Duration::from_millis(5000);
-                            total_wait_time += WAIT_TIMEOUT;
-                            if total_wait_time >= TEST_MAX_TIMEOUT {
+                            const TESTLOOP_MAX_WAIT_TIME: Duration = Duration::from_millis(5000);
+                            testloop_total_wait_time += WAIT_TIMEOUT;
+                            if testloop_total_wait_time >= TESTLOOP_MAX_WAIT_TIME {
                                 break;
                             }
                         }
