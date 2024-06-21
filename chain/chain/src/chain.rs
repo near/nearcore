@@ -365,8 +365,7 @@ impl Chain {
             epoch_manager.as_ref(),
             runtime_adapter.as_ref(),
             chain_genesis,
-        )
-        .unwrap();
+        )?;
         let (sc, rc) = unbounded();
         Ok(Chain {
             clock: clock.clone(),
@@ -418,11 +417,7 @@ impl Chain {
             epoch_manager.as_ref(),
             runtime_adapter.as_ref(),
             &state_roots,
-        );
-        let congestion_infos = congestion_infos.map_err(|err| {
-            tracing::error!(target: "chain", ?err, "Failed to get the genesis congestion infos.");
-            err
-        })?;
+        )?;
         let genesis_chunks = genesis_chunks(
             state_roots.clone(),
             congestion_infos,
@@ -3923,7 +3918,22 @@ impl Chain {
     }
 }
 
+/// This method calculates the congestion info for the genesis chunks. It uses
+/// the congestion info bootstrapping logic. This method is just a wrapper
+/// around the [`get_genesis_congestion_infos_impl`]. It logs an error if one
+/// happens.
 pub fn get_genesis_congestion_infos(
+    epoch_manager: &dyn EpochManagerAdapter,
+    runtime: &dyn RuntimeAdapter,
+    state_roots: &Vec<CryptoHash>,
+) -> Result<Vec<Option<CongestionInfo>>, Error> {
+    get_genesis_congestion_infos_impl(epoch_manager, runtime, state_roots).map_err(|err| {
+        tracing::error!(target: "chain", ?err, "Failed to get the genesis congestion infos.");
+        err
+    })
+}
+
+fn get_genesis_congestion_infos_impl(
     epoch_manager: &dyn EpochManagerAdapter,
     runtime: &dyn RuntimeAdapter,
     state_roots: &Vec<CryptoHash>,

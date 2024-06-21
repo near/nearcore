@@ -98,8 +98,6 @@ pub fn genesis_chunks(
     genesis_height: BlockHeight,
     genesis_protocol_version: ProtocolVersion,
 ) -> Vec<crate::sharding::ShardChunk> {
-    use near_primitives_core::types::ShardId;
-
     let rs = ShardChunkReedSolomon::new(1, 2).unwrap();
     let state_roots = if state_roots.len() == shard_ids.len() {
         state_roots
@@ -116,7 +114,7 @@ pub fn genesis_chunks(
     for shard_id in 0..num {
         let state_root = state_roots[shard_id];
         let congestion_info = congestion_infos[shard_id];
-        let shard_id = shard_id as ShardId;
+        let shard_id = shard_id as crate::types::ShardId;
 
         let encoded_chunk = genesis_chunk(
             &rs,
