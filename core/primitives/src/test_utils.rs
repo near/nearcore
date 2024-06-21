@@ -539,7 +539,8 @@ impl TestBlockBuilder {
             self.signer.as_ref(),
             self.next_bp_hash,
             self.block_merkle_root,
-            self.clock.now_utc(),
+            self.clock,
+            None,
         )
     }
 }

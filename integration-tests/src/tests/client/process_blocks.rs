@@ -349,7 +349,8 @@ fn receive_network_block() {
                 &signer,
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
-                Clock::real().now_utc(),
+                Clock::real(),
+                None,
             );
             actor_handles.client_actor.do_send(
                 BlockResponse { block, peer_id: PeerInfo::random().id, was_requested: false }
@@ -435,7 +436,8 @@ fn produce_block_with_approvals() {
                 &signer1,
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
-                Clock::real().now_utc(),
+                Clock::real(),
+                None,
             );
             actor_handles.client_actor.do_send(
                 BlockResponse {
@@ -651,7 +653,8 @@ fn invalid_blocks_common(is_requested: bool) {
                 &signer,
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
-                Clock::real().now_utc(),
+                Clock::real(),
+                None,
             );
             // Send block with invalid chunk mask
             let mut block = valid_block.clone();
