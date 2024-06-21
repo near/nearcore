@@ -3,6 +3,7 @@ use crate::concurrency::rate;
 use crate::network_protocol::PeerAddr;
 use crate::network_protocol::PeerInfo;
 use crate::peer_manager::peer_store;
+use crate::rate_limits::messages_limits;
 use crate::snapshot_hosts;
 use crate::stun;
 use crate::tcp;
@@ -191,6 +192,9 @@ pub struct NetworkConfig {
     //   * ignoring received deleted edges as well
     pub skip_tombstones: Option<time::Duration>,
 
+    /// Configuration of rate limits for incoming messages.
+    pub received_messages_rate_limits: messages_limits::Config,
+
     #[cfg(test)]
     pub(crate) event_sink:
         near_async::messaging::Sender<crate::peer_manager::peer_manager_actor::Event>,
@@ -370,6 +374,8 @@ impl NetworkConfig {
             } else {
                 None
             },
+            // TODO(trisfald): set config properly
+            received_messages_rate_limits: messages_limits::Config::default(),
             #[cfg(test)]
             event_sink: near_async::messaging::IntoSender::into_sender(
                 near_async::messaging::noop(),
@@ -447,6 +453,7 @@ impl NetworkConfig {
                 enable_outbound: true,
             }),
             skip_tombstones: None,
+            received_messages_rate_limits: messages_limits::Config::default(),
             #[cfg(test)]
             event_sink: near_async::messaging::IntoSender::into_sender(
                 near_async::messaging::noop(),

@@ -22,6 +22,7 @@ use crate::peer_manager::network_state::{NetworkState, PRUNE_EDGES_AFTER};
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_manager_actor::MAX_TIER2_PEERS;
 use crate::private_actix::{RegisterPeerError, SendMessage};
+use crate::rate_limits::messages_limits;
 use crate::routing::edge::verify_nonce;
 use crate::routing::NetworkTopologyChange;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
@@ -80,6 +81,8 @@ pub(crate) const DROP_DUPLICATED_MESSAGES_PERIOD: time::Duration = time::Duratio
 const SYNC_LATEST_BLOCK_INTERVAL: time::Duration = time::Duration::seconds(60);
 /// How often to perform a full sync of AccountsData with the peer.
 const ACCOUNTS_DATA_FULL_SYNC_INTERVAL: time::Duration = time::Duration::minutes(10);
+/// How often per-message rate limit allowance is updated.
+const RATE_LIMITS_UPDATE_INTERVAL: time::Duration = time::Duration::seconds(1);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnectionClosedEvent {
@@ -190,6 +193,9 @@ pub(crate) struct PeerActor {
     // TODO: move it to ConnectingStatus::Outbound.
     // When ready, use connection.peer_info instead.
     peer_info: DisplayOption<PeerInfo>,
+
+    /// Per-message rate limits for incoming messages.
+    received_messages_rate_limits: Arc<messages_limits::RateLimits>,
 }
 
 impl Debug for PeerActor {
@@ -311,6 +317,9 @@ impl PeerActor {
             // That likely requires bigger changes and account_id here is later used for debug / logging purposes only.
             account_id: network_state.config.validator.account_id(),
         };
+        let received_messages_rate_limits = Arc::new(messages_limits::RateLimits::from_config(
+            &network_state.config.received_messages_rate_limits,
+        ));
         // recv is the HandshakeSignal returned by this spawn_inner() call.
         let (send, recv): (HandshakeSignalSender, HandshakeSignal) =
             tokio::sync::oneshot::channel();
@@ -351,6 +360,7 @@ impl PeerActor {
                     }
                     .into(),
                     network_state,
+                    received_messages_rate_limits,
                 }
             }),
             recv,
@@ -722,6 +732,22 @@ impl PeerActor {
                                 partial_edge_info: partial_edge_info,
                             });
                         }
+                        // Network messages rate limits are updated at regular intervals
+                        // in the same way for both TIER1 and TIER2 connections.
+                        ctx.spawn(wrap_future({
+                            let clock = act.clock.clone();
+                            let rate_limits = act.received_messages_rate_limits.clone();
+                            let mut interval = time::Interval::new(clock.now(),RATE_LIMITS_UPDATE_INTERVAL);
+                            let mut now = clock.now();
+                            async move {
+                                loop {
+                                    interval.tick(&clock).await;
+                                    let new_now = clock.now();
+                                    rate_limits.update((new_now - now).try_into().unwrap_or_default());
+                                    now = new_now;
+                                }
+                            }
+                        }));
                         // TIER1 is strictly reserved for BFT consensensus messages,
                         // so all kinds of periodical syncs happen only on TIER2 connections.
                         if tier==tcp::Tier::T2 {
@@ -1738,6 +1764,11 @@ impl actix::Handler<stream::Frame> for PeerActor {
             metrics::PEER_MESSAGE_RECEIVED_BY_TYPE_BYTES
                 .with_label_values(&labels)
                 .inc_by(msg.len() as u64);
+            if !self.received_messages_rate_limits.is_allowed(&peer_msg) {
+                metrics::PEER_MESSAGE_RATE_LIMITED_BY_TYPE_TOTAL.with_label_values(&labels).inc();
+                tracing::debug!(target: "network", "Peer {} is being rate limited for message {}", self.peer_info, peer_msg.msg_variant());
+                return;
+            }
         }
         match &self.peer_status {
             PeerStatus::Connecting { .. } => self.handle_msg_connecting(ctx, peer_msg),
