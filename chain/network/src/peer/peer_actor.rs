@@ -306,7 +306,9 @@ impl PeerActor {
         let my_node_info = PeerInfo {
             id: network_state.config.node_id(),
             addr: network_state.config.node_addr.as_ref().map(|a| **a),
-            account_id: network_state.config.validator.as_ref().map(|v| v.account_id()),
+            // TODO(validator-key-hot-swap) Consider using mutable validator signer instead of PeerInfo.account_id ?
+            // That likely requires bigger changes and account_id here is later used for debug / logging purposes only.
+            account_id: network_state.config.validator.account_id(),
         };
         // recv is the HandshakeSignal returned by this spawn_inner() call.
         let (send, recv): (HandshakeSignalSender, HandshakeSignal) =
@@ -461,13 +463,13 @@ impl PeerActor {
                 archival: self.network_state.config.archive,
             },
             partial_edge_info: spec.partial_edge_info,
-            owned_account: self.network_state.config.validator.as_ref().map(|vc| {
+            owned_account: self.network_state.config.validator.signer.get().map(|signer| {
                 OwnedAccount {
-                    account_key: vc.signer.public_key(),
+                    account_key: signer.public_key(),
                     peer_id: self.network_state.config.node_id(),
                     timestamp: self.clock.now_utc(),
                 }
-                .sign(vc.signer.as_ref())
+                .sign(&signer)
             }),
         };
         let msg = match spec.tier {

@@ -55,8 +55,8 @@ async fn send_tier1_message(
     from: &peer_manager::testonly::ActorHandler,
     to: &peer_manager::testonly::ActorHandler,
 ) -> Option<RoutedMessageBody> {
-    let from_signer = from.cfg.validator.as_ref().unwrap().signer.clone();
-    let to_signer = to.cfg.validator.as_ref().unwrap().signer.clone();
+    let from_signer = from.cfg.validator.signer.get().unwrap();
+    let to_signer = to.cfg.validator.signer.get().unwrap();
     let target = to_signer.validator_id().clone();
     let want = RoutedMessageBody::BlockApproval(make_block_approval(rng, from_signer.as_ref()));
     let clock = clock.clone();
@@ -211,11 +211,10 @@ async fn proxy_connections() {
     let mut validators = vec![];
     for i in 0..N {
         let mut cfg = chain.make_config(rng);
-        cfg.validator.as_mut().unwrap().proxies =
-            config::ValidatorProxies::Static(vec![PeerAddr {
-                peer_id: proxies[i].cfg.node_id(),
-                addr: **proxies[i].cfg.node_addr.as_ref().unwrap(),
-            }]);
+        cfg.validator.proxies = config::ValidatorProxies::Static(vec![PeerAddr {
+            peer_id: proxies[i].cfg.node_id(),
+            addr: **proxies[i].cfg.node_addr.as_ref().unwrap(),
+        }]);
         validators
             .push(start_pm(clock.clock(), near_store::db::TestDB::new(), cfg, chain.clone()).await);
     }
@@ -307,12 +306,12 @@ async fn proxy_change() {
     let p0cfg = chain.make_config(rng);
     let p1cfg = chain.make_config(rng);
     let mut v0cfg = chain.make_config(rng);
-    v0cfg.validator.as_mut().unwrap().proxies = config::ValidatorProxies::Static(vec![
+    v0cfg.validator.proxies = config::ValidatorProxies::Static(vec![
         PeerAddr { peer_id: p0cfg.node_id(), addr: **p0cfg.node_addr.as_ref().unwrap() },
         PeerAddr { peer_id: p1cfg.node_id(), addr: **p1cfg.node_addr.as_ref().unwrap() },
     ]);
     let mut v1cfg = chain.make_config(rng);
-    v1cfg.validator.as_mut().unwrap().proxies = config::ValidatorProxies::Static(vec![]);
+    v1cfg.validator.proxies = config::ValidatorProxies::Static(vec![]);
 
     tracing::info!(target:"test", "Start all nodes.");
     let p0 = start_pm(clock.clock(), TestDB::new(), p0cfg.clone(), chain.clone()).await;
@@ -401,8 +400,7 @@ async fn stun_self_discovery() {
     let stun_server1 = stun::testonly::Server::new().await;
     let stun_server2 = stun::testonly::Server::new().await;
     let mut cfg = chain.make_config(rng);
-    let vc = cfg.validator.as_mut().unwrap();
-    vc.proxies = config::ValidatorProxies::Dynamic(vec![stun_server1.addr(), stun_server2.addr()]);
+    cfg.validator.proxies = config::ValidatorProxies::Dynamic(vec![stun_server1.addr(), stun_server2.addr()]);
 
     tracing::info!(target:"test", "spawn a node and advertize AccountData.");
     let pm = start_pm(clock.clock(), TestDB::new(), cfg, chain.clone()).await;

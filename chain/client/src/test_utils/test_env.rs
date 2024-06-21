@@ -297,7 +297,8 @@ impl TestEnv {
         while let Some(msg) = self.client_adapters[id].pop() {
             match msg {
                 ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk } => {
-                    self.clients[id].on_chunk_completed(partial_chunk, shard_chunk, None);
+                    let signer = self.clients[id].validator_signer.get();
+                    self.clients[id].on_chunk_completed(partial_chunk, shard_chunk, None, &signer);
                 }
                 ShardsManagerResponse::InvalidChunk(encoded_chunk) => {
                     self.clients[id].on_invalid_chunk(encoded_chunk);
@@ -374,10 +375,12 @@ impl TestEnv {
                     let processing_done_tracker = ProcessingDoneTracker::new();
                     witness_processing_done_waiters.push(processing_done_tracker.make_waiter());
 
-                    let processing_result = self.client(&account_id).process_chunk_state_witness(
+                    let client = self.client(&account_id);
+                    let processing_result = client.process_chunk_state_witness(
                         state_witness.clone(),
                         raw_witness_size,
                         Some(processing_done_tracker),
+                        client.validator_signer.get(),
                     );
                     if !allow_errors {
                         processing_result.unwrap();

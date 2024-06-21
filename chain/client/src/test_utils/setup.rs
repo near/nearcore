@@ -55,7 +55,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, BlockHeightDelta, EpochId, NumBlocks, NumSeats};
-use near_primitives::validator_signer::ValidatorSigner;
+use near_primitives::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 use near_telemetry::TelemetryActor;
@@ -116,7 +116,10 @@ pub fn setup(
         protocol_version: PROTOCOL_VERSION,
     };
 
-    let signer = Arc::new(create_test_signer(account_id.as_str()));
+    let signer = MutableConfigValue::new(
+        Some(Arc::new(create_test_signer(account_id.as_str()))),
+        "validator_signer",
+    );
     let telemetry = ActixWrapper::new(TelemetryActor::default()).start();
     let config = {
         let mut base = ClientConfig::test(
@@ -137,7 +140,7 @@ pub fn setup(
 
     let view_client_addr = ViewClientActorInner::spawn_actix_actor(
         clock.clone(),
-        Some(signer.validator_id().clone()),
+        signer.clone(),
         chain_genesis.clone(),
         epoch_manager.clone(),
         shard_tracker.clone(),
@@ -176,7 +179,7 @@ pub fn setup(
         state_sync_adapter,
         network_adapter.clone(),
         shards_manager_adapter_for_client.as_sender(),
-        Some(signer),
+        signer,
         telemetry.with_auto_span_context().into_sender(),
         None,
         None,
@@ -186,13 +189,13 @@ pub fn setup(
         enable_doomslug,
         Some(TEST_SEED),
     );
-
+    let validator_signer = Some(Arc::new(EmptyValidatorSigner::new(account_id)));
     let (shards_manager_addr, _) = start_shards_manager(
         epoch_manager,
         shard_tracker,
         network_adapter.into_sender(),
         client_actor.clone().with_auto_span_context().into_sender(),
-        Some(account_id),
+        MutableConfigValue::new(validator_signer, "validator_signer"),
         store,
         config.chunk_request_retry_period,
     );
@@ -264,11 +267,14 @@ pub fn setup_only_view(
         },
         None,
         Arc::new(RayonAsyncComputationSpawner),
-        None,
+        MutableConfigValue::new(None, "validator_signer"),
     )
     .unwrap();
 
-    let signer = Arc::new(create_test_signer(account_id.as_str()));
+    let signer = MutableConfigValue::new(
+        Some(Arc::new(create_test_signer(account_id.as_str()))),
+        "validator_signer",
+    );
     ActixWrapper::new(TelemetryActor::default()).start();
     let config = ClientConfig::test(
         skip_sync_wait,
@@ -285,7 +291,7 @@ pub fn setup_only_view(
 
     ViewClientActorInner::spawn_actix_actor(
         clock,
-        Some(signer.validator_id().clone()),
+        signer,
         chain_genesis,
         epoch_manager,
         shard_tracker,
@@ -1013,7 +1019,7 @@ pub fn setup_client_with_runtime(
         runtime,
         network_adapter,
         shards_manager_adapter.into_sender(),
-        Some(validator_signer),
+        MutableConfigValue::new(Some(validator_signer), "validator_signer"),
         enable_doomslug,
         rng_seed,
         snapshot_callbacks,
@@ -1057,14 +1063,15 @@ pub fn setup_synchronous_shards_manager(
         }, // irrelevant
         None,
         Arc::new(RayonAsyncComputationSpawner),
-        None,
+        MutableConfigValue::new(None, "validator_signer"),
     )
     .unwrap();
     let chain_head = chain.head().unwrap();
     let chain_header_head = chain.header_head().unwrap();
+    let validator_signer = account_id.map(|id| Arc::new(EmptyValidatorSigner::new(id)));
     let shards_manager = ShardsManagerActor::new(
         clock,
-        account_id,
+        MutableConfigValue::new(validator_signer, "validator_signer"),
         epoch_manager,
         shard_tracker,
         network_adapter.request_sender,

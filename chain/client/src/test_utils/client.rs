@@ -44,9 +44,11 @@ impl Client {
         should_produce_chunk: bool,
         allow_errors: bool,
     ) -> Result<Vec<CryptoHash>, near_chain::Error> {
-        self.start_process_block(block, provenance, None)?;
+        let signer = self.validator_signer.get();
+        self.start_process_block(block, provenance, None, &signer)?;
         wait_for_all_blocks_in_processing(&mut self.chain);
-        let (accepted_blocks, errors) = self.postprocess_ready_blocks(None, should_produce_chunk);
+        let (accepted_blocks, errors) =
+            self.postprocess_ready_blocks(None, should_produce_chunk, &signer);
         if !allow_errors {
             assert!(errors.is_empty(), "unexpected errors when processing blocks: {errors:#?}");
         }
@@ -79,9 +81,10 @@ impl Client {
 
     /// This function finishes processing all blocks that started being processed.
     pub fn finish_blocks_in_processing(&mut self) -> Vec<CryptoHash> {
+        let signer = self.validator_signer.get();
         let mut accepted_blocks = vec![];
         while wait_for_all_blocks_in_processing(&mut self.chain) {
-            accepted_blocks.extend(self.postprocess_ready_blocks(None, true).0);
+            accepted_blocks.extend(self.postprocess_ready_blocks(None, true, &signer).0);
         }
         accepted_blocks
     }
@@ -90,7 +93,8 @@ impl Client {
     /// has started.
     pub fn finish_block_in_processing(&mut self, hash: &CryptoHash) -> Vec<CryptoHash> {
         if let Ok(()) = wait_for_block_in_processing(&mut self.chain, hash) {
-            let (accepted_blocks, _) = self.postprocess_ready_blocks(None, true);
+            let signer = self.validator_signer.get();
+            let (accepted_blocks, _) = self.postprocess_ready_blocks(None, true, &signer);
             return accepted_blocks;
         }
         vec![]
@@ -104,12 +108,13 @@ impl Client {
             receipts,
             transactions_storage_proof,
         } = create_chunk_on_height_for_shard(self, height, shard_id);
+        let signer = self.validator_signer.get();
         let shard_chunk = self
             .persist_and_distribute_encoded_chunk(
                 encoded_chunk,
                 merkle_paths,
                 receipts,
-                self.validator_signer.get().unwrap().validator_id().clone(),
+                signer.as_ref().unwrap().validator_id().clone(),
             )
             .unwrap();
         let prev_block = self.chain.get_block(shard_chunk.prev_block()).unwrap();
@@ -125,6 +130,7 @@ impl Client {
             &prev_chunk_header,
             &shard_chunk,
             transactions_storage_proof,
+            &signer,
         )
         .unwrap();
         shard_chunk
@@ -138,6 +144,7 @@ fn create_chunk_on_height_for_shard(
 ) -> ProduceChunkResult {
     let last_block_hash = client.chain.head().unwrap().last_block_hash;
     let last_block = client.chain.get_block(&last_block_hash).unwrap();
+    let signer = client.validator_signer.get();
     client
         .try_produce_chunk(
             &last_block,
@@ -146,6 +153,7 @@ fn create_chunk_on_height_for_shard(
                 .unwrap(),
             next_height,
             shard_id,
+            signer.as_ref(),
         )
         .unwrap()
         .unwrap()
@@ -171,6 +179,7 @@ pub fn create_chunk(
 ) -> (ProduceChunkResult, Block) {
     let last_block = client.chain.get_block_by_height(client.chain.head().unwrap().height).unwrap();
     let next_height = last_block.header().height() + 1;
+    let signer = client.validator_signer.get();
     let ProduceChunkResult {
         mut chunk,
         encoded_chunk_parts_paths: mut merkle_paths,
@@ -183,6 +192,7 @@ pub fn create_chunk(
             last_block.chunks()[0].clone(),
             next_height,
             0,
+            signer.as_ref(),
         )
         .unwrap()
         .unwrap();
@@ -201,7 +211,7 @@ pub fn create_chunk(
         let parity_parts = total_parts - data_parts;
         let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
 
-        let signer = client.validator_signer.get().unwrap();
+        let signer = signer.unwrap();
         let header = chunk.cloned_header();
         let (mut encoded_chunk, mut new_merkle_paths) = EncodedShardChunk::new(
             *header.prev_block_hash(),
@@ -296,6 +306,7 @@ pub fn run_catchup(
     let _ = System::new();
     let state_parts_future_spawner = ActixArbiterHandleFutureSpawner(Arbiter::new().handle());
     loop {
+        let signer = client.validator_signer.get();
         client.run_catchup(
             highest_height_peers,
             &noop().into_sender(),
@@ -304,6 +315,7 @@ pub fn run_catchup(
             &resharding,
             None,
             &state_parts_future_spawner,
+            &signer,
         )?;
         let mut catchup_done = true;
         for msg in block_messages.write().unwrap().drain(..) {

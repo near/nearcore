@@ -138,7 +138,6 @@ pub struct Doomslug {
     endorsement_pending: bool,
     /// Information to track the timer (see `start_timer` routine in the paper)
     timer: DoomslugTimer,
-    signer: Option<Arc<ValidatorSigner>>,
     /// How many approvals to have before producing a block. In production should be always `HalfStake`,
     ///    but for many tests we use `NoApprovals` to invoke more forkfulness
     threshold_mode: DoomslugThresholdMode,
@@ -362,7 +361,6 @@ impl Doomslug {
         min_delay: Duration,
         delay_step: Duration,
         max_delay: Duration,
-        signer: Option<Arc<ValidatorSigner>>,
         threshold_mode: DoomslugThresholdMode,
     ) -> Self {
         Doomslug {
@@ -392,7 +390,6 @@ impl Doomslug {
                 delay_step,
                 max_delay,
             },
-            signer,
             threshold_mode,
             history: VecDeque::new(),
         }
@@ -465,7 +462,7 @@ impl Doomslug {
     /// A vector of approvals that need to be sent to other block producers as a result of processing
     /// the timers
     #[must_use]
-    pub fn process_timer(&mut self) -> Vec<Approval> {
+    pub fn process_timer(&mut self, signer: &Option<Arc<ValidatorSigner>>) -> Vec<Approval> {
         let now = self.clock.now();
         let mut ret = vec![];
         for _ in 0..MAX_TIMER_ITERS {
@@ -486,7 +483,7 @@ impl Doomslug {
                 if tip_height >= self.largest_target_height.get() {
                     self.largest_target_height.set(tip_height + 1);
 
-                    if let Some(approval) = self.create_approval(tip_height + 1) {
+                    if let Some(approval) = self.create_approval(tip_height + 1, signer) {
                         ret.push(approval);
                     }
                     self.update_history(ApprovalHistoryEntry {
@@ -514,7 +511,7 @@ impl Doomslug {
                 self.largest_target_height
                     .set(std::cmp::max(self.timer.height + 1, self.largest_target_height.get()));
 
-                if let Some(approval) = self.create_approval(self.timer.height + 1) {
+                if let Some(approval) = self.create_approval(self.timer.height + 1, signer) {
                     ret.push(approval);
                 }
                 self.update_history(ApprovalHistoryEntry {
@@ -541,9 +538,13 @@ impl Doomslug {
         ret
     }
 
-    fn create_approval(&self, target_height: BlockHeight) -> Option<Approval> {
-        self.signer.as_ref().map(|signer| {
-            Approval::new(self.tip.block_hash, self.tip.height, target_height, &**signer)
+    fn create_approval(
+        &self,
+        target_height: BlockHeight,
+        signer: &Option<Arc<ValidatorSigner>>,
+    ) -> Option<Approval> {
+        signer.as_ref().map(|signer| {
+            Approval::new(self.tip.block_hash, self.tip.height, target_height, &*signer)
         })
     }
 
@@ -787,6 +788,7 @@ mod tests {
     #[test]
     fn test_endorsements_and_skips_basic() {
         let clock = FakeClock::new(Utc::UNIX_EPOCH);
+        let signer = Some(Arc::new(create_test_signer("test").into()));
         let mut ds = Doomslug::new(
             clock.clock(),
             0,
@@ -794,29 +796,28 @@ mod tests {
             Duration::milliseconds(1000),
             Duration::milliseconds(100),
             Duration::milliseconds(3000),
-            Some(Arc::new(create_test_signer("test"))),
             DoomslugThresholdMode::TwoThirds,
         );
 
         // Set a new tip, must produce an endorsement
         ds.set_tip(hash(&[1]), 1, 1);
         clock.advance(Duration::milliseconds(399));
-        assert_eq!(ds.process_timer().len(), 0);
+        assert_eq!(ds.process_timer(&signer).len(), 0);
         clock.advance(Duration::milliseconds(1));
-        let approval = ds.process_timer().into_iter().nth(0).unwrap();
+        let approval = ds.process_timer(&signer).into_iter().nth(0).unwrap();
         assert_eq!(approval.inner, ApprovalInner::Endorsement(hash(&[1])));
         assert_eq!(approval.target_height, 2);
 
         // Same tip => no approval
-        assert_eq!(ds.process_timer(), vec![]);
+        assert_eq!(ds.process_timer(&signer), vec![]);
 
         // The block was `ds_final` and therefore started the timer. Try checking before one second expires
         clock.advance(Duration::milliseconds(599));
-        assert_eq!(ds.process_timer(), vec![]);
+        assert_eq!(ds.process_timer(&signer), vec![]);
 
         // But one second should trigger the skip
         clock.advance(Duration::milliseconds(1));
-        match ds.process_timer() {
+        match ds.process_timer(&signer) {
             approvals if approvals.is_empty() => assert!(false),
             approvals => {
                 assert_eq!(approvals[0].inner, ApprovalInner::Skip(1));
@@ -827,7 +828,7 @@ mod tests {
         // Not processing a block at height 2 should not produce an appoval
         ds.set_tip(hash(&[2]), 2, 0);
         clock.advance(Duration::milliseconds(400));
-        assert_eq!(ds.process_timer(), vec![]);
+        assert_eq!(ds.process_timer(&signer), vec![]);
 
         // Go forward more so we have 1 second
         clock.advance(Duration::milliseconds(600));
@@ -835,7 +836,7 @@ mod tests {
         // But at height 3 should (also neither block has finality set, keep last final at 0 for now)
         ds.set_tip(hash(&[3]), 3, 0);
         clock.advance(Duration::milliseconds(400));
-        let approval = ds.process_timer().into_iter().nth(0).unwrap();
+        let approval = ds.process_timer(&signer).into_iter().nth(0).unwrap();
         assert_eq!(approval.inner, ApprovalInner::Endorsement(hash(&[3])));
         assert_eq!(approval.target_height, 4);
 
@@ -843,10 +844,10 @@ mod tests {
         clock.advance(Duration::milliseconds(600));
 
         clock.advance(Duration::milliseconds(199));
-        assert_eq!(ds.process_timer(), vec![]);
+        assert_eq!(ds.process_timer(&signer), vec![]);
 
         clock.advance(Duration::milliseconds(1));
-        match ds.process_timer() {
+        match ds.process_timer(&signer) {
             approvals if approvals.is_empty() => assert!(false),
             approvals if approvals.len() == 1 => {
                 assert_eq!(approvals[0].inner, ApprovalInner::Skip(3));
@@ -860,10 +861,10 @@ mod tests {
 
         // Now skip 5 (the extra delay is 200+300 = 500)
         clock.advance(Duration::milliseconds(499));
-        assert_eq!(ds.process_timer(), vec![]);
+        assert_eq!(ds.process_timer(&signer), vec![]);
 
         clock.advance(Duration::milliseconds(1));
-        match ds.process_timer() {
+        match ds.process_timer(&signer) {
             approvals if approvals.is_empty() => assert!(false),
             approvals => {
                 assert_eq!(approvals[0].inner, ApprovalInner::Skip(3));
@@ -876,10 +877,10 @@ mod tests {
 
         // Skip 6 (the extra delay is 0+200+300+400 = 900)
         clock.advance(Duration::milliseconds(899));
-        assert_eq!(ds.process_timer(), vec![]);
+        assert_eq!(ds.process_timer(&signer), vec![]);
 
         clock.advance(Duration::milliseconds(1));
-        match ds.process_timer() {
+        match ds.process_timer(&signer) {
             approvals if approvals.is_empty() => assert!(false),
             approvals => {
                 assert_eq!(approvals[0].inner, ApprovalInner::Skip(3));
@@ -893,11 +894,11 @@ mod tests {
         // Accept block at 5 with finality on the prev block, expect it to not produce an approval
         ds.set_tip(hash(&[5]), 5, 4);
         clock.advance(Duration::milliseconds(400));
-        assert_eq!(ds.process_timer(), vec![]);
+        assert_eq!(ds.process_timer(&signer), vec![]);
 
         // Skip a whole bunch of heights by moving 100 seconds ahead
         clock.advance(Duration::seconds(100));
-        assert!(ds.process_timer().len() > 10);
+        assert!(ds.process_timer(&signer).len() > 10);
 
         // Add some random small number of milliseconds to test that when the next block is added, the
         // timer is reset
@@ -906,15 +907,15 @@ mod tests {
         // No approval, since we skipped 6
         ds.set_tip(hash(&[6]), 6, 4);
         clock.advance(Duration::milliseconds(400));
-        assert_eq!(ds.process_timer(), vec![]);
+        assert_eq!(ds.process_timer(&signer), vec![]);
 
         // The block height was less than the timer height, and thus the timer was reset.
         // The wait time for height 7 with last ds final block at 5 is 1100
         clock.advance(Duration::milliseconds(699));
-        assert_eq!(ds.process_timer(), vec![]);
+        assert_eq!(ds.process_timer(&signer), vec![]);
 
         clock.advance(Duration::milliseconds(1));
-        match ds.process_timer() {
+        match ds.process_timer(&signer) {
             approvals if approvals.is_empty() => assert!(false),
             approvals => {
                 assert_eq!(approvals[0].inner, ApprovalInner::Skip(6));
@@ -942,7 +943,6 @@ mod tests {
             .map(|(account_id, _, _)| create_test_signer(account_id))
             .collect::<Vec<_>>();
 
-        let signer = Arc::new(create_test_signer("test"));
         let clock = FakeClock::new(Utc::UNIX_EPOCH);
         let mut ds = Doomslug::new(
             clock.clock(),
@@ -951,7 +951,6 @@ mod tests {
             Duration::milliseconds(1000),
             Duration::milliseconds(100),
             Duration::milliseconds(3000),
-            Some(signer),
             DoomslugThresholdMode::TwoThirds,
         );
 

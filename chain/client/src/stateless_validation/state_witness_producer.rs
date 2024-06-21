@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use near_async::messaging::{CanSend, IntoSender};
 use near_chain::{BlockHeader, Chain, ChainStoreAccess};
@@ -13,6 +14,7 @@ use near_primitives::stateless_validation::{
     ChunkStateTransition, ChunkStateWitness, StoredChunkStateTransitionData,
 };
 use near_primitives::types::{AccountId, EpochId};
+use near_primitives::validator_signer::ValidatorSigner;
 
 use crate::stateless_validation::chunk_validator::send_chunk_endorsement_to_block_producers;
 use crate::Client;
@@ -29,6 +31,7 @@ impl Client {
         prev_chunk_header: &ShardChunkHeader,
         chunk: &ShardChunk,
         transactions_storage_proof: Option<PartialState>,
+        validator_signer: &Option<Arc<ValidatorSigner>>,
     ) -> Result<(), Error> {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
         if !checked_feature!("stable", StatelessValidationV0, protocol_version) {
@@ -38,7 +41,8 @@ impl Client {
         let shard_id = chunk_header.shard_id();
         let _span = tracing::debug_span!(target: "client", "send_chunk_state_witness", chunk_hash=?chunk_header.chunk_hash(), ?shard_id).entered();
 
-        let my_signer = self.validator_signer.get().ok_or(Error::NotAValidator)?;
+        let my_signer =
+            validator_signer.as_ref().ok_or(Error::NotAValidator(format!("send state witness")))?;
         let state_witness = self.create_state_witness(
             my_signer.validator_id().clone(),
             prev_block_header,

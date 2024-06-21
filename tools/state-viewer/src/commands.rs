@@ -1547,7 +1547,7 @@ impl std::fmt::Debug for StateStatsAccount {
 #[cfg(test)]
 mod tests {
     use near_chain::types::RuntimeAdapter;
-    use near_chain_configs::Genesis;
+    use near_chain_configs::{Genesis, MutableConfigValue};
     use near_client::test_utils::TestEnv;
     use near_crypto::{InMemorySigner, KeyFile, KeyType};
     use near_epoch_manager::EpochManager;
@@ -1613,8 +1613,13 @@ mod tests {
         // Check that `send_money()` actually changed state.
         assert_ne!(chunk_extras[0].state_root(), chunk_extras[1].state_root());
 
-        let near_config =
-            NearConfig::new(Config::default(), genesis, KeyFile::from(&signer), None).unwrap();
+        let near_config = NearConfig::new(
+            Config::default(),
+            genesis,
+            KeyFile::from(&signer),
+            MutableConfigValue::new(None, "validator_signer"),
+        )
+        .unwrap();
         let (_epoch_manager, _runtime, state_roots, block_header) =
             crate::commands::load_trie(store, home_dir, &near_config);
         assert_eq!(&state_roots[0], chunk_extras[1].state_root());
