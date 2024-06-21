@@ -13,6 +13,7 @@ use near_chain_primitives::Error;
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::{EpochManagerAdapter, RngSeed};
+use near_parameters::RuntimeConfig;
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::apply::ApplyChunkReason;
@@ -1464,6 +1465,13 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_protocol_config(&self, _epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {
         unreachable!("get_protocol_config should not be called in KeyValueRuntime");
+    }
+
+    fn get_runtime_config(
+        &self,
+        _protocol_version: ProtocolVersion,
+    ) -> Result<RuntimeConfig, Error> {
+        Ok(RuntimeConfig::test())
     }
 
     fn will_shard_layout_change_next_epoch(

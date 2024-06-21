@@ -1298,6 +1298,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
+    fn get_runtime_config(
+        &self,
+        protocol_version: ProtocolVersion,
+    ) -> Result<RuntimeConfig, Error> {
+        let runtime_config = self.runtime_config_store.get_config(protocol_version);
+        Ok(runtime_config.as_ref().clone())
+    }
+
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
         let mut genesis_config = self.genesis_config.clone();
