@@ -41,7 +41,7 @@ use near_chain::{
     byzantine_assert, near_chain_primitives, Block, BlockHeader, BlockProcessingArtifact,
     ChainGenesis, Provenance,
 };
-use near_chain_configs::{ClientConfig, LogSummaryStyle, MutableConfigValue, ReshardingHandle};
+use near_chain_configs::{ClientConfig, LogSummaryStyle, MutableValidatorSigner, ReshardingHandle};
 use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
@@ -134,7 +134,7 @@ pub fn start_client(
     state_sync_adapter: Arc<RwLock<SyncAdapter>>,
     network_adapter: PeerManagerAdapter,
     shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
-    validator_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
+    validator_signer: MutableValidatorSigner,
     telemetry_sender: Sender<TelemetryEvent>,
     snapshot_callbacks: Option<SnapshotCallbacks>,
     sender: Option<broadcast::Sender<()>>,
@@ -1164,7 +1164,9 @@ impl ClientActorInner {
         let _span = tracing::debug_span!(target: "client", "check_triggers").entered();
         if let Some(config_updater) = &mut self.config_updater {
             let update_result = config_updater.try_update(
-                &|updateable_client_config| self.client.update_client_config(updateable_client_config),
+                &|updateable_client_config| {
+                    self.client.update_client_config(updateable_client_config)
+                },
                 &|validator_signer| self.client.update_validator_signer(validator_signer),
             );
             if update_result.validator_signer_updated {

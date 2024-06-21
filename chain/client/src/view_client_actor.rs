@@ -13,7 +13,7 @@ use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{
     get_epoch_block_producers_view, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode,
 };
-use near_chain_configs::{ClientConfig, MutableConfigValue, ProtocolConfigView};
+use near_chain_configs::{ClientConfig, MutableValidatorSigner, ProtocolConfigView};
 use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_client_primitives::types::{
     Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofError, GetBlockProofResponse,
@@ -94,7 +94,7 @@ pub struct ViewClientActorInner {
     /// Validator account (if present). This field is mutable and optional. Use with caution!
     /// Lock the value of mutable validator signer for the duration of a request to ensure consistency.
     /// Please note that the locked value should not be stored anywhere or passed through the thread boundary.
-    validator: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
+    validator: MutableValidatorSigner,
     chain: Chain,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
@@ -120,7 +120,7 @@ impl ViewClientActorInner {
 
     pub fn spawn_actix_actor(
         clock: Clock,
-        validator: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
+        validator: MutableValidatorSigner,
         chain_genesis: ChainGenesis,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,

@@ -15,18 +15,10 @@ pub struct ConfigUpdater {
 
 /// Return type of `ConfigUpdater::try_update()`.
 /// Represents which values have been updated.
+#[derive(Default)]
 pub struct ConfigUpdaterResult {
     pub client_config_updated: bool,
     pub validator_signer_updated: bool,
-}
-
-impl Default for ConfigUpdaterResult {
-    fn default() -> Self {
-        ConfigUpdaterResult {
-            client_config_updated: false,
-            validator_signer_updated: false,
-        }
-    }
 }
 
 impl ConfigUpdater {
@@ -48,11 +40,13 @@ impl ConfigUpdater {
             match maybe_updateable_configs {
                 Ok(updateable_configs) => {
                     if let Some(client_config) = updateable_configs.client_config {
-                        update_result.client_config_updated |= update_client_config_fn(client_config);
+                        update_result.client_config_updated |=
+                            update_client_config_fn(client_config);
                         tracing::info!(target: "config", "Updated ClientConfig");
                     }
                     if let Some(validator_signer) = updateable_configs.validator_signer {
-                        update_result.validator_signer_updated |= update_validator_signer_fn(validator_signer);
+                        update_result.validator_signer_updated |=
+                            update_validator_signer_fn(validator_signer);
                         tracing::info!(target: "config", "Updated validator key");
                     }
                     self.updateable_configs_error = None;

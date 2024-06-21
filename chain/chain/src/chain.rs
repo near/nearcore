@@ -39,7 +39,9 @@ use itertools::Itertools;
 use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::time::{Clock, Duration, Instant};
-use near_chain_configs::{MutableConfigValue, ReshardingConfig, ReshardingHandle};
+use near_chain_configs::{
+    MutableConfigValue, MutableValidatorSigner, ReshardingConfig, ReshardingHandle,
+};
 #[cfg(feature = "new_epoch_sync")]
 use near_chain_primitives::error::epoch_sync::EpochSyncInfoError;
 use near_chain_primitives::error::{BlockKnownError, Error, LogTransientStorageError};
@@ -87,7 +89,6 @@ use near_primitives::unwrap_or_return;
 #[cfg(feature = "new_epoch_sync")]
 use near_primitives::utils::index_to_bytes;
 use near_primitives::utils::MaybeValidated;
-use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::{ProtocolFeature, ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::{
     BlockStatusView, DroppedReason, ExecutionOutcomeWithIdView, ExecutionStatusView,
@@ -401,7 +402,7 @@ impl Chain {
         chain_config: ChainConfig,
         snapshot_callbacks: Option<SnapshotCallbacks>,
         apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
-        validator: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
+        validator: MutableValidatorSigner,
     ) -> Result<Chain, Error> {
         // Get runtime initial state and create genesis block out of it.
         let state_roots = get_genesis_state_roots(runtime_adapter.store())?

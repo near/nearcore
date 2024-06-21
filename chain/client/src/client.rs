@@ -40,7 +40,7 @@ use near_chain::{
     DoomslugThresholdMode, Provenance,
 };
 use near_chain_configs::{
-    ClientConfig, LogSummaryStyle, MutableConfigValue, UpdateableClientConfig,
+    ClientConfig, LogSummaryStyle, MutableValidatorSigner, UpdateableClientConfig,
 };
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardedTransactionPool;
@@ -151,7 +151,7 @@ pub struct Client {
     /// Signer for block producer (if present). This field is mutable and optional. Use with caution!
     /// Lock the value of mutable validator signer for the duration of a request to ensure consistency.
     /// Please note that the locked value should not be stored anywhere or passed through the thread boundary.
-    pub validator_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
+    pub validator_signer: MutableValidatorSigner,
     /// Approvals for which we do not have the block yet
     pub pending_approvals:
         lru::LruCache<ApprovalInner, HashMap<AccountId, (Approval, ApprovalType)>>,
@@ -209,11 +209,15 @@ impl AsRef<Client> for Client {
 }
 
 impl Client {
-    pub(crate) fn update_client_config(&self, update_client_config: UpdateableClientConfig) -> bool {
+    pub(crate) fn update_client_config(
+        &self,
+        update_client_config: UpdateableClientConfig,
+    ) -> bool {
         let mut is_updated = false;
         is_updated |= self.config.expected_shutdown.update(update_client_config.expected_shutdown);
         is_updated |= self.config.resharding_config.update(update_client_config.resharding_config);
-        is_updated |= self.config
+        is_updated |= self
+            .config
             .produce_chunk_add_transactions_time_limit
             .update(update_client_config.produce_chunk_add_transactions_time_limit);
         is_updated
@@ -244,7 +248,7 @@ impl Client {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         network_adapter: PeerManagerAdapter,
         shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
-        validator_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
+        validator_signer: MutableValidatorSigner,
         enable_doomslug: bool,
         rng_seed: RngSeed,
         snapshot_callbacks: Option<SnapshotCallbacks>,
