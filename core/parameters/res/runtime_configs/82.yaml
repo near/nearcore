@@ -1,0 +1,14 @@
+# Congestion control adjustment to avoid oversensitive backpressure on large
+# receipt stalls.
+
+# 2 PGAS -> 10 PGAS
+max_congestion_outgoing_gas: { 
+  old : 2_000_000_000_000_000,
+  new : 10_000_000_000_000_000,
+}
+
+# 0.25 -> 0.5
+reject_tx_congestion_threshold: { 
+  old : { numerator: 25, denominator: 100 },
+  new : { numerator: 50, denominator: 100 },
+}
