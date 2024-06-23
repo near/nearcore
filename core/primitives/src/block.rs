@@ -90,7 +90,7 @@ type ShardChunkReedSolomon = reed_solomon_erasure::galois_8::ReedSolomon;
 #[cfg(feature = "solomon")]
 pub fn genesis_chunks(
     state_roots: Vec<crate::types::StateRoot>,
-    congestion_infos: Vec<Option<CongestionInfo>>,
+    congestion_infos: Vec<Option<crate::congestion_info::CongestionInfo>>,
     shard_ids: &[crate::types::ShardId],
     initial_gas_limit: Gas,
     genesis_height: BlockHeight,
@@ -141,7 +141,7 @@ fn genesis_chunk(
     initial_gas_limit: u64,
     shard_id: u64,
     state_root: CryptoHash,
-    congestion_info: Option<CongestionInfo>,
+    congestion_info: Option<crate::congestion_info::CongestionInfo>,
 ) -> crate::sharding::EncodedShardChunk {
     let (encoded_chunk, _) = crate::sharding::EncodedShardChunk::new(
         CryptoHash::default(),
