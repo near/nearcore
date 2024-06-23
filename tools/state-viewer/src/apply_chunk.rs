@@ -564,7 +564,7 @@ mod test {
 
             let hash = *block.hash();
             let chunk_hashes = block.chunks().iter().map(|c| c.chunk_hash()).collect::<Vec<_>>();
-            let epoch_id = block.header().epoch_id().clone();
+            let epoch_id = *block.header().epoch_id();
 
             env.process_block(0, block, Provenance::PRODUCED);
 
@@ -652,7 +652,7 @@ mod test {
             let hash = *block.hash();
             let prev_hash = *block.header().prev_hash();
             let chunk_hashes = block.chunks().iter().map(|c| c.chunk_hash()).collect::<Vec<_>>();
-            let epoch_id = block.header().epoch_id().clone();
+            let epoch_id = *block.header().epoch_id();
 
             env.process_block(0, block, Provenance::PRODUCED);
 

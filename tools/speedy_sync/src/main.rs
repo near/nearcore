@@ -255,7 +255,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
         },
         None,
         Arc::new(RayonAsyncComputationSpawner),
-        None,
+        MutableConfigValue::new(None, "validator_signer"),
     )
     .unwrap();
 

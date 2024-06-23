@@ -8,7 +8,7 @@ use anyhow::Context;
 use mock_node::setup::{setup_mock_node, MockNode};
 use mock_node::MockNetworkConfig;
 use near_actix_test_utils::run_actix;
-use near_chain_configs::GenesisValidationMode;
+use near_chain_configs::{GenesisValidationMode, MutableConfigValue};
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc_client::JsonRpcClient;
 use near_network::tcp;
@@ -107,7 +107,7 @@ fn main() -> anyhow::Result<()> {
     let home_dir = Path::new(&args.chain_history_home_dir);
     let mut near_config = nearcore::config::load_config(home_dir, GenesisValidationMode::Full)
         .context("Error loading config")?;
-    near_config.validator_signer = None;
+    near_config.validator_signer = MutableConfigValue::new(None, "validator_signer");
     near_config.client_config.min_num_peers = 1;
     let signer = InMemorySigner::from_random("mock_node".parse().unwrap(), KeyType::ED25519);
     near_config.network_config.node_key = signer.secret_key;

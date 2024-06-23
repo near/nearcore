@@ -36,7 +36,7 @@ impl Node for ThreadNode {
     }
 
     fn account_id(&self) -> Option<AccountId> {
-        self.config.validator_signer.as_ref().map(|vs| vs.validator_id().clone())
+        self.config.validator_signer.get().map(|vs| vs.validator_id().clone())
     }
 
     fn start(&mut self) {
@@ -86,7 +86,7 @@ impl Node for ThreadNode {
 impl ThreadNode {
     /// Side effects: create storage, open database, lock database
     pub fn new(config: NearConfig) -> ThreadNode {
-        let account_id = config.validator_signer.as_ref().unwrap().validator_id().clone();
+        let account_id = config.validator_signer.get().unwrap().validator_id().clone();
         let signer =
             InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
         ThreadNode {

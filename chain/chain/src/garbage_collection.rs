@@ -146,7 +146,7 @@ impl ChainStore {
         if gc_stop_height > head.height {
             return Err(Error::GCError("gc_stop_height cannot be larger than head.height".into()));
         }
-        let prev_epoch_id = self.get_block_header(&head.prev_block_hash)?.epoch_id().clone();
+        let prev_epoch_id = *self.get_block_header(&head.prev_block_hash)?.epoch_id();
         let epoch_change = prev_epoch_id != head.epoch_id;
         let mut fork_tail = self.fork_tail()?;
         metrics::TAIL_HEIGHT.set(tail as i64);

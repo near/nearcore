@@ -361,7 +361,7 @@ pub trait ChainStoreAccess {
                 .get(shard_id as usize)
                 .ok_or_else(|| Error::InvalidShardId(shard_id as ShardId))?
             {
-                break Ok(block_header.epoch_id().clone());
+                break Ok(*block_header.epoch_id());
             }
             candidate_hash = *block_header.prev_hash();
             shard_id = epoch_manager.get_prev_shard_ids(&candidate_hash, vec![shard_id])?[0];
@@ -2237,8 +2237,8 @@ impl<'a> ChainStoreUpdate<'a> {
             height,
             last_block_hash: *block_hash,
             prev_block_hash: *header.prev_hash(),
-            epoch_id: header.epoch_id().clone(),
-            next_epoch_id: header.next_epoch_id().clone(),
+            epoch_id: *header.epoch_id(),
+            next_epoch_id: *header.next_epoch_id(),
         };
         chain_store_update.head = Some(tip.clone());
         chain_store_update.tail = Some(height);
@@ -2361,7 +2361,7 @@ impl<'a> ChainStoreUpdate<'a> {
                         .get_all_block_hashes_by_height(block.header().height())?
                         .as_ref(),
                 );
-                map.entry(block.header().epoch_id().clone())
+                map.entry(*block.header().epoch_id())
                     .or_insert_with(|| HashSet::new())
                     .insert(*hash);
                 store_update.set_ser(

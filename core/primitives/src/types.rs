@@ -480,6 +480,7 @@ impl StateRootNode {
 #[derive(
     Debug,
     Clone,
+    Copy,
     Default,
     Hash,
     Eq,
@@ -1089,7 +1090,7 @@ pub enum TransactionOrReceiptId {
 
 /// Provides information about current epoch validators.
 /// Used to break dependency between epoch manager and runtime.
-pub trait EpochInfoProvider {
+pub trait EpochInfoProvider: Send + Sync {
     /// Get current stake of a validator in the given epoch.
     /// If the account is not a validator, returns `None`.
     fn validator_stake(

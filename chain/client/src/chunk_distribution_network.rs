@@ -81,7 +81,7 @@ pub fn request_missing_chunks<C>(
                 client.clone(),
                 chunk,
                 shards_manager_adapter,
-                epoch_id.clone(),
+                epoch_id,
                 ancestor_hash,
             );
         }

@@ -4,7 +4,7 @@ use near_async::time::Duration;
 use near_chain::chunks_store::ReadOnlyChunksStore;
 use near_chain::ChainGenesis;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
-use near_chain_configs::ClientConfig;
+use near_chain_configs::{ClientConfig, MutableConfigValue};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::client_actor::ClientActorInner;
 use near_client::sync_jobs_actor::SyncJobsActor;
@@ -74,6 +74,10 @@ fn test_client_with_simple_test_loop() {
         &genesis.config,
         epoch_manager.clone(),
     );
+    let validator_signer = MutableConfigValue::new(
+        Some(Arc::new(create_test_signer(accounts[0].as_str()))),
+        "validator_signer",
+    );
 
     let shards_manager_adapter = LateBoundSender::new();
     let sync_jobs_adapter = LateBoundSender::new();
@@ -97,7 +101,7 @@ fn test_client_with_simple_test_loop() {
         runtime_adapter,
         noop().into_multi_sender(),
         shards_manager_adapter.as_sender(),
-        Some(Arc::new(create_test_signer(accounts[0].as_str()))),
+        validator_signer.clone(),
         true,
         [0; 32],
         None,
@@ -108,7 +112,7 @@ fn test_client_with_simple_test_loop() {
 
     let shards_manager = ShardsManagerActor::new(
         test_loop.clock(),
-        Some(accounts[0].clone()),
+        validator_signer,
         epoch_manager,
         shard_tracker,
         noop().into_sender(),
@@ -126,7 +130,6 @@ fn test_client_with_simple_test_loop() {
         client_config,
         PeerId::random(),
         noop().into_multi_sender(),
-        None,
         noop().into_sender(),
         None,
         Default::default(),

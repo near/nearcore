@@ -171,10 +171,12 @@ fn test_non_adversarial_case() {
 
         for i in 0..test.num_validators {
             debug!(target: "test", "Processing block {} as validator #{}", height, i);
+            let signer = test.env.clients[i].validator_signer.get();
             let _ = test.env.clients[i].start_process_block(
                 block.clone().into(),
                 if i == 0 { Provenance::PRODUCED } else { Provenance::NONE },
                 None,
+                &signer,
             );
             let mut accepted_blocks =
                 test.env.clients[i].finish_block_in_processing(block.header().hash());
@@ -257,7 +259,7 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
                 if &chunk_producer == &bad_chunk_producer {
                     invalid_chunks_in_this_block.insert(shard_id);
                     if !epochs_seen_invalid_chunk.contains(&epoch_id) {
-                        epochs_seen_invalid_chunk.insert(epoch_id.clone());
+                        epochs_seen_invalid_chunk.insert(epoch_id);
 
                         // This is the first block with invalid chunks in the current epoch.
                         // In pre-stateless validation protocol the first block with invalid chunks
@@ -305,10 +307,12 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
         // The block producer of course has the complete block so we can process that.
         for i in 0..test.num_validators {
             debug!(target: "test", "Processing block {} as validator #{}", height, i);
+            let signer = test.env.clients[i].validator_signer.get();
             let _ = test.env.clients[i].start_process_block(
                 block.clone().into(),
                 if i == 0 { Provenance::PRODUCED } else { Provenance::NONE },
                 None,
+                &signer,
             );
             let mut accepted_blocks =
                 test.env.clients[i].finish_block_in_processing(block.header().hash());

@@ -41,7 +41,7 @@ pub fn make_genesis_block(clock: &time::Clock, chunks: Vec<ShardChunk>) -> Block
 }
 
 pub fn make_block(
-    clock: &time::Clock,
+    clock: time::Clock,
     signer: &ValidatorSigner,
     prev: &Block,
     chunks: Vec<ShardChunk>,
@@ -67,7 +67,8 @@ pub fn make_block(
         signer,
         CryptoHash::default(),
         CryptoHash::default(),
-        clock.now_utc(),
+        clock,
+        None,
     )
 }
 
@@ -213,8 +214,14 @@ impl ChunkSet {
         let shard_ids: Vec<_> = (0..4).collect();
         // TODO: these are always genesis chunks.
         // Consider making this more realistic.
-        let chunks =
-            genesis_chunks(vec![StateRoot::new()], &shard_ids, 1000, 0, version::PROTOCOL_VERSION);
+        let chunks = genesis_chunks(
+            vec![StateRoot::new()],
+            vec![Default::default(); shard_ids.len()],
+            &shard_ids,
+            1000,
+            0,
+            version::PROTOCOL_VERSION,
+        );
         self.chunks.extend(chunks.iter().map(|c| (c.chunk_hash(), c.clone())));
         chunks
     }
@@ -248,7 +255,7 @@ impl Chain {
         for _ in 1..block_count {
             clock.advance(time::Duration::seconds(15));
             blocks.push(make_block(
-                &clock.clock(),
+                clock.clock(),
                 &signer.clone().into(),
                 blocks.last().unwrap(),
                 chunks.make(),

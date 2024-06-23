@@ -87,6 +87,7 @@ use near_primitives::unwrap_or_return;
 #[cfg(feature = "new_epoch_sync")]
 use near_primitives::utils::index_to_bytes;
 use near_primitives::utils::MaybeValidated;
+use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::{ProtocolFeature, ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::{
     BlockStatusView, DroppedReason, ExecutionOutcomeWithIdView, ExecutionStatusView,
@@ -97,6 +98,7 @@ use near_store::config::StateSnapshotType;
 use near_store::flat::{store_helper, FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::get_genesis_state_roots;
 use near_store::DBCol;
+use node_runtime::bootstrap_congestion_info;
 use once_cell::sync::OnceCell;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -319,8 +321,11 @@ impl Chain {
     ) -> Result<Block, Error> {
         let state_roots = get_genesis_state_roots(runtime_adapter.store())?
             .expect("genesis should be initialized.");
+        let congestion_infos =
+            get_genesis_congestion_infos(epoch_manager, runtime_adapter, &state_roots)?;
         let genesis_chunks = genesis_chunks(
             state_roots,
+            congestion_infos,
             &epoch_manager.shard_ids(&EpochId::default())?,
             chain_genesis.gas_limit,
             chain_genesis.height,
@@ -400,18 +405,19 @@ impl Chain {
         chain_config: ChainConfig,
         snapshot_callbacks: Option<SnapshotCallbacks>,
         apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
-        validator_account_id: Option<&AccountId>,
+        validator: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
     ) -> Result<Chain, Error> {
         // Get runtime initial state and create genesis block out of it.
         let state_roots = get_genesis_state_roots(runtime_adapter.store())?
             .expect("genesis should be initialized.");
-        let mut chain_store = ChainStore::new(
-            runtime_adapter.store().clone(),
-            chain_genesis.height,
-            chain_config.save_trie_changes,
-        );
+        let congestion_infos = get_genesis_congestion_infos(
+            epoch_manager.as_ref(),
+            runtime_adapter.as_ref(),
+            &state_roots,
+        )?;
         let genesis_chunks = genesis_chunks(
             state_roots.clone(),
+            congestion_infos,
             &epoch_manager.shard_ids(&EpochId::default())?,
             chain_genesis.gas_limit,
             chain_genesis.height,
@@ -430,6 +436,12 @@ impl Chain {
                 EpochId::default(),
                 &CryptoHash::default(),
             )?,
+        );
+
+        let mut chain_store = ChainStore::new(
+            runtime_adapter.store().clone(),
+            chain_genesis.height,
+            chain_config.save_trie_changes,
         );
 
         // Check if we have a head in the store, otherwise pick genesis block.
@@ -539,7 +551,7 @@ impl Chain {
             .iter()
             .filter(|shard_uid| {
                 shard_tracker.care_about_shard(
-                    validator_account_id,
+                    validator.get().map(|v| v.validator_id().clone()).as_ref(),
                     &tip.prev_block_hash,
                     shard_uid.shard_id(),
                     true,
@@ -987,8 +999,8 @@ impl Chain {
             if header.next_bp_hash()
                 != &Chain::compute_bp_hash(
                     self.epoch_manager.as_ref(),
-                    header.next_epoch_id().clone(),
-                    header.epoch_id().clone(),
+                    *header.next_epoch_id(),
+                    *header.epoch_id(),
                     header.prev_hash(),
                 )?
             {
@@ -2079,7 +2091,7 @@ impl Chain {
         // Check that we know the epoch of the block before we try to get the header
         // (so that a block from unknown epoch doesn't get marked as an orphan)
         if !self.epoch_manager.epoch_exists(header.epoch_id()) {
-            return Err(Error::EpochOutOfBounds(header.epoch_id().clone()));
+            return Err(Error::EpochOutOfBounds(*header.epoch_id()));
         }
 
         if block.chunks().len() != self.epoch_manager.shard_ids(header.epoch_id())?.len() {
@@ -2856,7 +2868,7 @@ impl Chain {
         num_parts: u64,
         state_parts_task_scheduler: &near_async::messaging::Sender<ApplyStatePartsRequest>,
     ) -> Result<(), Error> {
-        let epoch_id = self.get_block_header(&sync_hash)?.epoch_id().clone();
+        let epoch_id = *self.get_block_header(&sync_hash)?.epoch_id();
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
 
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
@@ -3903,6 +3915,60 @@ impl Chain {
     }
 }
 
+/// This method calculates the congestion info for the genesis chunks. It uses
+/// the congestion info bootstrapping logic. This method is just a wrapper
+/// around the [`get_genesis_congestion_infos_impl`]. It logs an error if one
+/// happens.
+pub fn get_genesis_congestion_infos(
+    epoch_manager: &dyn EpochManagerAdapter,
+    runtime: &dyn RuntimeAdapter,
+    state_roots: &Vec<CryptoHash>,
+) -> Result<Vec<Option<CongestionInfo>>, Error> {
+    get_genesis_congestion_infos_impl(epoch_manager, runtime, state_roots).map_err(|err| {
+        tracing::error!(target: "chain", ?err, "Failed to get the genesis congestion infos.");
+        err
+    })
+}
+
+fn get_genesis_congestion_infos_impl(
+    epoch_manager: &dyn EpochManagerAdapter,
+    runtime: &dyn RuntimeAdapter,
+    state_roots: &Vec<CryptoHash>,
+) -> Result<Vec<Option<CongestionInfo>>, Error> {
+    let prev_hash = CryptoHash::default();
+    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_hash)?;
+    let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+
+    let mut result = vec![];
+    for (shard_id, &state_root) in state_roots.iter().enumerate() {
+        let shard_id = shard_id as ShardId;
+        let congestion_info =
+            get_congestion_info(runtime, protocol_version, &prev_hash, shard_id, state_root)?;
+        result.push(congestion_info);
+    }
+    Ok(result)
+}
+
+fn get_congestion_info(
+    runtime: &dyn RuntimeAdapter,
+    protocol_version: ProtocolVersion,
+    prev_hash: &CryptoHash,
+    shard_id: ShardId,
+    state_root: StateRoot,
+) -> Result<Option<CongestionInfo>, Error> {
+    if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
+        return Ok(None);
+    }
+
+    // Get the view trie because it's possible that the chain is ahead of
+    // genesis and doesn't have this block in flat state and memtrie.
+    let trie = runtime.get_view_trie_for_shard(shard_id, prev_hash, state_root)?;
+    let runtime_config = runtime.get_runtime_config(protocol_version)?;
+    let congestion_info = bootstrap_congestion_info(&trie, &runtime_config, shard_id)?;
+    tracing::debug!(target: "chain", ?shard_id, ?state_root, ?congestion_info, "Computed genesis congestion info.");
+    Ok(Some(congestion_info))
+}
+
 fn shard_id_out_of_bounds(shard_id: ShardId) -> Error {
     Error::InvalidStateRequest(format!("shard_id {shard_id:?} out of bounds").into())
 }
@@ -4266,13 +4332,13 @@ impl Chain {
         shard_id: ShardId,
     ) -> Result<Option<(CryptoHash, ShardId)>, Error> {
         let mut block_hash = *block_hash;
-        let mut epoch_id = self.get_block_header(&block_hash)?.epoch_id().clone();
+        let mut epoch_id = *self.get_block_header(&block_hash)?.epoch_id();
         let mut shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         // this corrects all the shard where the original shard will split to if sharding changes
         let mut shard_ids = vec![shard_id];
 
         while let Ok(next_block_hash) = self.chain_store.get_next_block_hash(&block_hash) {
-            let next_epoch_id = self.get_block_header(&next_block_hash)?.epoch_id().clone();
+            let next_epoch_id = *self.get_block_header(&next_block_hash)?.epoch_id();
             if next_epoch_id != epoch_id {
                 let next_shard_layout = self.epoch_manager.get_shard_layout(&next_epoch_id)?;
                 if next_shard_layout != shard_layout {

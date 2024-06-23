@@ -270,7 +270,7 @@ impl EpochSelection {
                     epoch_info.epoch_height() == *epoch_height
                 });
                 assert_eq!(epoch_ids.len(), 1, "{:#?}", epoch_ids);
-                epoch_ids[0].clone()
+                epoch_ids[0]
             }
             EpochSelection::BlockHash { block_hash } => {
                 let block_hash = CryptoHash::from_str(block_hash).unwrap();

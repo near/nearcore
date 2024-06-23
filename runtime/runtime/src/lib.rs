@@ -373,7 +373,7 @@ impl Runtime {
         action_hash: &CryptoHash,
         action_index: usize,
         actions: &[Action],
-        epoch_info_provider: &dyn EpochInfoProvider,
+        epoch_info_provider: &(dyn EpochInfoProvider),
     ) -> Result<ActionResult, RuntimeError> {
         let _span = tracing::debug_span!(
             target: "runtime",
@@ -548,7 +548,7 @@ impl Runtime {
         receipt_sink: &mut ReceiptSink,
         validator_proposals: &mut Vec<ValidatorStake>,
         stats: &mut ApplyStats,
-        epoch_info_provider: &dyn EpochInfoProvider,
+        epoch_info_provider: &(dyn EpochInfoProvider),
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
         let _span = tracing::debug_span!(
             target: "runtime",
@@ -967,7 +967,7 @@ impl Runtime {
         receipt_sink: &mut ReceiptSink,
         validator_proposals: &mut Vec<ValidatorStake>,
         stats: &mut ApplyStats,
-        epoch_info_provider: &dyn EpochInfoProvider,
+        epoch_info_provider: &(dyn EpochInfoProvider),
     ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
         let account_id = receipt.receiver_id();
         match receipt.receipt() {
@@ -1355,7 +1355,7 @@ impl Runtime {
         apply_state: &ApplyState,
         incoming_receipts: &[Receipt],
         transactions: &[SignedTransaction],
-        epoch_info_provider: &dyn EpochInfoProvider,
+        epoch_info_provider: &(dyn EpochInfoProvider),
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyResult, RuntimeError> {
         // state_patch must be empty unless this is sandbox build.  Thanks to
@@ -1947,7 +1947,7 @@ impl Runtime {
             state_root,
             trie_changes,
             validator_proposals: unique_proposals,
-            outgoing_receipts: outgoing_receipts,
+            outgoing_receipts,
             outcomes: processing_state.outcomes,
             state_changes,
             stats: processing_state.stats,
@@ -2213,7 +2213,7 @@ struct ApplyProcessingState<'a> {
     apply_state: &'a ApplyState,
     prefetcher: Option<TriePrefetcher>,
     state_update: TrieUpdate,
-    epoch_info_provider: &'a dyn EpochInfoProvider,
+    epoch_info_provider: &'a (dyn EpochInfoProvider),
     transactions: &'a [SignedTransaction],
     total: TotalResourceGuard,
     stats: ApplyStats,
@@ -2223,7 +2223,7 @@ impl<'a> ApplyProcessingState<'a> {
     fn new(
         apply_state: &'a ApplyState,
         trie: Trie,
-        epoch_info_provider: &'a dyn EpochInfoProvider,
+        epoch_info_provider: &'a (dyn EpochInfoProvider),
         transactions: &'a [SignedTransaction],
     ) -> Self {
         let protocol_version = apply_state.current_protocol_version;
@@ -2279,7 +2279,7 @@ struct ApplyProcessingReceiptState<'a> {
     apply_state: &'a ApplyState,
     prefetcher: Option<TriePrefetcher>,
     state_update: TrieUpdate,
-    epoch_info_provider: &'a dyn EpochInfoProvider,
+    epoch_info_provider: &'a (dyn EpochInfoProvider),
     transactions: &'a [SignedTransaction],
     total: TotalResourceGuard,
     stats: ApplyStats,
@@ -3856,7 +3856,7 @@ pub mod estimator {
         outgoing_receipts: &mut Vec<Receipt>,
         validator_proposals: &mut Vec<ValidatorStake>,
         stats: &mut ApplyStats,
-        epoch_info_provider: &dyn EpochInfoProvider,
+        epoch_info_provider: &(dyn EpochInfoProvider),
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
         // TODO(congestion_control - edit runtime config parameters for limitless estimator runs
         let mut congestion_info = CongestionInfo::default();
@@ -3865,7 +3865,7 @@ pub mod estimator {
 
         let mut receipt_sink = ReceiptSink::V2(ReceiptSinkV2 {
             own_congestion_info: &mut congestion_info,
-            outgoing_limit: outgoing_limit,
+            outgoing_limit,
             outgoing_buffers: ShardsOutgoingReceiptBuffer::load(&state_update.trie)?,
             outgoing_receipts,
         });

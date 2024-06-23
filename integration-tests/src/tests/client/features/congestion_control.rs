@@ -205,7 +205,7 @@ fn head_congestion_control_config(
     env: &TestEnv,
 ) -> near_parameters::config::CongestionControlConfig {
     let block = env.clients[0].chain.get_head_block().unwrap();
-    let runtime_config = env.get_runtime_config(0, block.header().epoch_id().clone());
+    let runtime_config = env.get_runtime_config(0, *block.header().epoch_id());
     runtime_config.congestion_control_config
 }
 
