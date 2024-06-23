@@ -4,9 +4,9 @@
  * The output of the `cargo build` shows compilation units. Compilation unit is a either a external dependency or a file from the source
  *
  * The `LIBS_THRESHOLDS` constant defines a list of libraries along with their respective maximum allowed unique dependency counts.
- * The `THRESHOLD_IS_TOO_GENEROUS` constant is used to determine if the threshold for any library is too lenient, suggesting it might need to be lowered.
+ * The `THRESHOLD_IS_TOO_GENEROUS` constant is used to determine if the threshold for any library is too lenient, suggesting it might need to be restricted even futher.
  *
- * The `process_output` function takes a library name and a threshold, runs the `cargo tree` command to get the dependency tree for the library,
+ * The `get_and_assert_crate_dependencies` function takes a library name and a threshold, runs the `cargo tree` command to get the dependency tree for the library,
  * extracts unique dependencies using a regex, and checks if the count of unique dependencies is below the threshold.
  *
  * The purpose of this test is to maintain a lean dependency graph, promoting better performance, security, and maintainability.
@@ -31,14 +31,15 @@ const LIBS_THRESHOLDS: [(&str, usize); 9] = [
 
 const THRESHOLD_IS_TOO_GENEROUS: usize = 30;
 
-fn process_output(name: &str, threshold: usize) -> usize {
-    let output = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string()))
-        .arg("tree")
-        .arg("-p")
-        .arg(name)
-        .arg("--edges=normal")
-        .output()
-        .unwrap_or_else(|_| panic!("Failed to execute cargo tree for {name}"));
+fn get_and_assert_crate_dependencies(name: &str, threshold: usize) -> usize {
+    let output: std::process::Output =
+        Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string()))
+            .arg("tree")
+            .arg("-p")
+            .arg(name)
+            .arg("--edges=normal")
+            .output()
+            .unwrap_or_else(|_| panic!("Failed to execute cargo tree for {name}"));
 
     assert!(
         output.status.success(),
@@ -87,8 +88,9 @@ struct CrateDeps {
 
 #[test]
 fn test_public_libs_are_small_enough() {
-    let results =
-        LIBS_THRESHOLDS.into_iter().map(|(name, limit)| (name, process_output(name, limit), limit));
+    let results = LIBS_THRESHOLDS
+        .into_iter()
+        .map(|(name, limit)| (name, get_and_assert_crate_dependencies(name, limit), limit));
     let mut libs_to_fix = vec![];
     for (name, result, limit) in results {
         if limit - result > THRESHOLD_IS_TOO_GENEROUS {
