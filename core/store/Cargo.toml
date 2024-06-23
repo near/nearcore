@@ -76,11 +76,11 @@ harness = false
 default = []
 io_trace = []
 no_cache = []
-single_thread_rocksdb = [] # Deactivate RocksDB IO background threads                      
+single_thread_rocksdb = [] # Deactivate RocksDB IO background threads
 test_features = ["near-vm-runner/test_features"]
 new_epoch_sync = []
 
-# fix_me: extract metrics into separate feature
+# TODO(#11639): extract metrics into separate feature
 nightly_protocol = [
   "near-chain-configs/nightly_protocol",
   "near-chain/nightly_protocol",
