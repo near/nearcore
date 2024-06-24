@@ -187,14 +187,14 @@ impl ApplyChunksDoneTracker {
         let (lock, cvar) = &*self.0;
         match lock.lock() {
             Ok(mut guard) => loop {
+                let done = *guard;
+                if done {
+                    break;
+                }
                 const WAIT_TIMEOUT: Duration = Duration::from_millis(100);
                 match cvar.wait_timeout(guard, WAIT_TIMEOUT) {
                     Ok(result) => {
                         guard = result.0;
-                        let done = *guard;
-                        if done {
-                            break;
-                        }
 
                         // Panics during testing (eg. due to assertion failures) cause the waiter
                         // threads to miss the notification (see issue #11447). Thus, for testing only,
@@ -208,10 +208,16 @@ impl ApplyChunksDoneTracker {
                             }
                         }
                     }
-                    Err(_poisoned) => break,
+                    Err(_poisoned) => {
+                        tracing::error!("Mutex is poisoned.");
+                        break;
+                    }
                 }
             },
-            Err(_poisoned) => (),
+            Err(_poisoned) => {
+                tracing::error!("Mutex is poisoned.");
+                ()
+            }
         }
     }
 }
