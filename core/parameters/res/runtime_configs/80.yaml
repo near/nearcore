@@ -14,10 +14,10 @@ max_congestion_incoming_gas: {
   old : 9_223_372_036_854_775_807,
   new : 20_000_000_000_000_000,
 }
-# 2 PGAS
+# 10 PGAS
 max_congestion_outgoing_gas: { 
   old : 9_223_372_036_854_775_807,
-  new : 2_000_000_000_000_000,
+  new : 10_000_000_000_000_000,
 }
 # 1000 MB
 max_congestion_memory_consumption: { 
@@ -57,8 +57,8 @@ min_tx_gas: {
   new: 20_000_000_000_000
 }
 
-# 0.25
+# 0.5
 reject_tx_congestion_threshold: { 
   old : { numerator: 1, denominator: 1 },
-  new : { numerator: 25, denominator: 100 }
+  new : { numerator: 50, denominator: 100 }
 }
