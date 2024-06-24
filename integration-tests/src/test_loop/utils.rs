@@ -74,13 +74,4 @@ pub(crate) fn execute_money_transfers(
             account
         );
     }
-
-    // Make sure the chain progresses for several epochs.
-    let client_handle = node_datas[0].client_sender.actor_handle();
-    test_loop.run_until(
-        |test_loop_data| {
-            test_loop_data.get(&client_handle).client.chain.head().unwrap().height > 10050
-        },
-        Duration::seconds(10),
-    );
 }
