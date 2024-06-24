@@ -40,7 +40,7 @@ use near_chain::{
     DoomslugThresholdMode, Provenance,
 };
 use near_chain_configs::{
-    ClientConfig, LogSummaryStyle, MutableConfigValue, UpdateableClientConfig,
+    ClientConfig, LogSummaryStyle, MutableValidatorSigner, UpdateableClientConfig,
 };
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardedTransactionPool;
@@ -151,7 +151,7 @@ pub struct Client {
     /// Signer for block producer (if present). This field is mutable and optional. Use with caution!
     /// Lock the value of mutable validator signer for the duration of a request to ensure consistency.
     /// Please note that the locked value should not be stored anywhere or passed through the thread boundary.
-    pub validator_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
+    pub validator_signer: MutableValidatorSigner,
     /// Approvals for which we do not have the block yet
     pub pending_approvals:
         lru::LruCache<ApprovalInner, HashMap<AccountId, (Approval, ApprovalType)>>,
@@ -209,12 +209,24 @@ impl AsRef<Client> for Client {
 }
 
 impl Client {
-    pub(crate) fn update_client_config(&self, update_client_config: UpdateableClientConfig) {
-        self.config.expected_shutdown.update(update_client_config.expected_shutdown);
-        self.config.resharding_config.update(update_client_config.resharding_config);
-        self.config
+    pub(crate) fn update_client_config(
+        &self,
+        update_client_config: UpdateableClientConfig,
+    ) -> bool {
+        let mut is_updated = false;
+        is_updated |= self.config.expected_shutdown.update(update_client_config.expected_shutdown);
+        is_updated |= self.config.resharding_config.update(update_client_config.resharding_config);
+        is_updated |= self
+            .config
             .produce_chunk_add_transactions_time_limit
             .update(update_client_config.produce_chunk_add_transactions_time_limit);
+        is_updated
+    }
+
+    /// Updates client's mutable validator signer.
+    /// It will update all validator signers that synchronize with it.
+    pub(crate) fn update_validator_signer(&self, signer: Arc<ValidatorSigner>) -> bool {
+        self.validator_signer.update(Some(signer))
     }
 }
 
@@ -236,7 +248,7 @@ impl Client {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         network_adapter: PeerManagerAdapter,
         shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
-        validator_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
+        validator_signer: MutableValidatorSigner,
         enable_doomslug: bool,
         rng_seed: RngSeed,
         snapshot_callbacks: Option<SnapshotCallbacks>,
@@ -279,8 +291,8 @@ impl Client {
         let epoch_sync = EpochSync::new(
             clock.clone(),
             network_adapter.clone(),
-            genesis_block.header().epoch_id().clone(),
-            genesis_block.header().next_epoch_id().clone(),
+            *genesis_block.header().epoch_id(),
+            *genesis_block.header().next_epoch_id(),
             epoch_manager
                 .get_epoch_block_producers_ordered(
                     genesis_block.header().epoch_id(),
@@ -597,7 +609,7 @@ impl Client {
 
         let prev = self.chain.get_block_header(&prev_hash)?;
         let prev_height = prev.height();
-        let prev_epoch_id = prev.epoch_id().clone();
+        let prev_epoch_id = *prev.epoch_id();
         let prev_next_bp_hash = *prev.next_bp_hash();
 
         // Check and update the doomslug tip here. This guarantees that our endorsement will be in the
@@ -699,7 +711,7 @@ impl Client {
             Chain::compute_bp_hash(
                 self.epoch_manager.as_ref(),
                 next_epoch_id,
-                epoch_id.clone(),
+                epoch_id,
                 &prev_hash,
             )?
         } else {
@@ -707,9 +719,9 @@ impl Client {
         };
 
         #[cfg(feature = "sandbox")]
-        let block_timestamp = self.clock.now_utc() + self.sandbox_delta_time();
+        let sandbox_delta_time = Some(self.sandbox_delta_time());
         #[cfg(not(feature = "sandbox"))]
-        let block_timestamp = self.clock.now_utc();
+        let sandbox_delta_time = None;
 
         // Get block extra from previous block.
         let block_merkle_tree = self.chain.chain_store().get_block_merkle_tree(&prev_hash)?;
@@ -802,7 +814,8 @@ impl Client {
             &*validator_signer,
             next_bp_hash,
             block_merkle_root,
-            block_timestamp,
+            self.clock.clone(),
+            sandbox_delta_time,
         );
 
         // Update latest known even before returning block out, to prevent race conditions.
@@ -2114,7 +2127,7 @@ impl Client {
                 &parent_hash,
                 account_id,
             ) {
-                Ok(_) => next_block_epoch_id.clone(),
+                Ok(_) => next_block_epoch_id,
                 Err(EpochError::NotAValidator(_, _)) => {
                     match self.epoch_manager.get_next_epoch_id_from_prev_block(&parent_hash) {
                         Ok(next_block_next_epoch_id) => next_block_next_epoch_id,
@@ -2486,7 +2499,7 @@ impl Client {
                             true,
                         ),
                         shards_to_split,
-                        BlocksCatchUpState::new(sync_hash, epoch_id.clone()),
+                        BlocksCatchUpState::new(sync_hash, *epoch_id),
                     )
                 });
 
@@ -2761,7 +2774,7 @@ impl Client {
             }
         }
         let account_keys = Arc::new(account_keys);
-        self.tier1_accounts_cache = Some((tip.epoch_id.clone(), account_keys.clone()));
+        self.tier1_accounts_cache = Some((tip.epoch_id, account_keys.clone()));
         Ok(account_keys)
     }
 

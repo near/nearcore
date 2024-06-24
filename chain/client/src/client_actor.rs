@@ -41,7 +41,7 @@ use near_chain::{
     byzantine_assert, near_chain_primitives, Block, BlockHeader, BlockProcessingArtifact,
     ChainGenesis, Provenance,
 };
-use near_chain_configs::{ClientConfig, LogSummaryStyle, MutableConfigValue, ReshardingHandle};
+use near_chain_configs::{ClientConfig, LogSummaryStyle, MutableValidatorSigner, ReshardingHandle};
 use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
@@ -134,7 +134,7 @@ pub fn start_client(
     state_sync_adapter: Arc<RwLock<SyncAdapter>>,
     network_adapter: PeerManagerAdapter,
     shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
-    validator_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
+    validator_signer: MutableValidatorSigner,
     telemetry_sender: Sender<TelemetryEvent>,
     snapshot_callbacks: Option<SnapshotCallbacks>,
     sender: Option<broadcast::Sender<()>>,
@@ -1163,9 +1163,17 @@ impl ClientActorInner {
     fn check_triggers(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) -> Duration {
         let _span = tracing::debug_span!(target: "client", "check_triggers").entered();
         if let Some(config_updater) = &mut self.config_updater {
-            config_updater.try_update(&|updateable_client_config| {
-                self.client.update_client_config(updateable_client_config)
-            });
+            let update_result = config_updater.try_update(
+                &|updateable_client_config| {
+                    self.client.update_client_config(updateable_client_config)
+                },
+                &|validator_signer| self.client.update_validator_signer(validator_signer),
+            );
+            if update_result.validator_signer_updated {
+                // Request PeerManager to advertise tier1 proxies.
+                // It is needed to advertise that our validator key changed.
+                self.network_adapter.send(PeerManagerMessageRequest::AdvertiseTier1Proxies);
+            }
         }
 
         // Check block height to trigger expected shutdown
@@ -1690,7 +1698,7 @@ impl ClientActorInner {
         let me = signer.as_ref().map(|x| x.validator_id().clone());
         let block_header = self.client.chain.get_block_header(&sync_hash);
         let block_header = unwrap_and_report_state_sync_result!(block_header);
-        let epoch_id = block_header.epoch_id().clone();
+        let epoch_id = *block_header.epoch_id();
         let shards_to_sync = get_shards_cares_about_this_or_next_epoch(
             me.as_ref(),
             true,

@@ -11,7 +11,7 @@ use near_primitives::types::{
 };
 use near_vm_runner::ContractCode;
 use std::collections::BTreeMap;
-use std::rc::Rc;
+use std::sync::Arc;
 
 mod iterator;
 
@@ -20,11 +20,11 @@ mod iterator;
 /// requesting and compiling contracts, as any contract code read and
 /// compilation is a major bottleneck during chunk execution.
 struct ContractStorage {
-    storage: Rc<dyn TrieStorage>,
+    storage: Arc<dyn TrieStorage>,
 }
 
 impl ContractStorage {
-    fn new(storage: Rc<dyn TrieStorage>) -> Self {
+    fn new(storage: Arc<dyn TrieStorage>) -> Self {
         Self { storage }
     }
 

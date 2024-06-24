@@ -259,8 +259,8 @@ pub fn create_chunk(
         last_block.header().block_ordinal() + 1,
         vec![chunk.cloned_header()],
         vec![vec![Some(Box::new(endorsement.signature))]],
-        last_block.header().epoch_id().clone(),
-        last_block.header().next_epoch_id().clone(),
+        *last_block.header().epoch_id(),
+        *last_block.header().next_epoch_id(),
         None,
         vec![],
         Ratio::new(0, 1),
@@ -272,7 +272,8 @@ pub fn create_chunk(
         &*client.validator_signer.get().unwrap(),
         *last_block.header().next_bp_hash(),
         block_merkle_tree.root(),
-        client.clock.now_utc(),
+        client.clock.clone(),
+        None,
     );
     (
         ProduceChunkResult {

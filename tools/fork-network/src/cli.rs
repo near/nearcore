@@ -381,12 +381,8 @@ impl ForkNetworkCommand {
         let runtime_config_store = RuntimeConfigStore::new(None);
         let runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
 
-        let storage_mutator = StorageMutator::new(
-            epoch_manager.clone(),
-            &runtime,
-            epoch_id.clone(),
-            prev_state_roots,
-        )?;
+        let storage_mutator =
+            StorageMutator::new(epoch_manager.clone(), &runtime, epoch_id, prev_state_roots)?;
         let (new_state_roots, new_validator_accounts) =
             self.add_validator_accounts(validators, runtime_config, home_dir, storage_mutator)?;
 

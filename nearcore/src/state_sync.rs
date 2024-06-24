@@ -7,7 +7,7 @@ use futures::FutureExt;
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error};
-use near_chain_configs::{ClientConfig, ExternalStorageLocation, MutableConfigValue};
+use near_chain_configs::{ClientConfig, ExternalStorageLocation, MutableValidatorSigner};
 use near_client::sync::external::{
     create_bucket_readwrite, external_storage_location, StateFileType,
 };
@@ -22,7 +22,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::{StatePartKey, StateSyncDumpProgress};
 use near_primitives::types::{AccountId, EpochHeight, EpochId, ShardId, StateRoot};
-use near_primitives::validator_signer::ValidatorSigner;
 use near_store::DBCol;
 use rand::{thread_rng, Rng};
 use std::collections::HashSet;
@@ -39,7 +38,7 @@ pub struct StateSyncDumper {
     /// Contains validator key for this node. This field is mutable and optional. Use with caution!
     /// Lock the value of mutable validator signer for the duration of a request to ensure consistency.
     /// Please note that the locked value should not be stored anywhere or passed through the thread boundary.
-    pub validator: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
+    pub validator: MutableValidatorSigner,
     pub dump_future_runner: Box<dyn Fn(BoxFuture<'static, ()>) -> Box<dyn FnOnce()>>,
     pub handle: Option<StateSyncDumpHandle>,
 }
@@ -83,7 +82,7 @@ impl StateSyncDumper {
         };
 
         // Determine how many threads to start.
-        // TODO: Handle the case of changing the shard layout.
+        // TODO(resharding): Handle the case of changing the shard layout.
         let shard_ids = {
             // Sadly, `Chain` is not `Send` and each thread needs to create its own `Chain` instance.
             let chain = Chain::new_for_view_client(
@@ -338,7 +337,7 @@ async fn state_sync_dump(
     restart_dump_for_shards: Vec<ShardId>,
     external: ExternalConnection,
     iteration_delay: Duration,
-    validator: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
+    validator: MutableValidatorSigner,
     keep_running: Arc<AtomicBool>,
 ) {
     tracing::info!(target: "state_sync_dump", shard_id, "Running StateSyncDump loop");
@@ -408,7 +407,7 @@ async fn state_sync_dump(
                             None
                         } else {
                             Some(StateSyncDumpProgress::InProgress {
-                                epoch_id: epoch_id.clone(),
+                                epoch_id: epoch_id,
                                 epoch_height,
                                 sync_hash,
                             })
@@ -664,7 +663,7 @@ fn get_latest_epoch(
     let final_hash = header.last_final_block();
     let sync_hash = StateSync::get_epoch_start_sync_hash(chain, final_hash)?;
     let final_block_header = chain.get_block_header(&final_hash)?;
-    let epoch_id = final_block_header.epoch_id().clone();
+    let epoch_id = *final_block_header.epoch_id();
     let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
     let prev_epoch_id = epoch_manager.get_prev_epoch_id_from_prev_block(&head.prev_block_hash)?;
     let epoch_height = epoch_info.epoch_height();

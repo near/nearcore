@@ -5,7 +5,7 @@ use near_async::messaging::{Actor, CanSend, Handler, Sender};
 use near_async::time::Clock;
 use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::Error;
-use near_chain_configs::MutableConfigValue;
+use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::state_witness::{
     ChunkStateWitnessAckMessage, PartialEncodedStateWitnessForwardMessage,
@@ -36,7 +36,7 @@ pub struct PartialWitnessActor {
     /// Validator signer to sign the state witness. This field is mutable and optional. Use with caution!
     /// Lock the value of mutable validator signer for the duration of a request to ensure consistency.
     /// Please note that the locked value should not be stored anywhere or passed through the thread boundary.
-    my_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
+    my_signer: MutableValidatorSigner,
     /// Epoch manager to get the set of chunk validators
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     /// Tracks the parts of the state witness sent from chunk producers to chunk validators.
@@ -106,7 +106,7 @@ impl PartialWitnessActor {
         clock: Clock,
         network_adapter: PeerManagerAdapter,
         client_sender: ClientSenderForPartialWitness,
-        my_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
+        my_signer: MutableValidatorSigner,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         store: Store,
     ) -> Self {
@@ -186,7 +186,7 @@ impl PartialWitnessActor {
                 // It's fine to unwrap part here as we just constructed the parts above and we expect
                 // all of them to be present.
                 let partial_witness = PartialEncodedStateWitness::new(
-                    epoch_id.clone(),
+                    epoch_id,
                     chunk_header.clone(),
                     part_ord,
                     part.unwrap().to_vec(),

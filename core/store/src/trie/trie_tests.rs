@@ -9,16 +9,14 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::shard_layout::ShardUId;
 use rand::seq::SliceRandom;
 use rand::Rng;
-use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
-use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 /// TrieMemoryPartialStorage, but contains only the first n requested nodes.
 pub struct IncompletePartialStorage {
     pub(crate) recorded_storage: HashMap<CryptoHash, Arc<[u8]>>,
-    pub(crate) visited_nodes: RefCell<HashSet<CryptoHash>>,
+    pub(crate) visited_nodes: RwLock<HashSet<CryptoHash>>,
     pub node_count_to_fail_after: usize,
 }
 
@@ -42,9 +40,10 @@ impl TrieStorage for IncompletePartialStorage {
             .cloned()
             .expect("Recorded storage is missing the given hash");
 
-        self.visited_nodes.borrow_mut().insert(*hash);
+        let mut lock = self.visited_nodes.write().unwrap();
+        lock.insert(*hash);
 
-        if self.visited_nodes.borrow().len() > self.node_count_to_fail_after {
+        if lock.len() > self.node_count_to_fail_after {
             Err(StorageError::MissingTrieValue(
                 MissingTrieValueContext::TrieMemoryPartialStorage,
                 *hash,
@@ -80,7 +79,7 @@ where
     println!("Test touches {} nodes, expected result {:?}...", size, expected);
     for i in 0..(size + 1) {
         let storage = IncompletePartialStorage::new(storage.clone(), i);
-        let new_trie = Trie::new(Rc::new(storage), *trie.get_root(), None);
+        let new_trie = Trie::new(Arc::new(storage), *trie.get_root(), None);
         let result = test(new_trie).map(|v| v.1);
         if i < size {
             assert_matches!(
@@ -150,17 +149,17 @@ mod nodes_counter_tests {
         NibbleSlice::encode_nibbles(&nibbles, false).into_vec()
     }
 
-    fn create_trie(items: &[(Vec<u8>, Option<Vec<u8>>)]) -> Rc<Trie> {
+    fn create_trie(items: &[(Vec<u8>, Option<Vec<u8>>)]) -> Trie {
         let tries = TestTriesBuilder::new().build();
         let shard_uid = ShardUId { version: 1, shard_id: 0 };
         let trie_changes = simplify_changes(&items);
         let state_root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, trie_changes);
         let trie = tries.get_trie_for_shard(shard_uid, state_root);
-        Rc::new(trie)
+        trie
     }
 
     // Get values corresponding to keys one by one, returning vector of numbers of touched nodes for each `get`.
-    fn get_touched_nodes_numbers(trie: Rc<Trie>, items: &[(Vec<u8>, Option<Vec<u8>>)]) -> Vec<u64> {
+    fn get_touched_nodes_numbers(trie: &Trie, items: &[(Vec<u8>, Option<Vec<u8>>)]) -> Vec<u64> {
         items
             .iter()
             .map(|(key, value)| {
@@ -183,7 +182,7 @@ mod nodes_counter_tests {
             (create_trie_key(&[1, 0, 0]), Some(vec![2])),
         ];
         let trie = create_trie(&trie_items);
-        assert_eq!(get_touched_nodes_numbers(trie, &trie_items), vec![5, 5, 4]);
+        assert_eq!(get_touched_nodes_numbers(&trie, &trie_items), vec![5, 5, 4]);
     }
 
     // Check that same values are stored in the same trie node.
@@ -197,7 +196,7 @@ mod nodes_counter_tests {
             (create_trie_key(&[1, 1]), Some(vec![1])),
         ];
         let trie = create_trie(&trie_items);
-        assert_eq!(get_touched_nodes_numbers(trie, &trie_items), vec![4, 4]);
+        assert_eq!(get_touched_nodes_numbers(&trie, &trie_items), vec![4, 4]);
     }
 }
 

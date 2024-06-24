@@ -246,7 +246,7 @@ fn run_state_sync_with_dumped_parts(
             assert_ne!(header.epoch_id().clone(), final_block_header.epoch_id().clone())
         }
 
-        let epoch_id = final_block_header.epoch_id().clone();
+        let epoch_id = *final_block_header.epoch_id();
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap();
         let epoch_height = epoch_info.epoch_height();
 

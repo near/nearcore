@@ -349,7 +349,8 @@ fn receive_network_block() {
                 &signer,
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
-                Clock::real().now_utc(),
+                Clock::real(),
+                None,
             );
             actor_handles.client_actor.do_send(
                 BlockResponse { block, peer_id: PeerInfo::random().id, was_requested: false }
@@ -435,7 +436,8 @@ fn produce_block_with_approvals() {
                 &signer1,
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
-                Clock::real().now_utc(),
+                Clock::real(),
+                None,
             );
             actor_handles.client_actor.do_send(
                 BlockResponse {
@@ -651,7 +653,8 @@ fn invalid_blocks_common(is_requested: bool) {
                 &signer,
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
-                Clock::real().now_utc(),
+                Clock::real(),
+                None,
             );
             // Send block with invalid chunk mask
             let mut block = valid_block.clone();
@@ -1694,7 +1697,7 @@ fn test_process_block_after_state_sync() {
         assert!(env.clients[0].chain.epoch_manager.get_epoch_start_height(&block_hash).is_ok());
     }
     env.clients[0].chain.reset_data_pre_state_sync(sync_hash).unwrap();
-    let epoch_id = env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
+    let epoch_id = *env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id();
     env.clients[0]
         .runtime_adapter
         .apply_state_part(0, &state_root, PartId::new(0, 1), &state_part, &epoch_id)
@@ -3608,8 +3611,7 @@ mod contract_precompilation_tests {
         let state_sync_header =
             env.clients[0].chain.get_state_response_header(0, sync_hash).unwrap();
         let state_root = state_sync_header.chunk_prev_state_root();
-        let epoch_id =
-            env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
+        let epoch_id = *env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id();
         let sync_prev_header =
             env.clients[0].chain.get_previous_header(sync_block.header()).unwrap();
         let sync_prev_prev_hash = sync_prev_header.prev_hash();
@@ -3658,13 +3660,8 @@ mod contract_precompilation_tests {
 
         // Check existence of contract in both caches.
         let contract_code = ContractCode::new(wasm_code.clone(), None);
-        let epoch_id = env.clients[0]
-            .chain
-            .get_block_by_height(height - 1)
-            .unwrap()
-            .header()
-            .epoch_id()
-            .clone();
+        let epoch_id =
+            *env.clients[0].chain.get_block_by_height(height - 1).unwrap().header().epoch_id();
         let runtime_config = env.get_runtime_config(0, epoch_id);
         let key = get_contract_cache_key(*contract_code.hash(), &runtime_config.wasm_config);
         for i in 0..num_clients {
@@ -3698,7 +3695,7 @@ mod contract_precompilation_tests {
             prev_block_hash: *block.header().prev_hash(),
             block_hash: *block.hash(),
             shard_id: ShardUId::single_shard().shard_id(),
-            epoch_id: block.header().epoch_id().clone(),
+            epoch_id: *block.header().epoch_id(),
             epoch_height: 1,
             block_timestamp: block.header().raw_timestamp(),
             current_protocol_version: PROTOCOL_VERSION,
@@ -3763,13 +3760,8 @@ mod contract_precompilation_tests {
         // Perform state sync for the second client on the last produced height.
         state_sync_on_height(&mut env, height - 1);
 
-        let epoch_id = env.clients[0]
-            .chain
-            .get_block_by_height(height - 1)
-            .unwrap()
-            .header()
-            .epoch_id()
-            .clone();
+        let epoch_id =
+            *env.clients[0].chain.get_block_by_height(height - 1).unwrap().header().epoch_id();
         let runtime_config = env.get_runtime_config(0, epoch_id);
         let tiny_contract_key = get_contract_cache_key(
             *ContractCode::new(tiny_wasm_code.clone(), None).hash(),
@@ -3841,13 +3833,8 @@ mod contract_precompilation_tests {
         // Perform state sync for the second client.
         state_sync_on_height(&mut env, height - 1);
 
-        let epoch_id = env.clients[0]
-            .chain
-            .get_block_by_height(height - 1)
-            .unwrap()
-            .header()
-            .epoch_id()
-            .clone();
+        let epoch_id =
+            *env.clients[0].chain.get_block_by_height(height - 1).unwrap().header().epoch_id();
         let runtime_config = env.get_runtime_config(0, epoch_id);
         let contract_key = get_contract_cache_key(
             *ContractCode::new(wasm_code.clone(), None).hash(),

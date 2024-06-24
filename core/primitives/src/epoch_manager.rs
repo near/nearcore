@@ -1473,7 +1473,7 @@ pub mod epoch_sync {
                 header.raw_timestamp(),
             );
 
-            *block_info.epoch_id_mut() = epoch_first_header.epoch_id().clone();
+            *block_info.epoch_id_mut() = *epoch_first_header.epoch_id();
             *block_info.epoch_first_block_mut() = *epoch_first_header.hash();
             Ok(block_info)
         }

@@ -13,7 +13,7 @@ use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{
     get_epoch_block_producers_view, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode,
 };
-use near_chain_configs::{ClientConfig, MutableConfigValue, ProtocolConfigView};
+use near_chain_configs::{ClientConfig, MutableValidatorSigner, ProtocolConfigView};
 use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_client_primitives::types::{
     Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofError, GetBlockProofResponse,
@@ -94,7 +94,7 @@ pub struct ViewClientActorInner {
     /// Validator account (if present). This field is mutable and optional. Use with caution!
     /// Lock the value of mutable validator signer for the duration of a request to ensure consistency.
     /// Please note that the locked value should not be stored anywhere or passed through the thread boundary.
-    validator: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
+    validator: MutableValidatorSigner,
     chain: Chain,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
@@ -120,7 +120,7 @@ impl ViewClientActorInner {
 
     pub fn spawn_actix_actor(
         clock: Clock,
-        validator: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
+        validator: MutableValidatorSigner,
         chain_genesis: ChainGenesis,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
@@ -820,7 +820,7 @@ impl Handler<GetValidatorInfo> for ViewClientActorInner {
                 if block_header.epoch_id() != next_block_header.epoch_id()
                     && block_header.next_epoch_id() == next_block_header.epoch_id()
                 {
-                    ValidatorInfoIdentifier::EpochId(block_header.epoch_id().clone())
+                    ValidatorInfoIdentifier::EpochId(*block_header.epoch_id())
                 } else {
                     return Err(GetValidatorInfoError::ValidatorInfoUnavailable);
                 }
@@ -969,8 +969,8 @@ impl Handler<GetNextLightClientBlock> for ViewClientActorInner {
             .with_label_values(&["GetNextLightClientBlock"])
             .start_timer();
         let last_block_header = self.chain.get_block_header(&msg.last_block_hash)?;
-        let last_epoch_id = last_block_header.epoch_id().clone();
-        let last_next_epoch_id = last_block_header.next_epoch_id().clone();
+        let last_epoch_id = *last_block_header.epoch_id();
+        let last_next_epoch_id = *last_block_header.next_epoch_id();
         let last_height = last_block_header.height();
         let head = self.chain.head()?;
 
@@ -1024,7 +1024,7 @@ impl Handler<GetExecutionOutcome> for ViewClientActorInner {
             Ok(outcome) => {
                 let mut outcome_proof = outcome;
                 let epoch_id =
-                    self.chain.get_block(&outcome_proof.block_hash)?.header().epoch_id().clone();
+                    *self.chain.get_block(&outcome_proof.block_hash)?.header().epoch_id();
                 let target_shard_id = self
                     .epoch_manager
                     .account_id_to_shard_id(&account_id, &epoch_id)

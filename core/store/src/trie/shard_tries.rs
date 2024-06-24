@@ -20,7 +20,6 @@ use near_primitives::types::{
 };
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashMap;
-use std::rc::Rc;
 use std::sync::{Arc, Mutex, RwLock};
 use tracing::info;
 
@@ -139,7 +138,7 @@ impl ShardTries {
                 .clone()
         });
 
-        let storage = Rc::new(TrieCachingStorage::new(
+        let storage = Arc::new(TrieCachingStorage::new(
             self.0.store.clone(),
             cache,
             shard_uid,
@@ -166,7 +165,7 @@ impl ShardTries {
     ) -> Result<Trie, StorageError> {
         let (store, flat_storage_manager) = self.get_state_snapshot(block_hash)?;
         let cache = self.get_trie_cache_for(shard_uid, true);
-        let storage = Rc::new(TrieCachingStorage::new(store, cache, shard_uid, true, None));
+        let storage = Arc::new(TrieCachingStorage::new(store, cache, shard_uid, true, None));
         let flat_storage_chunk_view = flat_storage_manager.chunk_view(shard_uid, *block_hash);
 
         Ok(Trie::new(storage, state_root, flat_storage_chunk_view))
