@@ -4,10 +4,8 @@ use near_dyn_configs::{UpdateableConfigLoaderError, UpdateableConfigs};
 use near_o11y::log_config::LogConfig;
 use near_primitives::validator_signer::ValidatorSigner;
 use serde::Deserialize;
-use std::{
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 pub const LOG_CONFIG_FILENAME: &str = "log_config.json";
 

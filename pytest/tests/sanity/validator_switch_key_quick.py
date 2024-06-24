@@ -31,6 +31,8 @@ class ValidatorSwitchKeyQuickTest(unittest.TestCase):
             }
         }
 
+        # Key will be moved from old_validator to new_validator,
+        # while the other_validator remains untouched.
         [other_validator, old_validator, new_validator,
         ] = start_cluster(2, 1, 3, None,
                           [["epoch_length", EPOCH_LENGTH],
