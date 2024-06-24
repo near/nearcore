@@ -11,6 +11,9 @@ use std::collections::HashMap;
 
 pub(crate) const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 
+/// Execute money transfers within given `TestLoop` between given accounts.
+/// Used to generate state changes and check that chain is able to update
+/// balances correctly.
 pub(crate) fn execute_money_transfers(
     test_loop: &mut near_async::test_loop::TestLoopV2,
     node_datas: &[TestData],
