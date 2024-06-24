@@ -1912,45 +1912,52 @@ impl Chain {
                 Ok(new_head) => new_head,
             };
 
-        // Update flat storage head to be the last final block. Note that this update happens
-        // in a separate db transaction from the update from block processing. This is intentional
-        // because flat_storage need to be locked during the update of flat head, otherwise
-        // flat_storage is in an inconsistent state that could be accessed by the other
-        // apply chunks processes. This means, the flat head is not always the same as
-        // the last final block on chain, which is OK, because in the flat storage implementation
-        // we don't assume that.
         let epoch_id = block.header().epoch_id();
+        let mut shards_cares_this_or_next_epoch = vec![];
         for shard_id in self.epoch_manager.shard_ids(epoch_id)? {
+            let care_about_shard = self.shard_tracker.care_about_shard(
+                me.as_ref(),
+                block.header().prev_hash(),
+                shard_id,
+                true,
+            );
+            let will_care_about_shard = self.shard_tracker.will_care_about_shard(
+                me.as_ref(),
+                block.header().prev_hash(),
+                shard_id,
+                true,
+            );
+            let care_about_shard_this_or_next_epoch = care_about_shard || will_care_about_shard;
+            if care_about_shard_this_or_next_epoch {
+                let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id).unwrap();
+                shards_cares_this_or_next_epoch.push(shard_uid);
+            }
+
+            // Update flat storage head to be the last final block. Note that this update happens
+            // in a separate db transaction from the update from block processing. This is intentional
+            // because flat_storage need to be locked during the update of flat head, otherwise
+            // flat_storage is in an inconsistent state that could be accessed by the other
+            // apply chunks processes. This means, the flat head is not always the same as
+            // the last final block on chain, which is OK, because in the flat storage implementation
+            // we don't assume that.
             let need_flat_storage_update = if is_caught_up {
                 // If we already caught up this epoch, then flat storage exists for both shards which we already track
                 // and shards which will be tracked in next epoch, so we can update them.
-                self.shard_tracker.care_about_shard(
-                    me.as_ref(),
-                    block.header().prev_hash(),
-                    shard_id,
-                    true,
-                ) || self.shard_tracker.will_care_about_shard(
-                    me.as_ref(),
-                    block.header().prev_hash(),
-                    shard_id,
-                    true,
-                )
+                care_about_shard_this_or_next_epoch 
             } else {
                 // If we didn't catch up, we can update only shards tracked right now. Remaining shards will be updated
                 // during catchup of this block.
-                self.shard_tracker.care_about_shard(
-                    me.as_ref(),
-                    block.header().prev_hash(),
-                    shard_id,
-                    true,
-                )
+                care_about_shard
             };
-            tracing::debug!(target: "chain", shard_id,need_flat_storage_update, "Updating flat storage");
+            tracing::debug!(target: "chain", shard_id, need_flat_storage_update, "Updating flat storage");
 
             if need_flat_storage_update {
                 self.update_flat_storage_and_memtrie(&block, shard_id)?;
             }
         }
+
+        // Garbage collect memtries that we do not care about this or next epoch.
+        self.runtime_adapter.get_tries().retain_mem_tries(&shards_cares_this_or_next_epoch);
 
         if let Err(err) = self.garbage_collect_state_transition_data(&block) {
             tracing::error!(target: "chain", ?err, "failed to garbage collect state transition data");
