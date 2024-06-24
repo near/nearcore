@@ -236,7 +236,7 @@ mod tests {
 
         let (results_sender, results_receiver) = std::sync::mpsc::channel();
 
-        // Sawn waiter tasks
+        // Spawn waiter tasks
         for waiter in [waiter1, waiter2, waiter3] {
             let current_sender = results_sender.clone();
             let current_shared_value = shared_value.clone();
