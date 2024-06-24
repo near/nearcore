@@ -8,6 +8,7 @@ use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::mocks::mock_external::MockedExternal;
 use near_vm_runner::{ContractCode, ContractRuntimeCache, FilesystemContractRuntimeCache};
 use std::fmt::Write;
+use std::sync::Arc;
 
 /// Estimates linear cost curve for a function call execution cost per byte of
 /// total contract code. The contract size is increased by adding more methods
@@ -70,21 +71,19 @@ fn compute_function_call_cost(
     let vm_config = runtime_config.wasm_config.clone();
     let runtime = vm_kind.runtime(vm_config).expect("runtime has not been enabled");
     let fees = runtime_config.fees.clone();
-    let mut fake_external = MockedExternal::new();
+    let mut fake_external = MockedExternal::with_code(contract.clone_for_tests());
     let fake_context = create_context(vec![]);
-    let promise_results = vec![];
+    let promise_results = Arc::from([]);
 
     // Warmup.
     for _ in 0..warmup_repeats {
         let result = runtime
             .run(
-                *contract.hash(),
-                Some(&contract),
                 "hello0",
                 &mut fake_external,
                 &fake_context,
-                &fees,
-                &promise_results,
+                Arc::clone(&fees),
+                Arc::clone(&promise_results),
                 cache,
             )
             .expect("fatal error");
@@ -95,13 +94,11 @@ fn compute_function_call_cost(
     for _ in 0..repeats {
         let result = runtime
             .run(
-                *contract.hash(),
-                Some(&contract),
                 "hello0",
                 &mut fake_external,
                 &fake_context,
-                &fees,
-                &promise_results,
+                Arc::clone(&fees),
+                Arc::clone(&promise_results),
                 cache,
             )
             .expect("fatal_error");

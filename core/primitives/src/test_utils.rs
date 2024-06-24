@@ -5,8 +5,7 @@ use crate::block_header::BlockHeader;
 use crate::challenge::Challenges;
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
-use crate::merkle::PartialMerkleTree;
-use crate::num_rational::Ratio;
+
 use crate::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
@@ -14,13 +13,11 @@ use crate::transaction::{
     TransactionV0, TransactionV1, TransferAction,
 };
 use crate::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce};
-use crate::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
+use crate::validator_signer::ValidatorSigner;
 use crate::version::PROTOCOL_VERSION;
 use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus};
-use near_async::time::Clock;
 use near_crypto::vrf::Value;
-use near_crypto::{EmptySigner, InMemorySigner, KeyType, PublicKey, SecretKey, Signature, Signer};
-use near_primitives_core::account::id::AccountIdRef;
+use near_crypto::{EmptySigner, PublicKey, SecretKey, Signer};
 use near_primitives_core::types::{ProtocolVersion, ShardId};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -80,7 +77,7 @@ impl Transaction {
         }
     }
 
-    pub fn sign(self, signer: &dyn Signer) -> SignedTransaction {
+    pub fn sign(self, signer: &Signer) -> SignedTransaction {
         let signature = signer.sign(self.get_hash_and_size().0.as_ref());
         SignedTransaction::new(signature, self)
     }
@@ -144,7 +141,7 @@ impl SignedTransaction {
         nonce: Nonce,
         signer_id: AccountId,
         receiver_id: AccountId,
-        signer: &dyn Signer,
+        signer: &Signer,
         actions: Vec<Action>,
         block_hash: CryptoHash,
         _priority_fee: u64,
@@ -165,7 +162,7 @@ impl SignedTransaction {
         nonce: Nonce,
         signer_id: AccountId,
         receiver_id: AccountId,
-        signer: &dyn Signer,
+        signer: &Signer,
         actions: Vec<Action>,
         block_hash: CryptoHash,
         priority_fee: u64,
@@ -186,7 +183,7 @@ impl SignedTransaction {
         nonce: Nonce,
         signer_id: AccountId,
         receiver_id: AccountId,
-        signer: &dyn Signer,
+        signer: &Signer,
         deposit: Balance,
         block_hash: CryptoHash,
     ) -> Self {
@@ -204,7 +201,7 @@ impl SignedTransaction {
     pub fn stake(
         nonce: Nonce,
         signer_id: AccountId,
-        signer: &dyn Signer,
+        signer: &Signer,
         stake: Balance,
         public_key: PublicKey,
         block_hash: CryptoHash,
@@ -226,7 +223,7 @@ impl SignedTransaction {
         new_account_id: AccountId,
         amount: Balance,
         public_key: PublicKey,
-        signer: &dyn Signer,
+        signer: &Signer,
         block_hash: CryptoHash,
     ) -> Self {
         Self::from_actions(
@@ -254,7 +251,7 @@ impl SignedTransaction {
         code: Vec<u8>,
         amount: Balance,
         public_key: PublicKey,
-        signer: &dyn Signer,
+        signer: &Signer,
         block_hash: CryptoHash,
     ) -> Self {
         Self::from_actions(
@@ -280,7 +277,7 @@ impl SignedTransaction {
         nonce: Nonce,
         signer_id: AccountId,
         receiver_id: AccountId,
-        signer: &dyn Signer,
+        signer: &Signer,
         deposit: Balance,
         method_name: String,
         args: Vec<u8>,
@@ -308,7 +305,7 @@ impl SignedTransaction {
         signer_id: AccountId,
         receiver_id: AccountId,
         beneficiary_id: AccountId,
-        signer: &dyn Signer,
+        signer: &Signer,
         block_hash: CryptoHash,
     ) -> Self {
         Self::from_actions(
@@ -327,7 +324,7 @@ impl SignedTransaction {
             0,
             "test".parse().unwrap(),
             "test".parse().unwrap(),
-            &EmptySigner {},
+            &EmptySigner::new().into(),
             vec![],
             block_hash,
             0,
@@ -368,7 +365,7 @@ impl BlockHeader {
         }
     }
 
-    pub fn resign(&mut self, signer: &dyn ValidatorSigner) {
+    pub fn resign(&mut self, signer: &ValidatorSigner) {
         let (hash, signature) = signer.sign_block_header_parts(
             *self.prev_hash(),
             &self.inner_lite_bytes(),
@@ -451,36 +448,38 @@ impl BlockBody {
 /// # Examples
 ///
 /// // TODO(mm-near): change it to doc-tested code once we have easy way to create a genesis block.
-/// let signer = EmptyValidatorSigner::default();
+/// let signer = EmptyValidatorSigner::default().into();
 /// let test_block = test_utils::TestBlockBuilder::new(prev, signer).height(33).build();
+#[cfg(feature = "clock")]
 pub struct TestBlockBuilder {
-    clock: Clock,
+    clock: near_time::Clock,
     prev: Block,
-    signer: Arc<dyn ValidatorSigner>,
+    signer: Arc<ValidatorSigner>,
     height: u64,
     epoch_id: EpochId,
     next_epoch_id: EpochId,
     next_bp_hash: CryptoHash,
-    approvals: Vec<Option<Box<Signature>>>,
+    approvals: Vec<Option<Box<near_crypto::Signature>>>,
     block_merkle_root: CryptoHash,
 }
 
+#[cfg(feature = "clock")]
 impl TestBlockBuilder {
-    pub fn new(clock: Clock, prev: &Block, signer: Arc<dyn ValidatorSigner>) -> Self {
-        let mut tree = PartialMerkleTree::default();
+    pub fn new(clock: near_time::Clock, prev: &Block, signer: Arc<ValidatorSigner>) -> Self {
+        let mut tree = crate::merkle::PartialMerkleTree::default();
         tree.insert(*prev.hash());
-
+        let next_epoch_id = if prev.header().is_genesis() {
+            EpochId(*prev.hash())
+        } else {
+            *prev.header().next_epoch_id()
+        };
         Self {
             clock,
             prev: prev.clone(),
-            signer: signer.clone(),
+            signer,
             height: prev.header().height() + 1,
-            epoch_id: prev.header().epoch_id().clone(),
-            next_epoch_id: if prev.header().is_genesis() {
-                EpochId(*prev.hash())
-            } else {
-                prev.header().next_epoch_id().clone()
-            },
+            epoch_id: *prev.header().epoch_id(),
+            next_epoch_id,
             next_bp_hash: *prev.header().next_bp_hash(),
             approvals: vec![],
             block_merkle_root: tree.root(),
@@ -502,13 +501,16 @@ impl TestBlockBuilder {
         self.next_bp_hash = next_bp_hash;
         self
     }
-    pub fn approvals(mut self, approvals: Vec<Option<Box<Signature>>>) -> Self {
+    pub fn approvals(mut self, approvals: Vec<Option<Box<near_crypto::Signature>>>) -> Self {
         self.approvals = approvals;
         self
     }
 
     /// Updates the merkle tree by adding the previous hash, and updates the new block's merkle_root.
-    pub fn block_merkle_tree(mut self, block_merkle_tree: &mut PartialMerkleTree) -> Self {
+    pub fn block_merkle_tree(
+        mut self,
+        block_merkle_tree: &mut crate::merkle::PartialMerkleTree,
+    ) -> Self {
         block_merkle_tree.insert(*self.prev.hash());
         self.block_merkle_root = block_merkle_tree.root();
         self
@@ -528,7 +530,7 @@ impl TestBlockBuilder {
             self.next_epoch_id,
             None,
             self.approvals,
-            Ratio::new(0, 1),
+            num_rational::Ratio::new(0, 1),
             0,
             0,
             Some(0),
@@ -537,7 +539,8 @@ impl TestBlockBuilder {
             self.signer.as_ref(),
             self.next_bp_hash,
             self.block_merkle_root,
-            self.clock.now_utc(),
+            self.clock,
+            None,
         )
     }
 }
@@ -715,12 +718,14 @@ pub fn encode(xs: &[u64]) -> Vec<u8> {
 
 // Helper function that creates a new signer for a given account, that uses the account name as seed.
 // Should be used only in tests.
-pub fn create_test_signer(account_name: &str) -> InMemoryValidatorSigner {
-    InMemoryValidatorSigner::from_seed(
+#[cfg(feature = "rand")]
+pub fn create_test_signer(account_name: &str) -> ValidatorSigner {
+    crate::validator_signer::InMemoryValidatorSigner::from_seed(
         account_name.parse().unwrap(),
-        KeyType::ED25519,
+        near_crypto::KeyType::ED25519,
         account_name,
     )
+    .into()
 }
 
 /// Helper function that creates a new signer for a given account, that uses the account name as seed.
@@ -728,12 +733,22 @@ pub fn create_test_signer(account_name: &str) -> InMemoryValidatorSigner {
 /// This also works for predefined implicit accounts, where the signer will use the implicit key.
 ///
 /// Should be used only in tests.
-pub fn create_user_test_signer(account_name: &AccountIdRef) -> InMemorySigner {
+#[cfg(feature = "rand")]
+pub fn create_user_test_signer(
+    account_name: &near_primitives_core::account::id::AccountIdRef,
+) -> near_crypto::InMemorySigner {
     let account_id = account_name.to_owned();
     if account_id == near_implicit_test_account() {
-        InMemorySigner::from_secret_key(account_id, near_implicit_test_account_secret())
+        near_crypto::InMemorySigner::from_secret_key(
+            account_id,
+            near_implicit_test_account_secret(),
+        )
     } else {
-        InMemorySigner::from_seed(account_id, KeyType::ED25519, account_name.as_str())
+        near_crypto::InMemorySigner::from_seed(
+            account_id,
+            near_crypto::KeyType::ED25519,
+            account_name.as_str(),
+        )
     }
 }
 

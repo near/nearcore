@@ -206,6 +206,7 @@ expression: config_view
       "max_length_returned_data": 4194304,
       "max_contract_size": 4194304,
       "max_transaction_size": 4194304,
+      "max_receipt_size": 999999999999999,
       "max_length_storage_key": 4194304,
       "max_length_storage_value": 4194304,
       "max_promises_per_function_call_action": 1024,
@@ -221,6 +222,20 @@ expression: config_view
   "account_creation_config": {
     "min_allowed_top_level_account_length": 32,
     "registrar_account_id": "registrar"
+  },
+  "congestion_control_config": {
+    "max_congestion_incoming_gas": 9223372036854775807,
+    "max_congestion_outgoing_gas": 9223372036854775807,
+    "max_congestion_memory_consumption": 9223372036854775807,
+    "max_congestion_missed_chunks": 9223372036854775807,
+    "max_outgoing_gas": 9223372036854775807,
+    "min_outgoing_gas": 9223372036854775807,
+    "allowed_shard_outgoing_gas": 9223372036854775807,
+    "max_tx_gas": 9223372036854775807,
+    "min_tx_gas": 9223372036854775807,
+    "reject_tx_congestion_threshold": 1.0,
+    "outgoing_receipts_usual_size_limit": 999999999999999,
+    "outgoing_receipts_big_size_limit": 999999999999999
   },
   "witness_config": {
     "main_storage_proof_size_soft_limit": 999999999999999,

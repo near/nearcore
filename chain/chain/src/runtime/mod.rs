@@ -36,7 +36,7 @@ use near_primitives::types::{
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, ContractCodeView, QueryRequest, QueryResponse,
-    QueryResponseKind, ViewApplyState, ViewStateResult,
+    QueryResponseKind, ViewStateResult,
 };
 use near_store::config::StateSnapshotType;
 use near_store::flat::FlatStorageManager;
@@ -48,7 +48,7 @@ use near_store::{
 use near_vm_runner::ContractCode;
 use near_vm_runner::{precompile_contract, ContractRuntimeCache, FilesystemContractRuntimeCache};
 use node_runtime::adapter::ViewRuntimeAdapter;
-use node_runtime::state_viewer::TrieViewer;
+use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
     validate_transaction, verify_and_charge_transaction, ApplyState, Runtime,
     ValidatorAccountsUpdate,
@@ -167,6 +167,7 @@ impl NightshadeRuntime {
         compiled_contract_cache: Box<dyn ContractRuntimeCache>,
         genesis_config: &GenesisConfig,
         epoch_manager: Arc<EpochManagerHandle>,
+        runtime_config_store: Option<RuntimeConfigStore>,
         trie_config: TrieConfig,
         state_snapshot_type: StateSnapshotType,
     ) -> Arc<Self> {
@@ -177,7 +178,7 @@ impl NightshadeRuntime {
             epoch_manager,
             None,
             None,
-            None,
+            runtime_config_store,
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
             trie_config,
             StateSnapshotConfig {
@@ -407,8 +408,8 @@ impl NightshadeRuntime {
                 // TODO(#2152): process gracefully
                 RuntimeError::BalanceMismatchError(e) => panic!("{}", e),
                 // TODO(#2152): process gracefully
-                RuntimeError::UnexpectedIntegerOverflow => {
-                    panic!("RuntimeError::UnexpectedIntegerOverflow")
+                RuntimeError::UnexpectedIntegerOverflow(reason) => {
+                    panic!("RuntimeError::UnexpectedIntegerOverflow {reason}")
                 }
                 RuntimeError::StorageError(e) => Error::StorageError(e),
                 // TODO(#2152): process gracefully
@@ -494,7 +495,12 @@ impl NightshadeRuntime {
                 let contract_cache = compiled_contract_cache.as_deref();
                 let slot_sender = slot_sender.clone();
                 scope.spawn(move |_| {
-                    precompile_contract(&code, &runtime_config.wasm_config, contract_cache).ok();
+                    precompile_contract(
+                        &code,
+                        Arc::clone(&runtime_config.wasm_config),
+                        contract_cache,
+                    )
+                    .ok();
                     // If this fails, it just means there won't be any more attempts to recv the
                     // slots
                     let _ = slot_sender.send(());
@@ -643,8 +649,24 @@ impl RuntimeAdapter for NightshadeRuntime {
         verify_signature: bool,
         epoch_id: &EpochId,
         current_protocol_version: ProtocolVersion,
+        receiver_congestion_info: Option<ExtendedCongestionInfo>,
     ) -> Result<Option<InvalidTxError>, Error> {
         let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
+
+        if let Some(congestion_info) = receiver_congestion_info {
+            let congestion_control = CongestionControl::new(
+                runtime_config.congestion_control_config,
+                congestion_info.congestion_info,
+                congestion_info.missed_chunks_count,
+            );
+            if !congestion_control.shard_accepts_transactions() {
+                let receiver_shard =
+                    self.account_id_to_shard_uid(transaction.transaction.receiver_id(), epoch_id)?;
+                return Ok(Some(InvalidTxError::ShardCongested {
+                    shard_id: receiver_shard.shard_id,
+                }));
+            }
+        }
 
         if let Some(state_root) = state_root {
             let shard_uid =
@@ -1281,6 +1303,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
+    fn get_runtime_config(
+        &self,
+        protocol_version: ProtocolVersion,
+    ) -> Result<RuntimeConfig, Error> {
+        let runtime_config = self.runtime_config_store.get_config(protocol_version);
+        Ok(runtime_config.as_ref().clone())
+    }
+
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
         let mut genesis_config = self.genesis_config.clone();
@@ -1297,6 +1327,10 @@ impl RuntimeAdapter for NightshadeRuntime {
             epoch_config.block_producer_kickout_threshold;
         genesis_config.chunk_producer_kickout_threshold =
             epoch_config.chunk_producer_kickout_threshold;
+        genesis_config.chunk_validator_only_kickout_threshold =
+            epoch_config.chunk_validator_only_kickout_threshold;
+        genesis_config.target_validator_mandates_per_shard =
+            epoch_config.target_validator_mandates_per_shard;
         genesis_config.max_kickout_stake_perc = epoch_config.validator_max_kickout_stake_perc;
         genesis_config.online_min_threshold = epoch_config.online_min_threshold;
         genesis_config.online_max_threshold = epoch_config.online_max_threshold;
@@ -1432,11 +1466,11 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             block_height: height,
             prev_block_hash: *prev_block_hash,
             block_hash: *block_hash,
-            epoch_id: epoch_id.clone(),
+            epoch_id: *epoch_id,
             epoch_height,
             block_timestamp,
             current_protocol_version,
-            cache: Some(Box::new(self.compiled_contract_cache.handle())),
+            cache: Some(self.compiled_contract_cache.handle()),
         };
         self.trie_viewer.call_function(
             state_update,

@@ -398,6 +398,15 @@ static CONGESTION_OUTGOING_GAS: Lazy<IntGaugeVec> = Lazy::new(|| {
     .unwrap()
 });
 
+pub(crate) static CHUNK_RECEIPTS_LIMITED_BY: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_chunk_receipts_limited_by",
+        "Number of chunks where the number of processed receipts was limited by a certain factor.",
+        &["shard_id", "limited_by"],
+    )
+    .unwrap()
+});
+
 /// Buckets used for burned gas in receipts.
 ///
 /// The maximum possible is 1300 Tgas for a full chunk.
@@ -662,14 +671,14 @@ fn report_outgoing_buffers(
     inner: &crate::congestion_control::ReceiptSinkV2,
     sender_shard_label: String,
 ) {
-    for (&receiver_shard_id, &unused_capacity) in inner.outgoing_limit.iter() {
+    for (receiver_shard_id, unused_capacity) in inner.outgoing_limit.iter() {
         let receiver_shard_label = receiver_shard_id.to_string();
 
         CONGESTION_RECEIPT_FORWARDING_UNUSED_CAPACITY_GAS
             .with_label_values(&[&sender_shard_label, &receiver_shard_label])
-            .set(i64::try_from(unused_capacity).unwrap_or(i64::MAX));
+            .set(i64::try_from(unused_capacity.gas).unwrap_or(i64::MAX));
 
-        if let Some(len) = inner.outgoing_buffers.buffer_len(receiver_shard_id) {
+        if let Some(len) = inner.outgoing_buffers.buffer_len(*receiver_shard_id) {
             CONGESTION_OUTGOING_RECEIPT_BUFFER_LEN
                 .with_label_values(&[&sender_shard_label, &receiver_shard_label])
                 .set(i64::try_from(len).unwrap_or(i64::MAX));

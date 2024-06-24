@@ -33,6 +33,7 @@ use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use parking_lot::Mutex;
 use std::net::SocketAddr;
+use std::num::NonZeroUsize;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use tracing::Instrument as _;
@@ -196,7 +197,7 @@ impl NetworkState {
             tier2_route_back: Mutex::new(RouteBackCache::default()),
             tier1_route_back: Mutex::new(RouteBackCache::default()),
             recent_routed_messages: Mutex::new(lru::LruCache::new(
-                RECENT_ROUTED_MESSAGES_CACHE_SIZE,
+                NonZeroUsize::new(RECENT_ROUTED_MESSAGES_CACHE_SIZE).unwrap(),
             )),
             txns_since_last_block: AtomicUsize::new(0),
             whitelist_nodes,
@@ -426,9 +427,10 @@ impl NetworkState {
             interval.tick(&clock).await;
 
             let result = async {
-                let stream = tcp::Stream::connect(&peer_info, tcp::Tier::T2)
-                    .await
-                    .context("tcp::Stream::connect()")?;
+                let stream =
+                    tcp::Stream::connect(&peer_info, tcp::Tier::T2, &self.config.socket_options)
+                        .await
+                        .context("tcp::Stream::connect()")?;
                 PeerActor::spawn_and_handshake(clock.clone(), stream, None, self.clone())
                     .await
                     .context("PeerActor::spawn()")?;
@@ -501,7 +503,7 @@ impl NetworkState {
         // Check if the message is for myself and don't try to send it in that case.
         if let PeerIdOrHash::PeerId(target) = &msg.target {
             if target == &my_peer_id {
-                tracing::debug!(target: "network", account_id = ?self.config.validator.as_ref().map(|v|v.account_id()), ?my_peer_id, ?msg, "Drop signed message to myself");
+                tracing::debug!(target: "network", account_id = ?self.config.validator.account_id(), ?my_peer_id, ?msg, "Drop signed message to myself");
                 metrics::CONNECTED_TO_MYSELF.inc();
                 return false;
             }
@@ -538,7 +540,7 @@ impl NetworkState {
                         metrics::MessageDropped::NoRouteFound.inc(&msg.body);
 
                         tracing::debug!(target: "network",
-                              account_id = ?self.config.validator.as_ref().map(|v|v.account_id()),
+                              account_id = ?self.config.validator.account_id(),
                               to = ?msg.target,
                               reason = ?find_route_error,
                               known_peers = ?self.graph.routing_table.reachable_peers(),
@@ -608,7 +610,7 @@ impl NetworkState {
             // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
             metrics::MessageDropped::UnknownAccount.inc(&msg);
             tracing::debug!(target: "network",
-                   account_id = ?self.config.validator.as_ref().map(|v|v.account_id()),
+                   account_id = ?self.config.validator.account_id(),
                    to = ?account_id,
                    ?msg,"Drop message: unknown account",
             );

@@ -1,42 +1,32 @@
 use crate::util::{Packable, Point, Scalar};
 use blake2::digest::generic_array::{typenum::U32, GenericArray};
-use blake2::digest::{BlockInput, FixedOutput, Reset, Update, VariableOutput};
-use blake2::VarBlake2b;
+use blake2::digest::{FixedOutput, OutputSizeUser, Reset, Update, VariableOutput};
+use blake2::Blake2bVar;
 
-pub use blake2::Blake2b as Hash512;
+pub use blake2::Blake2b512 as Hash512;
 
 #[derive(Clone)]
-pub struct Hash256(VarBlake2b);
+pub struct Hash256(Blake2bVar);
 
 impl Default for Hash256 {
     fn default() -> Self {
-        Hash256(VarBlake2b::new(32).unwrap())
+        Hash256(Blake2bVar::new(32).unwrap())
     }
 }
 
 impl Update for Hash256 {
-    fn update(&mut self, data: impl AsRef<[u8]>) {
+    fn update(&mut self, data: &[u8]) {
         self.0.update(data);
     }
 }
 
-impl BlockInput for Hash256 {
-    type BlockSize = <VarBlake2b as BlockInput>::BlockSize;
+impl OutputSizeUser for Hash256 {
+    type OutputSize = U32;
 }
 
 impl FixedOutput for Hash256 {
-    type OutputSize = U32;
-
     fn finalize_into(self, out: &mut GenericArray<u8, Self::OutputSize>) {
-        self.0.finalize_variable(|s| {
-            out.copy_from_slice(&s[0..32]);
-        });
-    }
-
-    fn finalize_into_reset(&mut self, out: &mut GenericArray<u8, Self::OutputSize>) {
-        self.0.finalize_variable_reset(|s| {
-            out.copy_from_slice(&s[0..32]);
-        });
+        self.0.finalize_variable(out).expect("hash output size is correct")
     }
 }
 

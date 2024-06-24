@@ -3,6 +3,7 @@ use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::convert::Infallible;
 use std::hash::Hash;
+use std::num::NonZeroUsize;
 
 /// A wrapper around `LruCache` to provide shared `&` access to content.
 pub struct CellLruCache<K, V> {
@@ -16,7 +17,7 @@ where
 {
     /// Creats a new `LRU` cache that holds at most `cap` items.
     pub fn new(cap: usize) -> Self {
-        Self { inner: RefCell::new(LruCache::<K, V>::new(cap)) }
+        Self { inner: RefCell::new(LruCache::<K, V>::new(NonZeroUsize::new(cap).unwrap())) }
     }
 
     /// Returns the number of key-value pairs that are currently in the cache.
@@ -70,7 +71,7 @@ where
 
     pub fn pop<Q>(&self, key: &Q) -> Option<V>
     where
-        lru::KeyRef<K>: Borrow<Q>,
+        K: Borrow<Q>,
         Q: Hash + Eq + ?Sized,
     {
         self.inner.borrow_mut().pop(key)
@@ -80,7 +81,7 @@ where
     /// Moves the key to the head of the LRU list if it exists.
     pub fn get<Q>(&self, key: &Q) -> Option<V>
     where
-        lru::KeyRef<K>: Borrow<Q>,
+        K: Borrow<Q>,
         Q: Hash + Eq + ?Sized,
     {
         self.inner.borrow_mut().get(key).cloned()

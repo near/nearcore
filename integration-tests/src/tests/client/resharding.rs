@@ -6,7 +6,7 @@ use near_chain::{ChainStoreAccess, Provenance};
 use near_chain_configs::{Genesis, NEAR_BASE};
 use near_client::test_utils::{run_catchup, TestEnv};
 use near_client::{Client, ProcessTxResponse};
-use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_crypto::{InMemorySigner, KeyType};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::{Block, Tip};
@@ -239,7 +239,7 @@ impl TestReshardingEnv {
             .validator_seats(num_validators)
             .real_stores()
             .epoch_managers_with_test_overrides(epoch_config_test_overrides)
-            .nightshade_runtimes(&genesis)
+            .nightshade_runtimes_congestion_control_disabled(&genesis)
             .track_all_shards()
             .build();
         assert_eq!(env.validators.len(), num_validators);
@@ -341,7 +341,7 @@ impl TestReshardingEnv {
             let _span = tracing::debug_span!(target: "test", "process block", client=j).entered();
 
             let shard_ids = chunk_producer_to_shard_id
-                .get(client.validator_signer.as_ref().unwrap().validator_id())
+                .get(client.validator_signer.get().unwrap().validator_id())
                 .cloned()
                 .unwrap_or_default();
             let should_produce_chunk =
@@ -352,12 +352,14 @@ impl TestReshardingEnv {
             // because we want to call run_catchup before finish processing this block. This simulates
             // that catchup and block processing run in parallel.
             let block = MaybeValidated::from(block.clone());
-            client.start_process_block(block, Provenance::NONE, None).unwrap();
+            let signer = client.validator_signer.get();
+            client.start_process_block(block, Provenance::NONE, None, &signer).unwrap();
             if should_catchup {
                 run_catchup(client, &[])?;
             }
             while wait_for_all_blocks_in_processing(&mut client.chain) {
-                let (_, errors) = client.postprocess_ready_blocks(None, should_produce_chunk);
+                let (_, errors) =
+                    client.postprocess_ready_blocks(None, should_produce_chunk, &signer);
                 assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
             }
             // manually invoke gc
@@ -913,6 +915,7 @@ fn setup_genesis(
     // Same needs to be set in the AllEpochConfigTestOverrides.
     genesis.config.block_producer_kickout_threshold = 0;
     genesis.config.chunk_producer_kickout_threshold = 0;
+    genesis.config.chunk_validator_only_kickout_threshold = 0;
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = genesis_protocol_version;
     genesis.config.use_production_config = true;
@@ -973,7 +976,7 @@ fn generate_create_accounts_txs(
                 account_id.clone(),
                 NEAR_BASE,
                 signer.public_key(),
-                &signer0,
+                &signer0.into(),
                 genesis_hash,
             );
             if check_accounts {
@@ -1282,7 +1285,7 @@ fn setup_test_env_with_cross_contract_txs(
             1,
             account_id.clone(),
             account_id.clone(),
-            &signer,
+            &signer.into(),
             actions,
             genesis_hash,
             0,
@@ -1451,7 +1454,7 @@ fn gen_cross_contract_tx_impl(
         nonce,
         account0.clone(),
         account1.clone(),
-        &signer0,
+        &signer0.into(),
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
@@ -1597,7 +1600,7 @@ fn generate_yield_create_tx(
         nonce,
         account_id.clone(),
         account_id.clone(),
-        &signer,
+        &signer.into(),
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: callback_method_name,
             args: vec![],
@@ -1631,7 +1634,7 @@ fn setup_test_env_with_promise_yield_txs(
             1,
             account_id.clone(),
             account_id.clone(),
-            &signer,
+            &signer.into(),
             actions,
             genesis_hash,
             0,

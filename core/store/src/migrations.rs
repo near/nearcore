@@ -10,7 +10,7 @@ use near_primitives::types::{
     validator_stake::ValidatorStake, AccountId, EpochId, ShardId, ValidatorId,
     ValidatorKickoutReason, ValidatorStats,
 };
-use near_primitives::types::{BlockChunkValidatorStats, ChunkValidatorStats};
+use near_primitives::types::{BlockChunkValidatorStats, ChunkStats};
 use near_primitives::utils::get_outcome_id_block_hash;
 use near_primitives::version::ProtocolVersion;
 use std::collections::{BTreeMap, HashMap};
@@ -239,6 +239,27 @@ pub fn migrate_37_to_38(store: &Store) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// `ValidatorKickoutReason` struct layout before DB version 38, included.
+#[derive(BorshDeserialize)]
+struct LegacyBlockChunkValidatorStatsV38 {
+    pub block_stats: ValidatorStats,
+    pub chunk_stats: ValidatorStats,
+}
+
+/// `ValidatorKickoutReason` struct layout before DB version 38, included.
+#[derive(BorshDeserialize)]
+struct LegacyEpochSummaryV38 {
+    pub prev_epoch_last_block_hash: CryptoHash,
+    /// Proposals from the epoch, only the latest one per account
+    pub all_proposals: Vec<ValidatorStake>,
+    /// Kickout set, includes slashed
+    pub validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
+    /// Only for validators who met the threshold and didn't get slashed
+    pub validator_block_chunk_stats: HashMap<AccountId, LegacyBlockChunkValidatorStatsV38>,
+    /// Protocol version for next epoch.
+    pub next_version: ProtocolVersion,
+}
+
 /// Migrates the database from version 38 to 39.
 ///
 /// Rewrites Epoch summary to include endorsement stats.
@@ -260,26 +281,7 @@ pub fn migrate_38_to_39(store: &Store) -> anyhow::Result<()> {
     }
 
     type LegacyEpochInfoAggregator = EpochInfoAggregator<ValidatorStats>;
-    type NewEpochInfoAggregator = EpochInfoAggregator<ChunkValidatorStats>;
-
-    #[derive(BorshDeserialize)]
-    struct LegacyBlockChunkValidatorStats {
-        pub block_stats: ValidatorStats,
-        pub chunk_stats: ValidatorStats,
-    }
-
-    #[derive(BorshDeserialize)]
-    struct LegacyEpochSummary {
-        pub prev_epoch_last_block_hash: CryptoHash,
-        /// Proposals from the epoch, only the latest one per account
-        pub all_proposals: Vec<ValidatorStake>,
-        /// Kickout set, includes slashed
-        pub validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
-        /// Only for validators who met the threshold and didn't get slashed
-        pub validator_block_chunk_stats: HashMap<AccountId, LegacyBlockChunkValidatorStats>,
-        /// Protocol version for next epoch.
-        pub next_version: ProtocolVersion,
-    }
+    type NewEpochInfoAggregator = EpochInfoAggregator<ChunkStats>;
 
     let mut update = store.store_update();
 
@@ -298,10 +300,7 @@ pub fn migrate_38_to_39(store: &Store) -> anyhow::Result<()> {
                         .map(|(validator_id, stats)| {
                             (
                                 validator_id,
-                                ChunkValidatorStats::new_with_production(
-                                    stats.produced,
-                                    stats.expected,
-                                ),
+                                ChunkStats::new_with_production(stats.produced, stats.expected),
                             )
                         })
                         .collect();
@@ -319,7 +318,7 @@ pub fn migrate_38_to_39(store: &Store) -> anyhow::Result<()> {
     // Update EpochSummary
     for result in store.iter(DBCol::EpochValidatorInfo) {
         let (key, old_value) = result?;
-        let legacy_summary = LegacyEpochSummary::try_from_slice(&old_value)?;
+        let legacy_summary = LegacyEpochSummaryV38::try_from_slice(&old_value)?;
         let new_value = EpochSummary {
             prev_epoch_last_block_hash: legacy_summary.prev_epoch_last_block_hash,
             all_proposals: legacy_summary.all_proposals,
@@ -330,7 +329,7 @@ pub fn migrate_38_to_39(store: &Store) -> anyhow::Result<()> {
                 .map(|(account_id, stats)| {
                     let new_stats = BlockChunkValidatorStats {
                         block_stats: stats.block_stats,
-                        chunk_stats: ChunkValidatorStats::new_with_production(
+                        chunk_stats: ChunkStats::new_with_production(
                             stats.chunk_stats.produced,
                             stats.chunk_stats.expected,
                         ),

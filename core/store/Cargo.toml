@@ -103,3 +103,6 @@ nightly = [
   "near-vm-runner/nightly",
   "nightly_protocol",
 ]
+statelessnet_protocol = [
+  "near-primitives/statelessnet_protocol",
+]

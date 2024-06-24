@@ -13,12 +13,13 @@ use near_chain_primitives::Error;
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::{EpochManagerAdapter, RngSeed};
+use near_parameters::RuntimeConfig;
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::Tip;
 use near_primitives::block_header::{Approval, ApprovalInner};
-use near_primitives::congestion_info::CongestionInfo;
+use near_primitives::congestion_info::{CongestionInfo, ExtendedCongestionInfo};
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::EpochConfig;
@@ -268,26 +269,16 @@ impl MockEpochManager {
                 None => 0,
                 Some(prev_valset) => prev_valset + 1,
             };
-            (
-                prev_next_epoch.clone(),
-                EpochId(prev_hash),
-                new_valset,
-                prev_block_header.height() + 1,
-            )
+            (*prev_next_epoch, EpochId(prev_hash), new_valset, prev_block_header.height() + 1)
         } else {
-            (
-                prev_epoch.unwrap().clone(),
-                prev_next_epoch.clone(),
-                prev_valset.unwrap(),
-                prev_epoch_start,
-            )
+            (*prev_epoch.unwrap(), *prev_next_epoch, prev_valset.unwrap(), prev_epoch_start)
         };
 
-        hash_to_next_epoch.insert(prev_hash, next_epoch.clone());
-        hash_to_epoch.insert(prev_hash, epoch.clone());
+        hash_to_next_epoch.insert(prev_hash, next_epoch);
+        hash_to_epoch.insert(prev_hash, epoch);
         hash_to_next_epoch_approvals_req.insert(prev_hash, needs_next_epoch_approvals);
-        hash_to_valset.insert(epoch.clone(), valset);
-        hash_to_valset.insert(next_epoch.clone(), valset + 1);
+        hash_to_valset.insert(epoch, valset);
+        hash_to_valset.insert(next_epoch, valset + 1);
         epoch_start_map.insert(prev_hash, epoch_start);
 
         Ok((epoch, valset as usize % self.validators_by_valset.len(), next_epoch))
@@ -309,7 +300,7 @@ impl MockEpochManager {
             .read()
             .unwrap()
             .get(epoch_id)
-            .ok_or_else(|| EpochError::EpochOutOfBounds(epoch_id.clone()))? as usize
+            .ok_or_else(|| EpochError::EpochOutOfBounds(*epoch_id))? as usize
             % self.validators_by_valset.len())
     }
 
@@ -486,6 +477,8 @@ impl EpochManagerAdapter for MockEpochManager {
             avg_hidden_validator_seats_per_shard: vec![1, 1],
             block_producer_kickout_threshold: 0,
             chunk_producer_kickout_threshold: 0,
+            chunk_validator_only_kickout_threshold: 0,
+            target_validator_mandates_per_shard: 1,
             validator_max_kickout_stake_perc: 0,
             online_min_threshold: Ratio::new(1i32, 4i32),
             online_max_threshold: Ratio::new(3i32, 4i32),
@@ -629,7 +622,7 @@ impl EpochManagerAdapter for MockEpochManager {
         }
         match (self.get_valset_for_epoch(epoch_id), self.get_valset_for_epoch(other_epoch_id)) {
             (Ok(index1), Ok(index2)) => Ok(index1.cmp(&index2)),
-            _ => Err(EpochError::EpochOutOfBounds(epoch_id.clone())),
+            _ => Err(EpochError::EpochOutOfBounds(*epoch_id)),
         }
     }
 
@@ -771,7 +764,7 @@ impl EpochManagerAdapter for MockEpochManager {
                 return Ok((validator_stake.clone(), false));
             }
         }
-        Err(EpochError::NotAValidator(account_id.clone(), epoch_id.clone()))
+        Err(EpochError::NotAValidator(account_id.clone(), *epoch_id))
     }
 
     fn get_fisherman_by_account_id(
@@ -780,7 +773,7 @@ impl EpochManagerAdapter for MockEpochManager {
         _last_known_block_hash: &CryptoHash,
         account_id: &AccountId,
     ) -> Result<(ValidatorStake, bool), EpochError> {
-        Err(EpochError::NotAValidator(account_id.clone(), epoch_id.clone()))
+        Err(EpochError::NotAValidator(account_id.clone(), *epoch_id))
     }
 
     fn get_validator_info(
@@ -1089,6 +1082,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _verify_signature: bool,
         _epoch_id: &EpochId,
         _current_protocol_version: ProtocolVersion,
+        _receiver_congestion_info: Option<ExtendedCongestionInfo>,
     ) -> Result<Option<InvalidTxError>, Error> {
         Ok(None)
     }
@@ -1461,6 +1455,13 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_protocol_config(&self, _epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {
         unreachable!("get_protocol_config should not be called in KeyValueRuntime");
+    }
+
+    fn get_runtime_config(
+        &self,
+        _protocol_version: ProtocolVersion,
+    ) -> Result<RuntimeConfig, Error> {
+        Ok(RuntimeConfig::test())
     }
 
     fn will_shard_layout_change_next_epoch(

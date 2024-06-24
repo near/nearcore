@@ -40,11 +40,13 @@ use crate::types::{
 };
 use crate::version::{ProtocolVersion, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_async::time::Utc;
 use near_crypto::{PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
+use near_parameters::config::CongestionControlConfig;
+use near_parameters::view::CongestionControlConfigView;
 use near_parameters::{ActionCosts, ExtCosts};
 use near_primitives_core::version::PROTOCOL_VERSION;
+use near_time::Utc;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::collections::HashMap;
@@ -79,29 +81,6 @@ pub struct ContractCodeView {
     #[serde_as(as = "Base64")]
     pub code: Vec<u8>,
     pub hash: CryptoHash,
-}
-
-/// State for the view call.
-#[derive(Debug)]
-pub struct ViewApplyState {
-    /// Currently building block height.
-    pub block_height: BlockHeight,
-    /// Prev block hash
-    pub prev_block_hash: CryptoHash,
-    /// Currently building block hash
-    pub block_hash: CryptoHash,
-    /// To which shard the applied chunk belongs.
-    pub shard_id: ShardId,
-    /// Current epoch id
-    pub epoch_id: EpochId,
-    /// Current epoch height
-    pub epoch_height: EpochHeight,
-    /// The current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
-    pub block_timestamp: u64,
-    /// Current Protocol version when we apply the state transition
-    pub current_protocol_version: ProtocolVersion,
-    /// Cache for compiled contracts.
-    pub cache: Option<Box<dyn near_vm_runner::ContractRuntimeCache>>,
 }
 
 impl From<&Account> for AccountView {
@@ -354,12 +333,12 @@ pub struct StatusSyncInfo {
     pub latest_block_hash: CryptoHash,
     pub latest_block_height: BlockHeight,
     pub latest_state_root: CryptoHash,
-    #[serde(with = "near_async::time::serde_utc_as_iso")]
+    #[serde(with = "near_time::serde_utc_as_iso")]
     pub latest_block_time: Utc,
     pub syncing: bool,
     pub earliest_block_hash: Option<CryptoHash>,
     pub earliest_block_height: Option<BlockHeight>,
-    #[serde(with = "near_async::time::serde_opt_utc_as_iso")]
+    #[serde(with = "near_time::serde_opt_utc_as_iso")]
     pub earliest_block_time: Option<Utc>,
     pub epoch_id: Option<EpochId>,
     pub epoch_start_height: Option<BlockHeight>,
@@ -412,7 +391,7 @@ pub struct AccountDataView {
     pub peer_id: PublicKey,
     pub proxies: Vec<Tier1ProxyView>,
     pub account_key: PublicKey,
-    #[serde(with = "near_async::time::serde_utc_as_iso")]
+    #[serde(with = "near_time::serde_utc_as_iso")]
     pub timestamp: Utc,
 }
 
@@ -594,7 +573,7 @@ pub struct ChainProcessingInfo {
 pub struct BlockProcessingInfo {
     pub height: BlockHeight,
     pub hash: CryptoHash,
-    #[serde(with = "near_async::time::serde_utc_as_iso")]
+    #[serde(with = "near_time::serde_utc_as_iso")]
     pub received_timestamp: Utc,
     /// Time (in ms) between when the block was first received and when it was processed
     pub in_progress_ms: u128,
@@ -660,10 +639,10 @@ pub struct ChunkProcessingInfo {
     pub created_by: Option<AccountId>,
     pub status: ChunkProcessingStatus,
     /// Timestamp of first time when we request for this chunk.
-    #[serde(with = "near_async::time::serde_opt_utc_as_iso")]
+    #[serde(with = "near_time::serde_opt_utc_as_iso")]
     pub requested_timestamp: Option<Utc>,
     /// Timestamp of when the chunk is complete
-    #[serde(with = "near_async::time::serde_opt_utc_as_iso")]
+    #[serde(with = "near_time::serde_opt_utc_as_iso")]
     pub completed_timestamp: Option<Utc>,
     /// Time (in millis) that it takes between when the chunk is requested and when it is completed.
     pub request_duration: Option<u64>,
@@ -674,13 +653,13 @@ pub struct ChunkProcessingInfo {
 pub struct PartCollectionInfo {
     pub part_owner: AccountId,
     // Time when the part is received through any message
-    #[serde(with = "near_async::time::serde_opt_utc_as_iso")]
+    #[serde(with = "near_time::serde_opt_utc_as_iso")]
     pub received_time: Option<Utc>,
     // Time when we receive a PartialEncodedChunkForward containing this part
-    #[serde(with = "near_async::time::serde_opt_utc_as_iso")]
+    #[serde(with = "near_time::serde_opt_utc_as_iso")]
     pub forwarded_received_time: Option<Utc>,
     // Time when we receive the PartialEncodedChunk message containing this part
-    #[serde(with = "near_async::time::serde_opt_utc_as_iso")]
+    #[serde(with = "near_time::serde_opt_utc_as_iso")]
     pub chunk_received_time: Option<Utc>,
 }
 
@@ -2498,14 +2477,29 @@ impl From<CongestionInfoView> for CongestionInfo {
     }
 }
 
+impl CongestionInfoView {
+    pub fn congestion_level(&self, config_view: CongestionControlConfigView) -> f64 {
+        let congestion_config = CongestionControlConfig::from(config_view);
+        // Localized means without considering missed chunks congestion. As far
+        // as clients are concerned, this is the only congestion level that
+        // matters.
+        // Missed chunks congestion exists to reduce incoming load after a
+        // number of chunks were missed. It is not a property of a specific
+        // chunk but rather a property that changes over time. It is even a bit
+        // misleading to call it congestion, as it is not a problem with too
+        // much traffic.
+        CongestionInfo::from(self.clone()).localized_congestion_level(&congestion_config)
+    }
+}
+
 #[cfg(test)]
 #[cfg(not(feature = "nightly"))]
 #[cfg(not(feature = "statelessnet_protocol"))]
 mod tests {
     use super::ExecutionMetadataView;
     use crate::profile_data_v2::ProfileDataV2;
+    use crate::profile_data_v3::ProfileDataV3;
     use crate::transaction::ExecutionMetadata;
-    use near_vm_runner::ProfileDataV3;
 
     /// The JSON representation used in RPC responses must not remove or rename
     /// fields, only adding fields is allowed or we risk breaking clients.

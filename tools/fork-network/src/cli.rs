@@ -273,7 +273,7 @@ impl ForkNetworkCommand {
                 flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
                 let flat_storage =
                     flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
-                flat_storage.update_flat_head(&desired_block_hash, true).unwrap();
+                flat_storage.update_flat_head(&desired_block_hash).unwrap();
                 let chunk_extra = chain.get_chunk_extra(&desired_block_hash, &shard_uid).unwrap();
                 let state_root = chunk_extra.state_root();
                 tracing::info!(?shard_id, ?epoch_id, ?state_root);
@@ -381,12 +381,8 @@ impl ForkNetworkCommand {
         let runtime_config_store = RuntimeConfigStore::new(None);
         let runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
 
-        let storage_mutator = StorageMutator::new(
-            epoch_manager.clone(),
-            &runtime,
-            epoch_id.clone(),
-            prev_state_roots,
-        )?;
+        let storage_mutator =
+            StorageMutator::new(epoch_manager.clone(), &runtime, epoch_id, prev_state_roots)?;
         let (new_state_roots, new_validator_accounts) =
             self.add_validator_accounts(validators, runtime_config, home_dir, storage_mutator)?;
 
@@ -791,6 +787,8 @@ impl ForkNetworkCommand {
             avg_hidden_validator_seats_per_shard: epoch_config.avg_hidden_validator_seats_per_shard,
             block_producer_kickout_threshold: 0,
             chunk_producer_kickout_threshold: 0,
+            chunk_validator_only_kickout_threshold: 0,
+            target_validator_mandates_per_shard: epoch_config.target_validator_mandates_per_shard,
             max_kickout_stake_perc: 0,
             online_min_threshold: epoch_config.online_min_threshold,
             online_max_threshold: epoch_config.online_max_threshold,

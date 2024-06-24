@@ -33,10 +33,14 @@ pub struct EpochConfig {
     pub num_block_producer_seats_per_shard: Vec<NumSeats>,
     /// Expected number of hidden validator seats per each shard.
     pub avg_hidden_validator_seats_per_shard: Vec<NumSeats>,
-    /// Criterion for kicking out block producers.
+    /// Threshold for kicking out block producers.
     pub block_producer_kickout_threshold: u8,
-    /// Criterion for kicking out chunk producers.
+    /// Threshold for kicking out chunk producers.
     pub chunk_producer_kickout_threshold: u8,
+    /// Threshold for kicking out nodes which are only chunk validators.
+    pub chunk_validator_only_kickout_threshold: u8,
+    /// Number of target chunk validator mandates for each shard.
+    pub target_validator_mandates_per_shard: NumSeats,
     /// Max ratio of validators that we can kick out in an epoch
     pub validator_max_kickout_stake_perc: u8,
     /// Online minimum threshold below which validator doesn't receive reward.
@@ -186,6 +190,7 @@ impl AllEpochConfig {
         if checked_feature!("stable", LowerValidatorKickoutPercentForDebugging, protocol_version) {
             config.block_producer_kickout_threshold = 50;
             config.chunk_producer_kickout_threshold = 50;
+            config.chunk_validator_only_kickout_threshold = 50;
         }
     }
 
@@ -252,10 +257,10 @@ impl AllEpochConfig {
             config.validator_selection_config.num_chunk_only_producer_seats = 200;
         }
 
-        // Adjust the number of block and chunk producers for all chains except
-        // mainnet, to make it easier to test the change.
-        if chain_id != near_primitives_core::chains::MAINNET
+        // Adjust the number of block and chunk producers for testnet, to make it easier to test the change.
+        if chain_id == near_primitives_core::chains::TESTNET
             && checked_feature!("stable", TestnetFewerBlockProducers, protocol_version)
+            && !checked_feature!("stable", NoChunkOnlyProducers, protocol_version)
         {
             let shard_ids = config.shard_layout.shard_ids();
             // Decrease the number of block producers from 100 to 20.
@@ -264,6 +269,11 @@ impl AllEpochConfig {
                 shard_ids.map(|_| config.num_block_producer_seats).collect();
             // Decrease the number of chunk producers.
             config.validator_selection_config.num_chunk_only_producer_seats = 100;
+        }
+
+        if checked_feature!("stable", NoChunkOnlyProducers, protocol_version) {
+            // Make sure there is no chunk only producer in stateless validation
+            config.validator_selection_config.num_chunk_only_producer_seats = 0;
         }
     }
 
@@ -611,15 +621,14 @@ pub mod epoch_info {
     use crate::epoch_manager::ValidatorWeight;
     use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
     use crate::types::{BlockChunkValidatorStats, ValidatorKickoutReason};
-    use crate::validator_mandates::{ChunkValidatorStakeAssignment, ValidatorMandates};
+    use crate::validator_mandates::ValidatorMandates;
     use crate::version::PROTOCOL_VERSION;
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_primitives_core::hash::CryptoHash;
     use near_primitives_core::types::{
         AccountId, Balance, EpochHeight, ProtocolVersion, ValidatorId,
     };
-    use rand::SeedableRng;
-    use rand_chacha::ChaCha20Rng;
+
     use smart_default::SmartDefault;
     use std::collections::{BTreeMap, HashMap};
 
@@ -949,6 +958,16 @@ pub mod epoch_info {
         }
 
         #[inline]
+        pub fn chunk_producers_settlement_mut(&mut self) -> &mut Vec<Vec<ValidatorId>> {
+            match self {
+                Self::V1(v1) => &mut v1.chunk_producers_settlement,
+                Self::V2(v2) => &mut v2.chunk_producers_settlement,
+                Self::V3(v3) => &mut v3.chunk_producers_settlement,
+                Self::V4(v4) => &mut v4.chunk_producers_settlement,
+            }
+        }
+
+        #[inline]
         pub fn validator_kickout(&self) -> &HashMap<AccountId, ValidatorKickoutReason> {
             match self {
                 Self::V1(v1) => &v1.validator_kickout,
@@ -1127,6 +1146,23 @@ pub mod epoch_info {
             }
         }
 
+        #[inline]
+        pub fn rng_seed(&self) -> RngSeed {
+            match self {
+                Self::V1(_) | Self::V2(_) => Default::default(),
+                Self::V3(v3) => v3.rng_seed,
+                Self::V4(v4) => v4.rng_seed,
+            }
+        }
+
+        #[inline]
+        pub fn validator_mandates(&self) -> ValidatorMandates {
+            match self {
+                Self::V1(_) | Self::V2(_) | Self::V3(_) => Default::default(),
+                Self::V4(v4) => v4.validator_mandates.clone(),
+            }
+        }
+
         pub fn sample_block_producer(&self, height: BlockHeight) -> ValidatorId {
             match &self {
                 Self::V1(v1) => {
@@ -1183,10 +1219,11 @@ pub mod epoch_info {
             }
         }
 
+        #[cfg(feature = "rand")]
         pub fn sample_chunk_validators(
             &self,
             height: BlockHeight,
-        ) -> ChunkValidatorStakeAssignment {
+        ) -> crate::validator_mandates::ChunkValidatorStakeAssignment {
             // Chunk validator assignment was introduced with `V4`.
             match &self {
                 Self::V1(_) | Self::V2(_) | Self::V3(_) => Default::default(),
@@ -1228,11 +1265,14 @@ pub mod epoch_info {
                 hash(&buffer).0
             }
         }
+    }
 
+    #[cfg(feature = "rand")]
+    impl EpochInfo {
         /// Returns a new RNG obtained from combining the provided `seed` and `height`.
         ///
         /// The returned RNG can be used to shuffle slices via [`rand::seq::SliceRandom`].
-        fn chunk_validate_rng(seed: &RngSeed, height: BlockHeight) -> ChaCha20Rng {
+        fn chunk_validate_rng(seed: &RngSeed, height: BlockHeight) -> rand_chacha::ChaCha20Rng {
             // A deterministic seed is produces using the block height and the provided seed.
             // This is important as all nodes need to agree on the set and order of chunk_validators
             let mut buffer = [0u8; 40];
@@ -1244,18 +1284,18 @@ pub mod epoch_info {
             // https://docs.rs/rand_core/0.6.2/rand_core/trait.SeedableRng.html#associated-types
             // Therefore `buffer` is hashed to obtain a `[u8; 32]`.
             let seed = hash(&buffer);
-            SeedableRng::from_seed(seed.0)
+            rand::SeedableRng::from_seed(seed.0)
         }
 
         /// Returns a new RNG used for random chunk producer modifications
         /// during shard assignments.
-        pub fn shard_assignment_rng(seed: &RngSeed) -> ChaCha20Rng {
+        pub fn shard_assignment_rng(seed: &RngSeed) -> rand_chacha::ChaCha20Rng {
             let mut buffer = [0u8; 62];
             buffer[0..32].copy_from_slice(seed);
             // Do this to avoid any possibility of colliding with any other rng.
             buffer[32..62].copy_from_slice(b"shard_assignment_shuffling_rng");
             let seed = hash(&buffer);
-            SeedableRng::from_seed(seed.0)
+            rand::SeedableRng::from_seed(seed.0)
         }
     }
 
@@ -1433,7 +1473,7 @@ pub mod epoch_sync {
                 header.raw_timestamp(),
             );
 
-            *block_info.epoch_id_mut() = epoch_first_header.epoch_id().clone();
+            *block_info.epoch_id_mut() = *epoch_first_header.epoch_id();
             *block_info.epoch_first_block_mut() = *epoch_first_header.hash();
             Ok(block_info)
         }

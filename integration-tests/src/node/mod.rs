@@ -6,13 +6,14 @@ pub use crate::node::runtime_node::RuntimeNode;
 pub use crate::node::thread_node::ThreadNode;
 use crate::user::{AsyncUser, User};
 use near_chain_configs::Genesis;
+use near_chain_configs::MutableConfigValue;
 use near_crypto::{InMemorySigner, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_primitives::num_rational::Ratio;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, NumSeats};
-use near_primitives::validator_signer::InMemoryValidatorSigner;
+use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::views::AccountView;
 use near_vm_runner::ContractCode;
 use nearcore::config::{create_testnet_configs, create_testnet_configs_from_seeds, Config};
@@ -39,7 +40,7 @@ pub enum NodeConfig {
     /// Should be the default choice for the tests, since it provides the most control through the
     /// internal access.
     Thread(NearConfig),
-    /// A complete noe running in a subprocess. Can be started and stopped, but besides that all
+    /// A complete node running in a subprocess. Can be started and stopped, but besides that all
     /// interactions are limited to what is exposed through RPC.
     Process(NearConfig),
 }
@@ -69,9 +70,9 @@ pub trait Node: Send + Sync {
         self.user().add_transaction(transaction)
     }
 
-    fn signer(&self) -> Arc<dyn Signer>;
+    fn signer(&self) -> Arc<Signer>;
 
-    fn block_signer(&self) -> Arc<dyn Signer> {
+    fn block_signer(&self) -> Arc<Signer> {
         unimplemented!()
     }
 
@@ -122,7 +123,7 @@ impl dyn Node {
 
 fn near_configs_to_node_configs(
     configs: Vec<Config>,
-    validator_signers: Vec<InMemoryValidatorSigner>,
+    validator_signers: Vec<ValidatorSigner>,
     network_signers: Vec<InMemorySigner>,
     genesis: Genesis,
 ) -> Vec<NodeConfig> {
@@ -133,7 +134,10 @@ fn near_configs_to_node_configs(
                 configs[i].clone(),
                 genesis.clone(),
                 (&network_signers[i]).into(),
-                Some(Arc::new(validator_signers[i].clone())),
+                MutableConfigValue::new(
+                    Some(Arc::new(validator_signers[i].clone())),
+                    "validator_signer",
+                ),
             )
             .unwrap(),
         ))

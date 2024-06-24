@@ -570,7 +570,8 @@
         "ActionsValidation",
         "TransactionSizeExceeded",
         "InvalidTransactionVersion",
-        "StorageError"
+        "StorageError",
+        "ShardCongested"
       ],
       "props": {}
     },
@@ -734,6 +735,14 @@
         "method_name": ""
       }
     },
+    "ReceiptSizeExceeded": {
+      "name": "ReceiptSizeExceeded",
+      "subtypes": [],
+      "props": {
+        "limit": "",
+        "size": ""
+      }
+    },
     "ReceiptValidationError": {
       "name": "ReceiptValidationError",
       "subtypes": [
@@ -743,7 +752,8 @@
         "InvalidDataReceiverId",
         "ReturnedValueLengthExceeded",
         "NumberInputDataDependenciesExceeded",
-        "ActionsValidation"
+        "ActionsValidation",
+        "ReceiptSizeExceeded"
       ],
       "props": {}
     },
@@ -772,6 +782,13 @@
       "name": "Serialization",
       "subtypes": [],
       "props": {}
+    },
+    "ShardCongested": {
+      "name": "ShardCongested",
+      "subtypes": [],
+      "props": {
+        "shard_id": ""
+      }
     },
     "SignerDoesNotExist": {
       "name": "SignerDoesNotExist",

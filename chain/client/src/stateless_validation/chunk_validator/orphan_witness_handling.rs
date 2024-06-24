@@ -8,9 +8,12 @@
 use crate::Client;
 use near_chain::Block;
 use near_chain_primitives::Error;
+use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::ChunkStateWitness;
 use near_primitives::types::BlockHeight;
+use near_primitives::validator_signer::ValidatorSigner;
 use std::ops::Range;
+use std::sync::Arc;
 
 /// We keep only orphan witnesses that are within this distance of
 /// the current chain head. This helps to reduce the size of
@@ -74,10 +77,7 @@ impl Client {
         Ok(HandleOrphanWitnessOutcome::SavedToPool)
     }
 
-    /// Once a new block arrives, we can process the orphaned chunk state witnesses that were waiting
-    /// for this block. This function takes the ready witnesses out of the orhan pool and process them.
-    /// It also removes old witnesses (below final height) from the orphan pool to save memory.
-    pub fn process_ready_orphan_witnesses_and_clean_old(&mut self, new_block: &Block) {
+    fn process_ready_orphan_witnesses(&mut self, new_block: &Block, signer: &Arc<ValidatorSigner>) {
         let ready_witnesses = self
             .chunk_validator
             .orphan_witness_pool
@@ -93,29 +93,44 @@ impl Client {
                 "Processing an orphaned ChunkStateWitness, its previous block has arrived."
             );
             if let Err(err) =
-                self.process_chunk_state_witness_with_prev_block(witness, new_block, None)
+                self.process_chunk_state_witness_with_prev_block(witness, new_block, None, signer)
             {
                 tracing::error!(target: "client", ?err, "Error processing orphan chunk state witness");
             }
         }
+    }
+
+    /// Once a new block arrives, we can process the orphaned chunk state witnesses that were waiting
+    /// for this block. This function takes the ready witnesses out of the orhan pool and process them.
+    /// It also removes old witnesses (below final height) from the orphan pool to save memory.
+    pub fn process_ready_orphan_witnesses_and_clean_old(
+        &mut self,
+        new_block: &Block,
+        signer: &Option<Arc<ValidatorSigner>>,
+    ) {
+        if let Some(signer) = signer {
+            self.process_ready_orphan_witnesses(new_block, signer);
+        }
 
         // Remove all orphan witnesses that are below the last final block of the new block.
         // They won't be used, so we can remove them from the pool to save memory.
-        let last_final_block =
-            match self.chain.get_block_header(new_block.header().last_final_block()) {
-                Ok(block_header) => block_header,
-                Err(err) => {
-                    // TODO(wacban) this error happens often in integration
-                    // tests when the last final block is genesis / genesis.prev.
-                    tracing::error!(
-                        target: "client",
-                        last_final_block = ?new_block.header().last_final_block(),
-                        ?err,
-                        "Error getting last final block of the new block"
-                    );
-                    return;
-                }
-            };
+        let last_final_block = new_block.header().last_final_block();
+        // Handle genesis gracefully.
+        if last_final_block == &CryptoHash::default() {
+            return;
+        }
+        let last_final_block = match self.chain.get_block_header(last_final_block) {
+            Ok(block_header) => block_header,
+            Err(err) => {
+                tracing::error!(
+                    target: "client",
+                    ?last_final_block,
+                    ?err,
+                    "Error getting last final block of the new block"
+                );
+                return;
+            }
+        };
         self.chunk_validator
             .orphan_witness_pool
             .remove_witnesses_below_final_height(last_final_block.height());

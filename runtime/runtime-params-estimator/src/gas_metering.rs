@@ -7,6 +7,7 @@ use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::mocks::mock_external::MockedExternal;
 use near_vm_runner::{ContractCode, ContractRuntimeCache, FilesystemContractRuntimeCache};
 use std::fmt::Write;
+use std::sync::Arc;
 
 pub(crate) fn gas_metering_cost(config: &Config) -> (GasCost, GasCost) {
     let mut xs1 = vec![];
@@ -129,30 +130,28 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     let config_store = RuntimeConfigStore::new(None);
     let runtime_config = config_store.get_config(PROTOCOL_VERSION).as_ref();
     let vm_config_gas = runtime_config.wasm_config.clone();
-    let vm_config_free = {
-        let mut cfg = vm_config_gas.clone();
+    let vm_config_free = Arc::new({
+        let mut cfg = near_parameters::vm::Config::clone(&vm_config_gas);
         cfg.make_free();
         cfg.enable_all_features();
         cfg
-    };
+    });
     let runtime = vm_kind.runtime(vm_config_gas).expect("runtime has not been enabled");
     let runtime_free_gas = vm_kind.runtime(vm_config_free).expect("runtime has not been enabled");
     let fees = runtime_config.fees.clone();
-    let mut fake_external = MockedExternal::new();
+    let mut fake_external = MockedExternal::with_code(contract.clone_for_tests());
     let fake_context = create_context(vec![]);
-    let promise_results = vec![];
+    let promise_results = Arc::from([]);
 
     // Warmup with gas metering
     for _ in 0..warmup_repeats {
         let result = runtime
             .run(
-                *contract.hash(),
-                Some(&contract),
                 "hello",
                 &mut fake_external,
                 &fake_context,
-                &fees,
-                &promise_results,
+                Arc::clone(&fees),
+                Arc::clone(&promise_results),
                 cache,
             )
             .expect("fatal_error");
@@ -167,13 +166,11 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     for _ in 0..repeats {
         let result = runtime
             .run(
-                *contract.hash(),
-                Some(&contract),
                 "hello",
                 &mut fake_external,
                 &fake_context,
-                &fees,
-                &promise_results,
+                Arc::clone(&fees),
+                Arc::clone(&promise_results),
                 cache,
             )
             .expect("fatal_error");
@@ -185,13 +182,11 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     for _ in 0..warmup_repeats {
         let result = runtime_free_gas
             .run(
-                *contract.hash(),
-                Some(&contract),
                 "hello",
                 &mut fake_external,
                 &fake_context,
-                &fees,
-                &promise_results,
+                Arc::clone(&fees),
+                Arc::clone(&promise_results),
                 cache,
             )
             .expect("fatal_error");
@@ -203,13 +198,11 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     for _ in 0..repeats {
         let result = runtime_free_gas
             .run(
-                *contract.hash(),
-                Some(&contract),
                 "hello",
                 &mut fake_external,
                 &fake_context,
-                &fees,
-                &promise_results,
+                Arc::clone(&fees),
+                Arc::clone(&promise_results),
                 cache,
             )
             .expect("fatal_error");

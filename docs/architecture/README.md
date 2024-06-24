@@ -209,7 +209,7 @@ the other hand, are sent to `ClientActor` for further processing.
 This crate contains the main entry point to runtime -- `Runtime::apply`. This
 function takes `ApplyState`, which contains necessary information passed from
 chain to runtime, a list of `SignedTransaction` and a list of `Receipt`, and
-returns a `ApplyResult`, which includes state changes, execution outcomes, etc.
+returns an `ApplyResult`, which includes state changes, execution outcomes, etc.
 
 **Architecture Invariant:** The state update is only finalized at the end of
 `apply`. During all intermediate steps state changes can be reverted.
@@ -299,4 +299,4 @@ Note that what counts as a slow test isn’t exactly defined as of now.
 If it takes just a couple seconds then it’s probably fine.  Anything
 slower should probably be classified as an expensive test.  In
 particular, if libtest complains the test takes more than 60 seconds
-then it definitely is and expensive test.
+then it definitely is an expensive test.

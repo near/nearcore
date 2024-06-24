@@ -491,9 +491,9 @@ impl<'de> serde::de::Visitor<'de> for ShardUIdVisitor {
 mod tests {
     use crate::epoch_manager::{AllEpochConfig, EpochConfig, ValidatorSelectionConfig};
     use crate::shard_layout::{account_id_to_shard_id, ShardLayout, ShardLayoutV1, ShardUId};
+    use near_primitives_core::types::ProtocolVersion;
     use near_primitives_core::types::{AccountId, ShardId};
     use near_primitives_core::version::ProtocolFeature;
-    use near_vm_runner::logic::ProtocolVersion;
     use rand::distributions::Alphanumeric;
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
@@ -532,6 +532,8 @@ mod tests {
                 avg_hidden_validator_seats_per_shard: vec![],
                 block_producer_kickout_threshold: 0,
                 chunk_producer_kickout_threshold: 0,
+                chunk_validator_only_kickout_threshold: 0,
+                target_validator_mandates_per_shard: 0,
                 validator_max_kickout_stake_perc: 0,
                 online_min_threshold: 0.into(),
                 online_max_threshold: 0.into(),

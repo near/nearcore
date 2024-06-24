@@ -294,6 +294,15 @@ pub(crate) fn validate_receipt(
     receipt: &Receipt,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), ReceiptValidationError> {
+    let receipt_size: u64 =
+        borsh::to_vec(receipt).unwrap().len().try_into().expect("Can't convert usize to u64");
+    if receipt_size > limit_config.max_receipt_size {
+        return Err(ReceiptValidationError::ReceiptSizeExceeded {
+            size: receipt_size,
+            limit: limit_config.max_receipt_size,
+        });
+    }
+
     // We retain these checks here as to maintain backwards compatibility
     // with AccountId validation since we illegally parse an AccountId
     // in near-vm-logic/logic.rs#fn(VMLogic::read_and_parse_account_id)
@@ -610,7 +619,7 @@ mod tests {
         initial_balance: Balance,
         initial_locked: Balance,
         access_key: Option<AccessKey>,
-    ) -> (Arc<InMemorySigner>, TrieUpdate, Balance) {
+    ) -> (Arc<Signer>, TrieUpdate, Balance) {
         let access_keys = if let Some(key) = access_key { vec![key] } else { vec![] };
         setup_accounts(vec![(
             alice_account(),
@@ -626,16 +635,15 @@ mod tests {
         // two bools: first one is whether the account has a contract, second one is whether the
         // account has data
         accounts: Vec<(AccountId, Balance, Balance, Vec<AccessKey>, bool, bool)>,
-    ) -> (Arc<InMemorySigner>, TrieUpdate, Balance) {
+    ) -> (Arc<Signer>, TrieUpdate, Balance) {
         let tries = TestTriesBuilder::new().build();
         let root = MerkleHash::default();
 
         let account_id = alice_account();
-        let signer = Arc::new(InMemorySigner::from_seed(
-            account_id.clone(),
-            KeyType::ED25519,
-            account_id.as_ref(),
-        ));
+        let signer: Arc<Signer> = Arc::new(
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref())
+                .into(),
+        );
 
         let mut initial_state = tries.new_trie_update(ShardUId::single_shard(), root);
         for (account_id, initial_balance, initial_locked, access_keys, has_contract, has_data) in
@@ -946,7 +954,8 @@ mod tests {
         let (signer, mut state_update, gas_price) =
             setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
-        config.wasm_config.limit_config.max_total_prepaid_gas = 100;
+        let wasm_config = Arc::make_mut(&mut config.wasm_config);
+        wasm_config.limit_config.max_total_prepaid_gas = 100;
 
         assert_err_both_validations(
             &config,
@@ -1170,7 +1179,8 @@ mod tests {
     #[test]
     fn test_validate_transaction_invalid_low_balance() {
         let mut config = RuntimeConfig::free();
-        config.fees.storage_usage_config.storage_amount_per_byte = 10_000_000;
+        let fees = Arc::make_mut(&mut config.fees);
+        fees.storage_usage_config.storage_amount_per_byte = 10_000_000;
         let initial_balance = 1_000_000_000;
         let transfer_amount = 950_000_000;
         let (signer, mut state_update, gas_price) =
@@ -1201,7 +1211,8 @@ mod tests {
     #[test]
     fn test_validate_transaction_invalid_low_balance_many_keys() {
         let mut config = RuntimeConfig::free();
-        config.fees.storage_usage_config.storage_amount_per_byte = 10_000_000;
+        let fees = Arc::make_mut(&mut config.fees);
+        fees.storage_usage_config.storage_amount_per_byte = 10_000_000;
         let initial_balance = 1_000_000_000;
         let transfer_amount = 950_000_000;
         let account_id = alice_account();
@@ -1490,7 +1501,8 @@ mod tests {
 
         let mut config = RuntimeConfig::test();
         let max_transaction_size = transaction_size - 1;
-        config.wasm_config.limit_config.max_transaction_size = transaction_size - 1;
+        let wasm_config = Arc::make_mut(&mut config.wasm_config);
+        wasm_config.limit_config.max_transaction_size = transaction_size - 1;
 
         assert_eq!(
             verify_and_charge_transaction(
@@ -1509,7 +1521,8 @@ mod tests {
             },
         );
 
-        config.wasm_config.limit_config.max_transaction_size = transaction_size + 1;
+        let wasm_config = Arc::make_mut(&mut config.wasm_config);
+        wasm_config.limit_config.max_transaction_size = transaction_size + 1;
         verify_and_charge_transaction(
             &config,
             &mut state_update,

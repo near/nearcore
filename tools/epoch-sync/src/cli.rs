@@ -1,5 +1,3 @@
-#![cfg(feature = "new_epoch_sync")]
-
 use anyhow::Context;
 use clap;
 use near_chain::{ChainStore, ChainStoreAccess, ChainUpdate, DoomslugThresholdMode};
@@ -195,7 +193,7 @@ impl ValidateEpochSyncInfoCmd {
                     last_header.raw_timestamp(),
                 );
 
-                *last_block_info.epoch_id_mut() = last_header.epoch_id().clone();
+                *last_block_info.epoch_id_mut() = *last_header.epoch_id();
                 *last_block_info.epoch_first_block_mut() = first_block_hash;
 
                 let next_epoch_first_hash = hash_to_next_hash[last_header.hash()];

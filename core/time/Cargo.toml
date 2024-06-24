@@ -1,0 +1,26 @@
+[package]
+name = "near-time"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description = "This crate contains the time helper specific to nearcore"
+repository.workspace = true
+license.workspace = true
+publish = true
+
+[lints]
+workspace = true
+
+[dependencies]
+time = { workspace = true, features = ["formatting", "parsing"] }
+once_cell = { workspace = true, optional = true }
+tokio = { workspace = true, features = ["time", "sync"], optional = true }
+serde = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[features]
+default = ["clock", "serde"]
+clock = ["tokio", "once_cell"]
+serde = ["dep:serde", "time/serde"]

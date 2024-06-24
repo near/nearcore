@@ -3,7 +3,9 @@ mod genesis_config;
 pub mod genesis_validate;
 #[cfg(feature = "metrics")]
 mod metrics;
+#[cfg(feature = "test_genesis")]
 pub mod test_genesis;
+#[cfg(feature = "test_utils")]
 pub mod test_utils;
 mod updateable_config;
 
@@ -51,6 +53,9 @@ pub const BLOCK_PRODUCER_KICKOUT_THRESHOLD: u8 = 90;
 
 /// Criterion for kicking out chunk producers.
 pub const CHUNK_PRODUCER_KICKOUT_THRESHOLD: u8 = 90;
+
+/// Criterion for kicking out chunk validators.
+pub const CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD: u8 = 80;
 
 /// Fishermen stake threshold.
 pub const FISHERMEN_THRESHOLD: Balance = 10 * NEAR_BASE;

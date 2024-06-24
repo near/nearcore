@@ -16,14 +16,16 @@ pub use crate::config_updater::ConfigUpdater;
 pub use crate::stateless_validation::chunk_validator::orphan_witness_handling::HandleOrphanWitnessOutcome;
 pub use crate::sync::adapter::{SyncAdapter, SyncMessage};
 pub use crate::view_client_actor::{ViewClientActor, ViewClientActorInner};
+pub use near_chain::stateless_validation::processing_tracker::{
+    ProcessingDoneTracker, ProcessingDoneWaiter,
+};
 pub use near_client_primitives::debug::DebugStatus;
 pub use near_network::client::{
     BlockApproval, BlockResponse, ProcessTxRequest, ProcessTxResponse, SetNetworkInfo,
 };
 pub use stateless_validation::partial_witness::partial_witness_actor::{
-    DistributeStateWitnessRequest, PartialWitnessActor, PartialWitnessSenderForClientMessage,
+    DistributeStateWitnessRequest, PartialWitnessActor,
 };
-pub use stateless_validation::processing_tracker::{ProcessingDoneTracker, ProcessingDoneWaiter};
 
 pub mod adapter;
 pub mod adversarial;

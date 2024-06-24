@@ -1,4 +1,4 @@
-use crate::config::WitnessConfig;
+use crate::config::{CongestionControlConfig, WitnessConfig};
 use crate::{ActionCosts, ExtCosts, Fee, ParameterCost};
 use near_account_id::AccountId;
 use near_primitives_core::serialize::dec_format;
@@ -19,6 +19,8 @@ pub struct RuntimeConfigView {
     pub wasm_config: VMConfigView,
     /// Config that defines rules for account creation.
     pub account_creation_config: AccountCreationConfigView,
+    /// The configuration for congestion control.
+    pub congestion_control_config: CongestionControlConfigView,
     /// Configuration specific to ChunkStateWitness.
     pub witness_config: WitnessConfigView,
 }
@@ -183,13 +185,16 @@ impl From<crate::RuntimeConfig> for RuntimeConfigView {
                     .fees
                     .pessimistic_gas_price_inflation_ratio,
             },
-            wasm_config: VMConfigView::from(config.wasm_config),
+            wasm_config: VMConfigView::from(crate::vm::Config::clone(&config.wasm_config)),
             account_creation_config: AccountCreationConfigView {
                 min_allowed_top_level_account_length: config
                     .account_creation_config
                     .min_allowed_top_level_account_length,
                 registrar_account_id: config.account_creation_config.registrar_account_id,
             },
+            congestion_control_config: CongestionControlConfigView::from(
+                config.congestion_control_config,
+            ),
             witness_config: WitnessConfigView::from(config.witness_config),
         }
     }
@@ -205,27 +210,27 @@ pub struct VMConfigView {
     /// Gas cost of a regular operation.
     pub regular_op_cost: u32,
 
-    /// See [`VMConfig::vm_kind`].
+    /// See [VMConfig::vm_kind](crate::vm::Config::vm_kind).
     pub vm_kind: crate::vm::VMKind,
-    /// See [`VMConfig::disable_9393_fix`].
+    /// See [VMConfig::disable_9393_fix](crate::vm::Config::disable_9393_fix).
     pub disable_9393_fix: bool,
-    /// See [`VMConfig::flat_storage_reads`].
+    /// See [VMConfig::storage_get_mode](crate::vm::Config::storage_get_mode).
     pub storage_get_mode: crate::vm::StorageGetMode,
-    /// See [`VMConfig::fix_contract_loading_cost`].
+    /// See [VMConfig::fix_contract_loading_cost](crate::vm::Config::fix_contract_loading_cost).
     pub fix_contract_loading_cost: bool,
-    /// See [`VMConfig::implicit_account_creation`].
+    /// See [VMConfig::implicit_account_creation](crate::vm::Config::implicit_account_creation).
     pub implicit_account_creation: bool,
-    /// See [`VMConfig::math_extension`].
+    /// See [VMConfig::math_extension](crate::vm::Config::math_extension).
     pub math_extension: bool,
-    /// See [`VMConfig::ed25519_verify`].
+    /// See [VMConfig::ed25519_verify](crate::vm::Config::ed25519_verify).
     pub ed25519_verify: bool,
-    /// See [`VMConfig::alt_bn128`].
+    /// See [VMConfig::alt_bn128](crate::vm::Config::alt_bn128).
     pub alt_bn128: bool,
-    /// See [`VMConfig::function_call_weight`].
+    /// See [VMConfig::function_call_weight](crate::vm::Config::function_call_weight).
     pub function_call_weight: bool,
-    /// See [`VMConfig::eth_implicit_accounts`].
+    /// See [VMConfig::eth_implicit_accounts](crate::vm::Config::eth_implicit_accounts).
     pub eth_implicit_accounts: bool,
-    /// See [`VMConfig::yield_resume_host_functions`].
+    /// See [VMConfig::yield_resume_host_functions](`crate::vm::Config::yield_resume_host_functions).
     pub yield_resume_host_functions: bool,
 
     /// Describes limits for VM and Runtime.
@@ -631,6 +636,109 @@ impl From<WitnessConfig> for WitnessConfigView {
             combined_transactions_size_limit: config.combined_transactions_size_limit,
             new_transactions_validation_state_size_soft_limit: config
                 .new_transactions_validation_state_size_soft_limit,
+        }
+    }
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
+pub struct CongestionControlConfigView {
+    /// How much gas in delayed receipts of a shard is 100% incoming congestion.
+    ///
+    /// See [`CongestionControlConfig`] for more details.
+    pub max_congestion_incoming_gas: Gas,
+
+    /// How much gas in outgoing buffered receipts of a shard is 100% congested.
+    ///
+    /// Outgoing congestion contributes to overall congestion, which reduces how
+    /// much other shards are allowed to forward to this shard.
+    pub max_congestion_outgoing_gas: Gas,
+
+    /// How much memory space of all delayed and buffered receipts in a shard is
+    /// considered 100% congested.
+    ///
+    /// See [`CongestionControlConfig`] for more details.
+    pub max_congestion_memory_consumption: u64,
+
+    /// How many missed chunks in a row in a shard is considered 100% congested.
+    pub max_congestion_missed_chunks: u64,
+
+    /// The maximum amount of gas attached to receipts a shard can forward to
+    /// another shard per chunk.
+    ///
+    /// See [`CongestionControlConfig`] for more details.
+    pub max_outgoing_gas: Gas,
+
+    /// The minimum gas each shard can send to a shard that is not fully congested.
+    ///
+    /// See [`CongestionControlConfig`] for more details.
+    pub min_outgoing_gas: Gas,
+
+    /// How much gas the chosen allowed shard can send to a 100% congested shard.
+    ///
+    /// See [`CongestionControlConfig`] for more details.
+    pub allowed_shard_outgoing_gas: Gas,
+
+    /// The maximum amount of gas in a chunk spent on converting new transactions to
+    /// receipts.
+    ///
+    /// See [`CongestionControlConfig`] for more details.
+    pub max_tx_gas: Gas,
+
+    /// The minimum amount of gas in a chunk spent on converting new transactions
+    /// to receipts, as long as the receiving shard is not congested.
+    ///
+    /// See [`CongestionControlConfig`] for more details.
+    pub min_tx_gas: Gas,
+
+    /// How much congestion a shard can tolerate before it stops all shards from
+    /// accepting new transactions with the receiver set to the congested shard.
+    pub reject_tx_congestion_threshold: f64,
+
+    /// The standard size limit for outgoing receipts aimed at a single shard.
+    /// This limit is pretty small to keep the size of source_receipt_proofs under control.
+    /// It limits the total sum of outgoing receipts, not individual receipts.
+    pub outgoing_receipts_usual_size_limit: u64,
+
+    /// Large size limit for outgoing receipts to a shard, used when it's safe
+    /// to send a lot of receipts without making the state witness too large.
+    /// It limits the total sum of outgoing receipts, not individual receipts.
+    pub outgoing_receipts_big_size_limit: u64,
+}
+
+impl From<CongestionControlConfig> for CongestionControlConfigView {
+    fn from(other: CongestionControlConfig) -> Self {
+        Self {
+            max_congestion_incoming_gas: other.max_congestion_incoming_gas,
+            max_congestion_outgoing_gas: other.max_congestion_outgoing_gas,
+            max_congestion_memory_consumption: other.max_congestion_memory_consumption,
+            max_congestion_missed_chunks: other.max_congestion_missed_chunks,
+            max_outgoing_gas: other.max_outgoing_gas,
+            min_outgoing_gas: other.min_outgoing_gas,
+            allowed_shard_outgoing_gas: other.allowed_shard_outgoing_gas,
+            max_tx_gas: other.max_tx_gas,
+            min_tx_gas: other.min_tx_gas,
+            reject_tx_congestion_threshold: other.reject_tx_congestion_threshold,
+            outgoing_receipts_usual_size_limit: other.outgoing_receipts_usual_size_limit,
+            outgoing_receipts_big_size_limit: other.outgoing_receipts_big_size_limit,
+        }
+    }
+}
+
+impl From<CongestionControlConfigView> for CongestionControlConfig {
+    fn from(other: CongestionControlConfigView) -> Self {
+        Self {
+            max_congestion_incoming_gas: other.max_congestion_incoming_gas,
+            max_congestion_outgoing_gas: other.max_congestion_outgoing_gas,
+            max_congestion_memory_consumption: other.max_congestion_memory_consumption,
+            max_congestion_missed_chunks: other.max_congestion_missed_chunks,
+            max_outgoing_gas: other.max_outgoing_gas,
+            min_outgoing_gas: other.min_outgoing_gas,
+            allowed_shard_outgoing_gas: other.allowed_shard_outgoing_gas,
+            max_tx_gas: other.max_tx_gas,
+            min_tx_gas: other.min_tx_gas,
+            reject_tx_congestion_threshold: other.reject_tx_congestion_threshold,
+            outgoing_receipts_usual_size_limit: other.outgoing_receipts_usual_size_limit,
+            outgoing_receipts_big_size_limit: other.outgoing_receipts_big_size_limit,
         }
     }
 }

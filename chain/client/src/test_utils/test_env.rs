@@ -1,10 +1,10 @@
-use crate::stateless_validation::processing_tracker::{
-    ProcessingDoneTracker, ProcessingDoneWaiter,
-};
 use crate::{Client, DistributeStateWitnessRequest};
 use near_async::messaging::{CanSend, IntoMultiSender};
 use near_async::time::Clock;
 use near_async::time::{Duration, Instant};
+use near_chain::stateless_validation::processing_tracker::{
+    ProcessingDoneTracker, ProcessingDoneWaiter,
+};
 use near_chain::test_utils::ValidatorSchedule;
 use near_chain::types::Tip;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
@@ -12,7 +12,7 @@ use near_chain_configs::GenesisConfig;
 use near_chain_primitives::error::QueryError;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
-use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_crypto::{InMemorySigner, KeyType};
 use near_network::client::ProcessTxResponse;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::test_utils::MockPeerManagerAdapter;
@@ -297,7 +297,8 @@ impl TestEnv {
         while let Some(msg) = self.client_adapters[id].pop() {
             match msg {
                 ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk } => {
-                    self.clients[id].on_chunk_completed(partial_chunk, shard_chunk, None);
+                    let signer = self.clients[id].validator_signer.get();
+                    self.clients[id].on_chunk_completed(partial_chunk, shard_chunk, None, &signer);
                 }
                 ShardsManagerResponse::InvalidChunk(encoded_chunk) => {
                     self.clients[id].on_invalid_chunk(encoded_chunk);
@@ -374,10 +375,12 @@ impl TestEnv {
                     let processing_done_tracker = ProcessingDoneTracker::new();
                     witness_processing_done_waiters.push(processing_done_tracker.make_waiter());
 
-                    let processing_result = self.client(&account_id).process_chunk_state_witness(
+                    let client = self.client(&account_id);
+                    let processing_result = client.process_chunk_state_witness(
                         state_witness.clone(),
                         raw_witness_size,
                         Some(processing_done_tracker),
+                        client.validator_signer.get(),
                     );
                     if !allow_errors {
                         processing_result.unwrap();
@@ -469,8 +472,8 @@ impl TestEnv {
         let tx = SignedTransaction::send_money(
             1,
             account_id.clone(),
-            account_id.clone(),
-            &signer,
+            account_id,
+            &signer.into(),
             100,
             self.clients[id].chain.head().unwrap().last_block_hash,
         );
@@ -478,7 +481,7 @@ impl TestEnv {
     }
 
     /// This function used to be able to upgrade to a specific protocol version
-    /// but due to https://github.com/near/nearcore/issues/8590 that
+    /// but due to <https://github.com/near/nearcore/issues/8590> that
     /// functionality does not work currently.  Hence it is renamed to upgrade
     /// to the latest version.
     pub fn upgrade_protocol_to_latest_version(&mut self) {
@@ -608,7 +611,7 @@ impl TestEnv {
     /// memory caches.
     /// Though, it seems that it is not necessary for current use cases.
     pub fn restart(&mut self, idx: usize) {
-        let account_id = self.get_client_id(idx).clone();
+        let account_id = self.get_client_id(idx);
         let rng_seed = match self.seeds.get(&account_id) {
             Some(seed) => *seed,
             None => TEST_SEED,
@@ -630,14 +633,15 @@ impl TestEnv {
             self.save_trie_changes,
             None,
             self.clients[idx].partial_witness_adapter.clone(),
-            self.clients[idx].validator_signer.clone().unwrap(),
+            self.clients[idx].validator_signer.get().unwrap(),
         )
     }
 
     /// Returns an [`AccountId`] used by a client at given index.  More
     /// specifically, returns validator id of the client’s validator signer.
-    pub fn get_client_id(&self, idx: usize) -> &AccountId {
-        self.clients[idx].validator_signer.as_ref().unwrap().validator_id()
+    pub fn get_client_id(&self, idx: usize) -> AccountId {
+        let validator_signer = self.clients[idx].validator_signer.get();
+        validator_signer.unwrap().validator_id().clone()
     }
 
     /// Returns the index of client with the given [`AccoountId`].
@@ -692,7 +696,7 @@ impl TestEnv {
             tip.height + 1,
             signer.account_id.clone(),
             receiver,
-            signer,
+            &signer.clone().into(),
             actions,
             tip.last_block_hash,
             0,
@@ -731,7 +735,7 @@ impl TestEnv {
             relayer_nonce,
             relayer,
             sender,
-            &relayer_signer,
+            &relayer_signer.into(),
             vec![Action::Delegate(Box::new(signed_delegate_action))],
             tip.last_block_hash,
             0,
@@ -780,6 +784,37 @@ impl TestEnv {
         }))];
         let tx = self.tx_from_actions(actions, &signer, signer.account_id.clone());
         self.execute_tx(tx).unwrap()
+    }
+
+    /// Print a short summary of all the blocks from genesis to head.
+    pub fn print_summary(&self) {
+        let client = &self.clients[0];
+
+        let genesis_height = client.chain.genesis().height();
+        let head_height = client.chain.head().unwrap().height;
+
+        tracing::info!(target: "test", genesis_height, head_height, "printing summary");
+        for height in genesis_height..head_height + 1 {
+            self.print_block_summary(height);
+        }
+    }
+
+    pub fn print_block_summary(&self, height: u64) {
+        let client = &self.clients[0];
+        let block = client.chain.get_block_by_height(height);
+        let Ok(block) = block else {
+            tracing::info!(target: "test", "Block {}: missing", height);
+            return;
+        };
+        let prev_hash = block.header().prev_hash();
+        let epoch_id = client.epoch_manager.get_epoch_id_from_prev_block(prev_hash).unwrap();
+        let protocol_version = client.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
+        let latest_protocol_version = block.header().latest_protocol_version();
+
+        let block_hash = block.hash();
+        let chunk_mask = block.header().chunk_mask();
+
+        tracing::info!(target: "test", height, ?block_hash, ?chunk_mask, protocol_version, latest_protocol_version, "block");
     }
 }
 

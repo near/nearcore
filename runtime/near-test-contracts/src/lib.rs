@@ -90,7 +90,7 @@ pub fn fuzzing_contract() -> &'static [u8] {
 /// NEP-141 implementation (fungible token contract).
 ///
 /// The code is available here:
-/// https://github.com/near/near-sdk-rs/tree/master/examples/fungible-token
+/// <https://github.com/near/near-sdk-rs/tree/master/examples/fungible-token>
 ///
 /// We keep a static WASM of this for our integration tests. We don't have to
 /// update it with every SDK release, any contract implementing the interface

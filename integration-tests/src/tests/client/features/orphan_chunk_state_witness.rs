@@ -1,12 +1,14 @@
 use std::collections::HashSet;
 
+use near_chain::stateless_validation::processing_tracker::{
+    ProcessingDoneTracker, ProcessingDoneWaiter,
+};
 use near_chain::{Block, Provenance};
 use near_chain_configs::default_orphan_state_witness_max_size;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::DistributeStateWitnessRequest;
 use near_client::HandleOrphanWitnessOutcome;
-use near_client::{ProcessingDoneTracker, ProcessingDoneWaiter};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::sharding::ShardChunkHeaderV3;
 use near_primitives::sharding::{
@@ -149,11 +151,13 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
         for account_id in chunk_validators.into_iter().filter(|acc| *acc != excluded_validator) {
             let processing_done_tracker = ProcessingDoneTracker::new();
             witness_processing_done_waiters.push(processing_done_tracker.make_waiter());
-            env.client(&account_id)
+            let client = env.client(&account_id);
+            client
                 .process_chunk_state_witness(
                     state_witness.clone(),
                     raw_witness_size,
                     Some(processing_done_tracker),
+                    client.validator_signer.get(),
                 )
                 .unwrap();
         }
@@ -220,8 +224,9 @@ fn test_orphan_witness_valid() {
     // `excluded_validator` receives witness for chunk belonging to `block2`, but it doesn't have `block1`.
     // The witness should become an orphaned witness and it should be saved to the orphan pool.
     let witness_size = borsh_size(&witness);
-    env.client(&excluded_validator)
-        .process_chunk_state_witness(witness, witness_size, None)
+    let client = env.client(&excluded_validator);
+    client
+        .process_chunk_state_witness(witness, witness_size, None, client.validator_signer.get())
         .unwrap();
 
     let block_processed = env
@@ -318,8 +323,9 @@ fn test_orphan_witness_not_fully_validated() {
     // There is no way to fully validate an orphan witness, so this is the correct behavior.
     // The witness will later be fully validated when the required block arrives.
     let witness_size = borsh_size(&witness);
-    env.client(&excluded_validator)
-        .process_chunk_state_witness(witness, witness_size, None)
+    let client = env.client(&excluded_validator);
+    client
+        .process_chunk_state_witness(witness, witness_size, None, client.validator_signer.get())
         .unwrap();
 }
 

@@ -86,24 +86,24 @@ pub enum ProtocolFeature {
     MaxKickoutStake,
     /// Validate account id for function call access keys.
     AccountIdInFunctionCallPermission,
-    /// Zero Balance Account NEP 448: https://github.com/near/NEPs/pull/448
+    /// Zero Balance Account NEP 448: <https://github.com/near/NEPs/pull/448>
     ZeroBalanceAccount,
     /// Execute a set of actions on behalf of another account.
     ///
-    /// Meta Transaction NEP-366: https://github.com/near/NEPs/blob/master/neps/nep-0366.md
+    /// Meta Transaction NEP-366: <https://github.com/near/NEPs/blob/master/neps/nep-0366.md>
     DelegateAction,
     Ed25519Verify,
     /// Decouple compute and gas costs of operations to safely limit the compute time it takes to
     /// process the chunk.
     ///
-    /// Compute Costs NEP-455: https://github.com/near/NEPs/blob/master/neps/nep-0455.md
+    /// Compute Costs NEP-455: <https://github.com/near/NEPs/blob/master/neps/nep-0455.md>
     ComputeCosts,
     /// Decrease the cost of function call action. Only affects the execution cost.
     DecreaseFunctionCallBaseCost,
     /// Enable flat storage for reads, reducing number of DB accesses from `2 * key.len()` in
     /// the worst case to 2.
     ///
-    /// Flat Storage NEP-399: https://github.com/near/NEPs/blob/master/neps/nep-0399.md
+    /// Flat Storage NEP-399: <https://github.com/near/NEPs/blob/master/neps/nep-0399.md>
     FlatStorageReads,
     /// Enables preparation V2. Note that this setting is not supported in production settings
     /// without NearVmRuntime enabled alongside it, as the VM runner would be too slow.
@@ -128,16 +128,16 @@ pub enum ProtocolFeature {
     #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
     RejectBlocksWithOutdatedProtocolVersions,
     /// Allows creating an account with a non refundable balance to cover storage costs.
-    /// NEP: https://github.com/near/NEPs/pull/491
+    /// NEP: <https://github.com/near/NEPs/pull/491>
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
     NonrefundableStorage,
     RestrictTla,
     /// Increases the number of chunk producers.
     TestnetFewerBlockProducers,
-    /// Enables stateless validation which is introduced in https://github.com/near/NEPs/pull/509
+    /// Enables stateless validation which is introduced in <https://github.com/near/NEPs/pull/509>
     StatelessValidationV0,
     EthImplicitAccounts,
-    /// Enables yield execution which is introduced in https://github.com/near/NEPs/pull/519
+    /// Enables yield execution which is introduced in <https://github.com/near/NEPs/pull/519>
     YieldExecution,
 
     /// Protocol version reserved for use in resharding tests.
@@ -155,12 +155,20 @@ pub enum ProtocolFeature {
     // Receipts which generate storage proofs larger than this limit will be rejected.
     // Protocol 85 also decreased the soft per-chunk storage proof limit to 3MB.
     PerReceiptHardStorageProofLimit,
-    /// Cross-shard congestion control according to https://github.com/near/NEPs/pull/539.
+    /// Cross-shard congestion control according to <https://github.com/near/NEPs/pull/539>.
     CongestionControl,
     // Stateless validation: Distribute state witness as reed solomon encoded parts
     PartialEncodedStateWitness,
     /// Size limits for transactions included in a ChunkStateWitness.
     WitnessTransactionLimits,
+    /// Size limit on outgoing receipts.
+    OutgoingReceiptsSizeLimit,
+    /// No chunk-only producers in stateless validation
+    NoChunkOnlyProducers,
+    /// Decrease the ratio of data parts in the Reed Solomon encoding for partial witness distribution.
+    ChangePartialWitnessDataPartsRequired,
+    /// Increase the `combined_transactions_size_limit` to 4MiB to allow higher throughput.
+    BiggerCombinedTransactionLimit,
 }
 
 impl ProtocolFeature {
@@ -211,19 +219,26 @@ impl ProtocolFeature {
             ProtocolFeature::DecreaseFunctionCallBaseCost => 66,
             ProtocolFeature::YieldExecution => 67,
 
+            // Congestion control should be enabled BEFORE stateless validation, so it has a lower version.
+            ProtocolFeature::CongestionControl => 80,
+
+            // Stateless validation features.
+            ProtocolFeature::StatelessValidationV0
+            | ProtocolFeature::LowerValidatorKickoutPercentForDebugging
+            | ProtocolFeature::SingleShardTracking
+            | ProtocolFeature::StateWitnessSizeLimit
+            | ProtocolFeature::PerReceiptHardStorageProofLimit
+            | ProtocolFeature::PartialEncodedStateWitness
+            | ProtocolFeature::WitnessTransactionLimits
+            | ProtocolFeature::OutgoingReceiptsSizeLimit
+            | ProtocolFeature::NoChunkOnlyProducers
+            | ProtocolFeature::ChangePartialWitnessDataPartsRequired
+            | ProtocolFeature::BiggerCombinedTransactionLimit => 81,
+
             // This protocol version is reserved for use in resharding tests. An extra resharding
             // is simulated on top of the latest shard layout in production. Note that later
             // protocol versions will still have the production layout.
-            ProtocolFeature::SimpleNightshadeTestonly => 79,
-
-            // StatelessNet features
-            ProtocolFeature::StatelessValidationV0 => 80,
-            ProtocolFeature::LowerValidatorKickoutPercentForDebugging => 81,
-            ProtocolFeature::SingleShardTracking => 82,
-            ProtocolFeature::StateWitnessSizeLimit => 83,
-            ProtocolFeature::PerReceiptHardStorageProofLimit => 85,
-            ProtocolFeature::PartialEncodedStateWitness => 86,
-            ProtocolFeature::WitnessTransactionLimits | ProtocolFeature::CongestionControl => 87,
+            ProtocolFeature::SimpleNightshadeTestonly => 100,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
@@ -254,7 +269,7 @@ const STABLE_PROTOCOL_VERSION: ProtocolVersion = 67;
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "statelessnet_protocol") {
     // Current StatelessNet protocol version.
-    87
+    81
 } else if cfg!(feature = "nightly_protocol") {
     // On nightly, pick big enough version to support all features.
     143

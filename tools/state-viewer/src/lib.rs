@@ -4,6 +4,7 @@ mod apply_chain_range;
 mod apply_chunk;
 pub mod cli;
 mod commands;
+mod congestion_control;
 mod contract_accounts;
 mod epoch_info;
 mod latest_witnesses;
@@ -14,5 +15,6 @@ mod state_dump;
 mod state_parts;
 mod trie_iteration_benchmark;
 mod tx_dump;
+mod util;
 
 pub use cli::StateViewerSubCommand;

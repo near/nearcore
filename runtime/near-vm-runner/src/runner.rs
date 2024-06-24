@@ -5,8 +5,7 @@ use crate::logic::{External, VMContext, VMOutcome};
 use crate::{ContractCode, ContractRuntimeCache};
 use near_parameters::vm::{Config, VMKind};
 use near_parameters::RuntimeFeesConfig;
-use near_primitives_core::account::Account;
-use near_primitives_core::hash::CryptoHash;
+use std::sync::Arc;
 
 /// Returned by VM::run method.
 ///
@@ -42,38 +41,27 @@ pub(crate) type VMResult<T = VMOutcome> = Result<T, VMRunnerError>;
 /// The gas cost for contract preparation will be subtracted by the VM
 /// implementation.
 #[tracing::instrument(target = "vm", level = "debug", "run", skip_all, fields(
-    code.hash = %account.code_hash(),
+    code.hash = %ext.code_hash(),
     method_name,
     vm_kind = ?wasm_config.vm_kind,
     burnt_gas = tracing::field::Empty,
     compute_usage = tracing::field::Empty,
 ))]
 pub fn run(
-    account: &Account,
-    code: Option<&ContractCode>,
     method_name: &str,
-    ext: &mut dyn External,
+    ext: &mut (dyn External + Send),
     context: &VMContext,
-    wasm_config: &Config,
-    fees_config: &RuntimeFeesConfig,
-    promise_results: &[PromiseResult],
+    wasm_config: Arc<Config>,
+    fees_config: Arc<RuntimeFeesConfig>,
+    promise_results: std::sync::Arc<[PromiseResult]>,
     cache: Option<&dyn ContractRuntimeCache>,
 ) -> VMResult {
     let span = tracing::Span::current();
     let vm_kind = wasm_config.vm_kind;
     let runtime = vm_kind
-        .runtime(wasm_config.clone())
+        .runtime(wasm_config)
         .unwrap_or_else(|| panic!("the {vm_kind:?} runtime has not been enabled at compile time"));
-    let outcome = runtime.run(
-        account.code_hash(),
-        code,
-        method_name,
-        ext,
-        context,
-        fees_config,
-        promise_results,
-        cache,
-    );
+    let outcome = runtime.run(method_name, ext, context, fees_config, promise_results, cache);
     let outcome = match outcome {
         Ok(o) => o,
         e @ Err(_) => return e,
@@ -101,13 +89,11 @@ pub trait VM {
     /// implementation.
     fn run(
         &self,
-        code_hash: CryptoHash,
-        code: Option<&ContractCode>,
         method_name: &str,
         ext: &mut dyn External,
         context: &VMContext,
-        fees_config: &RuntimeFeesConfig,
-        promise_results: &[PromiseResult],
+        fees_config: Arc<RuntimeFeesConfig>,
+        promise_results: std::sync::Arc<[PromiseResult]>,
         cache: Option<&dyn ContractRuntimeCache>,
     ) -> VMResult;
 
@@ -130,7 +116,7 @@ pub trait VMKindExt {
     ///
     /// This is not intended to be used by code other than internal tools like
     /// the estimator.
-    fn runtime(&self, config: Config) -> Option<Box<dyn VM>>;
+    fn runtime(&self, config: std::sync::Arc<Config>) -> Option<Box<dyn VM>>;
 }
 
 impl VMKindExt for VMKind {
@@ -142,7 +128,7 @@ impl VMKindExt for VMKind {
             Self::NearVm => cfg!(all(feature = "near_vm", target_arch = "x86_64")),
         }
     }
-    fn runtime(&self, config: Config) -> Option<Box<dyn VM>> {
+    fn runtime(&self, config: std::sync::Arc<Config>) -> Option<Box<dyn VM>> {
         match self {
             #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
             Self::Wasmer0 => Some(Box::new(crate::wasmer_runner::Wasmer0VM::new(config))),

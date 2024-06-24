@@ -5,11 +5,11 @@
 use crate::{
     error::{Error, UserError},
     ethabi_utils,
-    types::{Action, ExecutionContext},
+    types::{Action, ExecutionContext, ParsableEthEmulationKind},
 };
 use aurora_engine_transactions::NormalizedEthTransaction;
 use ethabi::{Address, ParamType};
-use near_sdk::AccountId;
+use near_sdk::{env, AccountId};
 
 const FIVE_TERA_GAS: u64 = near_sdk::Gas::from_tgas(5).as_gas();
 
@@ -26,22 +26,12 @@ pub fn try_emulation(
     target: &AccountId,
     tx: &NormalizedEthTransaction,
     context: &ExecutionContext,
-) -> Result<Action, Error> {
+) -> Result<(Action, ParsableEthEmulationKind), Error> {
     if tx.data.len() < 4 {
         return Err(Error::User(UserError::InvalidAbiEncodedData));
     }
-    // In production eth-implicit accounts are top-level, so this suffix will
-    // always be empty. The purpose of finding a suffix is that it allows for
-    // testing environments where the wallet contract is deployed to an address
-    // that is a sub-account. For example, this allows testing on Near testnet
-    // before the eth-implicit accounts feature is stabilized.
-    // The suffix is only needed in testing.
-    let suffix = context
-        .current_account_id
-        .as_str()
-        .find('.')
-        .map(|index| &context.current_account_id.as_str()[index..])
-        .unwrap_or("");
+
+    let suffix = context.current_account_suffix();
     match &tx.data[0..4] {
         ERC20_BALANCE_OF_SELECTOR => {
             let (address,): (Address,) =
@@ -52,32 +42,40 @@ pub fn try_emulation(
             // assumed to all be deployed to the same namespace so that they will all have the
             // same suffix.
             let args = format!(r#"{{"account_id": "0x{}{}"}}"#, hex::encode(address), suffix);
-            Ok(Action::FunctionCall {
-                receiver_id: target.to_string(),
-                method_name: "ft_balance_of".into(),
-                args: args.into_bytes(),
-                gas: FIVE_TERA_GAS,
-                yocto_near: 0,
-            })
+            Ok((
+                Action::FunctionCall {
+                    receiver_id: target.to_string(),
+                    method_name: "ft_balance_of".into(),
+                    args: args.into_bytes(),
+                    gas: FIVE_TERA_GAS,
+                    yocto_near: 0,
+                },
+                ParsableEthEmulationKind::ERC20Balance,
+            ))
         }
         ERC20_TRANSFER_SELECTOR => {
             // We intentionally map to `u128` instead of `U256` because the NEP-141 standard
             // is to use u128.
             let (to, value): (Address, u128) =
                 ethabi_utils::abi_decode(&ERC20_TRANSFER_SIGNATURE, &tx.data[4..])?;
+            let receiver_id: AccountId = format!("0x{}{}", hex::encode(to), suffix)
+                .parse()
+                .unwrap_or_else(|_| env::panic_str("eth-implicit accounts are valid account ids"));
             let args = format!(
-                r#"{{"receiver_id": "0x{}{}", "amount": "{}", "memo": null}}"#,
-                hex::encode(to),
-                suffix,
+                r#"{{"receiver_id": "{}", "amount": "{}", "memo": null}}"#,
+                receiver_id.as_str(),
                 value
             );
-            Ok(Action::FunctionCall {
-                receiver_id: target.to_string(),
-                method_name: "ft_transfer".into(),
-                args: args.into_bytes(),
-                gas: 2 * FIVE_TERA_GAS,
-                yocto_near: 1,
-            })
+            Ok((
+                Action::FunctionCall {
+                    receiver_id: target.to_string(),
+                    method_name: "ft_transfer".into(),
+                    args: args.into_bytes(),
+                    gas: 2 * FIVE_TERA_GAS,
+                    yocto_near: 1,
+                },
+                ParsableEthEmulationKind::ERC20Transfer { receiver_id },
+            ))
         }
         _ => Err(Error::User(UserError::UnknownFunctionSelector)),
     }

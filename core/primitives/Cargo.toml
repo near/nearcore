@@ -21,19 +21,17 @@ cfg-if.workspace = true
 chrono.workspace = true
 derive_more.workspace = true
 easy-ext.workspace = true
-enum-map.workspace = true
 hex.workspace = true
-itertools.workspace = true
+itertools = { workspace = true, optional = true }
 num-rational.workspace = true
 once_cell.workspace = true
 primitive-types.workspace = true
-rand.workspace = true
-rand_chacha.workspace = true
-reed-solomon-erasure.workspace = true
+rand = { workspace = true, optional = true }
+rand_chacha = { workspace = true, optional = true }
+reed-solomon-erasure = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 serde_with.workspace = true
-serde_yaml.workspace = true
 sha3.workspace = true
 smart-default.workspace = true
 stdx.workspace = true
@@ -41,30 +39,40 @@ strum.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 zstd.workspace = true
+enum-map.workspace = true
 
-near-async.workspace = true
+near-time.workspace = true
 near-crypto.workspace = true
 near-fmt.workspace = true
 near-primitives-core.workspace = true
 near-rpc-error-macro.workspace = true
-near-vm-runner.workspace = true
 near-parameters.workspace = true
 
 [features]
 sandbox = []
-test_features = ["near-vm-runner/test_features"]
+test_features = []
+solomon = ["reed-solomon-erasure", "itertools"]
+rand = ["dep:rand", "rand_chacha", "near-crypto/rand", "itertools"]
+clock = ["near-time/clock"]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
-protocol_feature_fix_staking_threshold = ["near-primitives-core/protocol_feature_fix_staking_threshold"]
-protocol_feature_fix_contract_loading_cost = ["near-primitives-core/protocol_feature_fix_contract_loading_cost"]
-protocol_feature_reject_blocks_with_outdated_protocol_version = ["near-primitives-core/protocol_feature_reject_blocks_with_outdated_protocol_version"]
-protocol_feature_nonrefundable_transfer_nep491 = ["near-primitives-core/protocol_feature_nonrefundable_transfer_nep491"]
+protocol_feature_fix_staking_threshold = [
+  "near-primitives-core/protocol_feature_fix_staking_threshold",
+]
+protocol_feature_fix_contract_loading_cost = [
+  "near-primitives-core/protocol_feature_fix_contract_loading_cost",
+]
+protocol_feature_reject_blocks_with_outdated_protocol_version = [
+  "near-primitives-core/protocol_feature_reject_blocks_with_outdated_protocol_version",
+]
+protocol_feature_nonrefundable_transfer_nep491 = [
+  "near-primitives-core/protocol_feature_nonrefundable_transfer_nep491",
+]
 
 nightly = [
-  "near-async/nightly",
   "near-fmt/nightly",
   "near-parameters/nightly",
   "near-primitives-core/nightly",
-  "near-vm-runner/nightly",
+  "near-primitives/nightly",
   "nightly_protocol",
   "protocol_feature_fix_contract_loading_cost",
   "protocol_feature_fix_staking_threshold",
@@ -73,16 +81,13 @@ nightly = [
 ]
 
 nightly_protocol = [
-  "near-async/nightly_protocol",
   "near-fmt/nightly_protocol",
   "near-parameters/nightly_protocol",
   "near-primitives-core/nightly_protocol",
-  "near-vm-runner/nightly_protocol",
+  "near-primitives/nightly_protocol",
 ]
 
-statelessnet_protocol = [
-  "near-primitives-core/statelessnet_protocol",
-]
+statelessnet_protocol = ["near-primitives-core/statelessnet_protocol"]
 
 new_epoch_sync = []
 
@@ -90,11 +95,15 @@ new_epoch_sync = []
 calimero_zero_storage = []
 
 [dev-dependencies]
+chrono = { workspace = true, features = ["clock"] }
+near-primitives = { workspace = true, features = ["clock", "solomon", "rand"] }
 assert_matches.workspace = true
 bencher.workspace = true
 bolero.workspace = true
 insta.workspace = true
 expect-test.workspace = true
+regex.workspace = true
+
 
 [[bench]]
 name = "serialization"

@@ -25,6 +25,7 @@ pub struct TrackedShardsView {
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct EpochInfoView {
+    pub epoch_height: u64,
     pub epoch_id: CryptoHash,
     pub height: BlockHeight,
     pub first_block: Option<(CryptoHash, Utc)>,
@@ -44,7 +45,11 @@ pub struct DebugChunkStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub processing_time_ms: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub congestion_level: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub congestion_info: Option<CongestionInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub endorsement_ratio: Option<f64>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]

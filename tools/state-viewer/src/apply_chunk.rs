@@ -153,7 +153,7 @@ pub(crate) fn apply_chunk(
                 ),
                 gas_price,
                 random_seed: hash("random seed".as_ref()),
-                congestion_info: prev_block.shards_congestion_info(),
+                congestion_info: prev_block.block_congestion_info(),
             },
             &receipts,
             transactions,
@@ -508,7 +508,7 @@ mod test {
                 height,
                 from.parse().unwrap(),
                 to.parse().unwrap(),
-                signer,
+                &signer.clone().into(),
                 100,
                 hash,
             );
@@ -564,7 +564,7 @@ mod test {
 
             let hash = *block.hash();
             let chunk_hashes = block.chunks().iter().map(|c| c.chunk_hash()).collect::<Vec<_>>();
-            let epoch_id = block.header().epoch_id().clone();
+            let epoch_id = *block.header().epoch_id();
 
             env.process_block(0, block, Provenance::PRODUCED);
 
@@ -652,7 +652,7 @@ mod test {
             let hash = *block.hash();
             let prev_hash = *block.header().prev_hash();
             let chunk_hashes = block.chunks().iter().map(|c| c.chunk_hash()).collect::<Vec<_>>();
-            let epoch_id = block.header().epoch_id().clone();
+            let epoch_id = *block.header().epoch_id();
 
             env.process_block(0, block, Provenance::PRODUCED);
 

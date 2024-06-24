@@ -13,7 +13,6 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, ShardId, StateRoot};
 use std::collections::HashMap;
-use std::rc::Rc;
 use std::sync::Arc;
 use std::thread;
 
@@ -446,8 +445,8 @@ impl PrefetchApi {
         })
     }
 
-    pub fn make_storage(&self) -> Rc<dyn TrieStorage> {
-        Rc::new(TriePrefetchingStorage::new(
+    pub fn make_storage(&self) -> Arc<dyn TrieStorage> {
+        Arc::new(TriePrefetchingStorage::new(
             self.store.clone(),
             self.shard_uid,
             self.shard_cache.clone(),
@@ -488,7 +487,7 @@ impl PrefetchApi {
                         // the clone only clones a few `Arc`s, so the performance
                         // hit is small.
                         let prefetcher_trie =
-                            Trie::new(Rc::new(prefetcher_storage.clone()), trie_root, None);
+                            Trie::new(Arc::new(prefetcher_storage.clone()), trie_root, None);
                         let storage_key = trie_key.to_vec();
                         metric_prefetch_sent.inc();
                         match prefetcher_trie.get(&storage_key) {

@@ -5,13 +5,18 @@ use crate::logic::errors::{
 };
 use crate::logic::types::PromiseResult;
 use crate::logic::{External, VMContext, VMLogic, VMLogicError, VMOutcome};
-use crate::memory::WasmerMemory;
+use crate::logic::{MemSlice, MemoryLike};
 use crate::prepare;
 use crate::runner::VMResult;
 use crate::{get_contract_cache_key, imports, ContractCode};
 use near_parameters::vm::{Config, VMKind};
 use near_parameters::RuntimeFeesConfig;
-use near_primitives_core::hash::CryptoHash;
+use std::borrow::Cow;
+use std::ffi::c_void;
+use std::sync::Arc;
+use wasmer_runtime::units::Pages;
+use wasmer_runtime::wasm::MemoryDescriptor;
+use wasmer_runtime::Memory;
 use wasmer_runtime::{ImportObject, Module};
 
 fn check_method(module: &Module, method_name: &str) -> Result<(), FunctionCallError> {
@@ -194,6 +199,63 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
     }
 }
 
+pub struct WasmerMemory(Memory);
+
+impl WasmerMemory {
+    pub fn new(initial_memory_pages: u32, max_memory_pages: u32) -> Self {
+        WasmerMemory(
+            Memory::new(
+                MemoryDescriptor::new(
+                    Pages(initial_memory_pages),
+                    Some(Pages(max_memory_pages)),
+                    false,
+                )
+                .unwrap(),
+            )
+            .expect("TODO creating memory cannot fail"),
+        )
+    }
+
+    pub fn clone(&self) -> Memory {
+        self.0.clone()
+    }
+}
+
+impl WasmerMemory {
+    fn with_memory<F, T>(&self, offset: u64, len: usize, func: F) -> Result<T, ()>
+    where
+        F: FnOnce(core::slice::Iter<'_, std::cell::Cell<u8>>) -> T,
+    {
+        let start = usize::try_from(offset).map_err(|_| ())?;
+        let end = start.checked_add(len).ok_or(())?;
+        self.0.view().get(start..end).map(|mem| func(mem.iter())).ok_or(())
+    }
+}
+
+impl MemoryLike for WasmerMemory {
+    fn fits_memory(&self, slice: MemSlice) -> Result<(), ()> {
+        self.with_memory(slice.ptr, slice.len()?, |_| ())
+    }
+
+    fn view_memory(&self, slice: MemSlice) -> Result<Cow<[u8]>, ()> {
+        self.with_memory(slice.ptr, slice.len()?, |mem| {
+            Cow::Owned(mem.map(core::cell::Cell::get).collect())
+        })
+    }
+
+    fn read_memory(&self, offset: u64, buffer: &mut [u8]) -> Result<(), ()> {
+        self.with_memory(offset, buffer.len(), |mem| {
+            buffer.iter_mut().zip(mem).for_each(|(dst, src)| *dst = src.get());
+        })
+    }
+
+    fn write_memory(&mut self, offset: u64, buffer: &[u8]) -> Result<(), ()> {
+        self.with_memory(offset, buffer.len(), |mem| {
+            mem.zip(buffer.iter()).for_each(|(dst, src)| dst.set(*src));
+        })
+    }
+}
+
 fn run_method(
     module: &Module,
     import: &ImportObject,
@@ -234,11 +296,11 @@ pub(crate) fn wasmer0_vm_hash() -> u64 {
 }
 
 pub(crate) struct Wasmer0VM {
-    config: Config,
+    config: Arc<Config>,
 }
 
 impl Wasmer0VM {
-    pub(crate) fn new(config: Config) -> Self {
+    pub(crate) fn new(config: Arc<Config>) -> Self {
         Self { config }
     }
 
@@ -355,19 +417,15 @@ impl Wasmer0VM {
 impl crate::runner::VM for Wasmer0VM {
     fn run(
         &self,
-        _code_hash: CryptoHash,
-        code: Option<&ContractCode>,
         method_name: &str,
         ext: &mut dyn External,
         context: &VMContext,
-        fees_config: &RuntimeFeesConfig,
-        promise_results: &[PromiseResult],
+        fees_config: Arc<RuntimeFeesConfig>,
+        promise_results: std::sync::Arc<[PromiseResult]>,
         cache: Option<&dyn ContractRuntimeCache>,
     ) -> Result<VMOutcome, VMRunnerError> {
-        let Some(code) = code else {
-            return Err(VMRunnerError::CacheError(CacheError::ReadError(std::io::Error::from(
-                std::io::ErrorKind::NotFound,
-            ))));
+        let Some(code) = ext.get_contract() else {
+            return Err(VMRunnerError::ContractCodeNotPresent);
         };
         if !cfg!(target_arch = "x86") && !cfg!(target_arch = "x86_64") {
             // TODO(#1940): Remove once NaN is standardized by the VM.
@@ -381,15 +439,21 @@ impl crate::runner::VM for Wasmer0VM {
             panic!("AVX support is required in order to run Wasmer VM Singlepass backend.");
         }
 
-        let mut memory = WasmerMemory::new(
+        let memory = WasmerMemory::new(
             self.config.limit_config.initial_memory_pages,
             self.config.limit_config.max_memory_pages,
         );
         // Note that we don't clone the actual backing memory, just increase the RC.
         let memory_copy = memory.clone();
 
-        let mut logic =
-            VMLogic::new(ext, context, &self.config, fees_config, promise_results, &mut memory);
+        let mut logic = VMLogic::new(
+            ext,
+            context,
+            Arc::clone(&self.config),
+            fees_config,
+            promise_results,
+            memory,
+        );
 
         let result = logic.before_loading_executable(method_name, code.code().len() as u64);
         if let Err(e) = result {
@@ -397,7 +461,7 @@ impl crate::runner::VM for Wasmer0VM {
         }
 
         // TODO: consider using get_module() here, once we'll go via deployment path.
-        let module = self.compile_and_load(code, cache)?;
+        let module = self.compile_and_load(&code, cache)?;
         let module = match module {
             Ok(x) => x,
             // Note on backwards-compatibility: This error used to be an error
@@ -417,7 +481,7 @@ impl crate::runner::VM for Wasmer0VM {
             return Ok(VMOutcome::abort(logic, e));
         }
 
-        let import_object = imports::wasmer::build(memory_copy, &mut logic);
+        let import_object = build_imports(memory_copy, &mut logic);
 
         if let Err(e) = check_method(&module, method_name) {
             return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(logic, e));
@@ -441,4 +505,57 @@ impl crate::runner::VM for Wasmer0VM {
             .compile_and_cache(code, Some(cache))?
             .map(|_| ContractPrecompilatonResult::ContractCompiled))
     }
+}
+
+#[derive(Clone, Copy)]
+struct ImportReference(pub *mut c_void);
+unsafe impl Send for ImportReference {}
+unsafe impl Sync for ImportReference {}
+
+pub(crate) fn build_imports(
+    memory: wasmer_runtime::memory::Memory,
+    logic: &mut VMLogic<'_>,
+) -> wasmer_runtime::ImportObject {
+    let raw_ptr = logic as *mut _ as *mut c_void;
+    let import_reference = ImportReference(raw_ptr);
+    let mut import_object = wasmer_runtime::ImportObject::new_with_data(move || {
+        let dtor = (|_: *mut c_void| {}) as fn(*mut c_void);
+        ({ import_reference }.0, dtor)
+    });
+
+    let mut ns_internal = wasmer_runtime_core::import::Namespace::new();
+    let mut ns_env = wasmer_runtime_core::import::Namespace::new();
+    ns_env.insert("memory", memory);
+
+    macro_rules! add_import {
+            (
+              $mod:ident / $name:ident : $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >
+            ) => {
+                #[allow(unused_parens)]
+                fn $name( ctx: &mut wasmer_runtime::Ctx, $( $arg_name: $arg_type ),* ) -> Result<($( $returns ),*), VMLogicError> {
+                    const TRACE: bool = $crate::imports::should_trace_host_function(stringify!($name));
+                    let _span = TRACE.then(|| {
+                        tracing::trace_span!(target: "vm::host_function", stringify!($name)).entered()
+                    });
+                    let logic: &mut VMLogic<'_> = unsafe { &mut *(ctx.data as *mut VMLogic<'_>) };
+                    logic.$func( $( $arg_name, )* )
+                }
+
+                match stringify!($mod) {
+                    "env" => ns_env.insert(stringify!($name), wasmer_runtime::func!($name)),
+                    "internal" => ns_internal.insert(stringify!($name), wasmer_runtime::func!($name)),
+                    _ => unimplemented!(),
+                }
+            };
+        }
+    imports::for_each_available_import!(logic.config, add_import);
+
+    import_object.register("env", ns_env);
+    import_object.register("internal", ns_internal);
+    import_object
+}
+
+#[test]
+fn test_memory_like() {
+    crate::logic::test_utils::test_memory_like(|| Box::new(WasmerMemory::new(1, 1)));
 }

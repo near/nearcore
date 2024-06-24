@@ -20,7 +20,7 @@ use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::test_utils::{create_test_signer, TestBlockBuilder};
 use near_primitives::types::{BlockHeight, NumBlocks, StateRoot};
-use near_primitives::validator_signer::InMemoryValidatorSigner;
+use near_primitives::validator_signer::ValidatorSigner;
 use near_store::test_utils::gen_changes;
 use near_store::{DBCol, ShardTries, Trie, WrappedTrieChanges};
 
@@ -57,7 +57,7 @@ fn do_fork(
             TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).build()
         } else {
             let prev_hash = prev_block.hash();
-            let epoch_id = prev_block.header().next_epoch_id().clone();
+            let epoch_id = *prev_block.header().next_epoch_id();
             if verbose {
                 println!(
                     "Creating block with new epoch id {:?} @{}",
@@ -67,8 +67,8 @@ fn do_fork(
             }
             let next_bp_hash = Chain::compute_bp_hash(
                 chain.epoch_manager.as_ref(),
-                next_epoch_id.clone(),
-                epoch_id.clone(),
+                next_epoch_id,
+                epoch_id,
                 &prev_hash,
             )
             .unwrap();
@@ -730,7 +730,7 @@ fn add_block(
     epoch_manager: &dyn EpochManagerAdapter,
     prev_block: &mut Block,
     blocks: &mut Vec<Block>,
-    signer: Arc<InMemoryValidatorSigner>,
+    signer: Arc<ValidatorSigner>,
     height: u64,
 ) {
     let next_epoch_id = epoch_manager
@@ -742,14 +742,9 @@ fn add_block(
         TestBlockBuilder::new(Clock::real(), &prev_block, signer).height(height).build()
     } else {
         let prev_hash = prev_block.hash();
-        let epoch_id = prev_block.header().next_epoch_id().clone();
-        let next_bp_hash = Chain::compute_bp_hash(
-            epoch_manager,
-            next_epoch_id.clone(),
-            epoch_id.clone(),
-            &prev_hash,
-        )
-        .unwrap();
+        let epoch_id = *prev_block.header().next_epoch_id();
+        let next_bp_hash =
+            Chain::compute_bp_hash(epoch_manager, next_epoch_id, epoch_id, &prev_hash).unwrap();
         TestBlockBuilder::new(Clock::real(), &prev_block, signer)
             .height(height)
             .epoch_id(epoch_id)

@@ -1,4 +1,3 @@
-use crate::test_helpers::heavy_test;
 use actix::{Actor, System};
 use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
@@ -29,6 +28,8 @@ use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::{load_test_config, start_with_config};
 use std::ops::ControlFlow;
 use std::sync::{Arc, RwLock};
+
+use crate::tests::test_helpers::heavy_test;
 
 /// One client is in front, another must sync to it using state (fast) sync.
 #[test]
@@ -570,13 +571,14 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                 .clients_count(2)
                 .use_state_snapshots()
                 .real_stores()
-                .nightshade_runtimes(&genesis)
+                .nightshade_runtimes_congestion_control_disabled(&genesis)
                 .build();
 
             let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
             let mut blocks = vec![genesis_block.clone()];
             let signer =
-                InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+                InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0")
+                    .into();
             let target_height = epoch_length + 1;
             for i in 1..=target_height {
                 tracing::info!(

@@ -3,9 +3,8 @@ use std::convert::AsRef;
 use std::fmt;
 
 use chrono;
-use chrono::{DateTime, NaiveDateTime};
-use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng};
+use chrono::DateTime;
+
 use serde;
 
 use crate::hash::{hash, CryptoHash};
@@ -414,8 +413,7 @@ macro_rules! unwrap_or_return {
 pub fn from_timestamp(timestamp: u64) -> DateTime<chrono::Utc> {
     let secs = (timestamp / NS_IN_SECOND) as i64;
     let nsecs = (timestamp % NS_IN_SECOND) as u32;
-    let naive = NaiveDateTime::from_timestamp_opt(secs, nsecs).unwrap();
-    DateTime::from_naive_utc_and_offset(naive, chrono::Utc)
+    DateTime::from_timestamp(secs, nsecs).unwrap()
 }
 
 /// Converts DateTime UTC time into timestamp in ns.
@@ -441,7 +439,11 @@ pub fn get_num_seats_per_shard(num_shards: NumShards, num_seats: NumSeats) -> Ve
 }
 
 /// Generate random string of given length
+#[cfg(feature = "rand")]
 pub fn generate_random_string(len: usize) -> String {
+    use rand::distributions::Alphanumeric;
+    use rand::{thread_rng, Rng};
+
     let bytes = thread_rng().sample_iter(&Alphanumeric).take(len).collect();
     String::from_utf8(bytes).unwrap()
 }

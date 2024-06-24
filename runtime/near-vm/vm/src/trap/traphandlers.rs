@@ -1,5 +1,5 @@
 // This file contains code from external sources.
-// Attributions: https://github.com/wasmerio/wasmer/blob/master/ATTRIBUTIONS.md
+// Attributions: https://github.com/wasmerio/wasmer/blob/2.3.0/ATTRIBUTIONS.md
 
 //! WebAssembly trap handling, which is built on top of the lower-level
 //! signalhandling mechanisms.
@@ -150,9 +150,10 @@ pub unsafe fn near_vm_call_trampoline(
     values_vec: *mut u8,
 ) -> Result<(), Trap> {
     catch_traps(|| {
-        mem::transmute::<_, extern "C" fn(VMFunctionEnvironment, *const VMFunctionBody, *mut u8)>(
-            trampoline,
-        )(callee_env, callee, values_vec);
+        mem::transmute::<
+            VMTrampoline,
+            extern "C" fn(VMFunctionEnvironment, *const VMFunctionBody, *mut u8),
+        >(trampoline)(callee_env, callee, values_vec);
     })
 }
 

@@ -9,6 +9,7 @@ use crate::tcp;
 use crate::types::ROUTED_MESSAGE_TTL;
 use anyhow::Context;
 use near_async::time;
+use near_chain_configs::MutableConfigValue;
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
@@ -56,13 +57,26 @@ pub enum ValidatorProxies {
 
 #[derive(Clone)]
 pub struct ValidatorConfig {
-    pub signer: Arc<dyn ValidatorSigner>,
+    /// Contains signer key for this node. This field is mutable and optional. Use with caution!
+    /// Lock the value of mutable validator signer for the duration of a request to ensure consistency.
+    /// Please note that the locked value should not be stored anywhere or passed through the thread boundary.
+    pub signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
     pub proxies: ValidatorProxies,
 }
 
+/// A snapshot of ValidatorConfig. Use to freeze the value of the mutable validator signer field.
+pub struct FrozenValidatorConfig<'a> {
+    pub signer: Option<Arc<ValidatorSigner>>,
+    pub proxies: &'a ValidatorProxies,
+}
+
 impl ValidatorConfig {
-    pub fn account_id(&self) -> AccountId {
-        self.signer.validator_id().clone()
+    pub fn account_id(&self) -> Option<AccountId> {
+        self.signer.get().map(|s| s.validator_id().clone())
+    }
+
+    pub fn frozen_view(&self) -> FrozenValidatorConfig {
+        FrozenValidatorConfig { signer: self.signer.get(), proxies: &self.proxies }
     }
 }
 
@@ -87,12 +101,24 @@ pub struct Tier1 {
     pub enable_outbound: bool,
 }
 
+#[derive(Clone)]
+pub struct SocketOptions {
+    pub recv_buffer_size: Option<u32>,
+    pub send_buffer_size: Option<u32>,
+}
+
+impl SocketOptions {
+    pub fn default() -> SocketOptions {
+        SocketOptions { recv_buffer_size: None, send_buffer_size: None }
+    }
+}
+
 /// Validated configuration for the peer-to-peer manager.
 #[derive(Clone)]
 pub struct NetworkConfig {
     pub node_addr: Option<tcp::ListenerAddr>,
     pub node_key: SecretKey,
-    pub validator: Option<ValidatorConfig>,
+    pub validator: ValidatorConfig,
 
     pub peer_store: peer_store::Config,
     pub snapshot_hosts: snapshot_hosts::Config,
@@ -112,6 +138,8 @@ pub struct NetworkConfig {
     pub ideal_connections_lo: u32,
     /// Upper bound of the ideal number of connections.
     pub ideal_connections_hi: u32,
+    /// Socket options for peer connections.
+    pub socket_options: SocketOptions,
     /// Peers which last message is was within this period of time are considered active recent peers.
     pub peer_recent_time_window: time::Duration,
     /// Number of peers to keep while removing a connection.
@@ -213,7 +241,7 @@ impl NetworkConfig {
     pub fn new(
         cfg: crate::config_json::Config,
         node_key: SecretKey,
-        validator_signer: Option<Arc<dyn ValidatorSigner>>,
+        validator_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
         archive: bool,
     ) -> anyhow::Result<Self> {
         if cfg.public_addrs.len() > MAX_PEER_ADDRS {
@@ -249,14 +277,14 @@ impl NetworkConfig {
         }
         let mut this = Self {
             node_key,
-            validator: validator_signer.map(|signer| ValidatorConfig {
-                signer,
+            validator: ValidatorConfig {
+                signer: validator_signer,
                 proxies: if !cfg.public_addrs.is_empty() {
                     ValidatorProxies::Static(cfg.public_addrs)
                 } else {
                     ValidatorProxies::Dynamic(cfg.trusted_stun_servers)
                 },
-            }),
+            },
             node_addr: match cfg.addr.as_str() {
                 "" => None,
                 addr => Some(tcp::ListenerAddr::new(
@@ -310,6 +338,10 @@ impl NetworkConfig {
             minimum_outbound_peers: cfg.minimum_outbound_peers,
             ideal_connections_lo: cfg.ideal_connections_lo,
             ideal_connections_hi: cfg.ideal_connections_hi,
+            socket_options: SocketOptions {
+                recv_buffer_size: cfg.so_recv_buffer_size,
+                send_buffer_size: cfg.so_send_buffer_size,
+            },
             peer_recent_time_window: cfg.peer_recent_time_window.try_into()?,
             safe_set_size: cfg.safe_set_size,
             archival_peer_connections_lower_bound: cfg.archival_peer_connections_lower_bound,
@@ -355,7 +387,10 @@ impl NetworkConfig {
     pub fn from_seed(seed: &str, node_addr: tcp::ListenerAddr) -> Self {
         let node_key = SecretKey::from_seed(KeyType::ED25519, seed);
         let validator = ValidatorConfig {
-            signer: Arc::new(create_test_signer(seed)),
+            signer: MutableConfigValue::new(
+                Some(Arc::new(create_test_signer(seed))),
+                "validator_signer",
+            ),
             proxies: ValidatorProxies::Static(vec![PeerAddr {
                 addr: *node_addr,
                 peer_id: PeerId::new(node_key.public_key()),
@@ -364,7 +399,7 @@ impl NetworkConfig {
         NetworkConfig {
             node_addr: Some(node_addr),
             node_key,
-            validator: Some(validator),
+            validator,
             peer_store: peer_store::Config {
                 boot_nodes: vec![],
                 blacklist: blacklist::Blacklist::default(),
@@ -385,6 +420,7 @@ impl NetworkConfig {
             minimum_outbound_peers: 5,
             ideal_connections_lo: 30,
             ideal_connections_hi: 35,
+            socket_options: SocketOptions { recv_buffer_size: None, send_buffer_size: None },
             peer_recent_time_window: time::Duration::seconds(600),
             safe_set_size: 20,
             archival_peer_connections_lower_bound: 10,
@@ -636,7 +672,7 @@ mod test {
             version: 0,
             timestamp: clock.now_utc(),
         };
-        let sad = ad.sign(&signer).unwrap();
+        let sad = ad.sign(&signer.into()).unwrap();
         assert!(sad.payload().len() <= network_protocol::MAX_ACCOUNT_DATA_SIZE_BYTES);
     }
 }

@@ -8,6 +8,7 @@ with_macos_excludes := if os() == "macos" {
 }
 nightly_flags := "--features nightly,test_features"
 statelessnet_flags := "--features statelessnet_protocol"
+public_libraries := "-p near-primitives -p near-crypto -p near-jsonrpc-primitives -p near-chain-configs -p near-primitives-core"
 
 export RUST_BACKTRACE := env("RUST_BACKTRACE", "short")
 ci_hack_nextest_profile := if env("CI_HACKS", "0") == "1" { "--profile ci" } else { "" }
@@ -73,6 +74,11 @@ nextest-integration TYPE *FLAGS:
 nextest-integration TYPE *FLAGS:
     @echo "Nextest integration tests are currently disabled on macos!"
 
+[windows]
+nextest-integration TYPE *FLAGS:
+    @echo "Nextest integration tests are currently disabled on windows!"
+
+
 doctests:
     cargo test --doc
 
@@ -87,10 +93,10 @@ check-cargo-fmt:
     cargo fmt -- --check
 
 # check clippy lints
-check-cargo-clippy:
+check-cargo-clippy *FLAGS:
     CARGO_TARGET_DIR="target/clippy" \
     RUSTFLAGS="-D warnings" \
-    cargo clippy --all-features --all-targets --locked
+    cargo clippy --all-features --all-targets --locked {{ FLAGS }}
 
 # check cargo deny lints
 check-cargo-deny:
@@ -165,3 +171,6 @@ update-rpc-errors-schema: build-rpc-errors-schema
 # check chain/jsonrpc/res/rpc_errors_schema.json
 check-rpc-errors-schema: build-rpc-errors-schema
     diff target/rpc_errors_schema.json chain/jsonrpc/res/rpc_errors_schema.json
+
+check_build_public_libraries:
+    cargo check {{public_libraries}}

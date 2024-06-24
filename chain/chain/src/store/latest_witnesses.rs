@@ -12,7 +12,7 @@ use near_primitives::stateless_validation::ChunkStateWitness;
 use near_primitives::types::EpochId;
 use near_store::DBCol;
 
-use crate::metrics;
+use crate::stateless_validation;
 use crate::ChainStoreAccess;
 
 use super::ChainStore;
@@ -171,7 +171,7 @@ impl ChainStore {
         let key = LatestWitnessesKey {
             height: witness.chunk_header.height_created(),
             shard_id: witness.chunk_header.shard_id(),
-            epoch_id: witness.epoch_id.clone(),
+            epoch_id: witness.epoch_id,
             witness_size: serialized_witness_size,
             random_uuid,
         };
@@ -193,14 +193,14 @@ impl ChainStore {
         let store_commit_time = start_time.elapsed().saturating_sub(store_update_time);
 
         let shard_id_str = witness.chunk_header.shard_id().to_string();
-        metrics::SAVE_LATEST_WITNESS_GENERATE_UPDATE_TIME
+        stateless_validation::metrics::SAVE_LATEST_WITNESS_GENERATE_UPDATE_TIME
             .with_label_values(&[shard_id_str.as_str()])
             .observe(store_update_time.as_secs_f64());
-        metrics::SAVE_LATEST_WITNESS_COMMIT_UPDATE_TIME
+        stateless_validation::metrics::SAVE_LATEST_WITNESS_COMMIT_UPDATE_TIME
             .with_label_values(&[shard_id_str.as_str()])
             .observe(store_commit_time.as_secs_f64());
-        metrics::SAVED_LATEST_WITNESSES_COUNT.set(info.count as i64);
-        metrics::SAVED_LATEST_WITNESSES_SIZE.set(info.total_size as i64);
+        stateless_validation::metrics::SAVED_LATEST_WITNESSES_COUNT.set(info.count as i64);
+        stateless_validation::metrics::SAVED_LATEST_WITNESSES_SIZE.set(info.total_size as i64);
 
         tracing::debug!(
             ?store_update_time,

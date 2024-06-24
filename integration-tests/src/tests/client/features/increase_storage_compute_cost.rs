@@ -13,7 +13,7 @@
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_parameters::RuntimeConfigStore;
 use near_parameters::{ActionCosts, RuntimeConfig};
 use near_primitives::sharding::ShardChunk;
@@ -301,14 +301,15 @@ fn produce_saturated_chunk(
         gas,
         deposit: 0,
     }))];
-    let signer =
-        InMemorySigner::from_seed(user_account.clone(), KeyType::ED25519, user_account.as_ref());
+    let signer: Signer =
+        InMemorySigner::from_seed(user_account.clone(), KeyType::ED25519, user_account.as_ref())
+            .into();
 
     let tip = env.clients[0].chain.head().unwrap();
     let mut tx_factory = || {
         let tx = SignedTransaction::from_actions(
             *nonce,
-            signer.account_id.clone(),
+            user_account.clone(),
             contract_account.clone(),
             &signer,
             actions.clone(),

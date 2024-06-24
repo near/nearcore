@@ -1,3 +1,4 @@
+use crate::config::SocketOptions;
 use crate::network_protocol::{
     Encoding, Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash,
     PeerMessage, Ping, Pong, RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate,
@@ -19,6 +20,7 @@ use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use std::fmt;
 use std::io;
 use std::net::SocketAddr;
+use std::num::NonZeroUsize;
 use time::ext::InstantExt as _;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -237,9 +239,13 @@ impl Connection {
         let my_peer_id = PeerId::new(secret_key.public_key());
 
         let start = Instant::now();
-        let stream = tcp::Stream::connect(&PeerInfo::new(peer_id.clone(), addr), tcp::Tier::T2)
-            .await
-            .map_err(ConnectError::TcpConnect)?;
+        let stream = tcp::Stream::connect(
+            &PeerInfo::new(peer_id.clone(), addr),
+            tcp::Tier::T2,
+            &SocketOptions::default(),
+        )
+        .await
+        .map_err(ConnectError::TcpConnect)?;
         tracing::info!(
             target: "network",
             %peer_id, ?addr, latency=?start.elapsed(), "Connection established",
@@ -249,7 +255,7 @@ impl Connection {
             peer_id,
             secret_key,
             my_peer_id,
-            route_cache: lru::LruCache::new(1_000_000),
+            route_cache: lru::LruCache::new(NonZeroUsize::new(1_000_000).unwrap()),
             borsh_message_expected: false,
         };
         peer.do_handshake(
@@ -318,7 +324,7 @@ impl Connection {
             my_peer_id,
             stream,
             peer_id,
-            route_cache: lru::LruCache::new(1_000_000),
+            route_cache: lru::LruCache::new(NonZeroUsize::new(1_000_000).unwrap()),
             borsh_message_expected,
         })
     }

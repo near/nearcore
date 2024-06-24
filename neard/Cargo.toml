@@ -132,7 +132,7 @@ calimero_zero_storage = [
 # with this flag and then enable it at runtime with `--record-io-trace=path` option.
 io_trace = ["near-store/io_trace", "near-o11y/io_trace", "nearcore/io_trace"]
 
-sandbox = ["nearcore/sandbox"]
+sandbox = ["near-o11y/sandbox", "nearcore/sandbox"]
 
 [package.metadata.workspaces]
 independent = true

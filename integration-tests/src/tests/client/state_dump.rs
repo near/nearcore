@@ -4,7 +4,7 @@ use near_async::time::{Clock, Duration};
 use near_chain::near_chain_primitives::error::QueryError;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::ExternalStorageLocation::Filesystem;
-use near_chain_configs::{DumpConfig, Genesis, NEAR_BASE};
+use near_chain_configs::{DumpConfig, Genesis, MutableConfigValue, NEAR_BASE};
 use near_client::sync::external::{external_storage_location, StateFileType};
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
@@ -18,6 +18,7 @@ use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockHeight;
+use near_primitives::validator_signer::{EmptyValidatorSigner, InMemoryValidatorSigner};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 use near_store::flat::store_helper;
 use near_store::DBCol;
@@ -57,6 +58,10 @@ fn test_state_dump() {
             credentials_file: None,
         });
 
+        let validator = MutableConfigValue::new(
+            Some(Arc::new(EmptyValidatorSigner::new("test0".parse().unwrap()))),
+            "validator_signer",
+        );
         let mut state_sync_dumper = StateSyncDumper {
             clock: Clock::real(),
             client_config: config.clone(),
@@ -64,7 +69,7 @@ fn test_state_dump() {
             epoch_manager: epoch_manager.clone(),
             shard_tracker,
             runtime,
-            account_id: Some("test0".parse().unwrap()),
+            validator,
             dump_future_runner: StateSyncDumper::arbiter_dump_future_runner(),
             handle: None,
         };
@@ -145,6 +150,10 @@ fn run_state_sync_with_dumped_parts(
             .build();
 
         let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+        let validator = MutableConfigValue::new(
+            Some(Arc::new(InMemoryValidatorSigner::from_signer(signer.clone()).into())),
+            "validator_signer",
+        );
         let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
         let genesis_hash = *genesis_block.hash();
 
@@ -168,7 +177,7 @@ fn run_state_sync_with_dumped_parts(
             epoch_manager: epoch_manager.clone(),
             shard_tracker,
             runtime,
-            account_id: Some("test0".parse().unwrap()),
+            validator,
             dump_future_runner: StateSyncDumper::arbiter_dump_future_runner(),
             handle: None,
         };
@@ -182,6 +191,7 @@ fn run_state_sync_with_dumped_parts(
             account_creation_at_epoch_height * epoch_length + 1
         };
 
+        let signer: Signer = signer.into();
         for i in 1..=dump_node_head_height {
             if i == account_creation_at_height {
                 let tx = SignedTransaction::create_account(
@@ -236,7 +246,7 @@ fn run_state_sync_with_dumped_parts(
             assert_ne!(header.epoch_id().clone(), final_block_header.epoch_id().clone())
         }
 
-        let epoch_id = final_block_header.epoch_id().clone();
+        let epoch_id = *final_block_header.epoch_id();
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap();
         let epoch_height = epoch_info.epoch_height();
 

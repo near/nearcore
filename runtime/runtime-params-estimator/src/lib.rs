@@ -114,6 +114,7 @@ use near_vm_runner::MockContractRuntimeCache;
 use serde_json::json;
 use std::convert::TryFrom;
 use std::iter;
+use std::sync::Arc;
 use std::time::Instant;
 use utils::{
     average_cost, fn_cost, fn_cost_count, fn_cost_in_contract, fn_cost_with_setup,
@@ -884,11 +885,11 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
     let n_iters = 10;
 
     let code = ContractCode::new(code.to_vec(), None);
-    let mut fake_external = MockedExternal::new();
+    let mut fake_external = MockedExternal::with_code(code.clone_for_tests());
     let config_store = RuntimeConfigStore::new(None);
     let config = config_store.get_config(PROTOCOL_VERSION).wasm_config.clone();
-    let fees = RuntimeFeesConfig::test();
-    let promise_results = vec![];
+    let fees = Arc::new(RuntimeFeesConfig::test());
+    let promise_results = [].into();
     let cache = MockContractRuntimeCache::default();
 
     let mut run = || {
@@ -897,13 +898,11 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
             .runtime(config.clone())
             .unwrap()
             .run(
-                *code.hash(),
-                Some(&code),
                 "cpu_ram_soak_test",
                 &mut fake_external,
                 &context,
-                &fees,
-                &promise_results,
+                Arc::clone(&fees),
+                Arc::clone(&promise_results),
                 Some(&cache),
             )
             .expect("fatal_error");

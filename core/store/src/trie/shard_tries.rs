@@ -20,7 +20,6 @@ use near_primitives::types::{
 };
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashMap;
-use std::rc::Rc;
 use std::sync::{Arc, Mutex, RwLock};
 use tracing::info;
 
@@ -139,7 +138,7 @@ impl ShardTries {
                 .clone()
         });
 
-        let storage = Rc::new(TrieCachingStorage::new(
+        let storage = Arc::new(TrieCachingStorage::new(
             self.0.store.clone(),
             cache,
             shard_uid,
@@ -148,12 +147,10 @@ impl ShardTries {
         ));
         let flat_storage_chunk_view = block_hash
             .and_then(|block_hash| self.0.flat_storage_manager.chunk_view(shard_uid, block_hash));
-        Trie::new_with_memtries(
-            storage,
-            self.get_mem_tries(shard_uid),
-            state_root,
-            flat_storage_chunk_view,
-        )
+        // Do not use memtries for view queries, for two reasons: memtries do not provide historical state,
+        // and also this can introduce lock contention on memtries.
+        let memtries = if is_view { None } else { self.get_mem_tries(shard_uid) };
+        Trie::new_with_memtries(storage, memtries, state_root, flat_storage_chunk_view)
     }
 
     pub fn get_trie_for_shard(&self, shard_uid: ShardUId, state_root: StateRoot) -> Trie {
@@ -168,7 +165,7 @@ impl ShardTries {
     ) -> Result<Trie, StorageError> {
         let (store, flat_storage_manager) = self.get_state_snapshot(block_hash)?;
         let cache = self.get_trie_cache_for(shard_uid, true);
-        let storage = Rc::new(TrieCachingStorage::new(store, cache, shard_uid, true, None));
+        let storage = Arc::new(TrieCachingStorage::new(store, cache, shard_uid, true, None));
         let flat_storage_chunk_view = flat_storage_manager.chunk_view(shard_uid, *block_hash);
 
         Ok(Trie::new(storage, state_root, flat_storage_chunk_view))

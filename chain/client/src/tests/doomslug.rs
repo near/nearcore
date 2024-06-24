@@ -31,7 +31,8 @@ fn test_processing_skips_on_forks() {
     env.process_block(1, b2, Provenance::NONE);
     let validator_signer =
         InMemoryValidatorSigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
-    let approval = Approval::new(CryptoHash::default(), 1, 3, &validator_signer);
-    env.clients[1].collect_block_approval(&approval, ApprovalType::SelfApproval);
+    let approval = Approval::new(CryptoHash::default(), 1, 3, &validator_signer.into());
+    let client_signer = env.clients[1].validator_signer.get();
+    env.clients[1].collect_block_approval(&approval, ApprovalType::SelfApproval, &client_signer);
     assert!(!env.clients[1].doomslug.approval_status_at_height(&3).approvals.is_empty());
 }

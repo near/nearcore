@@ -23,16 +23,14 @@ This simplifies remote connections.
 
 ### Role
 
-A role with read-only permissions is created with for Grafana:
+A role with read-only permissions is created for Grafana:
 
 ```sql
 create role grafana_reader login password 'store_it_in_1password';
 grant connect on database benchmarks to grafana_reader;
 
--- Execute these statements when connected to the benchmarks db.
-grant usage on schema public to grafana_reader;
--- Repeat this when creating a new db that should be available in Grafana.
-grant select on ft_transfer to grafana_reader;
+-- Execute this statement when connected to the benchmarks db.
+grant pg_read_all_data to grafana_reader;
 ```
 
 The `grafana_reader` may use up to 20 connections. To verify that the PostgreSQL instance allows a sufficient number of connections you can run:
