@@ -99,7 +99,6 @@ use near_store::flat::{store_helper, FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::get_genesis_state_roots;
 use near_store::DBCol;
 use node_runtime::bootstrap_congestion_info;
-use once_cell::sync::OnceCell;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
