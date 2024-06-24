@@ -1943,7 +1943,7 @@ impl Chain {
             let need_flat_storage_update = if is_caught_up {
                 // If we already caught up this epoch, then flat storage exists for both shards which we already track
                 // and shards which will be tracked in next epoch, so we can update them.
-                care_about_shard_this_or_next_epoch 
+                care_about_shard_this_or_next_epoch
             } else {
                 // If we didn't catch up, we can update only shards tracked right now. Remaining shards will be updated
                 // during catchup of this block.
