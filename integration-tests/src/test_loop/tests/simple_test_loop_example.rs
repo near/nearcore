@@ -24,8 +24,6 @@ use nearcore::NightshadeRuntime;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
-const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
-
 #[test]
 fn test_client_with_simple_test_loop() {
     init_test_logger();
@@ -41,7 +39,7 @@ fn test_client_with_simple_test_loop() {
         false,
         false,
     );
-    let initial_balance = 10000 * ONE_NEAR;
+    let initial_balance = 10000 * crate::test_loop::utils::ONE_NEAR;
     let accounts =
         (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
 
