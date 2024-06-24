@@ -250,8 +250,8 @@ impl StateSync {
         let mut all_done = true;
 
         let prev_hash = *chain.get_block_header(&sync_hash)?.prev_hash();
-        let prev_epoch_id = chain.get_block_header(&prev_hash)?.epoch_id().clone();
-        let epoch_id = chain.get_block_header(&sync_hash)?.epoch_id().clone();
+        let prev_epoch_id = *chain.get_block_header(&prev_hash)?.epoch_id();
+        let epoch_id = *chain.get_block_header(&sync_hash)?.epoch_id();
         let prev_shard_layout = epoch_manager.get_shard_layout(&prev_epoch_id)?;
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
         if prev_shard_layout != shard_layout {
@@ -482,7 +482,7 @@ impl StateSync {
         sync_hash: &CryptoHash,
     ) -> Result<CryptoHash, near_chain::Error> {
         let mut header = chain.get_block_header(sync_hash)?;
-        let mut epoch_id = header.epoch_id().clone();
+        let mut epoch_id = *header.epoch_id();
         let mut hash = *header.hash();
         let mut prev_hash = *header.prev_hash();
         loop {
@@ -493,7 +493,7 @@ impl StateSync {
             if &epoch_id != header.epoch_id() {
                 return Ok(hash);
             }
-            epoch_id = header.epoch_id().clone();
+            epoch_id = *header.epoch_id();
             hash = *header.hash();
             prev_hash = *header.prev_hash();
         }
@@ -1031,7 +1031,7 @@ impl StateSync {
         // (these are set via callback from ClientActor - both for sync and catchup).
         if let Some(result) = self.state_parts_apply_results.remove(&shard_id) {
             result?;
-            let epoch_id = chain.get_block_header(&sync_hash)?.epoch_id().clone();
+            let epoch_id = *chain.get_block_header(&sync_hash)?.epoch_id();
             let shard_uid = chain.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
             let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
             let chunk = shard_state_header.cloned_chunk();
@@ -1547,7 +1547,7 @@ mod test {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
             let block = if kv.is_next_block_epoch_start(prev.hash()).unwrap() {
                 TestBlockBuilder::new(Clock::real(), &prev, signer.clone())
-                    .epoch_id(prev.header().next_epoch_id().clone())
+                    .epoch_id(*prev.header().next_epoch_id())
                     .next_epoch_id(EpochId { 0: *prev.hash() })
                     .next_bp_hash(*prev.header().next_bp_hash())
                     .build()

@@ -64,7 +64,7 @@ impl EpochSync {
             network_adapter,
             peer_to_last_request_time: HashMap::new(),
             peers_reporting_up_to_date: HashSet::new(),
-            current_epoch_id: genesis_epoch_id.clone(),
+            current_epoch_id: genesis_epoch_id,
             next_epoch_id: genesis_next_epoch_id,
             next_block_producers: first_epoch_block_producers,
             requested_epoch_id: genesis_epoch_id,

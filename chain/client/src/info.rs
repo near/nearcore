@@ -291,7 +291,7 @@ impl InfoHelper {
         epoch_id: &EpochId,
         last_block_hash: &CryptoHash,
     ) -> usize {
-        *self.num_validators_per_epoch.get_or_insert(epoch_id.clone(), || {
+        *self.num_validators_per_epoch.get_or_insert(*epoch_id, || {
             let block_producers: HashSet<AccountId> = epoch_manager
                 .get_epoch_block_producers_ordered(epoch_id, last_block_hash)
                 .unwrap_or(vec![])
@@ -366,7 +366,7 @@ impl InfoHelper {
         InfoHelper::record_tracked_shards(&head, &client);
         InfoHelper::record_block_producers(&head, &client);
         InfoHelper::record_chunk_producers(&head, &client);
-        let next_epoch_id = Some(head.epoch_id.clone());
+        let next_epoch_id = Some(head.epoch_id);
         if self.epoch_id.ne(&next_epoch_id) {
             // We only want to compute this once per epoch to avoid heavy computational work, that can last up to 100ms.
             InfoHelper::record_epoch_settlement_info(&head, &client);

@@ -59,9 +59,8 @@ impl DumpWitnessesCmd {
         let chain_store =
             Rc::new(ChainStore::new(store, near_config.genesis.config.genesis_height, false));
 
-        let witnesses = chain_store
-            .get_latest_witnesses(self.height, self.shard_id, self.epoch_id.clone())
-            .unwrap();
+        let witnesses =
+            chain_store.get_latest_witnesses(self.height, self.shard_id, self.epoch_id).unwrap();
         println!("Found {} witnesses:", witnesses.len());
         if let DumpWitnessesMode::Binary { ref output_dir } = self.mode {
             if !output_dir.exists() {

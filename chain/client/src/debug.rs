@@ -284,7 +284,7 @@ impl ClientActorInner {
         } else {
             self.client
                 .epoch_manager
-                .get_validator_info(ValidatorInfoIdentifier::EpochId(epoch_id.clone()))?
+                .get_validator_info(ValidatorInfoIdentifier::EpochId(*epoch_id))?
         };
         return Ok((
             EpochInfoView {
@@ -534,7 +534,7 @@ impl ClientActorInner {
                 );
                 // TODO(robin): using last epoch id when iterating in reverse height direction is
                 // not a good idea for calculating producer of missing heights. Revisit this.
-                last_epoch_id = block_header.epoch_id().clone();
+                last_epoch_id = *block_header.epoch_id();
                 if let Some(prev_height) = block_header.prev_height() {
                     if block_header.height() != prev_height + 1 {
                         // This block was produced using a Skip approval; make sure to fetch the
@@ -578,7 +578,7 @@ impl ClientActorInner {
             );
 
             #[allow(clippy::redundant_clone)]
-            let mut epoch_id = head.epoch_id.clone();
+            let mut epoch_id = head.epoch_id;
             for height in
                 head.height.saturating_sub(DEBUG_PRODUCTION_OLD_BLOCKS_TO_SHOW)..=max_height
             {
@@ -587,7 +587,7 @@ impl ClientActorInner {
 
                 // The block may be in the last epoch from head, we need to account for that.
                 if let Ok(header) = self.client.chain.get_block_header_by_height(height) {
-                    epoch_id = header.epoch_id().clone();
+                    epoch_id = *header.epoch_id();
                 }
 
                 // And if we are the block (or chunk) producer for this height - collect some timing info.

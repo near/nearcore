@@ -20,14 +20,14 @@ use std::sync::Arc;
 pub struct RuntimeExt<'a> {
     pub(crate) trie_update: &'a mut TrieUpdate,
     pub(crate) receipt_manager: &'a mut ReceiptManager,
-    account_id: &'a AccountId,
-    account: &'a Account,
-    action_hash: &'a CryptoHash,
+    account_id: AccountId,
+    account: Account,
+    action_hash: CryptoHash,
     data_count: u64,
-    epoch_id: &'a EpochId,
-    prev_block_hash: &'a CryptoHash,
-    last_block_hash: &'a CryptoHash,
-    epoch_info_provider: &'a dyn EpochInfoProvider,
+    epoch_id: EpochId,
+    prev_block_hash: CryptoHash,
+    last_block_hash: CryptoHash,
+    epoch_info_provider: &'a (dyn EpochInfoProvider),
     current_protocol_version: ProtocolVersion,
 }
 
@@ -63,13 +63,13 @@ impl<'a> RuntimeExt<'a> {
     pub fn new(
         trie_update: &'a mut TrieUpdate,
         receipt_manager: &'a mut ReceiptManager,
-        account_id: &'a AccountId,
-        account: &'a Account,
-        action_hash: &'a CryptoHash,
-        epoch_id: &'a EpochId,
-        prev_block_hash: &'a CryptoHash,
-        last_block_hash: &'a CryptoHash,
-        epoch_info_provider: &'a dyn EpochInfoProvider,
+        account_id: AccountId,
+        account: Account,
+        action_hash: CryptoHash,
+        epoch_id: EpochId,
+        prev_block_hash: CryptoHash,
+        last_block_hash: CryptoHash,
+        epoch_info_provider: &'a (dyn EpochInfoProvider),
         current_protocol_version: ProtocolVersion,
     ) -> Self {
         RuntimeExt {
@@ -88,13 +88,13 @@ impl<'a> RuntimeExt<'a> {
     }
 
     #[inline]
-    pub fn account_id(&self) -> &'a AccountId {
-        self.account_id
+    pub fn account_id(&self) -> &AccountId {
+        &self.account_id
     }
 
     #[inline]
-    pub fn account(&self) -> &'a Account {
-        self.account
+    pub fn account(&self) -> &Account {
+        &self.account
     }
 
     pub fn create_storage_key(&self, key: &[u8]) -> TrieKey {
@@ -161,10 +161,10 @@ impl<'a> External for RuntimeExt<'a> {
     fn storage_remove_subtree(&mut self, prefix: &[u8]) -> ExtResult<()> {
         let data_keys = self
             .trie_update
-            .iter(&trie_key_parsers::get_raw_prefix_for_contract_data(self.account_id, prefix))
+            .iter(&trie_key_parsers::get_raw_prefix_for_contract_data(&self.account_id, prefix))
             .map_err(wrap_storage_error)?
             .map(|raw_key| {
-                trie_key_parsers::parse_data_key_from_contract_data_key(&raw_key?, self.account_id)
+                trie_key_parsers::parse_data_key_from_contract_data_key(&raw_key?, &self.account_id)
                     .map_err(|_e| {
                         StorageError::StorageInconsistentState(
                             "Can't parse data key from raw key for ContractData".to_string(),
@@ -184,9 +184,9 @@ impl<'a> External for RuntimeExt<'a> {
     fn generate_data_id(&mut self) -> CryptoHash {
         let data_id = create_receipt_id_from_action_hash(
             self.current_protocol_version,
-            self.action_hash,
-            self.prev_block_hash,
-            self.last_block_hash,
+            &self.action_hash,
+            &self.prev_block_hash,
+            &self.last_block_hash,
             self.data_count as usize,
         );
         self.data_count += 1;
@@ -208,13 +208,13 @@ impl<'a> External for RuntimeExt<'a> {
 
     fn validator_stake(&self, account_id: &AccountId) -> ExtResult<Option<Balance>> {
         self.epoch_info_provider
-            .validator_stake(self.epoch_id, self.prev_block_hash, account_id)
+            .validator_stake(&self.epoch_id, &self.prev_block_hash, account_id)
             .map_err(|e| ExternalError::ValidatorError(e).into())
     }
 
     fn validator_total_stake(&self) -> ExtResult<Balance> {
         self.epoch_info_provider
-            .validator_total_stake(self.epoch_id, self.prev_block_hash)
+            .validator_total_stake(&self.epoch_id, &self.prev_block_hash)
             .map_err(|e| ExternalError::ValidatorError(e).into())
     }
 
