@@ -240,6 +240,9 @@ impl NetworkConfig {
         ) {
             self.routing_table_update_rate_limit = rate::Limit { qps, burst }
         }
+        if let Some(rate_limits) = overrides.received_messages_rate_limits {
+            self.received_messages_rate_limits.apply_overrides(rate_limits);
+        }
     }
 
     pub fn new(
@@ -374,8 +377,8 @@ impl NetworkConfig {
             } else {
                 None
             },
-            // TODO(trisfald): set config properly
-            received_messages_rate_limits: messages_limits::Config::default(),
+            // Use a preset to configure rate limits and override entries with user defined values later.
+            received_messages_rate_limits: messages_limits::Config::standard_preset(),
             #[cfg(test)]
             event_sink: near_async::messaging::IntoSender::into_sender(
                 near_async::messaging::noop(),

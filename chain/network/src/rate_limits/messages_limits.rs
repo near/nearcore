@@ -60,7 +60,8 @@ impl RateLimits {
 }
 
 /// Rate limit configuration for a single network message.
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize, Debug)]
+#[cfg_attr(test, derive(PartialEq))]
 pub struct SingleMessageConfig {
     pub maximum_size: u32,
     pub refill_rate: f32,
@@ -78,6 +79,13 @@ impl SingleMessageConfig {
 #[derive(Default, Clone)]
 pub struct Config {
     pub rate_limits: HashMap<RateLimitedPeerMessageKey, SingleMessageConfig>,
+}
+
+/// Struct to manage user defined overrides for [Config]. The key difference with the base struct
+/// is that in this values can be set to `None` to disable preset rate limits.
+#[derive(serde::Serialize, serde::Deserialize, Default, Clone, Debug)]
+pub struct OverrideConfig {
+    pub rate_limits: HashMap<RateLimitedPeerMessageKey, Option<SingleMessageConfig>>,
 }
 
 impl Config {
@@ -99,11 +107,39 @@ impl Config {
             Err(errors)
         }
     }
+
+    /// Returns a good preset of rate limit configuration valid for any type of node.
+    pub fn standard_preset() -> Self {
+        // TODO(trisfald): make preset
+        Self::default()
+    }
+
+    /// Applies rate limits configuration overrides to `self`. In practice, merges the two configurations
+    /// giving preference to the values defined by the `overrides` parameter.
+    pub fn apply_overrides(&mut self, overrides: OverrideConfig) {
+        for (key, message_config) in overrides.rate_limits {
+            match message_config {
+                Some(value) => self.rate_limits.insert(key, value),
+                None => self.rate_limits.remove(&key),
+            };
+        }
+    }
 }
 
 /// This enum represents the variants of [PeerMessage] that can be rate limited.
 /// It is meant to be used as an index for mapping peer messages to a value.
-#[derive(Clone, Copy, enum_map::Enum, strum::Display, Debug, PartialEq, Eq, Hash)]
+#[derive(
+    Clone,
+    Copy,
+    enum_map::Enum,
+    strum::Display,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 #[allow(clippy::large_enum_variant)]
 pub enum RateLimitedPeerMessageKey {
     SyncRoutingTable,
@@ -287,13 +323,18 @@ mod tests {
         );
 
         config.rate_limits.insert(BlockHeaders, SingleMessageConfig::new(0, -2.0, None));
-        assert_eq!(
-            config.validate(),
-            Err(vec![
-                (BlockApproval, TokenBucketError::InvalidRefillRate(-1.0)),
-                (BlockHeaders, TokenBucketError::InvalidRefillRate(-2.0))
-            ])
-        );
+        let result = config.validate();
+        let error = result.expect_err("a configuration error is expected");
+        assert!(error
+            .iter()
+            .find(|(key, err)| *key == BlockApproval
+                && *err == TokenBucketError::InvalidRefillRate(-1.0))
+            .is_some());
+        assert!(error
+            .iter()
+            .find(|(key, err)| *key == BlockHeaders
+                && *err == TokenBucketError::InvalidRefillRate(-2.0))
+            .is_some());
     }
 
     #[test]
@@ -313,5 +354,87 @@ mod tests {
 
         assert!(limits.buckets[Block].as_ref().unwrap().acquire(1));
         assert!(limits.buckets[BlockApproval].as_ref().unwrap().acquire(1));
+    }
+
+    #[test]
+    fn apply_overrides() {
+        use RateLimitedPeerMessageKey::*;
+
+        // Create a config with three entries.
+        let mut config = Config::default();
+        config.rate_limits.insert(Block, SingleMessageConfig::new(1, 1.0, None));
+        config.rate_limits.insert(BlockApproval, SingleMessageConfig::new(2, 1.0, None));
+        config.rate_limits.insert(BlockHeaders, SingleMessageConfig::new(3, 1.0, None));
+
+        // Override the config with the following patch:
+        // - one entry is modified
+        // - one entry is untouched
+        // - one entry is removed
+        // - one entry is added
+        let mut overrides = OverrideConfig::default();
+        overrides.rate_limits.insert(Block, Some(SingleMessageConfig::new(4, 1.0, None)));
+        overrides.rate_limits.insert(BlockHeaders, None);
+        overrides
+            .rate_limits
+            .insert(StateRequestHeader, Some(SingleMessageConfig::new(5, 1.0, None)));
+
+        config.apply_overrides(overrides);
+        assert_eq!(config.rate_limits.len(), 3);
+        assert_eq!(config.rate_limits.get(&Block), Some(&SingleMessageConfig::new(4, 1.0, None)));
+        assert_eq!(config.rate_limits.get(&BlockHeaders), None);
+        assert_eq!(
+            config.rate_limits.get(&StateRequestHeader),
+            Some(&SingleMessageConfig::new(5, 1.0, None))
+        );
+    }
+
+    #[test]
+    fn override_config_deserialization() {
+        use RateLimitedPeerMessageKey::*;
+
+        // Check object with no entries.
+        let json = serde_json::json!({"rate_limits": {}});
+        let config: OverrideConfig =
+            serde_json::from_value(json).expect("deserializing OverrideConfig should work");
+        assert_eq!(config.rate_limits.len(), 0);
+
+        // Check object with a single entry.
+        let json = serde_json::json!({"rate_limits": {
+            "Block": {
+                "maximum_size": 1,
+                "refill_rate": 1.0,
+                "initial_size": 1,
+            }
+        }});
+        let config: OverrideConfig =
+            serde_json::from_value(json).expect("deserializing OverrideConfig should work");
+        assert_eq!(config.rate_limits.len(), 1);
+        assert!(config.rate_limits.contains_key(&Block));
+
+        // Check object with multiple entries.
+        let json = serde_json::json!({"rate_limits": {
+            "Block": {
+                "maximum_size": 1,
+                "refill_rate": 1.0,
+                "initial_size": 1,
+            },
+            "BlockApproval": {
+                "maximum_size": 2,
+                "refill_rate": 1.0,
+            }
+        }});
+        let config: OverrideConfig =
+            serde_json::from_value(json).expect("deserializing OverrideConfig should work");
+        assert_eq!(config.rate_limits.len(), 2);
+        assert!(config.rate_limits.contains_key(&Block));
+        assert!(config.rate_limits.contains_key(&BlockApproval));
+
+        // Check object with errors.
+        let json = serde_json::json!({"rate_limits": {
+            "Block": {
+                "foo": 1,
+            }
+        }});
+        assert!(serde_json::from_value::<OverrideConfig>(json).is_err());
     }
 }

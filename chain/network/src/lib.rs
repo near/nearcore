@@ -1,4 +1,5 @@
 pub use crate::peer_manager::peer_manager_actor::{Event, PeerManagerActor};
+pub use crate::rate_limits::messages_limits::OverrideConfig as MessagesLimitsOverrideConfig;
 
 mod accounts_data;
 mod announce_accounts;

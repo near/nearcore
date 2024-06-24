@@ -72,6 +72,7 @@ rlimit.workspace = true
 tempfile.workspace = true
 turn.workspace = true
 webrtc-util.workspace = true
+serde_json.workspace = true
 
 [features]
 nightly_protocol = [

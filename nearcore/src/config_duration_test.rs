@@ -58,6 +58,9 @@ fn test_config_duration_all_std() {
                     routed_message_ttl: Some(0),
                     routing_table_update_rate_limit_burst: Some(0),
                     routing_table_update_rate_limit_qps: Some(0.0),
+                    received_messages_rate_limits: Some(
+                        near_network::MessagesLimitsOverrideConfig::default(),
+                    ),
                 },
                 ..Default::default()
             },
