@@ -506,6 +506,11 @@ impl NetworkConfig {
         self.routing_table_update_rate_limit
             .validate()
             .context("routing_table_update_rate_limit")?;
+
+        if let Err(err) = self.received_messages_rate_limits.validate() {
+            anyhow::bail!("One or more invalid rate limits: {err:?}");
+        }
+
         Ok(VerifiedConfig { node_id: self.node_id(), inner: self })
     }
 }
@@ -544,6 +549,9 @@ mod test {
     use crate::network_protocol;
     use crate::network_protocol::testonly as data;
     use crate::network_protocol::{AccountData, VersionedAccountData};
+    use crate::rate_limits::messages_limits::{
+        RateLimitedPeerMessageKey::BlockHeaders, SingleMessageConfig,
+    };
     use crate::tcp;
     use crate::testonly::make_rng;
     use near_async::time;
@@ -681,5 +689,26 @@ mod test {
         };
         let sad = ad.sign(&signer.into()).unwrap();
         assert!(sad.payload().len() <= network_protocol::MAX_ACCOUNT_DATA_SIZE_BYTES);
+    }
+
+    #[test]
+    fn received_messages_rate_limits_error() {
+        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
+        nc.received_messages_rate_limits.rate_limits.push(SingleMessageConfig::new(
+            BlockHeaders,
+            1,
+            -4.0,
+            None,
+        ));
+        assert!(nc.verify().is_err());
+
+        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
+        nc.received_messages_rate_limits.rate_limits.push(SingleMessageConfig::new(
+            BlockHeaders,
+            1,
+            4.0,
+            None,
+        ));
+        assert!(nc.verify().is_ok());
     }
 }
