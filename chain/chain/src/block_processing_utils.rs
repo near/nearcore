@@ -148,7 +148,6 @@ impl BlocksInProcessing {
     }
 }
 
-
 /// This is used to for the thread that applies chunks to notify other waiter threads.
 /// The thread applying the chunks should call `set_done` to send the notification.
 /// The waiter threads should call `wait_until_done` to wait (blocked) for the notification.
@@ -184,7 +183,7 @@ impl ApplyChunksDoneTracker {
     pub fn wait_until_done(&self) {
         #[cfg(feature = "testloop")]
         let mut testloop_total_wait_time = Duration::from_millis(0);
-        
+
         let (lock, cvar) = &*self.0;
         match lock.lock() {
             Ok(mut guard) => loop {
@@ -196,10 +195,10 @@ impl ApplyChunksDoneTracker {
                         if done {
                             break;
                         }
-                        
+
                         // Panics during testing (eg. due to assertion failures) cause the waiter
                         // threads to miss the notification (see issue #11447). Thus, for testing only,
-                        // we limit the total wait time for waiting for the notification. 
+                        // we limit the total wait time for waiting for the notification.
                         #[cfg(feature = "testloop")]
                         if result.1.timed_out() {
                             const TESTLOOP_MAX_WAIT_TIME: Duration = Duration::from_millis(5000);
