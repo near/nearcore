@@ -1810,7 +1810,7 @@ impl Chain {
     }
 
     /// Applying chunks async by starting the work at the rayon thread pool
-    /// `apply_chunks_done_marker`: a marker that will be set to true once applying chunks is finished
+    /// `apply_chunks_done_tracker`: notifies the threads that wait for applying chunks is finished
     /// `apply_chunks_done_sender`: a sender to send a ApplyChunksDoneMessage message once applying chunks is finished
     fn schedule_apply_chunks(
         &self,

@@ -46,7 +46,7 @@ fn test_client_with_multi_test_loop() {
     let genesis = genesis_builder.build();
 
     let TestLoopEnv { mut test_loop, datas: node_datas } =
-        builder.genesis(genesis).clients(clients).disable_gc().build();
+        builder.genesis(genesis).clients(clients).build();
 
     // Bootstrap the test by starting the components.
     for idx in 0..NUM_CLIENTS {
