@@ -550,7 +550,7 @@ impl<'a> ChainUpdate<'a> {
             // is also just height, so the very first block to cross the epoch end is guaranteed
             // to be the head of the chain, and result in the light client block produced.
             let prev = self.chain_store_update.get_previous_header(block.header())?;
-            let prev_epoch_id = prev.epoch_id().clone();
+            let prev_epoch_id = *prev.epoch_id();
             if block.header().epoch_id() != &prev_epoch_id {
                 if prev.last_final_block() != &CryptoHash::default() {
                     let light_client_block = self.create_light_client_block(&prev)?;

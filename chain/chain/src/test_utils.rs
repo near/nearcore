@@ -13,7 +13,7 @@ use crate::types::{AcceptedBlock, ChainConfig, ChainGenesis};
 use crate::DoomslugThresholdMode;
 use crate::{BlockProcessingArtifact, Provenance};
 use near_async::time::Clock;
-use near_chain_configs::Genesis;
+use near_chain_configs::{Genesis, MutableConfigValue};
 use near_chain_primitives::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
@@ -75,7 +75,7 @@ pub fn get_chain_with_epoch_length_and_num_shards(
         ChainConfig::test(),
         None,
         Arc::new(RayonAsyncComputationSpawner),
-        None,
+        MutableConfigValue::new(None, "validator_signer"),
     )
     .unwrap()
 }
@@ -159,7 +159,7 @@ pub fn setup_with_tx_validity_period(
         ChainConfig::test(),
         None,
         Arc::new(RayonAsyncComputationSpawner),
-        None,
+        MutableConfigValue::new(None, "validator_signer"),
     )
     .unwrap();
 

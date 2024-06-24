@@ -54,7 +54,6 @@ use std::collections::{BTreeMap, BinaryHeap};
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
 use std::sync::Arc;
 use yansi::Color::Red;
 
@@ -616,7 +615,7 @@ pub(crate) fn print_chain(
                     chain_store.get_block_header(header.prev_hash()).unwrap().clone();
                 if let Ok(epoch_id) = epoch_manager.get_epoch_id_from_prev_block(header.prev_hash())
                 {
-                    cur_epoch_id = Some(epoch_id.clone());
+                    cur_epoch_id = Some(epoch_id);
                     match epoch_manager.is_next_block_epoch_start(header.prev_hash()) {
                         Ok(true) => {
                             println!("{:?}", account_id_to_blocks);
@@ -913,12 +912,10 @@ pub(crate) fn print_epoch_analysis(
     let epoch_infos: HashMap<EpochId, Arc<EpochInfo>> = HashMap::from_iter(
         epoch_ids
             .into_iter()
-            .map(|epoch_id| (epoch_id.clone(), epoch_manager.get_epoch_info(&epoch_id).unwrap())),
+            .map(|epoch_id| (epoch_id, epoch_manager.get_epoch_info(&epoch_id).unwrap())),
     );
     let epoch_heights_to_ids = BTreeMap::from_iter(
-        epoch_infos
-            .iter()
-            .map(|(epoch_id, epoch_info)| (epoch_info.epoch_height(), epoch_id.clone())),
+        epoch_infos.iter().map(|(epoch_id, epoch_info)| (epoch_info.epoch_height(), *epoch_id)),
     );
     let min_epoch_height = epoch_height;
     let max_stored_epoch_height = *epoch_heights_to_ids.keys().max().unwrap();
@@ -1099,7 +1096,7 @@ fn get_trie(store: Store, hash: CryptoHash, shard_id: u32, shard_version: u32) -
     let trie_config: TrieConfig = Default::default();
     let shard_cache = TrieCache::new(&trie_config, shard_uid, true);
     let trie_storage = TrieCachingStorage::new(store, shard_cache, shard_uid, true, None);
-    Trie::new(Rc::new(trie_storage), hash, None)
+    Trie::new(Arc::new(trie_storage), hash, None)
 }
 
 pub(crate) fn view_trie(
@@ -1179,7 +1176,7 @@ pub(crate) fn contract_accounts(
         let storage = TrieDBStorage::new(store.clone(), shard_uid);
         // We don't need flat state to traverse all accounts.
         let flat_storage_chunk_view = None;
-        Trie::new(Rc::new(storage), state_root, flat_storage_chunk_view)
+        Trie::new(Arc::new(storage), state_root, flat_storage_chunk_view)
     });
 
     filter.write_header(&mut std::io::stdout().lock())?;
@@ -1463,7 +1460,7 @@ impl std::fmt::Debug for StateStatsAccount {
 #[cfg(test)]
 mod tests {
     use near_chain::types::RuntimeAdapter;
-    use near_chain_configs::Genesis;
+    use near_chain_configs::{Genesis, MutableConfigValue};
     use near_client::test_utils::TestEnv;
     use near_crypto::{InMemorySigner, KeyFile, KeyType};
     use near_epoch_manager::EpochManager;
@@ -1529,8 +1526,13 @@ mod tests {
         // Check that `send_money()` actually changed state.
         assert_ne!(chunk_extras[0].state_root(), chunk_extras[1].state_root());
 
-        let near_config =
-            NearConfig::new(Config::default(), genesis, KeyFile::from(&signer), None).unwrap();
+        let near_config = NearConfig::new(
+            Config::default(),
+            genesis,
+            KeyFile::from(&signer),
+            MutableConfigValue::new(None, "validator_signer"),
+        )
+        .unwrap();
         let (_epoch_manager, _runtime, state_roots, block_header) =
             crate::commands::load_trie(store, home_dir, &near_config);
         assert_eq!(&state_roots[0], chunk_extras[1].state_root());

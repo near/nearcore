@@ -47,24 +47,22 @@ fn one_iter(
         .collect::<Vec<_>>();
     let signers = account_ids
         .iter()
-        .map(|account_id| Arc::new(create_test_signer(account_id)))
+        .map(|account_id| Some(Arc::new(create_test_signer(account_id))))
         .collect::<Vec<_>>();
     let clock = FakeClock::new(Utc::UNIX_EPOCH);
-    let mut doomslugs = signers
-        .iter()
-        .map(|signer| {
-            Doomslug::new(
-                clock.clock(),
-                0,
-                Duration::milliseconds(200),
-                Duration::milliseconds(1000),
-                Duration::milliseconds(100),
-                delta * 20, // some arbitrary number larger than delta * 6
-                Some(signer.clone()),
-                DoomslugThresholdMode::TwoThirds,
-            )
-        })
-        .collect::<Vec<_>>();
+    let mut doomslugs: Vec<_> = std::iter::repeat_with(|| {
+        Doomslug::new(
+            clock.clock(),
+            0,
+            Duration::milliseconds(200),
+            Duration::milliseconds(1000),
+            Duration::milliseconds(100),
+            delta * 20, // some arbitrary number larger than delta * 6
+            DoomslugThresholdMode::TwoThirds,
+        )
+    })
+    .take(signers.len())
+    .collect();
 
     let started = clock.now();
     let gst = clock.now() + time_to_gst;
@@ -149,8 +147,8 @@ fn one_iter(
         block_queue = new_block_queue;
 
         // 3. Process timers
-        for ds in doomslugs.iter_mut() {
-            for approval in ds.process_timer() {
+        for (i, ds) in doomslugs.iter_mut().enumerate() {
+            for approval in ds.process_timer(&signers[i]) {
                 approval_queue.push((approval, get_msg_delivery_time(clock.now(), gst, delta)));
             }
         }

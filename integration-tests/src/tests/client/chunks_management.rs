@@ -267,7 +267,7 @@ impl Test {
 
                     // Make sure epoch length actually corresponds to the desired epoch length
                     // The switches are expected at 0->1, 5->6 and 10->11
-                    let prev_epoch_id = height_to_epoch.get(&(h - 1)).unwrap().clone();
+                    let prev_epoch_id = *height_to_epoch.get(&(h - 1)).unwrap();
                     assert_eq!(EpochId(block.header.epoch_id) == prev_epoch_id, h % 5 != 1);
 
                     // Make sure that the blocks leading to the epoch switch have twice as

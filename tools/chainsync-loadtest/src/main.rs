@@ -10,6 +10,7 @@ use near_async::messaging::IntoSender;
 use near_async::messaging::LateBoundSender;
 use near_async::time;
 use near_chain_configs::Genesis;
+use near_chain_configs::MutableConfigValue;
 use near_network::concurrency::ctx;
 use near_network::concurrency::scope;
 use near_network::PeerManagerActor;
@@ -69,7 +70,8 @@ fn download_configs(chain_id: &str, dir: &std::path::Path) -> anyhow::Result<Nea
         near_crypto::InMemorySigner::from_random(account_id, near_crypto::KeyType::ED25519);
     let mut genesis = Genesis::default();
     genesis.config.chain_id = chain_id.to_string();
-    NearConfig::new(config, genesis, (&node_signer).into(), None)
+    let validator_signer = MutableConfigValue::new(None, "validator_signer");
+    NearConfig::new(config, genesis, (&node_signer).into(), validator_signer)
 }
 
 #[derive(clap::Parser, Debug)]

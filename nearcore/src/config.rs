@@ -504,7 +504,10 @@ pub struct NearConfig {
     pub rosetta_rpc_config: Option<RosettaRpcConfig>,
     pub telemetry_config: TelemetryConfig,
     pub genesis: Genesis,
-    pub validator_signer: Option<Arc<ValidatorSigner>>,
+    /// Contains validator key for this node. This field is mutable and optional. Use with caution!
+    /// Lock the value of mutable validator signer for the duration of a request to ensure consistency.
+    /// Please note that the locked value should not be stored anywhere or passed through the thread boundary.
+    pub validator_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
 }
 
 impl NearConfig {
@@ -512,7 +515,7 @@ impl NearConfig {
         config: Config,
         genesis: Genesis,
         network_key_pair: KeyFile,
-        validator_signer: Option<Arc<ValidatorSigner>>,
+        validator_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
     ) -> anyhow::Result<Self> {
         Ok(NearConfig {
             config: config.clone(),
@@ -618,7 +621,7 @@ impl NearConfig {
 
         self.config.write_to_file(&dir.join(CONFIG_FILENAME)).expect("Error writing config");
 
-        if let Some(validator_signer) = &self.validator_signer {
+        if let Some(validator_signer) = &self.validator_signer.get() {
             validator_signer
                 .write_to_file(&dir.join(&self.config.validator_key_file))
                 .expect("Error writing validator key file");
@@ -1221,6 +1224,20 @@ impl From<NodeKeyFile> for KeyFile {
     }
 }
 
+pub fn load_validator_key(validator_file: &Path) -> anyhow::Result<Option<Arc<ValidatorSigner>>> {
+    if !validator_file.exists() {
+        return Ok(None);
+    }
+    match InMemoryValidatorSigner::from_file(&validator_file) {
+        Ok(signer) => Ok(Some(Arc::new(signer.into()))),
+        Err(_) => {
+            let error_message =
+                format!("Failed initializing validator signer from {}", validator_file.display());
+            Err(anyhow!(error_message))
+        }
+    }
+}
+
 pub fn load_config(
     dir: &Path,
     genesis_validation: GenesisValidationMode,
@@ -1234,21 +1251,13 @@ pub fn load_config(
         validation_errors.push_errors(e)
     };
 
-    let validator_file = dir.join(&config.validator_key_file);
-    let validator_signer = if validator_file.exists() {
-        match InMemoryValidatorSigner::from_file(&validator_file) {
-            Ok(signer) => Some(Arc::new(signer.into())),
-            Err(_) => {
-                let error_message = format!(
-                    "Failed initializing validator signer from {}",
-                    validator_file.display()
-                );
-                validation_errors.push_validator_key_file_error(error_message);
-                None
-            }
+    let validator_file: PathBuf = dir.join(&config.validator_key_file);
+    let validator_signer = match load_validator_key(&validator_file) {
+        Ok(validator_signer) => validator_signer,
+        Err(e) => {
+            validation_errors.push_validator_key_file_error(e.to_string());
+            None
         }
-    } else {
-        None
     };
 
     let node_key_path = dir.join(&config.node_key_file);
@@ -1309,7 +1318,7 @@ pub fn load_config(
         config,
         genesis.unwrap(),
         network_signer.unwrap().into(),
-        validator_signer,
+        MutableConfigValue::new(validator_signer, "validator_signer"),
     )?;
     Ok(near_config)
 }
@@ -1332,7 +1341,13 @@ pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -
         let validator_signer = Arc::new(create_test_signer(seed)) as Arc<ValidatorSigner>;
         (signer, Some(validator_signer))
     };
-    NearConfig::new(config, genesis, signer.into(), validator_signer).unwrap()
+    NearConfig::new(
+        config,
+        genesis,
+        signer.into(),
+        MutableConfigValue::new(validator_signer, "validator_signer"),
+    )
+    .unwrap()
 }
 
 #[cfg(test)]

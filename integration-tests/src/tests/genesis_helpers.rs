@@ -2,7 +2,7 @@ use near_async::time::Clock;
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::types::ChainConfig;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
-use near_chain_configs::Genesis;
+use near_chain_configs::{Genesis, MutableConfigValue};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManager;
 use near_primitives::block::{Block, BlockHeader};
@@ -38,7 +38,7 @@ fn genesis_header(genesis: &Genesis) -> BlockHeader {
         ChainConfig::test(),
         None,
         Arc::new(RayonAsyncComputationSpawner),
-        None,
+        MutableConfigValue::new(None, "validator_signer"),
     )
     .unwrap();
     chain.genesis().clone()
@@ -64,7 +64,7 @@ pub fn genesis_block(genesis: &Genesis) -> Block {
         ChainConfig::test(),
         None,
         Arc::new(RayonAsyncComputationSpawner),
-        None,
+        MutableConfigValue::new(None, "validator_signer"),
     )
     .unwrap();
     chain.get_block(&chain.genesis().hash().clone()).unwrap()

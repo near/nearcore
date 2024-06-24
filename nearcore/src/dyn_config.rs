@@ -19,19 +19,18 @@ pub fn read_updateable_configs(
             None
         }
     };
-    let updateable_client_config =
-        match Config::from_file(&home_dir.join(crate::config::CONFIG_FILENAME))
-            .map(get_updateable_client_config)
-        {
-            Ok(config) => Some(config),
-            Err(err) => {
-                errs.push(UpdateableConfigLoaderError::ConfigFileError {
-                    file: PathBuf::from(crate::config::CONFIG_FILENAME),
-                    err: err.into(),
-                });
-                None
-            }
-        };
+    let config = match Config::from_file(&home_dir.join(crate::config::CONFIG_FILENAME)) {
+        Ok(config) => Some(config),
+        Err(err) => {
+            errs.push(UpdateableConfigLoaderError::ConfigFileError {
+                file: PathBuf::from(crate::config::CONFIG_FILENAME),
+                err: err.into(),
+            });
+            None
+        }
+    };
+    let updateable_client_config = config.as_ref().map(get_updateable_client_config);
+
     if errs.is_empty() {
         crate::metrics::CONFIG_CORRECT.set(1);
         Ok(UpdateableConfigs { log_config, client_config: updateable_client_config })
@@ -42,7 +41,7 @@ pub fn read_updateable_configs(
     }
 }
 
-pub fn get_updateable_client_config(config: Config) -> UpdateableClientConfig {
+pub fn get_updateable_client_config(config: &Config) -> UpdateableClientConfig {
     // All fields that can be updated while the node is running should be explicitly set here.
     // Keep this list in-sync with `core/dyn-configs/README.md`.
     UpdateableClientConfig {

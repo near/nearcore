@@ -46,7 +46,7 @@ pub(crate) fn print_epoch_info(
         epoch_manager.get_epoch_info(head_block_info.epoch_id()).unwrap().epoch_height();
     let mut epoch_infos: Vec<(EpochId, Arc<EpochInfo>)> = epoch_ids
         .iter()
-        .map(|epoch_id| (epoch_id.clone(), epoch_manager.get_epoch_info(epoch_id).unwrap()))
+        .map(|epoch_id| (*epoch_id, epoch_manager.get_epoch_info(epoch_id).unwrap()))
         .collect();
     // Sorted output is much easier to follow.
     epoch_infos.sort_by_key(|(_, epoch_info)| epoch_info.epoch_height());
