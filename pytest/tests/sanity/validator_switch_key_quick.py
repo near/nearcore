@@ -33,7 +33,10 @@ class ValidatorSwitchKeyQuickTest(unittest.TestCase):
 
         # Key will be moved from old_validator to new_validator,
         # while the other_validator remains untouched.
-        [other_validator, old_validator, new_validator,
+        [
+            other_validator,
+            old_validator,
+            new_validator,
         ] = start_cluster(2, 1, 3, None,
                           [["epoch_length", EPOCH_LENGTH],
                            ["block_producer_kickout_threshold", 10],
@@ -53,7 +56,8 @@ class ValidatorSwitchKeyQuickTest(unittest.TestCase):
         start_time = time.time()
 
         while True:
-            self.assertLess(time.time() - start_time, TIMEOUT, 'Validators got stuck')
+            self.assertLess(time.time() - start_time, TIMEOUT,
+                            'Validators got stuck')
 
             info = old_validator.json_rpc('validators', 'latest')
             next_validators = info['result']['next_validators']
@@ -70,7 +74,8 @@ class ValidatorSwitchKeyQuickTest(unittest.TestCase):
                 map(lambda block: block.height, last_block_per_node))
             logger.info(height_per_node)
 
-            self.assertLess(max(height_per_node), max_height, 'Nodes are not synced')
+            self.assertLess(max(height_per_node), max_height,
+                            'Nodes are not synced')
 
             synchronized = True
             for i, node in enumerate([new_validator, old_validator]):
