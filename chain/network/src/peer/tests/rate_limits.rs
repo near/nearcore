@@ -124,14 +124,13 @@ async fn setup_test_peers(clock: &mut FakeClock, mut rng: &mut Rng) -> (PeerHand
     let add_rate_limits = |mut network_config: NetworkConfig| {
         let rate_limits = &mut network_config.received_messages_rate_limits.rate_limits;
         use messages_limits::RateLimitedPeerMessageKey::*;
-        rate_limits.push(messages_limits::SingleMessageConfig::new(BlockRequest, 10, 2.5, Some(5)));
-        rate_limits.push(messages_limits::SingleMessageConfig::new(
+        rate_limits
+            .insert(BlockRequest, messages_limits::SingleMessageConfig::new(10, 2.5, Some(5)));
+        rate_limits.insert(
             PartialEncodedChunkRequest,
-            10,
-            2.5,
-            Some(5),
-        ));
-        rate_limits.push(messages_limits::SingleMessageConfig::new(Transaction, 50, 5.0, None));
+            messages_limits::SingleMessageConfig::new(10, 2.5, Some(5)),
+        );
+        rate_limits.insert(Transaction, messages_limits::SingleMessageConfig::new(50, 5.0, None));
         network_config
     };
 

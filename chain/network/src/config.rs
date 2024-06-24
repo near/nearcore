@@ -694,21 +694,15 @@ mod test {
     #[test]
     fn received_messages_rate_limits_error() {
         let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
-        nc.received_messages_rate_limits.rate_limits.push(SingleMessageConfig::new(
-            BlockHeaders,
-            1,
-            -4.0,
-            None,
-        ));
+        nc.received_messages_rate_limits
+            .rate_limits
+            .insert(BlockHeaders, SingleMessageConfig::new(1, -4.0, None));
         assert!(nc.verify().is_err());
 
         let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
-        nc.received_messages_rate_limits.rate_limits.push(SingleMessageConfig::new(
-            BlockHeaders,
-            1,
-            4.0,
-            None,
-        ));
+        nc.received_messages_rate_limits
+            .rate_limits
+            .insert(BlockHeaders, SingleMessageConfig::new(1, 4.0, None));
         assert!(nc.verify().is_ok());
     }
 }

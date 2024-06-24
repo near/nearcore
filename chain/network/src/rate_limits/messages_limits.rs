@@ -1,6 +1,8 @@
 //! This module facilitates the initialization and the storage
 //! of rate limits per message.
 
+use std::collections::HashMap;
+
 use enum_map::{enum_map, EnumMap};
 use near_async::time::Duration;
 
@@ -19,15 +21,14 @@ impl RateLimits {
     pub fn from_config(config: &Config) -> Self {
         let mut buckets = enum_map! { _ => None };
         // Configuration is assumed to be correct. Any failure to build a bucket is ignored.
-        for message_config in &config.rate_limits {
-            let key = message_config.message_key;
+        for (key, message_config) in &config.rate_limits {
             let initial_size = message_config.initial_size.unwrap_or(message_config.maximum_size);
             match TokenBucket::new(
                 initial_size,
                 message_config.maximum_size,
                 message_config.refill_rate,
             ) {
-                Ok(bucket) => buckets[key] = Some(bucket),
+                Ok(bucket) => buckets[*key] = Some(bucket),
                 Err(err) => {
                     tracing::warn!(target: "network", "ignoring rate limit for {key} due to an error ({err})")
                 }
@@ -61,7 +62,6 @@ impl RateLimits {
 /// Rate limit configuration for a single network message.
 #[derive(Clone)]
 pub struct SingleMessageConfig {
-    pub message_key: RateLimitedPeerMessageKey,
     pub maximum_size: u32,
     pub refill_rate: f32,
     /// Optional initial size. Defaults to `maximum_size` if absent.
@@ -69,20 +69,15 @@ pub struct SingleMessageConfig {
 }
 
 impl SingleMessageConfig {
-    pub fn new(
-        message_key: RateLimitedPeerMessageKey,
-        maximum_size: u32,
-        refill_rate: f32,
-        initial_size: Option<u32>,
-    ) -> Self {
-        Self { message_key, maximum_size, refill_rate, initial_size }
+    pub fn new(maximum_size: u32, refill_rate: f32, initial_size: Option<u32>) -> Self {
+        Self { maximum_size, refill_rate, initial_size }
     }
 }
 
 /// Network messages rate limits configuration.
 #[derive(Default, Clone)]
 pub struct Config {
-    pub rate_limits: Vec<SingleMessageConfig>,
+    pub rate_limits: HashMap<RateLimitedPeerMessageKey, SingleMessageConfig>,
 }
 
 impl Config {
@@ -93,9 +88,9 @@ impl Config {
     /// If at least one error is present, returns the list of all configuration errors.  
     pub fn validate(&self) -> Result<(), Vec<(RateLimitedPeerMessageKey, TokenBucketError)>> {
         let mut errors = Vec::new();
-        for message_config in &self.rate_limits {
+        for (key, message_config) in &self.rate_limits {
             if let Err(err) = TokenBucket::validate_refill_rate(message_config.refill_rate) {
-                errors.push((message_config.message_key, err));
+                errors.push((*key, err));
             }
         }
         if errors.is_empty() {
@@ -108,7 +103,7 @@ impl Config {
 
 /// This enum represents the variants of [PeerMessage] that can be rate limited.
 /// It is meant to be used as an index for mapping peer messages to a value.
-#[derive(Clone, Copy, enum_map::Enum, strum::Display, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, enum_map::Enum, strum::Display, Debug, PartialEq, Eq, Hash)]
 #[allow(clippy::large_enum_variant)]
 pub enum RateLimitedPeerMessageKey {
     SyncRoutingTable,
@@ -260,9 +255,9 @@ mod tests {
         use RateLimitedPeerMessageKey::*;
         let mut config = Config::default();
 
-        config.rate_limits.push(SingleMessageConfig::new(Block, 5, 1.0, Some(1)));
-        config.rate_limits.push(SingleMessageConfig::new(BlockApproval, 5, 1.0, None));
-        config.rate_limits.push(SingleMessageConfig::new(BlockHeaders, 1, -4.0, None));
+        config.rate_limits.insert(Block, SingleMessageConfig::new(5, 1.0, Some(1)));
+        config.rate_limits.insert(BlockApproval, SingleMessageConfig::new(5, 1.0, None));
+        config.rate_limits.insert(BlockHeaders, SingleMessageConfig::new(1, -4.0, None));
 
         let limits = RateLimits::from_config(&config);
 
@@ -282,16 +277,16 @@ mod tests {
         let mut config = Config::default();
         assert!(config.validate().is_ok());
 
-        config.rate_limits.push(SingleMessageConfig::new(Block, 0, 1.0, None));
+        config.rate_limits.insert(Block, SingleMessageConfig::new(0, 1.0, None));
         assert!(config.validate().is_ok());
 
-        config.rate_limits.push(SingleMessageConfig::new(BlockApproval, 0, -1.0, None));
+        config.rate_limits.insert(BlockApproval, SingleMessageConfig::new(0, -1.0, None));
         assert_eq!(
             config.validate(),
             Err(vec![(BlockApproval, TokenBucketError::InvalidRefillRate(-1.0))])
         );
 
-        config.rate_limits.push(SingleMessageConfig::new(BlockHeaders, 0, -2.0, None));
+        config.rate_limits.insert(BlockHeaders, SingleMessageConfig::new(0, -2.0, None));
         assert_eq!(
             config.validate(),
             Err(vec![
@@ -306,8 +301,8 @@ mod tests {
         use RateLimitedPeerMessageKey::*;
         let mut config = Config::default();
 
-        config.rate_limits.push(SingleMessageConfig::new(Block, 5, 1.0, Some(0)));
-        config.rate_limits.push(SingleMessageConfig::new(BlockApproval, 5, 1.0, Some(0)));
+        config.rate_limits.insert(Block, SingleMessageConfig::new(5, 1.0, Some(0)));
+        config.rate_limits.insert(BlockApproval, SingleMessageConfig::new(5, 1.0, Some(0)));
 
         let limits = RateLimits::from_config(&config);
 
