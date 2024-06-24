@@ -1956,8 +1956,10 @@ impl Chain {
             }
         }
 
-        // Garbage collect memtries that we do not care about this or next epoch.
-        self.runtime_adapter.get_tries().retain_mem_tries(&shards_cares_this_or_next_epoch);
+        if self.epoch_manager.is_next_block_epoch_start(block.header().prev_hash())? {
+            // Keep in memory only these tries that we care about this or next epoch.
+            self.runtime_adapter.get_tries().retain_mem_tries(&shards_cares_this_or_next_epoch);
+        }
 
         if let Err(err) = self.garbage_collect_state_transition_data(&block) {
             tracing::error!(target: "chain", ?err, "failed to garbage collect state transition data");
