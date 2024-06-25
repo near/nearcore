@@ -9,9 +9,10 @@ fn main() {
         std::process::exit(1);
     }
 }
-
 fn try_main() -> Result<(), Error> {
     let mut test_contract_features = vec!["latest_protocol"];
+
+    println!("cargo:rerun-if-env-changed=CARGO_FEATURE_TEST_FEATURES");
     if env::var("CARGO_FEATURE_TEST_FEATURES").is_ok() {
         test_contract_features.push("test_features");
     }
@@ -54,7 +55,6 @@ fn build_contract(dir: &str, args: &[&str], output: &str) -> Result<(), Error> {
         .map_err(|err| format!("failed to copy `{}`: {}", src.display(), err))?;
     println!("cargo:rerun-if-changed=./{}/src/lib.rs", dir);
     println!("cargo:rerun-if-changed=./{}/Cargo.toml", dir);
-    println!("cargo:rerun-if-env-changed=CARGO_FEATURE_TEST_FEATURES");
     Ok(())
 }
 
