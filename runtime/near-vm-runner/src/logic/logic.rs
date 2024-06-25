@@ -52,9 +52,17 @@ pub struct ExecutionResultState {
 }
 
 impl ExecutionResultState {
+    /// Create a new state.
+    ///
+    /// # Panics
+    ///
+    /// Note that `context.account_balance + context.attached_deposit` must not overflow `u128`,
+    /// otherwise this function will panic.
     pub fn new(context: &VMContext, config: Arc<Config>) -> Self {
-        // Overflow should be checked before calling VMLogic.
-        let current_account_balance = context.account_balance + context.attached_deposit;
+        let current_account_balance = context
+            .account_balance
+            .checked_add(context.attached_deposit)
+            .expect("current_account_balance overflowed");
         let current_storage_usage = context.storage_usage;
         let max_gas_burnt = match context.view_config {
             Some(ViewConfig { max_gas_burnt: max_gas_burnt_view }) => max_gas_burnt_view,
@@ -100,22 +108,29 @@ impl ExecutionResultState {
     }
 
     fn checked_push_log(&mut self, message: String) -> Result<()> {
-        // The size of logged data can't be too large. No overflow.
-        self.total_log_length += message.len() as u64;
+        let len = u64::try_from(message.len()).unwrap_or(u64::MAX);
+        let Some(total_log_length) = self.total_log_length.checked_add(len) else {
+            return self.total_log_length_exceeded(len);
+        };
+        self.total_log_length = total_log_length;
         if self.total_log_length > self.config.limit_config.max_total_log_length {
-            return Err(HostError::TotalLogLengthExceeded {
-                length: self.total_log_length,
-                limit: self.config.limit_config.max_total_log_length,
-            }
-            .into());
+            return self.total_log_length_exceeded(len);
         }
         self.logs.push(message);
         Ok(())
     }
 
+    fn total_log_length_exceeded<T>(&self, add_len: u64) -> Result<T> {
+        Err(HostError::TotalLogLengthExceeded {
+            length: self.total_log_length.saturating_add(add_len),
+            limit: self.config.limit_config.max_total_log_length,
+        }
+        .into())
+    }
+
     /// Computes the outcome of the execution.
     ///
-    /// If `FunctionCallWeight` protocol feature (127) is enabled, unused gas will be
+    /// If `FunctionCallWeight` protocol feature is enabled, unused gas will be
     /// distributed to functions that specify a gas weight. If there are no functions with
     /// a gas weight, the outcome will contain unused gas as usual.
     pub fn compute_outcome(self) -> VMOutcome {
@@ -479,7 +494,7 @@ impl<'a> VMLogic<'a> {
             .saturating_sub(self.result_state.total_log_length);
         if len != u64::MAX {
             if len > max_len {
-                return self.total_log_length_exceeded(len);
+                return self.result_state.total_log_length_exceeded(len);
             }
             buf = self
                 .memory
@@ -494,7 +509,7 @@ impl<'a> VMLogic<'a> {
                     break;
                 }
                 if i == max_len {
-                    return self.total_log_length_exceeded(max_len.saturating_add(1));
+                    return self.result_state.total_log_length_exceeded(max_len.saturating_add(1));
                 }
                 buf.push(el);
             }
@@ -545,7 +560,7 @@ impl<'a> VMLogic<'a> {
 
         let input = stdx::as_chunks_exact(&mem_view).map_err(|_| HostError::BadUTF16)?;
         if len > max_len {
-            return self.total_log_length_exceeded(len);
+            return self.result_state.total_log_length_exceeded(len);
         }
 
         self.result_state.gas_counter.pay_per(utf16_decoding_byte, len)?;
@@ -569,8 +584,8 @@ impl<'a> VMLogic<'a> {
             }
             len = match len.checked_add(2) {
                 Some(len) if len <= max_len => len,
-                Some(len) => return self.total_log_length_exceeded(len),
-                None => return self.total_log_length_exceeded(u64::MAX),
+                Some(len) => return self.result_state.total_log_length_exceeded(len),
+                None => return self.result_state.total_log_length_exceeded(u64::MAX),
             };
         }
     }
@@ -595,14 +610,6 @@ impl<'a> VMLogic<'a> {
         } else {
             Ok(new_promise_idx)
         }
-    }
-
-    fn total_log_length_exceeded<T>(&self, add_len: u64) -> Result<T> {
-        Err(HostError::TotalLogLengthExceeded {
-            length: self.result_state.total_log_length.saturating_add(add_len),
-            limit: self.config.limit_config.max_total_log_length,
-        }
-        .into())
     }
 
     fn get_public_key(&mut self, ptr: u64, len: u64) -> Result<PublicKeyBuffer> {
