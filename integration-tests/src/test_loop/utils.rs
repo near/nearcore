@@ -27,7 +27,6 @@ pub(crate) fn execute_money_transfers(
         .collect_vec();
     let mut balances = accounts
         .iter()
-        .cloned()
         .map(|account| (account.clone(), clients.query_balance(&account)))
         .collect::<HashMap<_, _>>();
     let num_clients = clients.len();
