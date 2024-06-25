@@ -1,5 +1,4 @@
 use itertools::Itertools;
-use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_client::test_utils::test_loop::ClientQueries;
@@ -51,35 +50,6 @@ fn test_load_memtrie_after_empty_chunks() {
     let TestLoopEnv { mut test_loop, datas: node_datas } =
         builder.genesis(genesis).clients(client_accounts).build();
 
-    // Bootstrap the test by starting the components.
-    for idx in 0..num_clients {
-        let state_sync_dumper_handle = node_datas[idx].state_sync_dumper_handle.clone();
-        test_loop.send_adhoc_event("start_state_sync_dumper".to_owned(), move |test_loop_data| {
-            test_loop_data.get_mut(&state_sync_dumper_handle).start().unwrap();
-        });
-    }
-
-    // Give it some condition to stop running at. Here we run the test until the first client
-    // reaches height 10003, with a timeout of 5sec (failing if it doesn't reach 10003 in time).
-    let client_handle = node_datas[0].client_sender.actor_handle();
-    test_loop.run_until(
-        |test_loop_data| {
-            let client_actor = test_loop_data.get(&client_handle);
-            client_actor.client.chain.head().unwrap().height == 10003
-        },
-        Duration::seconds(5),
-    );
-    for idx in 0..num_clients {
-        let client_handle = node_datas[idx].client_sender.actor_handle();
-        let event = move |test_loop_data: &mut TestLoopData| {
-            let client_actor = test_loop_data.get(&client_handle);
-            let block = client_actor.client.chain.get_block_by_height(10002).unwrap();
-            assert_eq!(block.header().chunk_mask(), &(0..num_clients).map(|_| true).collect_vec());
-        };
-        test_loop.send_adhoc_event("assertions".to_owned(), Box::new(event));
-    }
-    test_loop.run_instant();
-
     execute_money_transfers(&mut test_loop, &node_datas, &accounts);
 
     // Make sure the chain progresses for several epochs.
@@ -120,11 +90,8 @@ fn test_load_memtrie_after_empty_chunks() {
         .load_mem_trie(&ShardUId::from_shard_id_and_layout(0, &shard_layout), None, true)
         .expect("Couldn't load memtrie");
 
-    for idx in 0..num_clients {
-        test_loop.data.get_mut(&node_datas[idx].state_sync_dumper_handle).stop();
-    }
-
     // Give the test a chance to finish off remaining events in the event loop, which can
     // be important for properly shutting down the nodes.
-    test_loop.shutdown_and_drain_remaining_events(Duration::seconds(20));
+    TestLoopEnv { test_loop, datas: node_datas }
+        .shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

@@ -99,7 +99,9 @@ impl TestLoopBuilder {
             network_adapters.push(network_adapter);
         }
         self.setup_network(&datas, &network_adapters);
-        TestLoopEnv { test_loop: self.test_loop, datas }
+
+        let env = TestLoopEnv { test_loop: self.test_loop, datas };
+        env.warmup()
     }
 
     fn setup_client(
@@ -293,6 +295,15 @@ impl TestLoopBuilder {
         );
         self.test_loop.register_actor_for_index(idx, sync_jobs_actor, Some(sync_jobs_adapter));
         self.test_loop.register_actor_for_index(idx, state_snapshot, Some(state_snapshot_adapter));
+
+        // State sync dumper is not an Actor, handle starting separately.
+        let state_sync_dumper_handle_clone = state_sync_dumper_handle.clone();
+        self.test_loop.send_adhoc_event(
+            "start_state_sync_dumper".to_owned(),
+            move |test_loop_data| {
+                test_loop_data.get_mut(&state_sync_dumper_handle_clone).start().unwrap();
+            },
+        );
 
         let data = TestData {
             account_id: self.clients[idx].clone(),
