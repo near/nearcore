@@ -93,7 +93,7 @@ class FTContract:
         accounts = [create_account() for _ in range(num)]
         node.prepare_accounts(accounts,
                               parent,
-                              balance=7,
+                              balance=1,
                               msg="create passive user")
         with futures.ThreadPoolExecutor() as executor:
             futures.wait(
