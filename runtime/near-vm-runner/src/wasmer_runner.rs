@@ -4,7 +4,7 @@ use crate::logic::errors::{
     CacheError, CompilationError, FunctionCallError, MethodResolveError, VMRunnerError, WasmTrap,
 };
 use crate::logic::types::PromiseResult;
-use crate::logic::{External, VMContext, VMLogic, VMLogicError, VMOutcome};
+use crate::logic::{ExecutionResultState, External, VMContext, VMLogic, VMLogicError, VMOutcome};
 use crate::logic::{MemSlice, MemoryLike};
 use crate::prepare;
 use crate::runner::VMResult;
@@ -439,25 +439,11 @@ impl crate::runner::VM for Wasmer0VM {
             panic!("AVX support is required in order to run Wasmer VM Singlepass backend.");
         }
 
-        let memory = WasmerMemory::new(
-            self.config.limit_config.initial_memory_pages,
-            self.config.limit_config.max_memory_pages,
-        );
-        // Note that we don't clone the actual backing memory, just increase the RC.
-        let memory_copy = memory.clone();
-
-        let mut logic = VMLogic::new(
-            ext,
-            context,
-            Arc::clone(&self.config),
-            fees_config,
-            promise_results,
-            memory,
-        );
-
-        let result = logic.before_loading_executable(method_name, code.code().len() as u64);
+        let mut execution_state = ExecutionResultState::new(&context, Arc::clone(&self.config));
+        let result =
+            execution_state.before_loading_executable(method_name, code.code().len() as u64);
         if let Err(e) = result {
-            return Ok(VMOutcome::abort(logic, e));
+            return Ok(VMOutcome::abort(execution_state, e));
         }
 
         // TODO: consider using get_module() here, once we'll go via deployment path.
@@ -472,24 +458,33 @@ impl crate::runner::VM for Wasmer0VM {
             // see `test_old_fn_loading_behavior_preserved` for a test that
             // verifies future changes do not counteract this assumption.)
             Err(err) => {
-                return Ok(VMOutcome::abort(logic, FunctionCallError::CompilationError(err)))
+                return Ok(VMOutcome::abort(
+                    execution_state,
+                    FunctionCallError::CompilationError(err),
+                ))
             }
         };
 
-        let result = logic.after_loading_executable(code.code().len() as u64);
+        let result = execution_state.after_loading_executable(code.code().len() as u64);
         if let Err(e) = result {
-            return Ok(VMOutcome::abort(logic, e));
+            return Ok(VMOutcome::abort(execution_state, e));
         }
-
-        let import_object = build_imports(memory_copy, &mut logic);
-
         if let Err(e) = check_method(&module, method_name) {
-            return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(logic, e));
+            return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(execution_state, e));
         }
 
+        let memory = WasmerMemory::new(
+            self.config.limit_config.initial_memory_pages,
+            self.config.limit_config.max_memory_pages,
+        );
+        // Note that we don't clone the actual backing memory, just increase the RC.
+        let memory_copy = memory.clone();
+        let mut logic =
+            VMLogic::new(ext, context, fees_config, promise_results, execution_state, memory);
+        let import_object = build_imports(memory_copy, &self.config, &mut logic);
         match run_method(&module, &import_object, method_name)? {
-            Ok(()) => Ok(VMOutcome::ok(logic)),
-            Err(err) => Ok(VMOutcome::abort(logic, err)),
+            Ok(()) => Ok(VMOutcome::ok(logic.result_state)),
+            Err(err) => Ok(VMOutcome::abort(logic.result_state, err)),
         }
     }
 
@@ -514,6 +509,7 @@ unsafe impl Sync for ImportReference {}
 
 pub(crate) fn build_imports(
     memory: wasmer_runtime::memory::Memory,
+    config: &Config,
     logic: &mut VMLogic<'_>,
 ) -> wasmer_runtime::ImportObject {
     let raw_ptr = logic as *mut _ as *mut c_void;
@@ -548,7 +544,7 @@ pub(crate) fn build_imports(
                 }
             };
         }
-    imports::for_each_available_import!(logic.config, add_import);
+    imports::for_each_available_import!(config, add_import);
 
     import_object.register("env", ns_env);
     import_object.register("internal", ns_internal);
