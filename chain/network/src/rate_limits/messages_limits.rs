@@ -172,6 +172,14 @@ pub enum RateLimitedPeerMessageKey {
     PartialEncodedStateWitnessForward,
 }
 
+/// Adds together a variable length list of values through `saturating_add`.
+macro_rules! safe_add_into_u32 {
+    ($x:expr) => ($x as u32);
+    ($x:expr, $($y:expr),+) => {
+        ($x as u32).saturating_add(safe_add_into_u32!($($y),+))
+    }
+}
+
 /// Given a `PeerMessage` returns a tuple containing the `RateLimitedPeerMessageKey`
 /// corresponding to the message's type and its the cost (in tokens) for rate limiting
 /// purposes.
@@ -181,34 +189,56 @@ pub enum RateLimitedPeerMessageKey {
 fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessageKey, u32)> {
     use RateLimitedPeerMessageKey::*;
     match message {
-        PeerMessage::SyncRoutingTable(_) => Some((SyncRoutingTable, 1)),
-        PeerMessage::DistanceVector(_) => Some((DistanceVector, 1)),
+        PeerMessage::SyncRoutingTable(inner) => {
+            // Pay one token for each account and for each edge.
+            Some((SyncRoutingTable, safe_add_into_u32!(inner.accounts.len(), inner.edges.len())))
+        }
+        PeerMessage::DistanceVector(inner) => {
+            // Pay one token for each advertised distance and for each edge.
+            Some((DistanceVector, safe_add_into_u32!(inner.distances.len(), inner.edges.len())))
+        }
         PeerMessage::RequestUpdateNonce(_) => Some((RequestUpdateNonce, 1)),
-        PeerMessage::SyncAccountsData(_) => Some((SyncAccountsData, 1)),
+        PeerMessage::SyncAccountsData(inner) => {
+            // Pay one token for each signed account data.
+            Some((SyncAccountsData, safe_add_into_u32!(inner.accounts_data.len())))
+        }
         PeerMessage::PeersRequest(_) => Some((PeersRequest, 1)),
-        PeerMessage::PeersResponse(_) => Some((PeersResponse, 1)),
-        PeerMessage::BlockHeadersRequest(_) => Some((BlockHeadersRequest, 1)),
-        PeerMessage::BlockHeaders(_) => Some((BlockHeaders, 1)),
+        PeerMessage::PeersResponse(inner) => {
+            // Pay one token for each peer regardless of its type.
+            Some((PeersResponse, safe_add_into_u32!(inner.peers.len(), inner.direct_peers.len())))
+        }
+        PeerMessage::BlockHeadersRequest(inner) => {
+            // Pay one token for each requested hash.
+            Some((BlockHeadersRequest, safe_add_into_u32!(inner.len())))
+        }
+        PeerMessage::BlockHeaders(inner) => {
+            // Pay one token for each header.
+            Some((BlockHeaders, safe_add_into_u32!(inner.len())))
+        }
         PeerMessage::BlockRequest(_) => Some((BlockRequest, 1)),
         PeerMessage::Block(_) => Some((Block, 1)),
         PeerMessage::Transaction(_) => Some((Transaction, 1)),
-        PeerMessage::Routed(msg) => match msg.body {
+        PeerMessage::Routed(msg) => match &msg.body {
             RoutedMessageBody::BlockApproval(_) => Some((BlockApproval, 1)),
             RoutedMessageBody::ForwardTx(_) => Some((ForwardTx, 1)),
             RoutedMessageBody::TxStatusRequest(_, _) => Some((TxStatusRequest, 1)),
             RoutedMessageBody::TxStatusResponse(_) => Some((TxStatusResponse, 1)),
             RoutedMessageBody::StateResponse(_) => Some((StateResponse, 1)),
-            RoutedMessageBody::PartialEncodedChunkRequest(_) => {
-                Some((PartialEncodedChunkRequest, 1))
+            RoutedMessageBody::PartialEncodedChunkRequest(inner) => {
+                // Pay one token per part.
+                Some((PartialEncodedChunkRequest, safe_add_into_u32!(inner.part_ords.len())))
             }
             RoutedMessageBody::PartialEncodedChunkResponse(_) => {
+                // Pay one token per message since the limits on incoming receipts are unclear.
                 Some((PartialEncodedChunkResponse, 1))
             }
             RoutedMessageBody::VersionedPartialEncodedChunk(_) => {
+                // Pay one token per message since the limits on incoming receipts are unclear.
                 Some((VersionedPartialEncodedChunk, 1))
             }
-            RoutedMessageBody::PartialEncodedChunkForward(_) => {
-                Some((PartialEncodedChunkForward, 1))
+            RoutedMessageBody::PartialEncodedChunkForward(inner) => {
+                // Pay one token per part.
+                Some((PartialEncodedChunkForward, safe_add_into_u32!(inner.parts.len())))
             }
             RoutedMessageBody::ChunkEndorsement(_) => Some((ChunkEndorsement, 1)),
             RoutedMessageBody::ChunkStateWitnessAck(_) => Some((ChunkStateWitnessAck, 1)),
@@ -230,7 +260,10 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
             | RoutedMessageBody::_UnusedStateRequestHeader
             | RoutedMessageBody::_UnusedStateRequestPart => None,
         },
-        PeerMessage::SyncSnapshotHosts(_) => Some((SyncSnapshotHosts, 1)),
+        PeerMessage::SyncSnapshotHosts(inner) => {
+            // Pay one token for each host.
+            Some((SyncSnapshotHosts, safe_add_into_u32!(inner.hosts.len())))
+        }
         PeerMessage::StateRequestHeader(_, _) => Some((StateRequestHeader, 1)),
         PeerMessage::StateRequestPart(_, _, _) => Some((StateRequestPart, 1)),
         PeerMessage::VersionedStateResponse(_) => Some((VersionedStateResponse, 1)),
@@ -440,5 +473,15 @@ mod tests {
             }
         }});
         assert!(serde_json::from_value::<OverrideConfig>(json).is_err());
+    }
+
+    #[test]
+    fn safe_add_into_u32() {
+        assert_eq!(safe_add_into_u32!(4 as u32), 4);
+        assert_eq!(safe_add_into_u32!(1, 2, 3), 6);
+        assert_eq!(safe_add_into_u32!(2 as u32, 0 as u32), 2);
+        assert_eq!(safe_add_into_u32!(u32::MAX, u32::MAX), u32::MAX);
+        assert_eq!(safe_add_into_u32!(u64::MAX, 43 as u64), u32::MAX);
+        assert_eq!(safe_add_into_u32!(usize::MAX, 43 as usize, 2 as usize), u32::MAX);
     }
 }
