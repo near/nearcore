@@ -1,6 +1,7 @@
 use crate::test_loop::env::TestData;
 use itertools::Itertools;
 use near_async::messaging::SendAsync;
+use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_client::test_utils::test_loop::ClientQueries;
 use near_network::client::ProcessTxRequest;
@@ -12,14 +13,15 @@ use std::collections::HashMap;
 pub(crate) const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 
 /// Execute money transfers within given `TestLoop` between given accounts.
+/// Runs chain long enough for the transfers to be optimistically executed.
 /// Used to generate state changes and check that chain is able to update
 /// balances correctly.
 pub(crate) fn execute_money_transfers(
-    test_loop: &mut near_async::test_loop::TestLoopV2,
-    node_datas: &[TestData],
+    test_loop: &mut TestLoopV2,
+    node_data: &[TestData],
     accounts: &[AccountId],
 ) {
-    let clients = node_datas
+    let clients = node_data
         .iter()
         .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
         .collect_vec();
@@ -30,23 +32,35 @@ pub(crate) fn execute_money_transfers(
         .collect::<HashMap<_, _>>();
     let num_clients = clients.len();
 
-    // Assume that all clients are in sync up to this block.
-    let anchor_hash = clients[0].chain.head().unwrap().prev_block_hash;
+    // Transactions have to be built on top of some block in chain. To make
+    // sure all clients accept them, we select the head of the client with
+    // the smallest height.
+    let (_, anchor_hash) = clients
+        .iter()
+        .map(|client| {
+            let head = client.chain.head().unwrap();
+            (head.height, head.last_block_hash)
+        })
+        .min_by_key(|&(height, _)| height)
+        .unwrap();
     drop(clients);
 
     for i in 0..accounts.len() {
         let amount = ONE_NEAR * (i as u128 + 1);
+        let sender = &accounts[i];
+        let receiver = &accounts[(i + 1) % accounts.len()];
         let tx = SignedTransaction::send_money(
+            // TODO: set correct nonce.
             1,
-            accounts[i].clone(),
-            accounts[(i + 1) % accounts.len()].clone(),
-            &create_user_test_signer(&accounts[i]).into(),
+            sender.clone(),
+            receiver.clone(),
+            &create_user_test_signer(sender).into(),
             amount,
             anchor_hash,
         );
-        *balances.get_mut(&accounts[i]).unwrap() -= amount;
-        *balances.get_mut(&accounts[(i + 1) % accounts.len()]).unwrap() += amount;
-        let future = node_datas[i % num_clients]
+        *balances.get_mut(sender).unwrap() -= amount;
+        *balances.get_mut(receiver).unwrap() += amount;
+        let future = node_data[i % num_clients]
             .client_sender
             .clone()
             .with_delay(Duration::milliseconds(300 * i as i64))
@@ -60,9 +74,9 @@ pub(crate) fn execute_money_transfers(
 
     // Give plenty of time for these transactions to complete.
     // TODO: consider explicitly waiting for all execution outcomes.
-    test_loop.run_for(Duration::seconds(40));
+    test_loop.run_for(Duration::milliseconds(300 * accounts.len() as i64 + 20_000));
 
-    let clients = node_datas
+    let clients = node_data
         .iter()
         .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
         .collect_vec();

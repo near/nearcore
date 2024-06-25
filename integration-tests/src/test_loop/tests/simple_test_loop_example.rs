@@ -18,6 +18,7 @@ use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::AccountId;
 
+use crate::test_loop::utils::ONE_NEAR;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use nearcore::NightshadeRuntime;
@@ -39,7 +40,7 @@ fn test_client_with_simple_test_loop() {
         false,
         false,
     );
-    let initial_balance = 10000 * crate::test_loop::utils::ONE_NEAR;
+    let initial_balance = 10000 * ONE_NEAR;
     let accounts =
         (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
 

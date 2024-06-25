@@ -13,6 +13,7 @@ use near_primitives::views::CurrentEpochValidatorInfo;
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestLoopEnv;
+use crate::test_loop::utils::{execute_money_transfers, ONE_NEAR};
 
 const NUM_ACCOUNTS: usize = 20;
 const NUM_SHARDS: u64 = 4;
@@ -32,7 +33,7 @@ fn test_stateless_validators_with_multi_test_loop() {
     init_test_logger();
     let builder = TestLoopBuilder::new();
 
-    let initial_balance = 10000 * crate::test_loop::utils::ONE_NEAR;
+    let initial_balance = 10000 * ONE_NEAR;
     let accounts = (0..NUM_ACCOUNTS)
         .map(|i| format!("account{}", i).parse().unwrap())
         .collect::<Vec<AccountId>>();
@@ -100,11 +101,7 @@ fn test_stateless_validators_with_multi_test_loop() {
     let initial_epoch_id = chain.head().unwrap().epoch_id;
 
     let non_validator_accounts = accounts.iter().skip(NUM_VALIDATORS).cloned().collect_vec();
-    crate::test_loop::utils::execute_money_transfers(
-        &mut test_loop,
-        &node_datas,
-        &non_validator_accounts,
-    );
+    execute_money_transfers(&mut test_loop, &node_datas, &non_validator_accounts);
 
     // Capture the id of the epoch we will check for the correct validator information in assert_validator_info.
     let prev_epoch_id = test_loop.data.get(&client_handle).client.chain.head().unwrap().epoch_id;

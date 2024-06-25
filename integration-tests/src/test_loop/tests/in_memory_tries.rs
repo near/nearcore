@@ -1,20 +1,15 @@
-use std::collections::HashMap;
-
 use itertools::Itertools;
-use near_async::messaging::SendAsync;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_client::test_utils::test_loop::ClientQueries;
-use near_client::ProcessTxRequest;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::test_utils::create_user_test_signer;
-use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_store::ShardUId;
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestLoopEnv;
+use crate::test_loop::utils::{execute_money_transfers, ONE_NEAR};
 
 /// Runs chain with sequence of chunks with empty state changes, long enough to
 /// cover 5 epochs which is default GC period.
@@ -31,7 +26,7 @@ fn test_load_memtrie_after_empty_chunks() {
     let num_accounts = 3;
     let num_clients = 2;
     let epoch_length = 5;
-    let initial_balance = 10000 * crate::test_loop::utils::ONE_NEAR;
+    let initial_balance = 10000 * ONE_NEAR;
     let accounts = (num_accounts - num_clients..num_accounts)
         .map(|i| format!("account{}", i).parse().unwrap())
         .collect::<Vec<AccountId>>();
@@ -85,7 +80,7 @@ fn test_load_memtrie_after_empty_chunks() {
     }
     test_loop.run_instant();
 
-    crate::test_loop::utils::execute_money_transfers(&mut test_loop, &node_datas, &accounts);
+    execute_money_transfers(&mut test_loop, &node_datas, &accounts);
 
     // Make sure the chain progresses for several epochs.
     let client_handle = node_datas[0].client_sender.actor_handle();

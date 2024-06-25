@@ -1,19 +1,14 @@
-use std::collections::HashMap;
-
 use itertools::Itertools;
-use near_async::messaging::SendAsync;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_client::test_utils::test_loop::ClientQueries;
-use near_client::ProcessTxRequest;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::test_utils::create_user_test_signer;
-use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestLoopEnv;
+use crate::test_loop::utils::{execute_money_transfers, ONE_NEAR};
 
 const NUM_CLIENTS: usize = 4;
 
@@ -22,7 +17,7 @@ fn test_client_with_multi_test_loop() {
     init_test_logger();
     let builder = TestLoopBuilder::new();
 
-    let initial_balance = 10000 * crate::test_loop::utils::ONE_NEAR;
+    let initial_balance = 10000 * ONE_NEAR;
     let accounts =
         (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
     let clients = accounts.iter().take(NUM_CLIENTS).cloned().collect_vec();
@@ -85,7 +80,7 @@ fn test_client_with_multi_test_loop() {
     };
     tracing::info!("First epoch tracked shards: {:?}", first_epoch_tracked_shards);
 
-    crate::test_loop::utils::execute_money_transfers(&mut test_loop, &node_datas, &accounts);
+    execute_money_transfers(&mut test_loop, &node_datas, &accounts);
 
     // Make sure the chain progresses for several epochs.
     let client_handle = node_datas[0].client_sender.actor_handle();
