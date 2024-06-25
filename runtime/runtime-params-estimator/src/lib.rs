@@ -893,12 +893,11 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
     let cache = MockContractRuntimeCache::default();
 
     let mut run = || {
-        let context = create_context(vec![]);
+        let context = create_context("cpu_ram_soak_test", vec![]);
         let vm_result = vm_kind
             .runtime(config.clone())
             .unwrap()
             .run(
-                "cpu_ram_soak_test",
                 &mut fake_external,
                 &context,
                 Arc::clone(&fees),

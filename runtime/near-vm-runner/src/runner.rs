@@ -48,7 +48,6 @@ pub(crate) type VMResult<T = VMOutcome> = Result<T, VMRunnerError>;
     compute_usage = tracing::field::Empty,
 ))]
 pub fn run(
-    method_name: &str,
     ext: &mut (dyn External + Send),
     context: &VMContext,
     wasm_config: Arc<Config>,
@@ -61,7 +60,7 @@ pub fn run(
     let runtime = vm_kind
         .runtime(wasm_config)
         .unwrap_or_else(|| panic!("the {vm_kind:?} runtime has not been enabled at compile time"));
-    let outcome = runtime.run(method_name, ext, context, fees_config, promise_results, cache);
+    let outcome = runtime.run(ext, context, fees_config, promise_results, cache);
     let outcome = match outcome {
         Ok(o) => o,
         e @ Err(_) => return e,
@@ -89,7 +88,6 @@ pub trait VM {
     /// implementation.
     fn run(
         &self,
-        method_name: &str,
         ext: &mut dyn External,
         context: &VMContext,
         fees_config: Arc<RuntimeFeesConfig>,

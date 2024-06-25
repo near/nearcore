@@ -189,7 +189,6 @@ impl WasmtimeVM {
         cache: &dyn ContractRuntimeCache,
         ext: &mut dyn External,
         context: &VMContext,
-        method_name: &str,
         closure: impl FnOnce(
             ExecutionResultState,
             &mut dyn External,
@@ -253,7 +252,7 @@ impl WasmtimeVM {
         )?;
 
         let mut result_state = ExecutionResultState::new(&context, Arc::clone(&self.config));
-        let result = result_state.before_loading_executable(method_name, wasm_bytes);
+        let result = result_state.before_loading_executable(&context.method, wasm_bytes);
         if let Err(e) = result {
             return Ok(VMOutcome::abort(result_state, e));
         }
@@ -273,7 +272,6 @@ impl WasmtimeVM {
 impl crate::runner::VM for WasmtimeVM {
     fn run(
         &self,
-        method_name: &str,
         ext: &mut dyn External,
         context: &VMContext,
         fees_config: Arc<RuntimeFeesConfig>,
@@ -281,35 +279,21 @@ impl crate::runner::VM for WasmtimeVM {
         cache: Option<&dyn ContractRuntimeCache>,
     ) -> Result<VMOutcome, VMRunnerError> {
         let cache = cache.unwrap_or(&NoContractRuntimeCache);
-        self.with_compiled_and_loaded(
-            cache,
-            ext,
-            context,
-            method_name,
-            |result_state, ext, module| {
-                match module.get_export(method_name) {
-                    Some(export) => match export {
-                        Func(func_type) => {
-                            if func_type.params().len() != 0 || func_type.results().len() != 0 {
-                                let err = FunctionCallError::MethodResolveError(
-                                    MethodResolveError::MethodInvalidSignature,
-                                );
-                                return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(
-                                    result_state,
-                                    err,
-                                ));
-                            }
-                        }
-                        _ => {
+        self.with_compiled_and_loaded(cache, ext, context, |result_state, ext, module| {
+            match module.get_export(&context.method) {
+                Some(export) => match export {
+                    Func(func_type) => {
+                        if func_type.params().len() != 0 || func_type.results().len() != 0 {
+                            let err = FunctionCallError::MethodResolveError(
+                                MethodResolveError::MethodInvalidSignature,
+                            );
                             return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(
                                 result_state,
-                                FunctionCallError::MethodResolveError(
-                                    MethodResolveError::MethodNotFound,
-                                ),
+                                err,
                             ));
                         }
-                    },
-                    None => {
+                    }
+                    _ => {
                         return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(
                             result_state,
                             FunctionCallError::MethodResolveError(
@@ -317,46 +301,50 @@ impl crate::runner::VM for WasmtimeVM {
                             ),
                         ));
                     }
+                },
+                None => {
+                    return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(
+                        result_state,
+                        FunctionCallError::MethodResolveError(MethodResolveError::MethodNotFound),
+                    ));
                 }
+            }
 
-                let mut store = Store::new(&self.engine, ());
-                let memory = WasmtimeMemory::new(
-                    &mut store,
-                    self.config.limit_config.initial_memory_pages,
-                    self.config.limit_config.max_memory_pages,
-                )
-                .unwrap();
-                let memory_copy = memory.0;
-                let mut logic =
-                    VMLogic::new(ext, context, fees_config, promise_results, result_state, memory);
-                let mut linker = Linker::new(&(&self.engine));
-                link(&mut linker, memory_copy, &store, &self.config, &mut logic);
-                match linker.instantiate(&mut store, &module) {
-                    Ok(instance) => match instance.get_func(&mut store, method_name) {
-                        Some(func) => match func.typed::<(), ()>(&mut store) {
-                            Ok(run) => match run.call(&mut store, ()) {
-                                Ok(_) => Ok(VMOutcome::ok(logic.result_state)),
-                                Err(err) => {
-                                    Ok(VMOutcome::abort(logic.result_state, err.into_vm_error()?))
-                                }
-                            },
+            let mut store = Store::new(&self.engine, ());
+            let memory = WasmtimeMemory::new(
+                &mut store,
+                self.config.limit_config.initial_memory_pages,
+                self.config.limit_config.max_memory_pages,
+            )
+            .unwrap();
+            let memory_copy = memory.0;
+            let mut logic =
+                VMLogic::new(ext, context, fees_config, promise_results, result_state, memory);
+            let mut linker = Linker::new(&(&self.engine));
+            link(&mut linker, memory_copy, &store, &self.config, &mut logic);
+            match linker.instantiate(&mut store, &module) {
+                Ok(instance) => match instance.get_func(&mut store, &context.method) {
+                    Some(func) => match func.typed::<(), ()>(&mut store) {
+                        Ok(run) => match run.call(&mut store, ()) {
+                            Ok(_) => Ok(VMOutcome::ok(logic.result_state)),
                             Err(err) => {
                                 Ok(VMOutcome::abort(logic.result_state, err.into_vm_error()?))
                             }
                         },
-                        None => {
-                            return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(
-                                logic.result_state,
-                                FunctionCallError::MethodResolveError(
-                                    MethodResolveError::MethodNotFound,
-                                ),
-                            ));
-                        }
+                        Err(err) => Ok(VMOutcome::abort(logic.result_state, err.into_vm_error()?)),
                     },
-                    Err(err) => Ok(VMOutcome::abort(logic.result_state, err.into_vm_error()?)),
-                }
-            },
-        )
+                    None => {
+                        return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(
+                            logic.result_state,
+                            FunctionCallError::MethodResolveError(
+                                MethodResolveError::MethodNotFound,
+                            ),
+                        ));
+                    }
+                },
+                Err(err) => Ok(VMOutcome::abort(logic.result_state, err.into_vm_error()?)),
+            }
+        })
     }
 
     fn precompile(

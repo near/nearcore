@@ -140,14 +140,13 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     let runtime_free_gas = vm_kind.runtime(vm_config_free).expect("runtime has not been enabled");
     let fees = runtime_config.fees.clone();
     let mut fake_external = MockedExternal::with_code(contract.clone_for_tests());
-    let fake_context = create_context(vec![]);
+    let fake_context = create_context("hello", vec![]);
     let promise_results = Arc::from([]);
 
     // Warmup with gas metering
     for _ in 0..warmup_repeats {
         let result = runtime
             .run(
-                "hello",
                 &mut fake_external,
                 &fake_context,
                 Arc::clone(&fees),
@@ -166,7 +165,6 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     for _ in 0..repeats {
         let result = runtime
             .run(
-                "hello",
                 &mut fake_external,
                 &fake_context,
                 Arc::clone(&fees),
@@ -182,7 +180,6 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     for _ in 0..warmup_repeats {
         let result = runtime_free_gas
             .run(
-                "hello",
                 &mut fake_external,
                 &fake_context,
                 Arc::clone(&fees),
@@ -198,7 +195,6 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     for _ in 0..repeats {
         let result = runtime_free_gas
             .run(
-                "hello",
                 &mut fake_external,
                 &fake_context,
                 Arc::clone(&fees),

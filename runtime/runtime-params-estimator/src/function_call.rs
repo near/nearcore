@@ -72,14 +72,13 @@ fn compute_function_call_cost(
     let runtime = vm_kind.runtime(vm_config).expect("runtime has not been enabled");
     let fees = runtime_config.fees.clone();
     let mut fake_external = MockedExternal::with_code(contract.clone_for_tests());
-    let fake_context = create_context(vec![]);
+    let fake_context = create_context("hello0", vec![]);
     let promise_results = Arc::from([]);
 
     // Warmup.
     for _ in 0..warmup_repeats {
         let result = runtime
             .run(
-                "hello0",
                 &mut fake_external,
                 &fake_context,
                 Arc::clone(&fees),
@@ -94,7 +93,6 @@ fn compute_function_call_cost(
     for _ in 0..repeats {
         let result = runtime
             .run(
-                "hello0",
                 &mut fake_external,
                 &fake_context,
                 Arc::clone(&fees),

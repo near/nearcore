@@ -417,7 +417,6 @@ impl Wasmer0VM {
 impl crate::runner::VM for Wasmer0VM {
     fn run(
         &self,
-        method_name: &str,
         ext: &mut dyn External,
         context: &VMContext,
         fees_config: Arc<RuntimeFeesConfig>,
@@ -441,7 +440,7 @@ impl crate::runner::VM for Wasmer0VM {
 
         let mut execution_state = ExecutionResultState::new(&context, Arc::clone(&self.config));
         let result =
-            execution_state.before_loading_executable(method_name, code.code().len() as u64);
+            execution_state.before_loading_executable(&context.method, code.code().len() as u64);
         if let Err(e) = result {
             return Ok(VMOutcome::abort(execution_state, e));
         }
@@ -469,7 +468,7 @@ impl crate::runner::VM for Wasmer0VM {
         if let Err(e) = result {
             return Ok(VMOutcome::abort(execution_state, e));
         }
-        if let Err(e) = check_method(&module, method_name) {
+        if let Err(e) = check_method(&module, &context.method) {
             return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(execution_state, e));
         }
 
@@ -482,7 +481,7 @@ impl crate::runner::VM for Wasmer0VM {
         let mut logic =
             VMLogic::new(ext, context, fees_config, promise_results, execution_state, memory);
         let import_object = build_imports(memory_copy, &self.config, &mut logic);
-        match run_method(&module, &import_object, method_name)? {
+        match run_method(&module, &import_object, &context.method)? {
             Ok(()) => Ok(VMOutcome::ok(logic.result_state)),
             Err(err) => Ok(VMOutcome::abort(logic.result_state, err)),
         }

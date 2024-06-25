@@ -39,12 +39,13 @@ pub fn find_entry_point(contract: &ContractCode) -> Option<String> {
     None
 }
 
-pub fn create_context(input: Vec<u8>) -> VMContext {
+pub fn create_context(method: &str, input: Vec<u8>) -> VMContext {
     VMContext {
         current_account_id: "alice".parse().unwrap(),
         signer_account_id: "bob".parse().unwrap(),
         signer_account_pk: vec![0, 1, 2, 3, 4],
         predecessor_account_id: "carol".parse().unwrap(),
+        method: method.into(),
         input,
         block_height: 10,
         block_timestamp: 42,
@@ -108,7 +109,8 @@ impl fmt::Debug for ArbitraryModule {
 
 fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
     let mut fake_external = MockedExternal::with_code(code.clone_for_tests());
-    let mut context = create_context(vec![]);
+    let method_name = find_entry_point(code).unwrap_or_else(|| "main".to_string());
+    let mut context = create_context(&method_name, vec![]);
     context.prepaid_gas = 10u64.pow(14);
 
     let mut config = test_vm_config();
@@ -117,9 +119,7 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
 
     let fees = Arc::new(RuntimeFeesConfig::test());
     let promise_results = [].into();
-    let method_name = find_entry_point(code).unwrap_or_else(|| "main".to_string());
     let mut res = vm_kind.runtime(config.into()).unwrap().run(
-        &method_name,
         &mut fake_external,
         &context,
         Arc::clone(&fees),

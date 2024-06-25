@@ -566,7 +566,6 @@ impl wasmer_vm::Tunables for &Wasmer2VM {
 impl crate::runner::VM for Wasmer2VM {
     fn run(
         &self,
-        method_name: &str,
         ext: &mut dyn External,
         context: &VMContext,
         fees_config: Arc<RuntimeFeesConfig>,
@@ -578,7 +577,8 @@ impl crate::runner::VM for Wasmer2VM {
         };
         let mut result_state = ExecutionResultState::new(&context, Arc::clone(&self.config));
 
-        let result = result_state.before_loading_executable(method_name, code.code().len() as u64);
+        let result =
+            result_state.before_loading_executable(&context.method, code.code().len() as u64);
         if let Err(e) = result {
             return Ok(VMOutcome::abort(result_state, e));
         }
@@ -598,7 +598,7 @@ impl crate::runner::VM for Wasmer2VM {
         if let Err(e) = result {
             return Ok(VMOutcome::abort(result_state, e));
         }
-        let entrypoint = match get_entrypoint_index(&*artifact, method_name) {
+        let entrypoint = match get_entrypoint_index(&*artifact, &context.method) {
             Ok(index) => index,
             Err(e) => return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, e)),
         };
