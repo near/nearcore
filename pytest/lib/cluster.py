@@ -573,6 +573,11 @@ class LocalNode(BaseNode):
             self._process.wait(5)
             self._process = None
 
+    def reload_updateable_config(self):
+        logger.info(f"Reloading updateable config for node {self.ordinal}.")
+        """Sends SIGHUP signal to the process in order to trigger updateable config reload."""
+        self._process.send_signal(signal.SIGHUP)
+
     def reset_data(self):
         shutil.rmtree(os.path.join(self.node_dir, "data"))
 

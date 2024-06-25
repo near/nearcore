@@ -10,6 +10,7 @@ use crate::types::ROUTED_MESSAGE_TTL;
 use anyhow::Context;
 use near_async::time;
 use near_chain_configs::MutableConfigValue;
+use near_chain_configs::MutableValidatorSigner;
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
@@ -60,7 +61,7 @@ pub struct ValidatorConfig {
     /// Contains signer key for this node. This field is mutable and optional. Use with caution!
     /// Lock the value of mutable validator signer for the duration of a request to ensure consistency.
     /// Please note that the locked value should not be stored anywhere or passed through the thread boundary.
-    pub signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
+    pub signer: MutableValidatorSigner,
     pub proxies: ValidatorProxies,
 }
 
@@ -241,7 +242,7 @@ impl NetworkConfig {
     pub fn new(
         cfg: crate::config_json::Config,
         node_key: SecretKey,
-        validator_signer: MutableConfigValue<Option<Arc<ValidatorSigner>>>,
+        validator_signer: MutableValidatorSigner,
         archive: bool,
     ) -> anyhow::Result<Self> {
         if cfg.public_addrs.len() > MAX_PEER_ADDRS {

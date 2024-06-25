@@ -111,6 +111,11 @@ if __name__ == "__main__":
                         type=int,
                         required=True,
                         help='Number of users')
+    parser.add_argument('--user', type=str, default='unknown', help='User name')
+    parser.add_argument('--context',
+                        type=str,
+                        default='unknown',
+                        help='Context')
     args = parser.parse_args()
     DURATION = args.duration / 3600
 
@@ -153,7 +158,7 @@ if __name__ == "__main__":
         "size_state_bytes": state_size,
         "tps": int(average_tps),
         "total_transactions": int(processed_transactions[-1]),
-        "initiator": "crt cron job",
-        "context": "continuous benchmark run",
+        "initiator": args.user,
+        "context": args.context,
     }
     commit_to_db(response)

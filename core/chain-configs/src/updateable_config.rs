@@ -1,4 +1,5 @@
 use near_primitives::types::BlockHeight;
+use near_primitives::validator_signer::ValidatorSigner;
 #[cfg(feature = "metrics")]
 use near_time::Clock;
 use serde::{Deserialize, Serialize, Serializer};
@@ -108,3 +109,5 @@ pub struct UpdateableClientConfig {
     #[serde(with = "near_time::serde_opt_duration_as_std")]
     pub produce_chunk_add_transactions_time_limit: Option<Duration>,
 }
+
+pub type MutableValidatorSigner = MutableConfigValue<Option<Arc<ValidatorSigner>>>;

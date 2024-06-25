@@ -1,22 +1,15 @@
-use std::collections::HashMap;
-
 use itertools::Itertools;
-use near_async::messaging::SendAsync;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_client::test_utils::test_loop::ClientQueries;
-use near_client::ProcessTxRequest;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::test_utils::create_user_test_signer;
-use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_store::ShardUId;
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestLoopEnv;
-
-const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
+use crate::test_loop::utils::{execute_money_transfers, ONE_NEAR};
 
 /// Runs chain with sequence of chunks with empty state changes, long enough to
 /// cover 5 epochs which is default GC period.
@@ -37,7 +30,7 @@ fn test_load_memtrie_after_empty_chunks() {
     let accounts = (num_accounts - num_clients..num_accounts)
         .map(|i| format!("account{}", i).parse().unwrap())
         .collect::<Vec<AccountId>>();
-    let clients = accounts.iter().take(num_clients).cloned().collect_vec();
+    let client_accounts = accounts.iter().take(num_clients).cloned().collect_vec();
     let mut genesis_builder = TestGenesisBuilder::new();
     genesis_builder
         .genesis_time_from_clock(&builder.clock())
@@ -49,14 +42,14 @@ fn test_load_memtrie_after_empty_chunks() {
         .shard_layout_simple_v1(&["account1"])
         .transaction_validity_period(1000)
         .epoch_length(epoch_length)
-        .validators_desired_roles(&clients.iter().map(|t| t.as_str()).collect_vec(), &[]);
+        .validators_desired_roles(&client_accounts.iter().map(|t| t.as_str()).collect_vec(), &[]);
     for account in &accounts {
         genesis_builder.add_user_account_simple(account.clone(), initial_balance);
     }
     let genesis = genesis_builder.build();
 
     let TestLoopEnv { mut test_loop, datas: node_datas } =
-        builder.genesis(genesis).clients(clients).build();
+        builder.genesis(genesis).clients(client_accounts).build();
 
     // Bootstrap the test by starting the components.
     for idx in 0..num_clients {
@@ -87,43 +80,7 @@ fn test_load_memtrie_after_empty_chunks() {
     }
     test_loop.run_instant();
 
-    let clients = node_datas
-        .iter()
-        .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
-        .collect_vec();
-    let mut balances = accounts
-        .iter()
-        .cloned()
-        .map(|account| (account, initial_balance))
-        .collect::<HashMap<_, _>>();
-
-    let anchor_hash = *clients[0].chain.get_block_by_height(10002).unwrap().hash();
-    for i in 0..accounts.len() {
-        let amount = ONE_NEAR * (i as u128 + 1);
-        let tx = SignedTransaction::send_money(
-            1,
-            accounts[i].clone(),
-            accounts[(i + 1) % accounts.len()].clone(),
-            &create_user_test_signer(&accounts[i]).into(),
-            amount,
-            anchor_hash,
-        );
-        *balances.get_mut(&accounts[i]).unwrap() -= amount;
-        *balances.get_mut(&accounts[(i + 1) % accounts.len()]).unwrap() += amount;
-        let future = node_datas[i % num_clients]
-            .client_sender
-            .clone()
-            .with_delay(Duration::milliseconds(300 * i as i64))
-            .send_async(ProcessTxRequest {
-                transaction: tx,
-                is_forwarded: false,
-                check_only: false,
-            });
-        drop(future);
-    }
-
-    // Give plenty of time for these transactions to complete.
-    test_loop.run_for(Duration::seconds(40));
+    execute_money_transfers(&mut test_loop, &node_datas, &accounts);
 
     // Make sure the chain progresses for several epochs.
     let client_handle = node_datas[0].client_sender.actor_handle();
@@ -135,20 +92,11 @@ fn test_load_memtrie_after_empty_chunks() {
         Duration::seconds(10),
     );
 
+    // Find client currently tracking shard 0.
     let clients = node_datas
         .iter()
         .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
         .collect_vec();
-    for account in &accounts {
-        assert_eq!(
-            clients.query_balance(account),
-            *balances.get(account).unwrap(),
-            "Account balance mismatch for account {}",
-            account
-        );
-    }
-
-    // Find client currently tracking shard 0.
     let idx = {
         let current_tracked_shards = clients.tracked_shards_for_each_client();
         tracing::info!("Current tracked shards: {:?}", current_tracked_shards);

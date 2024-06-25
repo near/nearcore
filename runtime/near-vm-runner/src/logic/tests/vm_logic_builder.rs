@@ -1,7 +1,7 @@
 use crate::logic::mocks::mock_external::MockedExternal;
 use crate::logic::mocks::mock_memory::MockedMemory;
 use crate::logic::types::PromiseResult;
-use crate::logic::{Config, MemSlice, VMContext, VMLogic};
+use crate::logic::{Config, ExecutionResultState, MemSlice, VMContext, VMLogic};
 use crate::tests::test_vm_config;
 use near_parameters::RuntimeFeesConfig;
 use std::sync::Arc;
@@ -38,12 +38,13 @@ impl VMLogicBuilder {
     }
 
     pub fn build(&mut self) -> TestVMLogic<'_> {
+        let result_state = ExecutionResultState::new(&self.context, Arc::new(self.config.clone()));
         TestVMLogic::from(VMLogic::new(
             &mut self.ext,
             &self.context,
-            Arc::new(self.config.clone()),
             Arc::new(self.fees_config.clone()),
             Arc::clone(&self.promise_results),
+            result_state,
             self.memory.clone(),
         ))
     }
@@ -154,6 +155,6 @@ impl TestVMLogic<'_> {
     }
 
     pub fn compute_outcome(self) -> crate::logic::VMOutcome {
-        self.logic.compute_outcome()
+        self.logic.result_state.compute_outcome()
     }
 }
