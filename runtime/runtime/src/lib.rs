@@ -1410,9 +1410,8 @@ impl Runtime {
             .map_err(RuntimeError::StorageError)?;
         processing_state.total.add(gas_used_for_migrations, gas_used_for_migrations)?;
 
-        let delayed_receipts = DelayedReceiptQueueWrapper::new(DelayedReceiptQueue::load(
-            &processing_state.state_update,
-        )?);
+        let delayed_receipts = DelayedReceiptQueue::load(&processing_state.state_update)?;
+        let delayed_receipts = DelayedReceiptQueueWrapper::new(delayed_receipts);
 
         // If the chunk is missing, exit early and don't process any receipts.
         if !apply_state.is_new_chunk
@@ -1530,13 +1529,9 @@ impl Runtime {
                     processing_state.epoch_info_provider,
                 )?;
             }
-            total.add(
-                outcome_with_id.outcome.gas_burnt,
-                outcome_with_id
-                    .outcome
-                    .compute_usage
-                    .expect("`process_transaction` must populate compute usage"),
-            )?;
+            let compute = outcome_with_id.outcome.compute_usage;
+            let compute = compute.expect("`process_transaction` must populate compute usage");
+            total.add(outcome_with_id.outcome.gas_burnt, compute)?;
             if !checked_feature!("stable", ComputeCosts, processing_state.protocol_version) {
                 assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
             }
