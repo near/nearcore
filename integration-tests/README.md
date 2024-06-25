@@ -62,8 +62,9 @@ let first_epoch_tracked_shards = {
 };
 ```
 
-Perform the actions you want to test, such as money transfers. See
-`execute_money_transfers` implementation for more details.
+Perform the actions you want to test, such as money transfers, contract
+deployment and execution, specific validator selection, etc. See
+`execute_money_transfers` implementation for inspiration.
 
 ```rust
 execute_money_transfers(&mut test_loop, &node_datas, &accounts);
@@ -82,7 +83,9 @@ test_loop.run_until(
 );
 ```
 
-If it takes more than 20 seconds to reach the desired height, the test will panic.
+Note: The time here is not actual real-world time. `TestLoopEnv` simulates the clock
+to ensure high speed and reproducibility of test results. This allows tests to
+run quickly while still accurately modeling time-dependent blockchain behavior.
 
 ## 3. Assert expected outcomes
 
