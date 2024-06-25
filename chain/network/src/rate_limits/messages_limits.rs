@@ -110,8 +110,37 @@ impl Config {
 
     /// Returns a good preset of rate limit configuration valid for any type of node.
     pub fn standard_preset() -> Self {
-        // TODO(trisfald): make preset
-        Self::default()
+        use RateLimitedPeerMessageKey::*;
+        let mut rate_limits = HashMap::new();
+
+        // Token usage is defined per message.
+        // Some messages consume 1 token flat while for others the price depends on the payload.
+        // See `get_key_and_token_cost` for more details.
+
+        rate_limits.insert(SyncRoutingTable, SingleMessageConfig::new(400_000, 4_000.0, None));
+        rate_limits.insert(DistanceVector, SingleMessageConfig::new(250_000, 2_500.0, None));
+        rate_limits.insert(RequestUpdateNonce, SingleMessageConfig::new(10, 0.1, None));
+        rate_limits.insert(SyncAccountsData, SingleMessageConfig::new(25_000, 250.0, None));
+        rate_limits.insert(PeersRequest, SingleMessageConfig::new(20, 0.2, None));
+        rate_limits.insert(PeersResponse, SingleMessageConfig::new(10_000, 100.0, None));
+        rate_limits.insert(BlockRequest, SingleMessageConfig::new(50, 0.5, None));
+        rate_limits.insert(Block, SingleMessageConfig::new(300, 3.0, None));
+        rate_limits.insert(SyncSnapshotHosts, SingleMessageConfig::new(1_000, 10.0, None));
+        rate_limits.insert(
+            PartialEncodedChunkRequest,
+            SingleMessageConfig::new(1_000_000, 10_000.0, None),
+        );
+        rate_limits
+            .insert(PartialEncodedChunkResponse, SingleMessageConfig::new(10_000, 100.0, None));
+        rate_limits
+            .insert(PartialEncodedChunkForward, SingleMessageConfig::new(25_000, 250.0, None));
+        rate_limits.insert(VersionedPartialEncodedChunk, SingleMessageConfig::new(200, 2.0, None));
+        rate_limits.insert(ForwardTx, SingleMessageConfig::new(400, 4.0, None));
+        rate_limits.insert(BlockApproval, SingleMessageConfig::new(200, 2.0, None));
+        rate_limits.insert(TxStatusRequest, SingleMessageConfig::new(10, 0.1, None));
+        rate_limits.insert(TxStatusResponse, SingleMessageConfig::new(10, 0.1, None));
+
+        Self { rate_limits }
     }
 
     /// Applies rate limits configuration overrides to `self`. In practice, merges the two configurations
