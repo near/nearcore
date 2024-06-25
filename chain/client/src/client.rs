@@ -45,8 +45,7 @@ use near_chain_configs::{
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardedTransactionPool;
 use near_chunks::logic::{
-    cares_about_shard_this_or_next_epoch, decode_encoded_chunk,
-    get_shards_cares_about_this_or_next_epoch, persist_chunk,
+    cares_about_shard_this_or_next_epoch, decode_encoded_chunk, persist_chunk,
 };
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client_primitives::debug::ChunkProduction;
@@ -2525,20 +2524,6 @@ impl Client {
                     .epoch_manager
                     .get_shard_layout(&epoch_id)
                     .expect("Cannot get shard layout");
-
-                // Make sure mem-tries for shards we do not care about are unloaded before we start a new state sync.
-                let shards_cares_this_or_next_epoch = get_shards_cares_about_this_or_next_epoch(
-                    me.as_ref(),
-                    true,
-                    &block_header,
-                    &self.shard_tracker,
-                    self.epoch_manager.as_ref(),
-                );
-                let shard_uids: Vec<_> = shards_cares_this_or_next_epoch
-                    .iter()
-                    .map(|id| self.epoch_manager.shard_id_to_uid(*id, &epoch_id).unwrap())
-                    .collect();
-                self.runtime_adapter.get_tries().retain_mem_tries(&shard_uids);
 
                 for &shard_id in &tracking_shards {
                     let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
