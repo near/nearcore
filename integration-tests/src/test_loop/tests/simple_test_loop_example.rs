@@ -18,13 +18,12 @@ use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::AccountId;
 
+use crate::test_loop::utils::ONE_NEAR;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use nearcore::NightshadeRuntime;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
-
-const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 
 #[test]
 fn test_client_with_simple_test_loop() {
