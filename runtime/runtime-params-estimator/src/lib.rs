@@ -889,7 +889,6 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
     let config_store = RuntimeConfigStore::new(None);
     let config = config_store.get_config(PROTOCOL_VERSION).wasm_config.clone();
     let fees = Arc::new(RuntimeFeesConfig::test());
-    let promise_results = [].into();
     let cache = MockContractRuntimeCache::default();
 
     let mut run = || {
@@ -897,13 +896,7 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
         let vm_result = vm_kind
             .runtime(config.clone())
             .unwrap()
-            .run(
-                &mut fake_external,
-                &context,
-                Arc::clone(&fees),
-                Arc::clone(&promise_results),
-                Some(&cache),
-            )
+            .run(&mut fake_external, &context, Arc::clone(&fees), Some(&cache))
             .expect("fatal_error");
         assert!(vm_result.aborted.is_some());
         vm_result

@@ -141,18 +141,11 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     let fees = runtime_config.fees.clone();
     let mut fake_external = MockedExternal::with_code(contract.clone_for_tests());
     let fake_context = create_context("hello", vec![]);
-    let promise_results = Arc::from([]);
 
     // Warmup with gas metering
     for _ in 0..warmup_repeats {
         let result = runtime
-            .run(
-                &mut fake_external,
-                &fake_context,
-                Arc::clone(&fees),
-                Arc::clone(&promise_results),
-                cache,
-            )
+            .run(&mut fake_external, &fake_context, Arc::clone(&fees), cache)
             .expect("fatal_error");
         if let Some(err) = &result.aborted {
             eprintln!("error: {}", err);
@@ -164,13 +157,7 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     let start = GasCost::measure(gas_metric);
     for _ in 0..repeats {
         let result = runtime
-            .run(
-                &mut fake_external,
-                &fake_context,
-                Arc::clone(&fees),
-                Arc::clone(&promise_results),
-                cache,
-            )
+            .run(&mut fake_external, &fake_context, Arc::clone(&fees), cache)
             .expect("fatal_error");
         assert!(result.aborted.is_none());
     }
@@ -179,13 +166,7 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     // Warmup without gas metering
     for _ in 0..warmup_repeats {
         let result = runtime_free_gas
-            .run(
-                &mut fake_external,
-                &fake_context,
-                Arc::clone(&fees),
-                Arc::clone(&promise_results),
-                cache,
-            )
+            .run(&mut fake_external, &fake_context, Arc::clone(&fees), cache)
             .expect("fatal_error");
         assert!(result.aborted.is_none());
     }
@@ -194,13 +175,7 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     let start = GasCost::measure(gas_metric);
     for _ in 0..repeats {
         let result = runtime_free_gas
-            .run(
-                &mut fake_external,
-                &fake_context,
-                Arc::clone(&fees),
-                Arc::clone(&promise_results),
-                cache,
-            )
+            .run(&mut fake_external, &fake_context, Arc::clone(&fees), cache)
             .expect("fatal_error");
         assert!(result.aborted.is_none());
     }

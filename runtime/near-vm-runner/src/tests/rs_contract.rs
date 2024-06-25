@@ -57,20 +57,12 @@ pub fn test_read_write() {
         let mut fake_external = MockedExternal::with_code(code);
         let context = create_context("write_key_value", encode(&[10u64, 20u64]));
 
-        let promise_results = [].into();
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
-        let result = runtime.run(
-            &mut fake_external,
-            &context,
-            Arc::clone(&fees),
-            Arc::clone(&promise_results),
-            None,
-        );
+        let result = runtime.run(&mut fake_external, &context, Arc::clone(&fees), None);
         assert_run_result(result, 0);
 
         let context = create_context("read_value", encode(&[10u64]));
-        let result =
-            runtime.run(&mut fake_external, &context, Arc::clone(&fees), promise_results, None);
+        let result = runtime.run(&mut fake_external, &context, Arc::clone(&fees), None);
         assert_run_result(result, 20);
     });
 }
@@ -122,7 +114,7 @@ fn run_test_ext(
     let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
 
     let outcome = runtime
-        .run(&mut fake_external, &context, Arc::clone(&fees), [].into(), None)
+        .run(&mut fake_external, &context, Arc::clone(&fees), None)
         .unwrap_or_else(|err| panic!("Failed execution: {:?}", err));
 
     assert_eq!(outcome.profile.action_gas(), 0);
@@ -226,10 +218,8 @@ pub fn test_out_of_memory() {
         let context = create_context("out_of_memory", Vec::new());
         let fees = Arc::new(RuntimeFeesConfig::free());
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
-        let promise_results = [].into();
-        let result = runtime
-            .run(&mut fake_external, &context, fees, promise_results, None)
-            .expect("execution failed");
+        let result =
+            runtime.run(&mut fake_external, &context, fees, None).expect("execution failed");
         assert_eq!(
             result.aborted,
             match vm_kind {
@@ -261,7 +251,7 @@ fn attach_unspent_gas_but_use_all_gas() {
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
 
         let outcome = runtime
-            .run(&mut external, &context, fees, [].into(), None)
+            .run(&mut external, &context, fees, None)
             .unwrap_or_else(|err| panic!("Failed execution: {:?}", err));
 
         let err = outcome.aborted.as_ref().unwrap();

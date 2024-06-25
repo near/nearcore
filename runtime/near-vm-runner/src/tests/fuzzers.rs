@@ -47,6 +47,7 @@ pub fn create_context(method: &str, input: Vec<u8>) -> VMContext {
         predecessor_account_id: "carol".parse().unwrap(),
         method: method.into(),
         input,
+        promise_results: Vec::new().into(),
         block_height: 10,
         block_timestamp: 42,
         epoch_height: 1,
@@ -118,12 +119,10 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
     config.limit_config.contract_prepare_version = ContractPrepareVersion::V2;
 
     let fees = Arc::new(RuntimeFeesConfig::test());
-    let promise_results = [].into();
     let mut res = vm_kind.runtime(config.into()).unwrap().run(
         &mut fake_external,
         &context,
         Arc::clone(&fees),
-        promise_results,
         None,
     );
 

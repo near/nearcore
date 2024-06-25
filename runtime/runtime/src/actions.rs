@@ -78,6 +78,7 @@ pub(crate) fn execute_function_call(
         predecessor_account_id: predecessor_id.clone(),
         method: function_call.method_name.clone(),
         input: function_call.args.clone(),
+        promise_results,
         block_height: apply_state.block_height,
         block_timestamp: apply_state.block_timestamp,
         epoch_height: apply_state.epoch_height,
@@ -107,7 +108,6 @@ pub(crate) fn execute_function_call(
         &context,
         Arc::clone(&config.wasm_config),
         Arc::clone(&config.fees),
-        promise_results,
         apply_state.cache.as_deref(),
     );
     drop(mode_guard);

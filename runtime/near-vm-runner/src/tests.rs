@@ -60,6 +60,7 @@ fn create_context(method: &str, input: Vec<u8>) -> VMContext {
         predecessor_account_id: PREDECESSOR_ACCOUNT_ID.parse().unwrap(),
         method: method.into(),
         input,
+        promise_results: Vec::new().into(),
         block_height: 10,
         block_timestamp: 42,
         epoch_height: 1,

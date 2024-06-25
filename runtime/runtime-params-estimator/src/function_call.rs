@@ -73,18 +73,11 @@ fn compute_function_call_cost(
     let fees = runtime_config.fees.clone();
     let mut fake_external = MockedExternal::with_code(contract.clone_for_tests());
     let fake_context = create_context("hello0", vec![]);
-    let promise_results = Arc::from([]);
 
     // Warmup.
     for _ in 0..warmup_repeats {
         let result = runtime
-            .run(
-                &mut fake_external,
-                &fake_context,
-                Arc::clone(&fees),
-                Arc::clone(&promise_results),
-                cache,
-            )
+            .run(&mut fake_external, &fake_context, Arc::clone(&fees), cache)
             .expect("fatal error");
         assert!(result.aborted.is_none());
     }
@@ -92,13 +85,7 @@ fn compute_function_call_cost(
     let start = GasCost::measure(gas_metric);
     for _ in 0..repeats {
         let result = runtime
-            .run(
-                &mut fake_external,
-                &fake_context,
-                Arc::clone(&fees),
-                Arc::clone(&promise_results),
-                cache,
-            )
+            .run(&mut fake_external, &fake_context, Arc::clone(&fees), cache)
             .expect("fatal_error");
         assert!(result.aborted.is_none());
     }

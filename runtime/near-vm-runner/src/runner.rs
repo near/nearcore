@@ -1,6 +1,5 @@
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{CacheError, CompilationError, VMRunnerError};
-use crate::logic::types::PromiseResult;
 use crate::logic::{External, VMContext, VMOutcome};
 use crate::{ContractCode, ContractRuntimeCache};
 use near_parameters::vm::{Config, VMKind};
@@ -52,7 +51,6 @@ pub fn run(
     context: &VMContext,
     wasm_config: Arc<Config>,
     fees_config: Arc<RuntimeFeesConfig>,
-    promise_results: std::sync::Arc<[PromiseResult]>,
     cache: Option<&dyn ContractRuntimeCache>,
 ) -> VMResult {
     let span = tracing::Span::current();
@@ -60,7 +58,7 @@ pub fn run(
     let runtime = vm_kind
         .runtime(wasm_config)
         .unwrap_or_else(|| panic!("the {vm_kind:?} runtime has not been enabled at compile time"));
-    let outcome = runtime.run(ext, context, fees_config, promise_results, cache);
+    let outcome = runtime.run(ext, context, fees_config, cache);
     let outcome = match outcome {
         Ok(o) => o,
         e @ Err(_) => return e,
@@ -74,24 +72,19 @@ pub fn run(
 pub trait VM {
     /// Validate and run the specified contract.
     ///
-    /// This is the entry point for executing a NEAR protocol contract. Before
-    /// the entry point (as specified by the `method_name` argument) of the
-    /// contract code is executed, the contract will be validated (see
-    /// [`crate::prepare::prepare_contract`]), instrumented (e.g. for gas
-    /// accounting), and linked with the externs specified via the `ext`
-    /// argument.
+    /// This is the entry point for executing a NEAR protocol contract. Before the entry point (as
+    /// specified by the `VMContext::method` argument) of the contract code is executed, the
+    /// contract will be validated (see [`crate::prepare::prepare_contract`]), instrumented (e.g.
+    /// for gas accounting), and linked with the externs specified via the `ext` argument.
     ///
-    /// [`VMContext::input`] will be passed to the contract entrypoint as an
-    /// argument.
+    /// [`VMContext::input`] will be passed to the contract entrypoint as an argument.
     ///
-    /// The gas cost for contract preparation will be subtracted by the VM
-    /// implementation.
+    /// The gas cost for contract preparation will be subtracted by the VM implementation.
     fn run(
         &self,
         ext: &mut dyn External,
         context: &VMContext,
         fees_config: Arc<RuntimeFeesConfig>,
-        promise_results: std::sync::Arc<[PromiseResult]>,
         cache: Option<&dyn ContractRuntimeCache>,
     ) -> VMResult;
 

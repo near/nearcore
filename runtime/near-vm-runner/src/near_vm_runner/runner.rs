@@ -5,7 +5,6 @@ use crate::logic::errors::{
     CacheError, CompilationError, FunctionCallError, MethodResolveError, VMRunnerError, WasmTrap,
 };
 use crate::logic::gas_counter::FastGasCounter;
-use crate::logic::types::PromiseResult;
 use crate::logic::{Config, ExecutionResultState, External, VMContext, VMLogic, VMOutcome};
 use crate::near_vm_runner::{NearVmCompiler, NearVmEngine};
 use crate::runner::VMResult;
@@ -579,7 +578,6 @@ impl crate::runner::VM for NearVM {
         ext: &mut dyn External,
         context: &VMContext,
         fees_config: Arc<RuntimeFeesConfig>,
-        promise_results: Arc<[PromiseResult]>,
         cache: Option<&dyn ContractRuntimeCache>,
     ) -> Result<VMOutcome, VMRunnerError> {
         let cache = cache.unwrap_or(&NoContractRuntimeCache);
@@ -592,8 +590,7 @@ impl crate::runner::VM for NearVM {
             // FIXME: this mostly duplicates the `run_module` method.
             // Note that we don't clone the actual backing memory, just increase the RC.
             let vmmemory = memory.vm();
-            let mut logic =
-                VMLogic::new(ext, context, fees_config, promise_results, result_state, memory);
+            let mut logic = VMLogic::new(ext, context, fees_config, result_state, memory);
             let import =
                 build_imports(vmmemory, &mut logic, Arc::clone(&self.config), artifact.engine());
             let entrypoint = match get_entrypoint_index(&*artifact, &context.method) {

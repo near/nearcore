@@ -20,15 +20,8 @@ pub fn test_ts_contract() {
         let fees = Arc::new(RuntimeFeesConfig::test());
 
         // Call method that panics.
-        let promise_results = [].into();
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
-        let result = runtime.run(
-            &mut fake_external,
-            &context,
-            Arc::clone(&fees),
-            Arc::clone(&promise_results),
-            None,
-        );
+        let result = runtime.run(&mut fake_external, &context, Arc::clone(&fees), None);
         let outcome = result.expect("execution failed");
         assert_eq!(
             outcome.aborted,
@@ -39,15 +32,7 @@ pub fn test_ts_contract() {
 
         // Call method that writes something into storage.
         let context = create_context("try_storage_write", b"foo bar".to_vec());
-        runtime
-            .run(
-                &mut fake_external,
-                &context,
-                Arc::clone(&fees),
-                Arc::clone(&promise_results),
-                None,
-            )
-            .expect("bad failure");
+        runtime.run(&mut fake_external, &context, Arc::clone(&fees), None).expect("bad failure");
         // Verify by looking directly into the storage of the host.
         {
             let res = fake_external.storage_get(b"foo", StorageGetMode::Trie);
@@ -60,13 +45,7 @@ pub fn test_ts_contract() {
         // Call method that reads the value from storage using registers.
         let context = create_context("try_storage_read", b"foo".to_vec());
         let outcome = runtime
-            .run(
-                &mut fake_external,
-                &context,
-                Arc::clone(&fees),
-                Arc::clone(&promise_results),
-                None,
-            )
+            .run(&mut fake_external, &context, Arc::clone(&fees), None)
             .expect("execution failed");
 
         if let ReturnData::Value(value) = outcome.return_data {

@@ -3,7 +3,6 @@ use crate::logic::errors::{
     CacheError, CompilationError, FunctionCallError, MethodResolveError, PrepareError,
     VMLogicError, VMRunnerError, WasmTrap,
 };
-use crate::logic::types::PromiseResult;
 use crate::logic::{Config, ExecutionResultState};
 use crate::logic::{External, MemSlice, MemoryLike, VMContext, VMLogic, VMOutcome};
 use crate::runner::VMResult;
@@ -275,7 +274,6 @@ impl crate::runner::VM for WasmtimeVM {
         ext: &mut dyn External,
         context: &VMContext,
         fees_config: Arc<RuntimeFeesConfig>,
-        promise_results: Arc<[PromiseResult]>,
         cache: Option<&dyn ContractRuntimeCache>,
     ) -> Result<VMOutcome, VMRunnerError> {
         let cache = cache.unwrap_or(&NoContractRuntimeCache);
@@ -318,8 +316,7 @@ impl crate::runner::VM for WasmtimeVM {
             )
             .unwrap();
             let memory_copy = memory.0;
-            let mut logic =
-                VMLogic::new(ext, context, fees_config, promise_results, result_state, memory);
+            let mut logic = VMLogic::new(ext, context, fees_config, result_state, memory);
             let mut linker = Linker::new(&(&self.engine));
             link(&mut linker, memory_copy, &store, &self.config, &mut logic);
             match linker.instantiate(&mut store, &module) {

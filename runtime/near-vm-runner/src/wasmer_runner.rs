@@ -3,7 +3,6 @@ use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{
     CacheError, CompilationError, FunctionCallError, MethodResolveError, VMRunnerError, WasmTrap,
 };
-use crate::logic::types::PromiseResult;
 use crate::logic::{ExecutionResultState, External, VMContext, VMLogic, VMLogicError, VMOutcome};
 use crate::logic::{MemSlice, MemoryLike};
 use crate::prepare;
@@ -420,7 +419,6 @@ impl crate::runner::VM for Wasmer0VM {
         ext: &mut dyn External,
         context: &VMContext,
         fees_config: Arc<RuntimeFeesConfig>,
-        promise_results: std::sync::Arc<[PromiseResult]>,
         cache: Option<&dyn ContractRuntimeCache>,
     ) -> Result<VMOutcome, VMRunnerError> {
         let Some(code) = ext.get_contract() else {
@@ -478,8 +476,7 @@ impl crate::runner::VM for Wasmer0VM {
         );
         // Note that we don't clone the actual backing memory, just increase the RC.
         let memory_copy = memory.clone();
-        let mut logic =
-            VMLogic::new(ext, context, fees_config, promise_results, execution_state, memory);
+        let mut logic = VMLogic::new(ext, context, fees_config, execution_state, memory);
         let import_object = build_imports(memory_copy, &self.config, &mut logic);
         match run_method(&module, &import_object, &context.method)? {
             Ok(()) => Ok(VMOutcome::ok(logic.result_state)),

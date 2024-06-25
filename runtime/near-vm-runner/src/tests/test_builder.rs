@@ -16,6 +16,7 @@ pub(crate) fn test_builder() -> TestBuilder {
         signer_account_pk: vec![0, 1, 2],
         predecessor_account_id: "carol".parse().unwrap(),
         input: Vec::new(),
+        promise_results: Vec::new().into(),
         method: "main".into(),
         block_height: 10,
         block_timestamp: 42,
@@ -216,14 +217,12 @@ impl TestBuilder {
                 let fees = Arc::new(RuntimeFeesConfig::test());
                 let context = self.context.clone();
 
-                let promise_results = [].into();
-
                 let Some(runtime) = vm_kind.runtime(config) else {
                     panic!("runtime for {:?} has not been compiled", vm_kind);
                 };
                 println!("Running {:?} for protocol version {}", vm_kind, protocol_version);
                 let outcome = runtime
-                    .run(&mut fake_external, &context, fees, promise_results, None)
+                    .run(&mut fake_external, &context, fees, None)
                     .expect("execution failed");
 
                 let mut got = String::new();

@@ -219,9 +219,6 @@ pub struct VMLogic<'a> {
     config: Arc<Config>,
     /// Fees charged for various operations that contract may execute.
     fees_config: Arc<RuntimeFeesConfig>,
-    /// If this method execution is invoked directly as a callback by one or more contract calls the
-    /// results of the methods that made the callback are stored in this collection.
-    promise_results: Arc<[PromiseResult]>,
     /// Pointer to the guest memory.
     memory: super::vmstate::Memory,
 
@@ -303,7 +300,6 @@ impl<'a> VMLogic<'a> {
         ext: &'a mut dyn External,
         context: &'a VMContext,
         fees_config: Arc<RuntimeFeesConfig>,
-        promise_results: Arc<[PromiseResult]>,
         result_state: ExecutionResultState,
         memory: impl MemoryLike + 'static,
     ) -> Self {
@@ -319,7 +315,6 @@ impl<'a> VMLogic<'a> {
             context,
             config,
             fees_config,
-            promise_results,
             memory: super::vmstate::Memory::new(memory),
             current_account_locked_balance,
             recorded_storage_counter,
@@ -2381,7 +2376,7 @@ impl<'a> VMLogic<'a> {
             }
             .into());
         }
-        Ok(self.promise_results.len() as _)
+        Ok(self.context.promise_results.len() as _)
     }
 
     /// If the current function is invoked by a callback we can access the execution results of the
@@ -2414,6 +2409,7 @@ impl<'a> VMLogic<'a> {
             );
         }
         match self
+            .context
             .promise_results
             .get(result_idx as usize)
             .ok_or(HostError::InvalidPromiseResultIndex { result_idx })?

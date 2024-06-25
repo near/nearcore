@@ -4,7 +4,6 @@ use crate::logic::errors::{
     CacheError, CompilationError, FunctionCallError, MethodResolveError, VMRunnerError, WasmTrap,
 };
 use crate::logic::gas_counter::FastGasCounter;
-use crate::logic::types::PromiseResult;
 use crate::logic::{
     Config, ExecutionResultState, External, MemSlice, MemoryLike, VMContext, VMLogic, VMOutcome,
 };
@@ -569,7 +568,6 @@ impl crate::runner::VM for Wasmer2VM {
         ext: &mut dyn External,
         context: &VMContext,
         fees_config: Arc<RuntimeFeesConfig>,
-        promise_results: Arc<[PromiseResult]>,
         cache: Option<&dyn ContractRuntimeCache>,
     ) -> Result<VMOutcome, VMRunnerError> {
         let Some(code) = ext.get_contract() else {
@@ -611,8 +609,7 @@ impl crate::runner::VM for Wasmer2VM {
         // FIXME: this mostly duplicates the `run_module` method.
         // Note that we don't clone the actual backing memory, just increase the RC.
         let vmmemory = memory.vm();
-        let mut logic =
-            VMLogic::new(ext, context, fees_config, promise_results, result_state, memory);
+        let mut logic = VMLogic::new(ext, context, fees_config, result_state, memory);
         let import =
             build_imports(vmmemory, &mut logic, Arc::clone(&self.config), artifact.engine());
         match self.run_method(&artifact, import, entrypoint)? {
