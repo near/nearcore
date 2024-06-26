@@ -1,8 +1,3 @@
-use std::collections::BTreeMap;
-use std::path::PathBuf;
-use std::rc::Rc;
-use std::str::FromStr;
-
 use bytesize::ByteSize;
 use clap::Parser;
 use near_chain::{ChainStore, ChainStoreAccess};
@@ -12,6 +7,11 @@ use near_primitives::trie_key::col;
 use near_primitives::types::AccountId;
 use near_store::{ShardUId, Trie, TrieDBStorage};
 use nearcore::{load_config, open_storage};
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+use std::rc::Rc;
+use std::str::FromStr;
+use std::sync::Arc;
 
 #[derive(Parser)]
 pub(crate) struct AnalyzeContractSizesCommand {
@@ -95,7 +95,7 @@ impl AnalyzeContractSizesCommand {
                 chain_store.get_chunk_extra(&head.last_block_hash, &shard_uid).unwrap();
 
             let state_root = chunk_extra.state_root();
-            let trie_storage = Rc::new(TrieDBStorage::new(store.clone(), shard_uid));
+            let trie_storage = Arc::new(TrieDBStorage::new(store.clone(), shard_uid));
             let trie = Trie::new(trie_storage, *state_root, None);
 
             let mut iterator = trie.disk_iter().unwrap();

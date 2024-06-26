@@ -480,6 +480,7 @@ impl StateRootNode {
 #[derive(
     Debug,
     Clone,
+    Copy,
     Default,
     Hash,
     Eq,
@@ -1065,8 +1066,6 @@ pub enum ValidatorKickoutReason {
     NotEnoughBlocks { produced: NumBlocks, expected: NumBlocks },
     /// Validator didn't produce enough chunks.
     NotEnoughChunks { produced: NumBlocks, expected: NumBlocks },
-    /// Validator didn't produce enough chunk endorsements.
-    NotEnoughChunkEndorsements { produced: NumBlocks, expected: NumBlocks },
     /// Validator unstaked themselves.
     Unstaked,
     /// Validator stake is now below threshold
@@ -1078,6 +1077,8 @@ pub enum ValidatorKickoutReason {
     },
     /// Enough stake but is not chosen because of seat limits.
     DidNotGetASeat,
+    /// Validator didn't produce enough chunk endorsements.
+    NotEnoughChunkEndorsements { produced: NumBlocks, expected: NumBlocks },
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -1089,7 +1090,7 @@ pub enum TransactionOrReceiptId {
 
 /// Provides information about current epoch validators.
 /// Used to break dependency between epoch manager and runtime.
-pub trait EpochInfoProvider {
+pub trait EpochInfoProvider: Send + Sync {
     /// Get current stake of a validator in the given epoch.
     /// If the account is not a validator, returns `None`.
     fn validator_stake(

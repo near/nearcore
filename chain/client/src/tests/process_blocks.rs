@@ -33,6 +33,7 @@ fn test_not_process_height_twice() {
     duplicate_block.mut_header().get_mut().inner_rest.prev_validator_proposals = proposals;
     duplicate_block.mut_header().resign(&validator_signer);
     let dup_block_hash = *duplicate_block.hash();
+    let signer = env.clients[0].validator_signer.get();
     // we should have dropped the block before we even tried to process it, so the result should be ok
     env.clients[0]
         .receive_block_impl(
@@ -40,6 +41,7 @@ fn test_not_process_height_twice() {
             PeerId::new(PublicKey::empty(KeyType::ED25519)),
             false,
             None,
+            &signer,
         )
         .unwrap();
     // check that the second block is not being processed
@@ -112,9 +114,16 @@ fn test_bad_block_content_vrf() {
     let block = env.clients[0].produce_block(2).unwrap().unwrap();
     let mut bad_block = block.clone();
     bad_block.set_vrf_value(Value([0u8; 32]));
+    let signer = env.clients[0].validator_signer.get();
 
     let err = env.clients[0]
-        .receive_block_impl(bad_block, PeerId::new(PublicKey::empty(KeyType::ED25519)), false, None)
+        .receive_block_impl(
+            bad_block,
+            PeerId::new(PublicKey::empty(KeyType::ED25519)),
+            false,
+            None,
+            &signer,
+        )
         .unwrap_err();
     assert_matches!(err, near_chain::Error::InvalidSignature);
 
@@ -131,9 +140,16 @@ fn test_bad_block_signature() {
     let block = env.clients[0].produce_block(2).unwrap().unwrap();
     let mut bad_block = block.clone();
     bad_block.mut_header().get_mut().signature = Signature::default();
+    let signer = env.clients[0].validator_signer.get();
 
     let err = env.clients[0]
-        .receive_block_impl(bad_block, PeerId::new(PublicKey::empty(KeyType::ED25519)), false, None)
+        .receive_block_impl(
+            bad_block,
+            PeerId::new(PublicKey::empty(KeyType::ED25519)),
+            false,
+            None,
+            &signer,
+        )
         .unwrap_err();
     assert_matches!(err, near_chain::Error::InvalidSignature);
 

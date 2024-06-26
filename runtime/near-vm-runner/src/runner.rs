@@ -5,6 +5,7 @@ use crate::logic::{External, VMContext, VMOutcome};
 use crate::{ContractCode, ContractRuntimeCache};
 use near_parameters::vm::{Config, VMKind};
 use near_parameters::RuntimeFeesConfig;
+use std::sync::Arc;
 
 /// Returned by VM::run method.
 ///
@@ -48,17 +49,17 @@ pub(crate) type VMResult<T = VMOutcome> = Result<T, VMRunnerError>;
 ))]
 pub fn run(
     method_name: &str,
-    ext: &mut dyn External,
+    ext: &mut (dyn External + Send),
     context: &VMContext,
-    wasm_config: &Config,
-    fees_config: &RuntimeFeesConfig,
-    promise_results: &[PromiseResult],
+    wasm_config: Arc<Config>,
+    fees_config: Arc<RuntimeFeesConfig>,
+    promise_results: std::sync::Arc<[PromiseResult]>,
     cache: Option<&dyn ContractRuntimeCache>,
 ) -> VMResult {
     let span = tracing::Span::current();
     let vm_kind = wasm_config.vm_kind;
     let runtime = vm_kind
-        .runtime(wasm_config.clone())
+        .runtime(wasm_config)
         .unwrap_or_else(|| panic!("the {vm_kind:?} runtime has not been enabled at compile time"));
     let outcome = runtime.run(method_name, ext, context, fees_config, promise_results, cache);
     let outcome = match outcome {
@@ -91,8 +92,8 @@ pub trait VM {
         method_name: &str,
         ext: &mut dyn External,
         context: &VMContext,
-        fees_config: &RuntimeFeesConfig,
-        promise_results: &[PromiseResult],
+        fees_config: Arc<RuntimeFeesConfig>,
+        promise_results: std::sync::Arc<[PromiseResult]>,
         cache: Option<&dyn ContractRuntimeCache>,
     ) -> VMResult;
 
@@ -115,7 +116,7 @@ pub trait VMKindExt {
     ///
     /// This is not intended to be used by code other than internal tools like
     /// the estimator.
-    fn runtime(&self, config: Config) -> Option<Box<dyn VM>>;
+    fn runtime(&self, config: std::sync::Arc<Config>) -> Option<Box<dyn VM>>;
 }
 
 impl VMKindExt for VMKind {
@@ -127,7 +128,7 @@ impl VMKindExt for VMKind {
             Self::NearVm => cfg!(all(feature = "near_vm", target_arch = "x86_64")),
         }
     }
-    fn runtime(&self, config: Config) -> Option<Box<dyn VM>> {
+    fn runtime(&self, config: std::sync::Arc<Config>) -> Option<Box<dyn VM>> {
         match self {
             #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
             Self::Wasmer0 => Some(Box::new(crate::wasmer_runner::Wasmer0VM::new(config))),

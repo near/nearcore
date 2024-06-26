@@ -171,7 +171,7 @@ impl ChainStore {
         let key = LatestWitnessesKey {
             height: witness.chunk_header.height_created(),
             shard_id: witness.chunk_header.shard_id(),
-            epoch_id: witness.epoch_id.clone(),
+            epoch_id: witness.epoch_id,
             witness_size: serialized_witness_size,
             random_uuid,
         };

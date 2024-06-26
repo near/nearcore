@@ -2,7 +2,6 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use ed25519_dalek::ed25519::signature::{Signer, Verifier};
 use once_cell::sync::Lazy;
 use primitive_types::U256;
-use secp256k1::rand::rngs::OsRng;
 use secp256k1::Message;
 use std::convert::AsRef;
 use std::fmt::{Debug, Display, Formatter};
@@ -312,7 +311,10 @@ impl SecretKey {
         }
     }
 
+    #[cfg(feature = "rand")]
     pub fn from_random(key_type: KeyType) -> SecretKey {
+        use secp256k1::rand::rngs::OsRng;
+
         match key_type {
             KeyType::ED25519 => {
                 let keypair = ed25519_dalek::SigningKey::generate(&mut OsRng);

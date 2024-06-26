@@ -369,11 +369,11 @@ impl Runtime {
         actor_id: &mut AccountId,
         receipt: &Receipt,
         action_receipt: &ActionReceipt,
-        promise_results: &[PromiseResult],
+        promise_results: Arc<[PromiseResult]>,
         action_hash: &CryptoHash,
         action_index: usize,
         actions: &[Action],
-        epoch_info_provider: &dyn EpochInfoProvider,
+        epoch_info_provider: &(dyn EpochInfoProvider),
     ) -> Result<ActionResult, RuntimeError> {
         let _span = tracing::debug_span!(
             target: "runtime",
@@ -548,7 +548,7 @@ impl Runtime {
         receipt_sink: &mut ReceiptSink,
         validator_proposals: &mut Vec<ValidatorStake>,
         stats: &mut ApplyStats,
-        epoch_info_provider: &dyn EpochInfoProvider,
+        epoch_info_provider: &(dyn EpochInfoProvider),
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
         let _span = tracing::debug_span!(
             target: "runtime",
@@ -582,7 +582,7 @@ impl Runtime {
                     None => Ok(PromiseResult::Failed),
                 }
             })
-            .collect::<Result<Vec<PromiseResult>, RuntimeError>>()?;
+            .collect::<Result<Arc<[PromiseResult]>, RuntimeError>>()?;
 
         // state_update might already have some updates so we need to make sure we commit it before
         // executing the actual receipt
@@ -618,7 +618,7 @@ impl Runtime {
                 &mut actor_id,
                 receipt,
                 action_receipt,
-                &promise_results,
+                Arc::clone(&promise_results),
                 &action_hash,
                 action_index,
                 &action_receipt.actions,
@@ -967,7 +967,7 @@ impl Runtime {
         receipt_sink: &mut ReceiptSink,
         validator_proposals: &mut Vec<ValidatorStake>,
         stats: &mut ApplyStats,
-        epoch_info_provider: &dyn EpochInfoProvider,
+        epoch_info_provider: &(dyn EpochInfoProvider),
     ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
         let account_id = receipt.receiver_id();
         match receipt.receipt() {
@@ -1355,7 +1355,7 @@ impl Runtime {
         apply_state: &ApplyState,
         incoming_receipts: &[Receipt],
         transactions: &[SignedTransaction],
-        epoch_info_provider: &dyn EpochInfoProvider,
+        epoch_info_provider: &(dyn EpochInfoProvider),
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyResult, RuntimeError> {
         // state_patch must be empty unless this is sandbox build.  Thanks to
@@ -1947,7 +1947,7 @@ impl Runtime {
             state_root,
             trie_changes,
             validator_proposals: unique_proposals,
-            outgoing_receipts: outgoing_receipts,
+            outgoing_receipts,
             outcomes: processing_state.outcomes,
             state_changes,
             stats: processing_state.stats,
@@ -2213,7 +2213,7 @@ struct ApplyProcessingState<'a> {
     apply_state: &'a ApplyState,
     prefetcher: Option<TriePrefetcher>,
     state_update: TrieUpdate,
-    epoch_info_provider: &'a dyn EpochInfoProvider,
+    epoch_info_provider: &'a (dyn EpochInfoProvider),
     transactions: &'a [SignedTransaction],
     total: TotalResourceGuard,
     stats: ApplyStats,
@@ -2223,7 +2223,7 @@ impl<'a> ApplyProcessingState<'a> {
     fn new(
         apply_state: &'a ApplyState,
         trie: Trie,
-        epoch_info_provider: &'a dyn EpochInfoProvider,
+        epoch_info_provider: &'a (dyn EpochInfoProvider),
         transactions: &'a [SignedTransaction],
     ) -> Self {
         let protocol_version = apply_state.current_protocol_version;
@@ -2279,7 +2279,7 @@ struct ApplyProcessingReceiptState<'a> {
     apply_state: &'a ApplyState,
     prefetcher: Option<TriePrefetcher>,
     state_update: TrieUpdate,
-    epoch_info_provider: &'a dyn EpochInfoProvider,
+    epoch_info_provider: &'a (dyn EpochInfoProvider),
     transactions: &'a [SignedTransaction],
     total: TotalResourceGuard,
     stats: ApplyStats,
@@ -2795,8 +2795,8 @@ mod tests {
 
         let receipt_exec_gas_fee = 1000;
         let mut free_config = RuntimeConfig::free();
-        free_config.fees.action_fees[ActionCosts::new_action_receipt].execution =
-            receipt_exec_gas_fee;
+        let fees = Arc::make_mut(&mut free_config.fees);
+        fees.action_fees[ActionCosts::new_action_receipt].execution = receipt_exec_gas_fee;
         apply_state.config = Arc::new(free_config);
         // This allows us to execute 3 receipts per apply.
         apply_state.gas_limit = Some(receipt_exec_gas_fee * 3);
@@ -3317,7 +3317,8 @@ mod tests {
             gas: Gas::from(1_000_000u64),
             compute: Compute::from(10_000_000_000_000u64),
         };
-        free_config.wasm_config.ext_costs.costs[ExtCosts::sha256_base] = sha256_cost.clone();
+        let wasm_config = Arc::make_mut(&mut free_config.wasm_config);
+        wasm_config.ext_costs.costs[ExtCosts::sha256_base] = sha256_cost.clone();
         apply_state.config = Arc::new(free_config);
         // This allows us to execute 1 receipt with a function call per apply.
         apply_state.gas_limit = Some(sha256_cost.compute);
@@ -3855,7 +3856,7 @@ pub mod estimator {
         outgoing_receipts: &mut Vec<Receipt>,
         validator_proposals: &mut Vec<ValidatorStake>,
         stats: &mut ApplyStats,
-        epoch_info_provider: &dyn EpochInfoProvider,
+        epoch_info_provider: &(dyn EpochInfoProvider),
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
         // TODO(congestion_control - edit runtime config parameters for limitless estimator runs
         let mut congestion_info = CongestionInfo::default();
@@ -3864,7 +3865,7 @@ pub mod estimator {
 
         let mut receipt_sink = ReceiptSink::V2(ReceiptSinkV2 {
             own_congestion_info: &mut congestion_info,
-            outgoing_limit: outgoing_limit,
+            outgoing_limit,
             outgoing_buffers: ShardsOutgoingReceiptBuffer::load(&state_update.trie)?,
             outgoing_receipts,
         });

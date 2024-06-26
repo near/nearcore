@@ -102,8 +102,8 @@ fn test_verify_block_double_sign_challenge() {
         genesis.header().block_ordinal() + 1,
         genesis.chunks().iter().cloned().collect(),
         vec![vec![]; genesis.chunks().len()],
-        b1.header().epoch_id().clone(),
-        b1.header().next_epoch_id().clone(),
+        *b1.header().epoch_id(),
+        *b1.header().next_epoch_id(),
         None,
         vec![],
         Ratio::from_integer(0),
@@ -115,9 +115,10 @@ fn test_verify_block_double_sign_challenge() {
         &signer,
         *b1.header().next_bp_hash(),
         block_merkle_tree.root(),
-        Clock::real().now_utc(),
+        Clock::real(),
+        None,
     );
-    let epoch_id = b1.header().epoch_id().clone();
+    let epoch_id = *b1.header().epoch_id();
     let valid_challenge = Challenge::produce(
         ChallengeBody::BlockDoubleSign(BlockDoubleSign {
             left_block_header: borsh::to_vec(&b2.header()).unwrap(),
@@ -424,8 +425,8 @@ fn test_verify_chunk_invalid_state_challenge() {
         last_block.header().block_ordinal() + 1,
         vec![invalid_chunk.cloned_header()],
         vec![vec![Some(Box::new(endorsement.signature))]],
-        last_block.header().epoch_id().clone(),
-        last_block.header().next_epoch_id().clone(),
+        *last_block.header().epoch_id(),
+        *last_block.header().next_epoch_id(),
         None,
         vec![],
         Ratio::from_integer(0),
@@ -437,7 +438,8 @@ fn test_verify_chunk_invalid_state_challenge() {
         &validator_signer,
         *last_block.header().next_bp_hash(),
         block_merkle_tree.root(),
-        Clock::real().now_utc(),
+        Clock::real(),
+        None,
     );
 
     let challenge_body =

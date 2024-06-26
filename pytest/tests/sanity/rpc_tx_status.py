@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-import base58
-import json
 import struct
 import sys
 import pathlib
@@ -52,7 +50,7 @@ def test_tx_status(nodes, *, nonce_offset: int = 0):
         signer_key, signer_key.account_id, 'write_key_value',
         struct.pack('<QQ', 42, 24), 300000000000000, 0, nonce_offset + 3,
         encoded_block_hash)
-    submit_tx_and_check(nodes, 0, deploy_contract_tx)
+    submit_tx_and_check(nodes, 0, function_call_tx)
 
 
 def start_cluster(*, archive: bool = False):

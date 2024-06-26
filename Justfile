@@ -93,10 +93,10 @@ check-cargo-fmt:
     cargo fmt -- --check
 
 # check clippy lints
-check-cargo-clippy:
+check-cargo-clippy *FLAGS:
     CARGO_TARGET_DIR="target/clippy" \
     RUSTFLAGS="-D warnings" \
-    cargo clippy --all-features --all-targets --locked
+    cargo clippy --all-features --all-targets --locked {{ FLAGS }}
 
 # check cargo deny lints
 check-cargo-deny:

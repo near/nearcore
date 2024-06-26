@@ -14,7 +14,7 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::ChainGenesis;
 use near_chain_configs::{
     ClientConfig, DumpConfig, ExternalStorageConfig, ExternalStorageLocation, Genesis,
-    StateSyncConfig, SyncConfig,
+    MutableConfigValue, StateSyncConfig, SyncConfig,
 };
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::client_actor::ClientActorInner;
@@ -99,7 +99,9 @@ impl TestLoopBuilder {
             network_adapters.push(network_adapter);
         }
         self.setup_network(&datas, &network_adapters);
-        TestLoopEnv { test_loop: self.test_loop, datas }
+
+        let env = TestLoopEnv { test_loop: self.test_loop, datas };
+        env.warmup()
     }
 
     fn setup_client(
@@ -188,7 +190,10 @@ impl TestLoopBuilder {
         let snapshot_callbacks =
             SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
 
-        let validator_signer = Arc::new(create_test_signer(self.clients[idx].as_str()));
+        let validator_signer = MutableConfigValue::new(
+            Some(Arc::new(create_test_signer(self.clients[idx].as_str()))),
+            "validator_signer",
+        );
         let client = Client::new(
             self.test_loop.clock(),
             client_config.clone(),
@@ -199,7 +204,7 @@ impl TestLoopBuilder {
             runtime_adapter.clone(),
             network_adapter.as_multi_sender(),
             shards_manager_adapter.as_sender(),
-            Some(validator_signer.clone()),
+            validator_signer.clone(),
             true,
             [0; 32],
             Some(snapshot_callbacks),
@@ -210,7 +215,7 @@ impl TestLoopBuilder {
 
         let shards_manager = ShardsManagerActor::new(
             self.test_loop.clock(),
-            Some(self.clients[idx].clone()),
+            validator_signer.clone(),
             epoch_manager.clone(),
             shard_tracker.clone(),
             network_adapter.as_sender(),
@@ -228,7 +233,6 @@ impl TestLoopBuilder {
             client_config.clone(),
             PeerId::random(),
             network_adapter.as_multi_sender(),
-            None,
             noop().into_sender(),
             None,
             Default::default(),
@@ -242,7 +246,7 @@ impl TestLoopBuilder {
             self.test_loop.clock(),
             network_adapter.as_multi_sender(),
             client_adapter.as_multi_sender(),
-            validator_signer,
+            validator_signer.clone(),
             epoch_manager.clone(),
             store,
         );
@@ -268,7 +272,7 @@ impl TestLoopBuilder {
             epoch_manager,
             shard_tracker,
             runtime: runtime_adapter,
-            account_id: Some(self.clients[idx].clone()),
+            validator: validator_signer,
             dump_future_runner: Box::new(move |future| {
                 future_spawner.spawn_boxed("state_sync_dumper", future);
                 Box::new(|| {})
@@ -291,6 +295,15 @@ impl TestLoopBuilder {
         );
         self.test_loop.register_actor_for_index(idx, sync_jobs_actor, Some(sync_jobs_adapter));
         self.test_loop.register_actor_for_index(idx, state_snapshot, Some(state_snapshot_adapter));
+
+        // State sync dumper is not an Actor, handle starting separately.
+        let state_sync_dumper_handle_clone = state_sync_dumper_handle.clone();
+        self.test_loop.send_adhoc_event(
+            "start_state_sync_dumper".to_owned(),
+            move |test_loop_data| {
+                test_loop_data.get_mut(&state_sync_dumper_handle_clone).start().unwrap();
+            },
+        );
 
         let data = TestData {
             account_id: self.clients[idx].clone(),

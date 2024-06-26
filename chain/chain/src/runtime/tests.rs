@@ -21,8 +21,8 @@ use num_rational::Ratio;
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
 use near_chain_configs::{
-    default_produce_chunk_add_transactions_time_limit, Genesis, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
-    NEAR_BASE,
+    default_produce_chunk_add_transactions_time_limit, Genesis, MutableConfigValue,
+    DEFAULT_GC_NUM_EPOCHS_TO_KEEP, NEAR_BASE,
 };
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_o11y::testonly::init_test_logger;
@@ -822,7 +822,7 @@ fn test_get_validator_info() {
          expected_blocks: &mut [u64; 2],
          expected_chunks: &mut [u64; 2],
          expected_endorsements: &mut [u64; 2]| {
-            let epoch_id = env.head.epoch_id.clone();
+            let epoch_id = env.head.epoch_id;
             let height = env.head.height;
             let em = env.runtime.epoch_manager.read();
             let bp = em.get_block_producer_info(&epoch_id, height).unwrap();
@@ -860,7 +860,7 @@ fn test_get_validator_info() {
     );
     assert!(env
         .epoch_manager
-        .get_validator_info(ValidatorInfoIdentifier::EpochId(env.head.epoch_id.clone()))
+        .get_validator_info(ValidatorInfoIdentifier::EpochId(env.head.epoch_id))
         .is_err());
     env.step_default(vec![]);
     update_validator_stats(
@@ -1619,7 +1619,7 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
         ChainConfig::test(),
         None,
         Arc::new(RayonAsyncComputationSpawner),
-        None,
+        MutableConfigValue::new(None, "validator_signer"),
     )
     .unwrap();
 

@@ -10,7 +10,6 @@ use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::ShardId;
-use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
@@ -282,7 +281,7 @@ impl TrieCache {
     }
 }
 
-pub trait TrieStorage {
+pub trait TrieStorage: Send + Sync {
     /// Get bytes of a serialized `TrieNode`.
     ///
     /// # Errors
@@ -307,7 +306,7 @@ pub trait TrieStorage {
 #[derive(Default)]
 pub struct TrieMemoryPartialStorage {
     pub(crate) recorded_storage: HashMap<CryptoHash, Arc<[u8]>>,
-    pub(crate) visited_nodes: RefCell<HashSet<CryptoHash>>,
+    pub(crate) visited_nodes: std::sync::RwLock<HashSet<CryptoHash>>,
 }
 
 impl TrieStorage for TrieMemoryPartialStorage {
@@ -318,7 +317,7 @@ impl TrieStorage for TrieMemoryPartialStorage {
                 *hash,
             ));
         if result.is_ok() {
-            self.visited_nodes.borrow_mut().insert(*hash);
+            self.visited_nodes.write().expect("write visited_nodes").insert(*hash);
         }
         result
     }
@@ -334,7 +333,7 @@ impl TrieMemoryPartialStorage {
     }
 
     pub fn partial_state(&self) -> PartialState {
-        let touched_nodes = self.visited_nodes.borrow();
+        let touched_nodes = self.visited_nodes.read().expect("read visited_nodes");
         let mut nodes: Vec<_> =
             self.recorded_storage
                 .iter()

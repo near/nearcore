@@ -125,7 +125,7 @@ impl SingleCheckCommand {
             let _check_result = run_single_check_with_3_retries(
                 None,
                 chain_id,
-                self.epoch_id.clone(),
+                self.epoch_id,
                 self.epoch_height,
                 self.shard_id,
                 self.state_root,
@@ -440,7 +440,6 @@ async fn run_single_check_with_3_retries(
         let s3_bucket = s3_bucket.clone();
         let s3_region = s3_region.clone();
         let gcs_bucket = gcs_bucket.clone();
-        let epoch_id = epoch_id.clone();
         res = run_single_check(
             status.clone(),
             chain_id,
@@ -554,8 +553,8 @@ async fn check_parts(
     let mut handles = vec![];
     for part_id in 0..num_parts {
         let chain_id = chain_id.clone();
-        let epoch_id = epoch_id.clone();
         let external = external.clone();
+        let epoch_id = *epoch_id;
         let handle = tokio::spawn(async move {
             process_part_with_3_retries(
                 part_id,
@@ -613,10 +612,9 @@ async fn check_headers(
 
     let start = Instant::now();
     let chain_id = chain_id.clone();
-    let epoch_id = epoch_id.clone();
     let external = external.clone();
 
-    process_header_with_3_retries(chain_id, epoch_id, epoch_height, shard_id, external).await?;
+    process_header_with_3_retries(chain_id, *epoch_id, epoch_height, shard_id, external).await?;
 
     let duration = start.elapsed();
     tracing::info!("Time elapsed in downloading and validating the header is: {:?}", duration);
@@ -706,7 +704,6 @@ async fn process_part_with_3_retries(
     let mut res;
     loop {
         let chain_id = chain_id.clone();
-        let epoch_id = epoch_id.clone();
         let external = external.clone();
         // timeout is needed to deal with edge cases where process_part awaits forever, i.e. the get_file().await somehow waits forever
         // this is set to a long duration because the timer for each task, i.e. process_part, starts when the task is started, i.e. tokio::spawn is called,
@@ -762,7 +759,6 @@ async fn process_header_with_3_retries(
     let mut res: Result<Result<(), anyhow::Error>, tokio::time::error::Elapsed>;
     loop {
         let chain_id = chain_id.clone();
-        let epoch_id = epoch_id.clone();
         let external = external.clone();
         let timeout_duration = tokio::time::Duration::from_secs(60);
         res = timeout(

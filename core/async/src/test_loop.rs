@@ -405,10 +405,6 @@ impl TestLoopV2 {
         }
     }
 
-    /// Used to finish off remaining events that are still in the loop. This can be necessary if the
-    /// destructor of some components wait for certain condition to become true. Otherwise, the
-    /// destructors may end up waiting forever. This also helps avoid a panic when destructing
-    /// TestLoop itself, as it asserts that all events have been handled.
     pub fn shutdown_and_drain_remaining_events(mut self, maximum_duration: Duration) {
         self.shutting_down.store(true, Ordering::Relaxed);
         self.run_for(maximum_duration);

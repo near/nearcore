@@ -1,6 +1,7 @@
 #[cfg(feature = "metrics")]
 use near_async::time::Clock;
 use near_primitives::types::BlockHeight;
+use near_primitives::validator_signer::ValidatorSigner;
 use serde::{Deserialize, Serialize, Serializer};
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
@@ -58,15 +59,18 @@ impl<T: Clone + PartialEq + Debug> MutableConfigValue<T> {
         self.value.lock().unwrap().clone()
     }
 
-    pub fn update(&self, val: T) {
+    /// Attempts to update the value and returns whether the value changed.
+    pub fn update(&self, val: T) -> bool {
         let mut lock = self.value.lock().unwrap();
         if *lock != val {
             tracing::info!(target: "config", "Updated config field '{}' from {:?} to {:?}", self.field_name, *lock, val);
             self.set_metric_value(lock.clone(), 0);
             *lock = val.clone();
             self.set_metric_value(val, 1);
+            true
         } else {
             tracing::info!(target: "config", "Mutable config field '{}' remains the same: {:?}", self.field_name, val);
+            false
         }
     }
 
@@ -105,3 +109,5 @@ pub struct UpdateableClientConfig {
     #[serde(with = "near_async::time::serde_opt_duration_as_std")]
     pub produce_chunk_add_transactions_time_limit: Option<Duration>,
 }
+
+pub type MutableValidatorSigner = MutableConfigValue<Option<Arc<ValidatorSigner>>>;

@@ -5,7 +5,6 @@ use crate::config::{
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::receipt_manager::ReceiptManager;
 use crate::{metrics, ActionResult, ApplyState};
-
 use near_crypto::PublicKey;
 use near_parameters::{AccountCreationConfig, ActionCosts, RuntimeConfig, RuntimeFeesConfig};
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
@@ -43,6 +42,7 @@ use near_vm_runner::logic::{VMContext, VMOutcome};
 use near_vm_runner::precompile_contract;
 use near_vm_runner::ContractCode;
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
+use std::sync::Arc;
 
 /// Runs given function call with given context / apply state.
 pub(crate) fn execute_function_call(
@@ -50,14 +50,14 @@ pub(crate) fn execute_function_call(
     runtime_ext: &mut RuntimeExt,
     predecessor_id: &AccountId,
     action_receipt: &ActionReceipt,
-    promise_results: &[PromiseResult],
+    promise_results: Arc<[PromiseResult]>,
     function_call: &FunctionCallAction,
     action_hash: &CryptoHash,
     config: &RuntimeConfig,
     is_last_action: bool,
     view_config: Option<ViewConfig>,
 ) -> Result<VMOutcome, RuntimeError> {
-    let account_id = runtime_ext.account_id();
+    let account_id = runtime_ext.account_id().clone();
     tracing::debug!(target: "runtime", %account_id, "Calling the contract");
     // Output data receipts are ignored if the function call is not the last action in the batch.
     let output_data_receivers: Vec<_> = if is_last_action {
@@ -105,8 +105,8 @@ pub(crate) fn execute_function_call(
         &function_call.method_name,
         runtime_ext,
         &context,
-        &config.wasm_config,
-        &config.fees,
+        Arc::clone(&config.wasm_config),
+        Arc::clone(&config.fees),
         promise_results,
         apply_state.cache.as_deref(),
     );
@@ -173,14 +173,14 @@ pub(crate) fn action_function_call(
     account: &mut Account,
     receipt: &Receipt,
     action_receipt: &ActionReceipt,
-    promise_results: &[PromiseResult],
+    promise_results: Arc<[PromiseResult]>,
     result: &mut ActionResult,
     account_id: &AccountId,
     function_call: &FunctionCallAction,
     action_hash: &CryptoHash,
     config: &RuntimeConfig,
     is_last_action: bool,
-    epoch_info_provider: &dyn EpochInfoProvider,
+    epoch_info_provider: &(dyn EpochInfoProvider),
 ) -> Result<(), RuntimeError> {
     if account.amount().checked_add(function_call.deposit).is_none() {
         return Err(StorageError::StorageInconsistentState(
@@ -193,12 +193,12 @@ pub(crate) fn action_function_call(
     let mut runtime_ext = RuntimeExt::new(
         state_update,
         &mut receipt_manager,
-        account_id,
-        account,
-        action_hash,
-        &apply_state.epoch_id,
-        &apply_state.prev_block_hash,
-        &apply_state.block_hash,
+        account_id.clone(),
+        account.clone(),
+        *action_hash,
+        apply_state.epoch_id,
+        apply_state.prev_block_hash,
+        apply_state.block_hash,
         epoch_info_provider,
         apply_state.current_protocol_version,
     );
@@ -586,7 +586,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
                 // is a no-op if the contract was already compiled.
                 precompile_contract(
                     &wallet_contract(&chain_id),
-                    &apply_state.config.wasm_config,
+                    Arc::clone(&apply_state.config.wasm_config),
                     apply_state.cache.as_deref(),
                 )
                 .ok();
@@ -628,7 +628,12 @@ pub(crate) fn action_deploy_contract(
     // Precompile the contract and store result (compiled code or error) in the database.
     // Note, that contract compilation costs are already accounted in deploy cost using
     // special logic in estimator (see get_runtime_config() function).
-    precompile_contract(&code, &apply_state.config.wasm_config, apply_state.cache.as_deref()).ok();
+    precompile_contract(
+        &code,
+        Arc::clone(&apply_state.config.wasm_config),
+        apply_state.cache.as_deref(),
+    )
+    .ok();
     Ok(())
 }
 

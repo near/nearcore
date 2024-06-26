@@ -59,8 +59,6 @@ pub struct InfoHelper {
     num_chunks_in_blocks_processed: u64,
     /// Total gas used during period.
     gas_used: u64,
-    /// Sign telemetry with block producer key if available.
-    validator_signer: Option<Arc<ValidatorSigner>>,
     /// Telemetry event sender.
     telemetry_sender: Sender<TelemetryEvent>,
     /// Log coloring enabled.
@@ -82,7 +80,6 @@ impl InfoHelper {
         clock: Clock,
         telemetry_sender: Sender<TelemetryEvent>,
         client_config: &ClientConfig,
-        validator_signer: Option<Arc<ValidatorSigner>>,
     ) -> Self {
         set_open_files_limit(0);
         metrics::export_version(&client_config.version);
@@ -96,7 +93,6 @@ impl InfoHelper {
             num_chunks_in_blocks_processed: 0,
             gas_used: 0,
             telemetry_sender,
-            validator_signer,
             log_summary_style: client_config.log_summary_style,
             boot_time_seconds: clock.now_utc().unix_timestamp(),
             epoch_id: None,
@@ -295,7 +291,7 @@ impl InfoHelper {
         epoch_id: &EpochId,
         last_block_hash: &CryptoHash,
     ) -> usize {
-        *self.num_validators_per_epoch.get_or_insert(epoch_id.clone(), || {
+        *self.num_validators_per_epoch.get_or_insert(*epoch_id, || {
             let block_producers: HashSet<AccountId> = epoch_manager
                 .get_epoch_block_producers_ordered(epoch_id, last_block_hash)
                 .unwrap_or(vec![])
@@ -319,6 +315,7 @@ impl InfoHelper {
         node_id: &PeerId,
         network_info: &NetworkInfo,
         config_updater: &Option<ConfigUpdater>,
+        signer: &Option<Arc<ValidatorSigner>>,
     ) {
         let is_syncing = client.sync_status.is_syncing();
         let head = unwrap_or_return!(client.chain.head());
@@ -328,8 +325,7 @@ impl InfoHelper {
                 &head.epoch_id,
                 &head.last_block_hash,
             );
-            let validator_signer = client.validator_signer.get();
-            let account_id = validator_signer.as_ref().map(|x| x.validator_id());
+            let account_id = signer.as_ref().map(|x| x.validator_id());
             let is_validator = if let Some(account_id) = account_id {
                 match client.epoch_manager.get_validator_by_account_id(
                     &head.epoch_id,
@@ -370,7 +366,7 @@ impl InfoHelper {
         InfoHelper::record_tracked_shards(&head, &client);
         InfoHelper::record_block_producers(&head, &client);
         InfoHelper::record_chunk_producers(&head, &client);
-        let next_epoch_id = Some(head.epoch_id.clone());
+        let next_epoch_id = Some(head.epoch_id);
         if self.epoch_id.ne(&next_epoch_id) {
             // We only want to compute this once per epoch to avoid heavy computational work, that can last up to 100ms.
             InfoHelper::record_epoch_settlement_info(&head, &client);
@@ -395,6 +391,7 @@ impl InfoHelper {
                 .unwrap_or(0),
             &client.config,
             config_updater,
+            signer,
         );
         self.log_chain_processing_info(client, &head.epoch_id);
     }
@@ -411,6 +408,7 @@ impl InfoHelper {
         protocol_upgrade_block_height: BlockHeight,
         client_config: &ClientConfig,
         config_updater: &Option<ConfigUpdater>,
+        signer: &Option<Arc<ValidatorSigner>>,
     ) {
         let use_color = matches!(self.log_summary_style, LogSummaryStyle::Colored);
         let paint = |color: yansi::Color, text: Option<String>| match text {
@@ -530,6 +528,7 @@ impl InfoHelper {
                 cpu_usage,
                 memory_usage,
                 is_validator,
+                signer,
             ),
         };
         self.telemetry_sender.send(telemetry_event);
@@ -545,6 +544,7 @@ impl InfoHelper {
         cpu_usage: f32,
         memory_usage: u64,
         is_validator: bool,
+        signer: &Option<Arc<ValidatorSigner>>,
     ) -> serde_json::Value {
         let info = TelemetryInfo {
             agent: TelemetryAgentInfo {
@@ -563,7 +563,7 @@ impl InfoHelper {
             chain: TelemetryChainInfo {
                 chain_id: client_config.chain_id.clone(),
                 node_id: node_id.to_string(),
-                account_id: self.validator_signer.as_ref().map(|bp| bp.validator_id().clone()),
+                account_id: signer.as_ref().map(|bp| bp.validator_id().clone()),
                 is_validator,
                 status: sync_status.as_variant_name().to_string(),
                 latest_block_hash: head.last_block_hash,
@@ -583,8 +583,8 @@ impl InfoHelper {
             extra_info: serde_json::to_string(&extra_telemetry_info(client_config)).unwrap(),
         };
         // Sign telemetry if there is a signer present.
-        if let Some(vs) = self.validator_signer.as_ref() {
-            vs.sign_telemetry(&info)
+        if let Some(signer) = signer {
+            signer.sign_telemetry(&info)
         } else {
             serde_json::to_value(&info).expect("Telemetry must serialize to json")
         }
@@ -917,7 +917,7 @@ mod tests {
     use near_chain::runtime::NightshadeRuntime;
     use near_chain::types::ChainConfig;
     use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
-    use near_chain_configs::Genesis;
+    use near_chain_configs::{Genesis, MutableConfigValue};
     use near_epoch_manager::shard_tracker::ShardTracker;
     use near_epoch_manager::test_utils::*;
     use near_epoch_manager::EpochManager;
@@ -947,7 +947,8 @@ mod tests {
     #[test]
     fn test_telemetry_info() {
         let config = ClientConfig::test(false, 1230, 2340, 50, false, true, true, true);
-        let info_helper = InfoHelper::new(Clock::real(), noop().into_sender(), &config, None);
+        let validator = MutableConfigValue::new(None, "validator_signer");
+        let info_helper = InfoHelper::new(Clock::real(), noop().into_sender(), &config);
 
         let store = near_store::test_utils::create_test_store();
         let mut genesis = Genesis::test(vec!["test".parse::<AccountId>().unwrap()], 1);
@@ -970,7 +971,7 @@ mod tests {
             ChainConfig::test(),
             None,
             Arc::new(RayonAsyncComputationSpawner),
-            None,
+            validator.clone(),
         )
         .unwrap();
 
@@ -994,6 +995,7 @@ mod tests {
             0.0,
             0,
             false,
+            &validator.get(),
         );
         println!("Got telemetry info: {:?}", telemetry);
         assert_matches!(
@@ -1052,8 +1054,7 @@ mod tests {
 
         // Then check that get_num_validators returns the correct number of validators.
         let client_config = ClientConfig::test(false, 1230, 2340, 50, false, true, true, true);
-        let mut info_helper =
-            InfoHelper::new(Clock::real(), noop().into_sender(), &client_config, None);
+        let mut info_helper = InfoHelper::new(Clock::real(), noop().into_sender(), &client_config);
         assert_eq!(
             num_validators,
             info_helper.get_num_validators(&epoch_manager_adapter, &epoch_id, &last_block_hash)
