@@ -296,8 +296,8 @@ impl StateSync {
                         state_parts_task_scheduler,
                     )?;
                 }
-                ShardSyncStatus::StateApplyComplete => {
-                    self.sync_shards_apply_complete_status(
+                ShardSyncStatus::StateApplyInProgress => {
+                    self.sync_shards_apply_status(
                         shard_id,
                         shard_sync_download,
                         sync_hash,
@@ -1001,7 +1001,7 @@ impl StateSync {
             Ok(()) => {
                 *shard_sync_download = ShardSyncDownload {
                     downloads: vec![],
-                    status: ShardSyncStatus::StateApplyComplete,
+                    status: ShardSyncStatus::StateApplyInProgress,
                 }
             }
             Err(err) => {
@@ -1016,7 +1016,7 @@ impl StateSync {
         Ok(())
     }
 
-    fn sync_shards_apply_complete_status(
+    fn sync_shards_apply_status(
         &mut self,
         shard_id: ShardId,
         shard_sync_download: &mut ShardSyncDownload,
