@@ -1847,7 +1847,7 @@ impl ClientActorInner {
                 break;
             };
 
-            if next_header.height() < min_height_included - 1 {
+            if next_header.height() + 1 < min_height_included {
                 break;
             }
 
