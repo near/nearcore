@@ -119,12 +119,11 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
     config.limit_config.contract_prepare_version = ContractPrepareVersion::V2;
 
     let fees = Arc::new(RuntimeFeesConfig::test());
-    let mut res = vm_kind.runtime(config.into()).unwrap().run(
-        &mut fake_external,
-        &context,
-        Arc::clone(&fees),
-        None,
-    );
+    let mut res = vm_kind
+        .runtime(config.into())
+        .unwrap()
+        .prepare(&fake_external, &context, None)
+        .run(&mut fake_external, &context, Arc::clone(&fees));
 
     // Remove the VMError message details as they can differ between runtimes
     // TODO: maybe there's actually things we could check for equality here too?

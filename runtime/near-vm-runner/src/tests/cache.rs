@@ -126,7 +126,7 @@ fn make_cached_contract_call_vm(
     let fees = Arc::new(RuntimeFeesConfig::test());
     context.prepaid_gas = prepaid_gas;
     let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
-    runtime.run(&mut fake_external, &context, fees, Some(cache))
+    runtime.prepare(&fake_external, &context, Some(cache)).run(&mut fake_external, &context, fees)
 }
 
 #[test]

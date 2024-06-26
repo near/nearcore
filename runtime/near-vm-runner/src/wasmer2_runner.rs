@@ -563,61 +563,6 @@ impl wasmer_vm::Tunables for &Wasmer2VM {
 }
 
 impl crate::runner::VM for Wasmer2VM {
-    fn run(
-        &self,
-        ext: &mut dyn External,
-        context: &VMContext,
-        fees_config: Arc<RuntimeFeesConfig>,
-        cache: Option<&dyn ContractRuntimeCache>,
-    ) -> Result<VMOutcome, VMRunnerError> {
-        let Some(code) = ext.get_contract() else {
-            return Err(VMRunnerError::ContractCodeNotPresent);
-        };
-        let mut result_state = ExecutionResultState::new(&context, Arc::clone(&self.config));
-
-        let result =
-            result_state.before_loading_executable(&context.method, code.code().len() as u64);
-        if let Err(e) = result {
-            return Ok(VMOutcome::abort(result_state, e));
-        }
-
-        let artifact = self.compile_and_load(&code, cache)?;
-        let artifact = match artifact {
-            Ok(it) => it,
-            Err(err) => {
-                return Ok(VMOutcome::abort(
-                    result_state,
-                    FunctionCallError::CompilationError(err),
-                ));
-            }
-        };
-
-        let result = result_state.after_loading_executable(code.code().len() as u64);
-        if let Err(e) = result {
-            return Ok(VMOutcome::abort(result_state, e));
-        }
-        let entrypoint = match get_entrypoint_index(&*artifact, &context.method) {
-            Ok(index) => index,
-            Err(e) => return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, e)),
-        };
-
-        let memory = Wasmer2Memory::new(
-            self.config.limit_config.initial_memory_pages,
-            self.config.limit_config.max_memory_pages,
-        )
-        .expect("Cannot create memory for a contract call");
-        // FIXME: this mostly duplicates the `run_module` method.
-        // Note that we don't clone the actual backing memory, just increase the RC.
-        let vmmemory = memory.vm();
-        let mut logic = VMLogic::new(ext, context, fees_config, result_state, memory);
-        let import =
-            build_imports(vmmemory, &mut logic, Arc::clone(&self.config), artifact.engine());
-        match self.run_method(&artifact, import, entrypoint)? {
-            Ok(()) => Ok(VMOutcome::ok(logic.result_state)),
-            Err(err) => Ok(VMOutcome::abort(logic.result_state, err)),
-        }
-    }
-
     fn precompile(
         &self,
         code: &ContractCode,
@@ -629,6 +574,97 @@ impl crate::runner::VM for Wasmer2VM {
         Ok(self
             .compile_and_cache(code, Some(cache))?
             .map(|_| ContractPrecompilatonResult::ContractCompiled))
+    }
+
+    fn prepare(
+        self: Box<Self>,
+        ext: &dyn External,
+        context: &VMContext,
+        cache: Option<&dyn ContractRuntimeCache>,
+    ) -> Box<dyn crate::PreparedContract> {
+        type Result = VMResult<PreparedContract>;
+        let Some(code) = ext.get_contract() else {
+            return Box::new(Result::Err(VMRunnerError::ContractCodeNotPresent));
+        };
+        let mut result_state = ExecutionResultState::new(&context, Arc::clone(&self.config));
+        let result =
+            result_state.before_loading_executable(&context.method, code.code().len() as u64);
+        if let Err(e) = result {
+            return Box::new(Ok(PreparedContract::Outcome(VMOutcome::abort(result_state, e))));
+        }
+        let artifact = match self.compile_and_load(&code, cache) {
+            Ok(Ok(it)) => it,
+            Ok(Err(err)) => {
+                return Box::new(Ok(PreparedContract::Outcome(VMOutcome::abort(
+                    result_state,
+                    FunctionCallError::CompilationError(err),
+                ))));
+            }
+            Err(err) => {
+                return Box::new(Result::Err(err));
+            }
+        };
+        let result = result_state.after_loading_executable(code.code().len() as u64);
+        if let Err(e) = result {
+            return Box::new(Ok(PreparedContract::Outcome(VMOutcome::abort(result_state, e))));
+        }
+        let entrypoint = match get_entrypoint_index(&*artifact, &context.method) {
+            Ok(index) => index,
+            Err(e) => {
+                return Box::new(Ok(PreparedContract::Outcome(
+                    VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, e),
+                )))
+            }
+        };
+
+        let memory = Wasmer2Memory::new(
+            self.config.limit_config.initial_memory_pages,
+            self.config.limit_config.max_memory_pages,
+        )
+        .expect("Cannot create memory for a contract call");
+        Box::new(Ok(PreparedContract::Ready {
+            vm: self,
+            memory,
+            result_state,
+            entrypoint,
+            artifact,
+        }))
+    }
+}
+
+pub(crate) enum PreparedContract {
+    Outcome(VMOutcome),
+    Ready {
+        vm: Box<Wasmer2VM>,
+        memory: Wasmer2Memory,
+        result_state: ExecutionResultState,
+        entrypoint: FunctionIndex,
+        artifact: VMArtifact,
+    },
+}
+
+impl crate::PreparedContract for VMResult<PreparedContract> {
+    fn run(
+        self: Box<Self>,
+        ext: &mut dyn External,
+        context: &VMContext,
+        fees_config: Arc<RuntimeFeesConfig>,
+    ) -> VMResult {
+        let (vm, memory, result_state, entrypoint, artifact) = match (*self)? {
+            PreparedContract::Outcome(outcome) => return Ok(outcome),
+            PreparedContract::Ready { vm, memory, result_state, entrypoint, artifact } => {
+                (vm, memory, result_state, entrypoint, artifact)
+            }
+        };
+        // FIXME: this mostly duplicates the `run_module` method.
+        // Note that we don't clone the actual backing memory, just increase the RC.
+        let vmmemory = memory.vm();
+        let mut logic = VMLogic::new(ext, context, fees_config, result_state, memory);
+        let import = build_imports(vmmemory, &mut logic, Arc::clone(&vm.config), artifact.engine());
+        match vm.run_method(&artifact, import, entrypoint)? {
+            Ok(()) => Ok(VMOutcome::ok(logic.result_state)),
+            Err(err) => Ok(VMOutcome::abort(logic.result_state, err)),
+        }
     }
 }
 

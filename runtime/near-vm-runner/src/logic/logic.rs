@@ -35,7 +35,7 @@ fn base64(s: &[u8]) -> String {
 /// This is a subset of [`VMLogic`] that's strictly necessary to produce `VMOutcome`s.
 pub struct ExecutionResultState {
     /// All gas and economic parameters required during contract execution.
-    config: Arc<Config>,
+    pub(crate) config: Arc<Config>,
     /// Gas tracking for the current contract execution.
     gas_counter: GasCounter,
     /// Logs written by the runtime.

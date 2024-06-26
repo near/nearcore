@@ -209,16 +209,12 @@ impl NearVM {
         skip_all
     )]
     fn with_compiled_and_loaded(
-        &self,
+        self: Box<Self>,
         cache: &dyn ContractRuntimeCache,
-        ext: &mut dyn External,
+        ext: &dyn External,
         context: &VMContext,
-        closure: impl FnOnce(
-            ExecutionResultState,
-            &mut dyn External,
-            &VMArtifact,
-        ) -> Result<VMOutcome, VMRunnerError>,
-    ) -> VMResult<VMOutcome> {
+        closure: impl FnOnce(ExecutionResultState, &VMArtifact, Box<Self>) -> VMResult<PreparedContract>,
+    ) -> VMResult<PreparedContract> {
         // (wasm code size, compilation result)
         type MemoryCacheType = (u64, Result<VMArtifact, CompilationError>);
         let to_any = |v: MemoryCacheType| -> Box<dyn std::any::Any + Send> { Box::new(v) };
@@ -307,17 +303,20 @@ impl NearVM {
         let mut result_state = ExecutionResultState::new(&context, Arc::clone(&self.config));
         let result = result_state.before_loading_executable(&context.method, wasm_bytes);
         if let Err(e) = result {
-            return Ok(VMOutcome::abort(result_state, e));
+            return Ok(PreparedContract::Outcome(VMOutcome::abort(result_state, e)));
         }
         match artifact_result {
             Ok(artifact) => {
                 let result = result_state.after_loading_executable(wasm_bytes);
                 if let Err(e) = result {
-                    return Ok(VMOutcome::abort(result_state, e));
+                    return Ok(PreparedContract::Outcome(VMOutcome::abort(result_state, e)));
                 }
-                closure(result_state, ext, &artifact)
+                closure(result_state, &artifact, self)
             }
-            Err(e) => Ok(VMOutcome::abort(result_state, FunctionCallError::CompilationError(e))),
+            Err(e) => Ok(PreparedContract::Outcome(VMOutcome::abort(
+                result_state,
+                FunctionCallError::CompilationError(e),
+            ))),
         }
     }
 
@@ -573,40 +572,37 @@ impl<'a> finite_wasm::wasmparser::VisitOperator<'a> for GasCostCfg {
 }
 
 impl crate::runner::VM for NearVM {
-    fn run(
-        &self,
-        ext: &mut dyn External,
+    fn prepare(
+        self: Box<Self>,
+        ext: &dyn External,
         context: &VMContext,
-        fees_config: Arc<RuntimeFeesConfig>,
         cache: Option<&dyn ContractRuntimeCache>,
-    ) -> Result<VMOutcome, VMRunnerError> {
+    ) -> Box<dyn crate::PreparedContract> {
         let cache = cache.unwrap_or(&NoContractRuntimeCache);
-        self.with_compiled_and_loaded(cache, ext, context, |result_state, ext, artifact| {
-            let memory = NearVmMemory::new(
-                self.config.limit_config.initial_memory_pages,
-                self.config.limit_config.max_memory_pages,
-            )
-            .expect("Cannot create memory for a contract call");
-            // FIXME: this mostly duplicates the `run_module` method.
-            // Note that we don't clone the actual backing memory, just increase the RC.
-            let vmmemory = memory.vm();
-            let mut logic = VMLogic::new(ext, context, fees_config, result_state, memory);
-            let import =
-                build_imports(vmmemory, &mut logic, Arc::clone(&self.config), artifact.engine());
-            let entrypoint = match get_entrypoint_index(&*artifact, &context.method) {
-                Ok(index) => index,
-                Err(e) => {
-                    return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(
-                        logic.result_state,
-                        e,
-                    ))
-                }
-            };
-            match self.run_method(&artifact, import, entrypoint)? {
-                Ok(()) => Ok(VMOutcome::ok(logic.result_state)),
-                Err(err) => Ok(VMOutcome::abort(logic.result_state, err)),
-            }
-        })
+        let prepd =
+            self.with_compiled_and_loaded(cache, ext, context, |result_state, artifact, vm| {
+                let memory = NearVmMemory::new(
+                    vm.config.limit_config.initial_memory_pages,
+                    vm.config.limit_config.max_memory_pages,
+                )
+                .expect("Cannot create memory for a contract call");
+                let entrypoint = match get_entrypoint_index(&*artifact, &context.method) {
+                    Ok(index) => index,
+                    Err(e) => {
+                        return Ok(PreparedContract::Outcome(
+                            VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, e),
+                        ))
+                    }
+                };
+                Ok(PreparedContract::Ready {
+                    memory,
+                    result_state,
+                    entrypoint,
+                    artifact: Arc::clone(artifact),
+                    vm,
+                })
+            });
+        Box::new(prepd)
     }
 
     fn precompile(
@@ -620,6 +616,41 @@ impl crate::runner::VM for NearVM {
         Ok(self
             .compile_and_cache(code, cache)?
             .map(|_| ContractPrecompilatonResult::ContractCompiled))
+    }
+}
+
+pub(crate) enum PreparedContract {
+    Outcome(VMOutcome),
+    Ready {
+        memory: NearVmMemory,
+        result_state: ExecutionResultState,
+        entrypoint: FunctionIndex,
+        artifact: VMArtifact,
+        vm: Box<NearVM>,
+    },
+}
+
+impl crate::PreparedContract for VMResult<PreparedContract> {
+    fn run(
+        self: Box<Self>,
+        ext: &mut dyn External,
+        context: &VMContext,
+        fees_config: Arc<RuntimeFeesConfig>,
+    ) -> VMResult {
+        let (memory, result_state, entrypoint, artifact, vm) = match (*self)? {
+            PreparedContract::Outcome(outcome) => return Ok(outcome),
+            PreparedContract::Ready { memory, result_state, entrypoint, artifact, vm } => {
+                (memory, result_state, entrypoint, artifact, vm)
+            }
+        };
+        let config = Arc::clone(&result_state.config);
+        let vmmemory = memory.vm();
+        let mut logic = VMLogic::new(ext, context, fees_config, result_state, memory);
+        let import = build_imports(vmmemory, &mut logic, config, artifact.engine());
+        match vm.run_method(&artifact, import, entrypoint)? {
+            Ok(()) => Ok(VMOutcome::ok(logic.result_state)),
+            Err(err) => Ok(VMOutcome::abort(logic.result_state, err)),
+        }
     }
 }
 

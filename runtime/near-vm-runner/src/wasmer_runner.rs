@@ -414,15 +414,28 @@ impl Wasmer0VM {
 }
 
 impl crate::runner::VM for Wasmer0VM {
-    fn run(
+    fn precompile(
         &self,
-        ext: &mut dyn External,
+        code: &ContractCode,
+        cache: &dyn ContractRuntimeCache,
+    ) -> Result<
+        Result<ContractPrecompilatonResult, CompilationError>,
+        crate::logic::errors::CacheError,
+    > {
+        Ok(self
+            .compile_and_cache(code, Some(cache))?
+            .map(|_| ContractPrecompilatonResult::ContractCompiled))
+    }
+
+    fn prepare(
+        self: Box<Self>,
+        ext: &dyn External,
         context: &VMContext,
-        fees_config: Arc<RuntimeFeesConfig>,
         cache: Option<&dyn ContractRuntimeCache>,
-    ) -> Result<VMOutcome, VMRunnerError> {
+    ) -> Box<dyn crate::PreparedContract> {
+        type Result = VMResult<PreparedContract>;
         let Some(code) = ext.get_contract() else {
-            return Err(VMRunnerError::ContractCodeNotPresent);
+            return Box::new(Result::Err(VMRunnerError::ContractCodeNotPresent));
         };
         if !cfg!(target_arch = "x86") && !cfg!(target_arch = "x86_64") {
             // TODO(#1940): Remove once NaN is standardized by the VM.
@@ -436,17 +449,16 @@ impl crate::runner::VM for Wasmer0VM {
             panic!("AVX support is required in order to run Wasmer VM Singlepass backend.");
         }
 
-        let mut execution_state = ExecutionResultState::new(&context, Arc::clone(&self.config));
+        let mut result_state = ExecutionResultState::new(&context, Arc::clone(&self.config));
         let result =
-            execution_state.before_loading_executable(&context.method, code.code().len() as u64);
+            result_state.before_loading_executable(&context.method, code.code().len() as u64);
         if let Err(e) = result {
-            return Ok(VMOutcome::abort(execution_state, e));
+            return Box::new(Ok(PreparedContract::Outcome(VMOutcome::abort(result_state, e))));
         }
 
         // TODO: consider using get_module() here, once we'll go via deployment path.
-        let module = self.compile_and_load(&code, cache)?;
-        let module = match module {
-            Ok(x) => x,
+        let module = match self.compile_and_load(&code, cache) {
+            Ok(Ok(x)) => x,
             // Note on backwards-compatibility: This error used to be an error
             // without result, later refactored to NOP outcome. Now this returns
             // an actual outcome, including gas costs that occurred before this
@@ -454,47 +466,66 @@ impl crate::runner::VM for Wasmer0VM {
             // version do not have gas costs before reaching this code. (Also
             // see `test_old_fn_loading_behavior_preserved` for a test that
             // verifies future changes do not counteract this assumption.)
-            Err(err) => {
-                return Ok(VMOutcome::abort(
-                    execution_state,
+            Ok(Err(err)) => {
+                return Box::new(Ok(PreparedContract::Outcome(VMOutcome::abort(
+                    result_state,
                     FunctionCallError::CompilationError(err),
-                ))
+                ))))
+            }
+            Err(err) => {
+                return Box::new(Result::Err(err))
             }
         };
 
-        let result = execution_state.after_loading_executable(code.code().len() as u64);
+        let result = result_state.after_loading_executable(code.code().len() as u64);
         if let Err(e) = result {
-            return Ok(VMOutcome::abort(execution_state, e));
+            return Box::new(Ok(PreparedContract::Outcome(VMOutcome::abort(result_state, e))));
         }
         if let Err(e) = check_method(&module, &context.method) {
-            return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(execution_state, e));
+            return Box::new(Ok(PreparedContract::Outcome(
+                VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, e),
+            )));
         }
 
         let memory = WasmerMemory::new(
             self.config.limit_config.initial_memory_pages,
             self.config.limit_config.max_memory_pages,
         );
+        Box::new(Ok(PreparedContract::Ready { vm: self, memory, result_state, module }))
+    }
+}
+
+pub(crate) enum PreparedContract {
+    Outcome(VMOutcome),
+    Ready {
+        vm: Box<Wasmer0VM>,
+        memory: WasmerMemory,
+        result_state: ExecutionResultState,
+        module: Module,
+    },
+}
+
+impl crate::PreparedContract for VMResult<PreparedContract> {
+    fn run(
+        self: Box<Self>,
+        ext: &mut dyn External,
+        context: &VMContext,
+        fees_config: Arc<RuntimeFeesConfig>,
+    ) -> Result<VMOutcome, VMRunnerError> {
+        let (vm, memory, result_state, module) = match (*self)? {
+            PreparedContract::Outcome(outcome) => return Ok(outcome),
+            PreparedContract::Ready { vm, memory, result_state, module } => {
+                (vm, memory, result_state, module)
+            }
+        };
         // Note that we don't clone the actual backing memory, just increase the RC.
         let memory_copy = memory.clone();
-        let mut logic = VMLogic::new(ext, context, fees_config, execution_state, memory);
-        let import_object = build_imports(memory_copy, &self.config, &mut logic);
+        let mut logic = VMLogic::new(ext, context, fees_config, result_state, memory);
+        let import_object = build_imports(memory_copy, &vm.config, &mut logic);
         match run_method(&module, &import_object, &context.method)? {
             Ok(()) => Ok(VMOutcome::ok(logic.result_state)),
             Err(err) => Ok(VMOutcome::abort(logic.result_state, err)),
         }
-    }
-
-    fn precompile(
-        &self,
-        code: &ContractCode,
-        cache: &dyn ContractRuntimeCache,
-    ) -> Result<
-        Result<ContractPrecompilatonResult, CompilationError>,
-        crate::logic::errors::CacheError,
-    > {
-        Ok(self
-            .compile_and_cache(code, Some(cache))?
-            .map(|_| ContractPrecompilatonResult::ContractCompiled))
     }
 }
 

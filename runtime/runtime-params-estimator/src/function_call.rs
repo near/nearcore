@@ -69,23 +69,26 @@ fn compute_function_call_cost(
     let config_store = RuntimeConfigStore::new(None);
     let runtime_config = config_store.get_config(protocol_version).as_ref();
     let vm_config = runtime_config.wasm_config.clone();
-    let runtime = vm_kind.runtime(vm_config).expect("runtime has not been enabled");
     let fees = runtime_config.fees.clone();
     let mut fake_external = MockedExternal::with_code(contract.clone_for_tests());
     let fake_context = create_context("hello0", vec![]);
 
     // Warmup.
     for _ in 0..warmup_repeats {
+        let runtime = vm_kind.runtime(vm_config.clone()).expect("runtime has not been enabled");
         let result = runtime
-            .run(&mut fake_external, &fake_context, Arc::clone(&fees), cache)
+            .prepare(&fake_external, &fake_context, cache)
+            .run(&mut fake_external, &fake_context, Arc::clone(&fees))
             .expect("fatal error");
         assert!(result.aborted.is_none());
     }
     // Run with gas metering.
     let start = GasCost::measure(gas_metric);
     for _ in 0..repeats {
+        let runtime = vm_kind.runtime(vm_config.clone()).expect("runtime has not been enabled");
         let result = runtime
-            .run(&mut fake_external, &fake_context, Arc::clone(&fees), cache)
+            .prepare(&fake_external, &fake_context, cache)
+            .run(&mut fake_external, &fake_context, Arc::clone(&fees))
             .expect("fatal_error");
         assert!(result.aborted.is_none());
     }

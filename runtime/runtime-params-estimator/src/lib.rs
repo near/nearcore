@@ -896,7 +896,8 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
         let vm_result = vm_kind
             .runtime(config.clone())
             .unwrap()
-            .run(&mut fake_external, &context, Arc::clone(&fees), Some(&cache))
+            .prepare(&fake_external, &context, Some(&cache))
+            .run(&mut fake_external, &context, Arc::clone(&fees))
             .expect("fatal_error");
         assert!(vm_result.aborted.is_some());
         vm_result
