@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use enum_map::{enum_map, EnumMap};
-use near_async::time::Duration;
+use near_async::time::Instant;
 
 use crate::network_protocol::{PeerMessage, RoutedMessageBody};
 
@@ -18,7 +18,9 @@ pub struct RateLimits {
 }
 
 impl RateLimits {
-    pub fn from_config(config: &Config) -> Self {
+    /// Creates all buckets as configured in `config`.
+    /// See also [TokenBucket::new].
+    pub fn from_config(config: &Config, start_time: Option<Instant>) -> Self {
         let mut buckets = enum_map! { _ => None };
         // Configuration is assumed to be correct. Any failure to build a bucket is ignored.
         for (key, message_config) in &config.rate_limits {
@@ -27,6 +29,7 @@ impl RateLimits {
                 initial_size,
                 message_config.maximum_size,
                 message_config.refill_rate,
+                start_time,
             ) {
                 Ok(bucket) => buckets[*key] = Some(bucket),
                 Err(err) => {
@@ -39,23 +42,20 @@ impl RateLimits {
 
     /// Checks if the given message is under the rate limits.
     ///
+    /// # Arguments
+    ///
+    /// * `message` - The network message to be checked
+    /// * `now` - Current time
+    ///
     /// Returns `true` if the message should be allowed to continue. Otherwise,
     /// if it should be rate limited, returns `false`.
-    pub fn is_allowed(&self, message: &PeerMessage) -> bool {
+    pub fn is_allowed(&mut self, message: &PeerMessage, now: Instant) -> bool {
         if let Some((key, cost)) = get_key_and_token_cost(message) {
-            if let Some(bucket) = &self.buckets[key] {
-                return bucket.acquire(cost);
+            if let Some(bucket) = &mut self.buckets[key] {
+                return bucket.acquire(cost, now);
             }
         }
         true
-    }
-
-    /// Updates all rate limits according to their own refresh rate, using `duration` as
-    /// the time elapsed since the previous update.
-    pub fn update(&self, duration: Duration) {
-        for (_, maybe_bucket) in &self.buckets {
-            maybe_bucket.as_ref().map(|bucket| bucket.refill(duration));
-        }
     }
 }
 
@@ -245,6 +245,7 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
 
 #[cfg(test)]
 mod tests {
+    use near_async::time::Duration;
     use near_primitives::hash::CryptoHash;
 
     use crate::network_protocol::{Disconnect, PeerMessage};
@@ -256,33 +257,34 @@ mod tests {
         let disconnect =
             PeerMessage::Disconnect(Disconnect { remove_from_connection_store: false });
         let block_request = PeerMessage::BlockRequest(CryptoHash::default());
+        let now = Instant::now();
 
         // Test message that can't be rate limited.
         {
-            let limits = RateLimits::default();
-            assert!(limits.is_allowed(&disconnect));
+            let mut limits = RateLimits::default();
+            assert!(limits.is_allowed(&disconnect, now));
         }
 
         // Test message that might be rate limited, but the system is not configured to do so.
         {
-            let limits = RateLimits::default();
-            assert!(limits.is_allowed(&block_request));
+            let mut limits = RateLimits::default();
+            assert!(limits.is_allowed(&block_request, now));
         }
 
         // Test rate limited message with enough tokens.
         {
             let mut limits = RateLimits::default();
             limits.buckets[RateLimitedPeerMessageKey::BlockRequest] =
-                Some(TokenBucket::new(1, 1, 0.0).unwrap());
-            assert!(limits.is_allowed(&block_request));
+                Some(TokenBucket::new(1, 1, 0.0, None).unwrap());
+            assert!(limits.is_allowed(&block_request, now));
         }
 
         // Test rate limited message without enough tokens.
         {
             let mut limits = RateLimits::default();
             limits.buckets[RateLimitedPeerMessageKey::BlockRequest] =
-                Some(TokenBucket::new(0, 1, 0.0).unwrap());
-            assert!(!limits.is_allowed(&block_request));
+                Some(TokenBucket::new(0, 1, 0.0, None).unwrap());
+            assert!(!limits.is_allowed(&block_request, now));
         }
     }
 
@@ -295,12 +297,13 @@ mod tests {
         config.rate_limits.insert(BlockApproval, SingleMessageConfig::new(5, 1.0, None));
         config.rate_limits.insert(BlockHeaders, SingleMessageConfig::new(1, -4.0, None));
 
-        let limits = RateLimits::from_config(&config);
+        let now = Instant::now();
+        let mut limits = RateLimits::from_config(&config, Some(now));
 
         // Bucket should exist with capacity = 1.
-        assert!(!limits.buckets[Block].as_ref().unwrap().acquire(2));
+        assert!(!limits.buckets[Block].as_mut().unwrap().acquire(2, now));
         // Bucket should exist with capacity = 5.
-        assert!(limits.buckets[BlockApproval].as_ref().unwrap().acquire(2));
+        assert!(limits.buckets[BlockApproval].as_mut().unwrap().acquire(2, now));
         // Bucket should not exist due to a config error.
         assert!(limits.buckets[BlockHeaders].is_none());
         // Buckets are not instantiated for message types not present in the config.
@@ -338,22 +341,23 @@ mod tests {
     }
 
     #[test]
-    fn update() {
+    fn buckets_get_refreshed() {
         use RateLimitedPeerMessageKey::*;
         let mut config = Config::default();
+        let now = Instant::now();
 
         config.rate_limits.insert(Block, SingleMessageConfig::new(5, 1.0, Some(0)));
         config.rate_limits.insert(BlockApproval, SingleMessageConfig::new(5, 1.0, Some(0)));
 
-        let limits = RateLimits::from_config(&config);
+        let mut limits = RateLimits::from_config(&config, Some(now));
 
-        assert!(!limits.buckets[Block].as_ref().unwrap().acquire(1));
-        assert!(!limits.buckets[BlockApproval].as_ref().unwrap().acquire(1));
+        assert!(!limits.buckets[Block].as_mut().unwrap().acquire(1, now));
+        assert!(!limits.buckets[BlockApproval].as_mut().unwrap().acquire(1, now));
 
-        limits.update(Duration::seconds(1));
+        let now = now + Duration::seconds(1);
 
-        assert!(limits.buckets[Block].as_ref().unwrap().acquire(1));
-        assert!(limits.buckets[BlockApproval].as_ref().unwrap().acquire(1));
+        assert!(limits.buckets[Block].as_mut().unwrap().acquire(1, now));
+        assert!(limits.buckets[BlockApproval].as_mut().unwrap().acquire(1, now));
     }
 
     #[test]

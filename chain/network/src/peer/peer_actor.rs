@@ -81,8 +81,6 @@ pub(crate) const DROP_DUPLICATED_MESSAGES_PERIOD: time::Duration = time::Duratio
 const SYNC_LATEST_BLOCK_INTERVAL: time::Duration = time::Duration::seconds(60);
 /// How often to perform a full sync of AccountsData with the peer.
 const ACCOUNTS_DATA_FULL_SYNC_INTERVAL: time::Duration = time::Duration::minutes(10);
-/// How often per-message rate limit allowance is updated.
-const RATE_LIMITS_UPDATE_INTERVAL: time::Duration = time::Duration::seconds(1);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnectionClosedEvent {
@@ -195,7 +193,7 @@ pub(crate) struct PeerActor {
     peer_info: DisplayOption<PeerInfo>,
 
     /// Per-message rate limits for incoming messages.
-    received_messages_rate_limits: Arc<messages_limits::RateLimits>,
+    received_messages_rate_limits: messages_limits::RateLimits,
 }
 
 impl Debug for PeerActor {
@@ -317,9 +315,10 @@ impl PeerActor {
             // That likely requires bigger changes and account_id here is later used for debug / logging purposes only.
             account_id: network_state.config.validator.account_id(),
         };
-        let received_messages_rate_limits = Arc::new(messages_limits::RateLimits::from_config(
+        let received_messages_rate_limits = messages_limits::RateLimits::from_config(
             &network_state.config.received_messages_rate_limits,
-        ));
+            Some(clock.now()),
+        );
         // recv is the HandshakeSignal returned by this spawn_inner() call.
         let (send, recv): (HandshakeSignalSender, HandshakeSignal) =
             tokio::sync::oneshot::channel();
@@ -732,22 +731,6 @@ impl PeerActor {
                                 partial_edge_info: partial_edge_info,
                             });
                         }
-                        // Network messages rate limits are updated at regular intervals
-                        // in the same way for both TIER1 and TIER2 connections.
-                        ctx.spawn(wrap_future({
-                            let clock = act.clock.clone();
-                            let rate_limits = act.received_messages_rate_limits.clone();
-                            let mut interval = time::Interval::new(clock.now(),RATE_LIMITS_UPDATE_INTERVAL);
-                            let mut now = clock.now();
-                            async move {
-                                loop {
-                                    interval.tick(&clock).await;
-                                    let new_now = clock.now();
-                                    rate_limits.update((new_now - now).try_into().unwrap_or_default());
-                                    now = new_now;
-                                }
-                            }
-                        }));
                         // TIER1 is strictly reserved for BFT consensensus messages,
                         // so all kinds of periodical syncs happen only on TIER2 connections.
                         if tier==tcp::Tier::T2 {
@@ -1758,13 +1741,14 @@ impl actix::Handler<stream::Frame> for PeerActor {
 
         tracing::trace!(target: "network", "Received message: {}", peer_msg);
 
+        let now = self.clock.now();
         {
             let labels = [peer_msg.msg_variant()];
             metrics::PEER_MESSAGE_RECEIVED_BY_TYPE_TOTAL.with_label_values(&labels).inc();
             metrics::PEER_MESSAGE_RECEIVED_BY_TYPE_BYTES
                 .with_label_values(&labels)
                 .inc_by(msg.len() as u64);
-            if !self.received_messages_rate_limits.is_allowed(&peer_msg) {
+            if !self.received_messages_rate_limits.is_allowed(&peer_msg, now) {
                 metrics::PEER_MESSAGE_RATE_LIMITED_BY_TYPE_TOTAL.with_label_values(&labels).inc();
                 tracing::debug!(target: "network", "Peer {} is being rate limited for message {}", self.peer_info, peer_msg.msg_variant());
                 return;
@@ -1777,7 +1761,7 @@ impl actix::Handler<stream::Frame> for PeerActor {
                     tracing::warn!(target: "network", "Received {} from closing connection {:?}. Ignoring", peer_msg, self.peer_type);
                     return;
                 }
-                conn.last_time_received_message.store(self.clock.now());
+                conn.last_time_received_message.store(now);
                 // Check if the message type is allowed given the TIER of the connection:
                 // TIER1 connections are reserved exclusively for BFT consensus messages.
                 if !conn.tier.is_allowed(&peer_msg) {
@@ -1794,7 +1778,7 @@ impl actix::Handler<stream::Frame> for PeerActor {
                 // case when our peer doesn't use that logic yet.
                 if let Some(skip_tombstones) = self.network_state.config.skip_tombstones {
                     if let PeerMessage::SyncRoutingTable(routing_table) = &mut peer_msg {
-                        if conn.established_time + skip_tombstones > self.clock.now() {
+                        if conn.established_time + skip_tombstones > now {
                             routing_table
                                 .edges
                                 .retain(|edge| edge.edge_type() == EdgeState::Active);
