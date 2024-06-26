@@ -2437,7 +2437,7 @@ fn test_catchup_gas_price_change() {
         }
     });
     env.clients[1].chain.schedule_apply_state_parts(0, sync_hash, num_parts, &f).unwrap();
-    env.clients[1].chain.set_state_finalize(0, sync_hash).unwrap();
+    env.clients[1].chain.set_state_finalize(0, sync_hash, &None).unwrap();
     let chunk_extra_after_sync =
         env.clients[1].chain.get_chunk_extra(blocks[4].hash(), &ShardUId::single_shard()).unwrap();
     let expected_chunk_extra =

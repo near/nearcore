@@ -31,7 +31,8 @@ fn setup_subscriber_from_filter(mut env_filter: EnvFilter) {
 }
 
 pub fn init_test_logger() {
-    let env_filter = EnvFilter::new("cranelift=warn,wasmtime=warn,h2=warn,tower=warn,trust_dns=warn,tokio_reactor=info,tokio_core=info,hyper=info,debug");
+    // DO NOT MERGE
+    let env_filter = EnvFilter::new("cranelift=warn,wasmtime=warn,h2=warn,tower=warn,trust_dns=warn,tokio_reactor=info,tokio_core=info,hyper=info,warn");
     setup_subscriber_from_filter(env_filter);
 }
 

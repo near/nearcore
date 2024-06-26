@@ -100,7 +100,7 @@ impl<'a> ChainUpdate<'a> {
     /// Note that this function should be called after `save_block` is called on
     /// this block because it requires that the block info is available in
     /// EpochManager, otherwise it will return an error.
-    fn save_receipt_id_to_shard_id_for_block(
+    pub fn save_receipt_id_to_shard_id_for_block(
         &mut self,
         account_id: Option<&AccountId>,
         hash: &CryptoHash,
@@ -528,7 +528,7 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.save_block(block.clone());
         self.chain_store_update.inc_block_refcount(prev_hash)?;
 
-        // Save receipt_id_to_shard_id for all outgoing receipts generated in this block
+        // Save receipt_id_to_shard_id for all outgoing receipts generated in this block.
         self.save_receipt_id_to_shard_id_for_block(
             me.as_ref(),
             block.hash(),
@@ -728,11 +728,13 @@ impl<'a> ChainUpdate<'a> {
     /// This method is called when the state sync is finished for a shard. It
     /// applies the chunk at the height included of the chunk in the sync hash
     /// and stores the results in the db.
+    /// If this is a validator node, `me` contains the account id of the validator.
     pub fn set_state_finalize(
         &mut self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
         shard_state_header: ShardStateSyncResponseHeader,
+        me: &Option<AccountId>,
     ) -> Result<ShardUId, Error> {
         let _span =
             tracing::debug_span!(target: "sync", "chain_update_set_state_finalize", shard_id, ?sync_hash).entered();
@@ -838,6 +840,15 @@ impl<'a> ChainUpdate<'a> {
             shard_id,
             apply_result.outgoing_receipts,
         );
+        // Save receipt_id_to_shard_id for all outgoing receipts to shard_id generated in this block.
+        // This should be called after save_outgoing_receipt.
+        self.save_receipt_id_to_shard_id_for_block(
+            me.as_ref(),
+            block_header.hash(),
+            block_header.prev_hash(),
+            &[shard_id],
+        )?;
+
         // Saving transaction results.
         self.chain_store_update.save_outcomes_with_proofs(
             block_header.hash(),

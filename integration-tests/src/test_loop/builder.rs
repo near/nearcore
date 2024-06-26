@@ -68,9 +68,12 @@ impl TestLoopBuilder {
     }
 
     /// Disable garbage collection for the nodes.
-    /// TODO(#11605): should always be enabled, if it doesn't work, it's a bug.
+    /// GC should always be enabled, thus this function should only be invoked
+    /// for debugging a bug that manifest itself when GC is enabled.
+    #[allow(unused)]
     pub fn disable_gc(mut self) -> Self {
         self.gc = false;
+        tracing::warn!("Garbage collection is disabled!");
         self
     }
 
@@ -242,18 +245,9 @@ impl TestLoopBuilder {
         )
         .unwrap();
 
-        let partial_witness_actor = PartialWitnessActor::new(
-            self.test_loop.clock(),
-            network_adapter.as_multi_sender(),
-            client_adapter.as_multi_sender(),
-            validator_signer.clone(),
-            epoch_manager.clone(),
-            store,
-        );
-
         if self.gc {
             let gc_actor = GCActor::new(
-                runtime_adapter.store().clone(),
+                store.clone(),
                 chain_genesis.height,
                 runtime_adapter.clone(),
                 epoch_manager.clone(),
@@ -263,6 +257,15 @@ impl TestLoopBuilder {
             // We don't send messages to `GCActor` so adapter is not needed.
             self.test_loop.register_actor_for_index(idx, gc_actor, None);
         }
+
+        let partial_witness_actor = PartialWitnessActor::new(
+            self.test_loop.clock(),
+            network_adapter.as_multi_sender(),
+            client_adapter.as_multi_sender(),
+            validator_signer.clone(),
+            epoch_manager.clone(),
+            store,
+        );
 
         let future_spawner = self.test_loop.future_spawner();
         let state_sync_dumper = StateSyncDumper {

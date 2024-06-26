@@ -341,6 +341,7 @@ impl Client {
             &config.chain_id,
             &config.state_sync.sync,
             false,
+            validator_signer.get().map(|signer| signer.validator_id().clone()),
         );
         let num_block_producer_seats = config.num_block_producer_seats as usize;
         let data_parts = epoch_manager.num_data_parts();
@@ -2496,6 +2497,7 @@ impl Client {
                             &self.config.chain_id,
                             &self.config.state_sync.sync,
                             true,
+                            me.clone(),
                         ),
                         shards_to_split,
                         BlocksCatchUpState::new(sync_hash, *epoch_id),

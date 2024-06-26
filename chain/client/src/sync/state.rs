@@ -158,6 +158,9 @@ pub struct StateSync {
     /// Message queue to process the received state parts.
     state_parts_mpsc_tx: Sender<StateSyncGetFileResult>,
     state_parts_mpsc_rx: Receiver<StateSyncGetFileResult>,
+
+    // AccountId of the validator if this node is a validator node.
+    account_id: Option<AccountId>,
 }
 
 impl StateSync {
@@ -168,6 +171,7 @@ impl StateSync {
         chain_id: &str,
         sync_config: &SyncConfig,
         catchup: bool,
+        account_id: Option<AccountId>,
     ) -> Self {
         let inner = match sync_config {
             SyncConfig::Peers => StateSyncInner::Peers {
@@ -225,6 +229,7 @@ impl StateSync {
             resharding_state_roots: HashMap::new(),
             state_parts_mpsc_rx: rx,
             state_parts_mpsc_tx: tx,
+            account_id,
         }
     }
 
@@ -1114,7 +1119,7 @@ impl StateSync {
 
         result?;
 
-        chain.set_state_finalize(shard_uid.shard_id(), sync_hash)?;
+        chain.set_state_finalize(shard_uid.shard_id(), sync_hash, &self.account_id)?;
         if need_to_reshard {
             // If the shard layout is changing in this epoch - we have to apply it right now.
             let status = ShardSyncStatus::ReshardingScheduling;
@@ -1537,6 +1542,7 @@ mod test {
             "chain_id",
             &SyncConfig::Peers,
             false,
+            None,
         );
         let mut new_shard_sync = HashMap::new();
 

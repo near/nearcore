@@ -707,7 +707,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
             env.clients[1].chain.schedule_apply_state_parts(0, sync_hash, num_parts, &f).unwrap();
 
             tracing::info!(target: "test", "state sync - set state finalize");
-            env.clients[1].chain.set_state_finalize(0, sync_hash).unwrap();
+            env.clients[1].chain.set_state_finalize(0, sync_hash, &None).unwrap();
 
             let last_chunk_height = epoch_length - num_last_chunks_missing;
             for height in 1..epoch_length {

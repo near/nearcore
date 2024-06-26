@@ -930,7 +930,7 @@ impl<'a> ChainStoreUpdate<'a> {
         let mut store_update = self.store().store_update();
         match col {
             DBCol::OutgoingReceipts => {
-                panic!("Must use gc_outgoing_receipts");
+                panic!("Outgoing receipts must be garbage collected by calling gc_outgoing_receipts");
             }
             DBCol::IncomingReceipts => {
                 store_update.delete(col, key);
@@ -974,7 +974,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 self.chain_store().block_refcounts.pop(key);
             }
             DBCol::ReceiptIdToShardId => {
-                panic!("Must use gc_outgoing_receipts");
+                panic!("Outgoing receipts must be garbage collected by calling gc_outgoing_receipts");
             }
             DBCol::Transactions => {
                 store_update.decrement_refcount(col, key);

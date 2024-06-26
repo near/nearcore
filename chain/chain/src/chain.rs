@@ -2956,12 +2956,14 @@ impl Chain {
         &mut self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
+        me: &Option<AccountId>,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "sync", "set_state_finalize").entered();
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let mut height = shard_state_header.chunk_height_included();
         let mut chain_update = self.chain_update();
-        let shard_uid = chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?;
+        let shard_uid =
+            chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header, me)?;
         chain_update.commit()?;
 
         // We restored the state on height `shard_state_header.chunk.header.height_included`.
@@ -3158,6 +3160,7 @@ impl Chain {
         results: Vec<Result<ShardUpdateResult, Error>>,
     ) -> Result<(), Error> {
         let block = self.chain_store.get_block(block_hash)?;
+        let shard_ids = self.epoch_manager.shard_ids(block.header().epoch_id())?;
         // Save state transition data to the database only if it might later be needed
         // for generating a state witness. Storage space optimization.
         let should_save_state_transition_data =
@@ -3168,6 +3171,16 @@ impl Chain {
             &block,
             results,
             should_save_state_transition_data,
+        )?;
+        // Save receipt_id_to_shard_id for all outgoing receipts generated in this block.
+        // TODO: Move this into a more centralized postprocessing operation. It cannot be apply_chunk_postprocessing
+        // for now, since save_receipt_id_to_shard_id_for_block requires being called after the block is saved
+        // to store, which does not happen for all invocations of apply_chunk_postprocessing.
+        chain_update.save_receipt_id_to_shard_id_for_block(
+            me.as_ref(),
+            block.header().hash(),
+            block.header().prev_hash(),
+            &shard_ids,
         )?;
         chain_update.commit()?;
 
