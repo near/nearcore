@@ -317,7 +317,7 @@ impl PeerActor {
         };
         let received_messages_rate_limits = messages_limits::RateLimits::from_config(
             &network_state.config.received_messages_rate_limits,
-            Some(clock.now()),
+            clock.now(),
         );
         // recv is the HandshakeSignal returned by this spawn_inner() call.
         let (send, recv): (HandshakeSignalSender, HandshakeSignal) =

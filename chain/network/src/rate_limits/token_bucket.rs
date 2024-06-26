@@ -34,7 +34,7 @@ pub struct TokenBucket {
     /// Refill rate in token per second.
     refill_rate: f32,
     /// Last time the bucket was refreshed.
-    last_refill: Option<Instant>,
+    last_refill: Instant,
 }
 
 impl TokenBucket {
@@ -46,7 +46,6 @@ impl TokenBucket {
     /// * `maximum_size` - Maximum amount of tokens the bucket can hold
     /// * `refill_rate` - Bucket refill rate in token per second
     /// * `start_time` - Point in time used as a start to calculate the bucket refill.
-    /// Set it to `None` to start counting the first time [TokenBucket::acquire] is called.
     ///
     /// # Errors
     ///
@@ -55,7 +54,7 @@ impl TokenBucket {
         initial_size: u32,
         maximum_size: u32,
         refill_rate: f32,
-        start_time: Option<Instant>,
+        start_time: Instant,
     ) -> Result<Self, TokenBucketError> {
         let size = to_tokens_with_parts(maximum_size.min(initial_size));
         TokenBucket::validate_refill_rate(refill_rate)?;
@@ -87,19 +86,12 @@ impl TokenBucket {
     /// For example: if `refill_rate` == 1 and `now - last_refill` == 1s then exactly 1 token
     /// will be added.
     fn refill(&mut self, now: Instant) {
-        let last_refill = if let Some(val) = self.last_refill {
-            val
-        } else {
-            // Simply set `last_refill` if this's the first refill.
-            self.last_refill = Some(now);
-            return;
-        };
         // Sanity check: now should be bigger than the last refill time.
-        if now <= last_refill {
+        if now <= self.last_refill {
             return;
         }
         // Compute how many tokens should be added to the current size.
-        let duration = now - last_refill;
+        let duration = now - self.last_refill;
         let tokens_to_add = duration.as_secs_f64() * self.refill_rate as f64;
         let tokens_to_add = (tokens_to_add * TOKEN_PARTS_NUMBER as f64) as u64;
         // Update `last_refill` and `size` only if there's a change. This is done to prevent
@@ -109,7 +101,7 @@ impl TokenBucket {
                 .size
                 .saturating_add(tokens_to_add)
                 .min(to_tokens_with_parts(self.maximum_size));
-            self.last_refill = Some(now);
+            self.last_refill = now;
         }
     }
 
@@ -145,29 +137,30 @@ mod tests {
 
     #[test]
     fn initial_more_than_max() {
-        let bucket = TokenBucket::new(5, 2, 1.0, None).expect("bucket should be well formed");
+        let bucket =
+            TokenBucket::new(5, 2, 1.0, Instant::now()).expect("bucket should be well formed");
         assert_eq!(bucket.size, to_tokens_with_parts(2));
         assert_eq!(bucket.maximum_size, 2);
     }
 
     #[test]
     fn invalid_refill_rate() {
-        assert!(TokenBucket::new(2, 2, f32::NAN, None).is_err());
-        assert!(TokenBucket::new(2, 2, f32::INFINITY, None).is_err());
-        assert!(TokenBucket::new(2, 2, f32::NEG_INFINITY, None).is_err());
-        assert!(TokenBucket::new(2, 2, -1.0, None).is_err());
+        assert!(TokenBucket::new(2, 2, f32::NAN, Instant::now()).is_err());
+        assert!(TokenBucket::new(2, 2, f32::INFINITY, Instant::now()).is_err());
+        assert!(TokenBucket::new(2, 2, f32::NEG_INFINITY, Instant::now()).is_err());
+        assert!(TokenBucket::new(2, 2, -1.0, Instant::now()).is_err());
     }
 
     #[test]
     fn valid_refill_rate() {
-        assert!(TokenBucket::new(2, 2, 0.0, None).is_ok());
-        assert!(TokenBucket::new(2, 2, 0.3, None).is_ok());
+        assert!(TokenBucket::new(2, 2, 0.0, Instant::now()).is_ok());
+        assert!(TokenBucket::new(2, 2, 0.3, Instant::now()).is_ok());
     }
 
     #[test]
     fn acquire() {
-        let mut bucket = TokenBucket::new(5, 10, 1.0, None).expect("bucket should be well formed");
         let now = Instant::now();
+        let mut bucket = TokenBucket::new(5, 10, 1.0, now).expect("bucket should be well formed");
 
         assert!(bucket.acquire(0, now));
         assert_eq!(bucket.size, to_tokens_with_parts(5));
@@ -187,8 +180,8 @@ mod tests {
 
     #[test]
     fn max_is_zero() {
-        let mut bucket = TokenBucket::new(0, 0, 0.0, None).expect("bucket should be well formed");
         let now = Instant::now();
+        let mut bucket = TokenBucket::new(0, 0, 0.0, now).expect("bucket should be well formed");
         assert!(bucket.acquire(0, now));
         assert!(!bucket.acquire(1, now));
     }
@@ -197,32 +190,15 @@ mod tests {
     fn buckets_get_refilled() {
         let now = Instant::now();
         let mut bucket =
-            TokenBucket::new(0, 1000, 10.0, Some(now)).expect("bucket should be well formed");
+            TokenBucket::new(0, 1000, 10.0, now).expect("bucket should be well formed");
         assert!(!bucket.acquire(1, now));
         assert!(bucket.acquire(1, now + Duration::milliseconds(500)));
     }
 
     #[test]
-    fn time_is_initialized_correctly() {
-        let now = Instant::now();
-
-        let mut bucket = TokenBucket::new(0, 5, 1.0, None).expect("bucket should be well formed");
-        assert!(bucket.last_refill.is_none());
-        let size = bucket.size;
-        bucket.refill(now);
-        assert_eq!(bucket.last_refill, Some(now));
-        assert_eq!(bucket.size, size);
-
-        let mut bucket =
-            TokenBucket::new(0, 5, 1.0, Some(now)).expect("bucket should be well formed");
-        assert!(bucket.last_refill.is_some());
-        assert!(bucket.acquire(1, now + Duration::seconds(1)));
-    }
-
-    #[test]
     fn zero_refill_rate() {
-        let mut bucket = TokenBucket::new(10, 10, 0.0, None).expect("bucket should be well formed");
         let now = Instant::now();
+        let mut bucket = TokenBucket::new(10, 10, 0.0, now).expect("bucket should be well formed");
         assert!(bucket.acquire(10, now));
         assert!(!bucket.acquire(1, now));
         assert!(!bucket.acquire(1, now + Duration::seconds(100)));
@@ -231,8 +207,7 @@ mod tests {
     #[test]
     fn refill_no_time_elapsed() {
         let now = Instant::now();
-        let mut bucket =
-            TokenBucket::new(10, 10, 1.0, Some(now)).expect("bucket should be well formed");
+        let mut bucket = TokenBucket::new(10, 10, 1.0, now).expect("bucket should be well formed");
         let size = bucket.size;
         bucket.refill(now);
         assert_eq!(bucket.size, size);
@@ -241,8 +216,7 @@ mod tests {
     #[test]
     fn check_non_monotonic_clocks_safety() {
         let now = Instant::now();
-        let mut bucket =
-            TokenBucket::new(10, 10, 1.0, Some(now)).expect("bucket should be well formed");
+        let mut bucket = TokenBucket::new(10, 10, 1.0, now).expect("bucket should be well formed");
         let size = bucket.size;
         bucket.refill(now - Duration::seconds(100));
         assert_eq!(bucket.size, size);
@@ -251,8 +225,7 @@ mod tests {
     #[test]
     fn refill_partial_token() {
         let now = Instant::now();
-        let mut bucket =
-            TokenBucket::new(0, 5, 0.4, Some(now)).expect("bucket should be well formed");
+        let mut bucket = TokenBucket::new(0, 5, 0.4, now).expect("bucket should be well formed");
         assert!(!bucket.acquire(1, now));
         assert!(!bucket.acquire(1, now + Duration::seconds(1)));
         assert!(!bucket.acquire(1, now + Duration::seconds(2)));
@@ -262,8 +235,7 @@ mod tests {
     #[test]
     fn refill_overflow_bucket_max_size() {
         let now = Instant::now();
-        let mut bucket =
-            TokenBucket::new(2, 5, 1.0, Some(now)).expect("bucket should be well formed");
+        let mut bucket = TokenBucket::new(2, 5, 1.0, now).expect("bucket should be well formed");
 
         bucket.refill(now + Duration::seconds(2));
         assert_eq!(bucket.size, to_tokens_with_parts(4));
@@ -281,7 +253,7 @@ mod tests {
     #[test]
     fn check_with_numeric_limits() {
         let now = Instant::now();
-        let mut bucket = TokenBucket::new(u32::MAX, u32::MAX, 1_000_000.0, Some(now))
+        let mut bucket = TokenBucket::new(u32::MAX, u32::MAX, 1_000_000.0, now)
             .expect("bucket should be well formed");
 
         assert!(bucket.acquire(u32::MAX, now));
@@ -297,8 +269,7 @@ mod tests {
     /// when both the refill rate and the elapsed time are very low.
     fn validate_guaranteed_resolution() {
         let mut now = Instant::now();
-        let mut bucket =
-            TokenBucket::new(0, 10, 0.001, Some(now)).expect("bucket should be well formed");
+        let mut bucket = TokenBucket::new(0, 10, 0.001, now).expect("bucket should be well formed");
         // Up to 999s: no new token added.
         for _ in 0..99_900 {
             now += Duration::milliseconds(10);

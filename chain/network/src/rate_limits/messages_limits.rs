@@ -20,7 +20,7 @@ pub struct RateLimits {
 impl RateLimits {
     /// Creates all buckets as configured in `config`.
     /// See also [TokenBucket::new].
-    pub fn from_config(config: &Config, start_time: Option<Instant>) -> Self {
+    pub fn from_config(config: &Config, start_time: Instant) -> Self {
         let mut buckets = enum_map! { _ => None };
         // Configuration is assumed to be correct. Any failure to build a bucket is ignored.
         for (key, message_config) in &config.rate_limits {
@@ -275,7 +275,7 @@ mod tests {
         {
             let mut limits = RateLimits::default();
             limits.buckets[RateLimitedPeerMessageKey::BlockRequest] =
-                Some(TokenBucket::new(1, 1, 0.0, None).unwrap());
+                Some(TokenBucket::new(1, 1, 0.0, now).unwrap());
             assert!(limits.is_allowed(&block_request, now));
         }
 
@@ -283,7 +283,7 @@ mod tests {
         {
             let mut limits = RateLimits::default();
             limits.buckets[RateLimitedPeerMessageKey::BlockRequest] =
-                Some(TokenBucket::new(0, 1, 0.0, None).unwrap());
+                Some(TokenBucket::new(0, 1, 0.0, now).unwrap());
             assert!(!limits.is_allowed(&block_request, now));
         }
     }
@@ -298,7 +298,7 @@ mod tests {
         config.rate_limits.insert(BlockHeaders, SingleMessageConfig::new(1, -4.0, None));
 
         let now = Instant::now();
-        let mut limits = RateLimits::from_config(&config, Some(now));
+        let mut limits = RateLimits::from_config(&config, now);
 
         // Bucket should exist with capacity = 1.
         assert!(!limits.buckets[Block].as_mut().unwrap().acquire(2, now));
@@ -349,7 +349,7 @@ mod tests {
         config.rate_limits.insert(Block, SingleMessageConfig::new(5, 1.0, Some(0)));
         config.rate_limits.insert(BlockApproval, SingleMessageConfig::new(5, 1.0, Some(0)));
 
-        let mut limits = RateLimits::from_config(&config, Some(now));
+        let mut limits = RateLimits::from_config(&config, now);
 
         assert!(!limits.buckets[Block].as_mut().unwrap().acquire(1, now));
         assert!(!limits.buckets[BlockApproval].as_mut().unwrap().acquire(1, now));
