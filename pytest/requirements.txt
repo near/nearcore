@@ -1,5 +1,6 @@
 PyGithub
 base58
+cachetools
 cython
 deepdiff
 ed25519

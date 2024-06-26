@@ -4,7 +4,7 @@ use crate::logic::errors::{
     VMLogicError, VMRunnerError, WasmTrap,
 };
 use crate::logic::types::PromiseResult;
-use crate::logic::Config;
+use crate::logic::{Config, ExecutionResultState};
 use crate::logic::{External, MemSlice, MemoryLike, VMContext, VMLogic, VMOutcome};
 use crate::runner::VMResult;
 use crate::{
@@ -189,10 +189,12 @@ impl WasmtimeVM {
         cache: &dyn ContractRuntimeCache,
         ext: &mut dyn External,
         context: &VMContext,
-        fees_config: Arc<RuntimeFeesConfig>,
-        promise_results: Arc<[PromiseResult]>,
         method_name: &str,
-        closure: impl FnOnce(VMLogic, Memory, Store<()>, Module) -> Result<VMOutcome, VMRunnerError>,
+        closure: impl FnOnce(
+            ExecutionResultState,
+            &mut dyn External,
+            Module,
+        ) -> Result<VMOutcome, VMRunnerError>,
     ) -> VMResult<VMOutcome> {
         let code_hash = ext.code_hash();
         type MemoryCacheType = (u64, Result<Module, CompilationError>);
@@ -250,35 +252,20 @@ impl WasmtimeVM {
             },
         )?;
 
-        let mut store = Store::new(&self.engine, ());
-        let memory = WasmtimeMemory::new(
-            &mut store,
-            self.config.limit_config.initial_memory_pages,
-            self.config.limit_config.max_memory_pages,
-        )
-        .unwrap();
-        let memory_copy = memory.0;
-        let mut logic = VMLogic::new(
-            ext,
-            context,
-            Arc::clone(&self.config),
-            fees_config,
-            promise_results,
-            memory,
-        );
-        let result = logic.before_loading_executable(method_name, wasm_bytes);
+        let mut result_state = ExecutionResultState::new(&context, Arc::clone(&self.config));
+        let result = result_state.before_loading_executable(method_name, wasm_bytes);
         if let Err(e) = result {
-            return Ok(VMOutcome::abort(logic, e));
+            return Ok(VMOutcome::abort(result_state, e));
         }
         match module_result {
             Ok(module) => {
-                let result = logic.after_loading_executable(wasm_bytes);
+                let result = result_state.after_loading_executable(wasm_bytes);
                 if let Err(e) = result {
-                    return Ok(VMOutcome::abort(logic, e));
+                    return Ok(VMOutcome::abort(result_state, e));
                 }
-                closure(logic, memory_copy, store, module)
+                closure(result_state, ext, module)
             }
-            Err(e) => Ok(VMOutcome::abort(logic, FunctionCallError::CompilationError(e))),
+            Err(e) => Ok(VMOutcome::abort(result_state, FunctionCallError::CompilationError(e))),
         }
     }
 }
@@ -298,12 +285,8 @@ impl crate::runner::VM for WasmtimeVM {
             cache,
             ext,
             context,
-            fees_config,
-            promise_results,
             method_name,
-            |mut logic, memory, mut store, module| {
-                let mut linker = Linker::new(&(&self.engine));
-                link(&mut linker, memory, &store, &mut logic);
+            |result_state, ext, module| {
                 match module.get_export(method_name) {
                     Some(export) => match export {
                         Func(func_type) => {
@@ -312,13 +295,14 @@ impl crate::runner::VM for WasmtimeVM {
                                     MethodResolveError::MethodInvalidSignature,
                                 );
                                 return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(
-                                    logic, err,
+                                    result_state,
+                                    err,
                                 ));
                             }
                         }
                         _ => {
                             return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(
-                                logic,
+                                result_state,
                                 FunctionCallError::MethodResolveError(
                                     MethodResolveError::MethodNotFound,
                                 ),
@@ -327,32 +311,49 @@ impl crate::runner::VM for WasmtimeVM {
                     },
                     None => {
                         return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(
-                            logic,
+                            result_state,
                             FunctionCallError::MethodResolveError(
                                 MethodResolveError::MethodNotFound,
                             ),
                         ));
                     }
                 }
+
+                let mut store = Store::new(&self.engine, ());
+                let memory = WasmtimeMemory::new(
+                    &mut store,
+                    self.config.limit_config.initial_memory_pages,
+                    self.config.limit_config.max_memory_pages,
+                )
+                .unwrap();
+                let memory_copy = memory.0;
+                let mut logic =
+                    VMLogic::new(ext, context, fees_config, promise_results, result_state, memory);
+                let mut linker = Linker::new(&(&self.engine));
+                link(&mut linker, memory_copy, &store, &self.config, &mut logic);
                 match linker.instantiate(&mut store, &module) {
                     Ok(instance) => match instance.get_func(&mut store, method_name) {
                         Some(func) => match func.typed::<(), ()>(&mut store) {
                             Ok(run) => match run.call(&mut store, ()) {
-                                Ok(_) => Ok(VMOutcome::ok(logic)),
-                                Err(err) => Ok(VMOutcome::abort(logic, err.into_vm_error()?)),
+                                Ok(_) => Ok(VMOutcome::ok(logic.result_state)),
+                                Err(err) => {
+                                    Ok(VMOutcome::abort(logic.result_state, err.into_vm_error()?))
+                                }
                             },
-                            Err(err) => Ok(VMOutcome::abort(logic, err.into_vm_error()?)),
+                            Err(err) => {
+                                Ok(VMOutcome::abort(logic.result_state, err.into_vm_error()?))
+                            }
                         },
                         None => {
                             return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(
-                                logic,
+                                logic.result_state,
                                 FunctionCallError::MethodResolveError(
                                     MethodResolveError::MethodNotFound,
                                 ),
                             ));
                         }
                     },
-                    Err(err) => Ok(VMOutcome::abort(logic, err.into_vm_error()?)),
+                    Err(err) => Ok(VMOutcome::abort(logic.result_state, err.into_vm_error()?)),
                 }
             },
         )
@@ -398,6 +399,7 @@ fn link<'a, 'b>(
     linker: &mut wasmtime::Linker<()>,
     memory: wasmtime::Memory,
     store: &wasmtime::Store<()>,
+    config: &Config,
     logic: &'a mut VMLogic<'b>,
 ) {
     // Unfortunately, due to the Wasmtime implementation we have to do tricks with the
@@ -443,5 +445,5 @@ fn link<'a, 'b>(
             linker.func_wrap(stringify!($mod), stringify!($name), $name).expect("cannot link external");
         };
     }
-    imports::for_each_available_import!(logic.config, add_import);
+    imports::for_each_available_import!(config, add_import);
 }
