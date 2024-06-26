@@ -882,7 +882,12 @@ impl<'a> ChainStoreUpdate<'a> {
             Ok(receipt_ids) => {
                 for receipt_id in receipt_ids {
                     let key: Vec<u8> = receipt_id.into();
-                    store_update.decrement_refcount(DBCol::ReceiptIdToShardId, &key);
+                    // Check if we have any entry for the receipt in the DB before decrementing refcount,
+                    // otherwise we hit negative refcount (#11605) since we store the mapping partially
+                    // only if the validator cares about the shard to which the receipt is sent.
+                    if self.chain_store().get_shard_id_for_receipt_id(&receipt_id).is_ok() {
+                        store_update.decrement_refcount(DBCol::ReceiptIdToShardId, &key);
+                    }
                     self.chain_store().receipt_id_to_shard_id.pop(&key);
                 }
             }
