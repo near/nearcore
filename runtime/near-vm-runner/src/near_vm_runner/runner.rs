@@ -619,6 +619,7 @@ impl crate::runner::VM for NearVM {
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum PreparedContract {
     Outcome(VMOutcome),
     Ready {

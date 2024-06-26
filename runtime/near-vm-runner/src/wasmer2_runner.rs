@@ -632,6 +632,7 @@ impl crate::runner::VM for Wasmer2VM {
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum PreparedContract {
     Outcome(VMOutcome),
     Ready {

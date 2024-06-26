@@ -86,7 +86,7 @@ pub fn run(
     Ok(outcome)
 }
 
-pub trait PreparedContract {
+pub trait PreparedContract: Send {
     /// Run the prepared contract.
     ///
     /// This is the entry point for executing a NEAR protocol contract. The entry point (as

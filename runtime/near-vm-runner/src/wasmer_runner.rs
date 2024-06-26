@@ -472,9 +472,7 @@ impl crate::runner::VM for Wasmer0VM {
                     FunctionCallError::CompilationError(err),
                 ))))
             }
-            Err(err) => {
-                return Box::new(Result::Err(err))
-            }
+            Err(err) => return Box::new(Result::Err(err)),
         };
 
         let result = result_state.after_loading_executable(code.code().len() as u64);
@@ -495,6 +493,7 @@ impl crate::runner::VM for Wasmer0VM {
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum PreparedContract {
     Outcome(VMOutcome),
     Ready {

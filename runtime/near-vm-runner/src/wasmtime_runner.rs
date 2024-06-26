@@ -337,6 +337,7 @@ impl crate::runner::VM for WasmtimeVM {
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum PreparedContract {
     Outcome(VMOutcome),
     Ready {
