@@ -190,6 +190,12 @@ pub trait EpochManagerAdapter: Send + Sync {
         epoch_id: &EpochId,
     ) -> Result<Vec<ValidatorStake>, EpochError>;
 
+    /// Returns all validators for a given epoch.
+    fn get_epoch_all_validators(
+        &self,
+        epoch_id: &EpochId,
+    ) -> Result<Vec<ValidatorStake>, EpochError>;
+
     /// Block producers for given height for the main block. Return EpochError if outside of known boundaries.
     fn get_block_producer(
         &self,
@@ -1126,5 +1132,14 @@ impl EpochManagerAdapter for EpochManagerHandle {
     fn force_update_aggregator(&self, epoch_id: &EpochId, hash: &CryptoHash) {
         let mut epoch_manager = self.write();
         epoch_manager.epoch_info_aggregator = EpochInfoAggregator::new(epoch_id.clone(), *hash);
+    }
+
+    /// Returns the set of chunk validators for a given epoch
+    fn get_epoch_all_validators(
+        &self,
+        epoch_id: &EpochId,
+    ) -> Result<Vec<ValidatorStake>, EpochError> {
+        let epoch_manager = self.read();
+        Ok(epoch_manager.get_epoch_info(epoch_id)?.validators_iter().collect::<Vec<_>>())
     }
 }
