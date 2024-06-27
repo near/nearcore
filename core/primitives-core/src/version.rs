@@ -169,6 +169,8 @@ pub enum ProtocolFeature {
     ChangePartialWitnessDataPartsRequired,
     /// Increase the `combined_transactions_size_limit` to 4MiB to allow higher throughput.
     BiggerCombinedTransactionLimit,
+    /// Increase gas cost of sending receipt to another account to 50 TGas / MiB
+    HigherSendingCost,
 }
 
 impl ProtocolFeature {
@@ -234,6 +236,7 @@ impl ProtocolFeature {
             | ProtocolFeature::NoChunkOnlyProducers
             | ProtocolFeature::ChangePartialWitnessDataPartsRequired
             | ProtocolFeature::BiggerCombinedTransactionLimit => 81,
+            ProtocolFeature::HigherSendingCost => 82,
 
             // This protocol version is reserved for use in resharding tests. An extra resharding
             // is simulated on top of the latest shard layout in production. Note that later
@@ -269,7 +272,7 @@ const STABLE_PROTOCOL_VERSION: ProtocolVersion = 67;
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "statelessnet_protocol") {
     // Current StatelessNet protocol version.
-    81
+    82
 } else if cfg!(feature = "nightly_protocol") {
     // On nightly, pick big enough version to support all features.
     143
