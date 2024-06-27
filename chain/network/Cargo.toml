@@ -26,6 +26,7 @@ bytesize.workspace = true
 chrono.workspace = true
 crossbeam-channel.workspace = true
 derive_more.workspace = true
+enum-map.workspace = true
 futures-util.workspace = true
 futures.workspace = true
 im.workspace = true
@@ -71,6 +72,7 @@ rlimit.workspace = true
 tempfile.workspace = true
 turn.workspace = true
 webrtc-util.workspace = true
+serde_json.workspace = true
 
 [features]
 nightly_protocol = [

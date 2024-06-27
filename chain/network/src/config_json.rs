@@ -1,4 +1,5 @@
 use crate::network_protocol::PeerAddr;
+use crate::rate_limits::messages_limits;
 use crate::stun;
 use near_async::time::Duration;
 
@@ -285,6 +286,7 @@ pub struct NetworkConfigOverrides {
     pub accounts_data_broadcast_rate_limit_qps: Option<f64>,
     pub routing_table_update_rate_limit_burst: Option<u64>,
     pub routing_table_update_rate_limit_qps: Option<f64>,
+    pub received_messages_rate_limits: Option<messages_limits::OverrideConfig>,
 }
 
 impl Default for ExperimentalConfig {
