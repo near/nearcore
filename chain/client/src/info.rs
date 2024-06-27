@@ -306,10 +306,8 @@ impl InfoHelper {
         let is_syncing = client.sync_status.is_syncing();
         let head = unwrap_or_return!(client.chain.head());
         let validator_info = if !is_syncing {
-            let num_validators = self.get_num_validators(
-                client.epoch_manager.as_ref(),
-                &head.epoch_id,
-            );
+            let num_validators =
+                self.get_num_validators(client.epoch_manager.as_ref(), &head.epoch_id);
             let account_id = signer.as_ref().map(|x| x.validator_id());
             let is_validator = if let Some(account_id) = account_id {
                 match client.epoch_manager.get_validator_by_account_id(
@@ -907,8 +905,8 @@ mod tests {
     use near_epoch_manager::test_utils::*;
     use near_epoch_manager::EpochManager;
     use near_network::test_utils::peer_id_from_seed;
-    use near_store::genesis::initialize_genesis_state;
     use near_primitives::hash::CryptoHash;
+    use near_store::genesis::initialize_genesis_state;
 
     #[test]
     fn test_pretty_number() {
