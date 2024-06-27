@@ -9,7 +9,6 @@ use near_client_primitives::types::StateSyncStatus;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::NetworkInfo;
 use near_primitives::block::Tip;
-use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::telemetry::{
     TelemetryAgentInfo, TelemetryChainInfo, TelemetryInfo, TelemetrySystemInfo,
@@ -27,7 +26,7 @@ use near_primitives::views::{
 };
 use near_telemetry::TelemetryEvent;
 use std::cmp::min;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fmt::Write;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -289,22 +288,9 @@ impl InfoHelper {
         &mut self,
         epoch_manager: &dyn EpochManagerAdapter,
         epoch_id: &EpochId,
-        last_block_hash: &CryptoHash,
     ) -> usize {
         *self.num_validators_per_epoch.get_or_insert(*epoch_id, || {
-            let block_producers: HashSet<AccountId> = epoch_manager
-                .get_epoch_block_producers_ordered(epoch_id, last_block_hash)
-                .unwrap_or(vec![])
-                .into_iter()
-                .map(|(validator_stake, _)| validator_stake.account_id().clone())
-                .collect();
-            let chunk_producers: HashSet<AccountId> = epoch_manager
-                .get_epoch_chunk_producers(epoch_id)
-                .unwrap_or(vec![])
-                .into_iter()
-                .map(|validator_stake| validator_stake.account_id().clone())
-                .collect();
-            block_producers.union(&chunk_producers).count()
+            epoch_manager.get_epoch_all_validators(epoch_id).unwrap_or_default().len()
         })
     }
 
@@ -320,11 +306,8 @@ impl InfoHelper {
         let is_syncing = client.sync_status.is_syncing();
         let head = unwrap_or_return!(client.chain.head());
         let validator_info = if !is_syncing {
-            let num_validators = self.get_num_validators(
-                client.epoch_manager.as_ref(),
-                &head.epoch_id,
-                &head.last_block_hash,
-            );
+            let num_validators =
+                self.get_num_validators(client.epoch_manager.as_ref(), &head.epoch_id);
             let account_id = signer.as_ref().map(|x| x.validator_id());
             let is_validator = if let Some(account_id) = account_id {
                 match client.epoch_manager.get_validator_by_account_id(
@@ -922,6 +905,7 @@ mod tests {
     use near_epoch_manager::test_utils::*;
     use near_epoch_manager::EpochManager;
     use near_network::test_utils::peer_id_from_seed;
+    use near_primitives::hash::CryptoHash;
     use near_store::genesis::initialize_genesis_state;
 
     #[test]
@@ -1057,7 +1041,7 @@ mod tests {
         let mut info_helper = InfoHelper::new(Clock::real(), noop().into_sender(), &client_config);
         assert_eq!(
             num_validators,
-            info_helper.get_num_validators(&epoch_manager_adapter, &epoch_id, &last_block_hash)
+            info_helper.get_num_validators(&epoch_manager_adapter, &epoch_id)
         );
     }
 }
