@@ -7,14 +7,15 @@ pub struct RpcQueryRequest {
 }
 
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 pub enum HostError2 {
     GuestPanic2 { panic_msg: String },
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 pub enum MyFunctionCallError2 {
     HostError2(HostError2),
+    OtherError(String),
 }
 
 #[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize)]

@@ -25,7 +25,7 @@ use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
 use near_jsonrpc_primitives::types::entity_debug::{EntityDebugHandler, EntityQuery};
-use near_jsonrpc_primitives::types::query::RpcQueryRequest;
+use near_jsonrpc_primitives::types::query::{MyFunctionCallError2, RpcQueryRequest};
 use near_jsonrpc_primitives::types::split_storage::{
     RpcSplitStorageInfoRequest, RpcSplitStorageInfoResponse,
 };
@@ -172,16 +172,31 @@ fn process_query_response(
     match query_response {
         Ok(rpc_query_response) => serialize_response(rpc_query_response),
         Err(err) => match err {
-            // near_jsonrpc_primitives::types::query::RpcQueryError::ContractExecutionError {
-            //     vm_error,
-            //     block_height,
-            //     block_hash,
-            // } => Ok(json!({
-            //     "error": vm_error,
-            //     "logs": json!([]),
-            //     "block_height": block_height,
-            //     "block_hash": block_hash,
-            // })),
+            near_jsonrpc_primitives::types::query::RpcQueryError::ContractExecutionError {
+                ref vm_error,
+                block_height,
+                block_hash,
+            } => {
+                match vm_error.clone() {
+                    MyFunctionCallError2::OtherError(error) => {
+                        Ok(json!({
+                            "error": error,
+                            "logs": json!([]),
+                            "block_height": block_height,
+                            "block_hash": block_hash,
+                        }))
+                    },
+                    _ => {
+                        Err(err.into())
+                        // Ok(json!({
+                        //     "error": vm_error.clone(),
+                        //     "logs": json!([]),
+                        //     "block_height": block_height,
+                        //     "block_hash": block_hash,
+                        // }))
+                    }
+                }
+            },
             near_jsonrpc_primitives::types::query::RpcQueryError::UnknownAccessKey {
                 public_key,
                 block_height,

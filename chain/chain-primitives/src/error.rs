@@ -15,6 +15,7 @@ pub enum HostError {
 #[derive(Debug)]
 pub enum MyFunctionCallError {
     HostError(HostError),
+    OtherError(String),
 }
 
 #[derive(thiserror::Error, Debug)]

@@ -493,6 +493,7 @@ pub enum HostError3 {
 #[derive(Debug)]
 pub enum MyFunctionCallError3 {
     HostError3(HostError3),
+    OtherError(String),
 }
 
 /// Queries client for given path / data.

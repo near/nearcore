@@ -125,9 +125,10 @@ impl RpcFrom<QueryError> for RpcQueryError {
                     MyFunctionCallError3::HostError3(HostError3::GuestPanic3 { panic_msg }) => {
                         return Self::ContractExecutionError { vm_error: MyFunctionCallError2::HostError2(HostError2::GuestPanic2 { panic_msg: panic_msg }), block_height, block_hash };
                     }
-                    _ => {}
+                    MyFunctionCallError3::OtherError(error) => {
+                        return Self::ContractExecutionError { vm_error: MyFunctionCallError2::OtherError(error), block_height, block_hash }
+                    }
                 }
-                Self::ContractExecutionError { vm_error: MyFunctionCallError2::HostError2(HostError2::GuestPanic2 { panic_msg: "this is  my panic 2".to_string() }), block_height, block_hash }
             }
             QueryError::Unreachable { ref error_message } => {
                 tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", error_message);

@@ -413,6 +413,9 @@ impl ViewClientActorInner {
                         MyFunctionCallError::HostError(HostError::GuestPanic { panic_msg }) => {
                             MyFunctionCallError3::HostError3(HostError3::GuestPanic3 { panic_msg })
                         },
+                        MyFunctionCallError::OtherError(error) => {
+                            MyFunctionCallError3::OtherError(error)
+                        }
                     };
                     QueryError::ContractExecutionError {
                         vm_error: error,

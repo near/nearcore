@@ -24,7 +24,7 @@ impl QueryError {
                     node_runtime::state_viewer::errors::FunctionCallError::HostError(node_runtime::state_viewer::errors::HostError::GuestPanic { panic_msg }) => {
                         MyFunctionCallError::HostError(HostError::GuestPanic { panic_msg })
                     }
-                    _ => MyFunctionCallError::HostError(HostError::GuestPanic { panic_msg: "this is  my panic 2".to_string() }),
+                    _ => MyFunctionCallError::OtherError(format!("wasm execution failed with error: {:?}", error_message)),
                 };
                 Self::ContractExecutionError { error_message: error, block_height, block_hash }
             }
