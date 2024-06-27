@@ -1035,6 +1035,13 @@ impl EpochManagerAdapter for MockEpochManager {
 
     #[cfg(feature = "new_epoch_sync")]
     fn force_update_aggregator(&self, _epoch_id: &EpochId, _hash: &CryptoHash) {}
+    
+    fn get_epoch_all_validators(
+        &self,
+        _epoch_id: &EpochId,
+    )-> Result<Vec<ValidatorStake>, EpochError> {
+        Ok(self.validators.iter().map(|(_, v)| v.clone()).collect())
+    }
 }
 
 impl RuntimeAdapter for KeyValueRuntime {
