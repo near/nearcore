@@ -421,7 +421,7 @@ impl ExtCosts {
             #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_p2_sum_base => Parameter::WasmBls12381P2SumBase,
             #[cfg(feature = "protocol_feature_bls12381")]
-            ExtCosts::bls12381_p2_sum_element => Parameter::WasmBls12381P1SumElement,
+            ExtCosts::bls12381_p2_sum_element => Parameter::WasmBls12381P2SumElement,
             #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_g1_multiexp_base => Parameter::WasmBls12381G1MultiexpBase,
             #[cfg(feature = "protocol_feature_bls12381")]
