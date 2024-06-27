@@ -91,7 +91,7 @@
             border-left: $current-border;
         }
 
-        &:nth-child(10) {
+        &:nth-child(11) {
             border-right: $current-border;
         }
     }
@@ -101,7 +101,8 @@
         &:nth-child(7),
         &:nth-child(8),
         &:nth-child(9),
-        &:nth-child(10) {
+        &:nth-child(10),
+        &:nth-child(11) {
             background-color: #d6ffd0;
         }
     }
@@ -115,4 +116,28 @@
             border-bottom: $current-border;
         }
     }
+}
+
+.validator-role {
+    padding: 4px 8px;
+    border-radius: 8px;
+    color: black;
+    margin: 0px 2px;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.block-producer {
+    @extend .validator-role;
+    background-color: thistle;
+}
+
+.chunk-producer {
+    @extend .validator-role;
+    background-color: lightblue;
+}
+
+.chunk-validator {
+    @extend .validator-role;
+    background-color: bisque;
 }

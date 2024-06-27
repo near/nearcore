@@ -9,13 +9,14 @@ interface ProducedAndExpected {
     expected: number;
 }
 
-type ValidatorRole = 'BlockProducer' | 'ChunkOnlyProducer' | 'None';
+type ValidatorRole = 'BlockProducer' | 'ChunkProducer' | 'ChunkValidator';
 
 interface CurrentValidatorInfo {
     stake: number;
     shards: number[];
     blocks: ProducedAndExpected;
     chunks: ProducedAndExpected;
+    endorsements: ProducedAndExpected;
 }
 
 interface NextValidatorInfo {
@@ -29,7 +30,7 @@ interface ValidatorInfo {
     next: NextValidatorInfo | null;
     proposalStake: number | null;
     kickoutReason: ValidatorKickoutReason | null;
-    roles: ValidatorRole[];
+    roles: ValidatorRole[][];
 }
 
 class Validators {
@@ -41,9 +42,9 @@ class Validators {
         if (this.validators.has(accountId)) {
             return this.validators.get(accountId)!;
         }
-        const roles = [] as ValidatorRole[];
+        const roles = [] as ValidatorRole[][];
         for (let i = 0; i < this.numEpochs; i++) {
-            roles.push('None');
+            roles.push([]);
         }
         this.validators.set(accountId, {
             accountId,
@@ -56,9 +57,9 @@ class Validators {
         return this.validators.get(accountId)!;
     }
 
-    setValidatorRole(accountId: string, epochIndex: number, role: ValidatorRole) {
+    addValidatorRole(accountId: string, epochIndex: number, role: ValidatorRole) {
         const validator = this.validator(accountId);
-        validator.roles[epochIndex] = role;
+        validator.roles[epochIndex].push(role);
     }
 
     sorted(): ValidatorInfo[] {
@@ -107,7 +108,8 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
     let maxStake = 0,
         totalStake = 0,
         maxExpectedBlocks = 0,
-        maxExpectedChunks = 0;
+        maxExpectedChunks = 0,
+        maxExpectedEndorsements = 0;
     const epochs = epochData!.status_response.EpochInfo;
     const validators = new Validators(epochs.length);
     const currentValidatorInfo = epochData!.status_response.EpochInfo[1].validator_info;
@@ -125,11 +127,19 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
                 produced: validatorInfo.num_produced_chunks,
                 expected: validatorInfo.num_expected_chunks,
             },
+            endorsements: {
+                produced: validatorInfo.num_produced_endorsements,
+                expected: validatorInfo.num_expected_endorsements,
+            },
         };
         maxStake = Math.max(maxStake, stake);
         totalStake += stake;
         maxExpectedBlocks = Math.max(maxExpectedBlocks, validatorInfo.num_expected_blocks);
         maxExpectedChunks = Math.max(maxExpectedChunks, validatorInfo.num_expected_chunks);
+        maxExpectedEndorsements = Math.max(
+            maxExpectedEndorsements,
+            validatorInfo.num_expected_endorsements
+        );
     }
     for (const validatorInfo of currentValidatorInfo.next_validators) {
         const validator = validators.validator(validatorInfo.account_id);
@@ -147,11 +157,18 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
         validator.kickoutReason = kickout.reason;
     }
     epochs.forEach((epochInfo, index) => {
-        for (const chunkOnlyProducer of epochInfo.chunk_only_producers) {
-            validators.setValidatorRole(chunkOnlyProducer, index, 'ChunkOnlyProducer');
-        }
         for (const blockProducer of epochInfo.block_producers) {
-            validators.setValidatorRole(blockProducer.account_id, index, 'BlockProducer');
+            validators.addValidatorRole(blockProducer.account_id, index, 'BlockProducer');
+        }
+        if (epochInfo.validator_info != null) {
+            for (const validator of epochInfo.validator_info.current_validators) {
+                if (validator.num_expected_chunks > 0) {
+                    validators.addValidatorRole(validator.account_id, index, 'ChunkProducer');
+                }
+                if (validator.num_expected_endorsements > 0) {
+                    validators.addValidatorRole(validator.account_id, index, 'ChunkValidator');
+                }
+            }
         }
     });
 
@@ -161,22 +178,23 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
                 <tr>
                     <th></th>
                     <th colSpan={4}>Next Epoch</th>
-                    <th colSpan={5}>Current Epoch</th>
+                    <th colSpan={6}>Current Epoch</th>
                     <th colSpan={1 + epochs.length - 2}>Past Epochs</th>
                 </tr>
                 <tr>
                     <th>Validator</th>
 
-                    <th className="small-text">Role</th>
+                    <th className="small-text">Roles</th>
                     <th className="small-text">Shards</th>
                     <th>Stake</th>
                     <th>Proposal</th>
 
-                    <th className="small-text">Role</th>
+                    <th className="small-text">Roles</th>
                     <th className="small-text">Shards</th>
                     <th>Stake</th>
                     <th>Blocks</th>
-                    <th>Chunks</th>
+                    <th>Produced Chunks</th>
+                    <th>Endorsed Chunks</th>
 
                     <th>Kickout</th>
                     {epochs.slice(2).map((epoch) => {
@@ -193,14 +211,14 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
                     return (
                         <tr key={validator.accountId}>
                             <td>{validator.accountId}</td>
-                            <td>{renderRole(validator.roles[0])}</td>
+                            <td>{renderRoles(validator.roles[0])}</td>
                             <td>{validator.next?.shards?.join(',') ?? ''}</td>
                             <td>
                                 {drawStakeBar(validator.next?.stake ?? null, maxStake, totalStake)}
                             </td>
                             <td>{drawStakeBar(validator.proposalStake, maxStake, totalStake)}</td>
 
-                            <td>{renderRole(validator.roles[1])}</td>
+                            <td>{renderRoles(validator.roles[1])}</td>
                             <td>{validator.current?.shards?.join(',') ?? ''}</td>
                             <td>
                                 {drawStakeBar(
@@ -221,12 +239,19 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
                                     maxExpectedChunks
                                 )}
                             </td>
+                            <td>
+                                {drawProducedAndExpectedBar(
+                                    validator.current?.endorsements ?? null,
+                                    maxExpectedChunks,
+                                    0.05
+                                )}
+                            </td>
 
                             <td>
                                 <KickoutReason reason={validator.kickoutReason} />
                             </td>
-                            {validator.roles.slice(2).map((role, i) => {
-                                return <td key={i}>{renderRole(role)}</td>;
+                            {validator.roles.slice(2).map((roles, i) => {
+                                return <td key={i}>{renderRoles(roles)}</td>;
                             })}
                         </tr>
                     );
@@ -238,7 +263,8 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
 
 function drawProducedAndExpectedBar(
     producedAndExpected: ProducedAndExpected | null,
-    maxExpected: number
+    maxExpected: number,
+    scale = 1
 ): JSX.Element {
     if (producedAndExpected === null) {
         return <></>;
@@ -263,10 +289,10 @@ function drawProducedAndExpectedBar(
     return (
         <div className="produced-and-expected-bar">
             <div className="produced-count">{produced}</div>
-            <div className="produced" style={{ width: producedWidth }}></div>
+            <div className="produced" style={{ width: producedWidth * scale }}></div>
             {produced !== expected && (
                 <>
-                    <div className="missed" style={{ width: missedWidth }}></div>
+                    <div className="missed" style={{ width: missedWidth * scale }}></div>
                     <div className="missed-count">{expected - produced}</div>
                 </>
             )}
@@ -291,15 +317,22 @@ function drawStakeBar(stake: number | null, maxStake: number, totalStake: number
     );
 }
 
-function renderRole(role: ValidatorRole): JSX.Element {
-    switch (role) {
-        case 'BlockProducer':
-            return <span className="role-block-producer">BP</span>;
-        case 'ChunkOnlyProducer':
-            return <span className="role-chunk-only-producer">CP</span>;
-        default:
-            return <></>;
+function renderRoles(roles: ValidatorRole[]): JSX.Element {
+    const renderedItems = [];
+    for (const role of roles) {
+        switch (role) {
+            case 'BlockProducer':
+                renderedItems.push(<span className="block-producer">BP</span>);
+                break;
+            case 'ChunkProducer':
+                renderedItems.push(<span className="chunk-producer">CP</span>);
+                break;
+            case 'ChunkValidator':
+                renderedItems.push(<span className="chunk-validator">CV</span>);
+                break;
+        }
     }
+    return <>{renderedItems}</>;
 }
 
 const KickoutReason = ({ reason }: { reason: ValidatorKickoutReason | null }) => {
