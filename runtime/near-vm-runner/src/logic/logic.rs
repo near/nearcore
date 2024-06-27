@@ -869,8 +869,8 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
-    /// the function returns `MemoryAccessViolation`.
+    /// If `value_len + value_ptr` points outside the memory or the registers
+    /// use more memory than the limit the function returns `MemoryAccessViolation`.
     ///
     /// If point coordinates are not on curve, point is not in the subgroup, scalar
     /// is not in the field or data are wrong serialized, for example,
@@ -918,8 +918,8 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
-    /// the function returns `MemoryAccessViolation`.
+    /// If `value_len + value_ptr` points outside the memory or the registers
+    /// use more memory than the limit the function returns `MemoryAccessViolation`.
     ///
     /// If `value_len % 97 != 0`, the function returns `BLS12381InvalidInput`.
     ///
@@ -972,7 +972,7 @@ impl<'a> VMLogic<'a> {
     ///    twisted BLS12-381 is Y^2 = X^3 + 4(u + 1) curve over Fp^2.
     ///
     ///   `value` is encoded as packed `[(u8, ([u8;96], [u8;96]))]` slice.
-    ///   `0u8` is positive sign, `1u8` -- negative.
+    ///   `0u8` is positive, `1u8` is negative.
     ///    Elements q = c0 + c1 * u from Fp^2 encoded as concatenation of c1 and c0,
     ///    where c1 and c0 from Fp and encoded as big-endian [u8;48].
     ///
@@ -988,8 +988,8 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
-    /// the function returns `MemoryAccessViolation`.
+    /// If `value_len + value_ptr` points outside the memory or the registers
+    /// use more memory than the limit the function returns `MemoryAccessViolation`.
     ///
     /// If `value_len % 193 != 0`, the function returns `BLS12381InvalidInput`.
     ///
@@ -1056,8 +1056,8 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
-    /// the function returns `MemoryAccessViolation`.
+    /// If `value_len + value_ptr` points outside the memory or the registers
+    /// use more memory than the limit the function returns `MemoryAccessViolation`.
     ///
     /// If `value_len % 128 != 0`, the function returns `BLS12381InvalidInput`.
     ///
@@ -1125,8 +1125,8 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
-    /// the function returns `MemoryAccessViolation`.
+    /// If `value_len + value_ptr` points outside the memory or the registers
+    /// use more memory than the limit the function returns `MemoryAccessViolation`.
     ///
     /// If `value_len % 224 != 0`, the function returns `BLS12381InvalidInput`.
     ///
@@ -1187,8 +1187,8 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
-    /// the function returns `MemoryAccessViolation`.
+    /// If `value_len + value_ptr` points outside the memory or the registers
+    /// use more memory than the limit the function returns `MemoryAccessViolation`.
     ///
     /// If `value_len % 48 != 0`, the function returns `BLS12381InvalidInput`.
     ///
@@ -1249,8 +1249,8 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
-    /// the function returns `MemoryAccessViolation`.
+    /// If `value_len + value_ptr` points outside the memory or the registers
+    /// use more memory than the limit the function returns `MemoryAccessViolation`.
     ///
     /// If `value_len % 96 != 0`, the function returns `BLS12381InvalidInput`.
     ///
@@ -1289,7 +1289,8 @@ impl<'a> VMLogic<'a> {
     }
 
     /// Computes pairing check on BLS12-381 curve.
-    /// \sum_i e(g_{1 i}, g_{2 i}) should be equal one (in additive notation), e(g1, g2) is pairing
+    /// In other words, computes whether \sum_i e(g_{1 i}, g_{2 i})
+    /// is equal to one (in additive notation), where e(g1, g2) is the pairing function
     ///
     /// # Arguments
     ///
@@ -1313,12 +1314,12 @@ impl<'a> VMLogic<'a> {
     /// incorrectly encoded then 1 will be returned
     ///
     /// If the input data is correct and
-    /// the pairing result NOT equals the multiplicative identity returns 2.
+    /// the pairing result does NOT equal the multiplicative identity returns 2.
     ///
     /// # Errors
     ///
-    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
-    /// the function returns `MemoryAccessViolation`.
+    /// If `value_len + value_ptr` points outside the memory or the registers
+    /// use more memory than the limit the function returns `MemoryAccessViolation`.
     ///
     /// If `value_len % 288 != 0`, the function returns `BLS12381InvalidInput`.
     ///
@@ -1368,8 +1369,8 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
-    /// the function returns `MemoryAccessViolation`.
+    /// If `value_len + value_ptr` points outside the memory or the registers
+    /// use more memory than the limit the function returns `MemoryAccessViolation`.
     ///
     /// If `value_len % 48 != 0`, the function returns `BLS12381InvalidInput`.
     ///
@@ -1410,7 +1411,7 @@ impl<'a> VMLogic<'a> {
     ///
     ///   `value` is encoded as packed `[[u8;96]]` slice.
     ///    Where points (x: Fp^2, y: Fp^2) from E'(Fp^2) encoded as
-    ///    [u8; 96] -- x: Fp^2. y determined by the formula y=+-sqrt(x^3 + 4)
+    ///    [u8; 96] -- x: Fp^2. y determined by the formula y=+-sqrt(x^3 + 4(u + 1))
     ///
     ///    Elements q = c0 + c1 * u from Fp^2 encoded as concatenation of c1 and c0,
     //     where c1 and c0 from Fp and encoded as big-endian [u8;48].
@@ -1430,8 +1431,8 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
-    /// the function returns `MemoryAccessViolation`.
+    /// If `value_len + value_ptr` points outside the memory or the registers
+    /// use more memory than the limit the function returns `MemoryAccessViolation`.
     ///
     /// If `value_len % 96 != 0`, the function returns `BLS12381InvalidInput`.
     ///
