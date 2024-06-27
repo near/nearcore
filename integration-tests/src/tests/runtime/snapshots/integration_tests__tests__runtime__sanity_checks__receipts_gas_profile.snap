@@ -17,7 +17,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "ACTION_COST",
             cost: "ADD_FUNCTION_CALL_KEY_BYTE",
-            gas_used: 238418575,
+            gas_used: 9626655,
         },
         CostGasUsed {
             cost_category: "ACTION_COST",
@@ -42,7 +42,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "ACTION_COST",
             cost: "DEPLOY_CONTRACT_BYTE",
-            gas_used: 1621246310,
+            gas_used: 231641966,
         },
         CostGasUsed {
             cost_category: "ACTION_COST",
@@ -52,7 +52,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "ACTION_COST",
             cost: "FUNCTION_CALL_BYTE",
-            gas_used: 571524110,
+            gas_used: 207941862,
         },
         CostGasUsed {
             cost_category: "ACTION_COST",
