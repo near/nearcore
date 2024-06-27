@@ -9,7 +9,20 @@ interface ProducedAndExpected {
     expected: number;
 }
 
-type ValidatorRole = 'BlockProducer' | 'ChunkProducer' | 'ChunkValidator';
+interface BlockProducer {
+    kind: 'BlockProducer'
+}
+
+interface ChunkProducer {
+    kind: 'ChunkProducer'
+    shards: number[];
+}
+
+interface ChunkValidator {
+    kind: 'ChunkValidator'
+}
+
+type ValidatorRole = BlockProducer | ChunkProducer | ChunkValidator;
 
 interface CurrentValidatorInfo {
     stake: number;
@@ -60,6 +73,9 @@ class Validators {
     addValidatorRole(accountId: string, epochIndex: number, role: ValidatorRole) {
         const validator = this.validator(accountId);
         validator.roles[epochIndex].push(role);
+        validator.roles[epochIndex].sort((a, b) => {
+            return a.kind.localeCompare(b.kind)
+        })
     }
 
     sorted(): ValidatorInfo[] {
@@ -147,6 +163,9 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
             stake: parseFloat(validatorInfo.stake),
             shards: validatorInfo.shards,
         };
+        if (validatorInfo.shards.length > 0) {
+            validators.addValidatorRole(validator.accountId, 0, { kind: 'ChunkProducer', shards: validatorInfo.shards });
+        }
     }
     for (const proposal of currentValidatorInfo.current_proposals) {
         const validator = validators.validator(proposal.account_id);
@@ -158,15 +177,15 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
     }
     epochs.forEach((epochInfo, index) => {
         for (const blockProducer of epochInfo.block_producers) {
-            validators.addValidatorRole(blockProducer.account_id, index, 'BlockProducer');
+            validators.addValidatorRole(blockProducer.account_id, index, { kind: 'BlockProducer'});
         }
         if (epochInfo.validator_info != null) {
             for (const validator of epochInfo.validator_info.current_validators) {
                 if (validator.num_expected_chunks > 0) {
-                    validators.addValidatorRole(validator.account_id, index, 'ChunkProducer');
+                    validators.addValidatorRole(validator.account_id, index, { kind: 'ChunkProducer', shards: validator.shards });
                 }
                 if (validator.num_expected_endorsements > 0) {
-                    validators.addValidatorRole(validator.account_id, index, 'ChunkValidator');
+                    validators.addValidatorRole(validator.account_id, index, { kind: 'ChunkValidator'});
                 }
             }
         }
@@ -177,20 +196,18 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
             <thead>
                 <tr>
                     <th></th>
-                    <th colSpan={4}>Next Epoch</th>
-                    <th colSpan={6}>Current Epoch</th>
+                    <th colSpan={3}>Next Epoch</th>
+                    <th colSpan={5}>Current Epoch</th>
                     <th colSpan={1 + epochs.length - 2}>Past Epochs</th>
                 </tr>
                 <tr>
                     <th>Validator</th>
 
                     <th className="small-text">Roles</th>
-                    <th className="small-text">Shards</th>
                     <th>Stake</th>
                     <th>Proposal</th>
 
                     <th className="small-text">Roles</th>
-                    <th className="small-text">Shards</th>
                     <th>Stake</th>
                     <th>Blocks</th>
                     <th>Produced Chunks</th>
@@ -212,14 +229,12 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
                         <tr key={validator.accountId}>
                             <td>{validator.accountId}</td>
                             <td>{renderRoles(validator.roles[0])}</td>
-                            <td>{validator.next?.shards?.join(',') ?? ''}</td>
                             <td>
                                 {drawStakeBar(validator.next?.stake ?? null, maxStake, totalStake)}
                             </td>
                             <td>{drawStakeBar(validator.proposalStake, maxStake, totalStake)}</td>
 
                             <td>{renderRoles(validator.roles[1])}</td>
-                            <td>{validator.current?.shards?.join(',') ?? ''}</td>
                             <td>
                                 {drawStakeBar(
                                     validator.current?.stake ?? null,
@@ -320,12 +335,12 @@ function drawStakeBar(stake: number | null, maxStake: number, totalStake: number
 function renderRoles(roles: ValidatorRole[]): JSX.Element {
     const renderedItems = [];
     for (const role of roles) {
-        switch (role) {
+        switch (role.kind) {
             case 'BlockProducer':
                 renderedItems.push(<span className="block-producer">BP</span>);
                 break;
             case 'ChunkProducer':
-                renderedItems.push(<span className="chunk-producer">CP</span>);
+                renderedItems.push(<span className="chunk-producer">CP({role.shards.join(",")})</span>);
                 break;
             case 'ChunkValidator':
                 renderedItems.push(<span className="chunk-validator">CV</span>);
