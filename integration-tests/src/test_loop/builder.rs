@@ -407,8 +407,10 @@ pub fn partial_encoded_chunks_dropper(
             return Some(request);
         };
 
-        let chunks_storage = chunks_storage.lock().unwrap();
-        let chunk = chunks_storage.get(&chunk_hash).unwrap();
+        let (chunk, min_chunk_height) = {
+            let chunks_storage = chunks_storage.lock().unwrap();
+            (chunks_storage.get(&chunk_hash).unwrap(), chunks_storage.min_chunk_height)
+        };
         let prev_block_hash = chunk.prev_block_hash();
         let shard_id = chunk.shard_id();
         let height_created = chunk.height_created();
@@ -424,10 +426,7 @@ pub fn partial_encoded_chunks_dropper(
 
         // If chunk height is too low, don't drop chunk, allow the chain to
         // warm up.
-        if chunks_storage
-            .min_chunk_height
-            .is_some_and(|min_height| height_created <= min_height + 3)
-        {
+        if min_chunk_height.is_some_and(|min_height| height_created <= min_height + 3) {
             return Some(request);
         }
 

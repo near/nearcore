@@ -72,14 +72,15 @@ impl TestLoopEnv {
     }
 }
 
-/// Stores mapping from chunk hashes to headers and records minimal chunk
-/// height.
+/// Stores all chunks ever observed on chain.
 ///
 /// Needed to intercept network messages storing chunk hash only, while
 /// interception requires more detailed information like shard id.
 #[derive(Default)]
 pub struct TestLoopChunksStorage {
+    /// Mapping from chunk hashes to headers.
     storage: HashMap<ChunkHash, ShardChunkHeader>,
+    /// Minimal chunk height ever observed.
     pub min_chunk_height: Option<BlockHeight>,
 }
 

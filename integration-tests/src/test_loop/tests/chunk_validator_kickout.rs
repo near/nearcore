@@ -11,7 +11,7 @@ use std::string::ToString;
 
 const VALIDATOR_TO_KICKOUT: &str = "account6";
 
-/// Test that chunk validator with low endorsement stats is kicked out.
+/// Checks that chunk validator with low endorsement stats is kicked out.
 #[test]
 fn test_chunk_validator_kickout() {
     init_test_logger();
