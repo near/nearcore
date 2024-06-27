@@ -123,7 +123,7 @@ def main():
     signer_node = nodes[0]
 
     logger.info("Deploying test contract")
-    utils.deploy_test_contract(rpc_node, signer_node.signer_key)
+    utils.deploy_test_contract(rpc_node, signer_node.signer_key, timeout=15)
 
     nonce = 4321
     keys = []
