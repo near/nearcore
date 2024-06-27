@@ -72,6 +72,11 @@ impl TestLoopEnv {
     }
 }
 
+/// Stores mapping from chunk hashes to headers and records minimal chunk
+/// height.
+///
+/// Needed to intercept network messages storing chunk hash only, while
+/// interception requires more detailed information like shard id.
 #[derive(Default)]
 pub struct TestLoopChunksStorage {
     storage: HashMap<ChunkHash, ShardChunkHeader>,
@@ -93,15 +98,18 @@ impl TestLoopChunksStorage {
     }
 }
 
+/// Custom implementation of `Sender` for messages from `Client` to
+/// `ShardsManagerActor` that allows to intercept all messages indicating
+/// any chunk production and storing all chunks.
 pub struct ClientToShardsManagerSender {
     pub sender: Arc<LateBoundSender<TestLoopSender<ShardsManagerActor>>>,
-    // write access
+    /// Storage of chunks shared between all test loop nodes.
     pub chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
 }
 
-/// custom sender
 impl CanSend<ShardsManagerRequestFromClient> for ClientToShardsManagerSender {
     fn send(&self, message: ShardsManagerRequestFromClient) {
+        // `DistributeEncodedChunk` indicates that a certain chunk was produced.
         if let ShardsManagerRequestFromClient::DistributeEncodedChunk { partial_chunk, .. } =
             &message
         {
@@ -110,6 +118,7 @@ impl CanSend<ShardsManagerRequestFromClient> for ClientToShardsManagerSender {
                 chunks_storage.insert(chunk.header.clone());
             }
         }
+        // After maybe storing the chunk, send the message as usual.
         self.sender.send(message);
     }
 }

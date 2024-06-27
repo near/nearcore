@@ -43,7 +43,9 @@ pub struct TestLoopBuilder {
     test_loop: TestLoopV2,
     genesis: Option<Genesis>,
     clients: Vec<AccountId>,
+    /// Will store all chunks produced within the test loop.
     chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
+    /// Whether test loop should drop all chunks validated by the given account.
     drop_chunks_validated_by: Option<AccountId>,
     gc: bool,
 }
@@ -342,6 +344,8 @@ impl TestLoopBuilder {
         (data, network_adapter, epoch_manager)
     }
 
+    // TODO: we assume that all `Vec`s have the same length, consider
+    // joining them into one structure.
     fn setup_network(
         &mut self,
         datas: &Vec<TestData>,
@@ -369,12 +373,20 @@ impl TestLoopBuilder {
     }
 }
 
+/// Handler to drop all network messages relevant to chunk validated by
+/// `validator_of_chunks_to_drop`. If number of nodes on chain is significant
+/// enough (at least three?), this is enough to prevent chunk from being
+/// included.
+///
+/// This logic can be easily extended to dropping chunk based on any rule.
 pub fn partial_encoded_chunks_dropper(
     chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
     epoch_manager_adapter: Arc<dyn EpochManagerAdapter>,
     validator_of_chunks_to_drop: AccountId,
 ) -> Arc<dyn Fn(NetworkRequests) -> Option<NetworkRequests>> {
     Arc::new(move |request| {
+        // Filter out only messages related to distributing chunk in the
+        // network; extract `chunk_hash` from the message.
         let chunk_hash = match &request {
             NetworkRequests::PartialEncodedChunkRequest { request, .. } => {
                 Some(request.chunk_hash.clone())
@@ -401,25 +413,29 @@ pub fn partial_encoded_chunks_dropper(
         let shard_id = chunk.shard_id();
         let height_created = chunk.height_created();
 
+        // If we don't have block on top of which chunk is built, we can't
+        // retrieve epoch id.
+        // This case appears to be too rare to interfere with the goal of
+        // dropping chunk.
         let Ok(epoch_id) = epoch_manager_adapter.get_epoch_id_from_prev_block(prev_block_hash)
         else {
-            // println!("MISSING BLOCK, PASSING CHUNK: {shard_id} {height_created}");
             return Some(request);
         };
 
+        // If chunk height is too low, don't drop chunk, allow the chain to
+        // warm up.
         if chunks_storage
             .min_chunk_height
             .is_some_and(|min_height| height_created <= min_height + 3)
         {
-            // println!("LOW HEIGHT, PASSING CHUNK: {shard_id} {height_created}");
             return Some(request);
         }
 
+        // Drop chunk if the given account is present in the list of its validators.
         let chunk_validators = epoch_manager_adapter
             .get_chunk_validator_assignments(&epoch_id, shard_id, height_created)
             .unwrap();
         if chunk_validators.contains(&validator_of_chunks_to_drop) {
-            // println!("DROPPING CHUNK: {shard_id} {height_created}");
             return None;
         }
 
