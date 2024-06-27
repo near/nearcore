@@ -458,7 +458,6 @@ class LocalNode(BaseNode):
         self.binary_name = binary_name or 'neard'
         self.ordinal = ordinal
         self.cleaned = False
-        logger.info(f"Node path: {node_dir}")
         self.validator_key = Key.from_json_file(
             os.path.join(node_dir, "validator_key.json"))
         self.node_key = Key.from_json_file(

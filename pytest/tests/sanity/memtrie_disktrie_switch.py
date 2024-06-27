@@ -123,7 +123,7 @@ def main():
     signer_node = nodes[0]
 
     logger.info("Deploying test contract")
-    utils.deploy_test_contract(rpc_node, signer_node.signer_key, timeout=15)
+    utils.deploy_test_contract(rpc_node, signer_node.signer_key, timeout=10)
 
     nonce = 4321
     keys = []
@@ -134,24 +134,21 @@ def main():
     nonce, keys = random_workload_until(next(target_height_gen), rpc_node,
                                         nonce, keys, nodes)
 
-    # Restart nodes with memtries disabled.
+    logger.info("Step 2: Restarting nodes with memtries disabled")
     restart_nodes(nodes, enable_memtries=False)
 
-    logger.info("Step 2: Running with memtries disabled")
     nonce, keys = random_workload_until(next(target_height_gen), rpc_node,
                                         nonce, keys, nodes)
 
-    # Restart nodes with memtries enabled.
+    logger.info("Step 3: Restarting nodes with memtries enabled")
     restart_nodes(nodes, enable_memtries=True)
 
-    logger.info("Step 3: Running with memtries enabled")
     nonce, keys = random_workload_until(next(target_height_gen), rpc_node,
                                         nonce, keys, nodes)
 
-    logger.info("Test ended, checking store and killing nodes")
+    logger.info("Test ended")
     for i in range(len(nodes)):
         nodes[i].check_store()
-        nodes[i].kill()
 
 
 if __name__ == "__main__":
