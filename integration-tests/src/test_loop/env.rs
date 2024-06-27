@@ -1,16 +1,21 @@
-use near_async::messaging::{IntoMultiSender, IntoSender, Sender};
+use near_async::messaging::{CanSend, IntoMultiSender, IntoSender, LateBoundSender, Sender};
 use near_async::test_loop::data::{TestLoopData, TestLoopDataHandle};
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
+use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::client_actor::ClientActorInner;
 use near_client::PartialWitnessActor;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::PartialWitnessSenderForNetwork;
 use near_network::test_loop::ClientSenderForTestLoopNetwork;
+use near_primitives::sharding::{ChunkHash, PartialEncodedChunk, ShardChunkHeader};
 use near_primitives::types::AccountId;
+use near_primitives_core::types::BlockHeight;
 use nearcore::state_sync::StateSyncDumper;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 const NETWORK_DELAY: Duration = Duration::milliseconds(10);
 
@@ -64,6 +69,48 @@ impl TestLoopEnv {
         }
 
         self.test_loop.shutdown_and_drain_remaining_events(timeout);
+    }
+}
+
+#[derive(Default)]
+pub struct TestLoopChunksStorage {
+    storage: HashMap<ChunkHash, ShardChunkHeader>,
+    pub min_chunk_height: Option<BlockHeight>,
+}
+
+impl TestLoopChunksStorage {
+    pub fn insert(&mut self, chunk_header: ShardChunkHeader) {
+        let chunk_height = chunk_header.height_created();
+        self.min_chunk_height = Some(
+            self.min_chunk_height
+                .map_or(chunk_height, |current_height| current_height.min(chunk_height)),
+        );
+        self.storage.insert(chunk_header.chunk_hash(), chunk_header);
+    }
+
+    pub fn get(&self, chunk_hash: &ChunkHash) -> Option<&ShardChunkHeader> {
+        self.storage.get(chunk_hash)
+    }
+}
+
+pub struct ClientToShardsManagerSender {
+    pub sender: Arc<LateBoundSender<TestLoopSender<ShardsManagerActor>>>,
+    // write access
+    pub chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
+}
+
+/// custom sender
+impl CanSend<ShardsManagerRequestFromClient> for ClientToShardsManagerSender {
+    fn send(&self, message: ShardsManagerRequestFromClient) {
+        if let ShardsManagerRequestFromClient::DistributeEncodedChunk { partial_chunk, .. } =
+            &message
+        {
+            if let PartialEncodedChunk::V2(chunk) = partial_chunk {
+                let mut chunks_storage = self.chunks_storage.lock().unwrap();
+                chunks_storage.insert(chunk.header.clone());
+            }
+        }
+        self.sender.send(message);
     }
 }
 

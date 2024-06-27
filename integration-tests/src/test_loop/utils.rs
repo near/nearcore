@@ -16,6 +16,8 @@ pub(crate) const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 /// Runs chain long enough for the transfers to be optimistically executed.
 /// Used to generate state changes and check that chain is able to update
 /// balances correctly.
+/// TODO: consider resending transactions which may be dropped because of
+/// missing chunks.
 pub(crate) fn execute_money_transfers(
     test_loop: &mut TestLoopV2,
     node_data: &[TestData],
