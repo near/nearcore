@@ -10,6 +10,48 @@ const BLS_FP2_SIZE: usize = 96;
 const BLS_P1_SIZE: usize = 96;
 const BLS_P2_SIZE: usize = 192;
 
+#[macro_export]
+macro_rules! bls12381_impl {
+    (
+        $doc:expr,
+        $fn_name:ident,
+        $ITEM_SIZE:expr,
+        $bls12381_base:ident,
+        $bls12381_element:ident,
+        $impl_fn_name:ident
+    ) => {
+        #[doc = $doc]
+        #[cfg(feature = "protocol_feature_bls12381")]
+        pub fn $fn_name(
+            &mut self,
+            value_len: u64,
+            value_ptr: u64,
+            register_id: u64,
+        ) -> Result<u64> {
+            self.gas_counter.pay_base($bls12381_base)?;
+
+            let elements_count = value_len / $ITEM_SIZE;
+            self.gas_counter.pay_per($bls12381_element, elements_count as u64)?;
+
+            let data = get_memory_or_register!(self, value_ptr, value_len)?;
+            let (status, res) = super::bls12381::$impl_fn_name(&data)?;
+
+            if status != 0 {
+                return Ok(status);
+            }
+
+            self.registers.set(
+                &mut self.gas_counter,
+                &self.config.limit_config,
+                register_id,
+                res.as_slice(),
+            )?;
+
+            Ok(0)
+        }
+    };
+}
+
 pub(super) fn p1_sum(data: &[u8]) -> Result<(u64, Vec<u8>)> {
     const ITEM_SIZE: usize = BLS_BOOL_SIZE + BLS_P1_SIZE;
 
@@ -179,12 +221,7 @@ pub(super) fn g1_multiexp(data: &[u8]) -> Result<(u64, Vec<u8>)> {
 
         let mut pk_mul = blst::blst_p1::default();
         unsafe {
-            blst::blst_p1_mult(
-                &mut pk_mul,
-                &pk,
-                scalar_data.as_ptr(),
-                BLS_SCALAR_SIZE * 8,
-            );
+            blst::blst_p1_mult(&mut pk_mul, &pk, scalar_data.as_ptr(), BLS_SCALAR_SIZE * 8);
         }
 
         unsafe {
@@ -247,12 +284,7 @@ pub(super) fn g2_multiexp(data: &[u8]) -> Result<(u64, Vec<u8>)> {
 
         let mut pk_mul = blst::blst_p2::default();
         unsafe {
-            blst::blst_p2_mult(
-                &mut pk_mul,
-                &pk,
-                scalar_data.as_ptr(),
-                BLS_SCALAR_SIZE * 8,
-            );
+            blst::blst_p2_mult(&mut pk_mul, &pk, scalar_data.as_ptr(), BLS_SCALAR_SIZE * 8);
         }
 
         unsafe {

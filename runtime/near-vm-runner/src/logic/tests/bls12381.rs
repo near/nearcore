@@ -441,7 +441,6 @@ mod tests {
                     $check_sum(p, q);
                 }
 
-
                 for _ in 0..TESTS_ITERATIONS {
                     let p = $GOp::get_random_g_point(&mut rng);
                     let q = $GOp::get_random_g_point(&mut rng);
