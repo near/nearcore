@@ -203,11 +203,11 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
                 <tr>
                     <th>Validator</th>
 
-                    <th className="small-text">Roles</th>
+                    <th className="small-text">Roles (shards)</th>
                     <th>Stake</th>
                     <th>Proposal</th>
 
-                    <th className="small-text">Roles</th>
+                    <th className="small-text">Roles (shards)</th>
                     <th>Stake</th>
                     <th>Blocks</th>
                     <th>Produced Chunks</th>
