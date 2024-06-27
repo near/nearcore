@@ -430,14 +430,15 @@ pub fn partial_encoded_chunks_dropper(
             return Some(request);
         }
 
-        // Drop chunk if the given account is present in the list of its validators.
+        // Finally, we drop chunk if the given account is present in the list
+        // of its validators.
         let chunk_validators = epoch_manager_adapter
             .get_chunk_validator_assignments(&epoch_id, shard_id, height_created)
             .unwrap();
-        if chunk_validators.contains(&validator_of_chunks_to_drop) {
-            return None;
+        if !chunk_validators.contains(&validator_of_chunks_to_drop) {
+            return Some(request);
         }
 
-        return Some(request);
+        return None;
     })
 }
