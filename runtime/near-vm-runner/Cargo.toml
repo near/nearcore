@@ -94,7 +94,6 @@ nightly_protocol = [
   "near-o11y/nightly_protocol",
   "near-parameters/nightly_protocol",
   "near-primitives-core/nightly_protocol",
-  "protocol_feature_bls12381",
 ]
 wasmer0_vm = ["wasmer-runtime", "wasmer-runtime-core", "prepare"]
 wasmtime_vm = ["wasmtime", "anyhow", "prepare"]
@@ -149,6 +148,7 @@ nightly = [
   "near-primitives-core/nightly",
   "nightly_protocol",
   "protocol_feature_fix_contract_loading_cost",
+  "protocol_feature_bls12381",
 ]
 sandbox = []
 io_trace = ["base64"]
