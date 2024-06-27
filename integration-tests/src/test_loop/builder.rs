@@ -409,7 +409,7 @@ pub fn partial_encoded_chunks_dropper(
 
         let (chunk, min_chunk_height) = {
             let chunks_storage = chunks_storage.lock().unwrap();
-            (chunks_storage.get(&chunk_hash).unwrap(), chunks_storage.min_chunk_height)
+            (chunks_storage.get(&chunk_hash).unwrap().clone(), chunks_storage.min_chunk_height)
         };
         let prev_block_hash = chunk.prev_block_hash();
         let shard_id = chunk.shard_id();
