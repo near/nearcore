@@ -17,7 +17,8 @@ from rc import gcloud
 
 import cluster
 from configured_logger import logger
-from transaction import sign_payment_tx
+import key
+import transaction
 
 
 class TxContext:
@@ -54,7 +55,7 @@ class TxContext:
             if self.expected_balances[from_] >= amt:
                 logger.info("Sending a tx from %s to %s for %s" %
                             (from_, to, amt))
-                tx = sign_payment_tx(
+                tx = transaction.sign_payment_tx(
                     self.nodes[from_].signer_key, 'test%s' % to, amt,
                     self.next_nonce,
                     base58.b58decode(last_block_hash.encode('utf8')))
@@ -252,6 +253,19 @@ def load_test_contract(
     repo_dir = pathlib.Path(__file__).resolve().parents[2]
     path = repo_dir / 'runtime/near-test-contracts/res' / filename
     return load_binary_file(path)
+
+
+def deploy_test_contract(rpc_node: cluster.BaseNode,
+                         signer_key: key.Key,
+                         contract: bytearray = None):
+    # If contract is not give, we deploy the default test contract specified in load_test_contract.
+    contract = contract if contract is not None else load_test_contract()
+    latest_block_hash = rpc_node.get_latest_block().hash_bytes
+    deploy_contract_tx = transaction.sign_deploy_contract_tx(
+        signer_key, contract, 1, latest_block_hash)
+    result = rpc_node.send_tx_and_wait(deploy_contract_tx, timeout=10)
+    assert 'result' in result and 'error' not in result, (
+        'Expected "result" and no "error" in response, got: {}'.format(result))
 
 
 def user_name():
