@@ -1,3 +1,4 @@
+use bytesize::ByteSize;
 use near_primitives::types::BlockHeight;
 use near_primitives::validator_signer::ValidatorSigner;
 #[cfg(feature = "metrics")]
@@ -108,6 +109,11 @@ pub struct UpdateableClientConfig {
     #[serde(default)]
     #[serde(with = "near_time::serde_opt_duration_as_std")]
     pub produce_chunk_add_transactions_time_limit: Option<Duration>,
+
+    /// Add this much artifical data to all produced instances of ChunkStateWitness.
+    /// Data is added by injecting a dummy transaction with random contract code of desired size.
+    /// Has effect only when the `artificial_witness_size` feature is enabled in the binary.
+    pub artificial_witness_size_to_add: ByteSize,
 }
 
 pub type MutableValidatorSigner = MutableConfigValue<Option<Arc<ValidatorSigner>>>;

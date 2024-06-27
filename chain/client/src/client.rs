@@ -219,6 +219,10 @@ impl Client {
             .config
             .produce_chunk_add_transactions_time_limit
             .update(update_client_config.produce_chunk_add_transactions_time_limit);
+        is_updated |= self
+            .config
+            .artificial_witness_size_to_add
+            .update(update_client_config.artificial_witness_size_to_add);
         is_updated
     }
 

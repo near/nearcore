@@ -269,6 +269,9 @@ impl Client {
         // wait for validation to finish.
         self.send_state_witness_ack(&witness, &signer);
 
+        #[cfg(feature = "artificial_witness_size")]
+        let witness = Self::remove_artificial_witness_size(witness);
+
         if self.config.save_latest_witnesses {
             self.chain.chain_store.save_latest_chunk_state_witness(&witness)?;
         }
@@ -308,6 +311,23 @@ impl Client {
                 ChunkStateWitnessAck::new(witness),
             ),
         ));
+    }
+
+    #[cfg(feature = "artificial_witness_size")]
+    fn remove_artificial_witness_size(mut witness: ChunkStateWitness) -> ChunkStateWitness {
+        use near_crypto::Signature;
+        use near_primitives::transaction::SignedTransaction;
+        use near_primitives::types::AccountId;
+        use std::str::FromStr;
+
+        let is_artificial = |tx: &SignedTransaction| -> bool {
+            tx.signature == Signature::default()
+                && tx.transaction.receiver_id()
+                    == &AccountId::from_str("added_artificial_witness_size").unwrap()
+        };
+
+        witness.transactions.retain(|tx| !is_artificial(tx));
+        witness
     }
 
     pub fn process_chunk_state_witness_with_prev_block(
