@@ -33,17 +33,24 @@ def random_target_height_generator(num_epochs):
         yield (target_height)
 
 
+def nonce_generator(start=2):
+    nonce = start
+    while True:
+        yield nonce
+        nonce += 1
+
+
 def random_u64():
     return bytes(random.randint(0, 255) for _ in range(8))
 
 
 # Generates traffic for all possible shards.
 # Assumes that `test0`, `test1`, `near` all belong to different shards.
-def random_workload_until(target_height, rpc_node, nonce, keys, nodes):
+def random_workload_until(target_height, rpc_node, nonce_gen, keys, nodes):
     logger.info(f"Running workload until height {target_height}")
     last_height = -1
     while True:
-        nonce += 1
+        nonce = next(nonce_gen)
 
         last_block = rpc_node.get_latest_block()
         height = last_block.height
@@ -64,7 +71,10 @@ def random_workload_until(target_height, rpc_node, nonce, keys, nodes):
                 [node.signer_key.account_id for node in nodes] + ["near"])
             payment_tx = transaction.sign_payment_tx(key_from, account_to, 1,
                                                      nonce, last_block_hash)
-            rpc_node.send_tx(payment_tx).get('result')
+            result = rpc_node.send_tx(payment_tx)
+            assert 'result' in result and 'error' not in result, (
+                'Expected "result" and no "error" in response, got: {}'.format(
+                    result))
         elif (len(keys) > 100 and random.random() < 0.5) or len(keys) > 1000:
             # Do some flat storage reads, but only if we have enough keys populated.
             key = keys[random.randint(0, len(keys) - 1)]
@@ -72,7 +82,10 @@ def random_workload_until(target_height, rpc_node, nonce, keys, nodes):
                 tx = transaction.sign_function_call_tx(
                     node.signer_key, node.signer_key.account_id, 'read_value',
                     key, 300 * account.TGAS, 0, nonce, last_block_hash)
-                rpc_node.send_tx(tx).get('result')
+                result = rpc_node.send_tx(tx)
+                assert 'result' in result and 'error' not in result, (
+                    'Expected "result" and no "error" in response, got: {}'.
+                    format(result))
         else:
             # Generate some data for flat storage reads
             key = random_u64()
@@ -82,28 +95,30 @@ def random_workload_until(target_height, rpc_node, nonce, keys, nodes):
                     node.signer_key, node.signer_key.account_id,
                     'write_key_value', key + random_u64(), 300 * account.TGAS,
                     0, nonce, last_block_hash)
-                rpc_node.send_tx(tx).get('result')
+                result = rpc_node.send_tx(tx)
+                assert 'result' in result and 'error' not in result, (
+                    'Expected "result" and no "error" in response, got: {}'.
+                    format(result))
 
-    return nonce, keys
+    return keys
 
 
 def restart_nodes(nodes, enable_memtries):
-    boot_node = nodes[len(nodes) - 1]
+    boot_node = nodes[0]
     for i in range(len(nodes)):
         nodes[i].kill()
         time.sleep(2)
         nodes[i].change_config(
             {"store.load_mem_tries_for_tracked_shards": enable_memtries})
-        nodes[i].start(boot_node=boot_node)
+        nodes[i].start(boot_node=None if i == 0 else boot_node)
 
 
 def main():
     node_config_dump, node_config_sync = state_sync_lib.get_state_sync_configs_pair(
     )
 
-    # Enable all-shards tracking with memtries in dumper node.
-    # TODO: Enable single-shard-tracking with memtries.
-    node_config_sync["tracked_shards"] = [0]
+    # Enable single-shard tracking with memtries in dumper node.
+    node_config_sync["tracked_shards"] = []
     node_config_sync["store.load_mem_tries_for_tracked_shards"] = True
 
     # Enable all-shards tracking with memtries in dumper node.
@@ -122,29 +137,31 @@ def main():
     rpc_node = nodes[4]
     signer_node = nodes[0]
 
-    logger.info("Deploying test contract")
-    utils.deploy_test_contract(rpc_node, signer_node.signer_key, timeout=10)
-
-    nonce = 4321
+    nonce_gen = nonce_generator(start=42)
     keys = []
+
+    for i in range(len(nodes)):
+        logger.info(f"Deploying test contract for node {i}")
+        utils.deploy_test_contract(rpc_node, nodes[i].signer_key,
+                                   next(nonce_gen))
 
     target_height_gen = random_target_height_generator(num_epochs=2)
 
     logger.info("Step 1: Running with memtries enabled")
-    nonce, keys = random_workload_until(next(target_height_gen), rpc_node,
-                                        nonce, keys, nodes)
+    keys = random_workload_until(next(target_height_gen), rpc_node, nonce_gen,
+                                 keys, nodes)
 
     logger.info("Step 2: Restarting nodes with memtries disabled")
     restart_nodes(nodes, enable_memtries=False)
 
-    nonce, keys = random_workload_until(next(target_height_gen), rpc_node,
-                                        nonce, keys, nodes)
+    keys = random_workload_until(next(target_height_gen), rpc_node, nonce_gen,
+                                 keys, nodes)
 
     logger.info("Step 3: Restarting nodes with memtries enabled")
     restart_nodes(nodes, enable_memtries=True)
 
-    nonce, keys = random_workload_until(next(target_height_gen), rpc_node,
-                                        nonce, keys, nodes)
+    keys = random_workload_until(next(target_height_gen), rpc_node, nonce_gen,
+                                 keys, nodes)
 
     logger.info("Test ended")
     for i in range(len(nodes)):

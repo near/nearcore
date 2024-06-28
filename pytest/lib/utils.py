@@ -257,8 +257,8 @@ def load_test_contract(
 
 def deploy_test_contract(rpc_node: cluster.BaseNode,
                          signer_key: key.Key,
-                         contract: bytearray = None,
-                         timeout=10):
+                         nonce: int,
+                         contract: bytearray = None):
     """Deploys the given test contract.
 
     Sends the transaction to deploy the contract to rpc_node and signs the transaction using the signer_key.
@@ -267,8 +267,8 @@ def deploy_test_contract(rpc_node: cluster.BaseNode,
     contract = contract if contract is not None else load_test_contract()
     latest_block_hash = rpc_node.get_latest_block().hash_bytes
     deploy_contract_tx = transaction.sign_deploy_contract_tx(
-        signer_key, contract, 1, latest_block_hash)
-    result = rpc_node.send_tx_and_wait(deploy_contract_tx, timeout=timeout)
+        signer_key, contract, nonce, latest_block_hash)
+    result = rpc_node.send_tx(deploy_contract_tx)
     assert 'result' in result and 'error' not in result, (
         'Expected "result" and no "error" in response, got: {}'.format(result))
 
