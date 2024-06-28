@@ -1626,11 +1626,8 @@ impl EpochManager {
         let stake_divisor = { config.minimum_stake_divisor as Balance };
         Ok(seat_price / stake_divisor)
     }
-}
 
-/// Private utilities for EpochManager.
-impl EpochManager {
-    fn cares_about_shard_in_epoch(
+    pub fn cares_about_shard_in_epoch(
         &self,
         epoch_id: EpochId,
         account_id: &AccountId,
@@ -1648,7 +1645,10 @@ impl EpochManager {
         }
         Ok(false)
     }
+}
 
+/// Private utilities for EpochManager.
+impl EpochManager {
     #[inline]
     pub(crate) fn block_producer_from_info(
         epoch_info: &EpochInfo,

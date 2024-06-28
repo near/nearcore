@@ -8,8 +8,7 @@ use near_primitives::block::Tip;
 use near_primitives::block_header::{Approval, ApprovalInner, BlockHeader};
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::EpochConfig;
-use near_primitives::epoch_manager::ShardConfig;
+use near_primitives::epoch_manager::{EpochConfig, ShardConfig};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout, ShardLayoutError};
@@ -421,6 +420,13 @@ pub trait EpochManagerAdapter: Send + Sync {
         &self,
         partial_witness: &PartialEncodedStateWitness,
     ) -> Result<bool, Error>;
+
+    fn cares_about_shard_in_epoch(
+        &self,
+        epoch_id: EpochId,
+        account_id: &AccountId,
+        shard_id: ShardId,
+    ) -> Result<bool, EpochError>;
 
     fn cares_about_shard_from_prev_block(
         &self,
@@ -1141,5 +1147,15 @@ impl EpochManagerAdapter for EpochManagerHandle {
     ) -> Result<Vec<ValidatorStake>, EpochError> {
         let epoch_manager = self.read();
         Ok(epoch_manager.get_epoch_info(epoch_id)?.validators_iter().collect::<Vec<_>>())
+    }
+
+    fn cares_about_shard_in_epoch(
+        &self,
+        epoch_id: EpochId,
+        account_id: &AccountId,
+        shard_id: ShardId,
+    ) -> Result<bool, EpochError> {
+        let epoch_manager = self.read();
+        epoch_manager.cares_about_shard_in_epoch(epoch_id, account_id, shard_id)
     }
 }

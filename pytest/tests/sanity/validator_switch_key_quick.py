@@ -26,7 +26,7 @@ class ValidatorSwitchKeyQuickTest(unittest.TestCase):
         # that it will be assigned to when becoming a validator.
         config_map = {
             2: {
-                "tracked_shards": [0],
+                "shadow_tracked": "test0",
                 "store.load_mem_tries_for_tracked_shards": True,
             }
         }
@@ -42,7 +42,7 @@ class ValidatorSwitchKeyQuickTest(unittest.TestCase):
                            ["block_producer_kickout_threshold", 10],
                            ["chunk_producer_kickout_threshold", 10]],
                           config_map)
-        wait_for_blocks(old_validator, count=2)
+        wait_for_blocks(old_validator, count=5)
 
         new_validator.reset_validator_key(other_validator.validator_key)
         other_validator.kill()
