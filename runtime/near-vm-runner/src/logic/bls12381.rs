@@ -290,7 +290,7 @@ pub(super) fn pairing_check(data: &[u8]) -> Result<u64> {
     let mut blst_g2_list: Vec<blst::blst_p2_affine> =
         vec![blst::blst_p2_affine::default(); elements_count];
 
-    for (item_data, i) in data.chunks_exact(ITEM_SIZE).zip(0..elements_count) {
+    for (i, item_data) in data.chunks_exact(ITEM_SIZE).enumerate() {
         let (point1_data, point2_data) = item_data.split_at(BLS_P1_SIZE);
         debug_assert_eq!(point2_data.len(), BLS_P2_SIZE);
 
