@@ -58,6 +58,7 @@ macro_rules! bls12381_fn {
         $p_sum:ident,
         $g_multiexp:ident,
         $p_decompress:ident,
+        $map_fp_to_g:ident,
         $BLS_P_SIZE:ident,
         $blst_p:ident,
         $bls12381_p:expr,
@@ -71,7 +72,11 @@ macro_rules! bls12381_fn {
         $blst_p_in_g:ident,
         $blst_p_mult:ident,
         $BLS_P_COMPRESS_SIZE:expr,
-        $PubKeyOrSig:ident
+        $PubKeyOrSig:ident,
+        $BLS_FP_SIZE:ident,
+        $bls12381_map_fp_to_g:expr,
+        $read_fp_point:ident,
+        $blst_map_to_g:ident
     ) => {
         pub(super) fn $p_sum(data: &[u8]) -> Result<(u64, Vec<u8>)> {
             const ITEM_SIZE: usize = BLS_BOOL_SIZE + $BLS_P_SIZE;
@@ -237,6 +242,52 @@ macro_rules! bls12381_fn {
 
             Ok((0, res))
         }
+
+        pub(super) fn $map_fp_to_g(data: &[u8]) -> Result<(u64, Vec<u8>)> {
+            const ITEM_SIZE: usize = $BLS_FP_SIZE;
+
+            if data.len() % ITEM_SIZE != 0 {
+                return Err(HostError::BLS12381InvalidInput {
+                    msg: format!(
+                        "Incorrect input length for {}: {} is not divisible by {}",
+                        $bls12381_map_fp_to_g,
+                        data.len(),
+                        ITEM_SIZE
+                    ),
+                }.into());
+            }
+
+            let elements_count: usize = data.len() / ITEM_SIZE;
+
+            let mut res_concat: Vec<u8> = Vec::with_capacity($BLS_P_SIZE * elements_count);
+
+            for item_data in data.chunks_exact(ITEM_SIZE) {
+                let fp_point = match $read_fp_point(item_data) {
+                    Some(fp_point) => fp_point,
+                    None => return Ok((1, vec![]))
+                };
+
+                let mut g_point = blst::$blst_p::default();
+                unsafe {
+                    blst::$blst_map_to_g(&mut g_point, &fp_point, null());
+                }
+
+                let mut mul_res_affine = blst::$blst_p_affine::default();
+
+                unsafe {
+                    blst::$blst_p_to_affine(&mut mul_res_affine, &g_point);
+                }
+
+                let mut res = [0u8; $BLS_P_SIZE];
+                unsafe {
+                    blst::$blst_p_affine_serialize(res.as_mut_ptr(), &mul_res_affine);
+                }
+
+                res_concat.append(&mut res.to_vec());
+            }
+
+            Ok((0, res_concat))
+        }
     };
 }
 
@@ -244,6 +295,7 @@ bls12381_fn!(
     p1_sum,
     g1_multiexp,
     p1_decompress,
+    map_fp_to_g1,
     BLS_P1_SIZE,
     blst_p1,
     "bls12381_p1",
@@ -257,13 +309,18 @@ bls12381_fn!(
     blst_p1_in_g1,
     blst_p1_mult,
     48,
-    PublicKey
+    PublicKey,
+    BLS_FP_SIZE,
+    "bls12381_map_fp_to_g1",
+    read_fp_point,
+    blst_map_to_g1
 );
 
 bls12381_fn!(
     p2_sum,
     g2_multiexp,
     p2_decompress,
+    map_fp2_to_g2,
     BLS_P2_SIZE,
     blst_p2,
     "bls12381_p2",
@@ -277,137 +334,12 @@ bls12381_fn!(
     blst_p2_in_g2,
     blst_p2_mult,
     96,
-    Signature
+    Signature,
+    BLS_FP2_SIZE,
+    "bls12381_map_fp2_to_g2",
+    read_fp2_point,
+    blst_map_to_g2
 );
-
-pub(super) fn map_fp_to_g1(data: &[u8]) -> Result<(u64, Vec<u8>)> {
-    const ITEM_SIZE: usize = BLS_FP_SIZE;
-
-    if data.len() % ITEM_SIZE != 0 {
-        return Err(HostError::BLS12381InvalidInput {
-            msg: format!(
-                "Incorrect input length for bls12381_map_fp_to_g1: {} is not divisible by {}",
-                data.len(),
-                ITEM_SIZE
-            ),
-        }
-        .into());
-    }
-
-    let mut fp_point = blst::blst_fp::default();
-
-    let elements_count: usize = data.len() / ITEM_SIZE;
-
-    let mut res_concat: Vec<u8> = Vec::with_capacity(BLS_P1_SIZE * elements_count);
-
-    for item_data in data.chunks_exact(ITEM_SIZE) {
-        unsafe {
-            blst::blst_fp_from_bendian(&mut fp_point, item_data.as_ptr());
-        }
-
-        let mut fp_row: [u8; BLS_FP_SIZE] = [0u8; BLS_FP_SIZE];
-        unsafe {
-            blst::blst_bendian_from_fp(fp_row.as_mut_ptr(), &fp_point);
-        }
-
-        for j in 0..BLS_FP_SIZE {
-            if fp_row[j] != item_data[j] {
-                return Ok((1, vec![]));
-            }
-        }
-
-        let mut g1_point = blst::blst_p1::default();
-        unsafe {
-            blst::blst_map_to_g1(&mut g1_point, &fp_point, null());
-        }
-
-        let mut mul_res_affine = blst::blst_p1_affine::default();
-
-        unsafe {
-            blst::blst_p1_to_affine(&mut mul_res_affine, &g1_point);
-        }
-
-        let mut res = [0u8; BLS_P1_SIZE];
-        unsafe {
-            blst::blst_p1_affine_serialize(res.as_mut_ptr(), &mul_res_affine);
-        }
-
-        res_concat.append(&mut res.to_vec());
-    }
-
-    Ok((0, res_concat))
-}
-
-pub(super) fn map_fp2_to_g2(data: &[u8]) -> Result<(u64, Vec<u8>)> {
-    const ITEM_SIZE: usize = BLS_FP2_SIZE;
-
-    if data.len() % ITEM_SIZE != 0 {
-        return Err(HostError::BLS12381InvalidInput {
-            msg: format!(
-                "Incorrect input length for bls12381_map_fp2_to_g2: {} is not divisible by {}",
-                data.len(),
-                ITEM_SIZE
-            ),
-        }
-        .into());
-    }
-
-    let elements_count: usize = data.len() / ITEM_SIZE;
-
-    let mut res_concat: Vec<u8> = Vec::with_capacity(BLS_P2_SIZE * elements_count);
-
-    for item_data in data.chunks_exact(ITEM_SIZE) {
-        let mut c_fp1 = [blst::blst_fp::default(); 2];
-
-        unsafe {
-            blst::blst_fp_from_bendian(&mut c_fp1[1], item_data[..BLS_FP_SIZE].as_ptr());
-            blst::blst_fp_from_bendian(&mut c_fp1[0], item_data[BLS_FP_SIZE..].as_ptr());
-        }
-
-        let mut fp_row: [u8; BLS_FP_SIZE] = [0u8; BLS_FP_SIZE];
-        unsafe {
-            blst::blst_bendian_from_fp(fp_row.as_mut_ptr(), &c_fp1[0]);
-        }
-
-        for j in BLS_FP_SIZE..BLS_FP2_SIZE {
-            if fp_row[j - BLS_FP_SIZE] != item_data[j] {
-                return Ok((1, vec![]));
-            }
-        }
-
-        unsafe {
-            blst::blst_bendian_from_fp(fp_row.as_mut_ptr(), &c_fp1[1]);
-        }
-
-        for j in 0..BLS_FP_SIZE {
-            if fp_row[j] != item_data[j] {
-                return Ok((1, vec![]));
-            }
-        }
-
-        let fp2_point: blst::blst_fp2 = blst::blst_fp2 { fp: c_fp1 };
-
-        let mut g2_point = blst::blst_p2::default();
-        unsafe {
-            blst::blst_map_to_g2(&mut g2_point, &fp2_point, null());
-        }
-
-        let mut mul_res_affine = blst::blst_p2_affine::default();
-
-        unsafe {
-            blst::blst_p2_to_affine(&mut mul_res_affine, &g2_point);
-        }
-
-        let mut res = [0u8; BLS_P2_SIZE];
-        unsafe {
-            blst::blst_p2_affine_serialize(res.as_mut_ptr(), &mul_res_affine);
-        }
-
-        res_concat.append(&mut res.to_vec());
-    }
-
-    Ok((0, res_concat))
-}
 
 pub(super) fn pairing_check(data: &[u8]) -> Result<u64> {
     const ITEM_SIZE: usize = BLS_P1_SIZE + BLS_P2_SIZE;
@@ -420,7 +352,7 @@ pub(super) fn pairing_check(data: &[u8]) -> Result<u64> {
                 ITEM_SIZE
             ),
         }
-        .into());
+            .into());
     }
 
     let elements_count = data.len() / ITEM_SIZE;
@@ -479,4 +411,56 @@ pub(super) fn pairing_check(data: &[u8]) -> Result<u64> {
     } else {
         Ok(2)
     }
+}
+
+fn read_fp_point(item_data: &[u8]) -> Option<blst::blst_fp> {
+    let mut fp_point = blst::blst_fp::default();
+    unsafe {
+        blst::blst_fp_from_bendian(&mut fp_point, item_data.as_ptr());
+    }
+
+    let mut fp_row: [u8; BLS_FP_SIZE] = [0u8; BLS_FP_SIZE];
+    unsafe {
+        blst::blst_bendian_from_fp(fp_row.as_mut_ptr(), &fp_point);
+    }
+
+    for j in 0..BLS_FP_SIZE {
+        if fp_row[j] != item_data[j] {
+            return None;
+        }
+    }
+
+    Some(fp_point)
+}
+
+fn read_fp2_point(item_data: &[u8]) -> Option<blst::blst_fp2> {
+    let mut c_fp1 = [blst::blst_fp::default(); 2];
+
+    unsafe {
+        blst::blst_fp_from_bendian(&mut c_fp1[1], item_data[..BLS_FP_SIZE].as_ptr());
+        blst::blst_fp_from_bendian(&mut c_fp1[0], item_data[BLS_FP_SIZE..].as_ptr());
+    }
+
+    let mut fp_row: [u8; BLS_FP_SIZE] = [0u8; BLS_FP_SIZE];
+    unsafe {
+        blst::blst_bendian_from_fp(fp_row.as_mut_ptr(), &c_fp1[0]);
+    }
+
+    for j in BLS_FP_SIZE..BLS_FP2_SIZE {
+        if fp_row[j - BLS_FP_SIZE] != item_data[j] {
+            return None;
+        }
+    }
+
+    unsafe {
+        blst::blst_bendian_from_fp(fp_row.as_mut_ptr(), &c_fp1[1]);
+    }
+
+    for j in 0..BLS_FP_SIZE {
+        if fp_row[j] != item_data[j] {
+            return None;
+        }
+    }
+
+    Some(blst::blst_fp2 { fp: c_fp1 })
 }
