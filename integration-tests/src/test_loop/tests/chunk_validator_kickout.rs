@@ -108,7 +108,7 @@ fn test_chunk_validator_kicked_out() {
     run_test_chunk_validator_kickout(VALIDATOR_TO_KICKOUT, true);
 }
 
-/// Checks that chunk validator with low endorsement stats is kicked out.
+/// Checks that block producer with low chunk endorsement stats is not kicked out.
 #[test]
 fn test_block_producer_not_kicked_out() {
     run_test_chunk_validator_kickout(VALIDATOR_TO_AVOID_KICKOUT, false);
