@@ -26,8 +26,8 @@ fn run_test_chunk_validator_kickout(select_chunk_validator_only: bool) {
     let accounts =
         (0..8).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
     let clients = accounts.iter().cloned().collect_vec();
-    let clients_str = clients.iter().map(|a| a.as_str()).collect_vec();
-    let (block_and_chunk_producers, chunk_validators_only) = clients_str.split_at(6);
+    let accounts_str = accounts.iter().map(|a| a.as_str()).collect_vec();
+    let (block_and_chunk_producers, chunk_validators_only) = accounts_str.split_at(6);
 
     // Select the account to kick out.
     // Only chunk validator-only node can be kicked out for low endorsement
