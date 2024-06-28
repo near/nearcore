@@ -36,20 +36,20 @@ macro_rules! bls12381_impl {
             self.gas_counter.pay_per($bls12381_element, elements_count as u64)?;
 
             let data = get_memory_or_register!(self, value_ptr, value_len)?;
-            let (status, res) = super::bls12381::$impl_fn_name(&data)?;
+            let res_option = super::bls12381::$impl_fn_name(&data)?;
 
-            if status != 0 {
-                return Ok(status);
+            if let Some(res) = res_option {
+                self.registers.set(
+                    &mut self.gas_counter,
+                    &self.config.limit_config,
+                    register_id,
+                    res.as_slice(),
+                )?;
+
+                Ok(0)
+            } else {
+                Ok(1)
             }
-
-            self.registers.set(
-                &mut self.gas_counter,
-                &self.config.limit_config,
-                register_id,
-                res.as_slice(),
-            )?;
-
-            Ok(0)
         }
     };
 }
@@ -115,7 +115,7 @@ macro_rules! bls12381_fn {
             res.to_vec()
         }
 
-        pub(super) fn $p_sum(data: &[u8]) -> Result<(u64, Vec<u8>)> {
+        pub(super) fn $p_sum(data: &[u8]) -> Result<Option<Vec<u8>>> {
             const ITEM_SIZE: usize = BLS_BOOL_SIZE + $BLS_P_SIZE;
             check_input_size(data, ITEM_SIZE, &format!("{}_sum", $bls12381_p))?;
 
@@ -127,7 +127,7 @@ macro_rules! bls12381_fn {
 
                 let mut pk = match $parse_p(point_data) {
                     Some(pk) => pk,
-                    None => { return Ok((1, vec![])) }
+                    None => { return Ok(None) }
                 };
 
                 let sign = sign_data[0];
@@ -137,7 +137,7 @@ macro_rules! bls12381_fn {
                         blst::$blst_p_cneg(&mut pk, true);
                     }
                 } else if sign != 0 {
-                    return Ok((1, vec![]));
+                    return Ok(None);
                 }
 
                 unsafe {
@@ -145,10 +145,10 @@ macro_rules! bls12381_fn {
                 }
             }
 
-            Ok((0, $serialize_p(&res_pk)))
+            Ok(Some($serialize_p(&res_pk)))
         }
 
-        pub(super) fn $g_multiexp(data: &[u8]) -> Result<(u64, Vec<u8>)> {
+        pub(super) fn $g_multiexp(data: &[u8]) -> Result<Option<Vec<u8>>> {
             const ITEM_SIZE: usize = $BLS_P_SIZE + BLS_SCALAR_SIZE;
             check_input_size(data, ITEM_SIZE, &format!("{}_multiexp", $bls12381_p))?;
 
@@ -160,11 +160,11 @@ macro_rules! bls12381_fn {
 
                 let pk = match $parse_p(point_data) {
                     Some(pk) => pk,
-                    None => { return Ok((1, vec![])) }
+                    None => { return Ok(None) }
                 };
 
                 if unsafe { blst::$blst_p_in_g(&pk) } != true {
-                    return Ok((1, vec![]));
+                    return Ok(None);
                 }
 
                 let mut pk_mul = blst::$blst_p::default();
@@ -177,10 +177,10 @@ macro_rules! bls12381_fn {
                 }
             }
 
-            Ok((0, $serialize_p(&res_pk)))
+            Ok(Some($serialize_p(&res_pk)))
         }
 
-        pub(super) fn $p_decompress(data: &[u8]) -> Result<(u64, Vec<u8>)> {
+        pub(super) fn $p_decompress(data: &[u8]) -> Result<Option<Vec<u8>>> {
             const ITEM_SIZE: usize = $BLS_P_COMPRESS_SIZE;
             check_input_size(data, ITEM_SIZE, &format!("{}_decompress", $bls12381_p))?;
             let elements_count = data.len() / ITEM_SIZE;
@@ -192,16 +192,16 @@ macro_rules! bls12381_fn {
                 let pk_ser = if let Ok(pk) = pk_res {
                     pk.serialize()
                 } else {
-                    return Ok((1, vec![]));
+                    return Ok(None);
                 };
 
                 res.extend_from_slice(pk_ser.as_slice());
             }
 
-            Ok((0, res))
+            Ok(Some(res))
         }
 
-        pub(super) fn $map_fp_to_g(data: &[u8]) -> Result<(u64, Vec<u8>)> {
+        pub(super) fn $map_fp_to_g(data: &[u8]) -> Result<Option<Vec<u8>>> {
             const ITEM_SIZE: usize = $BLS_FP_SIZE;
             check_input_size(data, ITEM_SIZE, $bls12381_map_fp_to_g)?;
             let elements_count: usize = data.len() / ITEM_SIZE;
@@ -211,7 +211,7 @@ macro_rules! bls12381_fn {
             for item_data in data.chunks_exact(ITEM_SIZE) {
                 let fp_point = match $read_fp_point(item_data) {
                     Some(fp_point) => fp_point,
-                    None => return Ok((1, vec![])),
+                    None => return Ok(None),
                 };
 
                 let mut g_point = blst::$blst_p::default();
@@ -223,7 +223,7 @@ macro_rules! bls12381_fn {
                 res_concat.append(&mut res);
             }
 
-            Ok((0, res_concat))
+            Ok(Some(res_concat))
         }
     };
 }
