@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { fetchEpochInfo, fetchFullStatus } from './api';
+import { EpochInfoView, fetchEpochInfo, fetchFullStatus } from './api';
 import { formatDurationInMillis } from './utils';
 import './RecentEpochsView.scss';
 
@@ -40,6 +40,8 @@ export const RecentEpochsView = ({ addr }: RecentEpochsViewProps) => {
                     <th>First Block</th>
                     <th>Epoch Start</th>
                     <th>Block Producers</th>
+                    <th>Chunk Producers</th>
+                    <th>Chunk Validators</th>
                     <th>Chunk-only Producers</th>
                 </tr>
             </thead>
@@ -85,6 +87,8 @@ export const RecentEpochsView = ({ addr }: RecentEpochsViewProps) => {
                             <td>{firstBlockColumn}</td>
                             <td>{epochStartColumn}</td>
                             <td>{epochInfo.block_producers.length}</td>
+                            <td>{getChunkProducersTotal(epochInfo)}</td>
+                            <td>{getChunkValidatorsTotal(epochInfo)}</td>
                             <td>{epochInfo.chunk_only_producers.length}</td>
                         </tr>
                     );
@@ -93,3 +97,21 @@ export const RecentEpochsView = ({ addr }: RecentEpochsViewProps) => {
         </table>
     );
 };
+
+function getChunkProducersTotal(epochInfo: EpochInfoView)  {
+    return epochInfo.validator_info?.current_validators.reduce((acc, it) => {
+        if (it.num_expected_chunks > 0) {
+            acc = acc + 1;
+        }
+        return acc;
+      }, 0) ?? "N/A"
+}
+
+function getChunkValidatorsTotal(epochInfo: EpochInfoView)  {
+    return epochInfo.validator_info?.current_validators.reduce((acc, it) => {
+        if (it.num_expected_endorsements > 0) {
+            acc = acc + 1;
+        }
+        return acc;
+      }, 0) ?? "N/A";
+}
