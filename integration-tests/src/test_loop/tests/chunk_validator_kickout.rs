@@ -63,7 +63,7 @@ fn run_test_chunk_validator_kickout(account_id: &str, expect_kickout: bool) {
     let initial_validators = get_epoch_all_validators(&test_loop.data.get(&client_handle).client);
     assert_eq!(initial_validators.len(), 8);
     assert!(initial_validators.contains(&account_id.to_string()));
-    let assert_condition = |test_loop_data: &mut TestLoopData| -> bool {
+    let success_condition = |test_loop_data: &mut TestLoopData| -> bool {
         let client = &test_loop_data.get(&client_handle).client;
         let validators = get_epoch_all_validators(client);
         let tip = client.chain.head().unwrap();
@@ -85,7 +85,7 @@ fn run_test_chunk_validator_kickout(account_id: &str, expect_kickout: bool) {
     };
 
     test_loop.run_until(
-        assert_condition,
+        success_condition,
         // Timeout at producing 5 epochs, approximately.
         Duration::seconds((5 * epoch_length) as i64),
     );
