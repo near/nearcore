@@ -126,6 +126,13 @@ impl Client {
             new_transactions,
             new_transactions_validation_state,
         );
+
+        #[cfg(feature = "artificial_witness_size")]
+        let witness = match self.config.artificial_witness_size_to_add.get() {
+            zero if zero.as_u64() == 0 => witness,
+            size_to_add => add_artificial_witness_size(witness, size_to_add),
+        };
+
         Ok(witness)
     }
 
@@ -280,4 +287,38 @@ impl Client {
         }
         Ok(source_receipt_proofs)
     }
+}
+
+// Add random data inside a dummy transaction to increase size of ChunkStateWitness.
+// Data is random to avoid compression getting in the way.
+// It doesn't have to be a cryptographically secure rng, just random enough to avoid compression.
+#[cfg(feature = "artificial_witness_size")]
+fn add_artificial_witness_size(
+    mut witness: ChunkStateWitness,
+    size_to_add: bytesize::ByteSize,
+) -> ChunkStateWitness {
+    use near_crypto::{KeyType, PublicKey, Signature};
+    use near_primitives::action::{Action, DeployContractAction};
+    use near_primitives::transaction::{SignedTransaction, Transaction, TransactionV1};
+    use rand::RngCore;
+    use std::str::FromStr;
+
+    let size_as_usize: usize = size_to_add.as_u64().try_into().expect("Can't convert u64 to usize");
+    let mut random_data = vec![0; size_as_usize];
+    rand::thread_rng().fill_bytes(&mut random_data);
+
+    let dummy_account = AccountId::from_str("added_artificial_witness_size").unwrap();
+    witness.transactions.push(SignedTransaction::new(
+        Signature::default(),
+        Transaction::V1(TransactionV1 {
+            signer_id: dummy_account.clone(),
+            public_key: PublicKey::empty(KeyType::ED25519),
+            nonce: 0,
+            receiver_id: dummy_account,
+            block_hash: CryptoHash::default(),
+            actions: vec![Action::DeployContract(DeployContractAction { code: random_data })],
+            priority_fee: 0,
+        }),
+    ));
+    witness
 }

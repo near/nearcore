@@ -74,6 +74,7 @@ near-actix-test-utils.workspace = true
 # if enabled, we assert in most situations that are impossible unless some byzantine behavior is observed.
 byzantine_asserts = ["near-chain/byzantine_asserts"]
 shadow_chunk_validation = ["near-chain/shadow_chunk_validation"]
+artificial_witness_size = []
 expensive_tests = []
 test_features = [
   "near-network/test_features",

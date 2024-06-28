@@ -71,7 +71,7 @@ pub(crate) static CHUNK_STATE_WITNESS_TOTAL_SIZE: Lazy<HistogramVec> = Lazy::new
         "near_chunk_state_witness_total_size",
         "Stateless validation compressed state witness size in bytes",
         &["shard_id"],
-        Some(exponential_buckets(100_000.0, 1.2, 32).unwrap()),
+        Some(exponential_buckets(100_000.0, 1.2, 40).unwrap()),
     )
     .unwrap()
 });
@@ -81,7 +81,7 @@ pub(crate) static CHUNK_STATE_WITNESS_RAW_SIZE: Lazy<HistogramVec> = Lazy::new(|
         "near_chunk_state_witness_raw_size",
         "Stateless validation uncompressed (raw) state witness size in bytes",
         &["shard_id"],
-        Some(exponential_buckets(100_000.0, 1.2, 32).unwrap()),
+        Some(exponential_buckets(100_000.0, 1.2, 40).unwrap()),
     )
     .unwrap()
 });

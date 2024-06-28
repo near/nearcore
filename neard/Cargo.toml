@@ -123,6 +123,21 @@ shadow_chunk_validation = [
   "near-client/shadow_chunk_validation",
 ]
 
+# A feature which allows to artificially increase the size of all produced instances of `ChunkStateWitness`.
+# When enabled, the node will read "artificial_witness_size_to_add" from config.json and add this many
+# bytes of data to all produced witnesses. Data is added by injecting a dummy transaction with
+# random contract code of desired size. The injected transaction is automatically removed before witness validation.
+# The feature has to be enabled on all nodes in the network because chunk validators will reject witnesses with
+# the injected transaction when the feature isn't enabled.
+# The extra transaction is only added when "artificial_witness_size_to_add" is larger than zero, so it's safe to
+# go back to using binaries where this feature is disabled.
+#
+# This feature can be used to test how the protocol behaves when witness size gets really large, how much data the
+# witness distribution logic can handle in real-world networks.
+artificial_witness_size = [
+  "near-client/artificial_witness_size",
+]
+
 calimero_zero_storage = [
   "near-primitives/calimero_zero_storage",
 ]

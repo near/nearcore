@@ -483,6 +483,10 @@ pub struct ClientConfig {
     /// which can cause extra load on the database. This option is not recommended for production use,
     /// as a large number of incoming witnesses could cause denial of service.
     pub save_latest_witnesses: bool,
+    /// Add this much artifical data to all produced instances of ChunkStateWitness.
+    /// Data is added by injecting a dummy transaction with random contract code of desired size.
+    /// Has effect only when the `artificial_witness_size` feature is enabled in the binary.
+    pub artificial_witness_size_to_add: MutableConfigValue<ByteSize>,
 }
 
 impl ClientConfig {
@@ -570,6 +574,10 @@ impl ClientConfig {
             orphan_state_witness_pool_size: default_orphan_state_witness_pool_size(),
             orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
             save_latest_witnesses: false,
+            artificial_witness_size_to_add: MutableConfigValue::new(
+                ByteSize::b(0),
+                "artificial_witness_size_to_add",
+            ),
         }
     }
 }
