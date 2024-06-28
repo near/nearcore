@@ -60,8 +60,9 @@ macro_rules! bls12381_fn {
         $p_decompress:ident,
         $map_fp_to_g:ident,
         $BLS_P_SIZE:ident,
+        $BLS_FP_SIZE:ident,
+        $BLS_P_COMPRESS_SIZE:expr,
         $blst_p:ident,
-        $bls12381_p:expr,
         $blst_p_affine:ident,
         $blst_p_deserialize:ident,
         $blst_p_from_affine:ident,
@@ -71,12 +72,11 @@ macro_rules! bls12381_fn {
         $blst_p_affine_serialize:ident,
         $blst_p_in_g:ident,
         $blst_p_mult:ident,
-        $BLS_P_COMPRESS_SIZE:expr,
-        $PubKeyOrSig:ident,
-        $BLS_FP_SIZE:ident,
-        $bls12381_map_fp_to_g:expr,
         $read_fp_point:ident,
-        $blst_map_to_g:ident
+        $blst_map_to_g:ident,
+        $PubKeyOrSig:ident,
+        $bls12381_p:expr,
+        $bls12381_map_fp_to_g:expr
     ) => {
         pub(super) fn $p_sum(data: &[u8]) -> Result<(u64, Vec<u8>)> {
             const ITEM_SIZE: usize = BLS_BOOL_SIZE + $BLS_P_SIZE;
@@ -223,7 +223,8 @@ macro_rules! bls12381_fn {
                         data.len(),
                         ITEM_SIZE
                     ),
-                }.into());
+                }
+                .into());
             }
 
             let elements_count = data.len() / ITEM_SIZE;
@@ -254,7 +255,8 @@ macro_rules! bls12381_fn {
                         data.len(),
                         ITEM_SIZE
                     ),
-                }.into());
+                }
+                .into());
             }
 
             let elements_count: usize = data.len() / ITEM_SIZE;
@@ -264,7 +266,7 @@ macro_rules! bls12381_fn {
             for item_data in data.chunks_exact(ITEM_SIZE) {
                 let fp_point = match $read_fp_point(item_data) {
                     Some(fp_point) => fp_point,
-                    None => return Ok((1, vec![]))
+                    None => return Ok((1, vec![])),
                 };
 
                 let mut g_point = blst::$blst_p::default();
@@ -297,8 +299,9 @@ bls12381_fn!(
     p1_decompress,
     map_fp_to_g1,
     BLS_P1_SIZE,
+    BLS_FP_SIZE,
+    48,
     blst_p1,
-    "bls12381_p1",
     blst_p1_affine,
     blst_p1_deserialize,
     blst_p1_from_affine,
@@ -308,12 +311,11 @@ bls12381_fn!(
     blst_p1_affine_serialize,
     blst_p1_in_g1,
     blst_p1_mult,
-    48,
-    PublicKey,
-    BLS_FP_SIZE,
-    "bls12381_map_fp_to_g1",
     read_fp_point,
-    blst_map_to_g1
+    blst_map_to_g1,
+    PublicKey,
+    "bls12381_p1",
+    "bls12381_map_fp_to_g1"
 );
 
 bls12381_fn!(
@@ -322,8 +324,9 @@ bls12381_fn!(
     p2_decompress,
     map_fp2_to_g2,
     BLS_P2_SIZE,
+    BLS_FP2_SIZE,
+    96,
     blst_p2,
-    "bls12381_p2",
     blst_p2_affine,
     blst_p2_deserialize,
     blst_p2_from_affine,
@@ -333,12 +336,11 @@ bls12381_fn!(
     blst_p2_affine_serialize,
     blst_p2_in_g2,
     blst_p2_mult,
-    96,
-    Signature,
-    BLS_FP2_SIZE,
-    "bls12381_map_fp2_to_g2",
     read_fp2_point,
-    blst_map_to_g2
+    blst_map_to_g2,
+    Signature,
+    "bls12381_p2",
+    "bls12381_map_fp2_to_g2"
 );
 
 pub(super) fn pairing_check(data: &[u8]) -> Result<u64> {
@@ -352,7 +354,7 @@ pub(super) fn pairing_check(data: &[u8]) -> Result<u64> {
                 ITEM_SIZE
             ),
         }
-            .into());
+        .into());
     }
 
     let elements_count = data.len() / ITEM_SIZE;
