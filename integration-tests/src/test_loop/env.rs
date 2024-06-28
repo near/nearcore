@@ -10,7 +10,7 @@ use near_client::PartialWitnessActor;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::PartialWitnessSenderForNetwork;
 use near_network::test_loop::ClientSenderForTestLoopNetwork;
-use near_primitives::sharding::{ChunkHash, PartialEncodedChunk, ShardChunkHeader};
+use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::AccountId;
 use near_primitives_core::types::BlockHeight;
 use nearcore::state_sync::StateSyncDumper;
