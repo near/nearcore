@@ -407,10 +407,18 @@ pub fn partial_encoded_chunks_dropper(
             return Some(request);
         };
 
-        let (chunk, min_chunk_height) = {
+        let chunk = {
             let chunks_storage = chunks_storage.lock().unwrap();
-            (chunks_storage.get(&chunk_hash).unwrap().clone(), chunks_storage.min_chunk_height)
+            let chunk = chunks_storage.get(&chunk_hash).unwrap().clone();
+            let can_drop_chunk = chunks_storage.can_drop_chunk(&chunk);
+
+            if !can_drop_chunk {
+                return Some(request);
+            }
+
+            chunk
         };
+
         let prev_block_hash = chunk.prev_block_hash();
         let shard_id = chunk.shard_id();
         let height_created = chunk.height_created();
@@ -423,12 +431,6 @@ pub fn partial_encoded_chunks_dropper(
         else {
             return Some(request);
         };
-
-        // If chunk height is too low, don't drop chunk, allow the chain to
-        // warm up.
-        if min_chunk_height.is_some_and(|min_height| height_created <= min_height + 3) {
-            return Some(request);
-        }
 
         // Finally, we drop chunk if the given account is present in the list
         // of its validators.

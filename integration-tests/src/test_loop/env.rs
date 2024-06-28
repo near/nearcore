@@ -72,7 +72,8 @@ impl TestLoopEnv {
     }
 }
 
-/// Stores all chunks ever observed on chain.
+/// Stores all chunks ever observed on chain. Determines if a chunk can be
+/// dropped within a test loop.
 ///
 /// Needed to intercept network messages storing chunk hash only, while
 /// interception requires more detailed information like shard id.
@@ -81,7 +82,7 @@ pub struct TestLoopChunksStorage {
     /// Mapping from chunk hashes to headers.
     storage: HashMap<ChunkHash, ShardChunkHeader>,
     /// Minimal chunk height ever observed.
-    pub min_chunk_height: Option<BlockHeight>,
+    min_chunk_height: Option<BlockHeight>,
 }
 
 impl TestLoopChunksStorage {
@@ -96,6 +97,13 @@ impl TestLoopChunksStorage {
 
     pub fn get(&self, chunk_hash: &ChunkHash) -> Option<&ShardChunkHeader> {
         self.storage.get(chunk_hash)
+    }
+
+    /// If chunk height is too low, don't drop chunk, allow the chain to warm
+    /// up.
+    pub fn can_drop_chunk(&self, chunk_header: &ShardChunkHeader) -> bool {
+        self.min_chunk_height
+            .is_some_and(|min_height| chunk_header.height_created() >= min_height + 3)
     }
 }
 
@@ -114,10 +122,8 @@ impl CanSend<ShardsManagerRequestFromClient> for ClientToShardsManagerSender {
         if let ShardsManagerRequestFromClient::DistributeEncodedChunk { partial_chunk, .. } =
             &message
         {
-            if let PartialEncodedChunk::V2(chunk) = partial_chunk {
-                let mut chunks_storage = self.chunks_storage.lock().unwrap();
-                chunks_storage.insert(chunk.header.clone());
-            }
+            let mut chunks_storage = self.chunks_storage.lock().unwrap();
+            chunks_storage.insert(partial_chunk.cloned_header());
         }
         // After maybe storing the chunk, send the message as usual.
         self.sender.send(message);

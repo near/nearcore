@@ -2,18 +2,26 @@ use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestLoopEnv;
 use crate::test_loop::utils::ONE_NEAR;
 use itertools::Itertools;
+use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_client::Client;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::types::AccountId;
+use near_primitives_core::checked_feature;
+use near_primitives_core::version::PROTOCOL_VERSION;
 use std::string::ToString;
 
 const VALIDATOR_TO_KICKOUT: &str = "account6";
 
-/// Checks that chunk validator with low endorsement stats is kicked out.
-#[test]
-fn test_chunk_validator_kickout() {
+const VALIDATOR_TO_AVOID_KICKOUT: &str = "account3";
+
+fn run_test_chunk_validator_kickout(account_id: &str, expect_kickout: bool) {
+    if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+        println!("Test not applicable without StatelessValidation enabled");
+        return;
+    }
+
     init_test_logger();
     let builder = TestLoopBuilder::new();
 
@@ -47,23 +55,37 @@ fn test_chunk_validator_kickout() {
         // Drop only chunks validated by `VALIDATOR_TO_KICKOUT`.
         // By how our endorsement stats are computed, this will count as this
         // validator validating zero chunks.
-        .drop_chunks_validated_by(VALIDATOR_TO_KICKOUT)
+        .drop_chunks_validated_by(account_id)
         .build();
 
-    // Run chain until our targeted chunk validator is kicked out.
+    // Run chain until our targeted chunk validator is (not) kicked out.
     let client_handle = node_datas[0].client_sender.actor_handle();
     let initial_validators = get_epoch_all_validators(&test_loop.data.get(&client_handle).client);
     assert_eq!(initial_validators.len(), 8);
-    assert!(initial_validators.contains(&VALIDATOR_TO_KICKOUT.to_string()));
+    assert!(initial_validators.contains(&account_id.to_string()));
+    let assert_condition = |test_loop_data: &mut TestLoopData| -> bool {
+        let client = &test_loop_data.get(&client_handle).client;
+        let validators = get_epoch_all_validators(client);
+        let tip = client.chain.head().unwrap();
+        let epoch_height =
+            client.epoch_manager.get_epoch_height_from_prev_block(&tip.prev_block_hash).unwrap();
+
+        if expect_kickout {
+            assert!(epoch_height < 4);
+            return if validators.len() == 7 {
+                assert!(!validators.contains(&account_id.to_string()));
+                true
+            } else {
+                false
+            };
+        } else {
+            assert_eq!(validators.len(), 8, "No kickouts are expected");
+            epoch_height >= 4
+        }
+    };
+
     test_loop.run_until(
-        |test_loop_data| {
-            let validators = get_epoch_all_validators(&test_loop_data.get(&client_handle).client);
-            if validators.len() == 7 {
-                assert!(!validators.contains(&VALIDATOR_TO_KICKOUT.to_string()));
-                return true;
-            }
-            return false;
-        },
+        assert_condition,
         // Timeout at producing 5 epochs, approximately.
         Duration::seconds((5 * epoch_length) as i64),
     );
@@ -78,4 +100,16 @@ fn get_epoch_all_validators(client: &Client) -> Vec<String> {
     let epoch_id = tip.epoch_id;
     let all_validators = client.epoch_manager.get_epoch_all_validators(&epoch_id).unwrap();
     all_validators.into_iter().map(|vs| vs.account_id().to_string()).collect()
+}
+
+/// Checks that chunk validator with low endorsement stats is kicked out.
+#[test]
+fn test_chunk_validator_kicked_out() {
+    run_test_chunk_validator_kickout(VALIDATOR_TO_KICKOUT, true);
+}
+
+/// Checks that chunk validator with low endorsement stats is kicked out.
+#[test]
+fn test_block_producer_not_kicked_out() {
+    run_test_chunk_validator_kickout(VALIDATOR_TO_AVOID_KICKOUT, false);
 }
