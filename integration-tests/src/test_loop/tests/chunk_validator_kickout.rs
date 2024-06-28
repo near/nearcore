@@ -12,11 +12,7 @@ use near_primitives_core::checked_feature;
 use near_primitives_core::version::PROTOCOL_VERSION;
 use std::string::ToString;
 
-const VALIDATOR_TO_KICKOUT: &str = "account6";
-
-const VALIDATOR_TO_AVOID_KICKOUT: &str = "account3";
-
-fn run_test_chunk_validator_kickout(account_id: &str, expect_kickout: bool) {
+fn run_test_chunk_validator_kickout(select_chunk_validator_only: bool) {
     if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
         println!("Test not applicable without StatelessValidation enabled");
         return;
@@ -32,6 +28,17 @@ fn run_test_chunk_validator_kickout(account_id: &str, expect_kickout: bool) {
     let clients = accounts.iter().cloned().collect_vec();
     let clients_str = clients.iter().map(|a| a.as_str()).collect_vec();
     let (block_and_chunk_producers, chunk_validators_only) = clients_str.split_at(6);
+
+    // Select the account to kick out.
+    // Only chunk validator-only node can be kicked out for low endorsement
+    // stats.
+    let account_id = if select_chunk_validator_only {
+        chunk_validators_only[0]
+    } else {
+        block_and_chunk_producers[3]
+    };
+    let expect_kickout = select_chunk_validator_only;
+
     let mut genesis_builder = TestGenesisBuilder::new();
     genesis_builder
         .genesis_time_from_clock(&builder.clock())
@@ -52,7 +59,7 @@ fn run_test_chunk_validator_kickout(account_id: &str, expect_kickout: bool) {
     let TestLoopEnv { mut test_loop, datas: node_datas } = builder
         .genesis(genesis)
         .clients(clients)
-        // Drop only chunks validated by `VALIDATOR_TO_KICKOUT`.
+        // Drop only chunks validated by `account_id`.
         // By how our endorsement stats are computed, this will count as this
         // validator validating zero chunks.
         .drop_chunks_validated_by(account_id)
@@ -105,11 +112,11 @@ fn get_epoch_all_validators(client: &Client) -> Vec<String> {
 /// Checks that chunk validator with low endorsement stats is kicked out.
 #[test]
 fn test_chunk_validator_kicked_out() {
-    run_test_chunk_validator_kickout(VALIDATOR_TO_KICKOUT, true);
+    run_test_chunk_validator_kickout(true);
 }
 
 /// Checks that block producer with low chunk endorsement stats is not kicked out.
 #[test]
 fn test_block_producer_not_kicked_out() {
-    run_test_chunk_validator_kickout(VALIDATOR_TO_AVOID_KICKOUT, false);
+    run_test_chunk_validator_kickout(false);
 }
