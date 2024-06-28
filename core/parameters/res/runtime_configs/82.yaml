@@ -1,0 +1,54 @@
+# Change the cost of sending receipt to another account to 50 TGas / MiB
+
+action_deploy_contract_per_byte: {
+  old: {
+    send_sir: 6_812_999,
+    send_not_sir: 6_812_999,
+    execution: 64_572_944,
+  },
+  new: {
+    send_sir: 6_812_999,
+    send_not_sir: 47_683_715,
+    execution: 64_572_944,
+  }
+}
+action_function_call_per_byte: {
+  old: {
+    send_sir: 2_235_934,
+    send_not_sir: 2_235_934,
+    execution: 2_235_934,
+  },
+  new: {
+    send_sir: 2_235_934,
+    send_not_sir: 47_683_715,
+    execution: 2_235_934,
+  }
+}
+action_add_function_call_key_per_byte: {
+  old: {
+    send_sir: 1_925_331,
+    send_not_sir: 1_925_331,
+    execution: 1_925_331,
+  },
+  new: {
+    send_sir: 1_925_331,
+    send_not_sir: 47_683_715,
+    execution: 1_925_331,
+  }
+}
+data_receipt_creation_per_byte: {
+  old: {
+    send_sir: 17_212_011,
+    send_not_sir: 17_212_011,
+    execution: 17_212_011,
+  },
+  new: {
+    send_sir: 17_212_011,
+    send_not_sir: 47_683_715,
+    execution: 17_212_011,
+  }
+}
+wasm_yield_resume_byte: {
+  old: 17_212_011,
+  new: 47_683_715
+}
