@@ -136,7 +136,7 @@ macro_rules! bls12381_fn {
         }
 
         pub(super) fn $g_multiexp(data: &[u8]) -> Result<(u64, Vec<u8>)> {
-            const ITEM_SIZE: usize = BLS_SCALAR_SIZE + $BLS_P_SIZE;
+            const ITEM_SIZE: usize = $BLS_P_SIZE + BLS_SCALAR_SIZE;
             check_input_size(data, ITEM_SIZE, &format!("{}_multiexp", $bls12381_p))?;
 
             let mut res_pk = blst::$blst_p::default();
