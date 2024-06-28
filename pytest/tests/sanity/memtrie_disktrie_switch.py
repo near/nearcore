@@ -34,6 +34,7 @@ def random_target_height_generator(num_epochs):
 
 
 def nonce_generator(start=2):
+    """Generates a monotonically increasing nonce when it is called."""
     nonce = start
     while True:
         yield nonce
@@ -44,9 +45,8 @@ def random_u64():
     return bytes(random.randint(0, 255) for _ in range(8))
 
 
-# Generates traffic for all possible shards.
-# Assumes that `test0`, `test1`, `near` all belong to different shards.
 def random_workload_until(target_height, rpc_node, nonce_gen, keys, nodes):
+    """Generates traffic to make transfers between node accounts."""
     logger.info(f"Running workload until height {target_height}")
     last_height = -1
     while True:
@@ -64,7 +64,7 @@ def random_workload_until(target_height, rpc_node, nonce_gen, keys, nodes):
 
         last_block_hash = rpc_node.get_latest_block().hash_bytes
         if random.random() < 0.5:
-            # Make a transfer between shards.
+            # Make a transfer between accounts.
             # The goal is to generate cross-shard receipts.
             key_from = random.choice(nodes).signer_key
             account_to = random.choice(
@@ -104,6 +104,7 @@ def random_workload_until(target_height, rpc_node, nonce_gen, keys, nodes):
 
 
 def restart_nodes(nodes, enable_memtries):
+    """Stops and restarts the nodes with the config that enables/disables memtries."""
     boot_node = nodes[0]
     for i in range(len(nodes)):
         nodes[i].kill()
