@@ -1,10 +1,10 @@
-use near_async::time::Utc;
 use near_primitives::block::BlockValidityError;
 use near_primitives::challenge::{ChunkProofs, ChunkState};
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::shard_layout::ShardLayoutError;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
+use near_time::Utc;
 use std::io;
 
 #[derive(thiserror::Error, Debug)]

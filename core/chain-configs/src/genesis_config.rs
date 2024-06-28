@@ -101,7 +101,7 @@ fn default_max_kickout_stake_threshold() -> u8 {
 }
 
 fn default_genesis_time() -> DateTime<Utc> {
-    let time = near_async::time::Utc::now_utc();
+    let time = near_time::Utc::now_utc();
     DateTime::from_timestamp(time.unix_timestamp(), time.nanosecond()).unwrap_or_default()
 }
 
