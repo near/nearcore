@@ -1060,6 +1060,11 @@ impl Client {
                 } else {
                     0
                 };
+            let adv_prepare_transactions = self
+                .adv_produce_chunks
+                .as_ref()
+                .map(AdvProduceChunksMode::get_adv_prepare_transactions)
+                .flatten();
             runtime.prepare_transactions(
                 storage_config,
                 PrepareTransactionsChunkContext {
@@ -1071,7 +1076,7 @@ impl Client {
                 &mut iter,
                 &mut chain.transaction_validity_check(prev_block.header().clone()),
                 self.config.produce_chunk_add_transactions_time_limit.get(),
-                None, // TODO
+                adv_prepare_transactions,
             )?
         } else {
             PreparedTransactions { transactions: Vec::new(), limited_by: None, storage_proof: None }

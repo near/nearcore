@@ -34,7 +34,7 @@ use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::{ReshardingRequest, ReshardingResponse};
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
-use near_chain::types::RuntimeAdapter;
+use near_chain::types::{AdvPrepareTransactions, RuntimeAdapter};
 #[cfg(feature = "test_features")]
 use near_chain::ChainStoreAccess;
 use near_chain::{
@@ -364,6 +364,22 @@ pub enum AdvProduceChunksMode {
     Valid,
     // Stop producing chunks.
     StopProduce,
+    // Skip the congestion control checks in prepare transactions. Setting
+    // this adversarial behaviour may lead to chunks with too many transactions.
+    SkipCongestionControl,
+}
+
+#[cfg(feature = "test_features")]
+impl AdvProduceChunksMode {
+    pub fn get_adv_prepare_transactions(&self) -> Option<AdvPrepareTransactions> {
+        match self {
+            AdvProduceChunksMode::Valid => None,
+            AdvProduceChunksMode::StopProduce => None,
+            AdvProduceChunksMode::SkipCongestionControl => {
+                Some(AdvPrepareTransactions::SkipCongestionControl)
+            }
+        }
+    }
 }
 
 #[cfg(feature = "test_features")]
