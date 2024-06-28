@@ -217,8 +217,8 @@ macro_rules! bls12381_fn {
                     blst::$blst_map_to_g(&mut g_point, &fp_point, null());
                 }
 
-                let res = $serialize_p(&g_point);
-                res_concat.append(&mut res.to_vec());
+                let mut res = $serialize_p(&g_point);
+                res_concat.append(&mut res);
             }
 
             Ok((0, res_concat))
