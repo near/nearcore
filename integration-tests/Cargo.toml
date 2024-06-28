@@ -89,6 +89,7 @@ test_features = [
   "nearcore/test_features",
   "near-store/test_features",
   "near-vm-runner/test_features",
+  "near-test-contracts/test_features",
 ]
 protocol_feature_fix_contract_loading_cost = [
   "nearcore/protocol_feature_fix_contract_loading_cost",

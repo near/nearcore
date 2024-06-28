@@ -47,7 +47,7 @@ fn test_load_memtrie_after_empty_chunks() {
     }
     let genesis = genesis_builder.build();
 
-    let TestLoopEnv { mut test_loop, datas: node_datas } =
+    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } =
         builder.genesis(genesis).clients(client_accounts).build();
 
     execute_money_transfers(&mut test_loop, &node_datas, &accounts);
@@ -92,6 +92,6 @@ fn test_load_memtrie_after_empty_chunks() {
 
     // Give the test a chance to finish off remaining events in the event loop, which can
     // be important for properly shutting down the nodes.
-    TestLoopEnv { test_loop, datas: node_datas }
+    TestLoopEnv { test_loop, datas: node_datas, tempdir }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

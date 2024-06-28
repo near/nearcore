@@ -58,9 +58,9 @@ pub enum FunctionCallError {
 
 #[derive(Debug, thiserror::Error, strum::IntoStaticStr)]
 pub enum CacheError {
-    #[error("cache read error")]
+    #[error("cache read error: {0}")]
     ReadError(#[source] io::Error),
-    #[error("cache write error")]
+    #[error("cache write error: {0}")]
     WriteError(#[source] io::Error),
     #[error("cache deserialization error")]
     DeserializationError,

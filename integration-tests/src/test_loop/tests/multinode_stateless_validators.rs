@@ -63,7 +63,7 @@ fn test_stateless_validators_with_multi_test_loop() {
     }
     let genesis = genesis_builder.build();
 
-    let TestLoopEnv { mut test_loop, datas: node_datas } =
+    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } =
         builder.genesis(genesis).clients(clients).build();
 
     // Capture the initial validator info in the first epoch.
@@ -97,7 +97,7 @@ fn test_stateless_validators_with_multi_test_loop() {
 
     // Give the test a chance to finish off remaining events in the event loop, which can
     // be important for properly shutting down the nodes.
-    TestLoopEnv { test_loop, datas: node_datas }
+    TestLoopEnv { test_loop, datas: node_datas, tempdir }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 

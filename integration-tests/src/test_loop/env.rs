@@ -16,12 +16,14 @@ use near_primitives_core::types::BlockHeight;
 use nearcore::state_sync::StateSyncDumper;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use tempfile::TempDir;
 
 const NETWORK_DELAY: Duration = Duration::milliseconds(10);
 
 pub struct TestLoopEnv {
     pub test_loop: TestLoopV2,
     pub datas: Vec<TestData>,
+    pub tempdir: TempDir,
 }
 
 impl TestLoopEnv {
@@ -31,7 +33,7 @@ impl TestLoopEnv {
     /// Needed because for smaller heights blocks may not get all chunks and/or
     /// approvals.
     pub fn warmup(self) -> Self {
-        let Self { mut test_loop, datas } = self;
+        let Self { mut test_loop, datas, tempdir } = self;
 
         let client_handle = datas[0].client_sender.actor_handle();
         let genesis_height = test_loop.data.get(&client_handle).client.chain.genesis().height();
@@ -55,7 +57,7 @@ impl TestLoopEnv {
         }
         test_loop.run_instant();
 
-        Self { test_loop, datas }
+        Self { test_loop, datas, tempdir }
     }
 
     /// Used to finish off remaining events that are still in the loop. This can be necessary if the
