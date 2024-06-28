@@ -192,6 +192,14 @@ pub(crate) static PEER_MESSAGE_SENT_BY_TYPE_TOTAL: Lazy<IntCounterVec> = Lazy::n
     )
     .unwrap()
 });
+pub(crate) static PEER_MESSAGE_RATE_LIMITED_BY_TYPE_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_peer_message_rate_limited_by_type_total",
+        "Number of messages dropped because rate limited by message types",
+        &["type"],
+    )
+    .unwrap()
+});
 pub(crate) static SYNC_ACCOUNTS_DATA: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_sync_accounts_data",

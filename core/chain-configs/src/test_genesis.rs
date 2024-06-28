@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 
-use near_async::time::Clock;
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
@@ -13,6 +12,7 @@ use near_primitives::types::{
 };
 use near_primitives::utils::from_timestamp;
 use near_primitives::version::PROTOCOL_VERSION;
+use near_time::Clock;
 use num_rational::Rational32;
 
 use crate::{Genesis, GenesisConfig, GenesisContents, GenesisRecords};
