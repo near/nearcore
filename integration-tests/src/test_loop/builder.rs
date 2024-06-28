@@ -121,7 +121,7 @@ impl TestLoopBuilder {
         }
         self.setup_network(&datas, &network_adapters, &epoch_manager_adapters);
 
-        let env = TestLoopEnv { test_loop: self.test_loop, datas };
+        let env = TestLoopEnv { test_loop: self.test_loop, datas, tempdir };
         env.warmup()
     }
 
@@ -160,7 +160,19 @@ impl TestLoopBuilder {
                 num_concurrent_requests_during_catchup: 1,
             }),
         };
-        client_config.tracked_shards = Vec::new();
+
+        // Configure tracked shards.
+        // * single shard tracking for validators
+        // * all shard tracking for RPCs
+        let bp_num = genesis.config.num_block_producer_seats;
+        let cp_num = genesis.config.num_chunk_producer_seats;
+        let v_num = genesis.config.num_chunk_validator_seats;
+        let validator_num = bp_num.max(cp_num).max(v_num) as usize;
+        if idx < validator_num {
+            client_config.tracked_shards = Vec::new();
+        } else {
+            client_config.tracked_shards = vec![666];
+        }
 
         let homedir = tempdir.path().join(format!("{}", idx));
         std::fs::create_dir_all(&homedir).expect("Unable to create homedir");
