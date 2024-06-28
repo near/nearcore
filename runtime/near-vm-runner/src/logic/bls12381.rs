@@ -76,6 +76,7 @@ macro_rules! bls12381_fn {
         $blst_map_to_g:ident,
         $PubKeyOrSig:ident,
         $parse_p:ident,
+        $serialize_p:ident,
         $bls12381_p:expr,
         $bls12381_map_fp_to_g:expr
     ) => {
@@ -95,6 +96,21 @@ macro_rules! bls12381_fn {
                 blst::$blst_p_from_affine(&mut pk, &pk_aff);
             }
             Some(pk)
+        }
+
+        fn $serialize_p(res_pk: &blst::$blst_p) -> Vec<u8> {
+            let mut res_affine = blst::$blst_p_affine::default();
+
+            unsafe {
+                blst::$blst_p_to_affine(&mut res_affine, res_pk);
+            }
+
+            let mut res = [0u8; $BLS_P_SIZE];
+            unsafe {
+                blst::$blst_p_affine_serialize(res.as_mut_ptr(), &res_affine);
+            }
+
+            res.to_vec()
         }
 
         pub(super) fn $p_sum(data: &[u8]) -> Result<(u64, Vec<u8>)> {
@@ -127,18 +143,7 @@ macro_rules! bls12381_fn {
                 }
             }
 
-            let mut res_affine = blst::$blst_p_affine::default();
-
-            unsafe {
-                blst::$blst_p_to_affine(&mut res_affine, &res_pk);
-            }
-
-            let mut res = [0u8; $BLS_P_SIZE];
-            unsafe {
-                blst::$blst_p_affine_serialize(res.as_mut_ptr(), &res_affine);
-            }
-
-            Ok((0, res.to_vec()))
+            Ok((0, $serialize_p(&res_pk)))
         }
 
         pub(super) fn $g_multiexp(data: &[u8]) -> Result<(u64, Vec<u8>)> {
@@ -170,18 +175,7 @@ macro_rules! bls12381_fn {
                 }
             }
 
-            let mut res_affine = blst::$blst_p_affine::default();
-
-            unsafe {
-                blst::$blst_p_to_affine(&mut res_affine, &res_pk);
-            }
-
-            let mut res = [0u8; $BLS_P_SIZE];
-            unsafe {
-                blst::$blst_p_affine_serialize(res.as_mut_ptr(), &res_affine);
-            }
-
-            Ok((0, res.to_vec()))
+            Ok((0, $serialize_p(&res_pk)))
         }
 
         pub(super) fn $p_decompress(data: &[u8]) -> Result<(u64, Vec<u8>)> {
@@ -223,17 +217,7 @@ macro_rules! bls12381_fn {
                     blst::$blst_map_to_g(&mut g_point, &fp_point, null());
                 }
 
-                let mut mul_res_affine = blst::$blst_p_affine::default();
-
-                unsafe {
-                    blst::$blst_p_to_affine(&mut mul_res_affine, &g_point);
-                }
-
-                let mut res = [0u8; $BLS_P_SIZE];
-                unsafe {
-                    blst::$blst_p_affine_serialize(res.as_mut_ptr(), &mul_res_affine);
-                }
-
+                let res = $serialize_p(&g_point);
                 res_concat.append(&mut res.to_vec());
             }
 
@@ -264,6 +248,7 @@ bls12381_fn!(
     blst_map_to_g1,
     PublicKey,
     parse_p1,
+    serialize_p1,
     "bls12381_p1",
     "bls12381_map_fp_to_g1"
 );
@@ -290,6 +275,7 @@ bls12381_fn!(
     blst_map_to_g2,
     Signature,
     parse_p2,
+    serialize_p2,
     "bls12381_p2",
     "bls12381_map_fp2_to_g2"
 );
