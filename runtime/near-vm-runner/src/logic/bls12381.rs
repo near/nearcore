@@ -80,18 +80,7 @@ macro_rules! bls12381_fn {
     ) => {
         pub(super) fn $p_sum(data: &[u8]) -> Result<(u64, Vec<u8>)> {
             const ITEM_SIZE: usize = BLS_BOOL_SIZE + $BLS_P_SIZE;
-
-            if data.len() % ITEM_SIZE != 0 {
-                return Err(HostError::BLS12381InvalidInput {
-                    msg: format!(
-                        "Incorrect input length for {}_sum: {} is not divisible by {}",
-                        $bls12381_p,
-                        data.len(),
-                        ITEM_SIZE
-                    ),
-                }
-                .into());
-            }
+            check_input_size(data, ITEM_SIZE, &format!("{}_sum", $bls12381_p))?;
 
             let mut res_pk = blst::$blst_p::default();
 
@@ -148,18 +137,7 @@ macro_rules! bls12381_fn {
 
         pub(super) fn $g_multiexp(data: &[u8]) -> Result<(u64, Vec<u8>)> {
             const ITEM_SIZE: usize = BLS_SCALAR_SIZE + $BLS_P_SIZE;
-
-            if data.len() % ITEM_SIZE != 0 {
-                return Err(HostError::BLS12381InvalidInput {
-                    msg: format!(
-                        "Incorrect input length for {}_multiexp: {} is not divisible by {}",
-                        $bls12381_p,
-                        data.len(),
-                        ITEM_SIZE
-                    ),
-                }
-                .into());
-            }
+            check_input_size(data, ITEM_SIZE, &format!("{}_multiexp", $bls12381_p))?;
 
             let mut res_pk = blst::$blst_p::default();
 
@@ -214,20 +192,9 @@ macro_rules! bls12381_fn {
 
         pub(super) fn $p_decompress(data: &[u8]) -> Result<(u64, Vec<u8>)> {
             const ITEM_SIZE: usize = $BLS_P_COMPRESS_SIZE;
-
-            if data.len() % ITEM_SIZE != 0 {
-                return Err(HostError::BLS12381InvalidInput {
-                    msg: format!(
-                        "Incorrect input length for {}_decompress: {} is not divisible by {}",
-                        $bls12381_p,
-                        data.len(),
-                        ITEM_SIZE
-                    ),
-                }
-                .into());
-            }
-
+            check_input_size(data, ITEM_SIZE, &format!("{}_decompress", $bls12381_p))?;
             let elements_count = data.len() / ITEM_SIZE;
+
             let mut res = Vec::<u8>::with_capacity(elements_count * $BLS_P_SIZE);
 
             for item_data in data.chunks_exact(ITEM_SIZE) {
@@ -246,19 +213,7 @@ macro_rules! bls12381_fn {
 
         pub(super) fn $map_fp_to_g(data: &[u8]) -> Result<(u64, Vec<u8>)> {
             const ITEM_SIZE: usize = $BLS_FP_SIZE;
-
-            if data.len() % ITEM_SIZE != 0 {
-                return Err(HostError::BLS12381InvalidInput {
-                    msg: format!(
-                        "Incorrect input length for {}: {} is not divisible by {}",
-                        $bls12381_map_fp_to_g,
-                        data.len(),
-                        ITEM_SIZE
-                    ),
-                }
-                .into());
-            }
-
+            check_input_size(data, ITEM_SIZE, $bls12381_map_fp_to_g)?;
             let elements_count: usize = data.len() / ITEM_SIZE;
 
             let mut res_concat: Vec<u8> = Vec::with_capacity($BLS_P_SIZE * elements_count);
@@ -345,18 +300,7 @@ bls12381_fn!(
 
 pub(super) fn pairing_check(data: &[u8]) -> Result<u64> {
     const ITEM_SIZE: usize = BLS_P1_SIZE + BLS_P2_SIZE;
-
-    if data.len() % ITEM_SIZE != 0 {
-        return Err(HostError::BLS12381InvalidInput {
-            msg: format!(
-                "Incorrect input length for bls12381_pairing_check: {} is not divisible by {}",
-                data.len(),
-                ITEM_SIZE
-            ),
-        }
-        .into());
-    }
-
+    check_input_size(data, ITEM_SIZE, "bls12381_pairing_check")?;
     let elements_count = data.len() / ITEM_SIZE;
 
     let mut blst_g1_list: Vec<blst::blst_p1_affine> =
@@ -465,4 +409,20 @@ fn read_fp2_point(item_data: &[u8]) -> Option<blst::blst_fp2> {
     }
 
     Some(blst::blst_fp2 { fp: c_fp1 })
+}
+
+fn check_input_size(data: &[u8], item_size: usize, fn_name: &str) -> Result<()> {
+    if data.len() % item_size != 0 {
+        return Err(HostError::BLS12381InvalidInput {
+            msg: format!(
+                        "Incorrect input length for {}: {} is not divisible by {}",
+                        fn_name,
+                        data.len(),
+                        item_size
+                    ),
+        }
+            .into());
+    }
+
+    Ok(())
 }
