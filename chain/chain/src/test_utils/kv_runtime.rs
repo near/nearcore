@@ -1,8 +1,8 @@
 use super::ValidatorSchedule;
 use crate::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, ApplyResultForResharding,
-    PrepareTransactionsBlockContext, PrepareTransactionsChunkContext, PreparedTransactions,
-    RuntimeAdapter, RuntimeStorageConfig,
+    AdvPrepareTransactions, ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext,
+    ApplyResultForResharding, PrepareTransactionsBlockContext, PrepareTransactionsChunkContext,
+    PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
 };
 use crate::BlockHeader;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -1102,6 +1102,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         transaction_groups: &mut dyn TransactionGroupIterator,
         _chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         _time_limit: Option<Duration>,
+        _adv_prepare_transactions: Option<AdvPrepareTransactions>,
     ) -> Result<PreparedTransactions, Error> {
         let mut res = vec![];
         while let Some(iter) = transaction_groups.next() {

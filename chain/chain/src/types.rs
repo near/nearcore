@@ -373,6 +373,34 @@ pub struct PrepareTransactionsChunkContext {
     pub last_chunk_transactions_size: usize,
 }
 
+/// Adversarial controls for prepare transactions. This can be used for testing
+/// malicious chunk producers including too many or invalid transactions.
+#[cfg(feature = "test_features")]
+pub enum AdvPrepareTransactions {
+    // Skip the congestion control checks in prepare transactions. Setting
+    // this adversarial behaviour may lead to chunks with too many transactions.
+    SkipCongestionControl,
+}
+
+#[cfg(feature = "test_features")]
+impl AdvPrepareTransactions {
+    pub fn skip_congestion_control(&self) -> bool {
+        match self {
+            Self::SkipCongestionControl => true,
+        }
+    }
+}
+
+#[cfg(not(feature = "test_features"))]
+pub enum AdvPrepareTransactions {}
+
+#[cfg(not(feature = "test_features"))]
+impl AdvPrepareTransactions {
+    pub fn skip_congestion_control(&self) -> bool {
+        false
+    }
+}
+
 /// Bridge between the chain and the runtime.
 /// Main function is to update state given transactions.
 /// Additionally handles validators.
@@ -437,6 +465,7 @@ pub trait RuntimeAdapter: Send + Sync {
         transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         time_limit: Option<Duration>,
+        adv_prepare_transactions: Option<AdvPrepareTransactions>,
     ) -> Result<PreparedTransactions, Error>;
 
     /// Returns true if the shard layout will change in the next epoch

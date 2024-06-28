@@ -96,6 +96,7 @@ pub fn validate_prepared_transactions(
         &mut TransactionGroupIteratorWrapper::new(transactions),
         &mut chain.transaction_validity_check(parent_block.header().clone()),
         None,
+        None,
     )
 }
 

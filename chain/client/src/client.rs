@@ -1071,6 +1071,7 @@ impl Client {
                 &mut iter,
                 &mut chain.transaction_validity_check(prev_block.header().clone()),
                 self.config.produce_chunk_add_transactions_time_limit.get(),
+                None, // TODO
             )?
         } else {
             PreparedTransactions { transactions: Vec::new(), limited_by: None, storage_proof: None }

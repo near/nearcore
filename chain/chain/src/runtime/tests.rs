@@ -1672,6 +1672,7 @@ fn prepare_transactions(
                 .is_ok()
         },
         default_produce_chunk_add_transactions_time_limit(),
+        None,
     )
 }
 

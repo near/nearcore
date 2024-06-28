@@ -1,7 +1,8 @@
 use crate::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, ApplyResultForResharding,
-    PrepareTransactionsBlockContext, PrepareTransactionsChunkContext, PrepareTransactionsLimit,
-    PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig, StorageDataSource, Tip,
+    AdvPrepareTransactions, ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext,
+    ApplyResultForResharding, PrepareTransactionsBlockContext, PrepareTransactionsChunkContext,
+    PrepareTransactionsLimit, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
+    StorageDataSource, Tip,
 };
 use crate::Error;
 use borsh::BorshDeserialize;
@@ -710,6 +711,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         time_limit: Option<Duration>,
+        adv_prepare_transactions: Option<AdvPrepareTransactions>,
     ) -> Result<PreparedTransactions, Error> {
         let start_time = std::time::Instant::now();
         let PrepareTransactionsChunkContext { shard_id, gas_limit, .. } = chunk;
@@ -853,6 +855,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     &epoch_id,
                     &prev_block,
                     &tx,
+                    &adv_prepare_transactions,
                 )? {
                     tracing::trace!(target: "runtime", tx=?tx.get_hash(), "discarding transaction due to congestion");
                     rejected_due_to_congestion += 1;
@@ -1432,7 +1435,13 @@ fn congestion_control_accepts_transaction(
     epoch_id: &EpochId,
     prev_block: &PrepareTransactionsBlockContext,
     tx: &SignedTransaction,
+    adv_prepare_transactions: &Option<AdvPrepareTransactions>,
 ) -> Result<bool, Error> {
+    if let Some(adv_prepare_transactions) = adv_prepare_transactions {
+        if adv_prepare_transactions.skip_congestion_control() {
+            return Ok(true);
+        }
+    }
     if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
         return Ok(true);
     }
