@@ -66,19 +66,16 @@ def random_target_height_generator(num_epochs):
         yield (target_height)
 
 
-def nonce_generator(start=2):
-    """Generates a monotonically increasing nonce when it is called."""
-    nonce = start
-    while True:
-        yield nonce
-        nonce += 1
-
-
 def random_u64():
     return bytes(random.randint(0, 255) for _ in range(8))
 
 
 class MemtrieDiskTrieSwitchTest(unittest.TestCase):
+
+    def setUp(self):
+        self.nonces = {}
+        self.keys = []
+        self.txs = []
 
     def test(self):
 
@@ -116,11 +113,7 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
             client_config_changes=configs)
         self.assertEqual(6, len(self.nodes))
 
-        self.rpc_node = self.nodes[5]
-
-        self.nonce_gen = nonce_generator(start=42)
-        self.keys = []
-        self.txs = []
+        self.rpc_node = self.nodes[0]
 
         self.__create_accounts()
 
@@ -130,27 +123,31 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
 
         logger.info("Step 1: Running with memtries enabled")
         self.__random_workload_until(next(target_height_gen))
+        self.__check_txs()
 
-        # logger.info("Step 2: Restarting nodes with memtries disabled")
-        # self.__restart_nodes(enable_memtries=False)
+        logger.info("Step 2: Restarting nodes with memtries disabled")
+        self.__restart_nodes(enable_memtries=False)
+        self.__random_workload_until(next(target_height_gen))
+        self.__check_txs()
 
-        # self.__random_workload_until(next(target_height_gen))
-
-        # logger.info("Step 3: Restarting nodes with memtries enabled")
-        # self.__restart_nodes(enable_memtries=True)
-
-        # self.__random_workload_until(next(target_height_gen))
-
-        logger.info(f"Checking {len(self.txs)} transactions")
+        logger.info("Step 3: Restarting nodes with memtries enabled")
+        self.__restart_nodes(enable_memtries=True)
+        self.__random_workload_until(next(target_height_gen))
         self.__check_txs()
 
         logger.info("Test ended")
 
-    def __deploy_contracts(self):
-        logger.info("Deploying contracts for accounts")
-        for account_key in self.account_keys:
-            utils.deploy_test_contract(self.rpc_node, account_key,
-                                       next(self.nonce_gen))
+    def next_nonce(self, signer_key):
+        assert signer_key in self.nonces
+        nonce = self.nonces[signer_key]
+        self.nonces[signer_key] = nonce + 1
+        return nonce
+
+    def __update_nonces(self, height):
+        self.nonces = {
+            account_key: nonce + 1_000_000 * height
+            for account_key, nonce in self.nonces.items()
+        }
 
     def __restart_nodes(self, enable_memtries):
         """Stops and restarts the nodes with the config that enables/disables memtries."""
@@ -167,7 +164,6 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
         logger.info(f"Running workload until height {target_height}")
         last_height = -1
         while True:
-            nonce = next(self.nonce_gen)
             last_block = self.rpc_node.get_latest_block()
             height = last_block.height
             if height > target_height:
@@ -183,13 +179,14 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
                 # Make a transfer between accounts.
                 # The goal is to generate cross-shard receipts.
                 from_account_key = random.choice(self.account_keys)
-                to_account_key = random.choice([
-                    account_key for account_key in self.account_keys
-                    if account_key != from_account_key
+                to_account_id = random.choice([
+                    account_key.account_id
+                    for account_key in self.account_keys
+                    if account_key.account_id != from_account_key.account_id
                 ] + ["near"])
                 payment_tx = transaction.sign_payment_tx(
-                    from_account_key, to_account_key.account_id, 1, nonce,
-                    last_block_hash)
+                    from_account_key, to_account_id, 1,
+                    self.next_nonce(from_account_key), last_block_hash)
                 result = self.rpc_node.send_tx(payment_tx)
                 assert 'result' in result and 'error' not in result, (
                     'Expected "result" and no "error" in response, got: {}'.
@@ -202,8 +199,9 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
                 key = self.keys[random.randint(0, len(self.keys) - 1)]
                 for account_key in self.account_keys:
                     tx = transaction.sign_function_call_tx(
-                        account_key, account_key.account_id, 'read_value', key,
-                        300 * TGAS, 0, nonce, last_block_hash)
+                        account_key, account_key.account_id,
+                        'read_value', key, 300 * TGAS, 0,
+                        self.next_nonce(account_key), last_block_hash)
                     result = self.rpc_node.send_tx(tx)
                     assert 'result' in result and 'error' not in result, (
                         'Expected "result" and no "error" in response, got: {}'.
@@ -218,8 +216,8 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
                 for account_key in self.account_keys:
                     tx = transaction.sign_function_call_tx(
                         account_key, account_key.account_id, 'write_key_value',
-                        key + random_u64(), 300 * TGAS, 0, nonce,
-                        last_block_hash)
+                        key + random_u64(), 300 * TGAS, 0,
+                        self.next_nonce(account_key), last_block_hash)
                     result = self.rpc_node.send_tx(tx)
                     assert 'result' in result and 'error' not in result, (
                         'Expected "result" and no "error" in response, got: {}'.
@@ -229,6 +227,25 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
                     self.txs.append((account_key.account_id, tx_hash))
             time.sleep(0.5)
 
+    def __deploy_contracts(self):
+        deploy_contract_tx_list = []
+        for account_key in self.account_keys:
+            contract = utils.load_test_contract()
+            last_block_hash = self.rpc_node.get_latest_block().hash_bytes
+            deploy_contract_tx = transaction.sign_deploy_contract_tx(
+                account_key, contract, self.next_nonce(account_key),
+                last_block_hash)
+            result = self.rpc_node.send_tx(deploy_contract_tx)
+            assert 'result' in result and 'error' not in result, (
+                'Expected "result" and no "error" in response, got: {}'.format(
+                    result))
+            tx_hash = result['result']
+            deploy_contract_tx_list.append((account_key.account_id, tx_hash))
+            logger.info(
+                f"Deploying contract for account: {account_key.account_id}, tx: {tx_hash}"
+            )
+        self.__wait_for_txs(deploy_contract_tx_list)
+
     def __create_accounts(self):
         account_keys = []
         for account_id in ALL_ACCOUNTS:
@@ -236,19 +253,27 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
             account_keys.append(account_key)
 
         signer_key = self.nodes[0].signer_key
+        signer_nonce = self.rpc_node.get_nonce_for_pk(signer_key.account_id,
+                                                      signer_key.pk) + 42
 
         create_account_tx_list = []
         for account_key in account_keys:
-            logger.info(f"Creating account key: {account_key.account_id}")
-            (account_id,
-             tx_hash) = self.__create_account(account_key, 1000 * ONE_NEAR,
-                                              signer_key)
-            create_account_tx_list.append((account_id, tx_hash))
+            tx_hash = self.__create_account(account_key, 1000 * ONE_NEAR,
+                                            signer_key, signer_nonce)
+            signer_nonce += 1
+            create_account_tx_list.append((signer_key.account_id, tx_hash))
+            logger.info(
+                f"Creating account: {account_key.account_id}, tx: {tx_hash}")
         self.__wait_for_txs(create_account_tx_list)
+
+        for account_key in account_keys:
+            nonce = self.rpc_node.get_nonce_for_pk(account_key.account_id,
+                                                   account_key.pk) + 42
+            self.nonces[account_key] = nonce
 
         self.account_keys = account_keys
 
-    def __create_account(self, account_key, balance, signer_key):
+    def __create_account(self, account_key, balance, signer_key, signer_nonce):
         block_hash = self.rpc_node.get_latest_block().hash_bytes
         new_signer_key = key.Key(
             account_key.account_id,
@@ -260,43 +285,26 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
             account_key.account_id,
             new_signer_key,
             balance,
-            next(self.nonce_gen),
+            signer_nonce,
             block_hash,
         )
         result = self.rpc_node.send_tx(create_account_tx)
         self.assertIn('result', result, result)
         tx_hash = result['result']
-        return (signer_key.account_id, tx_hash)
+        return tx_hash
 
     def __wait_for_txs(self, tx_list: list[AccountId, TxHash]):
         (height, _) = utils.wait_for_blocks(self.rpc_node, count=3)
+
+        self.__update_nonces(height)
 
         for (tx_sender, tx_hash) in tx_list:
             self.__get_tx_status(tx_hash, tx_sender)
 
     def __check_txs(self):
-        accepted_count = 0
-        rejected_count = 0
-        total = len(self.txs)
-        checked = 0
-        for (tx_sender, tx_hash) in self.txs:
-            try:
-                self.__get_tx_status(tx_hash, tx_sender)
-                accepted_count += 1
-            except Exception as e:
-                logger.warning(f"Failed to get tx status: {e}")
-                rejected_count += 1
-
-            checked += 1
-            if checked % 10 == 0:
-                logger.info(
-                    f"Checking transactions under way, {checked}/{total}")
-
-        logger.info(
-            f"Checking transactions done, total {len(self.txs)}, accepted {accepted_count}, rejected {rejected_count}"
-        )
-        self.assertGreater(accepted_count, 0)
-        self.assertGreater(rejected_count, 0)
+        logger.info(f"Checking {len(self.txs)} transactions")
+        self.__wait_for_txs(self.txs)
+        self.txs = []
 
     def __get_tx_status(self, tx_hash, tx_sender):
         result = self.rpc_node.get_tx(tx_hash, tx_sender, timeout=15)
