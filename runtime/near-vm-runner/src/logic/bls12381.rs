@@ -9,6 +9,8 @@ const BLS_FP_SIZE: usize = 48;
 const BLS_FP2_SIZE: usize = 96;
 const BLS_P1_SIZE: usize = 96;
 const BLS_P2_SIZE: usize = 192;
+const BLS_P1_COMPRESS_SIZE: usize = 48;
+const BLS_P2_COMPRESS_SIZE: usize = 96;
 
 #[macro_export]
 macro_rules! bls12381_impl {
@@ -61,7 +63,7 @@ macro_rules! bls12381_fn {
         $map_fp_to_g:ident,
         $BLS_P_SIZE:ident,
         $BLS_FP_SIZE:ident,
-        $BLS_P_COMPRESS_SIZE:expr,
+        $BLS_P_COMPRESS_SIZE:ident,
         $blst_p:ident,
         $blst_p_affine:ident,
         $blst_p_deserialize:ident,
@@ -233,7 +235,7 @@ bls12381_fn!(
     map_fp_to_g1,
     BLS_P1_SIZE,
     BLS_FP_SIZE,
-    48,
+    BLS_P1_COMPRESS_SIZE,
     blst_p1,
     blst_p1_affine,
     blst_p1_deserialize,
@@ -260,7 +262,7 @@ bls12381_fn!(
     map_fp2_to_g2,
     BLS_P2_SIZE,
     BLS_FP2_SIZE,
-    96,
+    BLS_P2_COMPRESS_SIZE,
     blst_p2,
     blst_p2_affine,
     blst_p2_deserialize,
