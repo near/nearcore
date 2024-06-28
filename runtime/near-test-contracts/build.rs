@@ -10,12 +10,7 @@ fn main() {
     }
 }
 fn try_main() -> Result<(), Error> {
-    let mut test_contract_features = vec!["latest_protocol"];
-
-    println!("cargo:rerun-if-env-changed=CARGO_FEATURE_TEST_FEATURES");
-    if env::var("CARGO_FEATURE_TEST_FEATURES").is_ok() {
-        test_contract_features.push("test_features");
-    }
+    let mut test_contract_features = vec!["latest_protocol", "test_features"];
 
     let test_contract_features_string = test_contract_features.join(",");
     build_contract(
