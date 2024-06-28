@@ -18,7 +18,7 @@ use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
 
 /// Represents max allowed size of the compressed state witness,
 /// corresponds to EncodedChunkStateWitness struct size.
-pub const MAX_COMPRESSED_STATE_WITNESS_SIZE: ByteSize = ByteSize::mib(64);
+pub const MAX_COMPRESSED_STATE_WITNESS_SIZE: ByteSize = ByteSize::mib(48);
 
 /// Represents max allowed size of the raw (not compressed) state witness,
 /// corresponds to the size of borsh-serialized ChunkStateWitness.
