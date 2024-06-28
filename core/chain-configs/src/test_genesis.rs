@@ -238,11 +238,23 @@ impl TestGenesisBuilder {
         self
     }
 
-    pub fn kickouts_standard_90_percent(&mut self) -> &mut Self {
+    /// Validators with performance below 80% are kicked out, similarly to
+    /// mainnet as of 28 Jun 2024.
+    pub fn kickouts_standard_80_percent(&mut self) -> &mut Self {
         self.kickouts_config = Some(KickoutsConfig {
-            block_producer_kickout_threshold: 90,
-            chunk_producer_kickout_threshold: 90,
-            chunk_validator_only_kickout_threshold: 90,
+            block_producer_kickout_threshold: 80,
+            chunk_producer_kickout_threshold: 80,
+            chunk_validator_only_kickout_threshold: 80,
+        });
+        self
+    }
+
+    /// Only chunk validator-only nodes can be kicked out.
+    pub fn kickouts_for_chunk_validators_only(&mut self) -> &mut Self {
+        self.kickouts_config = Some(KickoutsConfig {
+            block_producer_kickout_threshold: 0,
+            chunk_producer_kickout_threshold: 0,
+            chunk_validator_only_kickout_threshold: 50,
         });
         self
     }
