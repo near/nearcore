@@ -75,9 +75,28 @@ macro_rules! bls12381_fn {
         $read_fp_point:ident,
         $blst_map_to_g:ident,
         $PubKeyOrSig:ident,
+        $parse_p:ident,
         $bls12381_p:expr,
         $bls12381_map_fp_to_g:expr
     ) => {
+        fn $parse_p(point_data: &[u8]) -> Option<blst::$blst_p> {
+            if point_data[0] & 0x80 != 0 {
+                return None;
+            }
+
+            let mut pk_aff = blst::$blst_p_affine::default();
+            let error_code = unsafe { blst::$blst_p_deserialize(&mut pk_aff, point_data.as_ptr()) };
+            if error_code != blst::BLST_ERROR::BLST_SUCCESS {
+                return None;
+            }
+
+            let mut pk = blst::$blst_p::default();
+            unsafe {
+                blst::$blst_p_from_affine(&mut pk, &pk_aff);
+            }
+            Some(pk)
+        }
+
         pub(super) fn $p_sum(data: &[u8]) -> Result<(u64, Vec<u8>)> {
             const ITEM_SIZE: usize = BLS_BOOL_SIZE + $BLS_P_SIZE;
             check_input_size(data, ITEM_SIZE, &format!("{}_sum", $bls12381_p))?;
@@ -88,23 +107,10 @@ macro_rules! bls12381_fn {
                 let (sign_data, point_data) = item_data.split_at(BLS_BOOL_SIZE);
                 debug_assert_eq!(point_data.len(), $BLS_P_SIZE);
 
-                if point_data[0] & 0x80 != 0 {
-                    return Ok((1, vec![]));
-                }
-
-                let mut pk_aff = blst::$blst_p_affine::default();
-                let error_code =
-                    unsafe { blst::$blst_p_deserialize(&mut pk_aff, point_data.as_ptr()) };
-
-                if error_code != blst::BLST_ERROR::BLST_SUCCESS {
-                    return Ok((1, vec![]));
-                }
-
-                let mut pk = blst::$blst_p::default();
-
-                unsafe {
-                    blst::$blst_p_from_affine(&mut pk, &pk_aff);
-                }
+                let mut pk = match $parse_p(point_data) {
+                    Some(pk) => pk,
+                    None => { return Ok((1, vec![])) }
+                };
 
                 let sign = sign_data[0];
 
@@ -145,22 +151,10 @@ macro_rules! bls12381_fn {
                 let (point_data, scalar_data) = item_data.split_at($BLS_P_SIZE);
                 debug_assert_eq!(scalar_data.len(), BLS_SCALAR_SIZE);
 
-                if point_data[0] & 0x80 != 0 {
-                    return Ok((1, vec![]));
-                }
-
-                let mut pk_aff = blst::$blst_p_affine::default();
-                let error_code =
-                    unsafe { blst::$blst_p_deserialize(&mut pk_aff, point_data.as_ptr()) };
-
-                if error_code != blst::BLST_ERROR::BLST_SUCCESS {
-                    return Ok((1, vec![]));
-                }
-
-                let mut pk = blst::$blst_p::default();
-                unsafe {
-                    blst::$blst_p_from_affine(&mut pk, &pk_aff);
-                }
+                let pk = match $parse_p(point_data) {
+                    Some(pk) => pk,
+                    None => { return Ok((1, vec![])) }
+                };
 
                 if unsafe { blst::$blst_p_in_g(&pk) } != true {
                     return Ok((1, vec![]));
@@ -269,6 +263,7 @@ bls12381_fn!(
     read_fp_point,
     blst_map_to_g1,
     PublicKey,
+    parse_p1,
     "bls12381_p1",
     "bls12381_map_fp_to_g1"
 );
@@ -294,6 +289,7 @@ bls12381_fn!(
     read_fp2_point,
     blst_map_to_g2,
     Signature,
+    parse_p2,
     "bls12381_p2",
     "bls12381_map_fp2_to_g2"
 );
