@@ -48,27 +48,6 @@ impl crate::ChainAccess for ChainAccess {
         last_height: BlockHeight,
         num_initial_blocks: usize,
     ) -> anyhow::Result<Vec<BlockHeight>> {
-        // first wait until HEAD moves. We don't really need it to be fully synced.
-        let mut first_height = None;
-        loop {
-            match self.head_height().await {
-                Ok(head) => match first_height {
-                    Some(h) => {
-                        if h != head {
-                            break;
-                        }
-                    }
-                    None => {
-                        first_height = Some(head);
-                    }
-                },
-                Err(ChainError::Unknown) => {}
-                Err(ChainError::Other(e)) => return Err(e),
-            };
-
-            tokio::time::sleep(Duration::from_millis(500)).await;
-        }
-
         let mut block_heights = Vec::with_capacity(num_initial_blocks);
         let mut height = last_height;
 
