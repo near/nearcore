@@ -1,7 +1,10 @@
+use std::str::FromStr;
+
 use crate::config::Config;
 use near_jsonrpc::RpcConfig;
 use near_network::config_json::{ExperimentalConfig, NetworkConfigOverrides};
 use near_o11y::testonly::init_test_logger;
+use near_primitives::types::AccountId;
 use near_store::StoreConfig;
 use serde::ser::{
     SerializeMap, SerializeSeq, SerializeStruct, SerializeStructVariant, SerializeTuple,
@@ -40,6 +43,7 @@ fn test_config_duration_all_std() {
         rosetta_rpc: Some(Default::default()),
         save_trie_changes: Some(Default::default()),
         split_storage: Some(Default::default()),
+        shadow_tracked: Some(AccountId::from_str("test").unwrap()),
         tracked_shard_schedule: Some(Default::default()),
         transaction_pool_size_limit: Some(Default::default()),
         state_sync: Some(Default::default()),
