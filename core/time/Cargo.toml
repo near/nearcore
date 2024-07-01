@@ -21,6 +21,5 @@ serde = { workspace = true, optional = true }
 serde_json.workspace = true
 
 [features]
-default = ["clock", "serde"]
 clock = ["tokio", "once_cell"]
 serde = ["dep:serde", "time/serde"]

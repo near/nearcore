@@ -6,6 +6,8 @@
 
 ### Non-protocol Changes
 
+* Enforce rate limits to received network messages [#11617](https://github.com/near/nearcore/issues/11617). Rate limits are configured by default, but they can be overridden through the experimental configuration option `received_messages_rate_limits`.
+
 ## 1.40.0
 
 ### Protocol Changes

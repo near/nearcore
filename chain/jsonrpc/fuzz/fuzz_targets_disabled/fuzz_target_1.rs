@@ -1,7 +1,7 @@
 #![no_main]
 use actix::System;
 use libfuzzer_sys::{arbitrary, fuzz_target};
-use near_async::time::Clock;
+use near_time::Clock;
 use serde::ser::{Serialize, Serializer};
 use serde_json::json;
 use tokio;

@@ -21,7 +21,7 @@ time.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
-near-async.workspace = true
+near-time.workspace = true
 near-jsonrpc.workspace = true
 near-network.workspace = true
 near-o11y.workspace = true
@@ -30,7 +30,6 @@ near-primitives.workspace = true
 
 [features]
 nightly = [
-  "near-async/nightly",
   "near-jsonrpc/nightly",
   "near-network/nightly",
   "near-o11y/nightly",
@@ -39,7 +38,6 @@ nightly = [
   "nightly_protocol",
 ]
 nightly_protocol = [
-  "near-async/nightly_protocol",
   "near-jsonrpc/nightly_protocol",
   "near-network/nightly_protocol",
   "near-o11y/nightly_protocol",

@@ -1,12 +1,12 @@
 use ::time::ext::InstantExt as _;
 use anyhow::Context;
-use near_async::time::{self, Instant};
 use near_network::raw::{ConnectError, Connection, DirectMessage, Message};
 use near_network::types::HandshakeFailureReason;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::ProtocolVersion;
+use near_time::Instant;
 use sha2::Digest;
 use sha2::Sha256;
 use std::collections::HashMap;
@@ -16,7 +16,7 @@ use std::net::SocketAddr;
 pub mod cli;
 
 struct AppInfo {
-    pub requests_sent: HashMap<u64, time::Instant>,
+    pub requests_sent: HashMap<u64, near_time::Instant>,
 }
 
 impl AppInfo {
@@ -28,7 +28,7 @@ impl AppInfo {
 fn handle_message(
     app_info: &mut AppInfo,
     msg: &Message,
-    received_at: time::Instant,
+    received_at: near_time::Instant,
 ) -> anyhow::Result<()> {
     match &msg {
         Message::Direct(DirectMessage::VersionedStateResponse(response)) => {
@@ -90,7 +90,7 @@ async fn state_parts_from_node(
     assert!(start_part_id < num_parts && num_parts > 0, "{}/{}", start_part_id, num_parts);
     let mut app_info = AppInfo::new();
 
-    let clock = time::Clock::real();
+    let clock = near_time::Clock::real();
 
     let mut peer = match Connection::connect(
         &clock,
@@ -101,7 +101,7 @@ async fn state_parts_from_node(
         genesis_hash,
         head_height,
         vec![0],
-        time::Duration::seconds(recv_timeout_seconds.into())).await {
+        near_time::Duration::seconds(recv_timeout_seconds.into())).await {
         Ok(p) => p,
         Err(ConnectError::HandshakeFailure(reason)) => {
             match reason {
@@ -137,7 +137,7 @@ async fn state_parts_from_node(
                 let msg = DirectMessage::StateRequestPart(shard_id, block_hash, part_id);
                 tracing::info!(target: "state-parts", ?target, shard_id, ?block_hash, part_id, ttl, "Sending a request");
                 result = peer.send_message(msg).await.with_context(|| format!("Failed sending State Part Request to {:?}", target));
-                app_info.requests_sent.insert(part_id, time::Instant::now());
+                app_info.requests_sent.insert(part_id, near_time::Instant::now());
                 tracing::info!(target: "state-parts", ?result);
                 if result.is_err() {
                     break;
