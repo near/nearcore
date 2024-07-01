@@ -72,3 +72,21 @@ async fn test_base_token_transfer_success() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+/// Test asserting that eth-implicit accounts cannot be registered.
+#[tokio::test]
+async fn test_register_eth_implicit_account() -> anyhow::Result<()> {
+    let TestContext { address_registrar, .. } = TestContext::new().await?;
+
+    let args = br#"{"account_id": "0x8fd379246834eac74b8419ffda202cf8051f7a03"}"#;
+    let result = address_registrar.call("register").args(args.to_vec()).transact().await?;
+
+    let logs = result.logs();
+    assert_eq!(logs.len(), 1);
+    assert!(logs[0].contains("Refuse to register eth-implicit account"));
+
+    let output: Option<String> = result.json()?;
+    assert_eq!(output, None);
+
+    Ok(())
+}
