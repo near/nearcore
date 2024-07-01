@@ -228,5 +228,27 @@ async fn test_erc20_emulation() -> anyhow::Result<()> {
             .as_yoctonear(),
     );
 
+    // Check total supply also works
+    let transaction = aurora_engine_transactions::eip_2930::Transaction2930 {
+        nonce: 3.into(),
+        gas_price: 0.into(),
+        gas_limit: 0.into(),
+        to: Some(Address::new(account_id_to_address(
+            &token_contract.contract.id().as_str().parse().unwrap(),
+        ))),
+        value: Wei::zero(),
+        data: crate::eth_emulation::ERC20_TOTAL_SUPPLY_SELECTOR.to_vec(),
+        chain_id: CHAIN_ID,
+        access_list: Vec::new(),
+    };
+    let signed_transaction = crypto::sign_transaction(transaction, &wallet_sk);
+
+    let result = wallet_contract
+        .rlp_execute(token_contract.contract.id().as_str(), &signed_transaction)
+        .await?;
+
+    let balance: U128 = serde_json::from_slice(result.success_value.as_ref().unwrap())?;
+    assert_eq!(balance.0, MINT_AMOUNT.as_yoctonear());
+
     Ok(())
 }

@@ -22,6 +22,8 @@ const ERC20_TRANSFER_SIGNATURE: [ParamType; 2] = [
     ParamType::Uint(256), // value
 ];
 
+pub const ERC20_TOTAL_SUPPLY_SELECTOR: &[u8] = &[0x18, 0x16, 0x0d, 0xdd];
+
 pub fn try_emulation(
     target: &AccountId,
     tx: &NormalizedEthTransaction,
@@ -77,6 +79,16 @@ pub fn try_emulation(
                 ParsableEthEmulationKind::ERC20Transfer { receiver_id },
             ))
         }
+        ERC20_TOTAL_SUPPLY_SELECTOR => Ok((
+            Action::FunctionCall {
+                receiver_id: target.to_string(),
+                method_name: "ft_total_supply".into(),
+                args: Vec::new(),
+                gas: FIVE_TERA_GAS,
+                yocto_near: 0,
+            },
+            ParsableEthEmulationKind::ERC20TotalSupply,
+        )),
         _ => Err(Error::User(UserError::UnknownFunctionSelector)),
     }
 }
@@ -87,6 +99,9 @@ fn test_function_selectors() {
 
     let transfer_signature = ethabi::short_signature("transfer", &ERC20_TRANSFER_SIGNATURE);
 
+    let total_supply_signature = ethabi::short_signature("totalSupply", &[]);
+
     assert_eq!(balance_of_signature, ERC20_BALANCE_OF_SELECTOR); // 0x70a08231
     assert_eq!(transfer_signature, ERC20_TRANSFER_SELECTOR); // 0xa9059cbb
+    assert_eq!(total_supply_signature, ERC20_TOTAL_SUPPLY_SELECTOR); // 0x18160ddd
 }

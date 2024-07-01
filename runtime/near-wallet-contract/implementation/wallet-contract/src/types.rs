@@ -127,6 +127,7 @@ pub enum EthEmulationKind {
     EOABaseTokenTransfer { address_check: Option<Address> },
     ERC20Balance,
     ERC20Transfer { receiver_id: AccountId },
+    ERC20TotalSupply,
 }
 
 /// Describes a kind of transaction that is directly parsable
@@ -151,6 +152,7 @@ pub enum ParsableTransactionKind {
 pub enum ParsableEthEmulationKind {
     ERC20Balance,
     ERC20Transfer { receiver_id: AccountId },
+    ERC20TotalSupply,
 }
 
 impl From<ParsableEthEmulationKind> for EthEmulationKind {
@@ -160,6 +162,7 @@ impl From<ParsableEthEmulationKind> for EthEmulationKind {
             ParsableEthEmulationKind::ERC20Transfer { receiver_id } => {
                 Self::ERC20Transfer { receiver_id }
             }
+            ParsableEthEmulationKind::ERC20TotalSupply => Self::ERC20TotalSupply,
         }
     }
 }
