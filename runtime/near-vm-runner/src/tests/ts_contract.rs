@@ -16,19 +16,15 @@ pub fn test_ts_contract() {
     with_vm_variants(&config, |vm_kind: VMKind| {
         let code = ContractCode::new(near_test_contracts::ts_contract().to_vec(), None);
         let mut fake_external = MockedExternal::with_code(code);
-        let context = create_context(Vec::new());
+        let context = create_context("try_panic", Vec::new());
         let fees = Arc::new(RuntimeFeesConfig::test());
 
         // Call method that panics.
-        let promise_results = [].into();
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
-        let result = runtime.run(
-            "try_panic",
+        let result = runtime.prepare(&fake_external, &context, None).run(
             &mut fake_external,
             &context,
             Arc::clone(&fees),
-            Arc::clone(&promise_results),
-            None,
         );
         let outcome = result.expect("execution failed");
         assert_eq!(
@@ -39,16 +35,11 @@ pub fn test_ts_contract() {
         );
 
         // Call method that writes something into storage.
-        let context = create_context(b"foo bar".to_vec());
+        let context = create_context("try_storage_write", b"foo bar".to_vec());
+        let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
         runtime
-            .run(
-                "try_storage_write",
-                &mut fake_external,
-                &context,
-                Arc::clone(&fees),
-                Arc::clone(&promise_results),
-                None,
-            )
+            .prepare(&fake_external, &context, None)
+            .run(&mut fake_external, &context, Arc::clone(&fees))
             .expect("bad failure");
         // Verify by looking directly into the storage of the host.
         {
@@ -60,16 +51,11 @@ pub fn test_ts_contract() {
         }
 
         // Call method that reads the value from storage using registers.
-        let context = create_context(b"foo".to_vec());
+        let context = create_context("try_storage_read", b"foo".to_vec());
+        let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
         let outcome = runtime
-            .run(
-                "try_storage_read",
-                &mut fake_external,
-                &context,
-                Arc::clone(&fees),
-                Arc::clone(&promise_results),
-                None,
-            )
+            .prepare(&fake_external, &context, None)
+            .run(&mut fake_external, &context, Arc::clone(&fees))
             .expect("execution failed");
 
         if let ReturnData::Value(value) = outcome.return_data {
