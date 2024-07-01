@@ -290,6 +290,13 @@ fn inner_rlp_execute(
                 )
                 .then(ext.nep_141_storage_balance_callback(token_id, receiver_id, action))
         }
+        TransactionKind::EthEmulation(EthEmulationKind::SelfBaseTokenTransfer) => {
+            // Base token transfers to self are no-ops on Near, so we do not need to
+            // schedule an additional call. We can simply go straight to `rlp_execute_callback`.
+            let ext: WalletContractExt =
+                WalletContract::ext(current_account_id).with_unused_gas_weight(1);
+            ext.rlp_execute_callback()
+        }
         _ => {
             let ext = WalletContract::ext(current_account_id).with_unused_gas_weight(1);
             action_to_promise(target, action)?.then(ext.rlp_execute_callback())

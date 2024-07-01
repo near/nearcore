@@ -13,8 +13,14 @@ use near_workspaces::{result::ValueOrReceiptId, types::NearToken};
 async fn test_base_token_transfer() -> anyhow::Result<()> {
     const TRANSFER_AMOUNT: NearToken = NearToken::from_near(2);
 
-    let TestContext { worker, wallet_contract, wallet_sk, wallet_contract_bytes, .. } =
-        TestContext::new().await?;
+    let TestContext {
+        worker,
+        wallet_contract,
+        wallet_address,
+        wallet_sk,
+        wallet_contract_bytes,
+        ..
+    } = TestContext::new().await?;
 
     let (other_wallet, other_address) =
         TestContext::deploy_wallet(&worker, &wallet_contract_bytes).await?;
@@ -55,10 +61,36 @@ async fn test_base_token_transfer() -> anyhow::Result<()> {
     );
     assert!(diff < NearToken::from_millinear(2));
 
+    // Base token transfers to self are also allowed, but do not actually move any funds.
+    let transaction = aurora_engine_transactions::eip_2930::Transaction2930 {
+        nonce: 1.into(),
+        gas_price: 0.into(),
+        gas_limit: 0.into(),
+        to: Some(Address::new(wallet_address)),
+        value: Wei::new_u128(TRANSFER_AMOUNT.as_yoctonear() / u128::from(MAX_YOCTO_NEAR)),
+        data: b"Note to self".to_vec(),
+        chain_id: CHAIN_ID,
+        access_list: Vec::new(),
+    };
+    let signed_transaction = crypto::sign_transaction(transaction, &wallet_sk);
+
+    let result = wallet_contract
+        .rlp_execute(wallet_contract.inner.id().as_str(), &signed_transaction)
+        .await?;
+
+    assert!(result.success);
+
+    let initial_wallet_balance = final_wallet_balance;
+    let final_wallet_balance = wallet_contract.inner.as_account().view_account().await?.balance;
+    let diff = NearToken::from_yoctonear(
+        initial_wallet_balance.as_yoctonear() - final_wallet_balance.as_yoctonear(),
+    );
+    assert!(diff < NearToken::from_millinear(2));
+
     // If the relayer adds an account suffix different from the wallet contract,
     // then the transaction is rejected.
     let transaction = aurora_engine_transactions::eip_2930::Transaction2930 {
-        nonce: 1.into(),
+        nonce: 2.into(),
         gas_price: 0.into(),
         gas_limit: 0.into(),
         to: Some(Address::new(other_address)),

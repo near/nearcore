@@ -104,17 +104,32 @@ pub fn parse_rlp_tx_to_action(
             error @ (Error::User(UserError::InvalidAbiEncodedData)
             | Error::User(UserError::UnknownFunctionSelector)),
         ) => {
-            // Unparsable actions can still be base token transfers, but no
-            // registrar check is required.
-            if let TargetKind::EthImplicit(_) = target_kind {
-                (
-                    Action::Transfer { receiver_id: target.to_string(), yocto_near: 0 },
-                    TransactionKind::EthEmulation(EthEmulationKind::EOABaseTokenTransfer {
-                        address_check: None,
-                    }),
-                )
-            } else {
-                return Err(error);
+            match target_kind {
+                TargetKind::EthImplicit(_) => {
+                    // Unparsable actions can still be base token transfers, but no
+                    // registrar check is required.
+                    (
+                        Action::Transfer { receiver_id: target.to_string(), yocto_near: 0 },
+                        TransactionKind::EthEmulation(EthEmulationKind::EOABaseTokenTransfer {
+                            address_check: None,
+                        }),
+                    )
+                }
+                TargetKind::CurrentAccount => {
+                    // Base token transfers to self are also allowed by the Ethereum standard.
+                    (
+                        Action::Transfer {
+                            receiver_id: context.current_account_id.to_string(),
+                            yocto_near: 0,
+                        },
+                        TransactionKind::EthEmulation(EthEmulationKind::SelfBaseTokenTransfer),
+                    )
+                }
+                TargetKind::OtherNearAccount(_) => {
+                    // No interaction with other Near accounts is possible
+                    // when the payload is not parsable
+                    return Err(error);
+                }
             }
         }
         Err(other_err) => return Err(other_err),
