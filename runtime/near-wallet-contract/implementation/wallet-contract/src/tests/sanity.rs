@@ -90,3 +90,27 @@ async fn test_register_eth_implicit_account() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+/// Test asserting the address registrar requires a deposit.
+#[tokio::test]
+async fn test_register_without_deposit() -> anyhow::Result<()> {
+    let TestContext { worker, address_registrar, .. } = TestContext::new().await?;
+
+    let method = "register";
+    let args = br#"{"account_id": "birchmd.near"}"#;
+    let result = address_registrar.call(method).args(args.to_vec()).transact().await?;
+    assert!(result.is_failure(), "Call without deposit must fail");
+
+    let result = worker
+        .root_account()?
+        .call(address_registrar.id(), method)
+        .args(args.to_vec())
+        .deposit(NearToken::from_yoctonear(320000000000000000000))
+        .transact()
+        .await?;
+
+    let output: Option<String> = result.json()?;
+    assert_eq!(output.as_deref(), Some("0x4bfcff9a964925adf801c866f6ada98bd7ec40ca"));
+
+    Ok(())
+}

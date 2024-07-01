@@ -10,6 +10,7 @@ use crate::{
     types::{Action, ExecuteResponse},
 };
 use aurora_engine_types::types::{Address, Wei};
+use near_sdk::NearToken;
 use near_workspaces::{
     network::Sandbox,
     types::{AccessKeyPermission, SecretKey},
@@ -192,6 +193,7 @@ async fn test_relayer_invalid_address_target() -> anyhow::Result<()> {
             "account_id": token_contract.contract.id().as_str()
         }))
         .max_gas()
+        .deposit(NearToken::from_millinear(1))
         .transact()
         .await?
         .json()?;
