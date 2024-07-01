@@ -9,6 +9,7 @@ mod tests {
         CanonicalDeserialize, CanonicalSerialize, CanonicalSerializeWithFlags, EmptyFlags,
     };
     use ark_std::{test_rng, One, UniformRand, Zero};
+    use bolero::TypeGenerator;
     use rand::{distributions::Distribution, seq::SliceRandom, thread_rng, Rng, RngCore};
     use std::{fs, ops::Add, ops::Mul, ops::Neg, str::FromStr};
 
@@ -41,6 +42,32 @@ mod tests {
 
     struct G1Operations;
     struct G2Operations;
+
+    #[derive(Debug)]
+    pub struct FP {
+        pub p: Fq,
+    }
+
+    impl TypeGenerator for FP {
+        fn generate<D: bolero::Driver>(driver: &mut D) -> Option<FP> {
+            let fq_ser: [u8; 48] = <[u8; 48]>::generate(driver)?;
+            Some(FP{p: Fq::from_random_bytes(&fq_ser)?})
+        }
+    }
+
+    #[derive(Debug)]
+    pub struct FP2 {
+        pub p: Fq2,
+    }
+
+    impl TypeGenerator for FP2 {
+        fn generate<D: bolero::Driver>(driver: &mut D) -> Option<FP2> {
+            let c0: FP = FP::generate(driver)?;
+            let c1: FP = FP::generate(driver)?;
+
+            Some(FP2{p: Fq2::new(c0.p, c1.p)})
+        }
+    }
 
     impl G1Operations {
         const POINT_LEN: usize = 96;
@@ -819,12 +846,13 @@ mod tests {
         (
             $GOp:ident,
             $map_to_curve_g:ident,
+            $Fq:ident,
             $FP:ident,
             $check_map_fp:ident,
             $test_bls12381_map_fp_to_g:ident,
             $test_bls12381_map_fp_to_g_many_points:ident
         ) => {
-            fn $check_map_fp(fp: $FP) {
+            fn $check_map_fp(fp: $Fq) {
                 let res1 = $GOp::map_fp_to_g(vec![fp.clone()]);
 
                 let mut res2 = $GOp::map_to_curve_g(fp);
@@ -835,11 +863,11 @@ mod tests {
 
             #[test]
             fn $test_bls12381_map_fp_to_g() {
-                let mut rng = test_rng();
-
-                for _ in 0..TESTS_ITERATIONS {
-                    $check_map_fp($GOp::get_random_fp(&mut rng));
-                }
+                bolero::check!().with_type().for_each(
+                  |fp: &$FP| {
+                      $check_map_fp(fp.p);
+                  },
+                );
             }
 
             #[test]
@@ -849,7 +877,7 @@ mod tests {
                 for i in 0..TESTS_ITERATIONS {
                     let n = get_n(i, $GOp::MAX_N_MAP);
 
-                    let mut fps: Vec<$FP> = vec![];
+                    let mut fps: Vec<$Fq> = vec![];
                     let mut res2_mul: Vec<u8> = vec![];
                     for i in 0..n {
                         fps.push($GOp::get_random_fp(&mut rng));
@@ -871,8 +899,9 @@ mod tests {
         G1Operations,
         map_to_curve_g1,
         Fq,
+        FP,
         check_map_fp,
-        test_bls12381_map_fp_to_g1,
+        test_bls12381_map_fp_to_g1_fuzzer,
         test_bls12381_map_fp_to_g1_many_points
     );
 
@@ -880,8 +909,9 @@ mod tests {
         G2Operations,
         map_to_curve_g2,
         Fq2,
+        FP2,
         check_map_fp2,
-        test_bls12381_map_fp2_to_g2,
+        test_bls12381_map_fp2_to_g2_fuzzer,
         test_bls12381_map_fp2_to_g2_many_points
     );
 
