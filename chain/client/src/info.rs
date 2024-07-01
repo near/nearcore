@@ -464,37 +464,7 @@ impl InfoHelper {
         (metrics::MEMORY_USAGE.set((memory_usage * 1024) as i64));
         (metrics::PROTOCOL_UPGRADE_BLOCK_HEIGHT.set(protocol_upgrade_block_height as i64));
 
-        // In case we can't get the list of validators for the current and the previous epoch,
-        // skip updating the per-validator metrics.
-        // Note that the metrics are set to 0 for previous epoch validators who are no longer
-        // validators.
-        for stats in validator_epoch_stats {
-            (metrics::VALIDATORS_BLOCKS_PRODUCED
-                .with_label_values(&[stats.account_id.as_str()])
-                .set(stats.num_produced_blocks as i64));
-            (metrics::VALIDATORS_BLOCKS_EXPECTED
-                .with_label_values(&[stats.account_id.as_str()])
-                .set(stats.num_expected_blocks as i64));
-            (metrics::VALIDATORS_CHUNKS_PRODUCED
-                .with_label_values(&[stats.account_id.as_str()])
-                .set(stats.num_produced_chunks as i64));
-            (metrics::VALIDATORS_CHUNKS_EXPECTED
-                .with_label_values(&[stats.account_id.as_str()])
-                .set(stats.num_expected_chunks as i64));
-            for ((shard, expected), produced) in stats
-                .shards
-                .iter()
-                .zip(stats.num_expected_chunks_per_shard.iter())
-                .zip(stats.num_produced_chunks_per_shard.iter())
-            {
-                (metrics::VALIDATORS_CHUNKS_EXPECTED_BY_SHARD
-                    .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
-                    .set(*expected as i64));
-                (metrics::VALIDATORS_CHUNKS_PRODUCED_BY_SHARD
-                    .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
-                    .set(*produced as i64));
-            }
-        }
+        Self::update_validator_metrics(validator_epoch_stats);
 
         self.started = self.clock.now();
         self.num_blocks_processed = 0;
@@ -515,6 +485,52 @@ impl InfoHelper {
             ),
         };
         self.telemetry_sender.send(telemetry_event);
+    }
+
+    /// Updates the prometheus metrics to track the block and chunk production and endorsement by validators.
+    fn update_validator_metrics(validator_epoch_stats: Vec<ValidatorProductionStats>) {
+        // In case we can't get the list of validators for the current and the previous epoch,
+        // skip updating the per-validator metrics.
+        // Note that the metrics are set to 0 for previous epoch validators who are no longer
+        // validators.
+        for stats in validator_epoch_stats {
+            (metrics::VALIDATORS_BLOCKS_PRODUCED
+                .with_label_values(&[stats.account_id.as_str()])
+                .set(stats.num_produced_blocks as i64));
+            (metrics::VALIDATORS_BLOCKS_EXPECTED
+                .with_label_values(&[stats.account_id.as_str()])
+                .set(stats.num_expected_blocks as i64));
+            (metrics::VALIDATORS_CHUNKS_PRODUCED
+                .with_label_values(&[stats.account_id.as_str()])
+                .set(stats.num_produced_chunks as i64));
+            (metrics::VALIDATORS_CHUNKS_EXPECTED
+                .with_label_values(&[stats.account_id.as_str()])
+                .set(stats.num_expected_chunks as i64));
+            for (
+                (((shard, chunks_expected), chunks_produced), endorsements_expected),
+                endorsements_produced,
+            ) in stats
+                .shards
+                .iter()
+                .zip(stats.num_expected_chunks_per_shard.iter())
+                .zip(stats.num_produced_chunks_per_shard.iter())
+                .zip(stats.num_expected_endorsements_per_shard.iter())
+                .zip(stats.num_produced_endorsements_per_shard.iter())
+            {
+                (metrics::VALIDATORS_CHUNKS_EXPECTED_BY_SHARD
+                    .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
+                    .set(*chunks_expected as i64));
+                (metrics::VALIDATORS_CHUNKS_PRODUCED_BY_SHARD
+                    .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
+                    .set(*chunks_produced as i64));
+                (metrics::VALIDATORS_CHUNK_ENDORSEMENTS_EXPECTED_BY_SHARD
+                    .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
+                    .set(*endorsements_expected as i64));
+                (metrics::VALIDATORS_CHUNK_ENDORSEMENTS_PRODUCED_BY_SHARD
+                    .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
+                    .set(*endorsements_produced as i64));
+            }
+        }
     }
 
     fn telemetry_info(
@@ -846,6 +862,8 @@ pub struct ValidatorProductionStats {
     pub shards: Vec<ShardId>,
     pub num_produced_chunks_per_shard: Vec<NumBlocks>,
     pub num_expected_chunks_per_shard: Vec<NumBlocks>,
+    pub num_produced_endorsements_per_shard: Vec<NumBlocks>,
+    pub num_expected_endorsements_per_shard: Vec<NumBlocks>,
 }
 
 impl ValidatorProductionStats {
@@ -859,6 +877,8 @@ impl ValidatorProductionStats {
             shards: vec![],
             num_produced_chunks_per_shard: vec![],
             num_expected_chunks_per_shard: vec![],
+            num_produced_endorsements_per_shard: vec![],
+            num_expected_endorsements_per_shard: vec![],
         }
     }
     pub fn validator(info: CurrentEpochValidatorInfo) -> Self {
@@ -871,6 +891,8 @@ impl ValidatorProductionStats {
             shards: info.shards,
             num_produced_chunks_per_shard: info.num_produced_chunks_per_shard,
             num_expected_chunks_per_shard: info.num_expected_chunks_per_shard,
+            num_produced_endorsements_per_shard: info.num_produced_endorsements_per_shard,
+            num_expected_endorsements_per_shard: info.num_expected_endorsements_per_shard,
         }
     }
 }
