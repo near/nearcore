@@ -39,6 +39,8 @@ pub enum RelayerError {
     InvalidTarget,
     /// Relayers should always check the transaction is signed with the correct chain id.
     InvalidChainId,
+    /// Relayers should always attach at least as much gas as the user requested.
+    InsufficientGas,
 }
 
 /// Errors that arise from problems in the data signed by the user
@@ -109,6 +111,7 @@ impl fmt::Display for RelayerError {
             }
             Self::InvalidNonce => f.write_str("Error: invalid nonce value"),
             Self::InvalidChainId => f.write_str("Error: invalid chain id value"),
+            Self::InsufficientGas => f.write_str("Error: insufficient prepaid gas"),
         }
     }
 }

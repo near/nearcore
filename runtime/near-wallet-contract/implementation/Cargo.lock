@@ -1182,6 +1182,7 @@ dependencies = [
  "hex",
  "near-contract-standards",
  "near-crypto 0.21.2",
+ "near-gas",
  "near-sdk",
  "near-workspaces",
  "once_cell",

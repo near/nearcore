@@ -24,6 +24,7 @@ serde_json.workspace = true
 anyhow.workspace = true
 aurora-engine-types.workspace = true
 near-crypto.workspace = true
+near-gas.workspace = true
 near-workspaces.workspace = true
 rlp.workspace = true
 sha3.workspace = true

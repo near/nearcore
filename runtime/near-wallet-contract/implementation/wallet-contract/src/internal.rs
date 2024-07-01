@@ -11,7 +11,7 @@ use crate::{
 use aurora_engine_transactions::{EthTransactionKind, NormalizedEthTransaction};
 use base64::Engine;
 use ethabi::{ethereum_types::U256, Address};
-use near_sdk::{AccountId, NearToken};
+use near_sdk::{env, AccountId, NearToken};
 
 // TODO(eth-implicit): Decide on chain id.
 pub const CHAIN_ID: u64 = std::include!("CHAIN_ID");
@@ -26,6 +26,12 @@ pub const MAX_YOCTO_NEAR: u32 = 1_000_000;
 /// an Ethereum transaction value into a Near value we need to multiply
 /// by `1_000_000` and then add back any lower digits that were truncated.
 const VALUE_MAX: U256 = U256([10175519178963368024, 18446744073709, 0, 0]);
+
+/// To make gas values look more familiar to Ethereum users, we say that
+/// 1 EVM gas is equal to 0.1 GGas on Near. This means 2.1 Tgas on Near
+/// is equal to 21k EVM gas and both amounts are "small" in their respective
+/// ecosystems.
+pub const GAS_MULTIPLIER: u64 = 100_000_000;
 
 /// Given an RLP-encoded Ethereum transaction (bytes encoded in base64),
 /// a Near account the transaction is supposed to interact with, the current
@@ -334,6 +340,12 @@ fn validate_tx_relayer_data<'a>(
     };
     if nonce != expected_nonce {
         return Err(Error::Relayer(RelayerError::InvalidNonce));
+    }
+
+    // Relayers must attach at least as much gas as the user requested.
+    let gas_limit = if tx.gas_limit < U64_MAX { tx.gas_limit.as_u64() } else { u64::MAX };
+    if env::prepaid_gas().as_gas() < gas_limit.saturating_mul(GAS_MULTIPLIER) {
+        return Err(Error::Relayer(RelayerError::InsufficientGas));
     }
 
     Ok(target_kind)
