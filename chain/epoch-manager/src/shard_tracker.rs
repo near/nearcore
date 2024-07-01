@@ -10,10 +10,13 @@ use near_primitives::types::{AccountId, EpochId, ShardId};
 
 #[derive(Clone)]
 pub enum TrackedConfig {
+    /// Tracks shards that contain one of the given account.
     Accounts(Vec<AccountId>),
-    Shadow(AccountId),
+    /// Tracks shards that are assigned to given validator account.
+    ShadowValidator(AccountId),
+    /// Tracks all shards.
     AllShards,
-    // Rotates between sets of shards to track.
+    /// Rotates between sets of shards to track.
     Schedule(Vec<Vec<ShardId>>),
 }
 
@@ -27,8 +30,8 @@ impl TrackedConfig {
             TrackedConfig::AllShards
         } else if !config.tracked_shard_schedule.is_empty() {
             TrackedConfig::Schedule(config.tracked_shard_schedule.clone())
-        } else if let Some(account_id) = config.shadow_tracked.as_ref() {
-            TrackedConfig::Shadow(account_id.clone())
+        } else if let Some(account_id) = config.tracked_shadow_validator.as_ref() {
+            TrackedConfig::ShadowValidator(account_id.clone())
         } else {
             TrackedConfig::Accounts(config.tracked_accounts.clone())
         }
@@ -93,7 +96,7 @@ impl ShardTracker {
                 let subset = &schedule[index as usize];
                 Ok(subset.contains(&shard_id))
             }
-            TrackedConfig::Shadow(account_id) => {
+            TrackedConfig::ShadowValidator(account_id) => {
                 self.epoch_manager.cares_about_shard_in_epoch(*epoch_id, account_id, shard_id)
             }
         }

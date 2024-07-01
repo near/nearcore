@@ -26,7 +26,7 @@ class ValidatorSwitchKeyQuickTest(unittest.TestCase):
         # that it will be assigned to when becoming a validator.
         config_map = {
             2: {
-                "shadow_tracked": "test0",
+                "tracked_shadow_validator": "test0",
                 "store.load_mem_tries_for_tracked_shards": True,
             }
         }

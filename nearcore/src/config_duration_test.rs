@@ -43,7 +43,7 @@ fn test_config_duration_all_std() {
         rosetta_rpc: Some(Default::default()),
         save_trie_changes: Some(Default::default()),
         split_storage: Some(Default::default()),
-        shadow_tracked: Some(AccountId::from_str("test").unwrap()),
+        tracked_shadow_validator: Some(AccountId::from_str("test").unwrap()),
         tracked_shard_schedule: Some(Default::default()),
         transaction_pool_size_limit: Some(Default::default()),
         state_sync: Some(Default::default()),

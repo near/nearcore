@@ -1138,6 +1138,25 @@ impl EpochManager {
         self.get_epoch_info(&epoch_id)
     }
 
+    pub fn cares_about_shard_in_epoch(
+        &self,
+        epoch_id: EpochId,
+        account_id: &AccountId,
+        shard_id: ShardId,
+    ) -> Result<bool, EpochError> {
+        let epoch_info = self.get_epoch_info(&epoch_id)?;
+        let chunk_producers_settlement = epoch_info.chunk_producers_settlement();
+        let chunk_producers = chunk_producers_settlement
+            .get(shard_id as usize)
+            .ok_or_else(|| EpochError::ShardingError(format!("invalid shard id {shard_id}")))?;
+        for validator_id in chunk_producers.iter() {
+            if epoch_info.validator_account_id(*validator_id) == account_id {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     pub fn cares_about_shard_from_prev_block(
         &self,
         parent_hash: &CryptoHash,
@@ -1625,25 +1644,6 @@ impl EpochManager {
         let config = self.config.for_protocol_version(protocol_version);
         let stake_divisor = { config.minimum_stake_divisor as Balance };
         Ok(seat_price / stake_divisor)
-    }
-
-    pub fn cares_about_shard_in_epoch(
-        &self,
-        epoch_id: EpochId,
-        account_id: &AccountId,
-        shard_id: ShardId,
-    ) -> Result<bool, EpochError> {
-        let epoch_info = self.get_epoch_info(&epoch_id)?;
-        let chunk_producers_settlement = epoch_info.chunk_producers_settlement();
-        let chunk_producers = chunk_producers_settlement
-            .get(shard_id as usize)
-            .ok_or_else(|| EpochError::ShardingError(format!("invalid shard id {shard_id}")))?;
-        for validator_id in chunk_producers.iter() {
-            if epoch_info.validator_account_id(*validator_id) == account_id {
-                return Ok(true);
-            }
-        }
-        Ok(false)
     }
 }
 
