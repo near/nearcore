@@ -122,12 +122,11 @@ fn make_cached_contract_call_vm(
         MockedExternal::new()
     };
     fake_external.code_hash = code_hash;
-    let mut context = create_context(vec![]);
+    let mut context = create_context(method_name, vec![]);
     let fees = Arc::new(RuntimeFeesConfig::test());
-    let promise_results = [].into();
     context.prepaid_gas = prepaid_gas;
     let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
-    runtime.run(method_name, &mut fake_external, &context, fees, promise_results, Some(cache))
+    runtime.prepare(&fake_external, &context, Some(cache)).run(&mut fake_external, &context, fees)
 }
 
 #[test]
