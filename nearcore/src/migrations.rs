@@ -88,6 +88,8 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
             36 => near_store::migrations::migrate_36_to_37(store),
             37 => near_store::migrations::migrate_37_to_38(store),
             38 => near_store::migrations::migrate_38_to_39(store),
+            39 => near_store::migrations::migrate_39_to_40(store),
+            _ => unreachable!(),
             DB_VERSION.. => unreachable!(),
         }
     }

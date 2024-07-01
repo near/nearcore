@@ -84,10 +84,12 @@ impl TestLoopBuilder {
         self
     }
 
-    /// Disable garbage collection for the nodes.
-    /// TODO(#11605): should always be enabled, if it doesn't work, it's a bug.
+    /// GC should always be enabled, thus this function should only be invoked
+    /// for debugging a bug that manifest itself when GC is enabled.
+    #[allow(unused)]
     pub fn disable_gc(mut self) -> Self {
         self.gc = false;
+        tracing::warn!("Garbage collection is disabled!");
         self
     }
 

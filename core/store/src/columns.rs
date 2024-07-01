@@ -139,6 +139,7 @@ pub enum DBCol {
     /// Mapping from Receipt id to destination Shard Id, i.e, the shard that this receipt is sent to.
     /// - *Rows*: ReceiptId (CryptoHash)
     /// - *Content type*: Shard Id || ref_count (u64 || u64)
+    /// DEPRECATED: DO NOT use this column. This column is not written or read in production.
     ReceiptIdToShardId,
     // Deprecated.
     #[strum(serialize = "NextBlockWithNewChunk")]

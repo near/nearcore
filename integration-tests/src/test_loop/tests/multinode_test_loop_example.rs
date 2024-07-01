@@ -39,7 +39,7 @@ fn test_client_with_multi_test_loop() {
     let genesis = genesis_builder.build();
 
     let TestLoopEnv { mut test_loop, datas: node_datas } =
-        builder.genesis(genesis).clients(clients).disable_gc().build();
+        builder.genesis(genesis).clients(clients).build();
 
     let first_epoch_tracked_shards = {
         let clients = node_datas
