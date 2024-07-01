@@ -1852,7 +1852,6 @@ impl Chain {
             self.should_produce_state_witness_for_this_or_next_epoch(me, block.header())?;
         let mut chain_update = self.chain_update();
         let new_head = chain_update.postprocess_block(
-            me,
             &block,
             block_preprocess_info,
             apply_results,
@@ -4032,7 +4031,6 @@ impl Chain {
         ChainUpdate::new(
             &mut self.chain_store,
             self.epoch_manager.clone(),
-            self.shard_tracker.clone(),
             self.runtime_adapter.clone(),
             self.doomslug_threshold_mode,
             self.transaction_validity_period,
@@ -4323,12 +4321,6 @@ impl Chain {
         shard_uid: &ShardUId,
     ) -> Result<Arc<ChunkExtra>, Error> {
         self.chain_store.get_chunk_extra(block_hash, shard_uid)
-    }
-
-    /// Get destination shard id for a given receipt id.
-    #[inline]
-    pub fn get_shard_id_for_receipt_id(&self, receipt_id: &CryptoHash) -> Result<ShardId, Error> {
-        self.chain_store.get_shard_id_for_receipt_id(receipt_id)
     }
 
     /// Get next block hash for which there is a new chunk for the shard.

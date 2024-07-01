@@ -767,7 +767,7 @@ fn col_name(col: DBCol) -> &'static str {
         DBCol::AccountAnnouncements => "col24",
         DBCol::NextBlockHashes => "col25",
         DBCol::EpochLightClientBlocks => "col26",
-        DBCol::ReceiptIdToShardId => "col27",
+        DBCol::_ReceiptIdToShardId => "col27",
         DBCol::_NextBlockWithNewChunk => "col28",
         DBCol::_LastBlockWithNewChunk => "col29",
         DBCol::PeerComponent => "col30",
