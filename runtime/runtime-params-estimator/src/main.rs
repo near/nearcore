@@ -342,11 +342,6 @@ fn main_container(
         buf.push_str("set -ex;\n");
         buf.push_str("export CARGO_HOME=/.cargo\n");
         buf.push_str("cd /host/nearcore;\n");
-        #[cfg(feature = "protocol_feature_bls12381")]
-        buf.push_str(
-            "CFLAGS='-D__BLST_PORTABLE__' cargo build --manifest-path /host/nearcore/Cargo.toml",
-        );
-        #[cfg(not(feature = "protocol_feature_bls12381"))]
         buf.push_str("cargo build --manifest-path /host/nearcore/Cargo.toml");
         buf.push_str(" --package runtime-params-estimator --bin runtime-params-estimator");
 
