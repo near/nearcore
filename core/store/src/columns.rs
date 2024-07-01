@@ -403,7 +403,7 @@ impl DBCol {
     /// ```
     pub const fn is_rc(&self) -> bool {
         match self {
-            DBCol::State | DBCol::Transactions | DBCol::Receipts => true,
+            DBCol::State | DBCol::Transactions | DBCol::Receipts | DBCol::_ReceiptIdToShardId => true,
             _ => false,
         }
     }
