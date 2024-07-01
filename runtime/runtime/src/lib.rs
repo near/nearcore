@@ -63,6 +63,7 @@ pub use near_vm_runner::with_ext_cost_counter;
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
 use near_vm_runner::ProfileDataV3;
+use rand::RngCore;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -1730,7 +1731,22 @@ impl Runtime {
             // Prefetcher is allowed to fail
             _ = prefetcher.prefetch_receipts_data(&processing_state.incoming_receipts);
         }
+        let mut garbage_storage: Vec<u8> = vec![];
+        eprintln!("test_test_test");
         for receipt in processing_state.incoming_receipts.iter() {
+            eprintln!("receipt_test: {receipt:?}");
+            if let ReceiptEnum::Action(action_receipt) = receipt.receipt() {
+                for action in &action_receipt.actions {
+                    if let Action::FunctionCall(fc) = action {
+                        if &fc.method_name == "generate_storage_proof_garbage" {
+                            if let Some(mbs) = fc.args.get(0) {
+                                eprintln!("generate storage proof garbage");
+                                garbage_storage.push(*mbs);
+                            }
+                        }
+                    }
+                }
+            }
             // Validating new incoming no matter whether we have available gas or not. We don't
             // want to store invalid receipts in state as delayed.
             validate_receipt(
@@ -1756,6 +1772,18 @@ impl Runtime {
                     receipt_sink,
                     validator_proposals,
                 )?;
+            }
+        }
+        if let Some(recorder) = processing_state.state_update.trie.recorder.as_ref() {
+            for garbage_mbs in garbage_storage {
+                let mut data = vec![0u8; (garbage_mbs as usize) * 1000_000];
+                rand::thread_rng().fill_bytes(&mut data);
+                recorder.borrow_mut().record(
+                    &CryptoHash::hash_bytes(&data),
+                    data.into(),
+                );
+                let sz = processing_state.state_update.trie.recorded_storage_size_upper_bound();
+                eprintln!("Recorded {garbage_mbs} mbs of storage proof garbage, total size {sz}");
             }
         }
         processing_state.metrics.incoming_receipts_done(
