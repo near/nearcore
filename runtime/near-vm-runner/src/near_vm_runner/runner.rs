@@ -594,13 +594,13 @@ impl crate::runner::VM for NearVM {
                         ))
                     }
                 };
-                Ok(PreparedContract::Ready {
+                Ok(PreparedContract::Ready(ReadyContract {
                     memory,
                     result_state,
                     entrypoint,
                     artifact: Arc::clone(artifact),
                     vm,
-                })
+                }))
             });
         Box::new(prepd)
     }
@@ -619,16 +619,18 @@ impl crate::runner::VM for NearVM {
     }
 }
 
+struct ReadyContract {
+    memory: NearVmMemory,
+    result_state: ExecutionResultState,
+    entrypoint: FunctionIndex,
+    artifact: VMArtifact,
+    vm: Box<NearVM>,
+}
+
 #[allow(clippy::large_enum_variant)]
-pub(crate) enum PreparedContract {
+enum PreparedContract {
     Outcome(VMOutcome),
-    Ready {
-        memory: NearVmMemory,
-        result_state: ExecutionResultState,
-        entrypoint: FunctionIndex,
-        artifact: VMArtifact,
-        vm: Box<NearVM>,
-    },
+    Ready(ReadyContract),
 }
 
 impl crate::PreparedContract for VMResult<PreparedContract> {
@@ -638,11 +640,9 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
         context: &VMContext,
         fees_config: Arc<RuntimeFeesConfig>,
     ) -> VMResult {
-        let (memory, result_state, entrypoint, artifact, vm) = match (*self)? {
+        let ReadyContract { memory, result_state, entrypoint, artifact, vm } = match (*self)? {
             PreparedContract::Outcome(outcome) => return Ok(outcome),
-            PreparedContract::Ready { memory, result_state, entrypoint, artifact, vm } => {
-                (memory, result_state, entrypoint, artifact, vm)
-            }
+            PreparedContract::Ready(r) => r,
         };
         let config = Arc::clone(&result_state.config);
         let vmmemory = memory.vm();

@@ -489,19 +489,26 @@ impl crate::runner::VM for Wasmer0VM {
             self.config.limit_config.initial_memory_pages,
             self.config.limit_config.max_memory_pages,
         );
-        Box::new(Ok(PreparedContract::Ready { vm: self, memory, result_state, module }))
+        Box::new(Ok(PreparedContract::Ready(ReadyContract {
+            vm: self,
+            memory,
+            result_state,
+            module,
+        })))
     }
 }
 
+struct ReadyContract {
+    vm: Box<Wasmer0VM>,
+    memory: WasmerMemory,
+    result_state: ExecutionResultState,
+    module: Module,
+}
+
 #[allow(clippy::large_enum_variant)]
-pub(crate) enum PreparedContract {
+enum PreparedContract {
     Outcome(VMOutcome),
-    Ready {
-        vm: Box<Wasmer0VM>,
-        memory: WasmerMemory,
-        result_state: ExecutionResultState,
-        module: Module,
-    },
+    Ready(ReadyContract),
 }
 
 impl crate::PreparedContract for VMResult<PreparedContract> {
@@ -511,11 +518,9 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
         context: &VMContext,
         fees_config: Arc<RuntimeFeesConfig>,
     ) -> Result<VMOutcome, VMRunnerError> {
-        let (vm, memory, result_state, module) = match (*self)? {
+        let ReadyContract { vm, memory, result_state, module } = match (*self)? {
             PreparedContract::Outcome(outcome) => return Ok(outcome),
-            PreparedContract::Ready { vm, memory, result_state, module } => {
-                (vm, memory, result_state, module)
-            }
+            PreparedContract::Ready(r) => r,
         };
         // Note that we don't clone the actual backing memory, just increase the RC.
         let memory_copy = memory.clone();

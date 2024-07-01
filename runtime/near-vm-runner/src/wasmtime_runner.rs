@@ -331,21 +331,23 @@ impl crate::runner::VM for WasmtimeVM {
                 self.config.limit_config.max_memory_pages,
             )
             .unwrap();
-            Ok(PreparedContract::Ready { store, memory, module, result_state })
+            Ok(PreparedContract::Ready(ReadyContract { store, memory, module, result_state }))
         });
         Box::new(prepd)
     }
 }
 
+struct ReadyContract {
+    store: Store<()>,
+    memory: WasmtimeMemory,
+    module: Module,
+    result_state: ExecutionResultState,
+}
+
 #[allow(clippy::large_enum_variant)]
-pub(crate) enum PreparedContract {
+enum PreparedContract {
     Outcome(VMOutcome),
-    Ready {
-        store: Store<()>,
-        memory: WasmtimeMemory,
-        module: Module,
-        result_state: ExecutionResultState,
-    },
+    Ready(ReadyContract),
 }
 
 impl crate::PreparedContract for VMResult<PreparedContract> {
@@ -355,11 +357,9 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
         context: &VMContext,
         fees_config: Arc<RuntimeFeesConfig>,
     ) -> VMResult {
-        let (mut store, memory, module, result_state) = match (*self)? {
+        let ReadyContract { mut store, memory, module, result_state } = match (*self)? {
             PreparedContract::Outcome(outcome) => return Ok(outcome),
-            PreparedContract::Ready { store, memory, module, result_state } => {
-                (store, memory, module, result_state)
-            }
+            PreparedContract::Ready(r) => r,
         };
         let memory_copy = memory.0;
         let config = Arc::clone(&result_state.config);

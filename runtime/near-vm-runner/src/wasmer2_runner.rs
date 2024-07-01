@@ -622,26 +622,28 @@ impl crate::runner::VM for Wasmer2VM {
             self.config.limit_config.max_memory_pages,
         )
         .expect("Cannot create memory for a contract call");
-        Box::new(Ok(PreparedContract::Ready {
+        Box::new(Ok(PreparedContract::Ready(ReadyContract {
             vm: self,
             memory,
             result_state,
             entrypoint,
             artifact,
-        }))
+        })))
     }
 }
 
+struct ReadyContract {
+    vm: Box<Wasmer2VM>,
+    memory: Wasmer2Memory,
+    result_state: ExecutionResultState,
+    entrypoint: FunctionIndex,
+    artifact: VMArtifact,
+}
+
 #[allow(clippy::large_enum_variant)]
-pub(crate) enum PreparedContract {
+enum PreparedContract {
     Outcome(VMOutcome),
-    Ready {
-        vm: Box<Wasmer2VM>,
-        memory: Wasmer2Memory,
-        result_state: ExecutionResultState,
-        entrypoint: FunctionIndex,
-        artifact: VMArtifact,
-    },
+    Ready(ReadyContract),
 }
 
 impl crate::PreparedContract for VMResult<PreparedContract> {
@@ -651,11 +653,9 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
         context: &VMContext,
         fees_config: Arc<RuntimeFeesConfig>,
     ) -> VMResult {
-        let (vm, memory, result_state, entrypoint, artifact) = match (*self)? {
+        let ReadyContract { vm, memory, result_state, entrypoint, artifact } = match (*self)? {
             PreparedContract::Outcome(outcome) => return Ok(outcome),
-            PreparedContract::Ready { vm, memory, result_state, entrypoint, artifact } => {
-                (vm, memory, result_state, entrypoint, artifact)
-            }
+            PreparedContract::Ready(r) => r,
         };
         // FIXME: this mostly duplicates the `run_module` method.
         // Note that we don't clone the actual backing memory, just increase the RC.
