@@ -20,7 +20,8 @@ libfuzzer_sys::fuzz_target!(|module: ArbitraryModule| {
 
 fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMOutcome {
     let mut fake_external = MockedExternal::with_code(code.clone_for_tests());
-    let mut context = create_context(vec![]);
+    let method_name = find_entry_point(code).unwrap_or_else(|| "main".to_string());
+    let mut context = create_context(&method_name, vec![]);
     context.prepaid_gas = 10u64.pow(14);
     let config_store = RuntimeConfigStore::new(None);
     let config = config_store.get_config(PROTOCOL_VERSION);
@@ -29,15 +30,11 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMOutcome {
     wasm_config.limit_config.contract_prepare_version =
         near_vm_runner::logic::ContractPrepareVersion::V2;
 
-    let method_name = find_entry_point(code).unwrap_or_else(|| "main".to_string());
-    let res = vm_kind.runtime(wasm_config.into()).unwrap().run(
-        &method_name,
-        &mut fake_external,
-        &context,
-        fees,
-        [].into(),
-        None,
-    );
+    let res = vm_kind
+        .runtime(wasm_config.into())
+        .unwrap()
+        .prepare(&fake_external, &context, None)
+        .run(&mut fake_external, &context, fees);
 
     // Remove the VMError message details as they can differ between runtimes
     // TODO: maybe there's actually things we could check for equality here too?
