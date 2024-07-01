@@ -217,10 +217,17 @@ def mirror_cleanup(process):
 # helper class so we can pass restart_once() as a callback to send_traffic()
 class MirrorProcess:
 
-    def __init__(self, near_root, source_home, online_source):
+    def __init__(self,
+                 near_root,
+                 source_home,
+                 online_source,
+                 tps=None,
+                 batch_interval_millis=None):
         self.online_source = online_source
         self.source_home = source_home
         self.neard = os.path.join(near_root, 'neard')
+        self.batch_interval_millis = batch_interval_millis
+        self.tps = tps
         self.start()
         self.start_time = time.time()
         self.restarted = False
@@ -233,10 +240,18 @@ class MirrorProcess:
         with open(dot_near() / f'{MIRROR_DIR}/stdout', 'ab') as stdout, \
             open(dot_near() / f'{MIRROR_DIR}/stderr', 'ab') as stderr, \
             open(config_path, 'w') as mirror_config:
-            json.dump({'tx_batch_interval': {
-                'secs': 0,
-                'nanos': 600000000
-            }}, mirror_config)
+            if self.tps is not None:
+                json.dump({'tps': self.tps}, mirror_config)
+            elif self.batch_interval_millis is not None:
+                secs = self.batch_interval_millis // 1000
+                nanos = (self.batch_interval_millis % 1000) * 1000000
+                json.dump(
+                    {'tx_batch_interval': {
+                        'secs': secs,
+                        'nanos': nanos,
+                    }}, mirror_config)
+            else:
+                json.dump({}, mirror_config)
             args = [
                 self.neard,
                 'mirror',
