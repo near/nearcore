@@ -136,11 +136,9 @@ pub enum DBCol {
     /// - *Rows*: EpochId (CryptoHash)
     /// - *Content type*: LightClientBlockView
     EpochLightClientBlocks,
-    /// Mapping from Receipt id to destination Shard Id, i.e, the shard that this receipt is sent to.
-    /// - *Rows*: ReceiptId (CryptoHash)
-    /// - *Content type*: Shard Id || ref_count (u64 || u64)
-    /// DEPRECATED: DO NOT use this column. This column is not written or read in production.
-    ReceiptIdToShardId,
+    // Deprecated.
+    #[strum(serialize = "ReceiptIdToShardId")]
+    _ReceiptIdToShardId,
     // Deprecated.
     #[strum(serialize = "NextBlockWithNewChunk")]
     _NextBlockWithNewChunk,
@@ -405,9 +403,7 @@ impl DBCol {
     /// ```
     pub const fn is_rc(&self) -> bool {
         match self {
-            DBCol::State | DBCol::Transactions | DBCol::Receipts | DBCol::ReceiptIdToShardId => {
-                true
-            }
+            DBCol::State | DBCol::Transactions | DBCol::Receipts => true,
             _ => false,
         }
     }
@@ -440,7 +436,7 @@ impl DBCol {
             | DBCol::OutgoingReceipts
             // TODO can be changed to reconstruction on request instead of saving in cold storage.
             | DBCol::PartialChunks
-            | DBCol::ReceiptIdToShardId
+            | DBCol::_ReceiptIdToShardId
             | DBCol::Receipts
             | DBCol::State
             | DBCol::StateChanges
@@ -544,7 +540,7 @@ impl DBCol {
             DBCol::AccountAnnouncements => &[DBKeyType::AccountId],
             DBCol::NextBlockHashes => &[DBKeyType::PreviousBlockHash],
             DBCol::EpochLightClientBlocks => &[DBKeyType::EpochId],
-            DBCol::ReceiptIdToShardId => &[DBKeyType::ReceiptHash],
+            DBCol::_ReceiptIdToShardId => &[DBKeyType::ReceiptHash],
             DBCol::_NextBlockWithNewChunk => &[DBKeyType::BlockHash, DBKeyType::ShardId],
             DBCol::_LastBlockWithNewChunk => &[DBKeyType::ShardId],
             DBCol::PeerComponent => &[DBKeyType::PeerId],

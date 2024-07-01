@@ -950,8 +950,8 @@ impl<'a> ChainStoreUpdate<'a> {
                 store_update.delete(col, key);
                 self.chain_store().block_refcounts.pop(key);
             }
-            DBCol::ReceiptIdToShardId => {
-                panic!("Garbage collecting deprecated column: ReceiptIdToShardId");
+            DBCol::_ReceiptIdToShardId => {
+                panic!("Garbage collecting deprecated column: _ReceiptIdToShardId");
             }
             DBCol::Transactions => {
                 store_update.decrement_refcount(col, key);
