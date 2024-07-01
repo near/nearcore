@@ -436,7 +436,6 @@ impl DBCol {
             | DBCol::OutgoingReceipts
             // TODO can be changed to reconstruction on request instead of saving in cold storage.
             | DBCol::PartialChunks
-            | DBCol::_ReceiptIdToShardId
             | DBCol::Receipts
             | DBCol::State
             | DBCol::StateChanges
@@ -470,6 +469,8 @@ impl DBCol {
             // LatestChunkStateWitnesses stores the last N observed witnesses, used only for debugging.
             DBCol::LatestChunkStateWitnesses => false,
             DBCol::LatestWitnessesByIndex => false,
+            // Deprecated.
+            DBCol::_ReceiptIdToShardId => false,
 
             // Columns that are not GC-ed need not be copied to the cold storage.
             DBCol::BlockHeader
