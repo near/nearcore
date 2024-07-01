@@ -950,9 +950,6 @@ impl<'a> ChainStoreUpdate<'a> {
                 store_update.delete(col, key);
                 self.chain_store().block_refcounts.pop(key);
             }
-            DBCol::_ReceiptIdToShardId => {
-                panic!("Garbage collecting deprecated column: _ReceiptIdToShardId");
-            }
             DBCol::Transactions => {
                 store_update.decrement_refcount(col, key);
                 self.chain_store().transactions.pop(key);
@@ -1049,6 +1046,7 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::FlatStateDeltaMetadata
             | DBCol::FlatStorageStatus
             | DBCol::Misc
+            | DBCol::_ReceiptIdToShardId
             => unreachable!(),
             #[cfg(feature = "new_epoch_sync")]
             DBCol::EpochSyncInfo => unreachable!(),
