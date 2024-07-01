@@ -1616,8 +1616,10 @@ impl<T: ChainAccess> TxMirror<T> {
         check_send_time: bool,
     ) -> anyhow::Result<()> {
         if tracker.num_blocks_queued() > 100 {
+            tracing::debug!(target: "mirror", "asdfasdf queue_txs full");
             return Ok(());
         }
+        tracing::debug!(target: "mirror", "asdfasdf queue_txs");
 
         let next_batch_time = tracker.next_batch_time();
 
@@ -1625,6 +1627,7 @@ impl<T: ChainAccess> TxMirror<T> {
             let (next_height, create_account_height) =
                 tracker.next_heights(&self.source_chain_access).await?;
 
+            tracing::debug!(target: "mirror", "asdfasdf queue_txs {:?}", next_height);
             let next_height = match next_height {
                 Some(h) => h,
                 None => return Ok(()),
@@ -1763,6 +1766,7 @@ impl<T: ChainAccess> TxMirror<T> {
     ) -> anyhow::Result<(BlockHeight, CryptoHash)> {
         let mut head = None;
 
+        tracing::debug!(target: "mirror", "asdfasdf index_target_chain");
         loop {
             let msg = self.target_stream.recv().await.unwrap();
             let height = msg.block.header.height;
@@ -1772,12 +1776,19 @@ impl<T: ChainAccess> TxMirror<T> {
             match head {
                 Some((head_height, head_hash)) => {
                     if height >= head_height {
+                        tracing::debug!(target: "mirror", "asdfasdf index_target_chain return @ {}", height);
                         return Ok((head_height, head_hash));
+                    } else {
+                        tracing::debug!(target: "mirror", "asdfasdf index_target_chain continue {}", height);
                     }
                 }
                 None => {
                     if !self.target_chain_syncing().await {
-                        head = Some(self.target_chain_head().await?);
+                        let h = self.target_chain_head().await?;
+                        tracing::debug!(target: "mirror", "asdfasdf index_target_chain head {}", h.0);
+                        head = Some(h);
+                    } else {
+                        tracing::debug!(target: "mirror", "asdfasdf index_target_chain syncing, no head");
                     }
                 }
             }
