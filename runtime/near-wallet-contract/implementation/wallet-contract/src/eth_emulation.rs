@@ -63,10 +63,21 @@ pub fn try_emulation(
             let receiver_id: AccountId = format!("0x{}{}", hex::encode(to), suffix)
                 .parse()
                 .unwrap_or_else(|_| env::panic_str("eth-implicit accounts are valid account ids"));
+
+            // Include any data after the main args as a memo in the transfer.
+            // The main data takes 68 bytes because there is a 4-byte selector followed
+            // by two arguments which are each allocated 32 bytes according to the
+            // Solidity ABI standard.
+            let memo = if tx.data.len() > 68 {
+                Some(format!(r#""0x{}""#, hex::encode(&tx.data[68..])))
+            } else {
+                None
+            };
             let args = format!(
-                r#"{{"receiver_id": "{}", "amount": "{}", "memo": null}}"#,
+                r#"{{"receiver_id": "{}", "amount": "{}", "memo": {}}}"#,
                 receiver_id.as_str(),
-                value
+                value,
+                memo.as_deref().unwrap_or("null"),
             );
             Ok((
                 Action::FunctionCall {

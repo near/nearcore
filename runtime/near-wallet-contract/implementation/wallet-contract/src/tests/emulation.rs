@@ -188,11 +188,13 @@ async fn test_erc20_emulation() -> anyhow::Result<()> {
         ))),
         value: Wei::zero(),
         data: [
-            crate::eth_emulation::ERC20_TRANSFER_SELECTOR.to_vec(),
+            crate::eth_emulation::ERC20_TRANSFER_SELECTOR,
             ethabi::encode(&[
                 ethabi::Token::Address(other_address),
                 ethabi::Token::Uint(TRANSFER_AMOUNT.as_yoctonear().into()),
-            ]),
+            ])
+            .as_slice(),
+            b"hello_world", // Include a memo
         ]
         .concat(),
         chain_id: CHAIN_ID,
@@ -201,9 +203,15 @@ async fn test_erc20_emulation() -> anyhow::Result<()> {
     let signed_transaction = crypto::sign_transaction(transaction, &wallet_sk);
 
     let result = wallet_contract
-        .rlp_execute(token_contract.contract.id().as_str(), &signed_transaction)
+        .rlp_execute_with_receipts(token_contract.contract.id().as_str(), &signed_transaction)
         .await?;
 
+    assert_eq!(
+        get_nep_141_memo(result.logs().first().unwrap())?.as_deref(),
+        Some("0x68656c6c6f5f776f726c64")
+    );
+
+    let result: ExecuteResponse = result.json()?;
     assert!(result.success);
     assert_eq!(
         MINT_AMOUNT.as_yoctonear() - TRANSFER_AMOUNT.as_yoctonear(),
@@ -238,9 +246,12 @@ async fn test_erc20_emulation() -> anyhow::Result<()> {
     let signed_transaction = crypto::sign_transaction(transaction, &wallet_sk);
 
     let result = wallet_contract
-        .rlp_execute(token_contract.contract.id().as_str(), &signed_transaction)
+        .rlp_execute_with_receipts(token_contract.contract.id().as_str(), &signed_transaction)
         .await?;
 
+    assert_eq!(get_nep_141_memo(result.logs().first().unwrap())?, None);
+
+    let result: ExecuteResponse = result.json()?;
     assert!(result.success);
     assert_eq!(
         MINT_AMOUNT.as_yoctonear() - (2 * TRANSFER_AMOUNT.as_yoctonear()),
@@ -283,4 +294,30 @@ async fn test_erc20_emulation() -> anyhow::Result<()> {
     assert_eq!(balance.0, MINT_AMOUNT.as_yoctonear());
 
     Ok(())
+}
+
+fn get_nep_141_memo(log: &str) -> anyhow::Result<Option<String>> {
+    let log = log
+        .strip_prefix("EVENT_JSON:")
+        .ok_or_else(|| anyhow::Error::msg("Expected `EVENT_JSON` log"))?;
+    let log: TransferLog = serde_json::from_str(log)?;
+    Ok(log.data[0].memo.clone())
+}
+
+#[allow(dead_code)]
+#[derive(Debug, serde::Deserialize)]
+struct TransferLog {
+    standard: String,
+    version: String,
+    event: String,
+    data: [TransferData; 1],
+}
+
+#[allow(dead_code)]
+#[derive(Debug, serde::Deserialize)]
+struct TransferData {
+    old_owner_id: String,
+    new_owner_id: String,
+    amount: String,
+    memo: Option<String>,
 }
