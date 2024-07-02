@@ -54,7 +54,7 @@ impl TraceService for Collector {
         let (Some(min_time), Some(max_time)) = (min_time, max_time) else {
             return Err(Status::invalid_argument("Invalid trace request with no spans"));
         };
-        println!("Persisting trace of size {} bytes", serialized.len());
+        println!("Persisting trace of size {} bytes between min_time = {} and max_time = {}", serialized.len(), min_time / 1_000_000, max_time / 1_000_000);
 
         // Insert into MongoDB.
         let span_chunk = RawTrace {

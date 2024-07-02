@@ -82,7 +82,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, RwLock};
 use tokio::sync::broadcast;
-use tracing::{debug, debug_span, error, info, trace, warn};
+use tracing::{debug, debug_span, error, info, instrument, trace, warn};
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: i32 = 10;
@@ -1416,7 +1416,8 @@ impl ClientActorInner {
             num_blocks = accepted_blocks.len())
         .entered();
         for accepted_block in accepted_blocks {
-            let block = self.client.chain.get_block(&accepted_block).unwrap().clone();
+            let block: Block = self.client.chain.get_block(&accepted_block).unwrap().clone();
+            debug!(target: "client", height=block.header().height(), "process_accepted_block");
             self.send_chunks_metrics(&block);
             self.send_block_metrics(&block);
             self.check_send_announce_account(*block.header().last_final_block(), signer);

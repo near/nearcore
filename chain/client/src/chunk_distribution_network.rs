@@ -14,7 +14,7 @@ use near_primitives::{
     types::{EpochId, ShardId},
 };
 use std::fmt;
-use tracing::error;
+use tracing::{debug, error};
 
 /// Basic interface for the chunk distribution network.
 pub trait ChunkDistributionClient {
@@ -98,6 +98,7 @@ fn request_missing_chunk<C>(
     C::Error: fmt::Debug,
 {
     let shard_id = header.shard_id();
+    debug!(target: "client", ?shard_id, chunk_hash=?header.chunk_hash(), "request_missing_chunk");
     near_performance_metrics::actix::spawn("ChunkDistributionNetwork", async move {
         match client.lookup_chunk(prev_hash, shard_id).await {
             Ok(Some(chunk)) => {

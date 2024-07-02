@@ -62,7 +62,7 @@ impl Client {
             .contains(my_signer.validator_id())
         {
             // Bypass state witness validation if we created state witness. Endorse the chunk immediately.
-            tracing::debug!(target: "client", chunk_hash=?chunk_header.chunk_hash(), "send_chunk_endorsement_from_chunk_producer");
+            tracing::debug!(target: "client", chunk_hash=?chunk_header.chunk_hash(), ?shard_id, "send_chunk_endorsement_from_chunk_producer");
             send_chunk_endorsement_to_block_producers(
                 &chunk_header,
                 self.epoch_manager.as_ref(),
