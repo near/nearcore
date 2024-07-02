@@ -165,6 +165,7 @@ impl PartialEncodedStateWitnessTracker {
                     )));
                 }
             };
+            eprintln!("received_witness_size: {}", encoded_witness.size_bytes());
 
             let (witness, raw_witness_size) = self.decode_state_witness(&encoded_witness)?;
             if witness.chunk_production_key() != key {
