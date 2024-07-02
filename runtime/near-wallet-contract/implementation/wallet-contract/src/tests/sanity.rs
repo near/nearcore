@@ -3,8 +3,8 @@ use near_sdk::NearToken;
 
 use crate::{
     internal::MAX_YOCTO_NEAR,
-    tests::utils::{self, test_context::TestContext},
-    types::Action,
+    tests::utils::{self, codec, test_context::TestContext},
+    types::{Action, ExecuteResponse},
 };
 
 // The initial nonce value for a Wallet Contract should be 0.
@@ -69,6 +69,55 @@ async fn test_base_token_transfer_success() -> anyhow::Result<()> {
         - final_wallet_balance.as_yoctonear()
         - transfer_amount;
     assert!(diff < NearToken::from_millinear(2).as_yoctonear());
+
+    Ok(())
+}
+
+/// Only one transaction can be in flight at a time.
+#[tokio::test]
+async fn test_simultaneous_transactions() -> anyhow::Result<()> {
+    let TestContext { worker, wallet_contract, wallet_sk, .. } = TestContext::new().await?;
+
+    let receiver_account = worker.root_account().unwrap();
+
+    let initial_receiver_balance = receiver_account.view_account().await.unwrap().balance;
+
+    let receiver_id = receiver_account.id().as_str().into();
+    let action = Action::Transfer { receiver_id, yocto_near: 1 };
+    let signed_transaction =
+        utils::create_signed_transaction(0, receiver_account.id(), Wei::zero(), action, &wallet_sk);
+    let wallet_method_call_1 = near_workspaces::operations::Function::new("rlp_execute")
+        .args_json(serde_json::json!({
+            "target": receiver_account.id(),
+            "tx_bytes_b64": codec::encode_b64(&codec::rlp_encode(&signed_transaction))
+        }))
+        .gas(near_workspaces::types::Gas::from_tgas(100));
+    let wallet_method_call_2 = near_workspaces::operations::Function::new("rlp_execute")
+        .args_json(serde_json::json!({
+            "target": receiver_account.id(),
+            "tx_bytes_b64": codec::encode_b64(&codec::rlp_encode(&signed_transaction))
+        }))
+        .gas(near_workspaces::types::Gas::from_tgas(100));
+
+    let near_transaction = wallet_contract
+        .inner
+        .as_account()
+        .batch(wallet_contract.inner.id())
+        .call(wallet_method_call_1)
+        .call(wallet_method_call_2)
+        .transact()
+        .await?;
+
+    let result: ExecuteResponse = near_transaction.json()?;
+
+    // The second transaction in the batch fails and this is returned as the
+    // result of the Near transaction. But the first transaction in the batch
+    // spawns promises that resolve, so the transfer was will successful.
+    assert!(!result.success);
+    assert!(result.error.unwrap().contains("transaction already in progress"));
+
+    let final_receiver_balance = receiver_account.view_account().await.unwrap().balance;
+    assert_eq!(final_receiver_balance.as_yoctonear() - initial_receiver_balance.as_yoctonear(), 1,);
 
     Ok(())
 }

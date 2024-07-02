@@ -39,6 +39,13 @@ const NEP_141_STORAGE_BALANCE_OF_GAS: Gas = Gas::from_tgas(5);
 #[borsh(crate = "near_sdk::borsh")]
 pub struct WalletContract {
     pub nonce: u64,
+    /// Tracks whether a transaction is currently being executed
+    /// (i.e. has receipts that have not yet resolved).
+    /// Invariant: `has_in_flight_tx` must be `true` when a mutable method
+    /// of this contract returns a promise and `false` otherwise (except
+    /// for the check if a transaction is already in flight at the beginning
+    /// of `rlp_execute`).
+    pub has_in_flight_tx: bool,
 }
 
 #[near_bindgen]
@@ -78,6 +85,18 @@ impl WalletContract {
         target: AccountId,
         tx_bytes_b64: String,
     ) -> PromiseOrValue<ExecuteResponse> {
+        // To ensure user actions are executed in the desired order,
+        // having multiple transactions in flight at the same time is
+        // not allowed.
+        if self.has_in_flight_tx {
+            return PromiseOrValue::Value(ExecuteResponse {
+                success: false,
+                success_value: None,
+                error: Some(
+                    "Error: transaction already in progress, please try again later.".into(),
+                ),
+            });
+        }
         let current_account_id = env::current_account_id();
         let predecessor_account_id = env::predecessor_account_id();
         let result = inner_rlp_execute(
@@ -89,9 +108,13 @@ impl WalletContract {
         );
 
         match result {
-            Ok(promise) => PromiseOrValue::Promise(promise),
+            Ok(promise) => {
+                self.has_in_flight_tx = true;
+                PromiseOrValue::Promise(promise)
+            }
             Err(Error::Relayer(_)) if env::signer_account_id() == current_account_id => {
                 let promise = create_ban_relayer_promise(current_account_id);
+                self.has_in_flight_tx = true;
                 PromiseOrValue::Promise(promise)
             }
             Err(e) => PromiseOrValue::Value(e.into()),
@@ -107,6 +130,7 @@ impl WalletContract {
         target: AccountId,
         action: near_action::Action,
     ) -> PromiseOrValue<ExecuteResponse> {
+        self.has_in_flight_tx = false;
         let maybe_account_id: Option<AccountId> = match env::promise_result(0) {
             PromiseResult::Failed => {
                 return PromiseOrValue::Value(ExecuteResponse {
@@ -115,8 +139,16 @@ impl WalletContract {
                     error: Some("Call to Address Registrar contract failed".into()),
                 });
             }
-            PromiseResult::Successful(value) => serde_json::from_slice(&value)
-                .unwrap_or_else(|_| env::panic_str("Unexpected response from account registrar")),
+            PromiseResult::Successful(value) => match serde_json::from_slice(&value) {
+                Ok(x) => x,
+                Err(_) => {
+                    return PromiseOrValue::Value(ExecuteResponse {
+                        success: false,
+                        success_value: None,
+                        error: Some("Unexpected response from account registrar".into()),
+                    });
+                }
+            },
         };
         let current_account_id = env::current_account_id();
         let promise = if maybe_account_id.is_some() {
@@ -138,6 +170,7 @@ impl WalletContract {
                 }
             }
         };
+        self.has_in_flight_tx = true;
         PromiseOrValue::Promise(promise)
     }
 
@@ -148,6 +181,7 @@ impl WalletContract {
         receiver_id: AccountId,
         action: near_action::Action,
     ) -> PromiseOrValue<ExecuteResponse> {
+        self.has_in_flight_tx = false;
         let maybe_storage_balance: Option<StorageBalance> = match env::promise_result(0) {
             PromiseResult::Failed => {
                 return PromiseOrValue::Value(ExecuteResponse {
@@ -156,11 +190,16 @@ impl WalletContract {
                     error: Some(format!("Call to NEP-141 {token_id}::storage_balance_of failed")),
                 });
             }
-            PromiseResult::Successful(value) => {
-                serde_json::from_slice(&value).unwrap_or_else(|_| {
-                    env::panic_str("Unexpected response from NEP-141 storage_balance_of")
-                })
-            }
+            PromiseResult::Successful(value) => match serde_json::from_slice(&value) {
+                Ok(x) => x,
+                Err(_) => {
+                    return PromiseOrValue::Value(ExecuteResponse {
+                        success: false,
+                        success_value: None,
+                        error: Some("Unexpected response from NEP-141 storage_balance_of".into()),
+                    });
+                }
+            },
         };
         let current_account_id = env::current_account_id();
         let ext = WalletContract::ext(current_account_id).with_unused_gas_weight(1);
@@ -186,7 +225,13 @@ impl WalletContract {
                 let transfer_function_call = match action {
                     near_action::Action::FunctionCall(x) => x,
                     _ => {
-                        env::panic_str("Expected function call action to perform NEP-141 transfer")
+                        return PromiseOrValue::Value(ExecuteResponse {
+                            success: false,
+                            success_value: None,
+                            error: Some(
+                                "Expected function call action to perform NEP-141 transfer".into(),
+                            ),
+                        });
                     }
                 };
                 Promise::new(token_id)
@@ -205,11 +250,13 @@ impl WalletContract {
                     .then(ext.rlp_execute_callback())
             }
         };
+        self.has_in_flight_tx = true;
         PromiseOrValue::Promise(promise)
     }
 
     #[private]
     pub fn rlp_execute_callback(&mut self) -> ExecuteResponse {
+        self.has_in_flight_tx = false;
         let n = env::promise_results_count();
         let mut success_value = None;
         for i in 0..n {
@@ -229,6 +276,7 @@ impl WalletContract {
 
     #[private]
     pub fn ban_relayer(&mut self) -> ExecuteResponse {
+        self.has_in_flight_tx = false;
         ExecuteResponse {
             success: false,
             success_value: None,
