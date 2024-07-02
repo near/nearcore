@@ -872,25 +872,21 @@ mod tests {
 
             #[test]
             fn $test_bls12381_map_fp_to_g_many_points() {
-                let mut rng = test_rng();
-
-                for i in 0..TESTS_ITERATIONS {
-                    let n = get_n(i, $GOp::MAX_N_MAP);
-
-                    let mut fps: Vec<$Fq> = vec![];
+                bolero::check!().with_generator(bolero::gen::<Vec::<$FP>>().with().len(0usize..=$GOp::MAX_N_MAP))
+                .for_each(|fps: &Vec<$FP>| {
+                    let mut fps_fq: Vec<$Fq> = vec![];
                     let mut res2_mul: Vec<u8> = vec![];
-                    for i in 0..n {
-                        fps.push($GOp::get_random_fp(&mut rng));
-
-                        let mut res2 = $GOp::map_to_curve_g(fps[i].clone());
+                    for i in 0..fps.len() {
+                        fps_fq.push(fps[i].p);
+                        let mut res2 = $GOp::map_to_curve_g(fps[i].p.clone());
                         res2 = res2.clear_cofactor();
 
                         res2_mul.append(&mut $GOp::serialize_uncompressed_g(&res2));
                     }
 
-                    let res1 = $GOp::map_fp_to_g(fps);
+                    let res1 = $GOp::map_fp_to_g(fps_fq);
                     assert_eq!(res1, res2_mul);
-                }
+                });
             }
         };
     }
@@ -902,7 +898,7 @@ mod tests {
         FP,
         check_map_fp,
         test_bls12381_map_fp_to_g1_fuzzer,
-        test_bls12381_map_fp_to_g1_many_points
+        test_bls12381_map_fp_to_g1_many_points_fuzzer
     );
 
     test_bls12381_map_fp_to_g!(
@@ -912,7 +908,7 @@ mod tests {
         FP2,
         check_map_fp2,
         test_bls12381_map_fp2_to_g2_fuzzer,
-        test_bls12381_map_fp2_to_g2_many_points
+        test_bls12381_map_fp2_to_g2_many_points_fuzzer
     );
 
     #[test]
