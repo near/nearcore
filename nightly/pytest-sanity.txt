@@ -192,3 +192,7 @@ pytest sanity/congestion_control.py --features nightly
 # Tests the correct operation of the view client without using memtries (#11312).
 pytest sanity/rpc_view_history.py
 pytest sanity/rpc_view_history.py --features nightly
+
+# Tests switching between memtries and disktries.
+pytest sanity/memtrie_disktrie_switch.py
+pytest sanity/memtrie_disktrie_switch.py --features nightly
