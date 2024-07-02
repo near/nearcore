@@ -13,7 +13,10 @@ use base64::Engine;
 use ethabi::{ethereum_types::U256, Address};
 use near_sdk::{env, AccountId, NearToken};
 
-// TODO(eth-implicit): Decide on chain id.
+/// The chain ID is pulled from a file to allow this contract to be easily
+/// compiled with the appropriate value for the network it will be deployed on.
+/// The chain ID for Near mainnet is [397](https://chainlist.org/chain/398)
+/// while the value for testnet is [398](https://chainlist.org/chain/398).
 pub const CHAIN_ID: u64 = std::include!("CHAIN_ID");
 const U64_MAX: U256 = U256([u64::MAX, 0, 0, 0]);
 /// Only up to this amount of yoctoNear can be directly mentioned in an action,
