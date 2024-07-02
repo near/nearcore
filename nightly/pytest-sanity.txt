@@ -195,5 +195,4 @@ pytest sanity/rpc_view_history.py --features nightly
 
 # Tests switching between memtries and disktries.
 pytest sanity/memtrie_disktrie_switch.py
-# TODO(#11675): Enable this with single-shard tracking and stateless validation.
-# pytest sanity/memtrie_disktrie_switch.py --features nightly
+pytest sanity/memtrie_disktrie_switch.py --features nightly
