@@ -112,8 +112,7 @@ impl ChunkEndorsementTracker {
         chunk_header: &ShardChunkHeader,
         endorsement: ChunkEndorsement,
     ) -> Result<(), Error> {
-        let _span = tracing::debug_span!(target: "client", "process_chunk_endorsement", chunk_hash=?chunk_header.chunk_hash()).entered();
-
+        let _span = tracing::debug_span!(target: "client", "process_chunk_endorsement", chunk_hash=?chunk_header.chunk_hash(), shard_id=chunk_header.shard_id()).entered();
         // Validate the endorsement before locking the mutex to improve performance.
         if !self.epoch_manager.verify_chunk_endorsement(&chunk_header, &endorsement)? {
             tracing::error!(target: "client", ?endorsement, "Invalid chunk endorsement.");

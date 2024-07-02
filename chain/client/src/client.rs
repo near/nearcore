@@ -954,7 +954,7 @@ impl Client {
             %prev_block_hash,
             num_filtered_transactions,
             num_outgoing_receipts = outgoing_receipts.len(),
-            "Produced chunk");
+            "produced_chunk");
 
         metrics::CHUNK_PRODUCED_TOTAL.inc();
         self.chunk_production_info.put(
@@ -1562,7 +1562,7 @@ impl Client {
         Duration::nanoseconds(ns)
     }
 
-    pub fn send_approval(
+    pub fn send_block_approval(
         &mut self,
         parent_hash: &CryptoHash,
         approval: Approval,
@@ -1580,7 +1580,8 @@ impl Client {
                 account_id = ?approval.account_id,
                 next_bp = ?next_block_producer,
                 target_height = approval.target_height,
-                "Sending an approval");
+                approval_type="PeerApproval",
+                "send_block_approval");
             let approval_message = ApprovalMessage::new(approval, next_block_producer);
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::Approval { approval_message },
@@ -2070,7 +2071,12 @@ impl Client {
         signer: &Option<Arc<ValidatorSigner>>,
     ) {
         let Approval { inner, account_id, target_height, signature } = approval;
-
+        debug!(target: "client",
+            approval_inner=?inner,
+            account_id=?account_id,
+            target_height=target_height,
+            approval_type=?approval_type,
+            "collect_block_approval");
         let parent_hash = match inner {
             ApprovalInner::Endorsement(parent_hash) => *parent_hash,
             ApprovalInner::Skip(parent_height) => {

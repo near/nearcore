@@ -1482,7 +1482,7 @@ impl Chain {
         let mut accepted_blocks = vec![];
         let mut errors = HashMap::new();
         while let Ok((block_hash, apply_result)) = self.apply_chunks_receiver.try_recv() {
-            match self.postprocess_block(
+            match self.postprocess_ready_block(
                 me,
                 block_hash,
                 apply_result,
@@ -1865,7 +1865,7 @@ impl Chain {
     /// Run postprocessing on this block, which stores the block on chain.
     /// Check that if accepting the block unlocks any orphans in the orphan pool and start
     /// the processing of those blocks.
-    fn postprocess_block(
+    fn postprocess_ready_block(
         &mut self,
         me: &Option<AccountId>,
         block_hash: CryptoHash,
@@ -1885,7 +1885,7 @@ impl Chain {
         // function.
         let _span = tracing::debug_span!(
             target: "chain",
-            "postprocess_block",
+            "postprocess_ready_block",
             height = block.header().height())
         .entered();
 
