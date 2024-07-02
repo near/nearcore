@@ -135,6 +135,26 @@ pub(crate) static VALIDATORS_CHUNKS_EXPECTED_BY_SHARD: Lazy<IntGaugeVec> = Lazy:
     .unwrap()
 });
 
+pub(crate) static VALIDATORS_CHUNK_ENDORSEMENTS_PRODUCED_BY_SHARD: Lazy<IntGaugeVec> =
+    Lazy::new(|| {
+        try_create_int_gauge_vec(
+            "near_validators_chunk_endorsements_produced_by_shard",
+            "Number of chunk endorsements produced by a chunk validator",
+            &["account_id", "shard_id"],
+        )
+        .unwrap()
+    });
+
+pub(crate) static VALIDATORS_CHUNK_ENDORSEMENTS_EXPECTED_BY_SHARD: Lazy<IntGaugeVec> =
+    Lazy::new(|| {
+        try_create_int_gauge_vec(
+            "near_validators_chunk_endorsements_expected_by_shard",
+            "Number of chunk endorsements expected to be produced by a chunk validator",
+            &["account_id", "shard_id"],
+        )
+        .unwrap()
+    });
+
 pub(crate) static VALIDATORS_CHUNKS_EXPECTED_IN_EPOCH: Lazy<IntGaugeVec> = Lazy::new(|| {
     try_create_int_gauge_vec(
         "near_validators_chunks_expected_in_epoch",
