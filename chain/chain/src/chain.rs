@@ -3148,6 +3148,13 @@ impl Chain {
         };
         let congestion_info = block.block_congestion_info();
 
+        {
+            let prev_block_hash = prev_block_header.hash();
+            let block_hash = block.hash();
+            let gas = congestion_info.get(&0).unwrap().congestion_info.delayed_receipts_gas();
+            tracing::info!(target: "boom", ?prev_block_hash, ?block_hash, ?gas, "get_apply_chunk_block_context");
+        }
+
         Ok(ApplyChunkBlockContext::from_header(block_header, gas_price, congestion_info))
     }
 
@@ -3571,6 +3578,13 @@ impl Chain {
         invalid_chunks: &mut Vec<ShardChunkHeader>,
     ) -> Result<Vec<UpdateShardJob>, Error> {
         let _span = tracing::debug_span!(target: "chain", "apply_chunks_preprocessing").entered();
+
+        {
+            let block_hash = block.header().hash();
+            let prev_block_hash = prev_block.header().hash();
+            tracing::info!(target: "boom", ?prev_block_hash, ?block_hash, "apply_chunks_preprocessing");
+        }
+
         let prev_chunk_headers =
             Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), prev_block)?;
 
@@ -3581,6 +3595,12 @@ impl Chain {
             // XXX: This is a bit questionable -- sandbox state patching works
             // only for a single shard. This so far has been enough.
             let state_patch = state_patch.take();
+
+            if shard_id == 0 {
+                let prev_block_hash = prev_block.header().hash();
+                let block_hash = block.header().hash();
+                tracing::info!(target:"boom", ?prev_block_hash, ?block_hash, "boom boom");
+            }
 
             let storage_context =
                 StorageContext { storage_data_source: StorageDataSource::Db, state_patch };
@@ -3666,6 +3686,14 @@ impl Chain {
         let _span = tracing::debug_span!(target: "chain", "get_update_shard_job").entered();
         let prev_hash = block.header().prev_hash();
         let shard_context = self.get_shard_context(me, block.header(), shard_id, mode)?;
+
+        if shard_id == 0 {
+            let prev_block_hash = prev_block.header().hash();
+            let block_hash = block.header().hash();
+            let prev_chunk_hash = prev_chunk_header.chunk_hash();
+            let chunk_hash = chunk_header.chunk_hash();
+            tracing::info!(target: "boom", ?prev_block_hash, ?block_hash, ?prev_chunk_hash, ?chunk_hash, "get_update_shard_job");
+        }
 
         // We can only perform resharding when states are ready, i.e., mode != ApplyChunksMode::NotCaughtUp
         // 1) if should_apply_chunk == true && resharding_state_roots.is_some(),

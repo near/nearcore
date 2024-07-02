@@ -1430,8 +1430,9 @@ impl Runtime {
         {
             let shard_id = apply_state.shard_id;
             let prev_block_hash = apply_state.prev_block_hash;
+            let block_hash = apply_state.block_hash;
             let gas = own_congestion_info.unwrap().delayed_receipts_gas();
-            tracing::info!(target:"runtime", ?prev_block_hash, ?shard_id, ?gas, "boom apply start");
+            tracing::info!(target:"runtime", ?prev_block_hash, ?block_hash, ?shard_id, ?gas, "boom apply start");
         }
 
         let mut receipt_sink = ReceiptSink::new(

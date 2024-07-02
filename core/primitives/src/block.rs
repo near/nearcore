@@ -636,6 +636,12 @@ impl Block {
             let shard_id = chunk.shard_id();
 
             if let Some(congestion_info) = chunk.congestion_info() {
+                if shard_id == 0 {
+                    let gas = congestion_info.delayed_receipts_gas();
+                    let block_hash = self.hash();
+                    tracing::info!(target:"test", ?block_hash, ?gas, "boom block congestion info");
+                }
+
                 let height_included = chunk.height_included();
                 let height_current = self.header().height();
                 let missed_chunks_count = height_current.checked_sub(height_included);
