@@ -616,20 +616,17 @@ mod tests {
 
             #[test]
             fn $test_bls12381_crosscheck_sum_and_multiexp() {
-                let mut rng = test_rng();
-
-                for i in 0..TESTS_ITERATIONS {
-                    let n = get_n(i, $GOp::MAX_N_MULTIEXP);
-
+                bolero::check!().with_generator(bolero::gen::<Vec::<(bool, $GPoint)>>().with().len(0usize..=$GOp::MAX_N_MULTIEXP))
+                .for_each(|ps: &Vec<(bool, $GPoint)>| {
                     let mut points: Vec<(u8, $GAffine)> = vec![];
-                    for _ in 0..n {
-                        points.push((rng.gen_range(0..=1), $GOp::get_random_g_point(&mut rng)));
+                    for i in 0..ps.len() {
+                        points.push((ps[i].0 as u8, ps[i].1.p));
                     }
 
                     let res1 = $GOp::get_sum_many_points(&points);
                     let res2 = $GOp::get_multiexp_many_points(&points);
                     assert_eq!(res1, res2);
-                }
+                });
             }
 
             #[test]
@@ -661,7 +658,7 @@ mod tests {
         test_bls12381_p1_sum_not_g1_points,
         test_bls12381_p1_sum_inverse_fuzzer,
         test_bls12381_p1_sum_many_points,
-        test_bls12381_p1_crosscheck_sum_and_multiexp,
+        test_bls12381_p1_crosscheck_sum_and_multiexp_fuzzer,
         test_bls12381_p1_sum_incorrect_input
     );
     test_bls12381_sum!(
@@ -676,7 +673,7 @@ mod tests {
         test_bls12381_p2_sum_not_g2_points,
         test_bls12381_p2_sum_inverse_fuzzer,
         test_bls12381_p2_sum_many_points,
-        test_bls12381_p2_crosscheck_sum_and_multiexp,
+        test_bls12381_p2_crosscheck_sum_and_multiexp_fuzzer,
         test_bls12381_p2_sum_incorrect_input
     );
 
