@@ -7,7 +7,7 @@ use near_primitives::types::AccountId;
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestLoopEnv;
-use crate::test_loop::utils::transfer::execute_money_transfers;
+use crate::test_loop::utils::transactions::execute_money_transfers;
 use crate::test_loop::utils::ONE_NEAR;
 
 const NUM_CLIENTS: usize = 4;

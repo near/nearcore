@@ -14,7 +14,7 @@ use near_primitives::types::{AccountId, BlockHeight};
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::{TestData, TestLoopEnv};
-use crate::test_loop::utils::transfer::{call_contract, deploy_contracts};
+use crate::test_loop::utils::transactions::{call_contract, deploy_contracts};
 use crate::test_loop::utils::ONE_NEAR;
 
 const NUM_PRODUCERS: usize = 2;

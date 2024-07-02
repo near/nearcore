@@ -12,9 +12,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use std::collections::HashMap;
 
-use super::ONE_NEAR;
-
-const TGAS: u64 = 1_000_000_000_000;
+use super::{ONE_NEAR, TGAS};
 
 /// Execute money transfers within given `TestLoop` between given accounts.
 /// Runs chain long enough for the transfers to be optimistically executed.
