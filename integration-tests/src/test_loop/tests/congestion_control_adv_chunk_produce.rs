@@ -14,7 +14,8 @@ use near_primitives::types::{AccountId, BlockHeight};
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::{TestData, TestLoopEnv};
-use crate::test_loop::utils::{call_contract, deploy_contracts, ONE_NEAR};
+use crate::test_loop::utils::transactions::{call_contract, deploy_contracts};
+use crate::test_loop::utils::ONE_NEAR;
 
 const NUM_PRODUCERS: usize = 2;
 const NUM_VALIDATORS: usize = 2;
@@ -63,7 +64,7 @@ fn test_congestion_control_adv_chunk_produce() {
     let genesis = genesis_builder.build();
 
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } =
-        builder.genesis(genesis).clients(clients).disable_gc().build();
+        builder.genesis(genesis).clients(clients).build();
 
     let first_epoch_tracked_shards = get_tracked_shards(&test_loop, &node_datas);
     tracing::info!("First epoch tracked shards: {:?}", first_epoch_tracked_shards);
