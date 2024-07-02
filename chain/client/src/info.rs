@@ -450,8 +450,7 @@ impl InfoHelper {
             paint(yansi::Color::Blue, machine_info_log),
         );
         if !catchup_status_log.is_empty() {
-            let catchup_status_log = catchup_status_log.replace("\n", " ");
-            info!(target: "stats", "Catchups {}", catchup_status_log);
+            info!(target: "stats", "Catchups\n{}", catchup_status_log);
         }
         if let Some(config_updater) = &config_updater {
             config_updater.report_status();
