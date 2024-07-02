@@ -9,7 +9,7 @@ mod tests {
         CanonicalDeserialize, CanonicalSerialize, CanonicalSerializeWithFlags, EmptyFlags,
     };
     use ark_std::{test_rng, One, UniformRand, Zero};
-    use bolero::TypeGenerator;
+    use bolero::{TypeGenerator, generator};
     use rand::{distributions::Distribution, seq::SliceRandom, thread_rng, Rng, RngCore};
     use std::{fs, ops::Add, ops::Mul, ops::Neg, str::FromStr};
 
@@ -714,6 +714,7 @@ mod tests {
     macro_rules! test_bls12381_multiexp {
         (
             $GOp:ident,
+            $GPoint:ident,
             $GAffine:ident,
             $bls12381_multiexp:ident,
             $bls12381_sum:ident,
@@ -725,20 +726,20 @@ mod tests {
         ) => {
             #[test]
             fn $test_bls12381_multiexp_mul() {
+                bolero::check!().with_generator((generator::gen::<$GPoint>(),
+                generator::gen::<usize>().with().bounds(0..=200))).for_each(
+                    |(p, n): &($GPoint, usize)| {
+                        let points: Vec<(u8, $GAffine)> = vec![(0, p.p.clone()); *n];
+                        let res1 = $GOp::get_sum_many_points(&points);
+                        let res2 = $GOp::get_multiexp_small(&vec![(*n as u8, p.p.clone())]);
+
+                        assert_eq!(res1, res2);
+                        let res3 = p.p.mul(Fr::from(*n as u64));
+                        assert_eq!(res1, $GOp::serialize_uncompressed_g(&res3.into()));
+                    }
+                );
+
                 let mut rng = test_rng();
-
-                for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::get_random_g_point(&mut rng);
-                    let n = rng.gen_range(0..200) as usize;
-
-                    let points: Vec<(u8, $GAffine)> = vec![(0, p.clone()); n];
-                    let res1 = $GOp::get_sum_many_points(&points);
-                    let res2 = $GOp::get_multiexp_small(&vec![(n as u8, p.clone())]);
-
-                    assert_eq!(res1, res2);
-                    let res3 = p.mul(Fr::from(n as u64));
-                    assert_eq!(res1, $GOp::serialize_uncompressed_g(&res3.into()));
-                }
 
                 for _ in 0..TESTS_ITERATIONS {
                     let p = $GOp::get_random_g_point(&mut rng);
@@ -840,10 +841,11 @@ mod tests {
 
     test_bls12381_multiexp!(
         G1Operations,
+        G1Point,
         G1Affine,
         bls12381_g1_multiexp,
         bls12381_p1_sum,
-        test_bls12381_g1_multiexp_mul,
+        test_bls12381_g1_multiexp_mul_fuzzer,
         test_bls12381_g1_multiexp_many_points,
         test_bls12381_g1_multiexp_incorrect_input,
         test_bls12381_g1_multiexp_invariants_checks,
@@ -851,10 +853,11 @@ mod tests {
     );
     test_bls12381_multiexp!(
         G2Operations,
+        G2Point,
         G2Affine,
         bls12381_g2_multiexp,
         bls12381_p2_sum,
-        test_bls12381_g2_multiexp_mul,
+        test_bls12381_g2_multiexp_mul_fuzzer,
         test_bls12381_g2_multiexp_many_points,
         test_bls12381_g2_multiexp_incorrect_input,
         test_bls12381_g2_multiexp_invariants_checks,
@@ -973,6 +976,7 @@ mod tests {
         (
             $GOp:ident,
             $GPoint:ident,
+            $EPoint:ident,
             $GAffine:ident,
             $POINT_LEN:expr,
             $bls12381_decompress:ident,
@@ -1060,25 +1064,27 @@ mod tests {
     test_bls12381_decompress!(
         G1Operations,
         G1Point,
+        E1Point,
         G1Affine,
         48,
         bls12381_p1_decompress,
         add_p_x,
         test_bls12381_p1_decompress_fuzzer,
         test_bls12381_p1_decompress_many_points,
-        test_bls12381_p1_decompress_incorrect_input
+        test_bls12381_p1_decompress_incorrect_input_fuzzer
     );
 
     test_bls12381_decompress!(
         G2Operations,
         G2Point,
+        E2Point,
         G2Affine,
         96,
         bls12381_p2_decompress,
         add2_p_x,
         test_bls12381_p2_decompress_fuzzer,
         test_bls12381_p2_decompress_many_points,
-        test_bls12381_p2_decompress_incorrect_input
+        test_bls12381_p2_decompress_incorrect_input_fuzzer
     );
 
     fn add_p_x(point: &G1Affine) -> Vec<u8> {
@@ -1101,24 +1107,20 @@ mod tests {
     }
 
     #[test]
-    fn test_bls12381_pairing_check_one_point() {
-        let mut rng = test_rng();
+    fn test_bls12381_pairing_check_one_point_fuzzer() {
+        bolero::check!().with_type().for_each(
+            |(p1, p2): &(G1Point, G2Point)| {
+                let zero1 = G1Affine::zero();
+                let zero2 = G2Affine::zero();
 
-        for _ in 0..TESTS_ITERATIONS {
-            let p1 = G1Operations::get_random_g_point(&mut rng);
-            let p2 = G2Operations::get_random_g_point(&mut rng);
+                let v = Bls12_381::pairing(p1.p, zero2);
+                assert!(v.is_zero());
 
-            let zero1 = G1Affine::zero();
-            let zero2 = G2Affine::zero();
-
-            let v = Bls12_381::pairing(p1, zero2);
-            assert!(v.is_zero());
-
-            assert_eq!(pairing_check(vec![zero1.clone()], vec![zero2.clone()]), 0);
-            assert_eq!(pairing_check(vec![zero1.clone()], vec![p2.clone()]), 0);
-            assert_eq!(pairing_check(vec![p1.clone()], vec![zero2.clone()]), 0);
-            assert_eq!(pairing_check(vec![p1.clone()], vec![p2.clone()]), 2);
-        }
+                assert_eq!(pairing_check(vec![zero1.clone()], vec![zero2.clone()]), 0);
+                assert_eq!(pairing_check(vec![zero1.clone()], vec![p2.p.clone()]), 0);
+                assert_eq!(pairing_check(vec![p1.p.clone()], vec![zero2.clone()]), 0);
+                assert_eq!(pairing_check(vec![p1.p.clone()], vec![p2.p.clone()]), 2);
+        });
     }
 
     #[test]
