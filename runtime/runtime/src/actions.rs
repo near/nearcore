@@ -76,7 +76,9 @@ pub(crate) fn execute_function_call(
         signer_account_pk: borsh::to_vec(&action_receipt.signer_public_key)
             .expect("Failed to serialize"),
         predecessor_account_id: predecessor_id.clone(),
+        method: function_call.method_name.clone(),
         input: function_call.args.clone(),
+        promise_results,
         block_height: apply_state.block_height,
         block_timestamp: apply_state.block_timestamp,
         epoch_height: apply_state.epoch_height,
@@ -102,12 +104,10 @@ pub(crate) fn execute_function_call(
     };
     let mode_guard = runtime_ext.trie_update.with_trie_cache_mode(mode);
     let result = near_vm_runner::run(
-        &function_call.method_name,
         runtime_ext,
         &context,
         Arc::clone(&config.wasm_config),
         Arc::clone(&config.fees),
-        promise_results,
         apply_state.cache.as_deref(),
     );
     drop(mode_guard);

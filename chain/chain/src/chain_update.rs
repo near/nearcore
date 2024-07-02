@@ -11,7 +11,6 @@ use crate::update_shard::{NewChunkResult, OldChunkResult, ReshardingResult, Shar
 use crate::{metrics, DoomslugThresholdMode};
 use crate::{Chain, Doomslug};
 use near_chain_primitives::error::Error;
-use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::apply::ApplyChunkReason;
@@ -20,13 +19,11 @@ use near_primitives::block_header::BlockHeader;
 #[cfg(feature = "new_epoch_sync")]
 use near_primitives::epoch_manager::{block_info::BlockInfo, epoch_sync::EpochSyncInfo};
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{account_id_to_shard_id, account_id_to_shard_uid, ShardUId};
+use near_primitives::shard_layout::{account_id_to_shard_uid, ShardUId};
 use near_primitives::sharding::ShardChunk;
 use near_primitives::state_sync::{ReceiptProofResponse, ShardStateSyncResponseHeader};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{
-    AccountId, BlockExtra, BlockHeight, BlockHeightDelta, NumShards, ShardId,
-};
+use near_primitives::types::{BlockExtra, BlockHeight, BlockHeightDelta, NumShards, ShardId};
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::LightClientBlockView;
 use std::collections::HashMap;
@@ -41,7 +38,6 @@ use tracing::{debug, info, warn};
 /// Safe to stop process mid way (Ctrl+C or crash).
 pub struct ChainUpdate<'a> {
     epoch_manager: Arc<dyn EpochManagerAdapter>,
-    shard_tracker: ShardTracker,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     chain_store_update: ChainStoreUpdate<'a>,
     doomslug_threshold_mode: DoomslugThresholdMode,
@@ -53,7 +49,6 @@ impl<'a> ChainUpdate<'a> {
     pub fn new(
         chain_store: &'a mut ChainStore,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
-        shard_tracker: ShardTracker,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         doomslug_threshold_mode: DoomslugThresholdMode,
         transaction_validity_period: BlockHeightDelta,
@@ -61,7 +56,6 @@ impl<'a> ChainUpdate<'a> {
         let chain_store_update: ChainStoreUpdate<'_> = chain_store.store_update();
         Self::new_impl(
             epoch_manager,
-            shard_tracker,
             runtime_adapter,
             doomslug_threshold_mode,
             transaction_validity_period,
@@ -71,7 +65,6 @@ impl<'a> ChainUpdate<'a> {
 
     fn new_impl(
         epoch_manager: Arc<dyn EpochManagerAdapter>,
-        shard_tracker: ShardTracker,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         doomslug_threshold_mode: DoomslugThresholdMode,
         transaction_validity_period: BlockHeightDelta,
@@ -79,7 +72,6 @@ impl<'a> ChainUpdate<'a> {
     ) -> Self {
         ChainUpdate {
             epoch_manager,
-            shard_tracker,
             runtime_adapter,
             chain_store_update,
             doomslug_threshold_mode,
@@ -90,60 +82,6 @@ impl<'a> ChainUpdate<'a> {
     /// Commit changes to the chain into the database.
     pub fn commit(self) -> Result<(), Error> {
         self.chain_store_update.commit()
-    }
-
-    /// For all the outgoing receipts generated in block `hash` at the shards we
-    /// are tracking in this epoch, save a mapping from receipt ids to the
-    /// destination shard ids that the receipt will be sent to in the next
-    /// block.
-    ///
-    /// Note that this function should be called after `save_block` is called on
-    /// this block because it requires that the block info is available in
-    /// EpochManager, otherwise it will return an error.
-    fn save_receipt_id_to_shard_id_for_block(
-        &mut self,
-        account_id: Option<&AccountId>,
-        hash: &CryptoHash,
-        prev_hash: &CryptoHash,
-        shard_ids: &[ShardId],
-    ) -> Result<(), Error> {
-        let mut list = vec![];
-        for &shard_id in shard_ids {
-            if self.shard_tracker.care_about_shard(account_id, prev_hash, shard_id, true) {
-                list.push(self.get_receipt_id_to_shard_id(hash, shard_id)?);
-            }
-        }
-        for map in list {
-            for (receipt_id, shard_id) in map {
-                self.chain_store_update.save_receipt_id_to_shard_id(receipt_id, shard_id);
-            }
-        }
-        Ok(())
-    }
-
-    /// Returns a mapping from the receipt id to the destination shard id.
-    fn get_receipt_id_to_shard_id(
-        &mut self,
-        hash: &CryptoHash,
-        shard_id: u64,
-    ) -> Result<HashMap<CryptoHash, u64>, Error> {
-        let outgoing_receipts = self.chain_store_update.get_outgoing_receipts(hash, shard_id);
-        let outgoing_receipts = if let Ok(outgoing_receipts) = outgoing_receipts {
-            outgoing_receipts
-        } else {
-            return Ok(HashMap::new());
-        };
-        let shard_layout = self.epoch_manager.get_shard_layout_from_prev_block(hash)?;
-        let outgoing_receipts = outgoing_receipts
-            .iter()
-            .map(|receipt| {
-                (
-                    *receipt.receipt_id(),
-                    account_id_to_shard_id(receipt.receiver_id(), &shard_layout),
-                )
-            })
-            .collect();
-        Ok(outgoing_receipts)
     }
 
     pub(crate) fn apply_chunk_postprocessing(
@@ -456,13 +394,11 @@ impl<'a> ChainUpdate<'a> {
     )]
     pub(crate) fn postprocess_block(
         &mut self,
-        me: &Option<AccountId>,
         block: &Block,
         block_preprocess_info: BlockPreprocessInfo,
         apply_chunks_results: Vec<(ShardId, Result<ShardUpdateResult, Error>)>,
         should_save_state_transition_data: bool,
     ) -> Result<Option<Tip>, Error> {
-        let shard_ids = self.epoch_manager.shard_ids(block.header().epoch_id())?;
         let prev_hash = block.header().prev_hash();
         let results = apply_chunks_results.into_iter().map(|(shard_id, x)| {
             if let Err(err) = &x {
@@ -527,14 +463,6 @@ impl<'a> ChainUpdate<'a> {
         // Add validated block to the db, even if it's not the canonical fork.
         self.chain_store_update.save_block(block.clone());
         self.chain_store_update.inc_block_refcount(prev_hash)?;
-
-        // Save receipt_id_to_shard_id for all outgoing receipts generated in this block
-        self.save_receipt_id_to_shard_id_for_block(
-            me.as_ref(),
-            block.hash(),
-            prev_hash,
-            &shard_ids,
-        )?;
 
         // Update the chain head if it's the new tip
         let res = self.update_head(block.header())?;
