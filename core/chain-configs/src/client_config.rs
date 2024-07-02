@@ -410,6 +410,8 @@ pub struct ClientConfig {
     pub gc: GCConfig,
     /// Accounts that this client tracks.
     pub tracked_accounts: Vec<AccountId>,
+    /// Track shards that should be tracked by given validator.
+    pub tracked_shadow_validator: Option<AccountId>,
     /// Shards that this client tracks.
     pub tracked_shards: Vec<ShardId>,
     /// Rotate between these sets of tracked shards.
@@ -539,6 +541,7 @@ impl ClientConfig {
             block_header_fetch_horizon: 50,
             gc: GCConfig { gc_blocks_limit: 100, ..GCConfig::default() },
             tracked_accounts: vec![],
+            tracked_shadow_validator: None,
             tracked_shards: vec![],
             tracked_shard_schedule: vec![],
             archive,
