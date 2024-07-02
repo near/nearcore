@@ -1,0 +1,20 @@
+[package]
+name = "near-structs-checker"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description = "Structs checker"
+repository.workspace = true
+license.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = { workspace = true, optional = true }
+syn = { workspace = true, optional = true }
+quote = { workspace = true, optional = true }
+inventory = { workspace = true, optional = true }
+
+[features]
+check_protocol_structs = ["inventory", "syn", "quote", "proc-macro2"]
