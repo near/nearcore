@@ -13,7 +13,7 @@ use near_workspaces::{
     network::Sandbox,
     result::ExecutionFinalResult,
     types::{KeyType, NearToken, PublicKey, SecretKey},
-    Account, Contract, Worker,
+    Contract, Worker,
 };
 use std::path::{Path, PathBuf};
 use tokio::{process::Command, sync::Mutex};
@@ -57,27 +57,6 @@ impl WalletContract {
     ) -> anyhow::Result<ExecuteResponse> {
         let result: ExecuteResponse =
             self.rlp_execute_with_receipts(target, tx).await?.into_result()?.json()?;
-
-        Ok(result)
-    }
-
-    pub async fn external_rlp_execute(
-        &self,
-        caller: &Account,
-        target: &str,
-        tx: &EthTransactionKind,
-    ) -> anyhow::Result<ExecuteResponse> {
-        let result: ExecuteResponse = caller
-            .call(self.inner.id(), RLP_EXECUTE)
-            .args_json(serde_json::json!({
-                "target": target,
-                "tx_bytes_b64": codec::encode_b64(&codec::rlp_encode(tx))
-            }))
-            .max_gas()
-            .transact()
-            .await?
-            .into_result()?
-            .json()?;
 
         Ok(result)
     }

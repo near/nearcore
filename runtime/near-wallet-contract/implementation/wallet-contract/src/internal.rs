@@ -1,5 +1,5 @@
 use crate::{
-    error::{AccountIdError, CallerError, Error, RelayerError, UserError},
+    error::{AccountIdError, Error, RelayerError, UserError},
     eth_emulation, ethabi_utils, near_action,
     types::{
         Action, EthEmulationKind, ExecutionContext, ParsableTransactionKind, TargetKind,
@@ -11,7 +11,7 @@ use crate::{
 use aurora_engine_transactions::{EthTransactionKind, NormalizedEthTransaction};
 use base64::Engine;
 use ethabi::{ethereum_types::U256, Address};
-use near_sdk::{env, AccountId, NearToken};
+use near_sdk::{env, AccountId};
 
 /// The chain ID is pulled from a file to allow this contract to be easily
 /// compiled with the appropriate value for the network it will be deployed on.
@@ -144,7 +144,7 @@ pub fn parse_rlp_tx_to_action(
         Err(other_err) => return Err(other_err),
     };
 
-    validate_tx_value(&tx, context, &action)?;
+    validate_tx_value(&tx)?;
 
     // Call to `low_u128` here is safe because of the validation done in `validate_tx_value`
     let near_action = action
@@ -354,29 +354,9 @@ fn validate_tx_relayer_data<'a>(
     Ok(target_kind)
 }
 
-fn validate_tx_value(
-    tx: &NormalizedEthTransaction,
-    context: &ExecutionContext,
-    action: &Action,
-) -> Result<(), Error> {
+fn validate_tx_value(tx: &NormalizedEthTransaction) -> Result<(), Error> {
     if tx.value.raw() > VALUE_MAX {
         return Err(Error::User(UserError::ValueTooLarge));
-    }
-
-    let total_value = tx
-        .value
-        .raw()
-        .low_u128()
-        .saturating_mul(MAX_YOCTO_NEAR.into())
-        .saturating_add(action.value().as_yoctonear());
-
-    if total_value > 0 {
-        let is_self_call = context.predecessor_account_id == context.current_account_id;
-        let sufficient_attached_deposit =
-            context.attached_deposit >= NearToken::from_yoctonear(total_value);
-        if !is_self_call && !sufficient_attached_deposit {
-            return Err(Error::Caller(CallerError::InsufficientAttachedValue));
-        }
     }
 
     Ok(())
