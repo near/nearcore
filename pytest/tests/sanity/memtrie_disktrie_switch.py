@@ -57,9 +57,9 @@ TxHash = str
 AccountId = str
 
 
-def random_target_height_generator(num_epochs):
+def random_target_height_generator(start_height, num_epochs):
     """Generates a random target height after num_epochs later."""
-    target_height = 0
+    target_height = start_height
     while True:
         stop_height = random.randint(1, EPOCH_LENGTH)
         target_height += num_epochs * EPOCH_LENGTH + stop_height
@@ -82,57 +82,68 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
         node_config_dump, node_config_sync = state_sync_lib.get_state_sync_configs_pair(
         )
 
-        # Validator node configs.
-        # Enable single-shard tracking with memtries in dumper node.
+        # Validator node configs: Enable single-shard tracking with memtries enabled.
         node_config_sync["tracked_shards"] = [0]
         node_config_sync["store.load_mem_tries_for_tracked_shards"] = True
         configs = {x: node_config_sync for x in range(4)}
 
-        # Dumper node config.
-        # Enable all-shards tracking with memtries in dumper node.
+        # Dumper node config: Enable all-shards tracking with memtries enabled.
         node_config_dump["tracked_shards"] = [0]
         node_config_dump["store.load_mem_tries_for_tracked_shards"] = True
         configs[4] = node_config_dump
 
-        # RPC node config.
+        # RPC node config: Enable all-shards tracking with memtries enabled.
         node_config_sync["tracked_shards"] = [0]
         node_config_sync["store.load_mem_tries_for_tracked_shards"] = True
         configs[5] = node_config_sync
 
         self.nodes = cluster.start_cluster(
             num_nodes=4,
+            # Dumper and RPC nodes.
             num_observers=2,
             num_shards=NUM_SHARDS,
             config=None,
             genesis_config_changes=[
                 ["epoch_length", EPOCH_LENGTH], ["shard_layout", SHARD_LAYOUT],
                 ["shuffle_shard_assignment_for_chunk_producers", True],
-                ["block_producer_kickout_threshold", 20],
-                ["chunk_producer_kickout_threshold", 20]
+                ["block_producer_kickout_threshold", 0],
+                ["chunk_producer_kickout_threshold", 0]
             ],
             client_config_changes=configs)
         self.assertEqual(6, len(self.nodes))
 
         self.rpc_node = self.nodes[0]
 
+        self.__wait_for_blocks(3)
+
         self.__create_accounts()
 
         self.__deploy_contracts()
 
-        target_height_gen = random_target_height_generator(num_epochs=1)
+        target_height_gen = random_target_height_generator(
+            start_height=self.__wait_for_blocks(1), num_epochs=1)
 
-        logger.info("Step 1: Running with memtries enabled")
-        self.__random_workload_until(next(target_height_gen))
+        target_height = next(target_height_gen)
+        logger.info(
+            f"Step 1: Running with memtries enabled until height {target_height}"
+        )
+        self.__random_workload_until(target_height)
         self.__check_txs()
 
-        logger.info("Step 2: Restarting nodes with memtries disabled")
+        target_height = next(target_height_gen)
+        logger.info(
+            f"Step 2: Restarting nodes with memtries disabled until height {target_height}"
+        )
         self.__restart_nodes(enable_memtries=False)
-        self.__random_workload_until(next(target_height_gen))
+        self.__random_workload_until(target_height)
         self.__check_txs()
 
-        logger.info("Step 3: Restarting nodes with memtries enabled")
+        target_height = next(target_height_gen)
+        logger.info(
+            f"Step 3: Restarting nodes with memtries enabled until height {target_height}"
+        )
         self.__restart_nodes(enable_memtries=True)
-        self.__random_workload_until(next(target_height_gen))
+        self.__random_workload_until(target_height)
         self.__check_txs()
 
         logger.info("Test ended")
@@ -140,14 +151,8 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
     def next_nonce(self, signer_key):
         assert signer_key in self.nonces
         nonce = self.nonces[signer_key]
-        self.nonces[signer_key] = nonce + 1
+        self.nonces[signer_key] = nonce + 42
         return nonce
-
-    def __update_nonces(self, height):
-        self.nonces = {
-            account_key: nonce + 1_000_000 * height
-            for account_key, nonce in self.nonces.items()
-        }
 
     def __restart_nodes(self, enable_memtries):
         """Stops and restarts the nodes with the config that enables/disables memtries."""
@@ -161,7 +166,6 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
 
     def __random_workload_until(self, target_height):
         """Generates traffic to make transfers between accounts."""
-        logger.info(f"Running workload until height {target_height}")
         last_height = -1
         while True:
             last_block = self.rpc_node.get_latest_block()
@@ -173,8 +177,7 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
                     f'@{height}, epoch_height: {state_sync_lib.approximate_epoch_height(height, EPOCH_LENGTH)}'
                 )
                 last_height = height
-
-            last_block_hash = self.rpc_node.get_latest_block().hash_bytes
+            last_block_hash = last_block.hash_bytes
             if random.random() < 0.5:
                 # Make a transfer between accounts.
                 # The goal is to generate cross-shard receipts.
@@ -191,7 +194,7 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
                 assert 'result' in result and 'error' not in result, (
                     'Expected "result" and no "error" in response, got: {}'.
                     format(result))
-                logger.info("Transfer: {}".format(result))
+                logger.debug("Transfer: {}".format(result))
                 tx_hash = result['result']
                 self.txs.append((from_account_key.account_id, tx_hash))
             elif len(self.keys) > 10 and random.random() < 0.5:
@@ -252,7 +255,9 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
             account_key = key.Key.from_random(account_id)
             account_keys.append(account_key)
 
+        # Use the first validator node to sign the transactions.
         signer_key = self.nodes[0].signer_key
+        # Update nonce of the signer account using the access key nonce.
         signer_nonce = self.rpc_node.get_nonce_for_pk(signer_key.account_id,
                                                       signer_key.pk) + 42
 
@@ -266,6 +271,7 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
                 f"Creating account: {account_key.account_id}, tx: {tx_hash}")
         self.__wait_for_txs(create_account_tx_list)
 
+        # Update nonces for the newly created accounts using the access key nonces.
         for account_key in account_keys:
             nonce = self.rpc_node.get_nonce_for_pk(account_key.account_id,
                                                    account_key.pk) + 42
@@ -294,9 +300,7 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
         return tx_hash
 
     def __wait_for_txs(self, tx_list: list[AccountId, TxHash]):
-        (height, _) = utils.wait_for_blocks(self.rpc_node, count=3)
-
-        self.__update_nonces(height)
+        self.__wait_for_blocks(6)
 
         for (tx_sender, tx_hash) in tx_list:
             self.__get_tx_status(tx_hash, tx_sender)
@@ -315,6 +319,10 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
 
         status = result['result']['status']
         self.assertIn('SuccessValue', status, result)
+
+    def __wait_for_blocks(self, num_blocks):
+        height, _ = utils.wait_for_blocks(self.rpc_node, count=num_blocks)
+        return height
 
 
 if __name__ == '__main__':
