@@ -231,7 +231,7 @@ fn parse_tx_data(
             if target.as_str() != receiver_id.as_str() {
                 return Err(Error::Relayer(RelayerError::InvalidTarget));
             }
-            if yocto_near > MAX_YOCTO_NEAR {
+            if yocto_near >= MAX_YOCTO_NEAR {
                 return Err(Error::User(UserError::ExcessYoctoNear));
             }
             Ok((
@@ -245,7 +245,7 @@ fn parse_tx_data(
             if target.as_str() != receiver_id.as_str() {
                 return Err(Error::Relayer(RelayerError::InvalidTarget));
             }
-            if yocto_near > MAX_YOCTO_NEAR {
+            if yocto_near >= MAX_YOCTO_NEAR {
                 return Err(Error::User(UserError::ExcessYoctoNear));
             }
             Ok((
