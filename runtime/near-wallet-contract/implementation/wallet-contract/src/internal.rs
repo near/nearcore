@@ -44,15 +44,12 @@ pub fn parse_rlp_tx_to_action(
     tx_bytes_b64: &str,
     target: &AccountId,
     context: &ExecutionContext,
-    expected_nonce: &mut u64,
+    expected_nonce: u64,
 ) -> Result<(near_action::Action, TransactionKind), Error> {
     let tx_bytes = decode_b64(tx_bytes_b64)?;
     let tx_kind: EthTransactionKind = tx_bytes.as_slice().try_into()?;
     let tx: NormalizedEthTransaction = tx_kind.try_into()?;
-    let target_kind = validate_tx_relayer_data(&tx, target, context, *expected_nonce)?;
-
-    // If the transaction is valid then increment the nonce to prevent replay
-    *expected_nonce = expected_nonce.saturating_add(1);
+    let target_kind = validate_tx_relayer_data(&tx, target, context, expected_nonce)?;
 
     // The way an honest relayer assigns `target` is as follows:
     // 1. If the Ethereum transaction payload represents a Near action then use the receiver_id,

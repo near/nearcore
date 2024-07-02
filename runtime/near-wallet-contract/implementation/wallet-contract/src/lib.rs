@@ -152,6 +152,9 @@ impl WalletContract {
         };
         let current_account_id = env::current_account_id();
         let promise = if maybe_account_id.is_some() {
+            // We intentionally do not increment the nonce in this case because the
+            // error is caused by a faulty relayer, not the user. An honest relayer
+            // may still be able to successfully send the user's intended transaction.
             if env::signer_account_id() == current_account_id {
                 create_ban_relayer_promise(current_account_id)
             } else {
@@ -162,6 +165,10 @@ impl WalletContract {
                 });
             }
         } else {
+            // We must increment the nonce at this point to prevent replay of the transaction.
+            // Recall that the nonce was not incremented in `inner_rlp_execute` in the case that
+            // the registrar contract was called (i.e. in the case we end up inside this callback).
+            self.nonce = self.nonce.saturating_add(1);
             let ext = WalletContract::ext(current_account_id).with_unused_gas_weight(1);
             match action_to_promise(target, action).map(|p| p.then(ext.rlp_execute_callback())) {
                 Ok(p) => p,
@@ -301,8 +308,49 @@ fn inner_rlp_execute(
         env::attached_deposit(),
     )?;
 
-    let (action, transaction_kind) =
-        internal::parse_rlp_tx_to_action(&tx_bytes_b64, &target, &context, nonce)?;
+    let parsing_result = internal::parse_rlp_tx_to_action(&tx_bytes_b64, &target, &context, *nonce);
+    let (action, transaction_kind) = match parsing_result {
+        Ok((action, transaction_kind)) => {
+            // Increment nonce for all cases where the registrar contract is not needed
+            // to prevent replay of those transactions. For transactions that go through
+            // the registrar we still do not know if the transaction has a relayer error
+            // or not, therefore we must delay incrementing the nonce.
+            //
+            // Note: relayers with access keys cannot use this delay to needlessly spend
+            // the users tokens because only one transaction is allowed to be in-flight
+            // at a time.
+            if let TransactionKind::EthEmulation(EthEmulationKind::EOABaseTokenTransfer {
+                address_check: Some(_),
+            }) = &transaction_kind
+            {
+            } else {
+                *nonce = nonce.saturating_add(1);
+            }
+            (action, transaction_kind)
+        }
+        Err(err @ Error::User(_)) => {
+            // Increment nonce on all user errors to prevent replay.
+            *nonce = nonce.saturating_add(1);
+            return Err(err);
+        }
+        Err(err) => {
+            // Do not increment nonce on Relayer or AccountId errors.
+            // The latter error is an issue in the deployment (so the nonce is meaningless).
+            // The former arises from the relayer itself doing something wrong and thus the
+            // user's transaction could still be valid and potentially submitted properly by
+            // another relayer. To allow this we do not increment the nonce.
+            //
+            // Note: if a relayer is using an access key for this wallet then that key will
+            // still be revoked (in the main logic of `rlp_execute`). This fact together with
+            // the condition that there only be one in-flight transaction at a time implies
+            // that a relayer cannot maliciously burn a large portion of the user's tokens.
+            // If the relayer is not using an access key then they are spending their own
+            // resources on the gas and therefore we do not care if the relayer submits
+            // the same faulty transaction multiple times.
+            return Err(err);
+        }
+    };
+
     let promise = match transaction_kind {
         TransactionKind::EthEmulation(EthEmulationKind::EOABaseTokenTransfer {
             address_check: Some(address),
