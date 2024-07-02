@@ -92,15 +92,9 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
         node_config_dump["store.load_mem_tries_for_tracked_shards"] = True
         configs[4] = node_config_dump
 
-        # RPC node config: Enable all-shards tracking with memtries enabled.
-        node_config_sync["tracked_shards"] = [0]
-        node_config_sync["store.load_mem_tries_for_tracked_shards"] = True
-        configs[5] = node_config_sync
-
         self.nodes = cluster.start_cluster(
             num_nodes=4,
-            # Dumper and RPC nodes.
-            num_observers=2,
+            num_observers=1,
             num_shards=NUM_SHARDS,
             config=None,
             genesis_config_changes=[
@@ -110,9 +104,10 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
                 ["chunk_producer_kickout_threshold", 0]
             ],
             client_config_changes=configs)
-        self.assertEqual(6, len(self.nodes))
+        self.assertEqual(5, len(self.nodes))
 
-        self.rpc_node = self.nodes[0]
+        # Use the dumper node as the RPC node for sending the transactions.
+        self.rpc_node = self.nodes[4]
 
         self.__wait_for_blocks(3)
 
@@ -120,28 +115,21 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
 
         self.__deploy_contracts()
 
-        target_height_gen = random_target_height_generator(
-            start_height=self.__wait_for_blocks(1), num_epochs=1)
+        target_height_gen = random_target_height_generator(start_height=self.__wait_for_blocks(1), num_epochs=1)
 
         target_height = next(target_height_gen)
-        logger.info(
-            f"Step 1: Running with memtries enabled until height {target_height}"
-        )
+        logger.info(f"Step 1: Running with memtries enabled until height {target_height}")
         self.__random_workload_until(target_height)
         self.__check_txs()
 
         target_height = next(target_height_gen)
-        logger.info(
-            f"Step 2: Restarting nodes with memtries disabled until height {target_height}"
-        )
+        logger.info(f"Step 2: Restarting nodes with memtries disabled until height {target_height}")
         self.__restart_nodes(enable_memtries=False)
         self.__random_workload_until(target_height)
         self.__check_txs()
 
         target_height = next(target_height_gen)
-        logger.info(
-            f"Step 3: Restarting nodes with memtries enabled until height {target_height}"
-        )
+        logger.info(f"Step 3: Restarting nodes with memtries enabled until height {target_height}")
         self.__restart_nodes(enable_memtries=True)
         self.__random_workload_until(target_height)
         self.__check_txs()
