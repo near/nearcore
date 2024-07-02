@@ -406,9 +406,9 @@ impl RuntimeFeesConfig {
                     execution: 6812999,
                 },
                 ActionCosts::function_call_base => Fee {
-                    send_sir: 2319861500000,
-                    send_not_sir: 2319861500000,
-                    execution: 2319861500000,
+                    send_sir: 200_000_000_000,
+                    send_not_sir: 200_000_000_000,
+                    execution: 780_000_000_000,
                 },
                 ActionCosts::function_call_byte => Fee {
                     send_sir: 2235934,
