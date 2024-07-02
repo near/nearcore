@@ -187,7 +187,7 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
                 tx_hash = result['result']
                 self.txs.append((from_account_key.account_id, tx_hash))
             elif len(self.keys) > 10 and random.random() < 0.5:
-                # Do some flat storage reads, but only if we have enough keys populated.
+                # Do some storage reads, but only if we have enough keys populated.
                 key = self.keys[random.randint(0, len(self.keys) - 1)]
                 for account_key in self.account_keys:
                     tx = transaction.sign_function_call_tx(
@@ -202,7 +202,7 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
                     tx_hash = result['result']
                     self.txs.append((account_key.account_id, tx_hash))
             else:
-                # Generate some data for flat storage reads
+                # Generate some data for storage reads
                 key = random_u64()
                 self.keys.append(key)
                 for account_key in self.account_keys:
