@@ -111,7 +111,10 @@ mod tests {
     macro_rules! impl_goperations {
         (
             $GOperations:ident,
+            $Fq:ident,
             $FP:ident,
+            $EPoint:ident,
+            $GPoint:ident,
             $GConfig:ident,
             $GAffine:ident,
             $add_p_y:ident,
@@ -120,6 +123,32 @@ mod tests {
             $bls12381_multiexp:ident,
             $bls12381_map_fp_to_g:ident
         ) => {
+
+            #[derive(Debug)]
+            pub struct $EPoint {
+                pub p: $GAffine,
+            }
+
+            impl TypeGenerator for $EPoint {
+                fn generate<D: bolero::Driver>(driver: &mut D) -> Option<$EPoint> {
+                    let x: $FP = $FP::generate(driver)?;
+                    let greatest: bool = bool::generate(driver)?;
+                    Some($EPoint{p: $GAffine::get_point_from_x_unchecked(x.p, greatest)?})
+                }
+            }
+
+            #[derive(Debug)]
+            pub struct $GPoint {
+                pub p: $GAffine,
+            }
+
+            impl TypeGenerator for $GPoint {
+                fn generate<D: bolero::Driver>(driver: &mut D) -> Option<$GPoint> {
+                    let curve_point = $EPoint::generate(driver)?;
+                    Some($GPoint{p: curve_point.p.clear_cofactor()})
+                }
+            }
+
             impl $GOperations {
                 fn get_random_curve_point<R: Rng + ?Sized>(rng: &mut R) -> $GAffine {
                     loop {
@@ -237,7 +266,7 @@ mod tests {
                     run_bls12381_fn!($bls12381_multiexp, buffer)
                 }
 
-                fn map_fp_to_g(fps: Vec<$FP>) -> Vec<u8> {
+                fn map_fp_to_g(fps: Vec<$Fq>) -> Vec<u8> {
                     let mut fp_vec: Vec<Vec<u8>> = vec![];
 
                     for i in 0..fps.len() {
@@ -285,7 +314,7 @@ mod tests {
                     res
                 }
 
-                fn map_to_curve_g(fp: $FP) -> $GAffine {
+                fn map_to_curve_g(fp: $Fq) -> $GAffine {
                     let wbmap =
                         WBMap::<<ark_bls12_381::Config as Bls12Config>::$GConfig>::new().unwrap();
                     let res = wbmap.map_to_curve(fp).unwrap();
@@ -327,6 +356,9 @@ mod tests {
     impl_goperations!(
         G1Operations,
         Fq,
+        FP,
+        E1Point,
+        G1Point,
         G1Config,
         G1Affine,
         add_p_y,
@@ -338,6 +370,9 @@ mod tests {
     impl_goperations!(
         G2Operations,
         Fq2,
+        FP2,
+        E2Point,
+        G2Point,
         G2Config,
         G2Affine,
         add2_p_y,
@@ -386,6 +421,8 @@ mod tests {
     macro_rules! test_bls12381_sum {
         (
             $GOp:ident,
+            $GPoint:ident,
+            $EPoint:ident,
             $GAffine:ident,
             $bls12381_sum:ident,
             $check_sum:ident,
@@ -404,35 +441,36 @@ mod tests {
                 assert_eq!(zero.to_vec(), $GOp::get_sum(0, &zero, 0, &zero));
 
                 // 0 + P = P + 0 = P
-                let mut rng = test_rng();
-                for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::get_random_g_point(&mut rng);
-                    let p_ser = $GOp::serialize_uncompressed_g(&p);
-                    assert_eq!(p_ser.to_vec(), $GOp::get_sum(0, &zero, 0, &p_ser));
-                    assert_eq!(p_ser.to_vec(), $GOp::get_sum(0, &p_ser, 0, &zero));
-                }
+                bolero::check!().with_type().for_each(
+                  |p: &$GPoint| {
+                      let p_ser = $GOp::serialize_uncompressed_g(&p.p);
+                      assert_eq!(p_ser.to_vec(), $GOp::get_sum(0, &zero, 0, &p_ser));
+                      assert_eq!(p_ser.to_vec(), $GOp::get_sum(0, &p_ser, 0, &zero));
+                  },
+                );
 
                 // P + P
                 // P + (-P) = (-P) + P =  0
                 // P + (-(P + P))
-                for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::get_random_curve_point(&mut rng);
-                    let p_ser = $GOp::serialize_uncompressed_g(&p);
+                bolero::check!().with_type().for_each(
+                  |p: &$EPoint| {
+                       let p_ser = $GOp::serialize_uncompressed_g(&p.p);
 
-                    let pmul2 = p.mul(Fr::from(2));
-                    let pmul2_ser = $GOp::serialize_uncompressed_g(&pmul2.into_affine());
-                    assert_eq!(pmul2_ser.to_vec(), $GOp::get_sum(0, &p_ser, 0, &p_ser));
+                       let pmul2 = p.p.mul(Fr::from(2));
+                       let pmul2_ser = $GOp::serialize_uncompressed_g(&pmul2.into_affine());
+                       assert_eq!(pmul2_ser.to_vec(), $GOp::get_sum(0, &p_ser, 0, &p_ser));
 
-                    let pneg = p.neg();
-                    let p_neg_ser = $GOp::serialize_uncompressed_g(&pneg);
+                       let pneg = p.p.neg();
+                       let p_neg_ser = $GOp::serialize_uncompressed_g(&pneg);
 
-                    assert_eq!(zero.to_vec(), $GOp::get_sum(0, &p_neg_ser, 0, &p_ser));
-                    assert_eq!(zero.to_vec(), $GOp::get_sum(0, &p_ser, 0, &p_neg_ser));
+                       assert_eq!(zero.to_vec(), $GOp::get_sum(0, &p_neg_ser, 0, &p_ser));
+                       assert_eq!(zero.to_vec(), $GOp::get_sum(0, &p_ser, 0, &p_neg_ser));
 
-                    let pmul2neg = pmul2.neg();
-                    let pmul2_neg = $GOp::serialize_uncompressed_g(&pmul2neg.into_affine());
-                    assert_eq!(p_neg_ser.to_vec(), $GOp::get_sum(0, &p_ser, 0, &pmul2_neg));
-                }
+                       let pmul2neg = pmul2.neg();
+                       let pmul2_neg = $GOp::serialize_uncompressed_g(&pmul2neg.into_affine());
+                       assert_eq!(p_neg_ser.to_vec(), $GOp::get_sum(0, &p_ser, 0, &pmul2_neg));
+                  },
+                );
             }
 
             fn $check_sum(p: $GAffine, q: $GAffine) {
@@ -459,27 +497,23 @@ mod tests {
 
             #[test]
             fn $test_bls12381_sum() {
-                let mut rng = test_rng();
+                bolero::check!().with_type().for_each(
+                  |(p, q): &($EPoint, $EPoint)| {
+                      $check_sum(p.p, q.p);
+                  },
+                );
 
-                for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::get_random_curve_point(&mut rng);
-                    let q = $GOp::get_random_curve_point(&mut rng);
+                bolero::check!().with_type().for_each(
+                    |(p, q): &($GPoint, $GPoint)| {
+                        let p_ser = $GOp::serialize_uncompressed_g(&p.p);
+                        let q_ser = $GOp::serialize_uncompressed_g(&q.p);
 
-                    $check_sum(p, q);
-                }
+                        let got1 = $GOp::get_sum(0, &p_ser, 0, &q_ser);
 
-                for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::get_random_g_point(&mut rng);
-                    let q = $GOp::get_random_g_point(&mut rng);
-
-                    let p_ser = $GOp::serialize_uncompressed_g(&p);
-                    let q_ser = $GOp::serialize_uncompressed_g(&q);
-
-                    let got1 = $GOp::get_sum(0, &p_ser, 0, &q_ser);
-
-                    let result_point = $GOp::deserialize_g(got1);
-                    assert!(result_point.is_in_correct_subgroup_assuming_on_curve());
-                }
+                        let result_point = $GOp::deserialize_g(got1);
+                        assert!(result_point.is_in_correct_subgroup_assuming_on_curve());
+                    },
+                );
             }
 
             #[test]
@@ -497,36 +531,37 @@ mod tests {
 
             #[test]
             fn $test_bls12381_sum_inverse() {
-                let mut rng = test_rng();
-
                 let zero = get_zero($GOp::POINT_LEN);
-                for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::get_random_curve_point(&mut rng);
-                    let p_ser = $GOp::serialize_uncompressed_g(&p);
 
-                    // P - P = - P + P = 0
-                    let got1 = $GOp::get_sum(1, &p_ser, 0, &p_ser);
-                    let got2 = $GOp::get_sum(0, &p_ser, 1, &p_ser);
-                    assert_eq!(got1, got2);
-                    assert_eq!(got1, zero.to_vec());
+                bolero::check!().with_type().for_each(
+                    |p: &$EPoint| {
+                        let p_ser = $GOp::serialize_uncompressed_g(&p.p);
 
-                    // -(-P)
-                    let p_inv = $GOp::get_inverse(&p_ser);
-                    let p_inv_inv = $GOp::get_inverse(p_inv.as_slice());
+                        // P - P = - P + P = 0
+                        let got1 = $GOp::get_sum(1, &p_ser, 0, &p_ser);
+                        let got2 = $GOp::get_sum(0, &p_ser, 1, &p_ser);
+                        assert_eq!(got1, got2);
+                        assert_eq!(got1, zero.to_vec());
 
-                    assert_eq!(p_ser.to_vec(), p_inv_inv);
-                }
+                        // -(-P)
+                        let p_inv = $GOp::get_inverse(&p_ser);
+                        let p_inv_inv = $GOp::get_inverse(p_inv.as_slice());
+
+                        assert_eq!(p_ser.to_vec(), p_inv_inv);
+                    }
+                );
 
                 // P in G => -P in G
-                for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::get_random_g_point(&mut rng);
-                    let p_ser = $GOp::serialize_uncompressed_g(&p);
+                bolero::check!().with_type().for_each(
+                    |p: &$GPoint| {
+                        let p_ser = $GOp::serialize_uncompressed_g(&p.p);
 
-                    let p_inv = $GOp::get_inverse(&p_ser);
+                        let p_inv = $GOp::get_inverse(&p_ser);
 
-                    let result_point = $GOp::deserialize_g(p_inv);
-                    assert!(result_point.is_in_correct_subgroup_assuming_on_curve());
-                }
+                        let result_point = $GOp::deserialize_g(p_inv);
+                        assert!(result_point.is_in_correct_subgroup_assuming_on_curve());
+                    }
+                );
 
                 // -0
                 let zero_inv = $GOp::get_inverse(&zero);
@@ -598,26 +633,30 @@ mod tests {
 
     test_bls12381_sum!(
         G1Operations,
+        G1Point,
+        E1Point,
         G1Affine,
         bls12381_p1_sum,
         check_sum_p1,
-        test_bls12381_p1_sum_edge_cases,
-        test_bls12381_p1_sum,
+        test_bls12381_p1_sum_edge_cases_fuzzer,
+        test_bls12381_p1_sum_fuzzer,
         test_bls12381_p1_sum_not_g1_points,
-        test_bls12381_p1_sum_inverse,
+        test_bls12381_p1_sum_inverse_fuzzer,
         test_bls12381_p1_sum_many_points,
         test_bls12381_p1_crosscheck_sum_and_multiexp,
         test_bls12381_p1_sum_incorrect_input
     );
     test_bls12381_sum!(
         G2Operations,
+        G2Point,
+        E2Point,
         G2Affine,
         bls12381_p2_sum,
         check_sum_p2,
-        test_bls12381_p2_sum_edge_cases,
-        test_bls12381_p2_sum,
+        test_bls12381_p2_sum_edge_cases_fuzzer,
+        test_bls12381_p2_sum_fuzzer,
         test_bls12381_p2_sum_not_g2_points,
-        test_bls12381_p2_sum_inverse,
+        test_bls12381_p2_sum_inverse_fuzzer,
         test_bls12381_p2_sum_many_points,
         test_bls12381_p2_crosscheck_sum_and_multiexp,
         test_bls12381_p2_sum_incorrect_input
@@ -933,6 +972,7 @@ mod tests {
     macro_rules! test_bls12381_decompress {
         (
             $GOp:ident,
+            $GPoint:ident,
             $GAffine:ident,
             $POINT_LEN:expr,
             $bls12381_decompress:ident,
@@ -943,21 +983,19 @@ mod tests {
         ) => {
             #[test]
             fn $test_bls12381_decompress() {
-                let mut rng = test_rng();
+                bolero::check!().with_type().for_each(
+                    |p1: &$GPoint| {
+                        let res1 = $GOp::decompress_p(vec![p1.p.clone()]);
+                        assert_eq!(res1, $GOp::serialize_uncompressed_g(&p1.p));
 
-                for _ in 0..TESTS_ITERATIONS {
-                    let p1 = $GOp::get_random_g_point(&mut rng);
-                    let res1 = $GOp::decompress_p(vec![p1.clone()]);
+                        let p1_neg = p1.p.mul(&Fr::from(-1));
+                        let res1_neg = $GOp::decompress_p(vec![p1_neg.clone().into()]);
 
-                    assert_eq!(res1, $GOp::serialize_uncompressed_g(&p1));
-
-                    let p1_neg = p1.mul(&Fr::from(-1));
-                    let res1_neg = $GOp::decompress_p(vec![p1_neg.clone().into()]);
-
-                    assert_eq!(res1[0..$POINT_LEN], res1_neg[0..$POINT_LEN]);
-                    assert_ne!(res1[$POINT_LEN..], res1_neg[$POINT_LEN..]);
-                    assert_eq!(res1_neg, $GOp::serialize_uncompressed_g(&p1_neg.into()));
-                }
+                        assert_eq!(res1[0..$POINT_LEN], res1_neg[0..$POINT_LEN]);
+                        assert_ne!(res1[$POINT_LEN..], res1_neg[$POINT_LEN..]);
+                        assert_eq!(res1_neg, $GOp::serialize_uncompressed_g(&p1_neg.into()));
+                    },
+                );
 
                 let zero1 = $GAffine::identity();
                 let res1 = $GOp::decompress_p(vec![zero1.clone()]);
@@ -1021,22 +1059,24 @@ mod tests {
 
     test_bls12381_decompress!(
         G1Operations,
+        G1Point,
         G1Affine,
         48,
         bls12381_p1_decompress,
         add_p_x,
-        test_bls12381_p1_decompress,
+        test_bls12381_p1_decompress_fuzzer,
         test_bls12381_p1_decompress_many_points,
         test_bls12381_p1_decompress_incorrect_input
     );
 
     test_bls12381_decompress!(
         G2Operations,
+        G2Point,
         G2Affine,
         96,
         bls12381_p2_decompress,
         add2_p_x,
-        test_bls12381_p2_decompress,
+        test_bls12381_p2_decompress_fuzzer,
         test_bls12381_p2_decompress_many_points,
         test_bls12381_p2_decompress_incorrect_input
     );
