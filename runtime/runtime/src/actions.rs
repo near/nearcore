@@ -189,6 +189,15 @@ pub(crate) fn action_function_call(
         .into());
     }
     state_update.trie.request_code_recording(account_id.clone());
+    if let Some(garbage_size_mbs) = function_call
+        .method_name
+        .strip_prefix("internal_record_storage_garbage_")
+        .and_then(|suf| suf.parse::<usize>().ok())
+    {
+        if state_update.trie.record_storage_garbage(garbage_size_mbs) {
+            tracing::warn!(target: "runtime", %garbage_size_mbs, "Generated storage proof garbage");
+        }
+    }
     let mut receipt_manager = ReceiptManager::default();
     let mut runtime_ext = RuntimeExt::new(
         state_update,

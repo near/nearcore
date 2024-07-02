@@ -751,6 +751,16 @@ impl Trie {
         }
     }
 
+    pub fn record_storage_garbage(&self, size_mbs: usize) -> bool {
+        let Some(recorder) = &self.recorder else {
+            return false;
+        };
+        let mut data = vec![0u8; (size_mbs as usize) * 1000_000];
+        rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut data);
+        recorder.borrow_mut().record_unaccounted(&CryptoHash::hash_bytes(&data), data.into());
+        true
+    }
+
     /// All access to trie nodes or values must go through this method, so it
     /// can be properly cached and recorded.
     ///
