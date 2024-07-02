@@ -9,9 +9,11 @@ use near_epoch_manager::{EpochManager, RngSeed};
 use near_pool::{
     InsertTransactionResult, PoolIteratorWrapper, TransactionGroupIteratorWrapper, TransactionPool,
 };
+use near_primitives::action::FunctionCallAction;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::checked_feature;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
+use near_primitives::receipt::{ActionReceipt, ReceiptV1};
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::version::PROTOCOL_VERSION;
@@ -1770,4 +1772,64 @@ fn test_prepare_transactions_empty_storage_proof() {
     );
 
     assert!(validation_result.is_err());
+}
+
+#[test]
+fn test_storage_proof_garbage() {
+    if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let block = chain.get_block(&env.head.prev_block_hash).unwrap();
+    let chunk = &block.chunks()[0];
+    let congestion_info = block.block_congestion_info();
+    let signer = create_test_signer("test1");
+    let garbage_size_mb = 50usize;
+    let receipt = Receipt::V1(ReceiptV1 {
+        predecessor_id: signer.validator_id().clone(),
+        receiver_id: signer.validator_id().clone(),
+        receipt_id: CryptoHash::hash_bytes(&[42]),
+        receipt: near_primitives::receipt::ReceiptEnum::Action(ActionReceipt {
+            signer_id: signer.validator_id().clone(),
+            signer_public_key: signer.public_key(),
+            gas_price: block.header().next_gas_price(),
+            output_data_receivers: vec![],
+            input_data_ids: vec![],
+            actions: vec![Action::FunctionCall(
+                FunctionCallAction {
+                    method_name: format!("internal_record_storage_garbage_{garbage_size_mb}"),
+                    args: vec![],
+                    gas: 300000000000000,
+                    deposit: 300000000000000,
+                }
+                .into(),
+            )],
+        }),
+        priority: 0,
+    });
+    let stake = [];
+    let apply_result = env
+        .runtime
+        .apply_chunk(
+            RuntimeStorageConfig::new(env.state_roots[0], true),
+            ApplyChunkReason::UpdateTrackedShard,
+            ApplyChunkShardContext {
+                shard_id: 0,
+                last_validator_proposals: ValidatorStakeIter::new(&stake),
+                gas_limit: chunk.gas_limit(),
+                is_new_chunk: true,
+                is_first_block_with_chunk_of_version: false,
+            },
+            ApplyChunkBlockContext::from_header(
+                block.header(),
+                env.runtime.genesis_config.min_gas_price,
+                congestion_info,
+            ),
+            &[receipt],
+            &[],
+        )
+        .unwrap();
+    let PartialState::TrieValues(storage_proof) = apply_result.proof.unwrap().nodes;
+    let total_size: usize = storage_proof.iter().map(|v| v.len()).sum();
+    assert_eq!(total_size / 1000_000, garbage_size_mb);
 }
