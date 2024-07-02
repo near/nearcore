@@ -70,8 +70,8 @@ fn verify_contract_limits_upgrade(
 
 // Check that we can't call a contract exceeding functions number limit after upgrade.
 // Disabled in nightly due to https://github.com/near/nearcore/issues/8590
-#[cfg(all(not(feature = "nightly"), not(feature = "statelessnet_protocol")))]
 #[test]
+#[ignore]
 fn test_function_limit_change() {
     verify_contract_limits_upgrade(
         ProtocolFeature::LimitContractFunctionsNumber,

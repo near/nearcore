@@ -19,7 +19,7 @@ use near_primitives::sharding::ChunkHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::utils::derive_near_implicit_account_id;
-use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives::version::{ProtocolFeature, ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::FinalExecutionStatus;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use rand::seq::SliceRandom;
@@ -764,7 +764,9 @@ fn test_chunk_forwarding_optimization() {
     // Note: For nightly, which includes SingleShardTracking, this check is disabled because
     // we're so efficient with part forwarding now that we don't seem to be forwarding more
     // than it is necessary.
-    if !cfg!(feature = "nightly") && !cfg!(feature = "statelessnet_protocol") {
+    // TODO - Since the stabilization of Stateless Validation which includes the
+    // SingleShardTracking this test doesn't make sense anymore. We should remove it.
+    if !ProtocolFeature::SingleShardTracking.enabled(PROTOCOL_VERSION) {
         assert!(PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER.get() > 0.0);
     }
     debug!(target: "test",

@@ -3,6 +3,8 @@
 ## [unreleased]
 
 ### Protocol Changes
+* Congestion Control [NEP-0539](https://github.com/near/NEPs/pull/539)
+* Stateless Validation [NEP-0509](https://github.com/near/NEPs/pull/509)
 
 ### Non-protocol Changes
 

@@ -133,10 +133,12 @@
       "props": {
         "final_accounts_balance": "",
         "final_postponed_receipts_balance": "",
+        "forwarded_buffered_receipts_balance": "",
         "incoming_receipts_balance": "",
         "incoming_validator_rewards": "",
         "initial_accounts_balance": "",
         "initial_postponed_receipts_balance": "",
+        "new_buffered_receipts_balance": "",
         "new_delayed_receipts_balance": "",
         "other_burnt_amount": "",
         "outgoing_receipts_balance": "",

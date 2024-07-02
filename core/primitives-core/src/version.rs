@@ -220,11 +220,10 @@ impl ProtocolFeature {
             ProtocolFeature::SimpleNightshadeV3 => 65,
             ProtocolFeature::DecreaseFunctionCallBaseCost => 66,
             ProtocolFeature::YieldExecution => 67,
-
-            // Congestion control should be enabled BEFORE stateless validation, so it has a lower version.
-            ProtocolFeature::CongestionControl => 80,
-
+            ProtocolFeature::CongestionControl => 68,
             // Stateless validation features.
+            // TODO All of the stateless validation features should be collapsed
+            // into a single protocol feature.
             ProtocolFeature::StatelessValidationV0
             | ProtocolFeature::LowerValidatorKickoutPercentForDebugging
             | ProtocolFeature::SingleShardTracking
@@ -235,8 +234,8 @@ impl ProtocolFeature {
             | ProtocolFeature::OutgoingReceiptsSizeLimit
             | ProtocolFeature::NoChunkOnlyProducers
             | ProtocolFeature::ChangePartialWitnessDataPartsRequired
-            | ProtocolFeature::BiggerCombinedTransactionLimit => 81,
-            ProtocolFeature::HigherSendingCost => 82,
+            | ProtocolFeature::BiggerCombinedTransactionLimit
+            | ProtocolFeature::HigherSendingCost => 69,
 
             // This protocol version is reserved for use in resharding tests. An extra resharding
             // is simulated on top of the latest shard layout in production. Note that later
@@ -267,11 +266,12 @@ impl ProtocolFeature {
 /// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 67;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 69;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "statelessnet_protocol") {
-    // Current StatelessNet protocol version.
+    // Please note that congestion control and stateless validation are now
+    // stabilized but statelessnet should remain at its own version.
     82
 } else if cfg!(feature = "nightly_protocol") {
     // On nightly, pick big enough version to support all features.
