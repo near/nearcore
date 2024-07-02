@@ -1,5 +1,47 @@
 # Changelog
 
+## 1.41.x
+
+* Propagate `IndexerError` from `Indexer::start` method to allow better error handling in the client code
+* Add the way to explicitly create `tokio::sync::mpsc::channel` to allow more control over the indexer job with new method `Indexer::streamer_channel()`
+* Add async method `Indexer::start_streamer(sender: Sender<StreamerMessage>)` to allow more control over the indexer job
+
+You can use the new `Indexer::start_streamer` method to start the indexer job with a custom `tokio::sync::mpsc::channel` sender. This method is async and returns a `Result<(), IndexerError>`.
+
+```rust
+use tokio::sync::mpsc;
+
+#[actix::main]
+async fn main() {
+    let indexer_config = near_indexer::IndexerConfig {
+        home_dir,
+        sync_mode: near_indexer::SyncModeEnum::FromInterruption,
+        await_for_node_synced: near_indexer::AwaitForNodeSyncedEnum::WaitForFullSync,
+        validate_genesis: true,
+        ignore_missing_local_delayed_receipt: false, // <-- new flag
+    };
+    let indexer = near_indexer::Indexer::new(indexer_config).expect("Failed to create indexer instance");
+    // Explicitly create a tokio::sync::mpsc::channel
+    let (sender, receiver) = indexer::streamer_channel();
+    let indexer_result = indexer.start_streamer(sender).await;
+    match indexer_result {
+        Ok(_) => {
+            println!("Indexer job finished successfully");
+        }
+        Err(e) => {
+            // Handle the error, e.g. retry the job
+            eprintln!("Indexer job failed: {:?}", e);
+        }
+    }
+}
+```
+
+## Breaking changes
+
+* Add `ignore_missing_local_delayed_receipt` boolean flag to the `IndexerConfig` struct to allow ignoring missing local delayed receipts. This flag should be `false` by default, so if you don't want to ignore missing local delayed receipts, you don't need to change anything. If you want to ignore missing local delayed receipts, you should set this flag to `true` in the `IndexerConfig` struct.
+
+Even though this is a breaking change, the change to the existing code base should be minimal. You should just add the `ignore_missing_local_delayed_receipt` flag to the `IndexerConfig` struct and set it to `false` if you don't want to ignore missing local delayed receipts (the behaviour you have right now, it will panic if the local delayed receipt is missing) or set it to `true` if you want to ignore missing local delayed receipts. **Warning!** in this case the indexer will skip the entire block since it can't create a consistent `StreamerMessage` without a local delayed receipt.
+
 ## 1.38.x
 
 * Make `build_streamer_message` public to allow custom indexer to reuse this function (e.g. build an indexer that streams optimistic block finalities, indexer that streams only blocks satisfying some condition, etc.)

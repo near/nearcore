@@ -6,7 +6,7 @@ use near_primitives::version::ProtocolVersion;
 use near_primitives::views;
 use node_runtime::config::tx_cost;
 
-use super::errors::FailedToFetchData;
+use super::errors::IndexerError;
 use super::fetchers::fetch_block;
 
 pub(crate) async fn convert_transactions_sir_into_local_receipts(
@@ -15,7 +15,7 @@ pub(crate) async fn convert_transactions_sir_into_local_receipts(
     txs: Vec<&IndexerTransactionWithOutcome>,
     block: &views::BlockView,
     protocol_version: ProtocolVersion,
-) -> Result<Vec<views::ReceiptView>, FailedToFetchData> {
+) -> Result<Vec<views::ReceiptView>, IndexerError> {
     if txs.is_empty() {
         return Ok(vec![]);
     }

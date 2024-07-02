@@ -11,6 +11,9 @@ publish = false
 [lints]
 workspace = true
 
+[lib]
+doctest = false # Disable doctests since it's not feasible to run them in the workspace
+
 [dependencies]
 actix.workspace = true
 anyhow.workspace = true
@@ -19,6 +22,7 @@ once_cell.workspace = true
 rocksdb.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 lazy_static.workspace = true
