@@ -1,5 +1,6 @@
 use core::panic;
 
+use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_async::test_loop::data::{TestLoopData, TestLoopDataHandle};
 use near_async::test_loop::TestLoopV2;
@@ -11,10 +12,11 @@ use near_client::Client;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::views::FinalExecutionStatus;
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::{TestData, TestLoopEnv};
-use crate::test_loop::utils::{call_contract, deploy_contracts, ONE_NEAR};
+use crate::test_loop::utils::{call_contract, deploy_contract, ONE_NEAR};
 
 const NUM_PRODUCERS: usize = 2;
 const NUM_VALIDATORS: usize = 2;
@@ -30,8 +32,11 @@ fn test_congestion_control_adv_chunk_produce() {
     let builder = TestLoopBuilder::new();
 
     let initial_balance = 10000 * ONE_NEAR;
-    let accounts =
+    // let contract_account_id = "000".to_owned().parse().unwrap();
+    let contract_account_id: AccountId = "000".parse().unwrap();
+    let mut accounts =
         (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
+    accounts.push(contract_account_id.clone());
     let clients = accounts.iter().take(NUM_CLIENTS).cloned().collect_vec();
 
     // split the clients into producers, validators, and rpc nodes
@@ -43,7 +48,7 @@ fn test_congestion_control_adv_chunk_produce() {
 
     let producers = producers.iter().map(|account| account.as_str()).collect_vec();
     let validators = validators.iter().map(|account| account.as_str()).collect_vec();
-    let [rpc] = rpcs else { panic!("Expected exactly one rpc node") };
+    let [rpc_account_id] = rpcs else { panic!("Expected exactly one rpc node") };
 
     let mut genesis_builder = TestGenesisBuilder::new();
     genesis_builder
@@ -69,22 +74,23 @@ fn test_congestion_control_adv_chunk_produce() {
     tracing::info!("First epoch tracked shards: {:?}", first_epoch_tracked_shards);
 
     // Deploy the contracts.
-    let txs = deploy_contracts(&mut test_loop, &node_datas);
+    let tx = deploy_contract(&mut test_loop, &node_datas, rpc_account_id, &contract_account_id);
     test_loop.run_for(Duration::seconds(5));
 
     tracing::info!(target: "test", "deployed contracts");
-    log_txs(&test_loop, &node_datas, &rpc, &txs);
+    check_txs(&test_loop, &node_datas, &rpc_account_id, &[tx]);
 
     // Call the contracts.
     let mut txs = vec![];
-    for account in accounts.iter().take(NUM_PRODUCERS + NUM_VALIDATORS) {
-        let tx = call_contract(&mut test_loop, &node_datas, account);
+    for sender_account_id in accounts {
+        let tx =
+            call_contract(&mut test_loop, &node_datas, &sender_account_id, &contract_account_id);
         txs.push(tx);
     }
     test_loop.run_for(Duration::seconds(20));
 
     tracing::info!(target: "test", "called contracts");
-    log_txs(&test_loop, &node_datas, &rpc, &txs);
+    check_txs(&test_loop, &node_datas, &rpc_account_id, &txs);
 
     // Make sure the chain progresses for several epochs.
     let client_handle = node_datas[0].client_sender.actor_handle();
@@ -126,25 +132,27 @@ fn rpc_client<'a>(
 ) -> &'a Client {
     for node_data in node_datas {
         if &node_data.account_id == rpc {
-            let handle = node_data.client_sender.actor_handle();
-            let client_actor = test_loop.data.get(&handle);
+            let client_actor_handle = node_data.client_sender.actor_handle();
+            let client_actor = test_loop.data.get(&client_actor_handle);
             return &client_actor.client;
         }
     }
     panic!("RPC client not found");
 }
 
-fn log_txs(
+fn check_txs(
     test_loop: &TestLoopV2,
     node_datas: &Vec<TestData>,
     rpc: &AccountId,
-    txs: &Vec<CryptoHash>,
+    txs: &[CryptoHash],
 ) {
     let rpc = rpc_client(test_loop, node_datas, rpc);
 
     for &tx in txs {
         let tx_outcome = rpc.chain.get_partial_transaction_result(&tx);
         let status = tx_outcome.as_ref().map(|o| o.status.clone());
+        let status = status.unwrap();
         tracing::info!(target: "test", ?tx, ?status, "transaction status");
+        assert_matches!(status, FinalExecutionStatus::SuccessValue(_));
     }
 }

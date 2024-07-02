@@ -23,7 +23,7 @@ fn setup_subscriber_from_filter(mut env_filter: EnvFilter) {
 
     let _ = fmt::Subscriber::builder()
         .with_ansi(use_color_auto())
-        .with_span_events(fmt::format::FmtSpan::CLOSE)
+        .with_span_events(fmt::format::FmtSpan::NONE)
         .with_env_filter(env_filter)
         .with_writer(fmt::TestWriter::new())
         .with_timer(TestUptime::default())

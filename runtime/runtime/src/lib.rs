@@ -1426,6 +1426,14 @@ impl Runtime {
             processing_state.protocol_version,
             &processing_state.state_update,
         )?;
+
+        {
+            let shard_id = apply_state.shard_id;
+            let prev_block_hash = apply_state.prev_block_hash;
+            let gas = own_congestion_info.unwrap().delayed_receipts_gas();
+            tracing::info!(target:"runtime", ?prev_block_hash, ?shard_id, ?gas, "boom apply start");
+        }
+
         let mut receipt_sink = ReceiptSink::new(
             processing_state.protocol_version,
             &processing_state.state_update.trie,

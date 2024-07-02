@@ -273,6 +273,24 @@ impl SignedTransaction {
         )
     }
 
+    pub fn deploy_contract(
+        account_id: &AccountId,
+        signer: &Signer,
+        nonce: Nonce,
+        code: Vec<u8>,
+        block_hash: CryptoHash,
+    ) -> Self {
+        Self::from_actions(
+            nonce,
+            account_id.clone(),
+            account_id.clone(),
+            signer,
+            vec![Action::DeployContract(DeployContractAction { code })],
+            block_hash,
+            0,
+        )
+    }
+
     pub fn call(
         nonce: Nonce,
         signer_id: AccountId,

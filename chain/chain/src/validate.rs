@@ -177,6 +177,14 @@ pub fn validate_chunk_with_chunk_extra_and_receipts_root(
         return Err(Error::InvalidGasLimit);
     }
 
+    {
+        let prev_block_hash = chunk_header.prev_block_hash();
+        let chunk_hash = chunk_header.chunk_hash();
+        let extra_gas = prev_chunk_extra.congestion_info().unwrap().delayed_receipts_gas();
+        let header_gas = chunk_header.congestion_info().unwrap().delayed_receipts_gas();
+        tracing::info!(target: "test", ?prev_block_hash, ?chunk_hash, ?extra_gas, ?header_gas, "validate boom");
+    }
+
     validate_congestion_info(&prev_chunk_extra.congestion_info(), &chunk_header.congestion_info())?;
 
     Ok(())
@@ -209,6 +217,8 @@ fn validate_congestion_info(
                 ))
             }),
     }
+    .unwrap();
+    Ok(())
 }
 
 /// Validates a double sign challenge.
