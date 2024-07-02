@@ -1027,29 +1027,29 @@ mod tests {
 
             #[test]
             fn $test_bls12381_decompress_many_points() {
-                let mut rng = test_rng();
-
-                for i in 0..TESTS_ITERATIONS {
-                    let n = get_n(i, $GOp::MAX_N_DECOMPRESS);
-
+                bolero::check!().with_generator(bolero::gen::<Vec::<$EPoint>>().with().len(0usize..=$GOp::MAX_N_DECOMPRESS))
+                .for_each(|es: &Vec<$EPoint>| {
                     let mut p1s: Vec<$GAffine> = vec![];
                     let mut res2: Vec<u8> = vec![];
-                    for i in 0..n {
-                        p1s.push($GOp::get_random_curve_point(&mut rng));
+                    for i in 0..es.len() {
+                        p1s.push(es[i].p);
                         res2.append(&mut $GOp::serialize_uncompressed_g(&p1s[i]).to_vec());
                     }
                     let res1 = $GOp::decompress_p(p1s.clone());
                     assert_eq!(res1, res2);
+                });
 
+                bolero::check!().with_generator(bolero::gen::<Vec::<$GPoint>>().with().len(0usize..=$GOp::MAX_N_DECOMPRESS))
+                .for_each(|gs: &Vec<$GPoint>| {
                     let mut p1s: Vec<$GAffine> = vec![];
                     let mut res2: Vec<u8> = vec![];
-                    for i in 0..n {
-                        p1s.push($GOp::get_random_g_point(&mut rng));
+                    for i in 0..gs.len() {
+                        p1s.push(gs[i].p);
                         res2.append(&mut $GOp::serialize_uncompressed_g(&p1s[i]).to_vec());
                     }
                     let res1 = $GOp::decompress_p(p1s.clone());
                     assert_eq!(res1, res2);
-                }
+                });
             }
 
             #[test]
@@ -1088,7 +1088,7 @@ mod tests {
         bls12381_p1_decompress,
         add_p_x,
         test_bls12381_p1_decompress_fuzzer,
-        test_bls12381_p1_decompress_many_points,
+        test_bls12381_p1_decompress_many_points_fuzzer,
         test_bls12381_p1_decompress_incorrect_input_fuzzer
     );
 
@@ -1101,7 +1101,7 @@ mod tests {
         bls12381_p2_decompress,
         add2_p_x,
         test_bls12381_p2_decompress_fuzzer,
-        test_bls12381_p2_decompress_many_points,
+        test_bls12381_p2_decompress_many_points_fuzzer,
         test_bls12381_p2_decompress_incorrect_input_fuzzer
     );
 
