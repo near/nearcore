@@ -441,6 +441,7 @@ mod tests {
             $GOp:ident,
             $GPoint:ident,
             $EPoint:ident,
+            $EnotGPoint:ident,
             $GAffine:ident,
             $bls12381_sum:ident,
             $check_sum:ident,
@@ -536,15 +537,11 @@ mod tests {
 
             #[test]
             fn $test_bls12381_sum_not_g_points() {
-                let mut rng = test_rng();
-
                 //points not from G
-                for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::get_random_not_g_curve_point(&mut rng);
-                    let q = $GOp::get_random_not_g_curve_point(&mut rng);
-
-                    $check_sum(p, q);
-                }
+                bolero::check!().with_type().for_each(
+                    |(p, q): &($EnotGPoint, $EnotGPoint)| {
+                        $check_sum(p.p, q.p);
+                });
             }
 
             #[test]
@@ -650,12 +647,13 @@ mod tests {
         G1Operations,
         G1Point,
         E1Point,
+        EnotG1Point,
         G1Affine,
         bls12381_p1_sum,
         check_sum_p1,
         test_bls12381_p1_sum_edge_cases_fuzzer,
         test_bls12381_p1_sum_fuzzer,
-        test_bls12381_p1_sum_not_g1_points,
+        test_bls12381_p1_sum_not_g1_points_fuzzer,
         test_bls12381_p1_sum_inverse_fuzzer,
         test_bls12381_p1_sum_many_points,
         test_bls12381_p1_crosscheck_sum_and_multiexp_fuzzer,
@@ -665,12 +663,13 @@ mod tests {
         G2Operations,
         G2Point,
         E2Point,
+        EnotG2Point,
         G2Affine,
         bls12381_p2_sum,
         check_sum_p2,
         test_bls12381_p2_sum_edge_cases_fuzzer,
         test_bls12381_p2_sum_fuzzer,
-        test_bls12381_p2_sum_not_g2_points,
+        test_bls12381_p2_sum_not_g2_points_fuzzer,
         test_bls12381_p2_sum_inverse_fuzzer,
         test_bls12381_p2_sum_many_points,
         test_bls12381_p2_crosscheck_sum_and_multiexp_fuzzer,
