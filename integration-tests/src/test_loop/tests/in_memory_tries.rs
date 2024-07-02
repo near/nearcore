@@ -8,7 +8,8 @@ use near_store::ShardUId;
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestLoopEnv;
-use crate::test_loop::utils::{execute_money_transfers, ONE_NEAR};
+use crate::test_loop::utils::transactions::execute_money_transfers;
+use crate::test_loop::utils::ONE_NEAR;
 
 /// Runs chain with sequence of chunks with empty state changes, long enough to
 /// cover 5 epochs which is default GC period.
