@@ -115,6 +115,7 @@ mod tests {
             $FP:ident,
             $EPoint:ident,
             $GPoint:ident,
+            $EnotGPoint:ident,
             $GConfig:ident,
             $GAffine:ident,
             $add_p_y:ident,
@@ -146,6 +147,21 @@ mod tests {
                 fn generate<D: bolero::Driver>(driver: &mut D) -> Option<$GPoint> {
                     let curve_point = $EPoint::generate(driver)?;
                     Some($GPoint{p: curve_point.p.clear_cofactor()})
+                }
+            }
+
+            #[derive(Debug)]
+            pub struct $EnotGPoint {
+                pub p: $GAffine,
+            }
+
+            impl TypeGenerator for $EnotGPoint {
+                fn generate<D: bolero::Driver>(driver: &mut D) -> Option<$EnotGPoint> {
+                    let p = $EPoint::generate(driver)?;
+                    if p.p.is_in_correct_subgroup_assuming_on_curve() {
+                        return None
+                    }
+                    Some($EnotGPoint{p: p.p})
                 }
             }
 
@@ -359,6 +375,7 @@ mod tests {
         FP,
         E1Point,
         G1Point,
+        EnotG1Point,
         G1Config,
         G1Affine,
         add_p_y,
@@ -373,6 +390,7 @@ mod tests {
         FP2,
         E2Point,
         G2Point,
+        EnotG2Point,
         G2Config,
         G2Affine,
         add2_p_y,
@@ -1223,45 +1241,39 @@ mod tests {
     }
 
     #[test]
-    fn test_bls12381_pairing_incorrect_input_point() {
-        let mut rnd = test_rng();
+    fn test_bls12381_pairing_incorrect_input_point_fuzzer() {
+        bolero::check!().with_type().for_each(
+            |(p1_not_from_g1, p2, p1, p2_not_from_g2): &(EnotG1Point, G2Point, G1Point, EnotG2Point)| {
+                assert_eq!(pairing_check(vec![p1_not_from_g1.p.clone()], vec![p2.p.clone()]), 1);
+                assert_eq!(pairing_check(vec![p1.p.clone()], vec![p2_not_from_g2.p.clone()]), 1);
 
-        let p1_not_from_g1 = G1Operations::get_random_not_g_curve_point(&mut rnd);
-        let p2 = G2Operations::get_random_g_point(&mut rnd);
+                let p1_ser = G1Operations::serialize_uncompressed_g(&p1.p).to_vec();
+                let p2_ser = G2Operations::serialize_uncompressed_g(&p2.p).to_vec();
+                let test_vecs: Vec<Vec<u8>> = G1Operations::get_incorrect_points();
+                for i in 0..test_vecs.len() {
+                    assert_eq!(pairing_check_vec(test_vecs[i].clone(), p2_ser.clone()), 1);
+                }
 
-        let p1 = G1Operations::get_random_g_point(&mut rnd);
-        let p2_not_from_g2 = G2Operations::get_random_not_g_curve_point(&mut rnd);
+                let test_vecs: Vec<Vec<u8>> = G2Operations::get_incorrect_points();
+                for i in 0..test_vecs.len() {
+                    assert_eq!(pairing_check_vec(p1_ser.clone(), test_vecs[i].clone()), 1);
+                }
 
-        assert_eq!(pairing_check(vec![p1_not_from_g1.clone()], vec![p2.clone()]), 1);
-        assert_eq!(pairing_check(vec![p1.clone()], vec![p2_not_from_g2.clone()]), 1);
+                // not G1 point
+                let p_ser = G1Operations::serialize_uncompressed_g(&p1_not_from_g1.p);
+                assert_eq!(
+                    pairing_check_vec(p_ser.to_vec(), G2Operations::serialize_uncompressed_g(&p2.p).to_vec()),
+                    1
+                );
 
-        let p1_ser = G1Operations::serialize_uncompressed_g(&p1).to_vec();
-        let p2_ser = G2Operations::serialize_uncompressed_g(&p2).to_vec();
-        let test_vecs: Vec<Vec<u8>> = G1Operations::get_incorrect_points();
-        for i in 0..test_vecs.len() {
-            assert_eq!(pairing_check_vec(test_vecs[i].clone(), p2_ser.clone()), 1);
-        }
+                // not G2 point
+                let p_ser = G2Operations::serialize_uncompressed_g(&p2_not_from_g2.p);
+                assert_eq!(
+                    pairing_check_vec(G1Operations::serialize_uncompressed_g(&p1.p).to_vec(), p_ser.to_vec()),
+                    1
+                );
 
-        let test_vecs: Vec<Vec<u8>> = G2Operations::get_incorrect_points();
-        for i in 0..test_vecs.len() {
-            assert_eq!(pairing_check_vec(p1_ser.clone(), test_vecs[i].clone()), 1);
-        }
-
-        // not G1 point
-        let p = G1Operations::get_random_not_g_curve_point(&mut rnd);
-        let p_ser = G1Operations::serialize_uncompressed_g(&p);
-        assert_eq!(
-            pairing_check_vec(p_ser.to_vec(), G2Operations::serialize_uncompressed_g(&p2).to_vec()),
-            1
-        );
-
-        // not G2 point
-        let p = G2Operations::get_random_not_g_curve_point(&mut rnd);
-        let p_ser = G2Operations::serialize_uncompressed_g(&p);
-
-        assert_eq!(
-            pairing_check_vec(G1Operations::serialize_uncompressed_g(&p1).to_vec(), p_ser.to_vec()),
-            1
+            }
         );
     }
 
