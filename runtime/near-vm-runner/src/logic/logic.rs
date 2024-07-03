@@ -7,9 +7,9 @@ use super::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use super::utils::split_method_names;
 use super::ValuePtr;
 use super::{HostError, VMLogicError};
-use crate::ProfileDataV3;
 #[cfg(feature = "protocol_feature_bls12381")]
 use crate::bls12381_impl;
+use crate::ProfileDataV3;
 use near_crypto::Secp256K1Signature;
 use near_parameters::vm::{Config, StorageGetMode};
 use near_parameters::{
