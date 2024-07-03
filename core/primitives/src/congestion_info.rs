@@ -4,6 +4,7 @@ use crate::errors::RuntimeError;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_parameters::config::CongestionControlConfig;
 use near_primitives_core::types::{Gas, ShardId};
+use ordered_float::NotNan;
 
 /// This class combines the congestion control config, congestion info and
 /// missed chunks count. It contains the main congestion control logic and
@@ -112,8 +113,46 @@ impl CongestionControl {
 
     /// Whether we can accept new transaction with the receiver set to this shard.
     pub fn shard_accepts_transactions(&self) -> bool {
-        self.congestion_level() < self.config.reject_tx_congestion_threshold
+        self.rejection_reason().is_none()
     }
+
+    /// If the shard doesn't accept new transaction, provide the reason for
+    /// extra debugging information.
+    pub fn rejection_reason(&self) -> Option<RejectTransactionReason> {
+        let incoming_congestion = self.incoming_congestion();
+        let outgoing_congestion = self.outgoing_congestion();
+        let memory_congestion = self.memory_congestion();
+        let missed_chunks_congestion = self.missed_chunks_congestion();
+
+        let congestion_level = incoming_congestion
+            .max(outgoing_congestion)
+            .max(memory_congestion)
+            .max(missed_chunks_congestion);
+
+        // Convert to NotNan here, if not possible, the max above is already meaningless.
+        let congestion_level = NotNan::new(congestion_level).unwrap_or(NotNan::new(1.0).unwrap());
+        if *congestion_level < self.config.reject_tx_congestion_threshold {
+            return None;
+        }
+
+        if missed_chunks_congestion >= *congestion_level {
+            Some(RejectTransactionReason::MissedChunks { missed_chunks: self.missed_chunks_count })
+        } else if incoming_congestion >= *congestion_level {
+            Some(RejectTransactionReason::IncomingCongestion { congestion_level })
+        } else if outgoing_congestion >= *congestion_level {
+            Some(RejectTransactionReason::OutgoingCongestion { congestion_level })
+        } else {
+            Some(RejectTransactionReason::MemoryCongestion { congestion_level })
+        }
+    }
+}
+
+/// Detailed information for why a shard rejects new transactions.
+pub enum RejectTransactionReason {
+    IncomingCongestion { congestion_level: NotNan<f64> },
+    OutgoingCongestion { congestion_level: NotNan<f64> },
+    MemoryCongestion { congestion_level: NotNan<f64> },
+    MissedChunks { missed_chunks: u64 },
 }
 
 /// Stores the congestion level of a shard.
