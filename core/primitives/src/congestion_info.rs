@@ -130,7 +130,8 @@ impl CongestionControl {
             .max(missed_chunks_congestion);
 
         // Convert to NotNan here, if not possible, the max above is already meaningless.
-        let congestion_level = NotNan::new(congestion_level).unwrap_or(NotNan::new(1.0).unwrap());
+        let congestion_level =
+            NotNan::new(congestion_level).unwrap_or_else(|_| NotNan::new(1.0).unwrap());
         if *congestion_level < self.config.reject_tx_congestion_threshold {
             return None;
         }

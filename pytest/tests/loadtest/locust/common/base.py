@@ -674,6 +674,7 @@ class ShardCongestedError(RpcError):
         self.shard_id = shard_id
         self.congestion_level = congestion_level
 
+
 class ShardStuckError(RpcError):
 
     def __init__(
