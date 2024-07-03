@@ -100,12 +100,17 @@ fn default_max_kickout_stake_threshold() -> u8 {
     100
 }
 
+fn default_genesis_time() -> DateTime<Utc> {
+    let time = near_time::Utc::now_utc();
+    DateTime::from_timestamp(time.unix_timestamp(), time.nanosecond()).unwrap_or_default()
+}
+
 #[derive(Debug, Clone, SmartDefault, serde::Serialize, serde::Deserialize)]
 pub struct GenesisConfig {
     /// Protocol version that this genesis works with.
     pub protocol_version: ProtocolVersion,
     /// Official time of blockchain start.
-    #[default(Utc::now())]
+    #[default(default_genesis_time())]
     pub genesis_time: DateTime<Utc>,
     /// ID of the blockchain. This must be unique for every blockchain.
     /// If your testnet blockchains do not have unique chain IDs, you will have a bad time.

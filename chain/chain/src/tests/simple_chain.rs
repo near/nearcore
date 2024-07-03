@@ -34,7 +34,7 @@ fn build_chain() {
     if cfg!(feature = "nightly") {
         insta::assert_snapshot!(hash, @"C3zeKRZubVungxfrSdq379TSCYnuz2YzjEkcJTdm3pU4");
     } else {
-        insta::assert_snapshot!(hash, @"2WHohfYksQnwKwSEoTKpkseu2RWthbGf9kmGetgHgfQQ");
+        insta::assert_snapshot!(hash, @"EKBbsbiindwuPwbiARE9LevUffurNhprbSaUjgPKCwEq");
     }
 
     for i in 1..5 {
@@ -52,17 +52,18 @@ fn build_chain() {
     if cfg!(feature = "nightly") {
         insta::assert_snapshot!(hash, @"EjLaoHRiAdRp2NcDqwbMcAYYxGfcv5R7GuYUNfRpaJvB");
     } else {
-        insta::assert_snapshot!(hash, @"HJuuENeSwwikoR9BZA7cSonxAPZgY5mKQWL2pSXwjAwZ");
+        insta::assert_snapshot!(hash, @"9Ag5sa6bF9knuJKe9XECTKZi7HwtDhCSxCZ8P9AdSvWH");
     }
 }
 
 #[test]
 fn build_chain_with_orphans() {
     init_test_logger();
-    let (mut chain, _, _, signer) = setup(Clock::real());
+    let clock = Clock::real();
+    let (mut chain, _, _, signer) = setup(clock.clone());
     let mut blocks = vec![chain.get_block(&chain.genesis().hash().clone()).unwrap()];
     for i in 1..4 {
-        let block = TestBlockBuilder::new(Clock::real(), &blocks[i - 1], signer.clone()).build();
+        let block = TestBlockBuilder::new(clock.clone(), &blocks[i - 1], signer.clone()).build();
         blocks.push(block);
     }
     let last_block = &blocks[blocks.len() - 1];
@@ -74,8 +75,8 @@ fn build_chain_with_orphans() {
         last_block.header().block_ordinal() + 1,
         last_block.chunks().iter().cloned().collect(),
         vec![vec![]; last_block.chunks().len()],
-        last_block.header().epoch_id().clone(),
-        last_block.header().next_epoch_id().clone(),
+        *last_block.header().epoch_id(),
+        *last_block.header().next_epoch_id(),
         None,
         vec![],
         Ratio::from_integer(0),
@@ -87,7 +88,8 @@ fn build_chain_with_orphans() {
         &*signer,
         *last_block.header().next_bp_hash(),
         CryptoHash::default(),
-        Utc::UNIX_EPOCH,
+        clock,
+        None,
     );
     assert_matches!(chain.process_block_test(&None, block).unwrap_err(), Error::Orphan);
     assert_matches!(

@@ -2,7 +2,7 @@
 version = "0.0.0"                               # managed by cargo-workspaces, see below
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2021"
-rust-version = "1.78.0"
+rust-version = "1.79.0"
 repository = "https://github.com/near/nearcore"
 license = "MIT OR Apache-2.0"
 
@@ -12,6 +12,8 @@ license = "MIT OR Apache-2.0"
 # Most crates are not stable on purpose, as maintaining API compatibility is a
 # significant developer time expense. Please think thoroughly before adding
 # anything to the list of stable crates.
+# Only bump  0.x.* to 0.(x+1).0 on any nearcore release as nearcore does not guarantee
+# semver compatibility. i.e. api can change without a protocol upgrade.
 version = "0.20.1"
 exclude = ["neard"]
 
@@ -95,10 +97,7 @@ members = [
     "utils/near-cache",
     "utils/stdx",
 ]
-exclude = [
-    "tracing",
-    "benchmarks"
-]
+exclude = ["tracing", "benchmarks"]
 
 [workspace.lints.clippy]
 all = { level = "allow", priority = -100 }
@@ -154,22 +153,22 @@ cov-mark = "2.0.0-pre.1"
 cargo_metadata = "0.14.1"
 cc = "1.0"
 cfg-if = "1.0"
-chrono = { version = "0.4.19", features = ["serde"] }
+chrono = { version = "0.4", default-features = false, features = [
+    "clock",
+    "alloc",
+    "serde",
+] }
 clap = { version = "4.2.0", features = ["derive", "env", "string"] }
 cloud-storage = "0.11.1"
 cpu-time = "1.0"
-criterion = { version = "0.5.1", default_features = false, features = [
+criterion = { version = "0.5.1", default-features = false, features = [
     "html_reports",
     "cargo_bench_support",
 ] }
 crossbeam = "0.8"
 crossbeam-channel = "0.5.8"
 csv = "1.2.1"
-curve25519-dalek = { version = "4.1.1", default-features = false, features = [
-    "alloc",
-    "precomputed-tables",
-    "rand_core",
-] }
+curve25519-dalek = { version = "4.1.3", default-features = false }
 derive-enum-from-into = "0.1.1"
 derive_more = "0.99.9"
 derive-where = "1.2.7"
@@ -177,10 +176,7 @@ dirs = "4"
 dynasm = "2.0"
 dynasmrt = "2.0"
 easy-ext = "0.2"
-ed25519-dalek = { version = "2.1.0", default-features = false, features = [
-    "hazmat",
-    "rand_core",
-] }
+ed25519-dalek = { version = "2.1.0", default-features = false }
 enum-map = "2.1.0"
 enumset = "1.0"
 ethabi = "18"
@@ -232,7 +228,7 @@ near-client-primitives = { path = "chain/client-primitives" }
 near-cold-store-tool = { path = "tools/cold-store", package = "cold-store-tool" }
 near-config-utils = { path = "utils/config" }
 nearcore = { path = "nearcore" }
-near-crypto = { path = "core/crypto" }
+near-crypto = { path = "core/crypto", default-features = false }
 near-dyn-configs = { path = "core/dyn-configs" }
 near-epoch-manager = { path = "chain/epoch-manager" }
 near-epoch-sync-tool = { path = "tools/epoch-sync" }
@@ -268,7 +264,9 @@ near-state-viewer = { path = "tools/state-viewer", package = "state-viewer" }
 near-store = { path = "core/store" }
 near-telemetry = { path = "chain/telemetry" }
 near-test-contracts = { path = "runtime/near-test-contracts" }
-near-time = { path = "core/time" }
+near-time = { path = "core/time", default-features = false, features = [
+    "serde",
+] }
 near-undo-block = { path = "tools/undo-block" }
 near-vm-test-api = { path = "runtime/near-vm/test-api" }
 near-vm-compiler = { path = "runtime/near-vm/compiler" }
@@ -336,7 +334,7 @@ rusqlite = { version = "0.29.0", features = ["bundled", "chrono", "functions"] }
 rustc-demangle = "0.1"
 rust-s3 = { version = "0.32.3", features = ["blocking"] }
 rustix = "0.38"
-secp256k1 = { version = "0.27.0", features = ["recovery", "rand-std"] }
+secp256k1 = { version = "0.27.0", default-features = false }
 semver = "1.0.4"
 serde = { version = "1.0.136", features = ["alloc", "derive", "rc"] }
 serde_ignored = "0.1"
@@ -361,7 +359,7 @@ testlib = { path = "test-utils/testlib" }
 test-log = { version = "0.2", default-features = false, features = ["trace"] }
 thiserror = "1.0.30"
 tikv-jemallocator = "0.5.0"
-time = { version = "0.3.9", features = ["parsing", "serde"] }
+time = { version = "0.3.9", default-features = false }
 tokio = { version = "1.28", default-features = false }
 tokio-stream = { version = "0.1.2", features = ["net"] }
 tokio-util = { version = "0.7.1", features = ["codec", "io"] }

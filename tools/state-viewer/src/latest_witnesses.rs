@@ -1,7 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use near_async::time::Clock;
 use near_chain::runtime::NightshadeRuntime;
 use near_chain::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use near_chain::{Chain, ChainGenesis, ChainStore, DoomslugThresholdMode};
@@ -10,6 +9,7 @@ use near_epoch_manager::EpochManager;
 use near_primitives::stateless_validation::ChunkStateWitness;
 use near_primitives::types::EpochId;
 use near_store::Store;
+use near_time::Clock;
 use nearcore::NearConfig;
 use nearcore::NightshadeRuntimeExt;
 
@@ -59,9 +59,8 @@ impl DumpWitnessesCmd {
         let chain_store =
             Rc::new(ChainStore::new(store, near_config.genesis.config.genesis_height, false));
 
-        let witnesses = chain_store
-            .get_latest_witnesses(self.height, self.shard_id, self.epoch_id.clone())
-            .unwrap();
+        let witnesses =
+            chain_store.get_latest_witnesses(self.height, self.shard_id, self.epoch_id).unwrap();
         println!("Found {} witnesses:", witnesses.len());
         if let DumpWitnessesMode::Binary { ref output_dir } = self.mode {
             if !output_dir.exists() {

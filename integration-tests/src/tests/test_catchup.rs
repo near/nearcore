@@ -2,8 +2,9 @@
 use std::time::Duration;
 
 use crate::node::{create_nodes, Node};
-use crate::test_helpers::{heavy_test, wait};
 use std::sync::{Arc, RwLock};
+
+use super::test_helpers::{heavy_test, wait};
 
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]

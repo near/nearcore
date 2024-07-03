@@ -9,9 +9,11 @@
 pub fn split_array<const N: usize, const L: usize, const R: usize>(
     xs: &[u8; N],
 ) -> (&[u8; L], &[u8; R]) {
-    #[allow(clippy::let_unit_value)]
-    let () = AssertEqSum::<N, L, R>::OK;
-
+    const {
+        if N != L + R {
+            panic!()
+        }
+    };
     let (left, right) = xs.split_at(L);
     (left.try_into().unwrap(), right.try_into().unwrap())
 }
@@ -20,8 +22,11 @@ pub fn split_array<const N: usize, const L: usize, const R: usize>(
 pub fn split_array_mut<const N: usize, const L: usize, const R: usize>(
     xs: &mut [u8; N],
 ) -> (&mut [u8; L], &mut [u8; R]) {
-    #[allow(clippy::let_unit_value)]
-    let () = AssertEqSum::<N, L, R>::OK;
+    const {
+        if N != L + R {
+            panic!()
+        }
+    };
 
     let (left, right) = xs.split_at_mut(L);
     (left.try_into().unwrap(), right.try_into().unwrap())
@@ -38,8 +43,11 @@ pub fn join_array<const N: usize, const L: usize, const R: usize>(
     left: [u8; L],
     right: [u8; R],
 ) -> [u8; N] {
-    #[allow(clippy::let_unit_value)]
-    let () = AssertEqSum::<N, L, R>::OK;
+    const {
+        if N != L + R {
+            panic!()
+        }
+    };
 
     let mut res = [0; N];
     let (l, r) = res.split_at_mut(L);
@@ -56,8 +64,11 @@ fn test_join() {
 /// Splits a slice into a slice of N-element arrays.
 // TODO(mina86): Replace with [T]::as_chunks once that’s stabilised.
 pub fn as_chunks<const N: usize, T>(slice: &[T]) -> (&[[T; N]], &[T]) {
-    #[allow(clippy::let_unit_value)]
-    let () = AssertNonZero::<N>::OK;
+    const {
+        if N == 0 {
+            panic!()
+        }
+    };
 
     let len = slice.len().checked_div(N).expect("static assert above ensures N ≠ 0");
     let (head, tail) = slice
@@ -103,16 +114,4 @@ fn test_as_chunks() {
         Err(InexactChunkingError { slice_len: 5, chunk_size: 2 }),
         as_chunks_exact::<2, _>(&[0, 1, 2, 3, 4])
     );
-}
-
-/// Asserts, at compile time, that `S == A + B`.
-struct AssertEqSum<const S: usize, const A: usize, const B: usize>;
-impl<const S: usize, const A: usize, const B: usize> AssertEqSum<S, A, B> {
-    const OK: () = assert!(S == A + B);
-}
-
-/// Asserts, at compile time, that `N` is non-zero.
-struct AssertNonZero<const N: usize>;
-impl<const N: usize> AssertNonZero<N> {
-    const OK: () = assert!(N != 0);
 }

@@ -1,12 +1,12 @@
 use crate::rocksdb_metrics::export_stats_as_metrics;
 use crate::{NodeStorage, Store, Temperature};
 use actix_rt::ArbiterHandle;
-use near_async::time::Duration;
 use near_o11y::metrics::{
     exponential_buckets, try_create_histogram, try_create_histogram_vec,
     try_create_histogram_with_buckets, try_create_int_counter_vec, try_create_int_gauge,
     try_create_int_gauge_vec, Histogram, HistogramVec, IntCounterVec, IntGauge, IntGaugeVec,
 };
+use near_time::Duration;
 use once_cell::sync::Lazy;
 
 pub(crate) static DATABASE_OP_LATENCY_HIST: Lazy<HistogramVec> = Lazy::new(|| {
@@ -584,8 +584,8 @@ mod test {
     use crate::metadata::{DbKind, DB_VERSION};
     use crate::test_utils::create_test_node_storage_with_cold;
     use actix;
-    use near_async::time::Duration;
     use near_o11y::testonly::init_test_logger;
+    use near_time::Duration;
 
     use super::spawn_db_metrics_loop;
 

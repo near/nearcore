@@ -18,11 +18,11 @@ use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ContractCodeView,
     ExecutionOutcomeView, ExecutionOutcomeWithIdView, ExecutionStatusView,
-    FinalExecutionOutcomeView, FinalExecutionStatus, ViewApplyState, ViewStateResult,
+    FinalExecutionOutcomeView, FinalExecutionStatus, ViewStateResult,
 };
 use near_store::{ShardTries, TrieUpdate};
 use node_runtime::state_viewer::TrieViewer;
-use node_runtime::{ApplyState, Runtime};
+use node_runtime::{state_viewer::ViewApplyState, ApplyState, Runtime};
 
 use crate::user::{User, POISONED_LOCK_ERR};
 use near_primitives::shard_layout::ShardUId;

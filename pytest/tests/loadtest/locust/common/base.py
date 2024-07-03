@@ -15,6 +15,7 @@ import threading
 import time
 import typing
 import unittest
+from cachetools import cached, TTLCache, LRUCache
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / 'lib'))
 
@@ -232,6 +233,11 @@ class AddFullAccessKey(Transaction):
         return self.sender
 
 
+@cached(cache=LRUCache(maxsize=100))
+def get_near_node_proxy(environment):
+    return NearNodeProxy(environment)
+
+
 class NearNodeProxy:
     """
     Wrapper around a RPC node connection that tracks requests on locust.
@@ -241,10 +247,6 @@ class NearNodeProxy:
         self.request_event = environment.events.request
         [url, port] = environment.host.rsplit(":", 1)
         self.node = cluster.RpcNode(url, port)
-        self.session = Session(connection_timeout=6,
-                               network_timeout=9,
-                               max_retries=5,
-                               retry_delay=0.1)
 
     def send_tx_retry(self, tx: Transaction, locust_name) -> dict:
         """
@@ -320,7 +322,9 @@ class NearNodeProxy:
                     # using retrying lib here to poll until a response is ready
                     self.poll_tx_result(meta, tx)
         except NearError as err:
-            logging.warn(f"marking an error {err.message}, {err.details}")
+            logging.warn(
+                f"marking an error for transaction '{locust_name}' (id={signed_tx.id}): {err.message}, {err.details}"
+            )
             meta["exception"] = err
 
         meta["response_time"] = (time.perf_counter() -
@@ -357,7 +361,9 @@ class NearNodeProxy:
                     details=submit_response)
                 meta["response"] = submit_response.content
         except NearError as err:
-            logging.warn(f"marking an error {err.message}, {err.details}")
+            logging.warn(
+                f"marking an error for transaction '{locust_name}' (id={signed_tx.id}): {err.message}, {err.details}"
+            )
             meta["exception"] = err
 
         meta["response_time"] = (time.perf_counter() -
@@ -367,6 +373,9 @@ class NearNodeProxy:
         self.request_event.fire(**meta)
         return meta
 
+    # It's ok to use a slightly out-of-date block hash and this avoids one additional RPC request on
+    # every transaction.
+    @cached(cache=TTLCache(maxsize=1, ttl=1))
     def final_block_hash(self):
         return base58.b58decode(
             self.node.get_final_block()['result']['header']['hash'])
@@ -391,8 +400,13 @@ class NearNodeProxy:
             "jsonrpc": "2.0"
         }
         try:
-            return self.session.post(url="http://%s:%s" % self.node.rpc_addr(),
-                                     json=j)
+            # Create a new session each time to allow parallel requests through the same node proxy.
+            session = Session(connection_timeout=6,
+                              network_timeout=9,
+                              max_retries=5,
+                              retry_delay=0.1)
+            return session.post(url="http://%s:%s" % self.node.rpc_addr(),
+                                json=j)
         except Exception as e:
             raise RpcError(details=e)
 
@@ -552,7 +566,7 @@ class NearUser(User):
     def __init__(self, environment):
         super().__init__(environment)
         assert self.host is not None, "Near user requires the RPC node address"
-        self.node = NearNodeProxy(environment)
+        self.node = get_near_node_proxy(environment)
         self.id = NearUser.get_next_id()
         self.user_suffix = f"{self.id}_run{environment.parsed_options.run_id}"
         self.account_generator = environment.account_generator
@@ -567,10 +581,10 @@ class NearUser(User):
                                                        self.user_suffix)
         self.account = Account(key.Key.from_random(self.account_id))
         if not self.node.account_exists(self.account_id):
-            self.send_tx_retry(
-                CreateSubAccount(NearUser.funding_account,
-                                 self.account.key,
-                                 balance=NearUser.INIT_BALANCE))
+            self.send_tx_retry(CreateSubAccount(NearUser.funding_account,
+                                                self.account.key,
+                                                balance=NearUser.INIT_BALANCE),
+                               locust_name="Init NearUser")
         self.account.refresh_nonce(self.node.node)
 
     def send_tx(self, tx: Transaction, locust_name="generic send_tx"):
@@ -828,7 +842,7 @@ def init_account_generator(parsed_options):
 
 # called once per process before user initialization
 def do_on_locust_init(environment):
-    node = NearNodeProxy(environment)
+    node = get_near_node_proxy(environment)
 
     master_funding_key = key.Key.from_json_file(
         environment.parsed_options.funding_key)
@@ -846,17 +860,14 @@ def do_on_locust_init(environment):
     # every worker needs a funding account to create its users, eagerly create them in the master
     if isinstance(environment.runner, runners.MasterRunner):
         num_funding_accounts = environment.parsed_options.max_workers
-        funding_balance = 10000 * NearUser.INIT_BALANCE
+        funding_balance = 100000 * NearUser.INIT_BALANCE
 
-        def create_account(id):
-            account_id = f"funds_worker_{id}.{master_funding_account.key.account_id}"
-            return Account(key.Key.from_seed_testonly(account_id))
+        for index in range(num_funding_accounts):
+            account_id = f"funds_worker_{index}.{master_funding_account.key.account_id}"
+            account = Account(key.Key.from_seed_testonly(account_id))
+            node.prepare_account(account, master_funding_account,
+                                 funding_balance, "create funding account")
 
-        funding_accounts = [
-            create_account(id) for id in range(num_funding_accounts)
-        ]
-        node.prepare_accounts(funding_accounts, master_funding_account,
-                              funding_balance, "create funding account")
         funding_account = master_funding_account
     elif isinstance(environment.runner, runners.WorkerRunner):
         worker_id = environment.runner.worker_index

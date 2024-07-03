@@ -355,7 +355,7 @@ fn apply_block_from_range(
         let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
         let store_update = flat_storage.add_delta(delta).unwrap();
         store_update.commit().unwrap();
-        flat_storage.update_flat_head(&block_hash, true).unwrap();
+        flat_storage.update_flat_head(&block_hash).unwrap();
 
         // Apply trie changes to trie node caches.
         let mut fake_store_update = store.store_update();

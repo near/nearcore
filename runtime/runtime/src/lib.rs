@@ -369,11 +369,11 @@ impl Runtime {
         actor_id: &mut AccountId,
         receipt: &Receipt,
         action_receipt: &ActionReceipt,
-        promise_results: &[PromiseResult],
+        promise_results: Arc<[PromiseResult]>,
         action_hash: &CryptoHash,
         action_index: usize,
         actions: &[Action],
-        epoch_info_provider: &dyn EpochInfoProvider,
+        epoch_info_provider: &(dyn EpochInfoProvider),
     ) -> Result<ActionResult, RuntimeError> {
         let _span = tracing::debug_span!(
             target: "runtime",
@@ -548,7 +548,7 @@ impl Runtime {
         receipt_sink: &mut ReceiptSink,
         validator_proposals: &mut Vec<ValidatorStake>,
         stats: &mut ApplyStats,
-        epoch_info_provider: &dyn EpochInfoProvider,
+        epoch_info_provider: &(dyn EpochInfoProvider),
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
         let _span = tracing::debug_span!(
             target: "runtime",
@@ -582,7 +582,7 @@ impl Runtime {
                     None => Ok(PromiseResult::Failed),
                 }
             })
-            .collect::<Result<Vec<PromiseResult>, RuntimeError>>()?;
+            .collect::<Result<Arc<[PromiseResult]>, RuntimeError>>()?;
 
         // state_update might already have some updates so we need to make sure we commit it before
         // executing the actual receipt
@@ -618,7 +618,7 @@ impl Runtime {
                 &mut actor_id,
                 receipt,
                 action_receipt,
-                &promise_results,
+                Arc::clone(&promise_results),
                 &action_hash,
                 action_index,
                 &action_receipt.actions,
@@ -879,7 +879,9 @@ impl Runtime {
                 compute_usage: Some(result.compute_usage),
                 tokens_burnt,
                 executor_id: account_id.clone(),
-                metadata: ExecutionMetadata::V3(result.profile),
+                metadata: ExecutionMetadata::V3(Box::new(conversions::Convert::convert(
+                    *result.profile,
+                ))),
             },
         })
     }
@@ -965,7 +967,7 @@ impl Runtime {
         receipt_sink: &mut ReceiptSink,
         validator_proposals: &mut Vec<ValidatorStake>,
         stats: &mut ApplyStats,
-        epoch_info_provider: &dyn EpochInfoProvider,
+        epoch_info_provider: &(dyn EpochInfoProvider),
     ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
         let account_id = receipt.receiver_id();
         match receipt.receipt() {
@@ -1353,7 +1355,7 @@ impl Runtime {
         apply_state: &ApplyState,
         incoming_receipts: &[Receipt],
         transactions: &[SignedTransaction],
-        epoch_info_provider: &dyn EpochInfoProvider,
+        epoch_info_provider: &(dyn EpochInfoProvider),
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyResult, RuntimeError> {
         // state_patch must be empty unless this is sandbox build.  Thanks to
@@ -1580,14 +1582,21 @@ impl Runtime {
             .recorded_storage_size_upper_bound()
             .saturating_sub(storage_proof_size_upper_bound_before)
             as f64;
-        metrics::RECEIPT_RECORDED_SIZE.observe(recorded_storage_diff);
-        metrics::RECEIPT_RECORDED_SIZE_UPPER_BOUND.observe(recorded_storage_upper_bound_diff);
+        let shard_id_str = processing_state.apply_state.shard_id.to_string();
+        metrics::RECEIPT_RECORDED_SIZE
+            .with_label_values(&[shard_id_str.as_str()])
+            .observe(recorded_storage_diff);
+        metrics::RECEIPT_RECORDED_SIZE_UPPER_BOUND
+            .with_label_values(&[shard_id_str.as_str()])
+            .observe(recorded_storage_upper_bound_diff);
         let recorded_storage_proof_ratio =
             recorded_storage_upper_bound_diff / f64::max(1.0, recorded_storage_diff);
         // Record the ratio only for large receipts, small receipts can have a very high ratio,
         // but the ratio is not that important for them.
         if recorded_storage_upper_bound_diff > 100_000. {
-            metrics::RECEIPT_RECORDED_SIZE_UPPER_BOUND_RATIO.observe(recorded_storage_proof_ratio);
+            metrics::RECEIPT_RECORDED_SIZE_UPPER_BOUND_RATIO
+                .with_label_values(&[shard_id_str.as_str()])
+                .observe(recorded_storage_proof_ratio);
         }
         if let Some(outcome_with_id) = result? {
             let gas_burnt = outcome_with_id.outcome.gas_burnt;
@@ -1823,6 +1832,23 @@ impl Runtime {
             proof_size_limit,
         )?;
 
+        let shard_id_str = processing_state.apply_state.shard_id.to_string();
+        if processing_state.total.compute >= compute_limit {
+            metrics::CHUNK_RECEIPTS_LIMITED_BY
+                .with_label_values(&[shard_id_str.as_str(), "compute_limit"])
+                .inc();
+        } else if proof_size_limit.is_some_and(|limit| {
+            processing_state.state_update.trie.recorded_storage_size_upper_bound() > limit
+        }) {
+            metrics::CHUNK_RECEIPTS_LIMITED_BY
+                .with_label_values(&[shard_id_str.as_str(), "storage_proof_size_limit"])
+                .inc();
+        } else {
+            metrics::CHUNK_RECEIPTS_LIMITED_BY
+                .with_label_values(&[shard_id_str.as_str(), "unlimited"])
+                .inc();
+        }
+
         Ok(ProcessReceiptsResult {
             promise_yield_result,
             validator_proposals,
@@ -1886,7 +1912,10 @@ impl Runtime {
         self.apply_state_patch(&mut state_update, state_patch);
         let chunk_recorded_size_upper_bound =
             state_update.trie.recorded_storage_size_upper_bound() as f64;
-        metrics::CHUNK_RECORDED_SIZE_UPPER_BOUND.observe(chunk_recorded_size_upper_bound);
+        let shard_id_str = apply_state.shard_id.to_string();
+        metrics::CHUNK_RECORDED_SIZE_UPPER_BOUND
+            .with_label_values(&[shard_id_str.as_str()])
+            .observe(chunk_recorded_size_upper_bound);
         let (trie, trie_changes, state_changes) = state_update.finalize()?;
 
         if let Some(prefetcher) = &processing_state.prefetcher {
@@ -1918,8 +1947,11 @@ impl Runtime {
 
         let state_root = trie_changes.new_root;
         let chunk_recorded_size = trie.recorded_storage_size() as f64;
-        metrics::CHUNK_RECORDED_SIZE.observe(chunk_recorded_size);
+        metrics::CHUNK_RECORDED_SIZE
+            .with_label_values(&[shard_id_str.as_str()])
+            .observe(chunk_recorded_size);
         metrics::CHUNK_RECORDED_SIZE_UPPER_BOUND_RATIO
+            .with_label_values(&[shard_id_str.as_str()])
             .observe(chunk_recorded_size_upper_bound / f64::max(1.0, chunk_recorded_size));
         let proof = trie.recorded_storage();
         let processed_delayed_receipts = process_receipts_result.processed_delayed_receipts;
@@ -1928,7 +1960,7 @@ impl Runtime {
             state_root,
             trie_changes,
             validator_proposals: unique_proposals,
-            outgoing_receipts: outgoing_receipts,
+            outgoing_receipts,
             outcomes: processing_state.outcomes,
             state_changes,
             stats: processing_state.stats,
@@ -2194,7 +2226,7 @@ struct ApplyProcessingState<'a> {
     apply_state: &'a ApplyState,
     prefetcher: Option<TriePrefetcher>,
     state_update: TrieUpdate,
-    epoch_info_provider: &'a dyn EpochInfoProvider,
+    epoch_info_provider: &'a (dyn EpochInfoProvider),
     transactions: &'a [SignedTransaction],
     total: TotalResourceGuard,
     stats: ApplyStats,
@@ -2204,7 +2236,7 @@ impl<'a> ApplyProcessingState<'a> {
     fn new(
         apply_state: &'a ApplyState,
         trie: Trie,
-        epoch_info_provider: &'a dyn EpochInfoProvider,
+        epoch_info_provider: &'a (dyn EpochInfoProvider),
         transactions: &'a [SignedTransaction],
     ) -> Self {
         let protocol_version = apply_state.current_protocol_version;
@@ -2260,7 +2292,7 @@ struct ApplyProcessingReceiptState<'a> {
     apply_state: &'a ApplyState,
     prefetcher: Option<TriePrefetcher>,
     state_update: TrieUpdate,
-    epoch_info_provider: &'a dyn EpochInfoProvider,
+    epoch_info_provider: &'a (dyn EpochInfoProvider),
     transactions: &'a [SignedTransaction],
     total: TotalResourceGuard,
     stats: ApplyStats,
@@ -2776,8 +2808,8 @@ mod tests {
 
         let receipt_exec_gas_fee = 1000;
         let mut free_config = RuntimeConfig::free();
-        free_config.fees.action_fees[ActionCosts::new_action_receipt].execution =
-            receipt_exec_gas_fee;
+        let fees = Arc::make_mut(&mut free_config.fees);
+        fees.action_fees[ActionCosts::new_action_receipt].execution = receipt_exec_gas_fee;
         apply_state.config = Arc::new(free_config);
         // This allows us to execute 3 receipts per apply.
         apply_state.gas_limit = Some(receipt_exec_gas_fee * 3);
@@ -3298,7 +3330,8 @@ mod tests {
             gas: Gas::from(1_000_000u64),
             compute: Compute::from(10_000_000_000_000u64),
         };
-        free_config.wasm_config.ext_costs.costs[ExtCosts::sha256_base] = sha256_cost.clone();
+        let wasm_config = Arc::make_mut(&mut free_config.wasm_config);
+        wasm_config.ext_costs.costs[ExtCosts::sha256_base] = sha256_cost.clone();
         apply_state.config = Arc::new(free_config);
         // This allows us to execute 1 receipt with a function call per apply.
         apply_state.gas_limit = Some(sha256_cost.compute);
@@ -3836,7 +3869,7 @@ pub mod estimator {
         outgoing_receipts: &mut Vec<Receipt>,
         validator_proposals: &mut Vec<ValidatorStake>,
         stats: &mut ApplyStats,
-        epoch_info_provider: &dyn EpochInfoProvider,
+        epoch_info_provider: &(dyn EpochInfoProvider),
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
         // TODO(congestion_control - edit runtime config parameters for limitless estimator runs
         let mut congestion_info = CongestionInfo::default();
@@ -3845,7 +3878,7 @@ pub mod estimator {
 
         let mut receipt_sink = ReceiptSink::V2(ReceiptSinkV2 {
             own_congestion_info: &mut congestion_info,
-            outgoing_limit: outgoing_limit,
+            outgoing_limit,
             outgoing_buffers: ShardsOutgoingReceiptBuffer::load(&state_update.trie)?,
             outgoing_receipts,
         });

@@ -303,9 +303,6 @@ pub trait ChainStoreAccess {
         chunk_hash: &ChunkHash,
     ) -> Result<Option<Arc<EncodedShardChunk>>, Error>;
 
-    /// Get destination shard id for receipt id.
-    fn get_shard_id_for_receipt_id(&self, receipt_id: &CryptoHash) -> Result<ShardId, Error>;
-
     fn get_transaction(
         &self,
         tx_hash: &CryptoHash,
@@ -361,7 +358,7 @@ pub trait ChainStoreAccess {
                 .get(shard_id as usize)
                 .ok_or_else(|| Error::InvalidShardId(shard_id as ShardId))?
             {
-                break Ok(block_header.epoch_id().clone());
+                break Ok(*block_header.epoch_id());
             }
             candidate_hash = *block_header.prev_hash();
             shard_id = epoch_manager.get_prev_shard_ids(&candidate_hash, vec![shard_id])?[0];
@@ -437,8 +434,6 @@ pub struct ChainStore {
     pub(crate) incoming_receipts: CellLruCache<Vec<u8>, Arc<Vec<ReceiptProof>>>,
     /// Invalid chunks.
     pub(crate) invalid_chunks: CellLruCache<Vec<u8>, Arc<EncodedShardChunk>>,
-    /// Mapping from receipt id to destination shard id
-    pub(crate) receipt_id_to_shard_id: CellLruCache<Vec<u8>, ShardId>,
     /// Transactions
     pub(crate) transactions: CellLruCache<Vec<u8>, Arc<SignedTransaction>>,
     /// Receipts
@@ -491,7 +486,6 @@ impl ChainStore {
             outgoing_receipts: CellLruCache::new(CACHE_SIZE),
             incoming_receipts: CellLruCache::new(CACHE_SIZE),
             invalid_chunks: CellLruCache::new(CACHE_SIZE),
-            receipt_id_to_shard_id: CellLruCache::new(CHUNK_CACHE_SIZE),
             transactions: CellLruCache::new(CHUNK_CACHE_SIZE),
             receipts: CellLruCache::new(CHUNK_CACHE_SIZE),
             block_merkle_tree: CellLruCache::new(CACHE_SIZE),
@@ -1340,17 +1334,6 @@ impl ChainStoreAccess for ChainStore {
             .map_err(|err| err.into())
     }
 
-    fn get_shard_id_for_receipt_id(&self, receipt_id: &CryptoHash) -> Result<ShardId, Error> {
-        option_to_not_found(
-            self.read_with_cache(
-                DBCol::ReceiptIdToShardId,
-                &self.receipt_id_to_shard_id,
-                receipt_id.as_ref(),
-            ),
-            format_args!("RECEIPT ID: {}", receipt_id),
-        )
-    }
-
     fn get_transaction(
         &self,
         tx_hash: &CryptoHash,
@@ -1422,7 +1405,6 @@ pub(crate) struct ChainStoreCacheUpdate {
     outcomes: HashMap<(CryptoHash, CryptoHash), ExecutionOutcomeWithProof>,
     outcome_ids: HashMap<(CryptoHash, ShardId), Vec<CryptoHash>>,
     invalid_chunks: HashMap<ChunkHash, Arc<EncodedShardChunk>>,
-    receipt_id_to_shard_id: HashMap<CryptoHash, ShardId>,
     transactions: HashMap<CryptoHash, Arc<SignedTransaction>>,
     receipts: HashMap<CryptoHash, Arc<Receipt>>,
     block_refcounts: HashMap<CryptoHash, u64>,
@@ -1745,15 +1727,6 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
-    fn get_shard_id_for_receipt_id(&self, receipt_id: &CryptoHash) -> Result<u64, Error> {
-        if let Some(shard_id) = self.chain_store_cache_update.receipt_id_to_shard_id.get(receipt_id)
-        {
-            Ok(*shard_id)
-        } else {
-            self.chain_store.get_shard_id_for_receipt_id(receipt_id)
-        }
-    }
-
     fn get_transaction(
         &self,
         tx_hash: &CryptoHash,
@@ -2050,10 +2023,6 @@ impl<'a> ChainStoreUpdate<'a> {
             .insert((*hash, shard_id), Arc::new(outgoing_receipts));
     }
 
-    pub fn save_receipt_id_to_shard_id(&mut self, receipt_id: CryptoHash, shard_id: ShardId) {
-        self.chain_store_cache_update.receipt_id_to_shard_id.insert(receipt_id, shard_id);
-    }
-
     pub fn save_incoming_receipt(
         &mut self,
         hash: &CryptoHash,
@@ -2237,8 +2206,8 @@ impl<'a> ChainStoreUpdate<'a> {
             height,
             last_block_hash: *block_hash,
             prev_block_hash: *header.prev_hash(),
-            epoch_id: header.epoch_id().clone(),
-            next_epoch_id: header.next_epoch_id().clone(),
+            epoch_id: *header.epoch_id(),
+            next_epoch_id: *header.next_epoch_id(),
         };
         chain_store_update.head = Some(tip.clone());
         chain_store_update.tail = Some(height);
@@ -2361,7 +2330,7 @@ impl<'a> ChainStoreUpdate<'a> {
                         .get_all_block_hashes_by_height(block.header().height())?
                         .as_ref(),
                 );
-                map.entry(block.header().epoch_id().clone())
+                map.entry(*block.header().epoch_id())
                     .or_insert_with(|| HashSet::new())
                     .insert(*hash);
                 store_update.set_ser(
@@ -2543,10 +2512,6 @@ impl<'a> ChainStoreUpdate<'a> {
             }
         }
 
-        for (receipt_id, shard_id) in self.chain_store_cache_update.receipt_id_to_shard_id.iter() {
-            let data = borsh::to_vec(&shard_id)?;
-            store_update.increment_refcount(DBCol::ReceiptIdToShardId, receipt_id.as_ref(), &data);
-        }
         for (block_hash, refcount) in self.chain_store_cache_update.block_refcounts.iter() {
             store_update.set_ser(DBCol::BlockRefCount, block_hash.as_ref(), refcount)?;
         }
@@ -2717,7 +2682,6 @@ impl<'a> ChainStoreUpdate<'a> {
             outgoing_receipts,
             incoming_receipts,
             invalid_chunks,
-            receipt_id_to_shard_id,
             transactions,
             receipts,
             block_refcounts,
@@ -2776,9 +2740,6 @@ impl<'a> ChainStoreUpdate<'a> {
         }
         for (hash, invalid_chunk) in invalid_chunks {
             self.chain_store.invalid_chunks.put(hash.into(), invalid_chunk);
-        }
-        for (receipt_id, shard_id) in receipt_id_to_shard_id {
-            self.chain_store.receipt_id_to_shard_id.put(receipt_id.into(), shard_id);
         }
         for (hash, transaction) in transactions {
             self.chain_store.transactions.put(hash.into(), transaction);

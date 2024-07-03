@@ -1,4 +1,3 @@
-use crate::test_helpers::heavy_test;
 use actix::{Actor, System};
 use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
@@ -29,6 +28,8 @@ use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::{load_test_config, start_with_config};
 use std::ops::ControlFlow;
 use std::sync::{Arc, RwLock};
+
+use crate::tests::test_helpers::heavy_test;
 
 /// One client is in front, another must sync to it using state (fast) sync.
 #[test]

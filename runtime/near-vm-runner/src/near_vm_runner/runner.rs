@@ -5,8 +5,7 @@ use crate::logic::errors::{
     CacheError, CompilationError, FunctionCallError, MethodResolveError, VMRunnerError, WasmTrap,
 };
 use crate::logic::gas_counter::FastGasCounter;
-use crate::logic::types::PromiseResult;
-use crate::logic::{Config, External, VMContext, VMLogic, VMOutcome};
+use crate::logic::{Config, ExecutionResultState, External, VMContext, VMLogic, VMOutcome};
 use crate::near_vm_runner::{NearVmCompiler, NearVmEngine};
 use crate::runner::VMResult;
 use crate::{
@@ -16,7 +15,6 @@ use crate::{prepare, NoContractRuntimeCache};
 use memoffset::offset_of;
 use near_parameters::vm::VMKind;
 use near_parameters::RuntimeFeesConfig;
-use near_primitives_core::hash::CryptoHash;
 use near_vm_compiler_singlepass::Singlepass;
 use near_vm_engine::universal::{
     MemoryPool, Universal, UniversalArtifact, UniversalEngine, UniversalExecutable,
@@ -94,12 +92,12 @@ fn translate_runtime_error(
 }
 
 pub(crate) struct NearVM {
-    pub(crate) config: Config,
+    pub(crate) config: Arc<Config>,
     pub(crate) engine: UniversalEngine,
 }
 
 impl NearVM {
-    pub(crate) fn new_for_target(config: Config, target: near_vm_compiler::Target) -> Self {
+    pub(crate) fn new_for_target(config: Arc<Config>, target: near_vm_compiler::Target) -> Self {
         // We only support singlepass compiler at the moment.
         assert_eq!(VM_CONFIG.compiler, NearVmCompiler::Singlepass);
         let mut compiler = Singlepass::new();
@@ -138,7 +136,7 @@ impl NearVM {
         }
     }
 
-    pub(crate) fn new(config: Config) -> Self {
+    pub(crate) fn new(config: Arc<Config>) -> Self {
         use near_vm_compiler::{CpuFeature, Target, Triple};
         let target_features = if cfg!(feature = "no_cpu_compatibility_checks") {
             let mut fs = CpuFeature::set();
@@ -174,7 +172,7 @@ impl NearVM {
             .engine
             .compile_universal(&prepared_code, &self)
             .map_err(|err| {
-                tracing::error!(?err, "near_vm failed to compile the prepared code (this is defense-in-depth, the error was recovered from but should be reported to pagoda)");
+                tracing::error!(?err, "near_vm failed to compile the prepared code (this is defense-in-depth, the error was recovered from but should be reported to the developers)");
                 CompilationError::WasmerCompileError { msg: err.to_string() }
             })?;
         crate::metrics::compilation_duration(VMKind::NearVm, start.elapsed());
@@ -211,81 +209,41 @@ impl NearVM {
         skip_all
     )]
     fn with_compiled_and_loaded(
-        &self,
-        code_hash: CryptoHash,
-        code: Option<&ContractCode>,
+        self: Box<Self>,
         cache: &dyn ContractRuntimeCache,
-        ext: &mut dyn External,
+        ext: &dyn External,
         context: &VMContext,
-        fees_config: &RuntimeFeesConfig,
-        promise_results: &[PromiseResult],
-        method_name: &str,
-        closure: impl FnOnce(VMMemory, VMLogic<'_>, &VMArtifact) -> Result<VMOutcome, VMRunnerError>,
-    ) -> VMResult<VMOutcome> {
+        closure: impl FnOnce(ExecutionResultState, &VMArtifact, Box<Self>) -> VMResult<PreparedContract>,
+    ) -> VMResult<PreparedContract> {
         // (wasm code size, compilation result)
         type MemoryCacheType = (u64, Result<VMArtifact, CompilationError>);
         let to_any = |v: MemoryCacheType| -> Box<dyn std::any::Any + Send> { Box::new(v) };
         // To identify a cache hit from either in-memory and on-disk cache correctly, we first assume that we have a cache hit here,
         // and then we set it to false when we fail to find any entry and decide to compile (by calling compile_and_cache below).
         let mut is_cache_hit = true;
+        let code_hash = ext.code_hash();
         let (wasm_bytes, artifact_result) = cache.memory_cache().try_lookup(
             code_hash,
-            || match code {
-                None => {
-                    // `cache` stores compiled machine code in the database
-                    //
-                    // Caches also cache _compilation_ errors, so that we don't have to
-                    // re-parse invalid code (invalid code, in a sense, is a normal
-                    // outcome). And `cache`, being a database, can fail with an `io::Error`.
-                    let _span =
-                        tracing::debug_span!(target: "vm", "NearVM::fetch_from_cache").entered();
-                    let key = get_contract_cache_key(code_hash, &self.config);
-                    let cache_record = cache.get(&key).map_err(CacheError::ReadError)?;
-                    let Some(code) = cache_record else {
-                        return Err(VMRunnerError::CacheError(CacheError::ReadError(
-                            std::io::Error::from(std::io::ErrorKind::NotFound),
-                        )));
+            || {
+                // `cache` stores compiled machine code in the database
+                //
+                // Caches also cache _compilation_ errors, so that we don't have to
+                // re-parse invalid code (invalid code, in a sense, is a normal
+                // outcome). And `cache`, being a database, can fail with an `io::Error`.
+                let _span =
+                    tracing::debug_span!(target: "vm", "NearVM::fetch_from_cache").entered();
+                let key = get_contract_cache_key(code_hash, &self.config);
+                let cache_record = cache.get(&key).map_err(CacheError::ReadError)?;
+                let Some(compiled_contract_info) = cache_record else {
+                    let Some(code) = ext.get_contract() else {
+                        return Err(VMRunnerError::ContractCodeNotPresent);
                     };
-
-                    match &code.compiled {
-                        CompiledContract::CompileModuleError(err) => {
-                            Ok::<_, VMRunnerError>(to_any((code.wasm_bytes, Err(err.clone()))))
-                        }
-                        CompiledContract::Code(serialized_module) => {
-                            let _span =
-                                tracing::debug_span!(target: "vm", "NearVM::load_from_fs_cache")
-                                    .entered();
-                            unsafe {
-                                // (UN-)SAFETY: the `serialized_module` must have been produced by
-                                // a prior call to `serialize`.
-                                //
-                                // In practice this is not necessarily true. One could have
-                                // forgotten to change the cache key when upgrading the version of
-                                // the near_vm library or the database could have had its data
-                                // corrupted while at rest.
-                                //
-                                // There should definitely be some validation in near_vm to ensure
-                                // we load what we think we load.
-                                let executable =
-                                    UniversalExecutableRef::deserialize(&serialized_module)
-                                        .map_err(|_| CacheError::DeserializationError)?;
-                                let artifact = self
-                                    .engine
-                                    .load_universal_executable_ref(&executable)
-                                    .map(Arc::new)
-                                    .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?;
-                                Ok(to_any((code.wasm_bytes, Ok(artifact))))
-                            }
-                        }
-                    }
-                }
-                Some(code) => {
                     let _span =
                         tracing::debug_span!(target: "vm", "NearVM::build_from_source").entered();
                     is_cache_hit = false;
-                    Ok(to_any((
+                    return Ok(to_any((
                         code.code().len() as u64,
-                        match self.compile_and_cache(code, cache)? {
+                        match self.compile_and_cache(&code, cache)? {
                             Ok(executable) => Ok(self
                                 .engine
                                 .load_universal_executable(&executable)
@@ -293,7 +251,40 @@ impl NearVM {
                                 .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?),
                             Err(err) => Err(err),
                         },
-                    )))
+                    )));
+                };
+
+                match &compiled_contract_info.compiled {
+                    CompiledContract::CompileModuleError(err) => Ok::<_, VMRunnerError>(to_any((
+                        compiled_contract_info.wasm_bytes,
+                        Err(err.clone()),
+                    ))),
+                    CompiledContract::Code(serialized_module) => {
+                        let _span =
+                            tracing::debug_span!(target: "vm", "NearVM::load_from_fs_cache")
+                                .entered();
+                        unsafe {
+                            // (UN-)SAFETY: the `serialized_module` must have been produced by
+                            // a prior call to `serialize`.
+                            //
+                            // In practice this is not necessarily true. One could have
+                            // forgotten to change the cache key when upgrading the version of
+                            // the near_vm library or the database could have had its data
+                            // corrupted while at rest.
+                            //
+                            // There should definitely be some validation in near_vm to ensure
+                            // we load what we think we load.
+                            let executable =
+                                UniversalExecutableRef::deserialize(&serialized_module)
+                                    .map_err(|_| CacheError::DeserializationError)?;
+                            let artifact = self
+                                .engine
+                                .load_universal_executable_ref(&executable)
+                                .map(Arc::new)
+                                .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?;
+                            Ok(to_any((compiled_contract_info.wasm_bytes, Ok(artifact))))
+                        }
+                    }
                 }
             },
             move |value| {
@@ -309,30 +300,23 @@ impl NearVM {
 
         crate::metrics::record_compiled_contract_cache_lookup(is_cache_hit);
 
-        let mut memory = NearVmMemory::new(
-            self.config.limit_config.initial_memory_pages,
-            self.config.limit_config.max_memory_pages,
-        )
-        .expect("Cannot create memory for a contract call");
-        // FIXME: this mostly duplicates the `run_module` method.
-        // Note that we don't clone the actual backing memory, just increase the RC.
-        let vmmemory = memory.vm();
-        let mut logic =
-            VMLogic::new(ext, context, &self.config, fees_config, promise_results, &mut memory);
-
-        let result = logic.before_loading_executable(method_name, wasm_bytes);
+        let mut result_state = ExecutionResultState::new(&context, Arc::clone(&self.config));
+        let result = result_state.before_loading_executable(&context.method, wasm_bytes);
         if let Err(e) = result {
-            return Ok(VMOutcome::abort(logic, e));
+            return Ok(PreparedContract::Outcome(VMOutcome::abort(result_state, e)));
         }
         match artifact_result {
             Ok(artifact) => {
-                let result = logic.after_loading_executable(wasm_bytes);
+                let result = result_state.after_loading_executable(wasm_bytes);
                 if let Err(e) = result {
-                    return Ok(VMOutcome::abort(logic, e));
+                    return Ok(PreparedContract::Outcome(VMOutcome::abort(result_state, e)));
                 }
-                closure(vmmemory, logic, &artifact)
+                closure(result_state, &artifact, self)
             }
-            Err(e) => Ok(VMOutcome::abort(logic, FunctionCallError::CompilationError(e))),
+            Err(e) => Ok(PreparedContract::Outcome(VMOutcome::abort(
+                result_state,
+                FunctionCallError::CompilationError(e),
+            ))),
         }
     }
 
@@ -588,41 +572,37 @@ impl<'a> finite_wasm::wasmparser::VisitOperator<'a> for GasCostCfg {
 }
 
 impl crate::runner::VM for NearVM {
-    fn run(
-        &self,
-        code_hash: CryptoHash,
-        code: Option<&ContractCode>,
-        method_name: &str,
-        ext: &mut dyn External,
+    fn prepare(
+        self: Box<Self>,
+        ext: &dyn External,
         context: &VMContext,
-        fees_config: &RuntimeFeesConfig,
-        promise_results: &[PromiseResult],
         cache: Option<&dyn ContractRuntimeCache>,
-    ) -> Result<VMOutcome, VMRunnerError> {
+    ) -> Box<dyn crate::PreparedContract> {
         let cache = cache.unwrap_or(&NoContractRuntimeCache);
-        self.with_compiled_and_loaded(
-            code_hash,
-            code,
-            cache,
-            ext,
-            context,
-            fees_config,
-            promise_results,
-            method_name,
-            |vmmemory, mut logic, artifact| {
-                let import = build_imports(vmmemory, &mut logic, artifact.engine());
-                let entrypoint = match get_entrypoint_index(&*artifact, method_name) {
+        let prepd =
+            self.with_compiled_and_loaded(cache, ext, context, |result_state, artifact, vm| {
+                let memory = NearVmMemory::new(
+                    vm.config.limit_config.initial_memory_pages,
+                    vm.config.limit_config.max_memory_pages,
+                )
+                .expect("Cannot create memory for a contract call");
+                let entrypoint = match get_entrypoint_index(&*artifact, &context.method) {
                     Ok(index) => index,
                     Err(e) => {
-                        return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(logic, e))
+                        return Ok(PreparedContract::Outcome(
+                            VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, e),
+                        ))
                     }
                 };
-                match self.run_method(&artifact, import, entrypoint)? {
-                    Ok(()) => Ok(VMOutcome::ok(logic)),
-                    Err(err) => Ok(VMOutcome::abort(logic, err)),
-                }
-            },
-        )
+                Ok(PreparedContract::Ready(ReadyContract {
+                    memory,
+                    result_state,
+                    entrypoint,
+                    artifact: Arc::clone(artifact),
+                    vm,
+                }))
+            });
+        Box::new(prepd)
     }
 
     fn precompile(
@@ -639,8 +619,45 @@ impl crate::runner::VM for NearVM {
     }
 }
 
+struct ReadyContract {
+    memory: NearVmMemory,
+    result_state: ExecutionResultState,
+    entrypoint: FunctionIndex,
+    artifact: VMArtifact,
+    vm: Box<NearVM>,
+}
+
+#[allow(clippy::large_enum_variant)]
+enum PreparedContract {
+    Outcome(VMOutcome),
+    Ready(ReadyContract),
+}
+
+impl crate::PreparedContract for VMResult<PreparedContract> {
+    fn run(
+        self: Box<Self>,
+        ext: &mut dyn External,
+        context: &VMContext,
+        fees_config: Arc<RuntimeFeesConfig>,
+    ) -> VMResult {
+        let ReadyContract { memory, result_state, entrypoint, artifact, vm } = match (*self)? {
+            PreparedContract::Outcome(outcome) => return Ok(outcome),
+            PreparedContract::Ready(r) => r,
+        };
+        let config = Arc::clone(&result_state.config);
+        let vmmemory = memory.vm();
+        let mut logic = VMLogic::new(ext, context, fees_config, result_state, memory);
+        let import = build_imports(vmmemory, &mut logic, config, artifact.engine());
+        match vm.run_method(&artifact, import, entrypoint)? {
+            Ok(()) => Ok(VMOutcome::ok(logic.result_state)),
+            Err(err) => Ok(VMOutcome::abort(logic.result_state, err)),
+        }
+    }
+}
+
 pub(crate) struct NearVmImports<'engine, 'vmlogic, 'vmlogic_refs> {
     pub(crate) memory: VMMemory,
+    config: Arc<Config>,
     // Note: this same object is also referenced by the `metadata` field!
     pub(crate) vmlogic: &'vmlogic mut VMLogic<'vmlogic_refs>,
     pub(crate) metadata: Arc<ExportFunctionMetadata>,
@@ -756,7 +773,7 @@ impl<'e, 'l, 'lr> Resolver for NearVmImports<'e, 'l, 'lr> {
                     }
                 };
             }
-        imports::for_each_available_import!(self.vmlogic.config, add_import);
+        imports::for_each_available_import!(self.config, add_import);
         return None;
     }
 }
@@ -764,6 +781,7 @@ impl<'e, 'l, 'lr> Resolver for NearVmImports<'e, 'l, 'lr> {
 pub(crate) fn build_imports<'e, 'a, 'b>(
     memory: VMMemory,
     logic: &'a mut VMLogic<'b>,
+    config: Arc<Config>,
     engine: &'e UniversalEngine,
 ) -> NearVmImports<'e, 'a, 'b> {
     let metadata = unsafe {
@@ -772,7 +790,7 @@ pub(crate) fn build_imports<'e, 'a, 'b>(
         // contains this metadata.
         ExportFunctionMetadata::new(logic as *mut _ as *mut _, None, |ptr| ptr, |_| {})
     };
-    NearVmImports { memory, vmlogic: logic, metadata: Arc::new(metadata), engine }
+    NearVmImports { memory, config, vmlogic: logic, metadata: Arc::new(metadata), engine }
 }
 
 #[cfg(test)]

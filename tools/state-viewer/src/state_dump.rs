@@ -297,7 +297,7 @@ mod test {
     use near_chain::{ChainStoreAccess, Provenance};
     use near_chain_configs::genesis_validate::validate_genesis;
     use near_chain_configs::test_utils::TESTING_INIT_STAKE;
-    use near_chain_configs::{Genesis, GenesisChangeConfig};
+    use near_chain_configs::{Genesis, GenesisChangeConfig, MutableConfigValue};
     use near_client::test_utils::TestEnv;
     use near_client::ProcessTxResponse;
     use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, SecretKey};
@@ -356,10 +356,13 @@ mod test {
                 public_key: PublicKey::empty(KeyType::ED25519),
                 secret_key: SecretKey::from_random(KeyType::ED25519),
             },
-            Some(Arc::new(
-                InMemoryValidatorSigner::from_random("test".parse().unwrap(), KeyType::ED25519)
-                    .into(),
-            )),
+            MutableConfigValue::new(
+                Some(Arc::new(
+                    InMemoryValidatorSigner::from_random("test".parse().unwrap(), KeyType::ED25519)
+                        .into(),
+                )),
+                "validator_signer",
+            ),
         )
         .unwrap();
 
@@ -747,10 +750,13 @@ mod test {
                 public_key: PublicKey::empty(KeyType::ED25519),
                 secret_key: SecretKey::from_random(KeyType::ED25519),
             },
-            Some(Arc::new(
-                InMemoryValidatorSigner::from_random("test".parse().unwrap(), KeyType::ED25519)
-                    .into(),
-            )),
+            MutableConfigValue::new(
+                Some(Arc::new(
+                    InMemoryValidatorSigner::from_random("test".parse().unwrap(), KeyType::ED25519)
+                        .into(),
+                )),
+                "validator_signer",
+            ),
         )
         .unwrap();
 
@@ -816,10 +822,13 @@ mod test {
                 public_key: PublicKey::empty(KeyType::ED25519),
                 secret_key: SecretKey::from_random(KeyType::ED25519),
             },
-            Some(Arc::new(
-                InMemoryValidatorSigner::from_random("test".parse().unwrap(), KeyType::ED25519)
-                    .into(),
-            )),
+            MutableConfigValue::new(
+                Some(Arc::new(
+                    InMemoryValidatorSigner::from_random("test".parse().unwrap(), KeyType::ED25519)
+                        .into(),
+                )),
+                "validator_signer",
+            ),
         )
         .unwrap();
         let head = env.clients[0].chain.head().unwrap();

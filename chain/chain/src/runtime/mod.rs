@@ -36,7 +36,7 @@ use near_primitives::types::{
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, ContractCodeView, QueryRequest, QueryResponse,
-    QueryResponseKind, ViewApplyState, ViewStateResult,
+    QueryResponseKind, ViewStateResult,
 };
 use near_store::config::StateSnapshotType;
 use near_store::flat::FlatStorageManager;
@@ -48,7 +48,7 @@ use near_store::{
 use near_vm_runner::ContractCode;
 use near_vm_runner::{precompile_contract, ContractRuntimeCache, FilesystemContractRuntimeCache};
 use node_runtime::adapter::ViewRuntimeAdapter;
-use node_runtime::state_viewer::TrieViewer;
+use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
     validate_transaction, verify_and_charge_transaction, ApplyState, Runtime,
     ValidatorAccountsUpdate,
@@ -495,7 +495,12 @@ impl NightshadeRuntime {
                 let contract_cache = compiled_contract_cache.as_deref();
                 let slot_sender = slot_sender.clone();
                 scope.spawn(move |_| {
-                    precompile_contract(&code, &runtime_config.wasm_config, contract_cache).ok();
+                    precompile_contract(
+                        &code,
+                        Arc::clone(&runtime_config.wasm_config),
+                        contract_cache,
+                    )
+                    .ok();
                     // If this fails, it just means there won't be any more attempts to recv the
                     // slots
                     let _ = slot_sender.send(());
@@ -1298,6 +1303,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
+    fn get_runtime_config(
+        &self,
+        protocol_version: ProtocolVersion,
+    ) -> Result<RuntimeConfig, Error> {
+        let runtime_config = self.runtime_config_store.get_config(protocol_version);
+        Ok(runtime_config.as_ref().clone())
+    }
+
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
         let mut genesis_config = self.genesis_config.clone();
@@ -1453,11 +1466,11 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             block_height: height,
             prev_block_hash: *prev_block_hash,
             block_hash: *block_hash,
-            epoch_id: epoch_id.clone(),
+            epoch_id: *epoch_id,
             epoch_height,
             block_timestamp,
             current_protocol_version,
-            cache: Some(Box::new(self.compiled_contract_cache.handle())),
+            cache: Some(self.compiled_contract_cache.handle()),
         };
         self.trie_viewer.call_function(
             state_update,

@@ -1,7 +1,6 @@
 use crate::flat::{
     store_helper, BlockInfo, FlatStorageReadyStatus, FlatStorageStatus, POISONED_LOCK_ERR,
 };
-use near_primitives::block::Block;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
@@ -10,7 +9,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tracing::debug;
 
-use crate::{get_genesis_hash, Store, StoreUpdate};
+use crate::{Store, StoreUpdate};
 
 use super::chunk_view::FlatStorageChunkView;
 use super::{
@@ -87,24 +86,18 @@ impl FlatStorageManager {
     }
 
     /// Update flat storage for given processed or caught up block, which includes:
-    /// - merge deltas from current flat storage head to new one;
-    /// - update flat storage head to the hash of final block visible from given one;
+    /// - merge deltas from current flat storage head to new one given in
+    /// `new_flat_head`;
+    /// - update flat storage head to the new one;
     /// - remove info about unreachable blocks from memory.
     pub fn update_flat_storage_for_shard(
         &self,
         shard_uid: ShardUId,
-        block: &Block,
+        new_flat_head: CryptoHash,
     ) -> Result<(), StorageError> {
         if let Some(flat_storage) = self.get_flat_storage_for_shard(shard_uid) {
-            let mut new_flat_head = *block.header().last_final_block();
-            if new_flat_head == CryptoHash::default() {
-                let genesis_hash = get_genesis_hash(&self.0.store)
-                    .map_err(|e| FlatStorageError::StorageInternalError(e.to_string()))?
-                    .expect("Genesis hash must exist. Consider initialization.");
-                new_flat_head = genesis_hash;
-            }
             // Try to update flat head.
-            flat_storage.update_flat_head(&new_flat_head, false).unwrap_or_else(|err| {
+            flat_storage.update_flat_head(&new_flat_head).unwrap_or_else(|err| {
                 match &err {
                     FlatStorageError::BlockNotSupported(_) => {
                         // It's possible that new head is not a child of current flat head, e.g. when we have a
@@ -122,7 +115,6 @@ impl FlatStorageManager {
                             ?new_flat_head,
                             ?err,
                             ?shard_uid,
-                            block_hash = ?block.header().hash(),
                             "Cannot update flat head");
                     }
                     _ => {
@@ -132,7 +124,7 @@ impl FlatStorageManager {
                 }
             });
         } else {
-            tracing::debug!(target: "store", ?shard_uid, block_height=?block.header().height(), "No flat storage!!!");
+            tracing::debug!(target: "store", ?shard_uid, ?new_flat_head, "No flat storage!!!");
         }
         Ok(())
     }

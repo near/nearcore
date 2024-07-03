@@ -1,3 +1,4 @@
+use crate::config::SocketOptions;
 use crate::network_protocol::{
     Encoding, Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash,
     PeerMessage, Ping, Pong, RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate,
@@ -238,9 +239,13 @@ impl Connection {
         let my_peer_id = PeerId::new(secret_key.public_key());
 
         let start = Instant::now();
-        let stream = tcp::Stream::connect(&PeerInfo::new(peer_id.clone(), addr), tcp::Tier::T2)
-            .await
-            .map_err(ConnectError::TcpConnect)?;
+        let stream = tcp::Stream::connect(
+            &PeerInfo::new(peer_id.clone(), addr),
+            tcp::Tier::T2,
+            &SocketOptions::default(),
+        )
+        .await
+        .map_err(ConnectError::TcpConnect)?;
         tracing::info!(
             target: "network",
             %peer_id, ?addr, latency=?start.elapsed(), "Connection established",

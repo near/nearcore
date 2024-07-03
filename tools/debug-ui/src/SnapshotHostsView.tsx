@@ -19,7 +19,7 @@ export const SnapshotHostsView = ({ addr }: SnapshotHostsViewProps) => {
         return <div className="error">{(error as Error).stack}</div>;
     }
 
-    let snapshot_hosts = snapshotHosts!.status_response.SnapshotHosts.hosts;
+    const snapshot_hosts = snapshotHosts!.status_response.SnapshotHosts.hosts;
     snapshot_hosts.sort((a, b) => {
         if (a.epoch_height != b.epoch_height) {
             return b.epoch_height - a.epoch_height;

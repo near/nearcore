@@ -40,7 +40,7 @@ impl EpochManager {
         let epoch_info = self.get_epoch_info(epoch_id)?;
         let validator_id = *epoch_info
             .get_validator_id(account_id)
-            .ok_or_else(|| EpochError::NotAValidator(account_id.clone(), epoch_id.clone()))?;
+            .ok_or_else(|| EpochError::NotAValidator(account_id.clone(), *epoch_id))?;
         let aggregator = self.get_epoch_info_aggregator_upto_last(last_known_block_hash)?;
         Ok(aggregator
             .block_tracker
@@ -2848,7 +2848,7 @@ fn test_verify_chunk_endorsements() {
     let err =
         epoch_manager.verify_chunk_endorsement(&chunk_header, &chunk_endorsement).unwrap_err();
     match err {
-        Error::NotAValidator => (),
+        Error::NotAValidator(_) => (),
         _ => assert!(false, "Expected NotAValidator error but got {:?}", err),
     }
 }
@@ -2886,7 +2886,7 @@ fn test_verify_partial_witness_signature() {
     // Build a chunk state witness with arbitrary data.
     let chunk_header = test_chunk_header(&h, signer.as_ref());
     let mut partial_witness = PartialEncodedStateWitness::new(
-        epoch_id.clone(),
+        epoch_id,
         chunk_header.clone(),
         0,
         "witness".bytes().collect(),
@@ -2945,8 +2945,8 @@ fn test_possible_epochs_of_height_around_tip() {
         height: genesis_height,
         last_block_hash: h[0],
         prev_block_hash: CryptoHash::default(),
-        epoch_id: genesis_epoch.clone(),
-        next_epoch_id: genesis_epoch.clone(),
+        epoch_id: genesis_epoch,
+        next_epoch_id: genesis_epoch,
     };
 
     assert_eq!(
@@ -2961,17 +2961,17 @@ fn test_possible_epochs_of_height_around_tip() {
     );
     assert_eq!(
         epoch_manager.possible_epochs_of_height_around_tip(&genesis_tip, genesis_height).unwrap(),
-        vec![genesis_epoch.clone()]
+        vec![genesis_epoch]
     );
     assert_eq!(
         epoch_manager
             .possible_epochs_of_height_around_tip(&genesis_tip, genesis_height + 1)
             .unwrap(),
-        vec![genesis_epoch.clone()]
+        vec![genesis_epoch]
     );
     assert_eq!(
         epoch_manager.possible_epochs_of_height_around_tip(&genesis_tip, 10000000).unwrap(),
-        vec![genesis_epoch.clone()]
+        vec![genesis_epoch]
     );
 
     let epoch1 = EpochId(h[0]);
@@ -2986,33 +2986,33 @@ fn test_possible_epochs_of_height_around_tip() {
             height,
             last_block_hash: h[i],
             prev_block_hash: h[i - 1],
-            epoch_id: genesis_epoch.clone(),
-            next_epoch_id: epoch1.clone(),
+            epoch_id: genesis_epoch,
+            next_epoch_id: epoch1,
         };
         assert_eq!(epoch_manager.possible_epochs_of_height_around_tip(&tip, 0).unwrap(), vec![]);
         assert_eq!(
             epoch_manager.possible_epochs_of_height_around_tip(&tip, genesis_height).unwrap(),
-            vec![genesis_epoch.clone()]
+            vec![genesis_epoch]
         );
         assert_eq!(
             epoch_manager.possible_epochs_of_height_around_tip(&tip, genesis_height + 1).unwrap(),
-            vec![genesis_epoch.clone()]
+            vec![genesis_epoch]
         );
         for h in 1..=5 {
             assert_eq!(
                 epoch_manager
                     .possible_epochs_of_height_around_tip(&tip, genesis_height + h as BlockHeight)
                     .unwrap(),
-                vec![genesis_epoch.clone()]
+                vec![genesis_epoch]
             );
         }
         assert_eq!(
             epoch_manager.possible_epochs_of_height_around_tip(&tip, genesis_height + 6).unwrap(),
-            vec![genesis_epoch.clone(), epoch1.clone()]
+            vec![genesis_epoch, epoch1]
         );
         assert_eq!(
             epoch_manager.possible_epochs_of_height_around_tip(&tip, 1000000).unwrap(),
-            vec![genesis_epoch.clone(), epoch1.clone()]
+            vec![genesis_epoch, epoch1]
         );
     }
 
@@ -3028,8 +3028,8 @@ fn test_possible_epochs_of_height_around_tip() {
             height,
             last_block_hash: h[i],
             prev_block_hash: h[i - 1],
-            epoch_id: epoch1.clone(),
-            next_epoch_id: epoch2.clone(),
+            epoch_id: epoch1,
+            next_epoch_id: epoch2,
         };
         assert_eq!(epoch_manager.possible_epochs_of_height_around_tip(&tip, 0).unwrap(), vec![]);
         assert_eq!(
@@ -3041,7 +3041,7 @@ fn test_possible_epochs_of_height_around_tip() {
                 epoch_manager
                     .possible_epochs_of_height_around_tip(&tip, genesis_height + h)
                     .unwrap(),
-                vec![genesis_epoch.clone()]
+                vec![genesis_epoch]
             );
         }
         for h in 6..=10 {
@@ -3049,16 +3049,16 @@ fn test_possible_epochs_of_height_around_tip() {
                 epoch_manager
                     .possible_epochs_of_height_around_tip(&tip, genesis_height + h as BlockHeight)
                     .unwrap(),
-                vec![epoch1.clone()]
+                vec![epoch1]
             );
         }
         assert_eq!(
             epoch_manager.possible_epochs_of_height_around_tip(&tip, genesis_height + 11).unwrap(),
-            vec![epoch1.clone(), epoch2.clone()]
+            vec![epoch1, epoch2]
         );
         assert_eq!(
             epoch_manager.possible_epochs_of_height_around_tip(&tip, 1000000).unwrap(),
-            vec![epoch1.clone(), epoch2.clone()]
+            vec![epoch1, epoch2]
         );
     }
 
@@ -3088,8 +3088,8 @@ fn test_possible_epochs_of_height_around_tip() {
             height,
             last_block_hash: h[i],
             prev_block_hash: h[i - 2],
-            epoch_id: epoch2.clone(),
-            next_epoch_id: epoch3.clone(),
+            epoch_id: epoch2,
+            next_epoch_id: epoch3,
         };
         for h in 0..=5 {
             assert_eq!(
@@ -3104,7 +3104,7 @@ fn test_possible_epochs_of_height_around_tip() {
                 epoch_manager
                     .possible_epochs_of_height_around_tip(&tip, genesis_height + h)
                     .unwrap(),
-                vec![epoch1.clone()]
+                vec![epoch1]
             );
         }
         // Block 11 isn't in any epoch. Block 10 was the last of the previous epoch and block 12
@@ -3118,7 +3118,7 @@ fn test_possible_epochs_of_height_around_tip() {
                 epoch_manager
                     .possible_epochs_of_height_around_tip(&tip, genesis_height + h)
                     .unwrap(),
-                vec![epoch2.clone()]
+                vec![epoch2]
             );
         }
         for h in 17..=24 {
@@ -3126,7 +3126,7 @@ fn test_possible_epochs_of_height_around_tip() {
                 epoch_manager
                     .possible_epochs_of_height_around_tip(&tip, genesis_height + h)
                     .unwrap(),
-                vec![epoch2.clone(), epoch3.clone()]
+                vec![epoch2, epoch3]
             );
         }
     }
@@ -3151,8 +3151,8 @@ fn test_possible_epochs_of_height_around_tip() {
             height,
             last_block_hash: h[i],
             prev_block_hash: h[i - 1],
-            epoch_id: epoch2.clone(),
-            next_epoch_id: epoch3.clone(),
+            epoch_id: epoch2,
+            next_epoch_id: epoch3,
         };
         for h in 0..=5 {
             assert_eq!(
@@ -3167,7 +3167,7 @@ fn test_possible_epochs_of_height_around_tip() {
                 epoch_manager
                     .possible_epochs_of_height_around_tip(&tip, genesis_height + h)
                     .unwrap(),
-                vec![epoch1.clone()]
+                vec![epoch1]
             );
         }
         // Block 11 isn't in any epoch. Block 10 was the last of the previous epoch and block 12
@@ -3181,7 +3181,7 @@ fn test_possible_epochs_of_height_around_tip() {
                 epoch_manager
                     .possible_epochs_of_height_around_tip(&tip, genesis_height + h)
                     .unwrap(),
-                vec![epoch2.clone()]
+                vec![epoch2]
             );
         }
         for h in 17..=26 {
@@ -3189,7 +3189,7 @@ fn test_possible_epochs_of_height_around_tip() {
                 epoch_manager
                     .possible_epochs_of_height_around_tip(&tip, genesis_height + h)
                     .unwrap(),
-                vec![epoch2.clone(), epoch3.clone()]
+                vec![epoch2, epoch3]
             );
         }
     }
@@ -3204,8 +3204,8 @@ fn test_possible_epochs_of_height_around_tip() {
             height,
             last_block_hash: h[i],
             prev_block_hash: h[i - 1],
-            epoch_id: epoch3.clone(),
-            next_epoch_id: epoch4.clone(),
+            epoch_id: epoch3,
+            next_epoch_id: epoch4,
         };
         assert_eq!(epoch_manager.possible_epochs_of_height_around_tip(&tip, 0).unwrap(), vec![]);
         for h in 0..=11 {
@@ -3221,7 +3221,7 @@ fn test_possible_epochs_of_height_around_tip() {
                 epoch_manager
                     .possible_epochs_of_height_around_tip(&tip, genesis_height + h)
                     .unwrap(),
-                vec![epoch2.clone()]
+                vec![epoch2]
             );
         }
         for h in 27..=31 {
@@ -3229,7 +3229,7 @@ fn test_possible_epochs_of_height_around_tip() {
                 epoch_manager
                     .possible_epochs_of_height_around_tip(&tip, genesis_height + h)
                     .unwrap(),
-                vec![epoch3.clone()]
+                vec![epoch3]
             );
         }
         for h in 32..40 {
@@ -3237,7 +3237,7 @@ fn test_possible_epochs_of_height_around_tip() {
                 epoch_manager
                     .possible_epochs_of_height_around_tip(&tip, genesis_height + h)
                     .unwrap(),
-                vec![epoch3.clone(), epoch4.clone()]
+                vec![epoch3, epoch4]
             );
         }
     }

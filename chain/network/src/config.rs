@@ -3,12 +3,15 @@ use crate::concurrency::rate;
 use crate::network_protocol::PeerAddr;
 use crate::network_protocol::PeerInfo;
 use crate::peer_manager::peer_store;
+use crate::rate_limits::messages_limits;
 use crate::snapshot_hosts;
 use crate::stun;
 use crate::tcp;
 use crate::types::ROUTED_MESSAGE_TTL;
 use anyhow::Context;
 use near_async::time;
+use near_chain_configs::MutableConfigValue;
+use near_chain_configs::MutableValidatorSigner;
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
@@ -56,13 +59,26 @@ pub enum ValidatorProxies {
 
 #[derive(Clone)]
 pub struct ValidatorConfig {
-    pub signer: Arc<ValidatorSigner>,
+    /// Contains signer key for this node. This field is mutable and optional. Use with caution!
+    /// Lock the value of mutable validator signer for the duration of a request to ensure consistency.
+    /// Please note that the locked value should not be stored anywhere or passed through the thread boundary.
+    pub signer: MutableValidatorSigner,
     pub proxies: ValidatorProxies,
 }
 
+/// A snapshot of ValidatorConfig. Use to freeze the value of the mutable validator signer field.
+pub struct FrozenValidatorConfig<'a> {
+    pub signer: Option<Arc<ValidatorSigner>>,
+    pub proxies: &'a ValidatorProxies,
+}
+
 impl ValidatorConfig {
-    pub fn account_id(&self) -> AccountId {
-        self.signer.validator_id().clone()
+    pub fn account_id(&self) -> Option<AccountId> {
+        self.signer.get().map(|s| s.validator_id().clone())
+    }
+
+    pub fn frozen_view(&self) -> FrozenValidatorConfig {
+        FrozenValidatorConfig { signer: self.signer.get(), proxies: &self.proxies }
     }
 }
 
@@ -87,12 +103,24 @@ pub struct Tier1 {
     pub enable_outbound: bool,
 }
 
+#[derive(Clone)]
+pub struct SocketOptions {
+    pub recv_buffer_size: Option<u32>,
+    pub send_buffer_size: Option<u32>,
+}
+
+impl SocketOptions {
+    pub fn default() -> SocketOptions {
+        SocketOptions { recv_buffer_size: None, send_buffer_size: None }
+    }
+}
+
 /// Validated configuration for the peer-to-peer manager.
 #[derive(Clone)]
 pub struct NetworkConfig {
     pub node_addr: Option<tcp::ListenerAddr>,
     pub node_key: SecretKey,
-    pub validator: Option<ValidatorConfig>,
+    pub validator: ValidatorConfig,
 
     pub peer_store: peer_store::Config,
     pub snapshot_hosts: snapshot_hosts::Config,
@@ -112,6 +140,8 @@ pub struct NetworkConfig {
     pub ideal_connections_lo: u32,
     /// Upper bound of the ideal number of connections.
     pub ideal_connections_hi: u32,
+    /// Socket options for peer connections.
+    pub socket_options: SocketOptions,
     /// Peers which last message is was within this period of time are considered active recent peers.
     pub peer_recent_time_window: time::Duration,
     /// Number of peers to keep while removing a connection.
@@ -163,6 +193,9 @@ pub struct NetworkConfig {
     //   * ignoring received deleted edges as well
     pub skip_tombstones: Option<time::Duration>,
 
+    /// Configuration of rate limits for incoming messages.
+    pub received_messages_rate_limits: messages_limits::Config,
+
     #[cfg(test)]
     pub(crate) event_sink:
         near_async::messaging::Sender<crate::peer_manager::peer_manager_actor::Event>,
@@ -208,12 +241,15 @@ impl NetworkConfig {
         ) {
             self.routing_table_update_rate_limit = rate::Limit { qps, burst }
         }
+        if let Some(rate_limits) = overrides.received_messages_rate_limits {
+            self.received_messages_rate_limits.apply_overrides(rate_limits);
+        }
     }
 
     pub fn new(
         cfg: crate::config_json::Config,
         node_key: SecretKey,
-        validator_signer: Option<Arc<ValidatorSigner>>,
+        validator_signer: MutableValidatorSigner,
         archive: bool,
     ) -> anyhow::Result<Self> {
         if cfg.public_addrs.len() > MAX_PEER_ADDRS {
@@ -249,14 +285,14 @@ impl NetworkConfig {
         }
         let mut this = Self {
             node_key,
-            validator: validator_signer.map(|signer| ValidatorConfig {
-                signer,
+            validator: ValidatorConfig {
+                signer: validator_signer,
                 proxies: if !cfg.public_addrs.is_empty() {
                     ValidatorProxies::Static(cfg.public_addrs)
                 } else {
                     ValidatorProxies::Dynamic(cfg.trusted_stun_servers)
                 },
-            }),
+            },
             node_addr: match cfg.addr.as_str() {
                 "" => None,
                 addr => Some(tcp::ListenerAddr::new(
@@ -310,6 +346,10 @@ impl NetworkConfig {
             minimum_outbound_peers: cfg.minimum_outbound_peers,
             ideal_connections_lo: cfg.ideal_connections_lo,
             ideal_connections_hi: cfg.ideal_connections_hi,
+            socket_options: SocketOptions {
+                recv_buffer_size: cfg.so_recv_buffer_size,
+                send_buffer_size: cfg.so_send_buffer_size,
+            },
             peer_recent_time_window: cfg.peer_recent_time_window.try_into()?,
             safe_set_size: cfg.safe_set_size,
             archival_peer_connections_lower_bound: cfg.archival_peer_connections_lower_bound,
@@ -338,6 +378,8 @@ impl NetworkConfig {
             } else {
                 None
             },
+            // Use a preset to configure rate limits and override entries with user defined values later.
+            received_messages_rate_limits: messages_limits::Config::standard_preset(),
             #[cfg(test)]
             event_sink: near_async::messaging::IntoSender::into_sender(
                 near_async::messaging::noop(),
@@ -355,7 +397,10 @@ impl NetworkConfig {
     pub fn from_seed(seed: &str, node_addr: tcp::ListenerAddr) -> Self {
         let node_key = SecretKey::from_seed(KeyType::ED25519, seed);
         let validator = ValidatorConfig {
-            signer: Arc::new(create_test_signer(seed)),
+            signer: MutableConfigValue::new(
+                Some(Arc::new(create_test_signer(seed))),
+                "validator_signer",
+            ),
             proxies: ValidatorProxies::Static(vec![PeerAddr {
                 addr: *node_addr,
                 peer_id: PeerId::new(node_key.public_key()),
@@ -364,7 +409,7 @@ impl NetworkConfig {
         NetworkConfig {
             node_addr: Some(node_addr),
             node_key,
-            validator: Some(validator),
+            validator,
             peer_store: peer_store::Config {
                 boot_nodes: vec![],
                 blacklist: blacklist::Blacklist::default(),
@@ -385,6 +430,7 @@ impl NetworkConfig {
             minimum_outbound_peers: 5,
             ideal_connections_lo: 30,
             ideal_connections_hi: 35,
+            socket_options: SocketOptions { recv_buffer_size: None, send_buffer_size: None },
             peer_recent_time_window: time::Duration::seconds(600),
             safe_set_size: 20,
             archival_peer_connections_lower_bound: 10,
@@ -411,6 +457,7 @@ impl NetworkConfig {
                 enable_outbound: true,
             }),
             skip_tombstones: None,
+            received_messages_rate_limits: messages_limits::Config::default(),
             #[cfg(test)]
             event_sink: near_async::messaging::IntoSender::into_sender(
                 near_async::messaging::noop(),
@@ -463,6 +510,11 @@ impl NetworkConfig {
         self.routing_table_update_rate_limit
             .validate()
             .context("routing_table_update_rate_limit")?;
+
+        if let Err(err) = self.received_messages_rate_limits.validate() {
+            anyhow::bail!("One or more invalid rate limits: {err:?}");
+        }
+
         Ok(VerifiedConfig { node_id: self.node_id(), inner: self })
     }
 }
@@ -501,6 +553,9 @@ mod test {
     use crate::network_protocol;
     use crate::network_protocol::testonly as data;
     use crate::network_protocol::{AccountData, VersionedAccountData};
+    use crate::rate_limits::messages_limits::{
+        RateLimitedPeerMessageKey::BlockHeaders, SingleMessageConfig,
+    };
     use crate::tcp;
     use crate::testonly::make_rng;
     use near_async::time;
@@ -638,5 +693,20 @@ mod test {
         };
         let sad = ad.sign(&signer.into()).unwrap();
         assert!(sad.payload().len() <= network_protocol::MAX_ACCOUNT_DATA_SIZE_BYTES);
+    }
+
+    #[test]
+    fn received_messages_rate_limits_error() {
+        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
+        nc.received_messages_rate_limits
+            .rate_limits
+            .insert(BlockHeaders, SingleMessageConfig::new(1, -4.0, None));
+        assert!(nc.verify().is_err());
+
+        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
+        nc.received_messages_rate_limits
+            .rate_limits
+            .insert(BlockHeaders, SingleMessageConfig::new(1, 4.0, None));
+        assert!(nc.verify().is_ok());
     }
 }

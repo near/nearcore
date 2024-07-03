@@ -60,8 +60,15 @@ def test_protocol_versions() -> None:
     logger.info(f'Got protocol {test_proto} in testnet release {test_release}.')
     logger.info(f'Got protocol {head_proto} on master branch.')
 
-    ok = (head_proto in (test_proto, test_proto + 1) and
-          test_proto in (main_proto, main_proto + 1))
+    if head_proto == 69:
+        # In the congestion control and stateless validation release allow
+        # increasing the protocol version by 2.
+        ok = (head_proto in (test_proto, test_proto + 1, test_proto + 2) and
+              test_proto in (main_proto, main_proto + 1, main_proto + 2))
+    else:
+        # Otherwise only allow increasing the protocol version by 1.
+        ok = (head_proto in (test_proto, test_proto + 1) and
+              test_proto in (main_proto, main_proto + 1))
     assert ok, ('If changed, protocol version of a new release can increase by '
                 'at most one.')
 

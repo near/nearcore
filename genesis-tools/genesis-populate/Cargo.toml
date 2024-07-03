@@ -18,7 +18,7 @@ indicatif.workspace = true
 tempfile.workspace = true
 
 nearcore.workspace = true
-near-async.workspace = true
+near-time.workspace = true
 near-chain-configs.workspace = true
 near-crypto.workspace = true
 near-epoch-manager.workspace = true
@@ -27,10 +27,10 @@ near-store.workspace = true
 near-chain.workspace = true
 near-test-contracts.workspace = true
 near-vm-runner.workspace = true
+node-runtime.workspace = true
 
 [features]
 nightly_protocol = [
-  "near-async/nightly_protocol",
   "near-chain-configs/nightly_protocol",
   "near-chain/nightly_protocol",
   "near-epoch-manager/nightly_protocol",
@@ -38,9 +38,9 @@ nightly_protocol = [
   "near-store/nightly_protocol",
   "near-vm-runner/nightly_protocol",
   "nearcore/nightly_protocol",
+  "node-runtime/nightly_protocol",
 ]
 nightly = [
-  "near-async/nightly",
   "near-chain-configs/nightly",
   "near-chain/nightly",
   "near-epoch-manager/nightly",
@@ -49,4 +49,5 @@ nightly = [
   "near-vm-runner/nightly",
   "nearcore/nightly",
   "nightly_protocol",
+  "node-runtime/nightly",
 ]

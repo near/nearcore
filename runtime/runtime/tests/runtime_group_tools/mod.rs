@@ -55,11 +55,13 @@ impl StandaloneRuntime {
         validators: Vec<AccountInfo>,
     ) -> Self {
         let mut runtime_config = random_config();
+        let wasm_config = Arc::make_mut(&mut runtime_config.wasm_config);
         // Bumping costs to avoid inflation overflows.
-        runtime_config.wasm_config.limit_config.max_total_prepaid_gas = 10u64.pow(15);
-        runtime_config.fees.action_fees[ActionCosts::new_action_receipt].execution =
+        wasm_config.limit_config.max_total_prepaid_gas = 10u64.pow(15);
+        let fees = Arc::make_mut(&mut runtime_config.fees);
+        fees.action_fees[ActionCosts::new_action_receipt].execution =
             runtime_config.wasm_config.limit_config.max_total_prepaid_gas / 64;
-        runtime_config.fees.action_fees[ActionCosts::new_data_receipt_base].execution =
+        fees.action_fees[ActionCosts::new_data_receipt_base].execution =
             runtime_config.wasm_config.limit_config.max_total_prepaid_gas / 64;
 
         let runtime = Runtime::new();

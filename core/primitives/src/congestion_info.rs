@@ -3,10 +3,7 @@ use std::collections::BTreeMap;
 use crate::errors::RuntimeError;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_parameters::config::CongestionControlConfig;
-use near_primitives_core::{
-    types::{Gas, ProtocolVersion, ShardId},
-    version::ProtocolFeature,
-};
+use near_primitives_core::types::{Gas, ShardId};
 
 /// This class combines the congestion control config, congestion info and
 /// missed chunks count. It contains the main congestion control logic and
@@ -153,23 +150,13 @@ impl CongestionInfo {
     // information from the chunk extra.
     //
     // TODO(congestion_control) validate allowed shard
-    pub fn validate_extra_and_header(
-        extra_protocol_version: ProtocolVersion,
-        extra: &CongestionInfo,
-        header: &CongestionInfo,
-    ) -> bool {
+    pub fn validate_extra_and_header(extra: &CongestionInfo, header: &CongestionInfo) -> bool {
         match (extra, header) {
             (CongestionInfo::V1(extra), CongestionInfo::V1(header)) => {
-                let correct_allowed_shard =
-                    if ProtocolFeature::CongestionControl.enabled(extra_protocol_version) {
-                        extra.allowed_shard == header.allowed_shard
-                    } else {
-                        true
-                    };
                 extra.delayed_receipts_gas == header.delayed_receipts_gas
                     && extra.buffered_receipts_gas == header.buffered_receipts_gas
                     && extra.receipt_bytes == header.receipt_bytes
-                    && correct_allowed_shard
+                    && extra.allowed_shard == header.allowed_shard
             }
         }
     }

@@ -352,12 +352,14 @@ impl TestReshardingEnv {
             // because we want to call run_catchup before finish processing this block. This simulates
             // that catchup and block processing run in parallel.
             let block = MaybeValidated::from(block.clone());
-            client.start_process_block(block, Provenance::NONE, None).unwrap();
+            let signer = client.validator_signer.get();
+            client.start_process_block(block, Provenance::NONE, None, &signer).unwrap();
             if should_catchup {
                 run_catchup(client, &[])?;
             }
             while wait_for_all_blocks_in_processing(&mut client.chain) {
-                let (_, errors) = client.postprocess_ready_blocks(None, should_produce_chunk);
+                let (_, errors) =
+                    client.postprocess_ready_blocks(None, should_produce_chunk, &signer);
                 assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
             }
             // manually invoke gc
@@ -588,53 +590,6 @@ impl TestReshardingEnv {
         }
 
         successful_txs
-    }
-
-    // Check the receipt_id_to_shard_id mappings are correct for all outgoing receipts in the
-    // latest block
-    fn check_receipt_id_to_shard_id(&mut self) {
-        let env = &mut self.env;
-        let head = env.clients[0].chain.head().unwrap();
-        let shard_layout = env.clients[0]
-            .epoch_manager
-            .get_shard_layout_from_prev_block(&head.last_block_hash)
-            .unwrap();
-        let block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
-
-        for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
-            if chunk_header.height_included() != block.header().height() {
-                continue;
-            }
-            let shard_id = shard_id as ShardId;
-
-            for (i, me) in env.validators.iter().enumerate() {
-                let client = &mut env.clients[i];
-                let care_about_shard = client.shard_tracker.care_about_shard(
-                    Some(me),
-                    &head.prev_block_hash,
-                    shard_id,
-                    true,
-                );
-                if !care_about_shard {
-                    continue;
-                }
-
-                let outgoing_receipts = client
-                    .chain
-                    .mut_chain_store()
-                    .get_outgoing_receipts(&head.last_block_hash, shard_id)
-                    .unwrap()
-                    .clone();
-                for receipt in outgoing_receipts.iter() {
-                    let target_shard_id =
-                        client.chain.get_shard_id_for_receipt_id(receipt.receipt_id()).unwrap();
-                    assert_eq!(
-                        target_shard_id,
-                        account_id_to_shard_id(receipt.receiver_id(), &shard_layout)
-                    );
-                }
-            }
-        }
     }
 
     /// Check that after resharding is finished, the artifacts stored in storage is removed
@@ -1040,7 +995,6 @@ fn test_shard_layout_upgrade_simple_impl(
     let drop_chunk_condition = DropChunkCondition::new();
     for _ in 1..4 * epoch_length {
         test_env.step(&drop_chunk_condition, target_protocol_version);
-        test_env.check_receipt_id_to_shard_id();
         test_env.check_snapshot(state_snapshot_enabled);
     }
 
@@ -1489,7 +1443,6 @@ fn test_shard_layout_upgrade_cross_contract_calls_impl(
     let drop_chunk_condition = DropChunkCondition::new();
     for _ in 1..5 * epoch_length {
         test_env.step(&drop_chunk_condition, target_protocol_version);
-        test_env.check_receipt_id_to_shard_id();
     }
 
     let successful_txs = test_env.check_tx_outcomes(false);
@@ -1706,7 +1659,6 @@ fn test_shard_layout_upgrade_promise_yield_impl(resharding_type: ReshardingType,
     let drop_chunk_condition = DropChunkCondition::new();
     for _ in 1..5 * epoch_length {
         test_env.step(&drop_chunk_condition, target_protocol_version);
-        test_env.check_receipt_id_to_shard_id();
     }
 
     let tx_outcomes = test_env.check_tx_outcomes(false);
@@ -1763,7 +1715,6 @@ fn test_shard_layout_upgrade_incoming_receipts_impl(
     let drop_chunk_condition = DropChunkCondition::with_by_height_shard_id(by_height_shard_id);
     for _ in 1..5 * epoch_length {
         test_env.step(&drop_chunk_condition, target_protocol_version);
-        test_env.check_receipt_id_to_shard_id();
     }
 
     let successful_txs = test_env.check_tx_outcomes(false);
@@ -1868,7 +1819,6 @@ fn test_missing_chunks(
         for height in last_height - 3..=last_height {
             test_env.check_next_block_with_new_chunk(height);
         }
-        test_env.check_receipt_id_to_shard_id();
     }
 
     // make sure all included transactions finished processing
@@ -1879,7 +1829,6 @@ fn test_missing_chunks(
         for height in last_height - 3..=last_height {
             test_env.check_next_block_with_new_chunk(height);
         }
-        test_env.check_receipt_id_to_shard_id();
     }
 
     let successful_txs = test_env.check_tx_outcomes(true);

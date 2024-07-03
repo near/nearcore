@@ -1,4 +1,5 @@
 use crate::commands::*;
+use crate::congestion_control::CongestionControlCmd;
 use crate::contract_accounts::ContractAccountFilter;
 use crate::rocksdb_stats::get_rocksdb_stats;
 use crate::trie_iteration_benchmark::TrieIterationBenchmarkCmd;
@@ -111,6 +112,10 @@ pub enum StateViewerSubCommand {
     /// `validate` command.
     #[clap(subcommand)]
     StateWitness(StateWitnessCmd),
+
+    /// Tools for printing and recalculating the congestion information.
+    #[clap(subcommand)]
+    CongestionControl(CongestionControlCmd),
 }
 
 impl StateViewerSubCommand {
@@ -170,6 +175,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
             StateViewerSubCommand::TrieIterationBenchmark(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::StateWitness(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::CongestionControl(cmd) => cmd.run(home_dir, near_config, store),
         }
     }
 }

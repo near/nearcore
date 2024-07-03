@@ -160,11 +160,6 @@ pub enum ProtocolFeature {
     PerReceiptHardStorageProofLimit,
     /// Cross-shard congestion control according to <https://github.com/near/NEPs/pull/539>.
     CongestionControl,
-    /// The allowed shard validation for congestion control. This is only needed
-    /// for statelessnet where it's released separately from the main
-    /// CongestionControl feature.
-    /// TODO(congestion_control) - remove it on stabilization
-    CongestionControlAllowedShardValidation,
     // Stateless validation: Distribute state witness as reed solomon encoded parts
     PartialEncodedStateWitness,
     /// Size limits for transactions included in a ChunkStateWitness.
@@ -173,6 +168,12 @@ pub enum ProtocolFeature {
     OutgoingReceiptsSizeLimit,
     /// No chunk-only producers in stateless validation
     NoChunkOnlyProducers,
+    /// Decrease the ratio of data parts in the Reed Solomon encoding for partial witness distribution.
+    ChangePartialWitnessDataPartsRequired,
+    /// Increase the `combined_transactions_size_limit` to 4MiB to allow higher throughput.
+    BiggerCombinedTransactionLimit,
+    /// Increase gas cost of sending receipt to another account to 50 TGas / MiB
+    HigherSendingCost,
 }
 
 impl ProtocolFeature {
@@ -222,24 +223,27 @@ impl ProtocolFeature {
             ProtocolFeature::SimpleNightshadeV3 => 65,
             ProtocolFeature::DecreaseFunctionCallBaseCost => 66,
             ProtocolFeature::YieldExecution => 67,
+            ProtocolFeature::CongestionControl => 68,
+            // Stateless validation features.
+            // TODO All of the stateless validation features should be collapsed
+            // into a single protocol feature.
+            ProtocolFeature::StatelessValidationV0
+            | ProtocolFeature::LowerValidatorKickoutPercentForDebugging
+            | ProtocolFeature::SingleShardTracking
+            | ProtocolFeature::StateWitnessSizeLimit
+            | ProtocolFeature::PerReceiptHardStorageProofLimit
+            | ProtocolFeature::PartialEncodedStateWitness
+            | ProtocolFeature::WitnessTransactionLimits
+            | ProtocolFeature::OutgoingReceiptsSizeLimit
+            | ProtocolFeature::NoChunkOnlyProducers
+            | ProtocolFeature::ChangePartialWitnessDataPartsRequired
+            | ProtocolFeature::BiggerCombinedTransactionLimit
+            | ProtocolFeature::HigherSendingCost => 69,
 
             // This protocol version is reserved for use in resharding tests. An extra resharding
             // is simulated on top of the latest shard layout in production. Note that later
             // protocol versions will still have the production layout.
-            ProtocolFeature::SimpleNightshadeTestonly => 79,
-
-            // StatelessNet features
-            ProtocolFeature::StatelessValidationV0 => 80,
-            ProtocolFeature::LowerValidatorKickoutPercentForDebugging => 81,
-            ProtocolFeature::SingleShardTracking => 82,
-            ProtocolFeature::StateWitnessSizeLimit => 83,
-            ProtocolFeature::PerReceiptHardStorageProofLimit => 85,
-            ProtocolFeature::PartialEncodedStateWitness => 86,
-            ProtocolFeature::WitnessTransactionLimits
-            | ProtocolFeature::CongestionControl
-            | ProtocolFeature::OutgoingReceiptsSizeLimit => 87,
-            ProtocolFeature::CongestionControlAllowedShardValidation
-            | ProtocolFeature::NoChunkOnlyProducers => 88,
+            ProtocolFeature::SimpleNightshadeTestonly => 100,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
@@ -267,12 +271,13 @@ impl ProtocolFeature {
 /// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 67;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 69;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "statelessnet_protocol") {
-    // Current StatelessNet protocol version.
-    88
+    // Please note that congestion control and stateless validation are now
+    // stabilized but statelessnet should remain at its own version.
+    82
 } else if cfg!(feature = "nightly_protocol") {
     // On nightly, pick big enough version to support all features.
     143

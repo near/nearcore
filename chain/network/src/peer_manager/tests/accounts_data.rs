@@ -322,7 +322,7 @@ async fn validator_node_restart() {
 
         // Now pm0 should learn from pm1 about the conflicting version and should broadcast
         // new AccountData (with higher version) to override the old AccountData.
-        let pm0_account_key = cfg.validator.as_ref().unwrap().signer.public_key();
+        let pm0_account_key = cfg.validator.signer.get().unwrap().public_key();
         pm1.wait_for_accounts_data_pred(|accounts_data| {
             let data = match accounts_data.data.get(&pm0_account_key) {
                 Some(it) => it,

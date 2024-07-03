@@ -100,6 +100,7 @@ impl ProtocolUpgradeVotingSchedule {
     }
 
     /// This method returns the protocol version that the node should vote for.
+    #[cfg(feature = "clock")]
     pub(crate) fn get_protocol_version(
         &self,
         now: DateTime<Utc>,

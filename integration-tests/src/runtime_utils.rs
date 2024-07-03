@@ -1,3 +1,6 @@
+//! This file is mainly used in integration-tests/src/tests/runtime/state_viewer.rs
+//! Additionally used in integration-tests/src/node/runtime_node.rs
+//!
 use std::collections::HashSet;
 
 use near_chain_configs::Genesis;

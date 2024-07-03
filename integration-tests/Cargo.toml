@@ -60,13 +60,14 @@ near-o11y.workspace = true
 near-telemetry.workspace = true
 near-test-contracts.workspace = true
 near-performance-metrics.workspace = true
-near-vm-runner = { workspace = true, features = [ "prepare" ] }
+near-vm-runner = { workspace = true, features = ["prepare"] }
 near-wallet-contract.workspace = true
 nearcore.workspace = true
 node-runtime.workspace = true
 testlib.workspace = true
 
 [dev-dependencies]
+near-primitives = { workspace = true, features = ["clock", "solomon", "rand"] }
 assert_matches.workspace = true
 aurora-engine-transactions.workspace = true
 aurora-engine-types.workspace = true
@@ -76,6 +77,7 @@ insta.workspace = true
 near-undo-block.workspace = true
 rlp.workspace = true
 sha3.workspace = true
+regex.workspace = true
 
 [features]
 performance_stats = [
@@ -87,6 +89,7 @@ test_features = [
   "nearcore/test_features",
   "near-store/test_features",
   "near-vm-runner/test_features",
+  "near-test-contracts/test_features",
 ]
 protocol_feature_fix_contract_loading_cost = [
   "nearcore/protocol_feature_fix_contract_loading_cost",
@@ -161,7 +164,13 @@ statelessnet_protocol = [
   "near-chain/statelessnet_protocol",
   "near-primitives/statelessnet_protocol",
 ]
-sandbox = ["near-chain/sandbox", "node-runtime/sandbox", "near-client/sandbox"]
+sandbox = [
+  "near-chain/sandbox",
+  "near-client/sandbox",
+  "near-o11y/sandbox",
+  "node-runtime/sandbox",
+]
 no_cache = ["nearcore/no_cache"]
 calimero_zero_storage = []
 new_epoch_sync = ["nearcore/new_epoch_sync"]
+testloop = ["near-chain/testloop"]

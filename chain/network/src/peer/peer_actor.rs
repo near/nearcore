@@ -22,6 +22,7 @@ use crate::peer_manager::network_state::{NetworkState, PRUNE_EDGES_AFTER};
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_manager_actor::MAX_TIER2_PEERS;
 use crate::private_actix::{RegisterPeerError, SendMessage};
+use crate::rate_limits::messages_limits;
 use crate::routing::edge::verify_nonce;
 use crate::routing::NetworkTopologyChange;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
@@ -190,6 +191,9 @@ pub(crate) struct PeerActor {
     // TODO: move it to ConnectingStatus::Outbound.
     // When ready, use connection.peer_info instead.
     peer_info: DisplayOption<PeerInfo>,
+
+    /// Per-message rate limits for incoming messages.
+    received_messages_rate_limits: messages_limits::RateLimits,
 }
 
 impl Debug for PeerActor {
@@ -307,8 +311,14 @@ impl PeerActor {
         let my_node_info = PeerInfo {
             id: network_state.config.node_id(),
             addr: network_state.config.node_addr.as_ref().map(|a| **a),
-            account_id: network_state.config.validator.as_ref().map(|v| v.account_id()),
+            // TODO(validator-key-hot-swap) Consider using mutable validator signer instead of PeerInfo.account_id ?
+            // That likely requires bigger changes and account_id here is later used for debug / logging purposes only.
+            account_id: network_state.config.validator.account_id(),
         };
+        let received_messages_rate_limits = messages_limits::RateLimits::from_config(
+            &network_state.config.received_messages_rate_limits,
+            clock.now(),
+        );
         // recv is the HandshakeSignal returned by this spawn_inner() call.
         let (send, recv): (HandshakeSignalSender, HandshakeSignal) =
             tokio::sync::oneshot::channel();
@@ -349,6 +359,7 @@ impl PeerActor {
                     }
                     .into(),
                     network_state,
+                    received_messages_rate_limits,
                 }
             }),
             recv,
@@ -464,13 +475,13 @@ impl PeerActor {
                 archival: self.network_state.config.archive,
             },
             partial_edge_info: spec.partial_edge_info,
-            owned_account: self.network_state.config.validator.as_ref().map(|vc| {
+            owned_account: self.network_state.config.validator.signer.get().map(|signer| {
                 OwnedAccount {
-                    account_key: vc.signer.public_key(),
+                    account_key: signer.public_key(),
                     peer_id: self.network_state.config.node_id(),
                     timestamp: self.clock.now_utc(),
                 }
-                .sign(vc.signer.as_ref())
+                .sign(&signer)
             }),
         };
         let msg = match spec.tier {
@@ -1536,7 +1547,7 @@ impl PeerActor {
             .into_iter()
             .map(|aa| {
                 let id = aa.account_id.clone();
-                (aa, old.get(&id).map(|old| old.epoch_id.clone()))
+                (aa, old.get(&id).map(|old| old.epoch_id))
             })
             .collect();
         match network_state.client.send_async(AnnounceAccountRequest(accounts)).await {
@@ -1730,12 +1741,18 @@ impl actix::Handler<stream::Frame> for PeerActor {
 
         tracing::trace!(target: "network", "Received message: {}", peer_msg);
 
+        let now = self.clock.now();
         {
             let labels = [peer_msg.msg_variant()];
             metrics::PEER_MESSAGE_RECEIVED_BY_TYPE_TOTAL.with_label_values(&labels).inc();
             metrics::PEER_MESSAGE_RECEIVED_BY_TYPE_BYTES
                 .with_label_values(&labels)
                 .inc_by(msg.len() as u64);
+            if !self.received_messages_rate_limits.is_allowed(&peer_msg, now) {
+                metrics::PEER_MESSAGE_RATE_LIMITED_BY_TYPE_TOTAL.with_label_values(&labels).inc();
+                tracing::debug!(target: "network", "Peer {} is being rate limited for message {}", self.peer_info, peer_msg.msg_variant());
+                return;
+            }
         }
         match &self.peer_status {
             PeerStatus::Connecting { .. } => self.handle_msg_connecting(ctx, peer_msg),
@@ -1744,7 +1761,7 @@ impl actix::Handler<stream::Frame> for PeerActor {
                     tracing::warn!(target: "network", "Received {} from closing connection {:?}. Ignoring", peer_msg, self.peer_type);
                     return;
                 }
-                conn.last_time_received_message.store(self.clock.now());
+                conn.last_time_received_message.store(now);
                 // Check if the message type is allowed given the TIER of the connection:
                 // TIER1 connections are reserved exclusively for BFT consensus messages.
                 if !conn.tier.is_allowed(&peer_msg) {
@@ -1761,7 +1778,7 @@ impl actix::Handler<stream::Frame> for PeerActor {
                 // case when our peer doesn't use that logic yet.
                 if let Some(skip_tombstones) = self.network_state.config.skip_tombstones {
                     if let PeerMessage::SyncRoutingTable(routing_table) = &mut peer_msg {
-                        if conn.established_time + skip_tombstones > self.clock.now() {
+                        if conn.established_time + skip_tombstones > now {
                             routing_table
                                 .edges
                                 .retain(|edge| edge.edge_type() == EdgeState::Active);

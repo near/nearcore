@@ -116,6 +116,7 @@ fn build_export_function_metadata<Env>(
 where
     Env: Clone + Sized + 'static + Send + Sync,
 {
+    #[allow(clippy::missing_transmute_annotations)]
     let import_init_function_ptr = Some(unsafe {
         std::mem::transmute::<_, ImportInitializerFuncPtr>(import_init_function_ptr)
     });
@@ -1556,7 +1557,11 @@ mod inner {
         #[test]
         fn test_function_pointer() {
             let f = Function::new(func_i32__i32);
-            let function = unsafe { std::mem::transmute::<_, fn(usize, i32) -> i32>(f.address) };
+            let function = unsafe {
+                std::mem::transmute::<*const near_vm_vm::VMFunctionBody, fn(usize, i32) -> i32>(
+                    f.address,
+                )
+            };
             assert_eq!(function(0, 3), 6);
         }
     }
