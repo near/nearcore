@@ -27,6 +27,7 @@ thiserror.workspace = true
 
 near-account-id.workspace = true
 near-structs-checker.workspace = true
+near-structs-checker-core.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
@@ -39,14 +40,14 @@ protocol_feature_fix_staking_threshold = []
 protocol_feature_fix_contract_loading_cost = []
 protocol_feature_reject_blocks_with_outdated_protocol_version = []
 protocol_feature_nonrefundable_transfer_nep491 = []
-check_protocol_structs = ["inventory", "near-structs-checker/check_protocol_structs"]
+#check_protocol_structs = ["inventory", "near-structs-checker/check_protocol_structs"]
 
 nightly = [
-  "nightly_protocol",
-  "protocol_feature_fix_contract_loading_cost",
-  "protocol_feature_fix_staking_threshold",
-  "protocol_feature_nonrefundable_transfer_nep491",
-  "protocol_feature_reject_blocks_with_outdated_protocol_version",
+    "nightly_protocol",
+    "protocol_feature_fix_contract_loading_cost",
+    "protocol_feature_fix_staking_threshold",
+    "protocol_feature_nonrefundable_transfer_nep491",
+    "protocol_feature_reject_blocks_with_outdated_protocol_version",
 ]
 
 nightly_protocol = [

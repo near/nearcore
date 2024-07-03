@@ -20,82 +20,84 @@ exclude = ["neard"]
 [workspace]
 resolver = "2"
 members = [
-  "chain/chain",
-  "chain/chunks",
-  "chain/client",
-  "chain/client-primitives",
-  "chain/epoch-manager",
-  "chain/indexer",
-  "chain/indexer-primitives",
-  "chain/jsonrpc",
-  "chain/jsonrpc-adversarial-primitives",
-  "chain/jsonrpc-primitives",
-  "chain/jsonrpc/client",
-  "chain/jsonrpc/fuzz",
-  "chain/jsonrpc/jsonrpc-tests",
-  "chain/network",
-  "chain/pool",
-  "chain/rosetta-rpc",
-  "chain/telemetry",
-  "core/async",
-  "core/async-derive",
-  "core/chain-configs",
-  "core/crypto",
-  "core/dyn-configs",
-  "core/o11y",
-  "core/parameters",
-  "core/primitives",
-  "core/primitives-core",
-  "core/store",
-  "core/time",
-  "genesis-tools/genesis-csv-to-json",
-  "genesis-tools/genesis-populate",
-  "genesis-tools/keypair-generator",
-  "integration-tests",
-  "nearcore",
-  "neard",
-  "runtime/near-vm/test-api",
-  "runtime/near-vm/compiler",
-  "runtime/near-vm/compiler-singlepass",
-  "runtime/near-vm/engine",
-  "runtime/near-vm/vm",
-  "runtime/near-vm/types",
-  "runtime/near-vm/wast",
-  "runtime/near-vm/compiler-test-derive",
-  "runtime/near-vm-runner",
-  "runtime/near-vm-runner/fuzz",
-  "runtime/near-wallet-contract",
-  "runtime/runtime",
-  "runtime/runtime-params-estimator",
-  "runtime/runtime-params-estimator/estimator-warehouse",
-  "test-utils/actix-test-utils",
-  "test-utils/runtime-tester",
-  "test-utils/runtime-tester/fuzz",
-  "test-utils/store-validator",
-  "test-utils/testlib",
-  "tools/database",
-  "tools/chainsync-loadtest",
-  "tools/congestion-model",
-  "tools/fork-network",
-  "tools/indexer/example",
-  "tools/mirror",
-  "tools/mock-node",
-  "tools/ping",
-  "tools/restaked",
-  "tools/rpctypegen/core",
-  "tools/rpctypegen/macro",
-  "tools/speedy_sync",
-  "tools/state-parts",
-  "tools/state-parts-dump-check",
-  "tools/state-viewer",
-  "tools/storage-usage-delta-calculator",
-  "tools/themis",
-  "tools/undo-block",
-  "utils/config",
-  "utils/fmt",
-  "utils/mainnet-res",
-  "utils/near-cache",
-  "utils/stdx", "core/structs-checker",
+    "chain/chain",
+    "chain/chunks",
+    "chain/client",
+    "chain/client-primitives",
+    "chain/epoch-manager",
+    "chain/indexer",
+    "chain/indexer-primitives",
+    "chain/jsonrpc",
+    "chain/jsonrpc-adversarial-primitives",
+    "chain/jsonrpc-primitives",
+    "chain/jsonrpc/client",
+    "chain/jsonrpc/fuzz",
+    "chain/jsonrpc/jsonrpc-tests",
+    "chain/network",
+    "chain/pool",
+    "chain/rosetta-rpc",
+    "chain/telemetry",
+    "core/async",
+    "core/async-derive",
+    "core/chain-configs",
+    "core/crypto",
+    "core/dyn-configs",
+    "core/o11y",
+    "core/parameters",
+    "core/primitives",
+    "core/primitives-core",
+    "core/store",
+    "core/structs-checker",
+    "core/time",
+    "genesis-tools/genesis-csv-to-json",
+    "genesis-tools/genesis-populate",
+    "genesis-tools/keypair-generator",
+    "integration-tests",
+    "nearcore",
+    "neard",
+    "runtime/near-vm/test-api",
+    "runtime/near-vm/compiler",
+    "runtime/near-vm/compiler-singlepass",
+    "runtime/near-vm/engine",
+    "runtime/near-vm/vm",
+    "runtime/near-vm/types",
+    "runtime/near-vm/wast",
+    "runtime/near-vm/compiler-test-derive",
+    "runtime/near-vm-runner",
+    "runtime/near-vm-runner/fuzz",
+    "runtime/near-wallet-contract",
+    "runtime/runtime",
+    "runtime/runtime-params-estimator",
+    "runtime/runtime-params-estimator/estimator-warehouse",
+    "test-utils/actix-test-utils",
+    "test-utils/runtime-tester",
+    "test-utils/runtime-tester/fuzz",
+    "test-utils/store-validator",
+    "test-utils/testlib",
+    "tools/database",
+    "tools/chainsync-loadtest",
+    "tools/congestion-model",
+    "tools/fork-network",
+    "tools/indexer/example",
+    "tools/mirror",
+    "tools/mock-node",
+    "tools/ping",
+    "tools/protocol-schema-check",
+    "tools/restaked",
+    "tools/rpctypegen/core",
+    "tools/rpctypegen/macro",
+    "tools/speedy_sync",
+    "tools/state-parts",
+    "tools/state-parts-dump-check",
+    "tools/state-viewer",
+    "tools/storage-usage-delta-calculator",
+    "tools/themis",
+    "tools/undo-block",
+    "utils/config",
+    "utils/fmt",
+    "utils/mainnet-res",
+    "utils/near-cache",
+    "utils/stdx", "tools/protocol-schema-check", "core/structs-checker-core",
 ]
 exclude = ["tracing", "benchmarks"]
 
@@ -137,7 +139,7 @@ bn = { package = "zeropool-bn", version = "0.5.11", default-features = false }
 # TODO: remove this override when https://github.com/camshaft/bolero/issues/196 is fixed upstream
 # Currently the changes here are: https://github.com/camshaft/bolero/compare/master...Ekleog-NEAR:bolero:reduce-list-tests-run
 bolero = { version = "0.10.0", git = "https://github.com/Ekleog-NEAR/bolero", rev = "c37993bd70dcf5b1778b03daf29f686225e9a504", features = [
-  "arbitrary",
+    "arbitrary",
 ] }
 borsh = { version = "1.0.0", features = ["derive", "rc"] }
 bs58 = "0.4"
@@ -148,15 +150,15 @@ cargo_metadata = "0.14.1"
 cc = "1.0"
 cfg-if = "1.0"
 chrono = { version = "0.4", default-features = false, features = [
-  "alloc",
-  "serde",
+    "alloc",
+    "serde",
 ] }
 clap = { version = "4.2.0", features = ["derive", "env", "string"] }
 cloud-storage = "0.11.1"
 cpu-time = "1.0"
 criterion = { version = "0.5.1", default-features = false, features = [
-  "html_reports",
-  "cargo_bench_support",
+    "html_reports",
+    "cargo_bench_support",
 ] }
 crossbeam = "0.8"
 crossbeam-channel = "0.5.8"
@@ -202,9 +204,9 @@ lru = "0.12.3"
 memoffset = "0.8"
 more-asserts = "0.2"
 near-account-id = { version = "1.0.0-alpha.4", features = [
-  "internal_unstable",
-  "serde",
-  "borsh",
+    "internal_unstable",
+    "serde",
+    "borsh",
 ] }
 near-actix-test-utils = { path = "test-utils/actix-test-utils" }
 near-amend-genesis = { path = "tools/amend-genesis" }
@@ -235,7 +237,7 @@ near-jsonrpc = { path = "chain/jsonrpc" }
 near-jsonrpc-adversarial-primitives = { path = "chain/jsonrpc-adversarial-primitives" }
 near-jsonrpc-client = { path = "chain/jsonrpc/client" }
 near-jsonrpc-primitives = { path = "chain/jsonrpc-primitives", features = [
-  "full",
+    "full",
 ] }
 near-jsonrpc-tests = { path = "chain/jsonrpc/jsonrpc-tests" }
 near-mainnet-res = { path = "utils/mainnet-res" }
@@ -256,11 +258,12 @@ near-state-parts = { path = "tools/state-parts" }
 near-state-parts-dump-check = { path = "tools/state-parts-dump-check" }
 near-state-viewer = { path = "tools/state-viewer", package = "state-viewer" }
 near-structs-checker = { path = "core/structs-checker" }
+near-structs-checker-core = { path = "core/structs-checker-core" }
 near-store = { path = "core/store" }
 near-telemetry = { path = "chain/telemetry" }
 near-test-contracts = { path = "runtime/near-test-contracts" }
 near-time = { path = "core/time", default-features = false, features = [
-  "serde",
+    "serde",
 ] }
 near-undo-block = { path = "tools/undo-block" }
 near-vm-test-api = { path = "runtime/near-vm/test-api" }
@@ -318,11 +321,11 @@ rkyv = "0.7.31"
 rlimit = "0.7"
 rlp = "0.5.2"
 rocksdb = { version = "0.21.0", default-features = false, features = [
-  "snappy",
-  "lz4",
-  "zstd",
-  "zlib",
-  "jemalloc",
+    "snappy",
+    "lz4",
+    "zstd",
+    "zlib",
+    "jemalloc",
 ] }
 runtime-tester = { path = "test-utils/runtime-tester" }
 rusqlite = { version = "0.29.0", features = ["bundled", "chrono", "functions"] }
@@ -365,10 +368,10 @@ tracing-appender = "0.2.3"
 tracing-opentelemetry = "0.23.0"
 tracing-span-tree = "0.1"
 tracing-subscriber = { version = "0.3.18", features = [
-  "env-filter",
-  "fmt",
-  "registry",
-  "std",
+    "env-filter",
+    "fmt",
+    "registry",
+    "std",
 ] }
 trybuild = "1.0.11"
 turn = "0.6"
@@ -377,10 +380,10 @@ wasmer-compiler = { package = "wasmer-compiler-near", version = "=2.4.1" }
 wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", version = "=2.4.1" }
 wasmer-engine = { package = "wasmer-engine-near", version = "=2.4.1" }
 wasmer-engine-universal = { package = "wasmer-engine-universal-near", version = "=2.4.1", features = [
-  "compiler",
+    "compiler",
 ] }
 wasmer-runtime = { version = "0.18.0", package = "wasmer-runtime-near", features = [
-  "default-backend-singlepass",
+    "default-backend-singlepass",
 ], default-features = false }
 wasmer-runtime-core = { version = "0.18.2", package = "wasmer-runtime-core-near" }
 wasmer-types = { package = "wasmer-types-near", version = "=2.4.1" }
@@ -389,17 +392,17 @@ wasmparser = "0.78" # TODO: unify at least the versions of wasmparser we have in
 wasmprinter = "0.2"
 wasm-smith = "0.10"
 wasmtime = { version = "14.0.4", default-features = false, features = [
-  "cranelift",
+    "cranelift",
 ] }
 wast = "40.0"
 wat = "1.0.40"
 webrtc-util = "0.7"
 winapi = { version = "0.3", features = [
-  "winbase",
-  "memoryapi",
-  "errhandlingapi",
-  "winnt",
-  "impl-default",
+    "winbase",
+    "memoryapi",
+    "errhandlingapi",
+    "winnt",
+    "impl-default",
 ] }
 xshell = "0.2.1"
 xz2 = "0.1.6"

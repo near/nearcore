@@ -11,10 +11,12 @@ license.workspace = true
 proc-macro = true
 
 [dependencies]
-proc-macro2 = { workspace = true, optional = true }
-syn = { workspace = true, optional = true }
-quote = { workspace = true, optional = true }
-inventory = { workspace = true, optional = true }
+near-structs-checker-core = { path = "../structs-checker-core" }
+
+quote = { workspace = true, optional = false }
+syn = { workspace = true, optional = false }
+serde_json = { workspace = true, features = ["preserve_order"], optional = false }
+serde = { workspace = true, optional = false }
 
 [features]
-check_protocol_structs = ["inventory", "syn", "quote", "proc-macro2"]
+#check_protocol_structs = ["inventory", "quote"]

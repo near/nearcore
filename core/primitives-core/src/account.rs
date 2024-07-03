@@ -5,7 +5,7 @@ use crate::serialize::dec_format;
 use crate::types::{Balance, Nonce, ProtocolVersion, StorageUsage};
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use near_account_id as id;
-use near_structs_checker::protocol_struct;
+use near_structs_checker::ProtocolStruct;
 use std::io;
 
 #[derive(
@@ -192,7 +192,6 @@ struct LegacyAccount {
 
 /// We only allow nonrefundable storage on new accounts (see `LegacyAccount`).
 #[derive(BorshSerialize, BorshDeserialize)]
-#[protocol_struct]
 struct AccountV2 {
     amount: Balance,
     locked: Balance,

@@ -1,0 +1,15 @@
+[package]
+name = "protocol-schema-check"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description = "Structs checker"
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+near-structs-checker-core.workspace = true
+near-primitives.workspace = true
+near-chain.workspace = true
+
+serde_json = { workspace = true, features = ["preserve_order"], optional = false }
