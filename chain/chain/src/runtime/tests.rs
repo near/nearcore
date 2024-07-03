@@ -1773,8 +1773,8 @@ fn test_storage_proof_garbage() {
         return;
     }
     let shard_id = 0;
-    let (env, _, _) = get_test_env_with_chain_and_pool();
     let signer = create_test_signer("test1");
+    let env = TestEnv::new(vec![vec![signer.validator_id().clone()]], 100, false);
     let garbage_size_mb = 50usize;
     let receipt = Receipt::V1(ReceiptV1 {
         predecessor_id: signer.validator_id().clone(),
