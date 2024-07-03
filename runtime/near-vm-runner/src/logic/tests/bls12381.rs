@@ -10,7 +10,7 @@ mod tests {
     };
     use ark_std::{test_rng, One, UniformRand, Zero};
     use bolero::{generator, TypeGenerator};
-    use rand::{distributions::Distribution, seq::SliceRandom, thread_rng, Rng, RngCore};
+    use rand::{seq::SliceRandom, thread_rng, Rng, RngCore};
     use std::{fs, ops::Add, ops::Mul, ops::Neg, str::FromStr};
 
     const P: &str = "4002409555221667393417789825735904156556882819939007885332058136124031650490837864442687629129015664037894272559787";
@@ -1177,50 +1177,49 @@ mod tests {
     }
 
     #[test]
-    fn test_bls12381_pairing_check_many_points() {
-        let mut rng = test_rng();
-        let distr = ark_std::rand::distributions::Standard;
+    fn test_bls12381_pairing_check_many_points_fuzzer() {
+        bolero::check!()
+            .with_generator(
+                bolero::gen::<Vec<(Scalar, Scalar)>>().with().len(0usize..MAX_N_PAIRING),
+            )
+            .for_each(|scalars: &Vec<(Scalar, Scalar)>| {
+                let mut scalars_1: Vec<Fr> = vec![];
+                let mut scalars_2: Vec<Fr> = vec![];
 
-        for i in 0..TESTS_ITERATIONS {
-            let n = get_n(i, MAX_N_PAIRING);
+                let g1: G1Affine = G1Affine::generator();
+                let g2: G2Affine = G2Affine::generator();
 
-            let mut scalars_1: Vec<Fr> = vec![];
-            let mut scalars_2: Vec<Fr> = vec![];
+                let mut g1s: Vec<G1Affine> = vec![];
+                let mut g2s: Vec<G2Affine> = vec![];
 
-            let g1: G1Affine = G1Affine::generator();
-            let g2: G2Affine = G2Affine::generator();
+                let mut scalar_res = Fr::from(0);
 
-            let mut g1s: Vec<G1Affine> = vec![];
-            let mut g2s: Vec<G2Affine> = vec![];
+                for i in 0..scalars.len() {
+                    scalars_1.push(scalars[i].0.p);
+                    scalars_2.push(scalars[i].1.p);
 
-            let mut scalar_res = Fr::from(0);
+                    scalar_res = scalar_res.add(&scalars_1[i].mul(&scalars_2[i]));
 
-            for i in 0..n {
-                scalars_1.push(distr.sample(&mut rng));
-                scalars_2.push(distr.sample(&mut rng));
+                    g1s.push(g1.mul(&scalars_1[i]).into());
+                    g2s.push(g2.mul(&scalars_2[i]).into());
+                }
 
-                scalar_res = scalar_res.add(&scalars_1[i].mul(&scalars_2[i]));
+                if !scalar_res.is_zero() {
+                    assert_eq!(pairing_check(g1s.clone(), g2s.clone()), 2);
+                } else {
+                    assert_eq!(pairing_check(g1s.clone(), g2s.clone()), 0);
+                }
 
-                g1s.push(g1.mul(&scalars_1[i]).into());
-                g2s.push(g2.mul(&scalars_2[i]).into());
-            }
+                for i in 0..scalars.len() {
+                    let mut p2 = g2.mul(&scalars_1[i]).into_affine();
+                    p2 = p2.neg();
 
-            if !scalar_res.is_zero() {
-                assert_eq!(pairing_check(g1s.clone(), g2s.clone()), 2);
-            } else {
-                assert_eq!(pairing_check(g1s.clone(), g2s.clone()), 0);
-            }
+                    g1s.push(g1.mul(&scalars_2[i]).into());
+                    g2s.push(p2);
+                }
 
-            for i in 0..n {
-                let mut p2 = g2.mul(&scalars_1[i]).into_affine();
-                p2 = p2.neg();
-
-                g1s.push(g1.mul(&scalars_2[i]).into());
-                g2s.push(p2);
-            }
-
-            assert_eq!(pairing_check(g1s, g2s), 0);
-        }
+                assert_eq!(pairing_check(g1s, g2s), 0);
+            });
     }
 
     #[test]
