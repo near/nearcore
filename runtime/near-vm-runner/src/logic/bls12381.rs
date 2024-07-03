@@ -127,7 +127,7 @@ macro_rules! bls12381_fn {
 
                 let mut pk = match $parse_p(point_data) {
                     Some(pk) => pk,
-                    None => { return Ok(None) }
+                    None => return Ok(None),
                 };
 
                 let sign = sign_data[0];
@@ -160,7 +160,7 @@ macro_rules! bls12381_fn {
 
                 let pk = match $parse_p(point_data) {
                     Some(pk) => pk,
-                    None => { return Ok(None) }
+                    None => return Ok(None),
                 };
 
                 if unsafe { blst::$blst_p_in_g(&pk) } != true {
@@ -399,13 +399,13 @@ fn check_input_size(data: &[u8], item_size: usize, fn_name: &str) -> Result<()> 
     if data.len() % item_size != 0 {
         return Err(HostError::BLS12381InvalidInput {
             msg: format!(
-                        "Incorrect input length for {}: {} is not divisible by {}",
-                        fn_name,
-                        data.len(),
-                        item_size
-                    ),
+                "Incorrect input length for {}: {} is not divisible by {}",
+                fn_name,
+                data.len(),
+                item_size
+            ),
         }
-            .into());
+        .into());
     }
 
     Ok(())
