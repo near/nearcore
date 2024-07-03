@@ -182,14 +182,6 @@ mod tests {
                     p.clear_cofactor()
                 }
 
-                fn get_random_not_g_curve_point<R: Rng + ?Sized>(rng: &mut R) -> $GAffine {
-                    let mut p = Self::get_random_curve_point(rng);
-                    while p.is_in_correct_subgroup_assuming_on_curve() {
-                        p = Self::get_random_curve_point(rng);
-                    }
-                    p
-                }
-
                 fn check_multipoint_sum<R: Rng + ?Sized>(n: usize, rng: &mut R) {
                     let mut res3 = $GAffine::identity();
 
@@ -217,7 +209,7 @@ mod tests {
                 fn decompress_p(ps: Vec<$GAffine>) -> Vec<u8> {
                     let mut ps_vec: Vec<Vec<u8>> = vec![vec![]];
                     for i in 0..ps.len() {
-                        ps_vec.push(Self::serialize_g(&ps[i]).to_vec());
+                        ps_vec.push(Self::serialize_g(&ps[i]));
                     }
 
                     run_bls12381_fn!($bls12381_decompress, ps_vec)
@@ -729,6 +721,7 @@ mod tests {
         (
             $GOp:ident,
             $GPoint:ident,
+            $EnotGPoint:ident,
             $GAffine:ident,
             $bls12381_multiexp:ident,
             $bls12381_sum:ident,
@@ -791,25 +784,24 @@ mod tests {
 
             #[test]
             fn $test_bls12381_multiexp_incorrect_input() {
-                let mut rng = test_rng();
                 let zero_scalar = vec![0u8; 32];
 
-                let mut test_vecs: Vec<Vec<Vec<u8>>> = $GOp::get_incorrect_points()
+                let test_vecs: Vec<Vec<Vec<u8>>> = $GOp::get_incorrect_points()
                     .into_iter()
                     .map(|test| vec![test, zero_scalar.clone()])
                     .collect();
 
-                //points not from G
-                for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::get_random_not_g_curve_point(&mut rng);
-                    let p_ser = $GOp::serialize_uncompressed_g(&p);
-
-                    test_vecs.push(vec![p_ser, zero_scalar.clone()]);
-                }
-
                 for i in 0..test_vecs.len() {
                     run_bls12381_fn!($bls12381_multiexp, test_vecs[i], 1);
                 }
+
+                //points not from G
+                bolero::check!().with_type().for_each(
+                    |p: &$EnotGPoint| {
+                        let p_ser = $GOp::serialize_uncompressed_g(&p.p);
+                        run_bls12381_fn!($bls12381_multiexp, vec![p_ser, zero_scalar.clone()], 1);
+                    },
+                );
             }
 
             #[test]
@@ -856,24 +848,26 @@ mod tests {
     test_bls12381_multiexp!(
         G1Operations,
         G1Point,
+        EnotG1Point,
         G1Affine,
         bls12381_g1_multiexp,
         bls12381_p1_sum,
         test_bls12381_g1_multiexp_mul_fuzzer,
         test_bls12381_g1_multiexp_many_points,
-        test_bls12381_g1_multiexp_incorrect_input,
+        test_bls12381_g1_multiexp_incorrect_input_fuzzer,
         test_bls12381_g1_multiexp_invariants_checks,
         test_bls12381_error_g1_encoding
     );
     test_bls12381_multiexp!(
         G2Operations,
         G2Point,
+        EnotG2Point,
         G2Affine,
         bls12381_g2_multiexp,
         bls12381_p2_sum,
         test_bls12381_g2_multiexp_mul_fuzzer,
         test_bls12381_g2_multiexp_many_points,
-        test_bls12381_g2_multiexp_incorrect_input,
+        test_bls12381_g2_multiexp_incorrect_input_fuzzer,
         test_bls12381_g2_multiexp_invariants_checks,
         test_bls12381_error_g2_encoding
     );
@@ -1050,8 +1044,6 @@ mod tests {
 
             #[test]
             fn $test_bls12381_decompress_incorrect_input() {
-                let mut rng = test_rng();
-
                 // Incorrect encoding of the point at infinity
                 let mut zero = vec![0u8; $POINT_LEN];
                 zero[0] = 0x80 | 0x40;
@@ -1063,14 +1055,18 @@ mod tests {
                 zero[0] = 0x40;
                 run_bls12381_fn!($bls12381_decompress, vec![zero], 1);
 
-                let p = $GOp::get_random_curve_point(&mut rng);
-                let mut p_ser = $GOp::serialize_g(&p);
-                p_ser[0] ^= 0x80;
-                run_bls12381_fn!($bls12381_decompress, vec![p_ser], 1);
+                bolero::check!().with_type().for_each(
+                    |p: &$EPoint| {
+                        let mut p_ser = $GOp::serialize_g(&p.p);
+                        p_ser[0] ^= 0x80;
+                        run_bls12381_fn!($bls12381_decompress, vec![p_ser], 1);
+                    });
 
                 //Point with a coordinate larger than 'p'.
-                let p = $GOp::get_random_curve_point(&mut rng);
-                run_bls12381_fn!($bls12381_decompress, vec![$add_p(&p)], 1);
+                bolero::check!().with_type().for_each(
+                    |p: &$EPoint| {
+                        run_bls12381_fn!($bls12381_decompress, vec![$add_p(&p.p)], 1);
+                });
             }
         };
     }
@@ -1102,21 +1098,14 @@ mod tests {
     );
 
     fn add_p_x(point: &G1Affine) -> Vec<u8> {
-        let mut xbig = point.x().unwrap().clone();
-        xbig = xbig.add(&Fq::from_str(P).unwrap());
         let mut p_ser = G1Operations::serialize_g(&point);
-        xbig.serialize_with_flags(p_ser.as_mut_slice(), EmptyFlags).unwrap();
-        p_ser[0] |= 0x80;
-
+        p_ser[0] |= 0x1f;
         p_ser
     }
 
     fn add2_p_x(point: &G2Affine) -> Vec<u8> {
-        let mut xbig = point.x().unwrap().c1.clone();
-        xbig = xbig.add(&Fq::from_str(P).unwrap());
         let mut p_ser = G2Operations::serialize_g(&point);
-        xbig.serialize_with_flags(p_ser.as_mut_slice(), EmptyFlags).unwrap();
-
+        p_ser[0] |= 0x1f;
         p_ser
     }
 
