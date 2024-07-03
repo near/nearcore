@@ -189,8 +189,8 @@ pytest sanity/slow_chunk.py --features nightly
 # pytest sanity/congestion_control.py
 pytest sanity/congestion_control.py --features nightly
 # TODO(#11702) Enable these after fixing the issue and stabilization.
-# pytest sanity/memtrie_disktrie_switch.py
-# pytest sanity/memtrie_disktrie_switch.py --features nightly
+# pytest sanity/congestion_control_bootstrap.py
+# pytest sanity/congestion_control_bootstrap.py --features nightly
 
 # Tests the correct operation of the view client without using memtries (#11312).
 pytest sanity/rpc_view_history.py
