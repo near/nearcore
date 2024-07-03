@@ -758,7 +758,14 @@ impl Trie {
         };
         let mut data = vec![0u8; (size_mbs as usize) * 1000_000];
         rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut data);
-        recorder.borrow_mut().record_unaccounted(&CryptoHash::hash_bytes(&data), data.into());
+        // We want to have at most 1 instance of garbage data included per chunk so
+        // that it is possible to generated continuous stream of witnesses with a fixed
+        // size. Using static key achieves that since in case of multiple receipts garbage
+        // data will simply be overwritten, not accumulated.
+        recorder.borrow_mut().record_unaccounted(
+            &CryptoHash::hash_bytes(b"__garbage_data_key_1720025071757228"),
+            data.into(),
+        );
         true
     }
 
