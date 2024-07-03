@@ -21,7 +21,7 @@ import state_sync_lib
 import transaction
 import utils
 
-EPOCH_LENGTH = 5
+EPOCH_LENGTH = 10
 
 ONE_NEAR = 10**24
 TGAS = 10**12
@@ -75,12 +75,12 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
 
         # Validator node configs: Enable single-shard tracking with memtries enabled.
         node_config_sync["tracked_shards"] = []
-        node_config_sync["store.load_mem_tries_for_tracked_shards"] = False
+        node_config_sync["store.load_mem_tries_for_tracked_shards"] = True
         configs = {x: node_config_sync for x in range(4)}
 
         # Dumper node config: Enable tracking all shards with memtries enabled.
         node_config_dump["tracked_shards"] = [0]
-        node_config_dump["store.load_mem_tries_for_tracked_shards"] = False
+        node_config_dump["store.load_mem_tries_for_tracked_shards"] = True
         configs[4] = node_config_dump
 
         self.nodes = cluster.start_cluster(
@@ -102,29 +102,28 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
 
         self.__wait_for_blocks(3)
 
-        # self.__create_accounts()
+        self.__create_accounts()
 
-        # self.__deploy_contracts()
-
-        target_height = self.__next_target_height(num_epochs=5)
-        # logger.info(
-        #     f"Step 1: Running with memtries enabled until height {target_height}"
-        # )
-        self.__random_workload_until(target_height)
-        
-
-        # target_height = self.__next_target_height(num_epochs=1)
-        # logger.info(
-        #     f"Step 2: Restarting nodes with memtries disabled until height {target_height}"
-        # )
-        # self.__restart_nodes(enable_memtries=False)
-        # self.__random_workload_until(target_height)
-        
+        self.__deploy_contracts()
 
         target_height = self.__next_target_height(num_epochs=1)
-        # logger.info(f"Step 3: Restarting nodes with memtries enabled until height {target_height}")
+        logger.info(
+            f"Step 1: Running with memtries enabled until height {target_height}"
+        )
+        self.__random_workload_until(target_height)
+
+        target_height = self.__next_target_height(num_epochs=1)
+        logger.info(
+            f"Step 2: Restarting nodes with memtries disabled until height {target_height}"
+        )
         self.__restart_nodes(enable_memtries=False)
         self.__random_workload_until(target_height)
+
+        # TODO(#11675): Fix MissingTrieValue error and re-enable this step of the test.
+        # target_height = self.__next_target_height(num_epochs=1)
+        # logger.info(f"Step 3: Restarting nodes with memtries enabled until height {target_height}")
+        # self.__restart_nodes(enable_memtries=True)
+        # self.__random_workload_until(target_height)
 
         self.__wait_for_txs(self.txs, assert_all_accepted=False)
         logger.info("Test ended")
@@ -167,58 +166,58 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
                     f'@{height}, epoch_height: {state_sync_lib.approximate_epoch_height(height, EPOCH_LENGTH)}'
                 )
                 last_height = height
-            # last_block_hash = last_block.hash_bytes
-            # if random.random() < 0.5:
-            #     # Make a transfer between accounts.
-            #     # The goal is to generate cross-shard receipts.
-            #     from_account_key = random.choice(self.account_keys)
-            #     to_account_id = random.choice([
-            #         account_key.account_id
-            #         for account_key in self.account_keys
-            #         if account_key.account_id != from_account_key.account_id
-            #     ] + ["near"])
-            #     payment_tx = transaction.sign_payment_tx(
-            #         from_account_key, to_account_id, 1,
-            #         self.next_nonce(from_account_key), last_block_hash)
-            #     result = self.rpc_node.send_tx(payment_tx)
-            #     assert 'result' in result and 'error' not in result, (
-            #         'Expected "result" and no "error" in response, got: {}'.
-            #         format(result))
-            #     logger.debug("Transfer: {}".format(result))
-            #     tx_hash = result['result']
-            #     self.txs.append((from_account_key.account_id, tx_hash))
-            # elif len(self.keys) > 10 and random.random() < 0.5:
-            #     # Do some storage reads, but only if we have enough keys populated.
-            #     key = self.keys[random.randint(0, len(self.keys) - 1)]
-            #     for account_key in self.account_keys:
-            #         tx = transaction.sign_function_call_tx(
-            #             account_key, account_key.account_id,
-            #             'read_value', key, 300 * TGAS, 0,
-            #             self.next_nonce(account_key), last_block_hash)
-            #         result = self.rpc_node.send_tx(tx)
-            #         assert 'result' in result and 'error' not in result, (
-            #             'Expected "result" and no "error" in response, got: {}'.
-            #             format(result))
-            #         logger.debug("Read value: {}".format(result))
-            #         tx_hash = result['result']
-            #         self.txs.append((account_key.account_id, tx_hash))
-            # else:
-            #     # Generate some data for storage reads
-            #     key = random_u64()
-            #     self.keys.append(key)
-            #     for account_key in self.account_keys:
-            #         tx = transaction.sign_function_call_tx(
-            #             account_key, account_key.account_id, 'write_key_value',
-            #             key + random_u64(), 300 * TGAS, 0,
-            #             self.next_nonce(account_key), last_block_hash)
-            #         result = self.rpc_node.send_tx(tx)
-            #         assert 'result' in result and 'error' not in result, (
-            #             'Expected "result" and no "error" in response, got: {}'.
-            #             format(result))
-            #         logger.debug("Wrote value: {}".format(result))
-            #         tx_hash = result['result']
-            #         self.txs.append((account_key.account_id, tx_hash))
-            time.sleep(0.1)
+            last_block_hash = last_block.hash_bytes
+            if random.random() < 0.5:
+                # Make a transfer between accounts.
+                # The goal is to generate cross-shard receipts.
+                from_account_key = random.choice(self.account_keys)
+                to_account_id = random.choice([
+                    account_key.account_id
+                    for account_key in self.account_keys
+                    if account_key.account_id != from_account_key.account_id
+                ] + ["near"])
+                payment_tx = transaction.sign_payment_tx(
+                    from_account_key, to_account_id, 1,
+                    self.next_nonce(from_account_key), last_block_hash)
+                result = self.rpc_node.send_tx(payment_tx)
+                assert 'result' in result and 'error' not in result, (
+                    'Expected "result" and no "error" in response, got: {}'.
+                    format(result))
+                logger.debug("Transfer: {}".format(result))
+                tx_hash = result['result']
+                self.txs.append((from_account_key.account_id, tx_hash))
+            elif len(self.keys) > 10 and random.random() < 0.5:
+                # Do some storage reads, but only if we have enough keys populated.
+                key = self.keys[random.randint(0, len(self.keys) - 1)]
+                for account_key in self.account_keys:
+                    tx = transaction.sign_function_call_tx(
+                        account_key, account_key.account_id,
+                        'read_value', key, 300 * TGAS, 0,
+                        self.next_nonce(account_key), last_block_hash)
+                    result = self.rpc_node.send_tx(tx)
+                    assert 'result' in result and 'error' not in result, (
+                        'Expected "result" and no "error" in response, got: {}'.
+                        format(result))
+                    logger.debug("Read value: {}".format(result))
+                    tx_hash = result['result']
+                    self.txs.append((account_key.account_id, tx_hash))
+            else:
+                # Generate some data for storage reads
+                key = random_u64()
+                self.keys.append(key)
+                for account_key in self.account_keys:
+                    tx = transaction.sign_function_call_tx(
+                        account_key, account_key.account_id, 'write_key_value',
+                        key + random_u64(), 300 * TGAS, 0,
+                        self.next_nonce(account_key), last_block_hash)
+                    result = self.rpc_node.send_tx(tx)
+                    assert 'result' in result and 'error' not in result, (
+                        'Expected "result" and no "error" in response, got: {}'.
+                        format(result))
+                    logger.debug("Wrote value: {}".format(result))
+                    tx_hash = result['result']
+                    self.txs.append((account_key.account_id, tx_hash))
+            time.sleep(0.5)
 
     def __deploy_contracts(self):
         """Deploys test contract for each test account.
