@@ -774,7 +774,7 @@ impl<'a> ChainUpdate<'a> {
         // TODO(nikurt): Determine the value correctly.
         let is_first_block_with_chunk_of_version = false;
 
-        let prev_block = self.chain_store_update.get_block(block_header.prev_hash())?;
+        let block = self.chain_store_update.get_block(block_header.hash())?;
 
         let apply_result = self.runtime_adapter.apply_chunk(
             RuntimeStorageConfig::new(chunk_header.prev_state_root(), true),
@@ -794,7 +794,7 @@ impl<'a> ChainUpdate<'a> {
                 gas_price,
                 challenges_result: block_header.challenges_result().clone(),
                 random_seed: *block_header.random_value(),
-                congestion_info: prev_block.block_congestion_info(),
+                congestion_info: block.block_congestion_info(),
             },
             &receipts,
             chunk.transactions(),
@@ -879,8 +879,9 @@ impl<'a> ChainUpdate<'a> {
             // Don't continue
             return Ok(false);
         }
+        let block = self.chain_store_update.get_block(block_header.hash())?;
+
         let prev_hash = block_header.prev_hash();
-        let prev_block = self.chain_store_update.get_block(prev_hash)?;
         let prev_block_header = self.chain_store_update.get_block_header(prev_hash)?;
 
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, block_header.epoch_id())?;
@@ -899,7 +900,7 @@ impl<'a> ChainUpdate<'a> {
             ApplyChunkBlockContext::from_header(
                 &block_header,
                 prev_block_header.next_gas_price(),
-                prev_block.block_congestion_info(),
+                block.block_congestion_info(),
             ),
             &[],
             &[],
