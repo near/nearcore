@@ -296,8 +296,7 @@ mod tests {
                     run_bls12381_fn!($bls12381_map_fp_to_g, fp_vec)
                 }
 
-                fn get_incorrect_points() -> Vec<Vec<u8>> {
-                    let mut rng = test_rng();
+                fn get_incorrect_points(p: &$EPoint) -> Vec<Vec<u8>> {
                     let mut res: Vec<Vec<u8>> = vec![];
 
                     // Incorrect encoding of the point at infinity
@@ -310,25 +309,21 @@ mod tests {
                     zero[0] = 192;
                     res.push(zero);
 
-                    let p = Self::get_random_curve_point(&mut rng);
-                    let mut p_ser = Self::serialize_uncompressed_g(&p);
+                    let mut p_ser = Self::serialize_uncompressed_g(&p.p);
                     p_ser[0] |= 0x80;
                     res.push(p_ser.to_vec());
 
                     // Point not on the curve
-                    let p = Self::get_random_curve_point(&mut rng);
-                    let mut p_ser = Self::serialize_uncompressed_g(&p);
+                    let mut p_ser = Self::serialize_uncompressed_g(&p.p);
                     p_ser[Self::POINT_LEN - 1] ^= 0x01;
                     res.push(p_ser.to_vec());
 
                     //Erroneous coding of field elements, resulting in a correct point on the curve if only the suffix is considered.
-                    let p = Self::get_random_curve_point(&mut rng);
-                    let mut p_ser = Self::serialize_uncompressed_g(&p);
+                    let mut p_ser = Self::serialize_uncompressed_g(&p.p);
                     p_ser[0] ^= 0x20;
                     res.push(p_ser.to_vec());
 
-                    let p = Self::get_random_curve_point(&mut rng);
-                    let p_ser = $add_p_y(&p).to_vec();
+                    let p_ser = $add_p_y(&p.p).to_vec();
                     res.push(p_ser);
 
                     res
@@ -624,17 +619,19 @@ mod tests {
 
             #[test]
             fn $test_bls12381_sum_incorrect_input() {
-                let mut test_vecs: Vec<Vec<Vec<u8>>> = $GOp::get_incorrect_points()
-                    .into_iter()
-                    .map(|test| vec![vec![0u8], test])
-                    .collect();
+                bolero::check!().with_type().for_each(|p: &$EPoint| {
+                    let mut test_vecs: Vec<Vec<Vec<u8>>> = $GOp::get_incorrect_points(p)
+                        .into_iter()
+                        .map(|test| vec![vec![0u8], test])
+                        .collect();
 
-                // Incorrect sign encoding
-                test_vecs.push(vec![vec![2u8], get_zero($GOp::POINT_LEN)]);
+                    // Incorrect sign encoding
+                    test_vecs.push(vec![vec![2u8], get_zero($GOp::POINT_LEN)]);
 
-                for i in 0..test_vecs.len() {
-                    run_bls12381_fn!($bls12381_sum, test_vecs[i], 1);
-                }
+                    for i in 0..test_vecs.len() {
+                        run_bls12381_fn!($bls12381_sum, test_vecs[i], 1);
+                    }
+                });
             }
         };
     }
@@ -653,7 +650,7 @@ mod tests {
         test_bls12381_p1_sum_inverse_fuzzer,
         test_bls12381_p1_sum_many_points,
         test_bls12381_p1_crosscheck_sum_and_multiexp_fuzzer,
-        test_bls12381_p1_sum_incorrect_input
+        test_bls12381_p1_sum_incorrect_input_fuzzer
     );
     test_bls12381_sum!(
         G2Operations,
@@ -669,7 +666,7 @@ mod tests {
         test_bls12381_p2_sum_inverse_fuzzer,
         test_bls12381_p2_sum_many_points,
         test_bls12381_p2_crosscheck_sum_and_multiexp_fuzzer,
-        test_bls12381_p2_sum_incorrect_input
+        test_bls12381_p2_sum_incorrect_input_fuzzer
     );
 
     macro_rules! test_bls12381_memory_limit {
@@ -725,6 +722,7 @@ mod tests {
         (
             $GOp:ident,
             $GPoint:ident,
+            $EPoint:ident,
             $EnotGPoint:ident,
             $GAffine:ident,
             $bls12381_multiexp:ident,
@@ -784,15 +782,16 @@ mod tests {
             #[test]
             fn $test_bls12381_multiexp_incorrect_input() {
                 let zero_scalar = vec![0u8; 32];
+                bolero::check!().with_type().for_each(|p: &$EPoint| {
+                    let test_vecs: Vec<Vec<Vec<u8>>> = $GOp::get_incorrect_points(p)
+                        .into_iter()
+                        .map(|test| vec![test, zero_scalar.clone()])
+                        .collect();
 
-                let test_vecs: Vec<Vec<Vec<u8>>> = $GOp::get_incorrect_points()
-                    .into_iter()
-                    .map(|test| vec![test, zero_scalar.clone()])
-                    .collect();
-
-                for i in 0..test_vecs.len() {
-                    run_bls12381_fn!($bls12381_multiexp, test_vecs[i], 1);
-                }
+                    for i in 0..test_vecs.len() {
+                        run_bls12381_fn!($bls12381_multiexp, test_vecs[i], 1);
+                    }
+                });
 
                 //points not from G
                 bolero::check!().with_type().for_each(|p: &$EnotGPoint| {
@@ -843,6 +842,7 @@ mod tests {
     test_bls12381_multiexp!(
         G1Operations,
         G1Point,
+        E1Point,
         EnotG1Point,
         G1Affine,
         bls12381_g1_multiexp,
@@ -856,6 +856,7 @@ mod tests {
     test_bls12381_multiexp!(
         G2Operations,
         G2Point,
+        E2Point,
         EnotG2Point,
         G2Affine,
         bls12381_g2_multiexp,
@@ -1225,23 +1226,25 @@ mod tests {
     #[test]
     fn test_bls12381_pairing_incorrect_input_point_fuzzer() {
         bolero::check!().with_type().for_each(
-            |(p1_not_from_g1, p2, p1, p2_not_from_g2): &(
+            |(p1_not_from_g1, p2, p1, p2_not_from_g2, curve_p1, curve_p2): &(
                 EnotG1Point,
                 G2Point,
                 G1Point,
                 EnotG2Point,
+                E1Point,
+                E2Point,
             )| {
                 assert_eq!(pairing_check(vec![p1_not_from_g1.p.clone()], vec![p2.p.clone()]), 1);
                 assert_eq!(pairing_check(vec![p1.p.clone()], vec![p2_not_from_g2.p.clone()]), 1);
 
                 let p1_ser = G1Operations::serialize_uncompressed_g(&p1.p).to_vec();
                 let p2_ser = G2Operations::serialize_uncompressed_g(&p2.p).to_vec();
-                let test_vecs: Vec<Vec<u8>> = G1Operations::get_incorrect_points();
+                let test_vecs: Vec<Vec<u8>> = G1Operations::get_incorrect_points(curve_p1);
                 for i in 0..test_vecs.len() {
                     assert_eq!(pairing_check_vec(test_vecs[i].clone(), p2_ser.clone()), 1);
                 }
 
-                let test_vecs: Vec<Vec<u8>> = G2Operations::get_incorrect_points();
+                let test_vecs: Vec<Vec<u8>> = G2Operations::get_incorrect_points(curve_p2);
                 for i in 0..test_vecs.len() {
                     assert_eq!(pairing_check_vec(p1_ser.clone(), test_vecs[i].clone()), 1);
                 }
