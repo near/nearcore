@@ -69,6 +69,19 @@ mod tests {
         }
     }
 
+    #[derive(Debug)]
+    pub struct Scalar {
+        pub p: Fr,
+    }
+
+    impl TypeGenerator for Scalar {
+        fn generate<D: bolero::Driver>(driver: &mut D) -> Option<Scalar> {
+            let raw = <[u8; 32]>::generate(driver)?;
+
+            Some(Scalar{p: Fr::from_random_bytes(&raw)?})
+        }
+    }
+
     impl G1Operations {
         const POINT_LEN: usize = 96;
         const MAX_N_SUM: usize = 675;
@@ -746,40 +759,28 @@ mod tests {
                     }
                 );
 
-                let mut rng = test_rng();
-
-                for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::get_random_g_point(&mut rng);
-                    let distr = ark_std::rand::distributions::Standard;
-                    let n: Fr = distr.sample(&mut rng);
-
-                    let res1 = $GOp::get_multiexp(&vec![(n.clone(), p.clone())]);
-                    let res2 = p.mul(&n);
+                bolero::check!().with_type().for_each(|(p, n): &($GPoint, Scalar)| {
+                    let res1 = $GOp::get_multiexp(&vec![(n.p.clone(), p.p.clone())]);
+                    let res2 = p.p.mul(&n.p);
 
                     assert_eq!(res1, $GOp::serialize_uncompressed_g(&res2.into()));
-                }
+                });
             }
 
             #[test]
             fn $test_bls12381_multiexp_many_points() {
-                let mut rng = test_rng();
-
-                for i in 0..TESTS_ITERATIONS {
-                    let n = get_n(i, $GOp::MAX_N_MULTIEXP);
+                bolero::check!().with_generator(bolero::gen::<Vec::<(Scalar, $GPoint)>>().with().len(0usize..=$GOp::MAX_N_MULTIEXP))
+                .for_each(|ps: &Vec<(Scalar, $GPoint)>| {
                     let mut res2 = $GAffine::identity();
-
                     let mut points: Vec<(Fr, $GAffine)> = vec![];
-                    for i in 0..n {
-                        let distr = ark_std::rand::distributions::Standard;
-                        let scalar: Fr = distr.sample(&mut rng);
-
-                        points.push((scalar, $GOp::get_random_g_point(&mut rng)));
+                    for i in 0..ps.len() {
+                        points.push((ps[i].0.p, ps[i].1.p));
                         res2 = res2.add(&points[i].1.mul(&points[i].0)).into();
                     }
 
                     let res1 = $GOp::get_multiexp(&points);
                     assert_eq!(res1, $GOp::serialize_uncompressed_g(&res2.into()));
-                }
+                });
             }
 
             #[test]
@@ -853,7 +854,7 @@ mod tests {
         bls12381_g1_multiexp,
         bls12381_p1_sum,
         test_bls12381_g1_multiexp_mul_fuzzer,
-        test_bls12381_g1_multiexp_many_points,
+        test_bls12381_g1_multiexp_many_points_fuzzer,
         test_bls12381_g1_multiexp_incorrect_input_fuzzer,
         test_bls12381_g1_multiexp_invariants_checks,
         test_bls12381_error_g1_encoding
@@ -866,7 +867,7 @@ mod tests {
         bls12381_g2_multiexp,
         bls12381_p2_sum,
         test_bls12381_g2_multiexp_mul_fuzzer,
-        test_bls12381_g2_multiexp_many_points,
+        test_bls12381_g2_multiexp_many_points_fuzzer,
         test_bls12381_g2_multiexp_incorrect_input_fuzzer,
         test_bls12381_g2_multiexp_invariants_checks,
         test_bls12381_error_g2_encoding
