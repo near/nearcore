@@ -10,7 +10,7 @@ mod tests {
     };
     use ark_std::{One, Zero};
     use bolero::{generator, TypeGenerator};
-    use rand::{seq::SliceRandom, thread_rng, RngCore};
+    use rand::{seq::SliceRandom, thread_rng};
     use std::{fs, ops::Add, ops::Mul, ops::Neg, str::FromStr};
 
     const P: &str = "4002409555221667393417789825735904156556882819939007885332058136124031650490837864442687629129015664037894272559787";
