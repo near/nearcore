@@ -29,6 +29,7 @@ impl TrieRecorder {
         }
     }
 
+    #[cfg(feature = "test_features")]
     pub fn record_unaccounted(&mut self, hash: &CryptoHash, node: Arc<[u8]>) {
         self.recorded.insert(*hash, node);
     }

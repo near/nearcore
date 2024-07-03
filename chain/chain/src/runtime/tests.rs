@@ -1767,6 +1767,7 @@ fn test_prepare_transactions_empty_storage_proof() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "test_features"), ignore)]
 fn test_storage_proof_garbage() {
     if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
         return;
