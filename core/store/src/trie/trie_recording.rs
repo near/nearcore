@@ -29,7 +29,7 @@ impl TrieRecorder {
         }
     }
 
-    /// Records value without increasing the size.
+    /// Records value without increasing the recorded size.
     /// This is used to bypass witness size checks in order to generate
     /// large witness for testing.
     #[cfg(feature = "test_features")]
