@@ -108,7 +108,7 @@ mod tests {
         fn serialize_fp(fq: &Fq2) -> Vec<u8> {
             let c1_bytes = G1Operations::serialize_fp(&fq.c1);
             let c0_bytes = G1Operations::serialize_fp(&fq.c0);
-            vec![c1_bytes, c0_bytes].concat()
+            [c1_bytes, c0_bytes].concat()
         }
     }
 
@@ -844,23 +844,23 @@ mod tests {
     );
 
     fn add_p_y(point: &G1Affine) -> Vec<u8> {
-        let mut ybig: Fq = (*point.y().unwrap()).clone();
+        let mut ybig: Fq = *point.y().unwrap();
         ybig = ybig.add(&Fq::from_str(P).unwrap());
         let p_ser = G1Operations::serialize_uncompressed_g(&point);
         let mut y_ser: Vec<u8> = vec![0u8; 48];
         ybig.serialize_with_flags(y_ser.as_mut_slice(), EmptyFlags).unwrap();
 
-        vec![p_ser[..48].to_vec(), y_ser].concat()
+        [p_ser[..48].to_vec(), y_ser].concat()
     }
 
     fn add2_p_y(point: &G2Affine) -> Vec<u8> {
-        let mut yabig = point.y().unwrap().clone().c1.clone();
+        let mut yabig = (*point.y().unwrap()).c1;
         yabig = yabig.add(&Fq::from_str(P).unwrap());
         let p_ser = G2Operations::serialize_uncompressed_g(&point);
         let mut y_ser: Vec<u8> = vec![0u8; 48];
         yabig.serialize_with_flags(y_ser.as_mut_slice(), EmptyFlags).unwrap();
 
-        vec![p_ser[..96 + 48].to_vec(), y_ser].concat()
+        [p_ser[..96 + 48].to_vec(), y_ser].concat()
     }
 
     macro_rules! test_bls12381_map_fp_to_g {
@@ -939,15 +939,15 @@ mod tests {
 
     #[test]
     fn test_bls12381_map_fp_to_g1_incorrect_input() {
-        let p = hex::decode(P_HEX.to_string()).unwrap();
-        run_bls12381_fn!(bls12381_map_fp_to_g1, vec![p], 1);
+        let p = hex::decode(P_HEX).unwrap();
+        run_bls12381_fn!(bls12381_map_fp_to_g1, [p], 1);
     }
 
     #[test]
     fn test_bls12381_map_fp2_to_g2_incorrect_input() {
-        let p = hex::decode(P_HEX.to_string()).unwrap();
-        run_bls12381_fn!(bls12381_map_fp2_to_g2, vec![p.clone(), vec![0u8; 48]], 1);
-        run_bls12381_fn!(bls12381_map_fp2_to_g2, vec![vec![0u8; 48], p.clone()], 1);
+        let p = hex::decode(P_HEX).unwrap();
+        run_bls12381_fn!(bls12381_map_fp2_to_g2, [p.clone(), vec![0u8; 48]], 1);
+        run_bls12381_fn!(bls12381_map_fp2_to_g2, [vec![0u8; 48], p], 1);
     }
 
     macro_rules! test_bls12381_decompress {
@@ -1090,10 +1090,10 @@ mod tests {
             let v = Bls12_381::pairing(p1.p, zero2);
             assert!(v.is_zero());
 
-            assert_eq!(pairing_check(vec![zero1.clone()], vec![zero2.clone()]), 0);
-            assert_eq!(pairing_check(vec![zero1.clone()], vec![p2.p.clone()]), 0);
-            assert_eq!(pairing_check(vec![p1.p.clone()], vec![zero2.clone()]), 0);
-            assert_eq!(pairing_check(vec![p1.p.clone()], vec![p2.p.clone()]), 2);
+            assert_eq!(pairing_check(vec![zero1], vec![zero2]), 0);
+            assert_eq!(pairing_check(vec![zero1], vec![p2.p]), 0);
+            assert_eq!(pairing_check(vec![p1.p], vec![zero2]), 0);
+            assert_eq!(pairing_check(vec![p1.p], vec![p2.p]), 2);
         });
     }
 
@@ -1106,22 +1106,22 @@ mod tests {
 
                 assert_eq!(
                     pairing_check(
-                        vec![p1.p.clone(), p1_neg.clone()],
-                        vec![p2.p.clone(), p2.p.clone()]
+                        vec![p1.p, p1_neg],
+                        vec![p2.p, p2.p]
                     ),
                     0
                 );
                 assert_eq!(
                     pairing_check(
-                        vec![p1.p.clone(), p1.p.clone()],
-                        vec![p2.p.clone(), p2_neg.clone()]
+                        vec![p1.p, p1.p],
+                        vec![p2.p, p2_neg]
                     ),
                     0
                 );
                 assert_eq!(
                     pairing_check(
-                        vec![p1.p.clone(), p1.p.clone()],
-                        vec![p2.p.clone(), p2.p.clone()]
+                        vec![p1.p, p1.p],
+                        vec![p2.p, p2.p]
                     ),
                     2
                 );
@@ -1208,8 +1208,8 @@ mod tests {
                 E1Point,
                 E2Point,
             )| {
-                assert_eq!(pairing_check(vec![p1_not_from_g1.p.clone()], vec![p2.p.clone()]), 1);
-                assert_eq!(pairing_check(vec![p1.p.clone()], vec![p2_not_from_g2.p.clone()]), 1);
+                assert_eq!(pairing_check(vec![p1_not_from_g1.p], vec![p2.p]), 1);
+                assert_eq!(pairing_check(vec![p1.p], vec![p2_not_from_g2.p]), 1);
 
                 let p1_ser = G1Operations::serialize_uncompressed_g(&p1.p).to_vec();
                 let p2_ser = G2Operations::serialize_uncompressed_g(&p2.p).to_vec();
@@ -1295,7 +1295,7 @@ mod tests {
     }
 
     fn fix_eip2537_pairing_input(input: Vec<u8>) -> Vec<u8> {
-        vec![
+        [
             fix_eip2537_g1(input[..128].to_vec()).to_vec(),
             fix_eip2537_g2(input[128..].to_vec()).to_vec(),
         ]
@@ -1307,7 +1307,7 @@ mod tests {
     }
 
     fn fix_eip2537_fp2(fp2: Vec<u8>) -> Vec<u8> {
-        vec![fp2[64 + 16..].to_vec(), fp2[16..64].to_vec()].concat()
+        [fp2[64 + 16..].to_vec(), fp2[16..64].to_vec()].concat()
     }
 
     macro_rules! fix_eip2537_input {
@@ -1316,7 +1316,7 @@ mod tests {
                 use crate::logic::tests::bls12381::tests::$fix_eip2537_fp;
 
                 pub fn fix_eip2537_g(g: Vec<u8>) -> Vec<u8> {
-                    let mut res = vec![
+                    let mut res = [
                         $fix_eip2537_fp(g[..g.len() / 2].to_vec()),
                         $fix_eip2537_fp(g[g.len() / 2..].to_vec()),
                     ]
