@@ -8,9 +8,9 @@ mod tests {
     use ark_serialize::{
         CanonicalDeserialize, CanonicalSerialize, CanonicalSerializeWithFlags, EmptyFlags,
     };
-    use ark_std::{test_rng, One, UniformRand, Zero};
+    use ark_std::{One, Zero};
     use bolero::{generator, TypeGenerator};
-    use rand::{seq::SliceRandom, thread_rng, Rng, RngCore};
+    use rand::{seq::SliceRandom, thread_rng, RngCore};
     use std::{fs, ops::Add, ops::Mul, ops::Neg, str::FromStr};
 
     const P: &str = "4002409555221667393417789825735904156556882819939007885332058136124031650490837864442687629129015664037894272559787";
@@ -19,7 +19,6 @@ mod tests {
     const R: &str = "52435875175126190479447740508185965837690552500527637822603658699938581184513";
     const R_MINUS_1: &str = "73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000000";
 
-    const TESTS_ITERATIONS: usize = 100;
     const MAX_N_PAIRING: usize = 15;
 
     macro_rules! run_bls12381_fn {
@@ -89,10 +88,6 @@ mod tests {
         const MAX_N_MAP: usize = 150;
         const MAX_N_DECOMPRESS: usize = 500;
 
-        fn get_random_fp<R: Rng + ?Sized>(rng: &mut R) -> Fq {
-            Fq::rand(rng)
-        }
-
         fn serialize_fp(fq: &Fq) -> Vec<u8> {
             let mut result = [0u8; 48];
             let rep = fq.into_bigint();
@@ -109,10 +104,6 @@ mod tests {
         const MAX_N_MULTIEXP: usize = 50;
         const MAX_N_MAP: usize = 75;
         const MAX_N_DECOMPRESS: usize = 250;
-
-        fn get_random_fp<R: Rng + ?Sized>(rng: &mut R) -> Fq2 {
-            Fq2::new(Fq::rand(rng), Fq::rand(rng))
-        }
 
         fn serialize_fp(fq: &Fq2) -> Vec<u8> {
             let c1_bytes = G1Operations::serialize_fp(&fq.c1);
@@ -178,28 +169,12 @@ mod tests {
             }
 
             impl $GOperations {
-                fn get_random_curve_point<R: Rng + ?Sized>(rng: &mut R) -> $GAffine {
-                    loop {
-                        let x = Self::get_random_fp(rng);
-                        let greatest = rng.gen();
-
-                        if let Some(p) = $GAffine::get_point_from_x_unchecked(x, greatest) {
-                            return p;
-                        }
-                    }
-                }
-
-                fn get_random_g_point<R: Rng + ?Sized>(rng: &mut R) -> $GAffine {
-                    let p = Self::get_random_curve_point(rng);
-                    p.clear_cofactor()
-                }
-
-                fn check_multipoint_sum<R: Rng + ?Sized>(n: usize, rng: &mut R) {
+                fn check_multipoint_sum(ps: &Vec<(bool, $EPoint)>) {
                     let mut res3 = $GAffine::identity();
 
                     let mut points: Vec<(u8, $GAffine)> = vec![];
-                    for i in 0..n {
-                        points.push((rng.gen_range(0..=1), Self::get_random_curve_point(rng)));
+                    for i in 0..ps.len() {
+                        points.push((ps[i].0 as u8, ps[i].1.p));
 
                         let mut current_point = points[i].1.clone();
                         if points[i].0 == 1 {
@@ -405,10 +380,6 @@ mod tests {
         zero1
     }
 
-    fn get_n(i: usize, max_n: usize) -> usize {
-        return if i == 0 { max_n } else { (thread_rng().next_u32() as usize) % max_n };
-    }
-
     fn pairing_check(p1s: Vec<G1Affine>, p2s: Vec<G2Affine>) -> u64 {
         let mut logic_builder = VMLogicBuilder::default();
         let mut logic = logic_builder.build();
@@ -571,30 +542,34 @@ mod tests {
 
             #[test]
             fn $test_bls12381_sum_many_points() {
-                let mut rng = test_rng();
-
                 let zero = get_zero($GOp::POINT_LEN);
                 //empty input
                 let res = $GOp::get_sum_many_points(&vec![]);
                 assert_eq!(zero.to_vec(), res);
 
-                for i in 0..TESTS_ITERATIONS {
-                    $GOp::check_multipoint_sum(get_n(i, $GOp::MAX_N_SUM), &mut rng);
-                }
-                $GOp::check_multipoint_sum(1, &mut rng);
+                bolero::check!()
+                    .with_generator(
+                        bolero::gen::<Vec<(bool, $EPoint)>>().with().len(0usize..$GOp::MAX_N_SUM),
+                    )
+                    .for_each(|ps: &Vec<(bool, $EPoint)>| {
+                        $GOp::check_multipoint_sum(ps);
+                    });
 
-                for i in 0..TESTS_ITERATIONS {
-                    let n = get_n(i, $GOp::MAX_N_SUM);
-                    let mut points: Vec<(u8, $GAffine)> = vec![];
-                    for _ in 0..n {
-                        points.push((rng.gen_range(0..=1), $GOp::get_random_g_point(&mut rng)));
-                    }
+                bolero::check!()
+                    .with_generator(
+                        bolero::gen::<Vec<(bool, $GPoint)>>().with().len(0usize..$GOp::MAX_N_SUM),
+                    )
+                    .for_each(|ps: &Vec<(bool, $GPoint)>| {
+                        let mut points: Vec<(u8, $GAffine)> = vec![];
+                        for i in 0..ps.len() {
+                            points.push((ps[i].0 as u8, ps[i].1.p));
+                        }
 
-                    let res1 = $GOp::get_sum_many_points(&points);
-                    let sum = $GOp::deserialize_g(res1);
+                        let res1 = $GOp::get_sum_many_points(&points);
+                        let sum = $GOp::deserialize_g(res1);
 
-                    assert!(sum.is_in_correct_subgroup_assuming_on_curve());
-                }
+                        assert!(sum.is_in_correct_subgroup_assuming_on_curve());
+                    });
             }
 
             #[test]
@@ -648,7 +623,7 @@ mod tests {
         test_bls12381_p1_sum_fuzzer,
         test_bls12381_p1_sum_not_g1_points_fuzzer,
         test_bls12381_p1_sum_inverse_fuzzer,
-        test_bls12381_p1_sum_many_points,
+        test_bls12381_p1_sum_many_points_fuzzer,
         test_bls12381_p1_crosscheck_sum_and_multiexp_fuzzer,
         test_bls12381_p1_sum_incorrect_input_fuzzer
     );
@@ -664,7 +639,7 @@ mod tests {
         test_bls12381_p2_sum_fuzzer,
         test_bls12381_p2_sum_not_g2_points_fuzzer,
         test_bls12381_p2_sum_inverse_fuzzer,
-        test_bls12381_p2_sum_many_points,
+        test_bls12381_p2_sum_many_points_fuzzer,
         test_bls12381_p2_crosscheck_sum_and_multiexp_fuzzer,
         test_bls12381_p2_sum_incorrect_input_fuzzer
     );
