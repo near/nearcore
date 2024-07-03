@@ -476,13 +476,20 @@ def filter_hosts(args, traffic_generator, nodes):
 
     if args.select_partition is not None:
         i, n = args.select_partition
+
+        if len(nodes) < n and traffic_generator == None:
+            logger.error(
+                f'Partitioning {len(nodes)} nodes in {n} groups will result in empty groups.'
+            )
+            exit(1)
         nodes.sort(key=lambda node: node.name())
-        nodes = np.array_split(nodes, n)[i-1]
+        nodes = np.array_split(nodes, n)[i - 1]
 
     return traffic_generator, nodes
 
 
 class ParseFraction(Action):
+
     def __call__(self, parser, namespace, values, option_string=None):
         pattern = r"(\d+)/(\d+)"
         match = re.match(pattern, values)
@@ -491,6 +498,7 @@ class ParseFraction(Action):
         numerator = int(match.group(1))
         denominator = int(match.group(2))
         setattr(namespace, self.dest, (numerator, denominator))
+
 
 if __name__ == '__main__':
     parser = ArgumentParser(description='Control a mocknet instance')
@@ -513,7 +521,8 @@ if __name__ == '__main__':
                         Input should be in the form of "i/n" where 0 < i <= n.
                         Select a group of hosts based on the division provided.
                         For i/n, it will split the selected hosts into n groups and select the i-th group.
-                        Use this if you want to target just a partition of the hosts.''')
+                        Use this if you want to target just a partition of the hosts.'''
+                       )
 
     subparsers = parser.add_subparsers(title='subcommands',
                                        description='valid subcommands',
