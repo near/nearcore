@@ -1360,7 +1360,7 @@ impl<'a> VMLogic<'a> {
     ///   bls12381_pairing_base + bls12381_pairing_element * num_elements`
     #[cfg(feature = "protocol_feature_bls12381")]
     pub fn bls12381_pairing_check(&mut self, value_len: u64, value_ptr: u64) -> Result<u64> {
-        self.gas_counter.pay_base(bls12381_pairing_base)?;
+        self.result_state.gas_counter.pay_base(bls12381_pairing_base)?;
 
         const BLS_P1_SIZE: usize = 96;
         const BLS_P2_SIZE: usize = 192;
@@ -1369,7 +1369,7 @@ impl<'a> VMLogic<'a> {
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
         let elements_count = data.len() / ITEM_SIZE;
 
-        self.gas_counter.pay_per(bls12381_pairing_element, elements_count as u64)?;
+        self.result_state.gas_counter.pay_per(bls12381_pairing_element, elements_count as u64)?;
 
         super::bls12381::pairing_check(&data)
     }

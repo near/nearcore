@@ -30,17 +30,17 @@ macro_rules! bls12381_impl {
             value_ptr: u64,
             register_id: u64,
         ) -> Result<u64> {
-            self.gas_counter.pay_base($bls12381_base)?;
+            self.result_state.gas_counter.pay_base($bls12381_base)?;
 
             let elements_count = value_len / $ITEM_SIZE;
-            self.gas_counter.pay_per($bls12381_element, elements_count as u64)?;
+            self.result_state.gas_counter.pay_per($bls12381_element, elements_count as u64)?;
 
             let data = get_memory_or_register!(self, value_ptr, value_len)?;
             let res_option = super::bls12381::$impl_fn_name(&data)?;
 
             if let Some(res) = res_option {
                 self.registers.set(
-                    &mut self.gas_counter,
+                    &mut self.result_state.gas_counter,
                     &self.config.limit_config,
                     register_id,
                     res.as_slice(),
