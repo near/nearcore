@@ -48,110 +48,6 @@ use near_async::time::Clock;
 use near_primitives::trie_key::TrieKey;
 use primitive_types::U256;
 
-fn stake(
-    nonce: Nonce,
-    signer: &Signer,
-    sender: &ValidatorSigner,
-    stake: Balance,
-) -> SignedTransaction {
-    SignedTransaction::from_actions(
-        nonce,
-        sender.validator_id().clone(),
-        sender.validator_id().clone(),
-        &*signer,
-        vec![Action::Stake(Box::new(StakeAction { stake, public_key: sender.public_key() }))],
-        // runtime does not validate block history
-        CryptoHash::default(),
-        0,
-    )
-}
-
-impl NightshadeRuntime {
-    fn update(
-        &self,
-        state_root: &StateRoot,
-        shard_id: ShardId,
-        height: BlockHeight,
-        block_timestamp: u64,
-        prev_block_hash: &CryptoHash,
-        block_hash: &CryptoHash,
-        receipts: &[Receipt],
-        transactions: &[SignedTransaction],
-        last_validator_proposals: ValidatorStakeIter,
-        gas_price: Balance,
-        gas_limit: Gas,
-        challenges_result: &ChallengesResult,
-    ) -> (StateRoot, Vec<ValidatorStake>, Vec<Receipt>) {
-        // TODO(congestion_control): pass down prev block info and read congestion info from there
-        // For now, just use default.
-        let epoch_id =
-            self.epoch_manager.get_epoch_id_from_prev_block(block_hash).unwrap_or_default();
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
-        let congestion_info_map = if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
-            BlockCongestionInfo::default()
-        } else {
-            let shard_ids = self.epoch_manager.shard_ids(&epoch_id).unwrap();
-            let shards_congestion_info = shard_ids
-                .into_iter()
-                .map(|shard_id| (shard_id, ExtendedCongestionInfo::default()))
-                .collect();
-            BlockCongestionInfo::new(shards_congestion_info)
-        };
-        let mut result = self
-            .apply_chunk(
-                RuntimeStorageConfig::new(*state_root, true),
-                ApplyChunkReason::UpdateTrackedShard,
-                ApplyChunkShardContext {
-                    shard_id,
-                    last_validator_proposals,
-                    gas_limit,
-                    is_new_chunk: true,
-                    is_first_block_with_chunk_of_version: false,
-                },
-                ApplyChunkBlockContext {
-                    height,
-                    block_hash: *block_hash,
-                    prev_block_hash: *prev_block_hash,
-                    block_timestamp,
-                    gas_price,
-                    challenges_result: challenges_result.clone(),
-                    random_seed: CryptoHash::default(),
-                    congestion_info: congestion_info_map,
-                },
-                receipts,
-                transactions,
-            )
-            .unwrap();
-        let mut store_update = self.store.store_update();
-        let flat_state_changes =
-            FlatStateChanges::from_state_changes(&result.trie_changes.state_changes());
-        result.trie_changes.insertions_into(&mut store_update);
-        result.trie_changes.state_changes_into(&mut store_update);
-
-        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &EpochId::default()).unwrap();
-        if let Some(flat_storage) =
-            self.get_flat_storage_manager().get_flat_storage_for_shard(shard_uid)
-        {
-            let delta = FlatStateDelta {
-                changes: flat_state_changes,
-                metadata: FlatStateDeltaMetadata {
-                    block: near_store::flat::BlockInfo {
-                        hash: *block_hash,
-                        height,
-                        prev_hash: *prev_block_hash,
-                    },
-                    prev_block_with_changes: None,
-                },
-            };
-            let new_store_update = flat_storage.add_delta(delta).unwrap();
-            store_update.merge(new_store_update);
-        }
-        store_update.commit().unwrap();
-
-        (result.new_root, result.validator_proposals, result.outgoing_receipts)
-    }
-}
-
 struct TestEnvConfig {
     epoch_length: BlockHeightDelta,
     has_reward: bool,
@@ -306,6 +202,111 @@ impl TestEnv {
         }
     }
 
+    pub fn apply_new_chunk(
+        &self,
+        shard_id: ShardId,
+        new_block_hash: CryptoHash,
+        transactions: &[SignedTransaction],
+        receipts: &[Receipt],
+        challenges_result: ChallengesResult,
+    ) -> ApplyChunkResult {
+        // TODO(congestion_control): pass down prev block info and read congestion info from there
+        // For now, just use default.
+        let prev_block_hash = self.head.last_block_hash;
+        let state_root = self.state_roots[shard_id as usize];
+        let gas_limit = u64::MAX;
+        let height = self.head.height + 1;
+        let block_timestamp = 0;
+        let epoch_id =
+            self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash).unwrap_or_default();
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
+        let gas_price = self.runtime.genesis_config.min_gas_price;
+        let congestion_info = if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
+            BlockCongestionInfo::default()
+        } else {
+            let shard_ids = self.epoch_manager.shard_ids(&epoch_id).unwrap();
+            let shards_congestion_info = shard_ids
+                .into_iter()
+                .map(|shard_id| (shard_id, ExtendedCongestionInfo::default()))
+                .collect();
+            BlockCongestionInfo::new(shards_congestion_info)
+        };
+        self.runtime
+            .apply_chunk(
+                RuntimeStorageConfig::new(state_root, true),
+                ApplyChunkReason::UpdateTrackedShard,
+                ApplyChunkShardContext {
+                    shard_id,
+                    last_validator_proposals: ValidatorStakeIter::new(
+                        self.last_shard_proposals.get(&shard_id).unwrap_or(&vec![]),
+                    ),
+                    gas_limit,
+                    is_new_chunk: true,
+                    is_first_block_with_chunk_of_version: false,
+                },
+                ApplyChunkBlockContext {
+                    height,
+                    block_hash: new_block_hash,
+                    prev_block_hash,
+                    block_timestamp,
+                    gas_price,
+                    challenges_result,
+                    random_seed: CryptoHash::default(),
+                    congestion_info,
+                },
+                receipts,
+                transactions,
+            )
+            .unwrap()
+    }
+
+    fn update_runtime(
+        &self,
+        shard_id: ShardId,
+        new_block_hash: CryptoHash,
+        transactions: &[SignedTransaction],
+        receipts: &[Receipt],
+        challenges_result: ChallengesResult,
+    ) -> (CryptoHash, Vec<ValidatorStake>, Vec<Receipt>) {
+        let mut apply_result = self.apply_new_chunk(
+            shard_id,
+            new_block_hash,
+            transactions,
+            receipts,
+            challenges_result,
+        );
+        let mut store_update = self.runtime.store().store_update();
+        let flat_state_changes =
+            FlatStateChanges::from_state_changes(&apply_result.trie_changes.state_changes());
+        apply_result.trie_changes.insertions_into(&mut store_update);
+        apply_result.trie_changes.state_changes_into(&mut store_update);
+
+        let prev_block_hash = self.head.last_block_hash;
+        let epoch_id =
+            self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash).unwrap_or_default();
+        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id).unwrap();
+        if let Some(flat_storage) =
+            self.runtime.get_flat_storage_manager().get_flat_storage_for_shard(shard_uid)
+        {
+            let delta = FlatStateDelta {
+                changes: flat_state_changes,
+                metadata: FlatStateDeltaMetadata {
+                    block: near_store::flat::BlockInfo {
+                        hash: new_block_hash,
+                        height: self.head.height + 1,
+                        prev_hash: prev_block_hash,
+                    },
+                    prev_block_with_changes: None,
+                },
+            };
+            let new_store_update = flat_storage.add_delta(delta).unwrap();
+            store_update.merge(new_store_update);
+        }
+        store_update.commit().unwrap();
+
+        (apply_result.new_root, apply_result.validator_proposals, apply_result.outgoing_receipts)
+    }
+
     pub fn step(
         &mut self,
         transactions: Vec<Vec<SignedTransaction>>,
@@ -319,21 +320,12 @@ impl TestEnv {
         let mut all_proposals = vec![];
         let mut all_receipts = vec![];
         for shard_id in shard_ids {
-            let (state_root, proposals, receipts) = self.runtime.update(
-                &self.state_roots[shard_id as usize],
+            let (state_root, proposals, receipts) = self.update_runtime(
                 shard_id,
-                self.head.height + 1,
-                0,
-                &self.head.last_block_hash,
-                &new_hash,
-                self.last_receipts.get(&shard_id).map_or(&[], |v| v.as_slice()),
+                new_hash,
                 &transactions[shard_id as usize],
-                ValidatorStakeIter::new(
-                    self.last_shard_proposals.get(&shard_id).unwrap_or(&vec![]),
-                ),
-                self.runtime.genesis_config.min_gas_price,
-                u64::max_value(),
-                &challenges_result,
+                self.last_receipts.get(&shard_id).map_or(&[], |v| v.as_slice()),
+                challenges_result.clone(),
             );
             self.state_roots[shard_id as usize] = state_root;
             all_receipts.extend(receipts);
@@ -1779,10 +1771,8 @@ fn test_storage_proof_garbage() {
     if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
         return;
     }
-    let (env, chain, _) = get_test_env_with_chain_and_pool();
-    let block = chain.get_block(&env.head.prev_block_hash).unwrap();
-    let chunk = &block.chunks()[0];
-    let congestion_info = block.block_congestion_info();
+    let shard_id = 0;
+    let (env, _, _) = get_test_env_with_chain_and_pool();
     let signer = create_test_signer("test1");
     let garbage_size_mb = 50usize;
     let receipt = Receipt::V1(ReceiptV1 {
@@ -1792,7 +1782,7 @@ fn test_storage_proof_garbage() {
         receipt: near_primitives::receipt::ReceiptEnum::Action(ActionReceipt {
             signer_id: signer.validator_id().clone(),
             signer_public_key: signer.public_key(),
-            gas_price: block.header().next_gas_price(),
+            gas_price: env.runtime.genesis_config.min_gas_price,
             output_data_receivers: vec![],
             input_data_ids: vec![],
             actions: vec![Action::FunctionCall(
@@ -1807,29 +1797,27 @@ fn test_storage_proof_garbage() {
         }),
         priority: 0,
     });
-    let stake = [];
-    let apply_result = env
-        .runtime
-        .apply_chunk(
-            RuntimeStorageConfig::new(env.state_roots[0], true),
-            ApplyChunkReason::UpdateTrackedShard,
-            ApplyChunkShardContext {
-                shard_id: 0,
-                last_validator_proposals: ValidatorStakeIter::new(&stake),
-                gas_limit: chunk.gas_limit(),
-                is_new_chunk: true,
-                is_first_block_with_chunk_of_version: false,
-            },
-            ApplyChunkBlockContext::from_header(
-                block.header(),
-                env.runtime.genesis_config.min_gas_price,
-                congestion_info,
-            ),
-            &[receipt],
-            &[],
-        )
-        .unwrap();
+    let apply_result =
+        env.apply_new_chunk(shard_id, hash(&[42]), &[], &[receipt], ChallengesResult::default());
     let PartialState::TrieValues(storage_proof) = apply_result.proof.unwrap().nodes;
     let total_size: usize = storage_proof.iter().map(|v| v.len()).sum();
     assert_eq!(total_size / 1000_000, garbage_size_mb);
+}
+
+fn stake(
+    nonce: Nonce,
+    signer: &Signer,
+    sender: &ValidatorSigner,
+    stake: Balance,
+) -> SignedTransaction {
+    SignedTransaction::from_actions(
+        nonce,
+        sender.validator_id().clone(),
+        sender.validator_id().clone(),
+        &*signer,
+        vec![Action::Stake(Box::new(StakeAction { stake, public_key: sender.public_key() }))],
+        // runtime does not validate block history
+        CryptoHash::default(),
+        0,
+    )
 }
