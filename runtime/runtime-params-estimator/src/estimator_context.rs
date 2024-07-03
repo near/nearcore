@@ -3,6 +3,7 @@ use crate::config::{Config, GasMetric};
 use crate::gas_cost::GasCost;
 use genesis_populate::get_account_id;
 use genesis_populate::state_dump::StateDump;
+use near_parameters::config::CongestionControlConfig;
 use near_parameters::{ExtCosts, RuntimeConfigStore};
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::hash::CryptoHash;
@@ -144,6 +145,8 @@ impl<'c> EstimatorContext<'c> {
             ..wasm_config.limit_config
         };
         runtime_config.account_creation_config.min_allowed_top_level_account_length = 0;
+        // Disable congestion control to simplify measuring large workloads.
+        runtime_config.congestion_control_config = CongestionControlConfig::test_disabled();
 
         let shard_id = ShardUId::single_shard().shard_id();
         let congestion_info = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
@@ -350,6 +353,11 @@ impl Testbed<'_> {
             .apply_to_flat_state(&mut store_update, shard_uid);
         store_update.commit().unwrap();
         self.apply_state.block_height += 1;
+        if let Some(congestion_info) = apply_result.congestion_info {
+            self.apply_state
+                .congestion_info
+                .insert(shard_uid.shard_id(), ExtendedCongestionInfo::new(congestion_info, 0));
+        }
 
         let mut total_burnt_gas = 0;
         if !allow_failures {
