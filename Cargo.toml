@@ -97,7 +97,7 @@ members = [
     "utils/fmt",
     "utils/mainnet-res",
     "utils/near-cache",
-    "utils/stdx", "tools/protocol-schema-check", "core/structs-checker-core",
+    "utils/stdx",
 ]
 exclude = ["tracing", "benchmarks"]
 
