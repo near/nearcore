@@ -482,7 +482,6 @@ pub(crate) fn apply_receipt(
 
 #[cfg(test)]
 mod test {
-    use near_async::time::Clock;
     use near_chain::{ChainStore, ChainStoreAccess, Provenance};
     use near_chain_configs::Genesis;
     use near_client::test_utils::TestEnv;
@@ -495,6 +494,7 @@ mod test {
     use near_primitives::utils::get_num_seats_per_shard;
     use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
+    use near_time::Clock;
     use nearcore::NightshadeRuntime;
     use rand::rngs::StdRng;
     use rand::SeedableRng;

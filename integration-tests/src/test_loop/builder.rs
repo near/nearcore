@@ -1,4 +1,4 @@
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use near_async::futures::FutureSpawner;
 use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
@@ -23,7 +23,7 @@ use near_client::sync_jobs_actor::SyncJobsActor;
 use near_client::test_utils::test_loop::test_loop_sync_actor_maker;
 use near_client::{Client, PartialWitnessActor, SyncAdapter};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
-use near_epoch_manager::EpochManager;
+use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_network::test_loop::TestLoopPeerManagerActor;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
@@ -36,18 +36,30 @@ use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use nearcore::state_sync::StateSyncDumper;
 use tempfile::TempDir;
 
-use super::env::{TestData, TestLoopEnv};
+use super::env::{ClientToShardsManagerSender, TestData, TestLoopChunksStorage, TestLoopEnv};
+use super::utils::network::partial_encoded_chunks_dropper;
 
 pub struct TestLoopBuilder {
     test_loop: TestLoopV2,
     genesis: Option<Genesis>,
     clients: Vec<AccountId>,
+    /// Will store all chunks produced within the test loop.
+    chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
+    /// Whether test loop should drop all chunks validated by the given account.
+    drop_chunks_validated_by: Option<AccountId>,
     gc: bool,
 }
 
 impl TestLoopBuilder {
     pub fn new() -> Self {
-        Self { test_loop: TestLoopV2::new(), genesis: None, clients: vec![], gc: true }
+        Self {
+            test_loop: TestLoopV2::new(),
+            genesis: None,
+            clients: vec![],
+            chunks_storage: Default::default(),
+            drop_chunks_validated_by: None,
+            gc: true,
+        }
     }
 
     /// Get the clock for the test loop.
@@ -67,10 +79,8 @@ impl TestLoopBuilder {
         self
     }
 
-    /// Disable garbage collection for the nodes.
-    /// TODO(#11605): should always be enabled, if it doesn't work, it's a bug.
-    pub fn disable_gc(mut self) -> Self {
-        self.gc = false;
+    pub fn drop_chunks_validated_by(mut self, account_id: &str) -> Self {
+        self.drop_chunks_validated_by = Some(account_id.parse().unwrap());
         self
     }
 
@@ -92,15 +102,17 @@ impl TestLoopBuilder {
     fn build_impl(mut self) -> TestLoopEnv {
         let mut datas = Vec::new();
         let mut network_adapters = Vec::new();
+        let mut epoch_manager_adapters = Vec::new();
         let tempdir = tempfile::tempdir().unwrap();
         for idx in 0..self.clients.len() {
-            let (data, network_adapter) = self.setup_client(idx, &tempdir);
+            let (data, network_adapter, epoch_manager_adapter) = self.setup_client(idx, &tempdir);
             datas.push(data);
             network_adapters.push(network_adapter);
+            epoch_manager_adapters.push(epoch_manager_adapter);
         }
-        self.setup_network(&datas, &network_adapters);
+        self.setup_network(&datas, &network_adapters, &epoch_manager_adapters);
 
-        let env = TestLoopEnv { test_loop: self.test_loop, datas };
+        let env = TestLoopEnv { test_loop: self.test_loop, datas, tempdir };
         env.warmup()
     }
 
@@ -108,11 +120,14 @@ impl TestLoopBuilder {
         &mut self,
         idx: usize,
         tempdir: &TempDir,
-    ) -> (TestData, Arc<LateBoundSender<TestLoopSender<TestLoopPeerManagerActor>>>) {
+    ) -> (
+        TestData,
+        Arc<LateBoundSender<TestLoopSender<TestLoopPeerManagerActor>>>,
+        Arc<dyn EpochManagerAdapter>,
+    ) {
         let client_adapter = LateBoundSender::new();
         let network_adapter = LateBoundSender::new();
         let state_snapshot_adapter = LateBoundSender::new();
-        let shards_manager_adapter = LateBoundSender::new();
         let partial_witness_adapter = LateBoundSender::new();
         let sync_jobs_adapter = LateBoundSender::new();
 
@@ -136,7 +151,20 @@ impl TestLoopBuilder {
                 num_concurrent_requests_during_catchup: 1,
             }),
         };
-        client_config.tracked_shards = Vec::new();
+
+        // Configure tracked shards.
+        // * single shard tracking for validators
+        // * all shard tracking for RPCs
+        let num_block_producer = genesis.config.num_block_producer_seats;
+        let num_chunk_producer = genesis.config.num_chunk_producer_seats;
+        let num_chunk_validator = genesis.config.num_chunk_validator_seats;
+        let validator_num =
+            num_block_producer.max(num_chunk_producer).max(num_chunk_validator) as usize;
+        if idx < validator_num {
+            client_config.tracked_shards = Vec::new();
+        } else {
+            client_config.tracked_shards = vec![666];
+        }
 
         let homedir = tempdir.path().join(format!("{}", idx));
         std::fs::create_dir_all(&homedir).expect("Unable to create homedir");
@@ -194,6 +222,13 @@ impl TestLoopBuilder {
             Some(Arc::new(create_test_signer(self.clients[idx].as_str()))),
             "validator_signer",
         );
+
+        let shards_manager_adapter = LateBoundSender::new();
+        let client_to_shards_manager_sender = Arc::new(ClientToShardsManagerSender {
+            sender: shards_manager_adapter.clone(),
+            chunks_storage: self.chunks_storage.clone(),
+        });
+
         let client = Client::new(
             self.test_loop.clock(),
             client_config.clone(),
@@ -203,7 +238,7 @@ impl TestLoopBuilder {
             state_sync_adapter,
             runtime_adapter.clone(),
             network_adapter.as_multi_sender(),
-            shards_manager_adapter.as_sender(),
+            client_to_shards_manager_sender.as_sender(),
             validator_signer.clone(),
             true,
             [0; 32],
@@ -269,7 +304,7 @@ impl TestLoopBuilder {
             clock: self.test_loop.clock(),
             client_config,
             chain_genesis,
-            epoch_manager,
+            epoch_manager: epoch_manager.clone(),
             shard_tracker,
             runtime: runtime_adapter,
             validator: validator_signer,
@@ -312,17 +347,29 @@ impl TestLoopBuilder {
             partial_witness_sender,
             state_sync_dumper_handle,
         };
-        (data, network_adapter)
+        (data, network_adapter, epoch_manager)
     }
 
+    // TODO: we assume that all `Vec`s have the same length, consider
+    // joining them into one structure.
     fn setup_network(
         &mut self,
         datas: &Vec<TestData>,
         network_adapters: &Vec<Arc<LateBoundSender<TestLoopSender<TestLoopPeerManagerActor>>>>,
+        epoch_manager_adapters: &Vec<Arc<dyn EpochManagerAdapter>>,
     ) {
         for (idx, data) in datas.iter().enumerate() {
-            let peer_manager_actor =
+            let mut peer_manager_actor =
                 TestLoopPeerManagerActor::new(self.test_loop.clock(), &data.account_id, datas);
+
+            if let Some(account_id) = &self.drop_chunks_validated_by {
+                peer_manager_actor.register_override_handler(partial_encoded_chunks_dropper(
+                    self.chunks_storage.clone(),
+                    epoch_manager_adapters[idx].clone(),
+                    account_id.clone(),
+                ));
+            }
+
             self.test_loop.register_actor_for_index(
                 idx,
                 peer_manager_actor,

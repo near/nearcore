@@ -12,7 +12,7 @@ publish = false
 workspace = true
 
 [dependencies]
-near-async.workspace = true
+near-time.workspace = true
 near-store.workspace = true
 near-chain-primitives.workspace = true
 near-primitives.workspace = true

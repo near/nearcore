@@ -345,3 +345,16 @@ pub fn migrate_38_to_39(store: &Store) -> anyhow::Result<()> {
     update.commit()?;
     Ok(())
 }
+
+/// Migrates the database from version 39 to 40.
+///
+/// This involves deleting contents of _ReceiptIdToShardId column which is now
+/// deprecated and no longer used.
+pub fn migrate_39_to_40(store: &Store) -> anyhow::Result<()> {
+    let _span =
+        tracing::info_span!(target: "migrations", "Deleting contents of deprecated _ReceiptIdToShardId column").entered();
+    let mut update = store.store_update();
+    update.delete_all(DBCol::_ReceiptIdToShardId);
+    update.commit()?;
+    Ok(())
+}

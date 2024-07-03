@@ -774,9 +774,14 @@ def spin_up_node(config,
             "127.0.0.1:%s" % (24567 + 10 + bl_ordinal)
             for bl_ordinal in blacklist
         ]
-        node = LocalNode(24567 + 10 + ordinal, 3030 + 10 + ordinal,
-                         near_root, node_dir, blacklist,
-                         config.get('binary_name'), single_node)
+        node = LocalNode(24567 + 10 + ordinal,
+                         3030 + 10 + ordinal,
+                         near_root,
+                         node_dir,
+                         blacklist,
+                         config.get('binary_name'),
+                         single_node,
+                         ordinal=ordinal)
     else:
         # TODO: Figure out how to know IP address beforehand for remote deployment.
         assert len(
@@ -970,14 +975,16 @@ def start_cluster(num_nodes,
 
     def spin_up_node_and_push(i, boot_node: BootNode):
         single_node = (num_nodes == 1) and (num_observers == 0)
-        node = spin_up_node(config,
-                            near_root,
-                            node_dirs[i],
-                            i,
-                            boot_node=boot_node,
-                            proxy=proxy,
-                            skip_starting_proxy=True,
-                            single_node=single_node)
+        node = spin_up_node(
+            config,
+            near_root,
+            node_dirs[i],
+            ordinal=i,
+            boot_node=boot_node,
+            proxy=proxy,
+            skip_starting_proxy=True,
+            single_node=single_node,
+        )
         ret.append((i, node))
         return node
 

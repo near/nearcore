@@ -2,7 +2,6 @@
 
 use crate::{MockNetworkConfig, MockPeer};
 use anyhow::Context;
-use near_async::time::Clock;
 use near_chain::types::RuntimeAdapter;
 use near_chain::ChainStoreUpdate;
 use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, DoomslugThresholdMode};
@@ -17,6 +16,7 @@ use near_primitives::state_part::PartId;
 use near_primitives::state_sync::get_num_state_parts;
 use near_primitives::types::{BlockHeight, NumShards, ShardId};
 use near_store::test_utils::create_test_store;
+use near_time::Clock;
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::cmp::min;

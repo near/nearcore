@@ -4,18 +4,22 @@ use near_async::messaging::SendAsync;
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_client::test_utils::test_loop::ClientQueries;
+use near_crypto::{KeyType, PublicKey};
 use near_network::client::ProcessTxRequest;
+use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use std::collections::HashMap;
 
-pub(crate) const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
+use super::{ONE_NEAR, TGAS};
 
 /// Execute money transfers within given `TestLoop` between given accounts.
 /// Runs chain long enough for the transfers to be optimistically executed.
 /// Used to generate state changes and check that chain is able to update
 /// balances correctly.
+/// TODO: consider resending transactions which may be dropped because of
+/// missing chunks.
 pub(crate) fn execute_money_transfers(
     test_loop: &mut TestLoopV2,
     node_data: &[TestData],
@@ -87,4 +91,101 @@ pub(crate) fn execute_money_transfers(
             account
         );
     }
+}
+
+/// Deploy the test contracts to all of the provided accounts.
+pub(crate) fn deploy_contracts(
+    test_loop: &mut TestLoopV2,
+    node_datas: &[TestData],
+) -> Vec<CryptoHash> {
+    let block_hash = get_shared_block_hash(node_datas, test_loop);
+
+    let mut txs = vec![];
+    for node_data in node_datas {
+        let account = node_data.account_id.clone();
+
+        let contract = near_test_contracts::rs_contract();
+        let contract_id = format!("contract.{}", account);
+        let signer = create_user_test_signer(&account).into();
+        let public_key = PublicKey::from_seed(KeyType::ED25519, &contract_id);
+        let nonce = 1;
+
+        let transaction = SignedTransaction::create_contract(
+            nonce,
+            account,
+            contract_id.parse().unwrap(),
+            contract.to_vec(),
+            10 * ONE_NEAR,
+            public_key,
+            &signer,
+            block_hash,
+        );
+
+        txs.push(transaction.get_hash());
+
+        let process_tx_request =
+            ProcessTxRequest { transaction, is_forwarded: false, check_only: false };
+        let future = node_data.client_sender.clone().send_async(process_tx_request);
+        drop(future);
+
+        tracing::info!(target: "test", ?contract_id, "deployed contract");
+    }
+    txs
+}
+
+pub fn call_contract(
+    test_loop: &mut TestLoopV2,
+    node_datas: &[TestData],
+    account: &AccountId,
+) -> CryptoHash {
+    let block_hash = get_shared_block_hash(node_datas, test_loop);
+
+    let nonce = 2;
+    let signer = create_user_test_signer(&account);
+    let contract_id = format!("contract.{}", account).parse().unwrap();
+
+    let burn_gas = 250 * TGAS;
+    let attach_gas = 300 * TGAS;
+
+    let deposit = 0;
+    let method_name = "burn_gas_raw".to_owned();
+    let args = burn_gas.to_le_bytes().to_vec();
+
+    let transaction = SignedTransaction::call(
+        nonce,
+        signer.account_id.clone(),
+        contract_id,
+        &signer.into(),
+        deposit,
+        method_name,
+        args,
+        attach_gas,
+        block_hash,
+    );
+
+    let tx_hash = transaction.get_hash();
+
+    let process_tx_request =
+        ProcessTxRequest { transaction, is_forwarded: false, check_only: false };
+    let future = node_datas[0].client_sender.clone().send_async(process_tx_request);
+    drop(future);
+
+    tx_hash
+}
+
+fn get_shared_block_hash(node_datas: &[TestData], test_loop: &mut TestLoopV2) -> CryptoHash {
+    let clients = node_datas
+        .iter()
+        .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
+        .collect_vec();
+
+    let (_, block_hash) = clients
+        .iter()
+        .map(|client| {
+            let head = client.chain.head().unwrap();
+            (head.height, head.last_block_hash)
+        })
+        .min_by_key(|&(height, _)| height)
+        .unwrap();
+    block_hash
 }

@@ -1582,14 +1582,21 @@ impl Runtime {
             .recorded_storage_size_upper_bound()
             .saturating_sub(storage_proof_size_upper_bound_before)
             as f64;
-        metrics::RECEIPT_RECORDED_SIZE.observe(recorded_storage_diff);
-        metrics::RECEIPT_RECORDED_SIZE_UPPER_BOUND.observe(recorded_storage_upper_bound_diff);
+        let shard_id_str = processing_state.apply_state.shard_id.to_string();
+        metrics::RECEIPT_RECORDED_SIZE
+            .with_label_values(&[shard_id_str.as_str()])
+            .observe(recorded_storage_diff);
+        metrics::RECEIPT_RECORDED_SIZE_UPPER_BOUND
+            .with_label_values(&[shard_id_str.as_str()])
+            .observe(recorded_storage_upper_bound_diff);
         let recorded_storage_proof_ratio =
             recorded_storage_upper_bound_diff / f64::max(1.0, recorded_storage_diff);
         // Record the ratio only for large receipts, small receipts can have a very high ratio,
         // but the ratio is not that important for them.
         if recorded_storage_upper_bound_diff > 100_000. {
-            metrics::RECEIPT_RECORDED_SIZE_UPPER_BOUND_RATIO.observe(recorded_storage_proof_ratio);
+            metrics::RECEIPT_RECORDED_SIZE_UPPER_BOUND_RATIO
+                .with_label_values(&[shard_id_str.as_str()])
+                .observe(recorded_storage_proof_ratio);
         }
         if let Some(outcome_with_id) = result? {
             let gas_burnt = outcome_with_id.outcome.gas_burnt;
@@ -1905,7 +1912,10 @@ impl Runtime {
         self.apply_state_patch(&mut state_update, state_patch);
         let chunk_recorded_size_upper_bound =
             state_update.trie.recorded_storage_size_upper_bound() as f64;
-        metrics::CHUNK_RECORDED_SIZE_UPPER_BOUND.observe(chunk_recorded_size_upper_bound);
+        let shard_id_str = apply_state.shard_id.to_string();
+        metrics::CHUNK_RECORDED_SIZE_UPPER_BOUND
+            .with_label_values(&[shard_id_str.as_str()])
+            .observe(chunk_recorded_size_upper_bound);
         let (trie, trie_changes, state_changes) = state_update.finalize()?;
 
         if let Some(prefetcher) = &processing_state.prefetcher {
@@ -1937,8 +1947,11 @@ impl Runtime {
 
         let state_root = trie_changes.new_root;
         let chunk_recorded_size = trie.recorded_storage_size() as f64;
-        metrics::CHUNK_RECORDED_SIZE.observe(chunk_recorded_size);
+        metrics::CHUNK_RECORDED_SIZE
+            .with_label_values(&[shard_id_str.as_str()])
+            .observe(chunk_recorded_size);
         metrics::CHUNK_RECORDED_SIZE_UPPER_BOUND_RATIO
+            .with_label_values(&[shard_id_str.as_str()])
             .observe(chunk_recorded_size_upper_bound / f64::max(1.0, chunk_recorded_size));
         let proof = trie.recorded_storage();
         let processed_delayed_receipts = process_receipts_result.processed_delayed_receipts;

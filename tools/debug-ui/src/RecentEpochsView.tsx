@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
-import { fetchEpochInfo, fetchFullStatus } from './api';
+import { parse } from 'date-fns';
+import { EpochInfoView, fetchEpochInfo, fetchFullStatus } from './api';
 import { formatDurationInMillis } from './utils';
 import './RecentEpochsView.scss';
 
@@ -40,6 +41,8 @@ export const RecentEpochsView = ({ addr }: RecentEpochsViewProps) => {
                     <th>First Block</th>
                     <th>Epoch Start</th>
                     <th>Block Producers</th>
+                    <th>Chunk Producers</th>
+                    <th>Chunk Validators</th>
                     <th>Chunk-only Producers</th>
                 </tr>
             </thead>
@@ -61,9 +64,25 @@ export const RecentEpochsView = ({ addr }: RecentEpochsViewProps) => {
                         }
                     } else {
                         firstBlockColumn = epochInfo.first_block[0];
+                        // The date object inside epochInfo.first_block is very particular.
+                        // It looks like this:
+                        //      2024,180,0,15,28,88423066,0,0,0
+                        //      year,days,hours,minutes,seconds,nanoseconds,timezone offsets
+                        // The solution below parses the first part of the date object, up the the seconds, in UTC.
                         epochStartColumn = `${formatDurationInMillis(
-                            Date.now() - Date.parse(epochInfo.first_block[1])
-                        )} ago`;
+                            Date.now() -
+                              parse(
+                                epochInfo.first_block[1]
+                                  .toString()
+                                  .split(",")
+                                  .slice(0, 5)
+                                  .concat(["+00"])
+                                  .join(","),
+                                "yyyy,D,H,m,s,x",
+                                new Date(),
+                                { useAdditionalDayOfYearTokens: true }
+                              ).getTime()
+                          )} ago`;
                     }
                     let rowClassName = '';
                     let firstColumnText = '';
@@ -85,6 +104,8 @@ export const RecentEpochsView = ({ addr }: RecentEpochsViewProps) => {
                             <td>{firstBlockColumn}</td>
                             <td>{epochStartColumn}</td>
                             <td>{epochInfo.block_producers.length}</td>
+                            <td>{getChunkProducersTotal(epochInfo)}</td>
+                            <td>{getChunkValidatorsTotal(epochInfo)}</td>
                             <td>{epochInfo.chunk_only_producers.length}</td>
                         </tr>
                     );
@@ -93,3 +114,21 @@ export const RecentEpochsView = ({ addr }: RecentEpochsViewProps) => {
         </table>
     );
 };
+
+function getChunkProducersTotal(epochInfo: EpochInfoView)  {
+    return epochInfo.validator_info?.current_validators.reduce((acc, it) => {
+        if (it.num_expected_chunks > 0) {
+            acc = acc + 1;
+        }
+        return acc;
+      }, 0) ?? "N/A"
+}
+
+function getChunkValidatorsTotal(epochInfo: EpochInfoView)  {
+    return epochInfo.validator_info?.current_validators.reduce((acc, it) => {
+        if (it.num_expected_endorsements > 0) {
+            acc = acc + 1;
+        }
+        return acc;
+      }, 0) ?? "N/A";
+}

@@ -5,7 +5,6 @@ use actix::{Actor, System};
 use futures::{future, FutureExt, TryFutureExt};
 
 use near_actix_test_utils::run_actix;
-use near_async::time::Clock;
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
 use near_jsonrpc_primitives::types::transactions::{RpcTransactionStatusRequest, TransactionInfo};
@@ -16,6 +15,7 @@ use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockReference;
 use near_primitives::views::{FinalExecutionStatus, TxExecutionStatus};
+use near_time::Clock;
 
 use near_jsonrpc_tests::{self as test_utils, test_with_client};
 
