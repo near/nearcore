@@ -24,7 +24,7 @@ class CongestionControlBootstrapTest(unittest.TestCase):
     def test(self):
         self.start_nodes()
         self.check_congestion_info()
-        # Now wait until there are enough epocks to pass
+        # Now wait until there are enough epochs to pass
         # for GC to kick in and then restart the nodes.
         self.wait_for_multiple_epochs()
         self.restart_nodes()
