@@ -1104,27 +1104,9 @@ mod tests {
                 let p1_neg = p1.p.neg();
                 let p2_neg = p2.p.neg();
 
-                assert_eq!(
-                    pairing_check(
-                        vec![p1.p, p1_neg],
-                        vec![p2.p, p2.p]
-                    ),
-                    0
-                );
-                assert_eq!(
-                    pairing_check(
-                        vec![p1.p, p1.p],
-                        vec![p2.p, p2_neg]
-                    ),
-                    0
-                );
-                assert_eq!(
-                    pairing_check(
-                        vec![p1.p, p1.p],
-                        vec![p2.p, p2.p]
-                    ),
-                    2
-                );
+                assert_eq!(pairing_check(vec![p1.p, p1_neg], vec![p2.p, p2.p]), 0);
+                assert_eq!(pairing_check(vec![p1.p, p1.p], vec![p2.p, p2_neg]), 0);
+                assert_eq!(pairing_check(vec![p1.p, p1.p], vec![p2.p, p2.p]), 2);
 
                 assert_eq!(
                     pairing_check(
