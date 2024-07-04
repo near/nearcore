@@ -286,6 +286,7 @@ opentelemetry = { version = "0.22.0", features = ["trace"] }
 opentelemetry_sdk = { version = "0.22.0", features = ["rt-tokio"] }
 opentelemetry-otlp = "0.15.0"
 opentelemetry-semantic-conventions = "0.14.0"
+ordered-float = { version = "4.2.0", features = ["serde", "borsh"] }
 paperclip = { version = "0.8.0", features = ["actix4"] }
 parity-wasm = { version = "0.42", default-features = false }
 parity-wasm_41 = { package = "parity-wasm", version = "0.41" }
