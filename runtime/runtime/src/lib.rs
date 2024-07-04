@@ -15,7 +15,6 @@ pub use congestion_control::bootstrap_congestion_info;
 use congestion_control::ReceiptSink;
 use metrics::ApplyMetrics;
 pub use near_crypto;
-use near_parameters::ActionCosts::delete_account;
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
 use near_primitives::account::Account;
