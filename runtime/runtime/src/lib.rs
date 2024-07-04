@@ -1330,7 +1330,7 @@ impl Runtime {
             vec![]
         };
 
-        // Remove testnet account with large storage key.
+        // Remove the only testnet account with large storage key.
         if ProtocolFeature::RemoveAccountWithLongStorageKey.protocol_version() == protocol_version
             && migration_flags.is_first_block_with_chunk_of_version
         {
