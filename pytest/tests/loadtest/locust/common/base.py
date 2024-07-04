@@ -664,13 +664,31 @@ class ShardCongestedError(RpcError):
     def __init__(
         self,
         shard_id,
+        congestion_level,
     ):
         super().__init__(
             message="Shard congested",
             details=
-            f"Shard {shard_id} is currently congested and rejects new transactions"
+            f"Shard {shard_id} is currently at congestion level {congestion_level} and rejects new transactions"
         )
         self.shard_id = shard_id
+        self.congestion_level = congestion_level
+
+
+class ShardStuckError(RpcError):
+
+    def __init__(
+        self,
+        shard_id,
+        missed_chunks,
+    ):
+        super().__init__(
+            message="Shard stuck",
+            details=
+            f"Shard {shard_id} missed {missed_chunks} chunks and rejects new transactions"
+        )
+        self.shard_id = shard_id
+        self.missed_chunks = missed_chunks
 
 
 class TxError(NearError):
@@ -724,7 +742,12 @@ def evaluate_rpc_result(rpc_result):
                     err_description["InvalidNonce"]["ak_nonce"])
             elif "ShardCongested" in err_description:
                 raise ShardCongestedError(
-                    err_description["ShardCongested"]["shard_id"])
+                    err_description["ShardCongested"]["shard_id"],
+                    err_description["ShardCongested"]["congestion_level"])
+            elif "ShardStuck" in err_description:
+                raise ShardStuckError(
+                    err_description["ShardStuck"]["shard_id"],
+                    err_description["ShardStuck"]["missed_chunks"])
         raise RpcError(details=rpc_result["error"])
 
     result = rpc_result["result"]
