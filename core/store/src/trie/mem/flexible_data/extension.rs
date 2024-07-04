@@ -7,18 +7,18 @@ use borsh::{BorshDeserialize, BorshSerialize};
 /// a byte array).
 #[derive(Clone, Copy, BorshSerialize, BorshDeserialize)]
 pub struct EncodedExtensionHeader {
-    length: u16,
+    length: u32,
 }
 
 impl BorshFixedSize for EncodedExtensionHeader {
-    const SERIALIZED_SIZE: usize = std::mem::size_of::<u16>();
+    const SERIALIZED_SIZE: usize = std::mem::size_of::<u32>();
 }
 
 impl FlexibleDataHeader for EncodedExtensionHeader {
     type InputData = [u8];
     type View<'a, M: ArenaMemory> = &'a [u8];
     fn from_input(extension: &[u8]) -> EncodedExtensionHeader {
-        EncodedExtensionHeader { length: extension.len() as u16 }
+        EncodedExtensionHeader { length: extension.len() as u32 }
     }
 
     fn flexible_data_length(&self) -> usize {
