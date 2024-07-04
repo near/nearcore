@@ -120,7 +120,9 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
         self.__random_workload_until(target_height)
 
         target_height = self.__next_target_height(num_epochs=1)
-        logger.info(f"Step 3: Restarting nodes with memtries enabled until height {target_height}")
+        logger.info(
+            f"Step 3: Restarting nodes with memtries enabled until height {target_height}"
+        )
         self.__restart_nodes(enable_memtries=True)
         self.__random_workload_until(target_height)
 
