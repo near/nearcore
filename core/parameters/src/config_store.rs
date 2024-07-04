@@ -40,9 +40,9 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (66, include_config!("66.yaml")),
     (67, include_config!("67.yaml")),
     // Congestion Control.
-    (68, include_config!("68.yaml")),
+    (68, include_config!("80.yaml")),
     // Stateless Validation.
-    (69, include_config!("69.yaml")),
+    (69, include_config!("81.yaml")),
     (129, include_config!("129.yaml")),
     // Introduce ETH-implicit accounts.
     (138, include_config!("138.yaml")),
