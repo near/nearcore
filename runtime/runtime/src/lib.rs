@@ -15,6 +15,7 @@ pub use congestion_control::bootstrap_congestion_info;
 use congestion_control::ReceiptSink;
 use metrics::ApplyMetrics;
 pub use near_crypto;
+use near_parameters::ActionCosts::delete_account;
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
 use near_primitives::account::Account;
@@ -53,9 +54,9 @@ use near_primitives_core::apply::ApplyChunkReason;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::{
     get, get_account, get_postponed_receipt, get_promise_yield_receipt, get_received_data,
-    has_received_data, remove_postponed_receipt, remove_promise_yield_receipt, set, set_access_key,
-    set_account, set_code, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
-    PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate,
+    has_received_data, remove_account, remove_postponed_receipt, remove_promise_yield_receipt, set,
+    set_access_key, set_account, set_code, set_postponed_receipt, set_promise_yield_receipt,
+    set_received_data, PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate,
 };
 use near_vm_runner::logic::types::PromiseResult;
 use near_vm_runner::logic::ReturnData;
@@ -1329,6 +1330,17 @@ impl Runtime {
         } else {
             vec![]
         };
+
+        // Remove testnet account with large storage key.
+        if ProtocolFeature::RemoveAccountWithLongStorageKey.protocol_version() == protocol_version
+            && migration_flags.is_first_block_with_chunk_of_version
+        {
+            let account_id = "contractregistry.testnet".parse().unwrap();
+            if get_account(state_update, &account_id)?.is_some() {
+                remove_account(state_update, &account_id)?;
+                state_update.commit(StateChangeCause::Migration);
+            }
+        }
 
         Ok((gas_used, receipts_to_restore))
     }

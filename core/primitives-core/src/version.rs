@@ -157,6 +157,8 @@ pub enum ProtocolFeature {
     PerReceiptHardStorageProofLimit,
     /// Cross-shard congestion control according to <https://github.com/near/NEPs/pull/539>.
     CongestionControl,
+    /// Remove account with long storage key.
+    RemoveAccountWithLongStorageKey,
     // Stateless validation: Distribute state witness as reed solomon encoded parts
     PartialEncodedStateWitness,
     /// Size limits for transactions included in a ChunkStateWitness.
@@ -220,7 +222,8 @@ impl ProtocolFeature {
             ProtocolFeature::SimpleNightshadeV3 => 65,
             ProtocolFeature::DecreaseFunctionCallBaseCost => 66,
             ProtocolFeature::YieldExecution => 67,
-            ProtocolFeature::CongestionControl => 68,
+            ProtocolFeature::CongestionControl
+            | ProtocolFeature::RemoveAccountWithLongStorageKey => 68,
             // Stateless validation features.
             // TODO All of the stateless validation features should be collapsed
             // into a single protocol feature.
