@@ -557,7 +557,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0137a412059ef8c93654805c6639229cd2e21ecd9bdabe2be2a912f7bb819b5"
 dependencies = [
  "base64 0.21.0",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "bs58 0.5.1",
  "hex",
  "primitive-types 0.12.2",
@@ -947,11 +947,11 @@ dependencies = [
 
 [[package]]
 name = "borsh"
-version = "1.0.0"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e6cb63579996213e822f6d828b0a47e1d23b1e8708f52d18a6b1af5670dd207"
+checksum = "bf617fabf5cdbdc92f774bfe5062d870f228b80056d41180797abf48bed4056e"
 dependencies = [
- "borsh-derive 1.0.0",
+ "borsh-derive 1.2.1",
  "cfg_aliases",
 ]
 
@@ -970,12 +970,12 @@ dependencies = [
 
 [[package]]
 name = "borsh-derive"
-version = "1.0.0"
+version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35b4db62e0515621636e47f425d78a40bdea94c2d23713428fb12194cf5459a4"
+checksum = "478b41ff04256c5c8330f3dfdaaae2a5cc976a8e75088bafa4625b0d0208de8c"
 dependencies = [
  "once_cell",
- "proc-macro-crate 1.3.1",
+ "proc-macro-crate 2.0.2",
  "proc-macro2",
  "quote",
  "syn 2.0.32",
@@ -1357,7 +1357,7 @@ name = "cold-store-tool"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "clap",
  "near-chain-configs",
  "near-epoch-manager",
@@ -2650,7 +2650,7 @@ dependencies = [
 name = "genesis-populate"
 version = "0.0.0"
 dependencies = [
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "clap",
  "indicatif",
  "near-async",
@@ -3144,7 +3144,7 @@ dependencies = [
  "assert_matches",
  "aurora-engine-transactions",
  "aurora-engine-types",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "bytesize",
  "chrono",
  "clap",
@@ -3768,7 +3768,7 @@ version = "1.0.0-alpha.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d10d45a9c49c3e975c362cf4d1dc1d7b72a716b30394bea56ee2a8fb225f50b7"
 dependencies = [
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "serde",
 ]
 
@@ -3786,7 +3786,7 @@ name = "near-amend-genesis"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "clap",
  "near-async",
  "near-chain-configs",
@@ -3846,7 +3846,7 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "assert_matches",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "bytesize",
  "chrono",
  "crossbeam-channel",
@@ -3931,7 +3931,7 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "assert_matches",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "chrono",
  "derive-enum-from-into",
  "derive_more",
@@ -3976,7 +3976,7 @@ dependencies = [
  "anyhow",
  "assert_matches",
  "async-trait",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "bytesize",
  "chrono",
  "cloud-storage",
@@ -4063,7 +4063,7 @@ version = "0.0.0"
 dependencies = [
  "blake2",
  "bolero",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "bs58 0.4.0",
  "curve25519-dalek",
  "derive_more",
@@ -4089,7 +4089,7 @@ name = "near-database-tool"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "bytesize",
  "clap",
  "indicatif",
@@ -4131,7 +4131,7 @@ dependencies = [
 name = "near-epoch-manager"
 version = "0.0.0"
 dependencies = [
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "chrono",
  "itertools",
  "near-cache",
@@ -4171,7 +4171,7 @@ name = "near-flat-storage"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "clap",
  "near-chain",
  "near-chain-configs",
@@ -4347,7 +4347,7 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "awc",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "futures",
  "near-actix-test-utils",
  "near-async",
@@ -4382,7 +4382,7 @@ dependencies = [
  "actix",
  "anyhow",
  "async-trait",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "bs58 0.4.0",
  "clap",
  "ed25519-dalek",
@@ -4428,7 +4428,7 @@ dependencies = [
  "assert_matches",
  "async-trait",
  "bolero",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "bytes",
  "bytesize",
  "chrono",
@@ -4512,7 +4512,7 @@ name = "near-parameters"
 version = "0.0.0"
 dependencies = [
  "assert_matches",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "clap",
  "enum-map",
  "insta",
@@ -4573,7 +4573,7 @@ dependencies = [
 name = "near-pool"
 version = "0.0.0"
 dependencies = [
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "near-crypto",
  "near-o11y",
  "near-primitives",
@@ -4590,7 +4590,7 @@ dependencies = [
  "base64 0.21.0",
  "bencher",
  "bolero",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "bytes",
  "bytesize",
  "cfg-if 1.0.0",
@@ -4633,7 +4633,7 @@ version = "0.0.0"
 dependencies = [
  "arbitrary",
  "base64 0.21.0",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "bs58 0.4.0",
  "derive_more",
  "enum-map",
@@ -4729,7 +4729,7 @@ dependencies = [
  "actix",
  "actix-web",
  "anyhow",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "clap",
  "cloud-storage",
  "near-client",
@@ -4758,7 +4758,7 @@ dependencies = [
  "anyhow",
  "assert_matches",
  "bencher",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "bytesize",
  "crossbeam",
  "derive-where",
@@ -4934,7 +4934,7 @@ dependencies = [
  "assert_matches",
  "base64 0.21.0",
  "bolero",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "bytesize",
  "cov-mark",
  "ed25519-dalek",
@@ -5101,7 +5101,7 @@ dependencies = [
  "anyhow",
  "awc",
  "bencher",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "bytesize",
  "chrono",
  "cloud-storage",
@@ -5236,7 +5236,7 @@ name = "node-runtime"
 version = "0.0.0"
 dependencies = [
  "assert_matches",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "enum-map",
  "hex",
  "near-chain-configs",
@@ -6571,7 +6571,7 @@ name = "runtime-params-estimator"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "bs58 0.4.0",
  "bytesize",
  "cfg-if 1.0.0",
@@ -7257,7 +7257,7 @@ dependencies = [
 name = "speedy_sync"
 version = "0.0.0"
 dependencies = [
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "clap",
  "near-async",
  "near-chain",
@@ -7301,7 +7301,7 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "anyhow",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "bytesize",
  "chrono",
  "clap",
