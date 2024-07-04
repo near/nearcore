@@ -172,11 +172,9 @@ impl<'a> PrepareContext<'a> {
                     func_validator.validate(&func).map_err(|_| PrepareError::Deserialization)?;
                     self.func_validator_allocations = func_validator.into_allocations();
                 }
-                wp::Payload::CustomSection(reader) => {
-                    self.ensure_import_section();
-                    self.copy_section(SectionId::Custom, reader.range())?;
-                }
 
+                // Discard custom sections as they have no semantic meaning for us.
+                wp::Payload::CustomSection(_) => {}
                 // Extensions not supported.
                 wp::Payload::UnknownSection { .. }
                 | wp::Payload::TagSection(_)
