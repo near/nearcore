@@ -194,7 +194,7 @@ fn test_protocol_upgrade_simple() {
             .expect("chunk header must have congestion info after upgrade");
         let congestion_control = CongestionControl::new(config, congestion_info, 0);
         assert_eq!(congestion_control.congestion_level(), 0.0);
-        assert!(congestion_control.shard_accepts_transactions());
+        assert!(congestion_control.shard_accepts_transactions().is_yes());
     }
 
     let check_congested_protocol_upgrade = false;

@@ -18,7 +18,7 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::checked_feature;
 use near_primitives::congestion_info::{
-    CongestionControl, ExtendedCongestionInfo, RejectTransactionReason,
+    CongestionControl, ExtendedCongestionInfo, RejectTransactionReason, ShardAcceptsTransactions,
 };
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
@@ -661,7 +661,9 @@ impl RuntimeAdapter for NightshadeRuntime {
                 congestion_info.congestion_info,
                 congestion_info.missed_chunks_count,
             );
-            if let Some(reason) = congestion_control.rejection_reason() {
+            if let ShardAcceptsTransactions::No(reason) =
+                congestion_control.shard_accepts_transactions()
+            {
                 let receiver_shard =
                     self.account_id_to_shard_uid(transaction.transaction.receiver_id(), epoch_id)?;
                 let shard_id = receiver_shard.shard_id;
@@ -878,7 +880,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                             congestion_info.congestion_info,
                             congestion_info.missed_chunks_count,
                         );
-                        if !congestion_control.shard_accepts_transactions() {
+                        if congestion_control.shard_accepts_transactions().is_no() {
                             tracing::trace!(target: "runtime", tx=?tx.get_hash(), "discarding transaction due to congestion");
                             rejected_due_to_congestion += 1;
                             continue;
