@@ -119,11 +119,10 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
         self.__restart_nodes(enable_memtries=False)
         self.__random_workload_until(target_height)
 
-        # TODO(#11675): Fix MissingTrieValue error and re-enable this step of the test.
-        # target_height = self.__next_target_height(num_epochs=1)
-        # logger.info(f"Step 3: Restarting nodes with memtries enabled until height {target_height}")
-        # self.__restart_nodes(enable_memtries=True)
-        # self.__random_workload_until(target_height)
+        target_height = self.__next_target_height(num_epochs=1)
+        logger.info(f"Step 3: Restarting nodes with memtries enabled until height {target_height}")
+        self.__restart_nodes(enable_memtries=True)
+        self.__random_workload_until(target_height)
 
         self.__wait_for_txs(self.txs, assert_all_accepted=False)
         logger.info("Test ended")
