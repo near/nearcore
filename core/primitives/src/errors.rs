@@ -216,7 +216,18 @@ pub enum InvalidTxError {
     /// The receiver shard of the transaction is too congested to accept new
     /// transactions at the moment.
     ShardCongested {
+        /// The congested shard.
         shard_id: u32,
+        /// A value between 0 (no congestion) and 1 (max congestion).
+        congestion_level: ordered_float::NotNan<f64>,
+    },
+    /// The receiver shard of the transaction missed several chunks and rejects
+    /// new transaction until it can make progress again.
+    ShardStuck {
+        /// The shard that fails making progress.
+        shard_id: u32,
+        /// The number of blocks since the last included chunk of the shard.
+        missed_chunks: u64,
     },
 }
 
@@ -632,8 +643,14 @@ impl Display for InvalidTxError {
             InvalidTxError::StorageError(error) => {
                 write!(f, "Storage error: {}", error)
             }
-            InvalidTxError::ShardCongested { shard_id } => {
-                write!(f, "Shard {shard_id} is currently congested and rejects new transactions.")
+            InvalidTxError::ShardCongested { shard_id, congestion_level } => {
+                write!(f, "Shard {shard_id} is currently at congestion level {congestion_level:.3} and rejects new transactions.")
+            }
+            InvalidTxError::ShardStuck { shard_id, missed_chunks } => {
+                write!(
+                    f,
+                    "Shard {shard_id} missed {missed_chunks} chunks and rejects new transactions."
+                )
             }
         }
     }
