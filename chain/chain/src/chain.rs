@@ -51,6 +51,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::log_assert;
 use near_primitives::block::{genesis_chunks, Block, BlockValidityError, Tip};
 use near_primitives::block_header::BlockHeader;
+use near_primitives::chains::STATELESSNET;
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
     MaybeEncodedShardChunk, PartialState, SlashedValidator,
@@ -3946,6 +3947,14 @@ fn get_genesis_congestion_infos_impl(
     let prev_hash = CryptoHash::default();
     let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_hash)?;
     let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+
+    // Since the congestion info is already bootstrapped in statelessnet, skip another bootstrap.
+    // TODO: This is temporary mitigation for the failing genesis congestion info due to garbage
+    // collected genesis state roots. It can be removed after the statelessnet network is turned down.
+    let protocol_config = runtime.get_protocol_config(&epoch_id).unwrap();
+    if protocol_config.genesis_config.chain_id == STATELESSNET {
+        return Ok(std::iter::repeat(None).take(state_roots.len()).collect());
+    }
 
     let mut result = vec![];
     for (shard_id, &state_root) in state_roots.iter().enumerate() {
