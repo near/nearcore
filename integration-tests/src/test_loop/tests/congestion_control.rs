@@ -23,10 +23,11 @@ const NUM_VALIDATORS: usize = 2;
 const NUM_RPC: usize = 1;
 const NUM_CLIENTS: usize = NUM_PRODUCERS + NUM_VALIDATORS + NUM_RPC;
 
-/// This test checks that a chunk with too many transactions is rejected by the
-/// chunk validators.
+/// A very simple test that exercises congestion control in the typical setup
+/// with producers, validators, rpc nodes, single shard tracking and state sync.
+#[cfg_attr(not(feature = "test_features"), ignore)]
 #[test]
-fn test_congestion_control_adv_chunk_produce() {
+fn test_congestion_control_simple() {
     init_test_logger();
 
     // Test setup
