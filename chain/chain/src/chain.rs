@@ -3943,8 +3943,8 @@ fn get_genesis_congestion_infos_impl(
     runtime: &dyn RuntimeAdapter,
     state_roots: &Vec<CryptoHash>,
 ) -> Result<Vec<Option<CongestionInfo>>, Error> {
-    let genesis_block_hash = CryptoHash::default();
-    let genesis_epoch_id = epoch_manager.get_epoch_id_from_prev_block(&genesis_block_hash)?;
+    let genesis_prev_hash = CryptoHash::default();
+    let genesis_epoch_id = epoch_manager.get_epoch_id_from_prev_block(&genesis_prev_hash)?;
     let genesis_protocol_version = epoch_manager.get_epoch_protocol_version(&genesis_epoch_id)?;
     // If congestion control is not enabled at the genesis block, we return None (congestion info) for each shard.
     if !ProtocolFeature::CongestionControl.enabled(genesis_protocol_version) {
@@ -3953,6 +3953,7 @@ fn get_genesis_congestion_infos_impl(
 
     // Check we had already computed the congestion infos from the genesis state roots.
     if let Some(saved_infos) = near_store::get_genesis_congestion_infos(runtime.store())? {
+        tracing::debug!(target: "chain", "Reading genesis congestion infos from database.");
         return Ok(saved_infos.into_iter().map(Option::Some).collect());
     }
 
@@ -3962,7 +3963,7 @@ fn get_genesis_congestion_infos_impl(
         let congestion_info = get_genesis_congestion_info(
             runtime,
             genesis_protocol_version,
-            &genesis_block_hash,
+            &genesis_prev_hash,
             shard_id,
             state_root,
         )?;
@@ -3972,6 +3973,7 @@ fn get_genesis_congestion_infos_impl(
     // Store it in DB so that we can read it later, instead of recomputing from genesis state roots.
     // Note that this is necessary because genesis state roots will be garbage-collected and will not
     // be available, for example, when the node restarts later.
+    tracing::debug!(target: "chain", "Saving genesis congestion infos to database.");
     let mut store_update = runtime.store().store_update();
     near_store::set_genesis_congestion_infos(&mut store_update, &new_infos);
     store_update.commit()?;
