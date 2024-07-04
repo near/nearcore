@@ -133,11 +133,18 @@ class FunctionCall(Transaction):
         Return a single dict for `FunctionCall` but a list of dict for `MultiFunctionCall`.
         """
 
+    @abc.abstractmethod
+    def attached_gas(self) -> int:
+        """
+        How much gas will be attached to this function call. 
+        """
+        return 300 * TGAS
+
     def sign(self, block_hash) -> transaction.SignedTransaction:
         return transaction.sign_function_call_transaction(
             self.sender.key, self.receiver_id, self.method,
-            json.dumps(self.args()).encode('utf-8'), 300 * TGAS, self.balance,
-            self.sender.use_nonce(), block_hash)
+            json.dumps(self.args()).encode('utf-8'), self.attached_gas(),
+            self.balance, self.sender.use_nonce(), block_hash)
 
     def sender_account(self) -> Account:
         return self.sender
@@ -157,7 +164,7 @@ class MultiFunctionCall(FunctionCall):
 
     def sign(self, block_hash) -> transaction.SignedTransaction:
         all_args = self.args()
-        gas = 300 * TGAS // len(all_args)
+        gas = self.attached_gas() // len(all_args)
 
         def create_action(args):
             return transaction.create_function_call_action(
