@@ -3948,19 +3948,17 @@ fn get_genesis_congestion_infos_impl(
     let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_hash)?;
     let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
-    // Since the congestion info is already bootstrapped in statelessnet, skip another bootstrap.
-    // TODO: This is temporary mitigation for the failing genesis congestion info due to garbage
-    // collected genesis state roots. It can be removed after the statelessnet network is turned down.
-    let protocol_config = runtime.get_protocol_config(&epoch_id).unwrap();
-    if protocol_config.genesis_config.chain_id == STATELESSNET {
-        return Ok(std::iter::repeat(None).take(state_roots.len()).collect());
-    }
-
     let mut result = vec![];
     for (shard_id, &state_root) in state_roots.iter().enumerate() {
         let shard_id = shard_id as ShardId;
-        let congestion_info =
-            get_congestion_info(runtime, protocol_version, &prev_hash, shard_id, state_root)?;
+        let congestion_info = get_congestion_info(
+            runtime,
+            protocol_version,
+            &prev_hash,
+            shard_id,
+            state_root,
+            &epoch_id,
+        )?;
         result.push(congestion_info);
     }
     Ok(result)
@@ -3972,8 +3970,17 @@ fn get_congestion_info(
     prev_hash: &CryptoHash,
     shard_id: ShardId,
     state_root: StateRoot,
+    epoch_id: &EpochId,
 ) -> Result<Option<CongestionInfo>, Error> {
     if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
+        return Ok(None);
+    }
+
+    // Since the congestion info is already bootstrapped in statelessnet, skip another bootstrap.
+    // TODO: This is temporary mitigation for the failing genesis congestion info due to garbage
+    // collected genesis state roots. It can be removed after the statelessnet network is turned down.
+    let protocol_config = runtime.get_protocol_config(&epoch_id).unwrap();
+    if protocol_config.genesis_config.chain_id == STATELESSNET {
         return Ok(None);
     }
 
