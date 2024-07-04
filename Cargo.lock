@@ -4611,6 +4611,7 @@ dependencies = [
  "near-vm-runner",
  "num-rational 0.3.2",
  "once_cell",
+ "ordered-float",
  "primitive-types 0.10.1",
  "rand",
  "rand_chacha",
@@ -5597,7 +5598,10 @@ version = "4.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a76df7075c7d4d01fdcb46c912dd17fba5b60c78ea480b475f2b6ab6f666584e"
 dependencies = [
+ "borsh 1.2.0",
  "num-traits",
+ "rand",
+ "serde",
 ]
 
 [[package]]
@@ -6219,6 +6223,7 @@ dependencies = [
  "libc",
  "rand_chacha",
  "rand_core 0.6.4",
+ "serde",
 ]
 
 [[package]]
@@ -6247,6 +6252,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
 dependencies = [
  "getrandom 0.2.9",
+ "serde",
 ]
 
 [[package]]
