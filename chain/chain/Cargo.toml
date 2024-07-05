@@ -68,6 +68,8 @@ expensive_tests = []
 test_features = [
   "near-vm-runner/test_features",
   "near-primitives/test_features",
+  "near-store/test_features",
+  "node-runtime/test_features",
 ]
 shadow_chunk_validation = []
 no_cache = ["near-store/no_cache"]
