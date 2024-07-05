@@ -29,6 +29,14 @@ impl TrieRecorder {
         }
     }
 
+    /// Records value without increasing the recorded size.
+    /// This is used to bypass witness size checks in order to generate
+    /// large witness for testing.
+    #[cfg(feature = "test_features")]
+    pub fn record_unaccounted(&mut self, hash: &CryptoHash, node: Arc<[u8]>) {
+        self.recorded.insert(*hash, node);
+    }
+
     pub fn record(&mut self, hash: &CryptoHash, node: Arc<[u8]>) {
         let size = node.len();
         if self.recorded.insert(*hash, node).is_none() {
@@ -51,7 +59,6 @@ impl TrieRecorder {
     }
 
     pub fn recorded_storage_size(&self) -> usize {
-        debug_assert!(self.size == self.recorded.values().map(|v| v.len()).sum::<usize>());
         self.size
     }
 

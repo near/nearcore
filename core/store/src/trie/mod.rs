@@ -752,6 +752,24 @@ impl Trie {
         }
     }
 
+    #[cfg(feature = "test_features")]
+    pub fn record_storage_garbage(&self, size_mbs: usize) -> bool {
+        let Some(recorder) = &self.recorder else {
+            return false;
+        };
+        let mut data = vec![0u8; (size_mbs as usize) * 1000_000];
+        rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut data);
+        // We want to have at most 1 instance of garbage data included per chunk so
+        // that it is possible to generated continuous stream of witnesses with a fixed
+        // size. Using static key achieves that since in case of multiple receipts garbage
+        // data will simply be overwritten, not accumulated.
+        recorder.borrow_mut().record_unaccounted(
+            &CryptoHash::hash_bytes(b"__garbage_data_key_1720025071757228"),
+            data.into(),
+        );
+        true
+    }
+
     /// All access to trie nodes or values must go through this method, so it
     /// can be properly cached and recorded.
     ///
