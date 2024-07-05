@@ -189,6 +189,8 @@ pub(crate) fn action_function_call(
         .into());
     }
     state_update.trie.request_code_recording(account_id.clone());
+    #[cfg(feature = "test_features")]
+    apply_recorded_storage_garbage(function_call, state_update);
     let mut receipt_manager = ReceiptManager::default();
     let mut runtime_ext = RuntimeExt::new(
         state_update,
@@ -1124,6 +1126,23 @@ fn check_transfer_to_nonexisting_account(
         Ok(())
     } else {
         Err(ActionErrorKind::AccountDoesNotExist { account_id: account_id.clone() }.into())
+    }
+}
+
+/// See #11703 for more details
+#[cfg(feature = "test_features")]
+fn apply_recorded_storage_garbage(
+    function_call: &FunctionCallAction,
+    state_update: &mut TrieUpdate,
+) {
+    if let Some(garbage_size_mbs) = function_call
+        .method_name
+        .strip_prefix("internal_record_storage_garbage_")
+        .and_then(|suf| suf.parse::<usize>().ok())
+    {
+        if state_update.trie.record_storage_garbage(garbage_size_mbs) {
+            tracing::warn!(target: "runtime", %garbage_size_mbs, "Generated storage proof garbage");
+        }
     }
 }
 
