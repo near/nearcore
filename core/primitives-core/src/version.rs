@@ -131,6 +131,9 @@ pub enum ProtocolFeature {
     /// NEP: <https://github.com/near/NEPs/pull/491>
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
     NonrefundableStorage,
+    // NEP: https://github.com/near/NEPs/pull/488
+    #[cfg(feature = "protocol_feature_bls12381")]
+    BLS12381,
     RestrictTla,
     /// Increases the number of chunk producers.
     TestnetFewerBlockProducers,
@@ -252,6 +255,8 @@ impl ProtocolFeature {
             ProtocolFeature::EthImplicitAccounts => 138,
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
             ProtocolFeature::NonrefundableStorage => 140,
+            #[cfg(feature = "protocol_feature_bls12381")]
+            ProtocolFeature::BLS12381 => 141,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
