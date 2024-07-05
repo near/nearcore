@@ -4298,6 +4298,7 @@ dependencies = [
  "rand",
  "rand_hc",
  "serde_json",
+ "serde_yaml",
  "smart-default",
  "tracing",
 ]

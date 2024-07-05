@@ -6,16 +6,16 @@ use crate::types::{
     AccountId, Balance, BlockHeightDelta, EpochHeight, EpochId, NumSeats, ProtocolVersion,
     ValidatorId, ValidatorKickoutReason,
 };
+#[cfg(feature = "nightly")]
+use crate::version::ProtocolFeature;
 use crate::version::PROTOCOL_VERSION;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::checked_feature;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::BlockHeight;
+use serde::Serialize;
 use smart_default::SmartDefault;
 use std::collections::{BTreeMap, HashMap};
-
-#[cfg(feature = "nightly")]
-use crate::version::ProtocolFeature;
 
 pub type RngSeed = [u8; 32];
 
@@ -23,7 +23,7 @@ pub const AGGREGATOR_KEY: &[u8] = b"AGGREGATOR";
 
 /// Epoch config, determines validator assignment for given epoch.
 /// Can change from epoch to epoch depending on the sharding and other parameters, etc.
-#[derive(Clone, Eq, Debug, PartialEq)]
+#[derive(Clone, Eq, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct EpochConfig {
     /// Epoch length in block heights.
     pub epoch_length: BlockHeightDelta,
@@ -303,7 +303,7 @@ impl AllEpochConfig {
 
 /// Additional configuration parameters for the new validator selection
 /// algorithm.  See <https://github.com/near/NEPs/pull/167> for details.
-#[derive(Debug, Clone, SmartDefault, PartialEq, Eq)]
+#[derive(Debug, Clone, SmartDefault, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ValidatorSelectionConfig {
     #[default(100)]
     pub num_chunk_producer_seats: NumSeats,
