@@ -1129,6 +1129,7 @@ fn check_transfer_to_nonexisting_account(
     }
 }
 
+/// See #11703 for more details
 #[cfg(feature = "test_features")]
 fn apply_recorded_storage_garbage(
     function_call: &FunctionCallAction,
