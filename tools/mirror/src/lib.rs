@@ -1620,7 +1620,7 @@ impl<T: ChainAccess> TxMirror<T> {
         }
 
         let next_batch_time = tracker.next_batch_time();
-
+        let mut logged = false;
         loop {
             let (next_height, create_account_height) =
                 tracker.next_heights(&self.source_chain_access).await?;
@@ -1629,6 +1629,15 @@ impl<T: ChainAccess> TxMirror<T> {
                 Some(h) => h,
                 None => return Ok(()),
             };
+
+            let source_head = self.source_chain_access.head_height().await?;
+            if source_head < next_height + 100 {
+                tracing::debug!(target: "mirror", %next_height, %source_head, "queue_txs wait for more blocks");
+                return Ok(());
+            } else if !logged {
+                tracing::debug!(target: "mirror", %next_height, %source_head, "queue_txs");
+                logged = true;
+            }
             // if we have a stop height, just send the last few blocks without worrying about
             // extra create account txs, otherwise wait until we get more blocks
             if !tracker.has_stop_height() && create_account_height.is_none() {
