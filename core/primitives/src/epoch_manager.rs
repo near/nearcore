@@ -134,8 +134,6 @@ impl AllEpochConfig {
     pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> EpochConfig {
         let mut config = self.genesis_epoch_config.clone();
 
-        Self::config_mocknet(&mut config, &self.chain_id);
-
         Self::config_stateless_net(&mut config, &self.chain_id, protocol_version);
 
         if !self.use_production_config {
@@ -157,21 +155,6 @@ impl AllEpochConfig {
 
     pub fn chain_id(&self) -> &str {
         &self.chain_id
-    }
-
-    /// Configures mocknet-specific features only.
-    fn config_mocknet(config: &mut EpochConfig, chain_id: &str) {
-        if chain_id != near_primitives_core::chains::MOCKNET {
-            return;
-        }
-        // In production (mainnet/testnet) and nightly environments this setting is guarded by
-        // ProtocolFeature::ShuffleShardAssignments. (see config_validator_selection function).
-        // For pre-release environment such as mocknet, which uses features between production and nightly
-        // (eg. stateless validation) we enable it by default with stateless validation in order to exercise
-        // the codepaths for state sync more often.
-        // TODO(#11201): When stabilizing "ShuffleShardAssignments" in mainnet,
-        // also remove this temporary code and always rely on ShuffleShardAssignments.
-        config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers = true;
     }
 
     /// Configures statelessnet-specific features only.
