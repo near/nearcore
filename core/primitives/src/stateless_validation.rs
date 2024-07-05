@@ -18,11 +18,16 @@ use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
 
 /// Represents max allowed size of the compressed state witness,
 /// corresponds to EncodedChunkStateWitness struct size.
-pub const MAX_COMPRESSED_STATE_WITNESS_SIZE: ByteSize = ByteSize::mib(48);
+/// The value is set to max network message size when `test_features`
+/// is enabled to make it possible to test blockchain behaviour with
+/// arbitrary large witness (see #11703).
+pub const MAX_COMPRESSED_STATE_WITNESS_SIZE: ByteSize =
+    ByteSize::mib(if cfg!(feature = "test_features") { 512 } else { 48 });
 
 /// Represents max allowed size of the raw (not compressed) state witness,
 /// corresponds to the size of borsh-serialized ChunkStateWitness.
-pub const MAX_UNCOMPRESSED_STATE_WITNESS_SIZE: ByteSize = ByteSize::mib(64);
+pub const MAX_UNCOMPRESSED_STATE_WITNESS_SIZE: ByteSize =
+    ByteSize::mib(if cfg!(feature = "test_features") { 512 } else { 64 });
 
 /// An arbitrary static string to make sure that this struct cannot be
 /// serialized to look identical to another serialized struct. For chunk

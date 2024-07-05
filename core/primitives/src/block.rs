@@ -10,9 +10,7 @@ use crate::congestion_info::{BlockCongestionInfo, CongestionInfo, ExtendedConges
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{merklize, verify_path, MerklePath};
 use crate::num_rational::Rational32;
-use crate::sharding::{
-    ChunkHashHeight, EncodedShardChunk, ShardChunkHeader, ShardChunkHeaderV1
-};
+use crate::sharding::{ChunkHashHeight, EncodedShardChunk, ShardChunkHeader, ShardChunkHeaderV1};
 use crate::types::{Balance, BlockHeight, EpochId, Gas, NumBlocks, StateRoot};
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 use crate::version::{ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};

@@ -23,7 +23,8 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::ChainGenesis;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_chain_configs::{
-    ClientConfig, DumpConfig, ExternalStorageConfig, ExternalStorageLocation, MutableConfigValue, StateSyncConfig, SyncConfig
+    ClientConfig, DumpConfig, ExternalStorageConfig, ExternalStorageLocation, MutableConfigValue,
+    StateSyncConfig, SyncConfig,
 };
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;

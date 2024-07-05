@@ -224,7 +224,6 @@ impl ProtocolFeature {
             // IMPORTANT: In testnet and mainnet congestion control and stateless validation
             // features map to 68 and 69, respectively. BUT in statelessnet, they map to 80 and 81.
             // Thus this code should not be used in testnet and mainnet.
-
             ProtocolFeature::CongestionControl => 80,
             // Stateless validation features.
             // TODO All of the stateless validation features should be collapsed
