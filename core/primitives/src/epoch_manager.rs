@@ -260,11 +260,11 @@ impl AllEpochConfig {
         // Adjust the number of block and chunk producers for testnet, to make it easier to test the change.
         if chain_id == near_primitives_core::chains::TESTNET
             && checked_feature!("stable", TestnetFewerBlockProducers, protocol_version)
-            && !checked_feature!("stable", NoChunkOnlyProducers, protocol_version)
         {
             let shard_ids = config.shard_layout.shard_ids();
-            // Decrease the number of block producers from 100 to 20.
+            // Decrease the number of block and chunk producers from 100 to 20.
             config.num_block_producer_seats = 20;
+            config.validator_selection_config.num_chunk_producer_seats = 20;
             config.num_block_producer_seats_per_shard =
                 shard_ids.map(|_| config.num_block_producer_seats).collect();
             // Decrease the number of chunk producers.
