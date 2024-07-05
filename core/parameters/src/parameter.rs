@@ -204,6 +204,7 @@ pub enum Parameter {
     VmKind,
     EthImplicitAccounts,
     YieldResume,
+    DiscardCustomSections,
 
     // Congestion Control
     MaxCongestionIncomingGas,

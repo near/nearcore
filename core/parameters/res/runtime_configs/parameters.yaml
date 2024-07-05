@@ -243,6 +243,7 @@ function_call_weight: false
 vm_kind: Wasmer0
 eth_implicit_accounts: false
 yield_resume: false
+discard_custom_sections: false
 
 
 # Congestion Control configuration
