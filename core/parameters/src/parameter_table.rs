@@ -4,8 +4,8 @@ use crate::cost::{
     ActionCosts, ExtCostsConfig, Fee, ParameterCost, RuntimeFeesConfig, StorageUsageConfig,
 };
 use crate::parameter::{FeeParameter, Parameter};
+use crate::vm::VMKind;
 use crate::vm::{Config, StorageGetMode};
-use crate::vm::{ContractPrepareVersion, VMKind};
 use near_primitives_core::account::id::ParseAccountError;
 use near_primitives_core::types::AccountId;
 use num_rational::Rational32;
