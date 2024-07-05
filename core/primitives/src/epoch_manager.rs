@@ -258,7 +258,8 @@ impl AllEpochConfig {
         }
 
         // Adjust the number of block and chunk producers for testnet, to make it easier to test the change.
-        if chain_id == near_primitives_core::chains::TESTNET
+        if (chain_id == near_primitives_core::chains::TESTNET
+            || chain_id == near_primitives_core::chains::MOCKNET)
             && checked_feature!("stable", TestnetFewerBlockProducers, protocol_version)
         {
             let shard_ids = config.shard_layout.shard_ids();
