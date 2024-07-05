@@ -3951,8 +3951,14 @@ fn get_genesis_congestion_infos_impl(
     let mut result = vec![];
     for (shard_id, &state_root) in state_roots.iter().enumerate() {
         let shard_id = shard_id as ShardId;
-        let congestion_info =
-            get_congestion_info(runtime, protocol_version, &prev_hash, shard_id, state_root)?;
+        let congestion_info = get_congestion_info(
+            runtime,
+            protocol_version,
+            &prev_hash,
+            shard_id,
+            state_root,
+            &epoch_id,
+        )?;
         result.push(congestion_info);
     }
     Ok(result)
@@ -3964,9 +3970,19 @@ fn get_congestion_info(
     prev_hash: &CryptoHash,
     shard_id: ShardId,
     state_root: StateRoot,
+    epoch_id: &EpochId,
 ) -> Result<Option<CongestionInfo>, Error> {
     if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
         return Ok(None);
+    }
+
+    // Since the congestion info is already bootstrapped in statelessnet, skip another bootstrap.
+    // TODO: This is temporary mitigation for the failing genesis congestion info due to garbage
+    // collected genesis state roots. It can be removed after the statelessnet network is turned down.
+    if let Ok(protocol_config) = runtime.get_protocol_config(&epoch_id) {
+        if protocol_config.genesis_config.chain_id == near_primitives::chains::STATELESSNET {
+            return Ok(None);
+        }
     }
 
     // Get the view trie because it's possible that the chain is ahead of

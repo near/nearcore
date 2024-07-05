@@ -1471,7 +1471,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     }
 
     fn get_protocol_config(&self, _epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {
-        unreachable!("get_protocol_config should not be called in KeyValueRuntime");
+        Err(Error::Other("get_protocol_config should not be used in KeyValueRuntime".into()))
     }
 
     fn get_runtime_config(
