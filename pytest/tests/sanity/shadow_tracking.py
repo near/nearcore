@@ -2,10 +2,9 @@
 # Starts two validating nodes, one RPC node, and one dumper node.
 # Set the RPC node to shadow track one of the validators.
 # Stop the RPC node for 1 epoch so that shard assignment changes.
-# Restart the RPC node, wait for state sync. 
+# Restart the RPC node, wait for state sync.
 # Ensure RPC node has chunks for the shards it supposed to track as shadow validator.
 # Wait for 1 epoch so that shard assignment changes and do the check again, repeat 3 times.
-
 
 import unittest
 import sys
@@ -21,6 +20,7 @@ from utils import wait_for_blocks
 EPOCH_LENGTH = 10
 TIMEOUT = 100
 
+
 class ShadowTrackingTest(unittest.TestCase):
 
     def _get_final_block_height(self, nodes):
@@ -29,7 +29,7 @@ class ShadowTrackingTest(unittest.TestCase):
         max_height = max(height_per_node)
         self.assertGreaterEqual(min_height + 1, max_height, height_per_node)
         return min_height
-    
+
     def _get_block_hash(self, block_height, node):
         result = node.get_block_by_height(block_height)
         self.assertNotIn('error', result, result)
@@ -45,7 +45,7 @@ class ShadowTrackingTest(unittest.TestCase):
         for validator in validators:
             shard_assigment[validator['account_id']] = validator['shards']
         return shard_assigment
-    
+
     def _has_chunk(self, block_hash, shard_id, node):
         result = node.json_rpc("chunk", {
             "block_id": block_hash,
@@ -57,7 +57,8 @@ class ShadowTrackingTest(unittest.TestCase):
         return True
 
     def test_shadow_tracking(self):
-        node_config_dump, node_config_sync = state_sync_lib.get_state_sync_configs_pair()
+        node_config_dump, node_config_sync = state_sync_lib.get_state_sync_configs_pair(
+        )
         node_config_sync["tracked_shards"] = []
         node_config_sync["store.load_mem_tries_for_tracked_shards"] = True
         configs = {x: node_config_sync for x in range(3)}
@@ -67,18 +68,20 @@ class ShadowTrackingTest(unittest.TestCase):
         configs[2]["tracked_shadow_validator"] = "test0"
 
         nodes = start_cluster(
-            2, 2, 3, None, [["epoch_length", EPOCH_LENGTH],
-                            ["shuffle_shard_assignment_for_chunk_producers", True],
-                            ["block_producer_kickout_threshold", 20],
-                            ["chunk_producer_kickout_threshold", 20]], configs)
+            2, 2, 3, None,
+            [["epoch_length", EPOCH_LENGTH],
+             ["shuffle_shard_assignment_for_chunk_producers", True],
+             ["block_producer_kickout_threshold", 20],
+             ["chunk_producer_kickout_threshold", 20]], configs)
 
         for node in nodes:
             node.stop_checking_store()
 
         # Wait for 1 epoch so that shard shuffling kicks in.
         wait_for_blocks(nodes[3], count=EPOCH_LENGTH)
-        logger.info('## Initial shard assignment: {}'.format(self._get_shard_assignment(nodes[3])))
-        
+        logger.info('## Initial shard assignment: {}'.format(
+            self._get_shard_assignment(nodes[3])))
+
         # Stop RPC node for 1 epoch, so that it has to state sync to a new shard tracked by "test0".
         nodes[2].kill()
         wait_for_blocks(nodes[3], count=EPOCH_LENGTH)
