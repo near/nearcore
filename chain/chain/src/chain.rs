@@ -3943,54 +3943,67 @@ fn get_genesis_congestion_infos_impl(
     runtime: &dyn RuntimeAdapter,
     state_roots: &Vec<CryptoHash>,
 ) -> Result<Vec<Option<CongestionInfo>>, Error> {
-    let prev_hash = CryptoHash::default();
-    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_hash)?;
-    let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-
-    let mut result = vec![];
-    for (shard_id, &state_root) in state_roots.iter().enumerate() {
-        let shard_id = shard_id as ShardId;
-        let congestion_info = get_congestion_info(
-            runtime,
-            protocol_version,
-            &prev_hash,
-            shard_id,
-            state_root,
-            &epoch_id,
-        )?;
-        result.push(congestion_info);
-    }
-    Ok(result)
-}
-
-fn get_congestion_info(
-    runtime: &dyn RuntimeAdapter,
-    protocol_version: ProtocolVersion,
-    prev_hash: &CryptoHash,
-    shard_id: ShardId,
-    state_root: StateRoot,
-    epoch_id: &EpochId,
-) -> Result<Option<CongestionInfo>, Error> {
-    if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
-        return Ok(None);
+    let genesis_prev_hash = CryptoHash::default();
+    let genesis_epoch_id = epoch_manager.get_epoch_id_from_prev_block(&genesis_prev_hash)?;
+    let genesis_protocol_version = epoch_manager.get_epoch_protocol_version(&genesis_epoch_id)?;
+    // If congestion control is not enabled at the genesis block, we return None (congestion info) for each shard.
+    if !ProtocolFeature::CongestionControl.enabled(genesis_protocol_version) {
+        return Ok(std::iter::repeat(None).take(state_roots.len()).collect());
     }
 
     // Since the congestion info is already bootstrapped in statelessnet, skip another bootstrap.
     // TODO: This is temporary mitigation for the failing genesis congestion info due to garbage
     // collected genesis state roots. It can be removed after the statelessnet network is turned down.
-    if let Ok(protocol_config) = runtime.get_protocol_config(&epoch_id) {
+    if let Ok(protocol_config) = runtime.get_protocol_config(&genesis_epoch_id) {
         if protocol_config.genesis_config.chain_id == near_primitives::chains::STATELESSNET {
-            return Ok(None);
+            return Ok(std::iter::repeat(None).take(state_roots.len()).collect());
         }
     }
 
+    // Check we had already computed the congestion infos from the genesis state roots.
+    if let Some(saved_infos) = near_store::get_genesis_congestion_infos(runtime.store())? {
+        tracing::debug!(target: "chain", "Reading genesis congestion infos from database.");
+        return Ok(saved_infos.into_iter().map(Option::Some).collect());
+    }
+
+    let mut new_infos = vec![];
+    for (shard_id, &state_root) in state_roots.iter().enumerate() {
+        let shard_id = shard_id as ShardId;
+        let congestion_info = get_genesis_congestion_info(
+            runtime,
+            genesis_protocol_version,
+            &genesis_prev_hash,
+            shard_id,
+            state_root,
+        )?;
+        new_infos.push(congestion_info);
+    }
+
+    // Store it in DB so that we can read it later, instead of recomputing from genesis state roots.
+    // Note that this is necessary because genesis state roots will be garbage-collected and will not
+    // be available, for example, when the node restarts later.
+    tracing::debug!(target: "chain", "Saving genesis congestion infos to database.");
+    let mut store_update = runtime.store().store_update();
+    near_store::set_genesis_congestion_infos(&mut store_update, &new_infos);
+    store_update.commit()?;
+
+    Ok(new_infos.into_iter().map(Option::Some).collect())
+}
+
+fn get_genesis_congestion_info(
+    runtime: &dyn RuntimeAdapter,
+    protocol_version: ProtocolVersion,
+    prev_hash: &CryptoHash,
+    shard_id: ShardId,
+    state_root: StateRoot,
+) -> Result<CongestionInfo, Error> {
     // Get the view trie because it's possible that the chain is ahead of
     // genesis and doesn't have this block in flat state and memtrie.
     let trie = runtime.get_view_trie_for_shard(shard_id, prev_hash, state_root)?;
     let runtime_config = runtime.get_runtime_config(protocol_version)?;
     let congestion_info = bootstrap_congestion_info(&trie, &runtime_config, shard_id)?;
     tracing::debug!(target: "chain", ?shard_id, ?state_root, ?congestion_info, "Computed genesis congestion info.");
-    Ok(Some(congestion_info))
+    Ok(congestion_info)
 }
 
 fn shard_id_out_of_bounds(shard_id: ShardId) -> Error {
