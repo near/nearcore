@@ -238,8 +238,9 @@ function_call_weight: false
 vm_kind: Wasmer0
 eth_implicit_accounts: false
 yield_resume: false
+discard_custom_sections: false
 
-# TODO What should be the config for testnet? 
+# TODO What should be the config for testnet?
 
 max_congestion_incoming_gas: 9_223_372_036_854_775_807
 max_congestion_outgoing_gas: 9_223_372_036_854_775_807
