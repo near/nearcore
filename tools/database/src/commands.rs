@@ -41,7 +41,7 @@ enum SubCommand {
     /// Make snapshot of the database
     MakeSnapshot(MakeSnapshotCommand),
 
-    /// Run migrations,
+    /// Run migrations
     RunMigrations(RunMigrationsCommand),
 
     /// Run performance test for State column reads.
