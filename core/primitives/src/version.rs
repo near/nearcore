@@ -83,8 +83,8 @@ pub const PROTOCOL_UPGRADE_SCHEDULE: Lazy<ProtocolUpgradeVotingSchedule> = Lazy:
 
     let v1_protocol_version = 68;
     let v2_protocol_version = 69;
-    let v1_datetime = ProtocolUpgradeVotingSchedule::parse_datetime("2024-07-15 15:00:00").unwrap();
-    let v2_datetime = ProtocolUpgradeVotingSchedule::parse_datetime("2024-07-17 15:00:00").unwrap();
+    let v1_datetime = ProtocolUpgradeVotingSchedule::parse_datetime("2024-07-09 17:00:00").unwrap();
+    let v2_datetime = ProtocolUpgradeVotingSchedule::parse_datetime("2024-07-10 17:00:00").unwrap();
 
     let schedule = vec![(v1_datetime, v1_protocol_version), (v2_datetime, v2_protocol_version)];
     ProtocolUpgradeVotingSchedule::new_from_env_or_schedule(PROTOCOL_VERSION, schedule).unwrap()
