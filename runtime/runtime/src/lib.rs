@@ -248,11 +248,13 @@ impl Default for ActionResult {
     }
 }
 
-pub struct Runtime {}
+pub struct Runtime {
+    deleted_keys: std::sync::Mutex<HashSet<ShardId>>,
+}
 
 impl Runtime {
     pub fn new() -> Self {
-        Self {}
+        Self { deleted_keys: std::sync::Mutex::new(HashSet::new()) }
     }
 
     fn print_log(log: &[LogEntry]) {
@@ -1293,6 +1295,7 @@ impl Runtime {
         migration_data: &Arc<MigrationData>,
         migration_flags: &MigrationFlags,
         protocol_version: ProtocolVersion,
+        shard_id: ShardId,
     ) -> Result<(Gas, Vec<Receipt>), StorageError> {
         let mut gas_used: Gas = 0;
         if ProtocolFeature::FixStorageUsage.protocol_version() == protocol_version
@@ -1328,15 +1331,18 @@ impl Runtime {
             vec![]
         };
 
+        let mut d = self.deleted_keys.lock().unwrap();
         // Remove the only testnet account with large storage key.
-        if ProtocolFeature::RemoveAccountWithLongStorageKey.protocol_version() == protocol_version
-            && migration_flags.is_first_block_with_chunk_of_version
-        {
+        if !d.contains(&shard_id) {
+            tracing::info!(target: "runtime", "asdfasdf delete from shard {}", shard_id);
+            d.insert(shard_id);
             let account_id = "contractregistry.testnet".parse().unwrap();
             if get_account(state_update, &account_id)?.is_some() {
                 remove_account(state_update, &account_id)?;
                 state_update.commit(StateChangeCause::Migration);
             }
+        } else {
+            tracing::info!(target: "runtime", "asdfasdf dont delete from shard {}", shard_id);
         }
 
         Ok((gas_used, receipts_to_restore))
@@ -1404,6 +1410,7 @@ impl Runtime {
                 &apply_state.migration_data,
                 &apply_state.migration_flags,
                 processing_state.protocol_version,
+                apply_state.shard_id,
             )
             .map_err(RuntimeError::StorageError)?;
         processing_state.total.add(gas_used_for_migrations, gas_used_for_migrations)?;
@@ -3890,14 +3897,15 @@ pub mod estimator {
             outgoing_buffers: ShardsOutgoingReceiptBuffer::load(&state_update.trie)?,
             outgoing_receipts,
         });
-        Runtime {}.apply_action_receipt(
-            state_update,
-            apply_state,
-            receipt,
-            &mut receipt_sink,
-            validator_proposals,
-            stats,
-            epoch_info_provider,
-        )
+        Runtime { deleted_keys: std::sync::Mutex::new(std::collections::HashSet::new()) }
+            .apply_action_receipt(
+                state_update,
+                apply_state,
+                receipt,
+                &mut receipt_sink,
+                validator_proposals,
+                stats,
+                epoch_info_provider,
+            )
     }
 }
