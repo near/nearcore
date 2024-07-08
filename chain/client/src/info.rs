@@ -288,9 +288,12 @@ impl InfoHelper {
         epoch_manager: &dyn EpochManagerAdapter,
         epoch_id: &EpochId,
     ) -> usize {
-        *self.num_validators_per_epoch.get_or_insert(epoch_id.clone(), || {
-            epoch_manager.get_epoch_all_validators(epoch_id).unwrap_or_default().len()
-        }).unwrap_or(&0)
+        *self
+            .num_validators_per_epoch
+            .get_or_insert(epoch_id.clone(), || {
+                epoch_manager.get_epoch_all_validators(epoch_id).unwrap_or_default().len()
+            })
+            .unwrap_or(&0)
     }
 
     /// Print current summary.
