@@ -167,8 +167,7 @@ class ShardChunkHeaderV3:
             dict(block_schema + crypto_schema)).serialize(inner)
         inner_hash = hashlib.sha256(inner_serialized).digest()
 
-        return hashlib.sha256(inner_hash +
-                              inner.V2.encoded_merkle_root).digest()
+        return hashlib.sha256(inner_hash + inner.encoded_merkle_root).digest()
 
 
 class ShardChunkHeaderInner:
@@ -209,7 +208,13 @@ class PartialEncodedChunk:
             elif header_version == 'V2':
                 return header.V2.inner
             elif header_version == 'V3':
-                return header.V3.inner
+                v3_inner_version = header.V3.inner.enum
+                if v3_inner_version == 'V1':
+                    return header.V3.inner.V1
+                elif v3_inner_version == 'V2':
+                    return header.V3.inner.V2
+                elif v3_inner_version == 'V3':
+                    return header.V3.inner.V3
             assert False, "unknown header version"
 
     def header_version(self):
