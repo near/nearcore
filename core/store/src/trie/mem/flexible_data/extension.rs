@@ -30,6 +30,10 @@ impl FlexibleDataHeader for EncodedExtensionHeader {
         extension: &[u8],
         target: &mut ArenaSliceMut<M>,
     ) {
+        if target.raw_slice_mut().len() != extension.len() {
+            tracing::info!("asdfasdf skip over length mismatch {} {}", target.raw_slice_mut().len(), extension.len());
+            return;
+        }
         target.raw_slice_mut().copy_from_slice(&extension);
     }
 
