@@ -222,6 +222,7 @@ pub struct Config {
     pub network: near_network::config_json::Config,
     pub consensus: Consensus,
     pub tracked_accounts: Vec<AccountId>,
+    pub tracked_shadow_validator: Option<AccountId>,
     pub tracked_shards: Vec<ShardId>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tracked_shard_schedule: Option<Vec<Vec<ShardId>>>,
@@ -337,6 +338,7 @@ impl Default for Config {
             network: Default::default(),
             consensus: Consensus::default(),
             tracked_accounts: vec![],
+            tracked_shadow_validator: None,
             tracked_shards: vec![],
             tracked_shard_schedule: None,
             archive: false,
@@ -557,6 +559,7 @@ impl NearConfig {
                 doosmslug_step_period: config.consensus.doomslug_step_period,
                 tracked_accounts: config.tracked_accounts,
                 tracked_shards: config.tracked_shards,
+                tracked_shadow_validator: config.tracked_shadow_validator,
                 tracked_shard_schedule: config.tracked_shard_schedule.unwrap_or(vec![]),
                 archive: config.archive,
                 save_trie_changes: config.save_trie_changes.unwrap_or(!config.archive),
