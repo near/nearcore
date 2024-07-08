@@ -583,7 +583,7 @@ fn test_eth_implicit_accounts() {
         1,
         signer.account_id.clone(),
         alice_eth_account.clone(),
-        &signer,
+        &signer.clone().into(),
         alice_init_balance,
         *genesis_block.hash(),
     );
@@ -593,7 +593,7 @@ fn test_eth_implicit_accounts() {
         2,
         signer.account_id.clone(),
         bob_eth_account.clone(),
-        &signer,
+        &signer.clone().into(),
         bob_init_balance,
         *genesis_block.hash(),
     );
