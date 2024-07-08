@@ -480,6 +480,7 @@ impl StateRootNode {
 #[derive(
     Debug,
     Clone,
+    Copy,
     Default,
     Hash,
     Eq,
