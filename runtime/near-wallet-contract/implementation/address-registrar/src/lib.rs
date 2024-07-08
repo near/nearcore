@@ -77,6 +77,9 @@ impl AddressRegistrar {
                     account_id
                 );
                 env::log_str(&log_message);
+                // Transfer the deposit back to the caller since no storage was updated.
+                let refund_promise = env::promise_batch_create(&env::predecessor_account_id());
+                env::promise_batch_action_transfer(refund_promise, given_deposit);
                 None
             }
         }
