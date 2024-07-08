@@ -77,8 +77,9 @@ fn setup_network_node(
         ClientConfig::test(false, 100, 200, num_validators, false, true, true, true);
     client_config.archive = config.archive;
     client_config.ttl_account_id_router = config.ttl_account_id_router.try_into().unwrap();
-    let state_roots =
-        get_genesis_state_roots(runtime_adapter.store())?.expect("genesis should be initialized.");
+    let state_roots = near_store::get_genesis_state_roots(runtime.store())
+        .unwrap()
+        .expect("genesis should be initialized.");
     let (genesis_block, _genesis_chunks) = Chain::make_genesis_block(
         epoch_manager.as_ref(),
         runtime.as_ref(),

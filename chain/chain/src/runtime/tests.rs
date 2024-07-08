@@ -1535,7 +1535,7 @@ fn test_genesis_hash() {
     );
 
     let state_roots =
-        get_genesis_state_roots(runtime_adapter.store())?.expect("genesis should be initialized.");
+        get_genesis_state_roots(runtime.store()).unwrap().expect("genesis should be initialized.");
     let (block, _chunks) = Chain::make_genesis_block(
         epoch_manager.as_ref(),
         runtime.as_ref(),
