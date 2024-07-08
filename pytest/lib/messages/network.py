@@ -1,6 +1,6 @@
 from messages.crypto import Signature, PublicKey, MerklePath, ShardProof
 from messages.tx import SignedTransaction, Receipt
-from messages.block import Block, Approval, PartialEncodedChunk, PartialEncodedChunkV1, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PartialEncodedChunkForwardMsg, BlockHeader, ShardChunk, ShardChunkHeader, ShardChunkHeaderV1
+from messages.block import Block, Approval, PartialEncodedChunk, PartialEncodedChunkV1, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PartialEncodedChunkForwardMsg, BlockHeader, ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ChunkEndorsement, ChunkStateWitnessAck, PartialEncodedStateWitness
 from messages.shard import StateRootNode
 
 
@@ -371,7 +371,14 @@ network_schema = [
                 ['Pong', PingPong],
                 ['VersionedPartialEncodedChunk', PartialEncodedChunk],
                 ['VersionedStateResponse', StateResponseInfo],
-                ['PartialEncodedChunkForward', PartialEncodedChunkForwardMsg]
+                ['PartialEncodedChunkForward', PartialEncodedChunkForwardMsg],
+                ['ChunkEndorsement', ChunkEndorsement],
+                ['ChunkStateWitnessAck', ChunkStateWitnessAck],
+                ['PartialEncodedStateWitness', PartialEncodedStateWitness],
+                [
+                    'PartialEncodedStateWitnessForward',
+                    PartialEncodedStateWitness
+                ]
             ]
         }
     ],

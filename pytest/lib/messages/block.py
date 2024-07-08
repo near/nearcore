@@ -274,6 +274,28 @@ class CongestionInfoV1:
     pass
 
 
+class ChunkEndorsement:
+    pass
+
+
+class ChunkEndorsementInner:
+    pass
+
+
+class ChunkStateWitnessAck:
+    pass
+
+
+class PartialEncodedStateWitness:
+    pass
+
+
+class PartialEncodedStateWitnessInner:
+    pass
+
+class SignatureDifferentiator:
+    pass
+
 block_schema = [
     [
         Block, {
@@ -855,5 +877,60 @@ block_schema = [
                 ['allowed_shard', 'u16'],
             ]
         }
-    ]
+    ],
+    [
+        ChunkEndorsementInner, {
+            'kind':
+                'struct',
+            'fields': [
+                ['chunk_hash', [32]],
+                ['signature_differentiator', ['u8']],
+            ]
+        }
+    ],
+    [
+        ChunkEndorsement, {
+            'kind':
+                'struct',
+            'fields': [
+                ['inner', ChunkEndorsementInner],
+                ['account_id', 'string'],
+                ['signature', Signature],
+            ]
+        }
+    ],
+    [
+        ChunkStateWitnessAck, {
+            'kind': 
+                'struct',
+            'fields': [
+                ['chunk_hash', [32]],
+            ]
+        }
+    ],
+    [
+        PartialEncodedStateWitness, {
+            'kind':
+                'struct',
+            'fields': [
+                ['inner', PartialEncodedStateWitnessInner],
+                ['signature', Signature],
+            ]
+        }
+    ],
+    [
+        PartialEncodedStateWitnessInner, {
+            'kind':
+                'struct',
+            'fields': [
+                ['epoch_id', [32]],
+                ['shard_id', 'u64'],
+                ['height_created', 'u64'],
+                ['part_ord', 'u64'],
+                ['part', ['u8']],
+                ['encoded_length', 'u64'],
+                ['signature_differentiator', ['u8']],
+            ]
+        }
+    ],
 ]
