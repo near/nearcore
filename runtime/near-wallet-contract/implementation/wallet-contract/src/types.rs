@@ -8,6 +8,7 @@ use crate::{
 use ethabi::{Address, ParamType};
 use near_sdk::{AccountId, Gas, NearToken, PublicKey};
 use once_cell::sync::Lazy;
+use std::num::NonZeroU128;
 
 pub const FUNCTION_CALL_SELECTOR: &[u8] = &[0x61, 0x79, 0xb7, 0x07];
 pub const FUNCTION_CALL_SIGNATURE: [ParamType; 5] = [
@@ -165,6 +166,28 @@ impl From<ParsableEthEmulationKind> for EthEmulationKind {
             }
             ParsableEthEmulationKind::ERC20TotalSupply => Self::ERC20TotalSupply,
         }
+    }
+}
+
+/// A data type to keep track of the deposit given by an external caller.
+/// This allows us to refund the caller's deposit if the cross-contract call fails.
+#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CallerDeposit {
+    pub account_id: AccountId,
+    pub yocto_near: NonZeroU128,
+}
+
+impl CallerDeposit {
+    pub fn new(context: &ExecutionContext) -> Option<Self> {
+        // Only track for external (non-self) callers
+        if context.current_account_id == context.predecessor_account_id {
+            return None;
+        }
+
+        NonZeroU128::new(context.attached_deposit.as_yoctonear()).map(|yocto_near| Self {
+            account_id: context.predecessor_account_id.clone(),
+            yocto_near,
+        })
     }
 }
 

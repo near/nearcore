@@ -1,5 +1,5 @@
 use aurora_engine_types::types::Wei;
-use near_sdk::NearToken;
+use near_sdk::{AccountId, Gas, NearToken};
 
 use crate::{
     internal::MAX_YOCTO_NEAR,
@@ -118,6 +118,67 @@ async fn test_simultaneous_transactions() -> anyhow::Result<()> {
 
     let final_receiver_balance = receiver_account.view_account().await.unwrap().balance;
     assert_eq!(final_receiver_balance.as_yoctonear() - initial_receiver_balance.as_yoctonear(), 1,);
+
+    Ok(())
+}
+
+// An external caller gets its deposit back if the cross-contract call fails.
+#[tokio::test]
+async fn test_caller_refunds() -> anyhow::Result<()> {
+    let TestContext { worker, wallet_contract, wallet_sk, address_registrar, .. } =
+        TestContext::new().await?;
+
+    let caller = worker.root_account()?;
+    let deposit_amount = NearToken::from_near(3);
+    let create_tx = |receiver_id: &AccountId, nonce: u64| {
+        let method = "register";
+        let args = br#"{"account_id": "birchmd.near"}"#;
+        let action = Action::FunctionCall {
+            receiver_id: receiver_id.to_string(),
+            method_name: method.into(),
+            args: args.to_vec(),
+            gas: Gas::from_tgas(10).as_gas(),
+            yocto_near: 0,
+        };
+        utils::create_signed_transaction(
+            nonce,
+            receiver_id,
+            Wei::new_u128(deposit_amount.as_yoctonear() / (MAX_YOCTO_NEAR as u128)),
+            action,
+            &wallet_sk,
+        )
+    };
+
+    // External caller gets a refund when the cross-contract call fails
+    let pre_tx_account_balance = caller.view_account().await?.balance;
+    let receiver_id: AccountId = "fake.near".parse()?;
+    let result = wallet_contract
+        .rlp_execute_from(
+            &caller,
+            receiver_id.as_str(),
+            &create_tx(&receiver_id, 0),
+            deposit_amount,
+        )
+        .await?;
+    assert!(!result.success);
+    let post_tx_account_balance = caller.view_account().await?.balance;
+    assert!(
+        pre_tx_account_balance.as_yoctonear() - post_tx_account_balance.as_yoctonear()
+            < deposit_amount.as_yoctonear()
+    );
+
+    // External caller does not get a refund when their tokens are spent
+    let pre_tx_account_balance = post_tx_account_balance;
+    let receiver_id = address_registrar.id();
+    let result = wallet_contract
+        .rlp_execute_from(&caller, receiver_id.as_str(), &create_tx(receiver_id, 1), deposit_amount)
+        .await?;
+    assert!(result.success);
+    let post_tx_account_balance = caller.view_account().await?.balance;
+    assert!(
+        pre_tx_account_balance.as_yoctonear() - post_tx_account_balance.as_yoctonear()
+            >= deposit_amount.as_yoctonear()
+    );
 
     Ok(())
 }
