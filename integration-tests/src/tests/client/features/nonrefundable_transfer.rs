@@ -133,7 +133,7 @@ fn execute_transaction_from_actions(
         nonce + 1,
         signer.account_id.clone(),
         receiver,
-        signer,
+        &signer.clone().into(),
         actions,
         tip.last_block_hash,
         0,

@@ -55,7 +55,7 @@ pub(crate) enum AccountDataError {
 /// for more details.
 #[derive(Clone)]
 pub struct LocalAccountData {
-    pub signer: Arc<dyn ValidatorSigner>,
+    pub signer: Arc<ValidatorSigner>,
     pub data: Arc<AccountData>,
 }
 

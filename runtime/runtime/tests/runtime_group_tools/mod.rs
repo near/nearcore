@@ -2,7 +2,7 @@ use near_chain_configs::{get_initial_supply, Genesis, GenesisConfig, GenesisReco
 use near_crypto::{InMemorySigner, KeyType};
 use near_parameters::ActionCosts;
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::congestion_info::ExtendedCongestionInfo;
+use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
@@ -55,11 +55,13 @@ impl StandaloneRuntime {
         validators: Vec<AccountInfo>,
     ) -> Self {
         let mut runtime_config = random_config();
+        let wasm_config = Arc::make_mut(&mut runtime_config.wasm_config);
         // Bumping costs to avoid inflation overflows.
-        runtime_config.wasm_config.limit_config.max_total_prepaid_gas = 10u64.pow(15);
-        runtime_config.fees.action_fees[ActionCosts::new_action_receipt].execution =
+        wasm_config.limit_config.max_total_prepaid_gas = 10u64.pow(15);
+        let fees = Arc::make_mut(&mut runtime_config.fees);
+        fees.action_fees[ActionCosts::new_action_receipt].execution =
             runtime_config.wasm_config.limit_config.max_total_prepaid_gas / 64;
-        runtime_config.fees.action_fees[ActionCosts::new_data_receipt_base].execution =
+        fees.action_fees[ActionCosts::new_data_receipt_base].execution =
             runtime_config.wasm_config.limit_config.max_total_prepaid_gas / 64;
 
         let runtime = Runtime::new();
@@ -89,17 +91,17 @@ impl StandaloneRuntime {
             &genesis,
             account_ids,
         );
-        let congestion_info: HashMap<_, _> =
-            if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-                genesis
-                    .config
-                    .shard_layout
-                    .shard_ids()
-                    .map(|shard_id| (shard_id, ExtendedCongestionInfo::default()))
-                    .collect()
-            } else {
-                Default::default()
-            };
+        let congestion_info = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
+            genesis
+                .config
+                .shard_layout
+                .shard_ids()
+                .map(|shard_id| (shard_id, ExtendedCongestionInfo::default()))
+                .collect()
+        } else {
+            Default::default()
+        };
+        let congestion_info = BlockCongestionInfo::new(congestion_info);
 
         let apply_state = ApplyState {
             apply_reason: None,

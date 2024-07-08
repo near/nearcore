@@ -23,7 +23,7 @@ pub(crate) fn test_vm_config() -> near_parameters::vm::Config {
     let config = store.get_config(PROTOCOL_VERSION).wasm_config.clone();
     near_parameters::vm::Config {
         vm_kind: config.vm_kind.replace_with_wasmtime_if_unsupported(),
-        ..config
+        ..near_parameters::vm::Config::clone(&config)
     }
 }
 
@@ -52,13 +52,15 @@ pub(crate) fn with_vm_variants(
     }
 }
 
-fn create_context(input: Vec<u8>) -> VMContext {
+fn create_context(method: &str, input: Vec<u8>) -> VMContext {
     VMContext {
         current_account_id: CURRENT_ACCOUNT_ID.parse().unwrap(),
         signer_account_id: SIGNER_ACCOUNT_ID.parse().unwrap(),
         signer_account_pk: Vec::from(&SIGNER_ACCOUNT_PK[..]),
         predecessor_account_id: PREDECESSOR_ACCOUNT_ID.parse().unwrap(),
+        method: method.into(),
         input,
+        promise_results: Vec::new().into(),
         block_height: 10,
         block_timestamp: 42,
         epoch_height: 1,

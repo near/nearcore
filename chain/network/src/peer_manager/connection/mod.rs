@@ -47,6 +47,8 @@ impl tcp::Tier {
         match body {
             RoutedMessageBody::BlockApproval(..)
             | RoutedMessageBody::ChunkEndorsement(..)
+            | RoutedMessageBody::PartialEncodedStateWitness(..)
+            | RoutedMessageBody::PartialEncodedStateWitnessForward(..)
             | RoutedMessageBody::VersionedPartialEncodedChunk(..) => true,
             _ => self == tcp::Tier::T2,
         }

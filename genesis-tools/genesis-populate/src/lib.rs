@@ -4,7 +4,7 @@ pub mod state_dump;
 
 use crate::state_dump::StateDump;
 use indicatif::{ProgressBar, ProgressStyle};
-use near_async::time::Utc;
+use near_chain::chain::get_genesis_congestion_infos;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Block, Chain, ChainStore};
 use near_chain_configs::Genesis;
@@ -25,9 +25,11 @@ use near_store::genesis::{compute_storage_usage, initialize_genesis_state};
 use near_store::{
     get_account, get_genesis_state_roots, set_access_key, set_account, set_code, Store, TrieUpdate,
 };
+use near_time::Utc;
 use near_vm_runner::logic::ProtocolVersion;
 use near_vm_runner::ContractCode;
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
+pub use node_runtime::bootstrap_congestion_info;
 use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -184,7 +186,7 @@ impl GenesisBuilder {
         let mut state_update =
             self.state_updates.remove(&shard_idx).expect("State updates are always available");
         let protocol_config = self.runtime.get_protocol_config(&EpochId::default())?;
-        let storage_usage_config = protocol_config.runtime_config.fees.storage_usage_config;
+        let storage_usage_config = protocol_config.runtime_config.fees.storage_usage_config.clone();
 
         // Compute storage usage and update accounts.
         for (account_id, storage_usage) in compute_storage_usage(&records, &storage_usage_config) {
@@ -211,8 +213,17 @@ impl GenesisBuilder {
 
     fn write_genesis_block(&mut self) -> Result<()> {
         let shard_ids: Vec<_> = self.genesis.config.shard_layout.shard_ids().collect();
+
+        let state_roots = self.roots.values().cloned().collect();
+        let congestion_infos = get_genesis_congestion_infos(
+            self.epoch_manager.as_ref(),
+            self.runtime.as_ref(),
+            &state_roots,
+        )?;
+
         let genesis_chunks = genesis_chunks(
-            self.roots.values().cloned().collect(),
+            state_roots,
+            congestion_infos,
             &shard_ids,
             self.genesis.config.gas_limit,
             self.genesis.config.genesis_height,
@@ -249,17 +260,20 @@ impl GenesisBuilder {
         store_update.save_block(genesis.clone());
 
         let protocol_version = self.genesis.config.protocol_version;
-        let congestion_info = Self::get_congestion_control(protocol_version);
-        for (chunk_header, state_root) in genesis.chunks().iter().zip(self.roots.values()) {
+        for (chunk_header, &state_root) in genesis.chunks().iter().zip(self.roots.values()) {
+            let shard_layout = &self.genesis.config.shard_layout;
+            let shard_id = chunk_header.shard_id();
+            let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+
+            let congestion_info =
+                self.get_congestion_info(protocol_version, &genesis, shard_id, state_root)?;
+
             store_update.save_chunk_extra(
                 genesis.hash(),
-                &ShardUId::from_shard_id_and_layout(
-                    chunk_header.shard_id(),
-                    &self.genesis.config.shard_layout,
-                ),
+                &shard_uid,
                 ChunkExtra::new(
                     self.genesis.config.protocol_version,
-                    state_root,
+                    &state_root,
                     CryptoHash::default(),
                     vec![],
                     0,
@@ -278,13 +292,22 @@ impl GenesisBuilder {
         Ok(())
     }
 
-    fn get_congestion_control(protocol_version: ProtocolVersion) -> Option<CongestionInfo> {
-        if ProtocolFeature::CongestionControl.enabled(protocol_version) {
-            // TODO(congestion_control) - properly initialize
-            Some(CongestionInfo::default())
-        } else {
-            None
+    fn get_congestion_info(
+        &self,
+        protocol_version: ProtocolVersion,
+        genesis: &Block,
+        shard_id: u64,
+        state_root: CryptoHash,
+    ) -> Result<Option<CongestionInfo>> {
+        if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
+            return Ok(None);
         }
+        let prev_hash = genesis.header().prev_hash();
+        let trie = self.runtime.get_trie_for_shard(shard_id, prev_hash, state_root, true)?;
+        let protocol_config = self.runtime.get_protocol_config(genesis.header().epoch_id())?;
+        let runtime_config = protocol_config.runtime_config;
+        let congestion_info = bootstrap_congestion_info(&trie, &runtime_config, shard_id)?;
+        Ok(Some(congestion_info))
     }
 
     fn add_additional_account(&mut self, account_id: AccountId) -> Result<()> {

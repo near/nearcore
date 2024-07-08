@@ -11,17 +11,42 @@ use near_primitives::receipt::ActionReceipt;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::transaction::FunctionCallAction;
 use near_primitives::trie_key::trie_key_parsers;
-use near_primitives::types::{AccountId, EpochInfoProvider, Gas};
+use near_primitives::types::{
+    AccountId, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, ShardId,
+};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::{StateItem, ViewApplyState, ViewStateResult};
+use near_primitives::views::{StateItem, ViewStateResult};
 use near_primitives_core::config::ViewConfig;
 use near_store::{get_access_key, get_account, get_code, TrieUpdate};
-use near_vm_runner::logic::ReturnData;
-use near_vm_runner::ContractCode;
+use near_vm_runner::logic::{ProtocolVersion, ReturnData};
+use near_vm_runner::{ContractCode, ContractRuntimeCache};
 use std::{str, sync::Arc, time::Instant};
 use tracing::debug;
 
 pub mod errors;
+
+/// State for the view call.
+#[derive(Debug)]
+pub struct ViewApplyState {
+    /// Currently building block height.
+    pub block_height: BlockHeight,
+    /// Prev block hash
+    pub prev_block_hash: CryptoHash,
+    /// Currently building block hash
+    pub block_hash: CryptoHash,
+    /// To which shard the applied chunk belongs.
+    pub shard_id: ShardId,
+    /// Current epoch id
+    pub epoch_id: EpochId,
+    /// Current epoch height
+    pub epoch_height: EpochHeight,
+    /// The current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
+    pub block_timestamp: u64,
+    /// Current Protocol version when we apply the state transition
+    pub current_protocol_version: ProtocolVersion,
+    /// Cache for compiled contracts.
+    pub cache: Option<Box<dyn ContractRuntimeCache>>,
+}
 
 pub struct TrieViewer {
     /// Upper bound of the byte size of contract state that is still viewable. None is no limit
@@ -161,11 +186,11 @@ impl TrieViewer {
         method_name: &str,
         args: &[u8],
         logs: &mut Vec<String>,
-        epoch_info_provider: &dyn EpochInfoProvider,
+        epoch_info_provider: &(dyn EpochInfoProvider),
     ) -> Result<Vec<u8>, errors::CallFunctionError> {
         let now = Instant::now();
         let root = *state_update.get_root();
-        let mut account = get_account(&state_update, contract_id)?.ok_or_else(|| {
+        let account = get_account(&state_update, contract_id)?.ok_or_else(|| {
             errors::CallFunctionError::AccountDoesNotExist {
                 requested_account_id: contract_id.clone(),
             }
@@ -178,11 +203,12 @@ impl TrieViewer {
         let mut runtime_ext = RuntimeExt::new(
             &mut state_update,
             &mut receipt_manager,
-            contract_id,
-            &empty_hash,
-            &view_state.epoch_id,
-            &view_state.prev_block_hash,
-            &view_state.block_hash,
+            contract_id.clone(),
+            account,
+            empty_hash,
+            view_state.epoch_id,
+            view_state.prev_block_hash,
+            view_state.block_hash,
             epoch_info_provider,
             view_state.current_protocol_version,
         );
@@ -195,7 +221,7 @@ impl TrieViewer {
             prev_block_hash: view_state.prev_block_hash,
             block_hash: view_state.block_hash,
             shard_id: view_state.shard_id,
-            epoch_id: view_state.epoch_id.clone(),
+            epoch_id: view_state.epoch_id,
             epoch_height: view_state.epoch_height,
             gas_price: 0,
             block_timestamp: view_state.block_timestamp,
@@ -226,10 +252,9 @@ impl TrieViewer {
         let outcome = execute_function_call(
             &apply_state,
             &mut runtime_ext,
-            &mut account,
             originator_id,
             &action_receipt,
-            &[],
+            [].into(),
             &function_call,
             &empty_hash,
             config,

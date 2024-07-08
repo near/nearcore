@@ -162,6 +162,10 @@ pub struct SetChainInfo(pub ChainInfo);
 #[rtype(result = "PeerManagerMessageResponse")]
 pub enum PeerManagerMessageRequest {
     NetworkRequests(NetworkRequests),
+    /// Request PeerManager to call `tier1_advertise_proxies()`. Used internally.
+    /// The effect would be accounts data known by this node broadcasted to other tier1 nodes.
+    /// That includes info about validator signer of this node.
+    AdvertiseTier1Proxies,
     /// Request PeerManager to connect to the given peer.
     /// Used in tests and internally by PeerManager.
     /// TODO: replace it with AsyncContext::spawn/run_later for internal use.
@@ -193,6 +197,7 @@ impl PeerManagerMessageRequest {
 #[derive(actix::MessageResponse, Debug)]
 pub enum PeerManagerMessageResponse {
     NetworkResponses(NetworkResponses),
+    AdvertiseTier1Proxies,
     /// TEST-ONLY
     OutboundTcpConnect,
     FetchRoutingTable(RoutingTableInfo),

@@ -51,6 +51,7 @@ nightly = [
   "nightly_protocol",
 ]
 io_trace = [ "near-fmt", "strum" ]
+sandbox = []
 
 [[bench]]
 name = "metrics"

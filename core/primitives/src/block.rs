@@ -4,25 +4,19 @@ use crate::block::BlockValidityError::{
 };
 use crate::block_body::{BlockBody, BlockBodyV1, ChunkEndorsementSignatures};
 pub use crate::block_header::*;
-use crate::challenge::{Challenges, ChallengesResult};
+use crate::challenge::Challenges;
 use crate::checked_feature;
-use crate::congestion_info::{CongestionInfo, ExtendedCongestionInfo};
-use crate::hash::{hash, CryptoHash};
+use crate::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
+use crate::hash::CryptoHash;
 use crate::merkle::{merklize, verify_path, MerklePath};
 use crate::num_rational::Rational32;
-use crate::sharding::{
-    ChunkHashHeight, EncodedShardChunk, ShardChunk, ShardChunkHeader, ShardChunkHeaderV1,
-};
-use crate::types::{Balance, BlockHeight, EpochId, Gas, NumBlocks, StateRoot};
-use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
+use crate::sharding::{ChunkHashHeight, ShardChunkHeader, ShardChunkHeaderV1};
+use crate::types::{Balance, BlockHeight, EpochId, Gas};
 use crate::version::{ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_crypto::Signature;
-use near_primitives_core::types::ShardId;
 use near_time::Utc;
 use primitive_types::U256;
-use reed_solomon_erasure::galois_8::ReedSolomon;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::ops::Index;
 use std::sync::Arc;
 
@@ -90,14 +84,19 @@ pub enum Block {
     BlockV4(Arc<BlockV4>),
 }
 
+#[cfg(feature = "solomon")]
+type ShardChunkReedSolomon = reed_solomon_erasure::galois_8::ReedSolomon;
+
+#[cfg(feature = "solomon")]
 pub fn genesis_chunks(
-    state_roots: Vec<StateRoot>,
-    shard_ids: &[ShardId],
+    state_roots: Vec<crate::types::StateRoot>,
+    congestion_infos: Vec<Option<crate::congestion_info::CongestionInfo>>,
+    shard_ids: &[crate::types::ShardId],
     initial_gas_limit: Gas,
     genesis_height: BlockHeight,
     genesis_protocol_version: ProtocolVersion,
-) -> Vec<ShardChunk> {
-    let rs = ReedSolomon::new(1, 2).unwrap();
+) -> Vec<crate::sharding::ShardChunk> {
+    let rs = ShardChunkReedSolomon::new(1, 2).unwrap();
     let state_roots = if state_roots.len() == shard_ids.len() {
         state_roots
     } else {
@@ -105,35 +104,66 @@ pub fn genesis_chunks(
         std::iter::repeat(state_roots[0]).take(shard_ids.len()).collect()
     };
 
-    shard_ids
-        .into_iter()
-        .zip(state_roots)
-        .map(|(&shard_id, state_root)| {
-            let (encoded_chunk, _) = EncodedShardChunk::new(
-                CryptoHash::default(),
-                state_root,
-                CryptoHash::default(),
-                genesis_height,
-                shard_id,
-                &rs,
-                0,
-                initial_gas_limit,
-                0,
-                CryptoHash::default(),
-                vec![],
-                vec![],
-                &[],
-                CryptoHash::default(),
-                CongestionInfo::default(),
-                &EmptyValidatorSigner::default(),
-                genesis_protocol_version,
-            )
-            .expect("Failed to decode genesis chunk");
-            let mut chunk = encoded_chunk.decode_chunk(1).expect("Failed to decode genesis chunk");
-            chunk.set_height_included(genesis_height);
-            chunk
-        })
-        .collect()
+    let mut chunks = vec![];
+
+    let num = shard_ids.len();
+    assert_eq!(state_roots.len(), num);
+
+    for shard_id in 0..num {
+        let state_root = state_roots[shard_id];
+        let congestion_info = congestion_infos[shard_id];
+        let shard_id = shard_id as crate::types::ShardId;
+
+        let encoded_chunk = genesis_chunk(
+            &rs,
+            genesis_protocol_version,
+            genesis_height,
+            initial_gas_limit,
+            shard_id,
+            state_root,
+            congestion_info,
+        );
+        let mut chunk = encoded_chunk.decode_chunk(1).expect("Failed to decode genesis chunk");
+        chunk.set_height_included(genesis_height);
+        chunks.push(chunk);
+    }
+
+    chunks
+}
+
+// Creates the genesis encoded shard chunk. The genesis chunks have most of the
+// fields set to defaults. The remaining fields are set to the provided values.
+#[cfg(feature = "solomon")]
+fn genesis_chunk(
+    rs: &ShardChunkReedSolomon,
+    genesis_protocol_version: u32,
+    genesis_height: u64,
+    initial_gas_limit: u64,
+    shard_id: u64,
+    state_root: CryptoHash,
+    congestion_info: Option<crate::congestion_info::CongestionInfo>,
+) -> crate::sharding::EncodedShardChunk {
+    let (encoded_chunk, _) = crate::sharding::EncodedShardChunk::new(
+        CryptoHash::default(),
+        state_root,
+        CryptoHash::default(),
+        genesis_height,
+        shard_id,
+        rs,
+        0,
+        initial_gas_limit,
+        0,
+        CryptoHash::default(),
+        vec![],
+        vec![],
+        &[],
+        CryptoHash::default(),
+        congestion_info,
+        &crate::validator_signer::EmptyValidatorSigner::default().into(),
+        genesis_protocol_version,
+    )
+    .expect("Failed to decode genesis chunk");
+    encoded_chunk
 }
 
 impl Block {
@@ -244,29 +274,32 @@ impl Block {
     }
 
     /// Produces new block from header of previous block, current state root and set of transactions.
+    #[cfg(feature = "clock")]
     pub fn produce(
         this_epoch_protocol_version: ProtocolVersion,
         next_epoch_protocol_version: ProtocolVersion,
         prev: &BlockHeader,
         height: BlockHeight,
-        block_ordinal: NumBlocks,
+        block_ordinal: crate::types::NumBlocks,
         chunks: Vec<ShardChunkHeader>,
         chunk_endorsements: Vec<ChunkEndorsementSignatures>,
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         epoch_sync_data_hash: Option<CryptoHash>,
-        approvals: Vec<Option<Box<Signature>>>,
+        approvals: Vec<Option<Box<near_crypto::Signature>>>,
         gas_price_adjustment_rate: Rational32,
         min_gas_price: Balance,
         max_gas_price: Balance,
         minted_amount: Option<Balance>,
-        challenges_result: ChallengesResult,
+        challenges_result: crate::challenge::ChallengesResult,
         challenges: Challenges,
-        signer: &dyn ValidatorSigner,
+        signer: &crate::validator_signer::ValidatorSigner,
         next_bp_hash: CryptoHash,
         block_merkle_root: CryptoHash,
-        timestamp: Utc,
+        clock: near_time::Clock,
+        sandbox_delta_time: Option<near_time::Duration>,
     ) -> Self {
+        use crate::hash::hash;
         // Collect aggregate of validators and gas usage/limits from chunks.
         let mut prev_validator_proposals = vec![];
         let mut gas_used = 0;
@@ -295,7 +328,11 @@ impl Block {
         );
 
         let new_total_supply = prev.total_supply() + minted_amount.unwrap_or(0) - balance_burnt;
-        let now = timestamp.unix_timestamp_nanos() as u64;
+        let now = clock.now_utc().unix_timestamp_nanos() as u64;
+        #[cfg(feature = "sandbox")]
+        let now = now + sandbox_delta_time.unwrap().whole_nanoseconds() as u64;
+        #[cfg(not(feature = "sandbox"))]
+        debug_assert!(sandbox_delta_time.is_none());
         let time = if now <= prev.raw_timestamp() { prev.raw_timestamp() + 1 } else { now };
 
         let (vrf_value, vrf_proof) = signer.compute_vrf_with_proof(prev.random_value().as_ref());
@@ -360,6 +397,7 @@ impl Block {
             next_bp_hash,
             block_merkle_root,
             prev.height(),
+            clock,
         );
 
         Self::block_from_protocol_version(
@@ -591,8 +629,8 @@ impl Block {
         }
     }
 
-    pub fn shards_congestion_info(&self) -> HashMap<ShardId, ExtendedCongestionInfo> {
-        let mut result = HashMap::new();
+    pub fn block_congestion_info(&self) -> BlockCongestionInfo {
+        let mut result = BTreeMap::new();
 
         for chunk in self.chunks().iter() {
             let shard_id = chunk.shard_id();
@@ -609,7 +647,7 @@ impl Block {
                 result.insert(shard_id, extended_congestion_info);
             }
         }
-        result
+        BlockCongestionInfo::new(result)
     }
 
     pub fn hash(&self) -> &CryptoHash {
@@ -773,8 +811,8 @@ impl Tip {
             height: header.height(),
             last_block_hash: *header.hash(),
             prev_block_hash: *header.prev_hash(),
-            epoch_id: header.epoch_id().clone(),
-            next_epoch_id: header.next_epoch_id().clone(),
+            epoch_id: *header.epoch_id(),
+            next_epoch_id: *header.next_epoch_id(),
         }
     }
 }

@@ -10,6 +10,7 @@ use near_primitives_core::account::id::ParseAccountError;
 use near_primitives_core::types::AccountId;
 use num_rational::Rational32;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 /// Represents values supported by parameter config.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
@@ -290,7 +291,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
 
     fn try_from(params: &ParameterTable) -> Result<Self, Self::Error> {
         Ok(RuntimeConfig {
-            fees: RuntimeFeesConfig {
+            fees: Arc::new(RuntimeFeesConfig {
                 action_fees: enum_map::enum_map! {
                     action_cost => params.get_fee(action_cost)?
                 },
@@ -302,8 +303,8 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     num_bytes_account: params.get(Parameter::StorageNumBytesAccount)?,
                     num_extra_bytes_record: params.get(Parameter::StorageNumExtraBytesRecord)?,
                 },
-            },
-            wasm_config: Config {
+            }),
+            wasm_config: Arc::new(Config {
                 ext_costs: ExtCostsConfig {
                     costs: enum_map::enum_map! {
                         cost => params.get(cost.param())?
@@ -313,6 +314,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 grow_mem_cost: params.get(Parameter::WasmGrowMemCost)?,
                 regular_op_cost: params.get(Parameter::WasmRegularOpCost)?,
                 disable_9393_fix: params.get(Parameter::Disable9393Fix)?,
+                discard_custom_sections: params.get(Parameter::DiscardCustomSections)?,
                 limit_config: serde_yaml::from_value(params.yaml_map(Parameter::vm_limits()))
                     .map_err(InvalidConfigError::InvalidYaml)?,
                 fix_contract_loading_cost: params.get(Parameter::FixContractLoadingCost)?,
@@ -327,7 +329,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 function_call_weight: params.get(Parameter::FunctionCallWeight)?,
                 eth_implicit_accounts: params.get(Parameter::EthImplicitAccounts)?,
                 yield_resume_host_functions: params.get(Parameter::YieldResume)?,
-            },
+            }),
             account_creation_config: AccountCreationConfig {
                 min_allowed_top_level_account_length: params
                     .get(Parameter::MinAllowedTopLevelAccountLength)?,
@@ -363,6 +365,9 @@ fn get_congestion_control_config(
             let rational: Rational32 = params.get(Parameter::RejectTxCongestionThreshold)?;
             *rational.numer() as f64 / *rational.denom() as f64
         },
+        outgoing_receipts_usual_size_limit: params
+            .get(Parameter::OutgoingReceiptsUsualSizeLimit)?,
+        outgoing_receipts_big_size_limit: params.get(Parameter::OutgoingReceiptsBigSizeLimit)?,
     };
     Ok(congestion_control_config)
 }

@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use actix::Addr;
 use futures::{future, future::LocalBoxFuture, FutureExt, TryFutureExt};
-use near_async::time::Clock;
 use near_async::{
     actix::AddrWithAutoSpanContextExt,
     messaging::{noop, IntoMultiSender},
@@ -17,6 +16,7 @@ use near_jsonrpc_primitives::{
 };
 use near_network::tcp;
 use near_primitives::types::NumBlocks;
+use near_time::Clock;
 use once_cell::sync::Lazy;
 use serde_json::json;
 
@@ -72,7 +72,7 @@ macro_rules! test_with_client {
 
         near_actix_test_utils::run_actix(async {
             let (_view_client_addr, addr) =
-                test_utils::start_all(near_async::time::Clock::real(), $node_type);
+                test_utils::start_all(near_time::Clock::real(), $node_type);
 
             let $client = new_client(&format!("http://{}", addr));
 

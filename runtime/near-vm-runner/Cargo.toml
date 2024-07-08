@@ -14,6 +14,7 @@ workspace = true
 
 [dependencies]
 anyhow = { workspace = true, optional = true }
+blst = { workspace = true, optional = true }
 base64 = { workspace = true, optional = true }
 bn.workspace = true
 borsh.workspace = true
@@ -70,8 +71,14 @@ near-vm-vm = { workspace = true, optional = true }
 
 [dev-dependencies]
 arbitrary.workspace = true
+ark-bls12-381.workspace = true
+ark-ec.workspace = true
+ark-ff.workspace = true
+ark-serialize.workspace = true
+ark-std.workspace = true
 assert_matches.workspace = true
 bolero.workspace = true
+csv.workspace = true
 cov-mark.workspace = true
 expect-test.workspace = true
 hex.workspace = true
@@ -128,16 +135,22 @@ protocol_feature_fix_contract_loading_cost = [
   "near-primitives-core/protocol_feature_fix_contract_loading_cost",
 ]
 
+protocol_feature_bls12381 = [
+    "blst",
+]
+
 metrics = ["prometheus", "near-o11y"]
+
 
 nightly = [
   "near-o11y/nightly",
   "near-parameters/nightly",
   "near-primitives-core/nightly",
   "nightly_protocol",
+  "protocol_feature_bls12381",
   "protocol_feature_fix_contract_loading_cost",
 ]
-sandbox = []
+sandbox = ["near-o11y/sandbox"]
 io_trace = ["base64"]
 test_features = []
 

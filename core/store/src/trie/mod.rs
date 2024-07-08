@@ -38,7 +38,6 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};
 use std::fmt::Write;
 use std::hash::Hash;
-use std::rc::Rc;
 use std::str;
 use std::sync::{Arc, RwLock, RwLockReadGuard};
 
@@ -336,7 +335,7 @@ impl std::fmt::Debug for TrieNode {
 }
 
 pub struct Trie {
-    storage: Rc<dyn TrieStorage>,
+    storage: Arc<dyn TrieStorage>,
     memtries: Option<Arc<RwLock<MemTries>>>,
     root: StateRoot,
     /// If present, flat storage is used to look up keys (if asked for).
@@ -629,7 +628,7 @@ impl Trie {
     /// By default, the accounting cache is not enabled. To enable or disable it
     /// (only in this crate), call self.accounting_cache.borrow_mut().set_enabled().
     pub fn new(
-        storage: Rc<dyn TrieStorage>,
+        storage: Arc<dyn TrieStorage>,
         root: StateRoot,
         flat_storage_chunk_view: Option<FlatStorageChunkView>,
     ) -> Self {
@@ -637,7 +636,7 @@ impl Trie {
     }
 
     pub fn new_with_memtries(
-        storage: Rc<dyn TrieStorage>,
+        storage: Arc<dyn TrieStorage>,
         memtries: Option<Arc<RwLock<MemTries>>>,
         root: StateRoot,
         flat_storage_chunk_view: Option<FlatStorageChunkView>,
@@ -711,7 +710,7 @@ impl Trie {
     ) -> Self {
         let PartialState::TrieValues(nodes) = partial_storage.nodes;
         let recorded_storage = nodes.into_iter().map(|value| (hash(&value), value)).collect();
-        let storage = Rc::new(TrieMemoryPartialStorage::new(recorded_storage));
+        let storage = Arc::new(TrieMemoryPartialStorage::new(recorded_storage));
         let mut trie = Self::new(storage, root, None);
         trie.charge_gas_for_trie_node_access = !flat_storage_used;
         trie
@@ -750,6 +749,24 @@ impl Trie {
             let mut r = recorder.borrow_mut();
             r.record_code_len(value_ref.len());
         }
+    }
+
+    #[cfg(feature = "test_features")]
+    pub fn record_storage_garbage(&self, size_mbs: usize) -> bool {
+        let Some(recorder) = &self.recorder else {
+            return false;
+        };
+        let mut data = vec![0u8; (size_mbs as usize) * 1000_000];
+        rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut data);
+        // We want to have at most 1 instance of garbage data included per chunk so
+        // that it is possible to generated continuous stream of witnesses with a fixed
+        // size. Using static key achieves that since in case of multiple receipts garbage
+        // data will simply be overwritten, not accumulated.
+        recorder.borrow_mut().record_unaccounted(
+            &CryptoHash::hash_bytes(b"__garbage_data_key_1720025071757228"),
+            data.into(),
+        );
+        true
     }
 
     /// All access to trie nodes or values must go through this method, so it

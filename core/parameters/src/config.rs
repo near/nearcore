@@ -1,12 +1,12 @@
 //! Settings of the parameters of the runtime.
+use super::parameter_table::InvalidConfigError;
 use crate::config_store::INITIAL_TESTNET_CONFIG;
 use crate::cost::RuntimeFeesConfig;
 use crate::parameter_table::ParameterTable;
 use near_account_id::AccountId;
 use near_primitives_core::types::{Balance, Gas};
 use near_primitives_core::version::PROTOCOL_VERSION;
-
-use super::parameter_table::InvalidConfigError;
+use std::sync::Arc;
 
 // Lowered promise yield timeout length used in integration tests.
 // The resharding tests for yield timeouts take too long to run otherwise.
@@ -19,12 +19,12 @@ pub struct RuntimeConfig {
     ///
     /// This contains parameters that are required by the WASM runtime and the
     /// transaction runtime.
-    pub fees: RuntimeFeesConfig,
+    pub fees: Arc<RuntimeFeesConfig>,
     /// Config of wasm operations, also includes wasm gas costs.
     ///
     /// This contains all the configuration parameters that are only required by
     /// the WASM runtime.
-    pub wasm_config: crate::vm::Config,
+    pub wasm_config: Arc<crate::vm::Config>,
     /// Config that defines rules for account creation.
     pub account_creation_config: AccountCreationConfig,
     /// The configuration for congestion control.
@@ -54,8 +54,8 @@ impl RuntimeConfig {
         wasm_config.limit_config.yield_timeout_length_in_blocks = TEST_CONFIG_YIELD_TIMEOUT_LENGTH;
 
         RuntimeConfig {
-            fees: RuntimeFeesConfig::test(),
-            wasm_config,
+            fees: Arc::new(RuntimeFeesConfig::test()),
+            wasm_config: Arc::new(wasm_config),
             account_creation_config: AccountCreationConfig::default(),
             congestion_control_config: runtime_config.congestion_control_config,
             witness_config: runtime_config.witness_config,
@@ -70,8 +70,8 @@ impl RuntimeConfig {
         wasm_config.make_free();
 
         Self {
-            fees: RuntimeFeesConfig::free(),
-            wasm_config,
+            fees: Arc::new(RuntimeFeesConfig::free()),
+            wasm_config: Arc::new(wasm_config),
             account_creation_config: AccountCreationConfig::default(),
             congestion_control_config: runtime_config.congestion_control_config,
             witness_config: runtime_config.witness_config,
@@ -136,14 +136,16 @@ pub struct CongestionControlConfig {
     /// another shard per chunk.
     ///
     /// The actual gas forwarding allowance is a linear interpolation between
-    /// [`MIN_OUTGOING_GAS`] and [`MAX_OUTGOING_GAS`], or 0 if the receiver is
+    /// [MIN_OUTGOING_GAS](CongestionControlConfig::min_outgoing_gas) and
+    /// [MAX_OUTGOING_GAS](CongestionControlConfig::max_outgoing_gas), or 0 if the receiver is
     /// fully congested.
     pub max_outgoing_gas: Gas,
 
     /// The minimum gas each shard can send to a shard that is not fully congested.
     ///
     /// The actual gas forwarding allowance is a linear interpolation between
-    /// [`MIN_OUTGOING_GAS`] and [`MAX_OUTGOING_GAS`], or 0 if the receiver is
+    /// [MIN_OUTGOING_GAS](CongestionControlConfig::min_outgoing_gas) and
+    /// [MAX_OUTGOING_GAS](CongestionControlConfig::max_outgoing_gas), or 0 if the receiver is
     /// fully congested.
     pub min_outgoing_gas: Gas,
 
@@ -160,25 +162,41 @@ pub struct CongestionControlConfig {
     /// receipts.
     ///
     /// The actual gas forwarding allowance is a linear interpolation between
-    /// [`MIN_TX_GAS`] and [`MAX_TX_GAS`], based on the incoming congestion of the
-    /// local shard. Additionally, transactions can be rejected if the receiving
-    /// remote shard is congested more than [`REJECT_TX_CONGESTION_THRESHOLD`] based
-    /// on their general congestion level.
+    /// [MIN_OUTGOING_GAS](CongestionControlConfig::min_outgoing_gas) and
+    /// [MAX_OUTGOING_GAS](CongestionControlConfig::max_outgoing_gas),
+    /// based on the incoming congestion of the local shard.
+    /// Additionally, transactions can be rejected if the receiving
+    /// remote shard is congested more than
+    /// [REJECT_TX_CONGESTION_THRESHOLD](CongestionControlConfig::reject_tx_congestion_threshold)
+    /// based on their general congestion level.
     pub max_tx_gas: Gas,
 
     /// The minimum amount of gas in a chunk spent on converting new transactions
     /// to receipts, as long as the receiving shard is not congested.
     ///
     /// The actual gas forwarding allowance is a linear interpolation between
-    /// [`MIN_TX_GAS`] and [`MAX_TX_GAS`], based on the incoming congestion of the
-    /// local shard. Additionally, transactions can be rejected if the receiving
-    /// remote shard is congested more than [`REJECT_TX_CONGESTION_THRESHOLD`] based
-    /// on their general congestion level.
+    /// [MIN_OUTGOING_GAS](CongestionControlConfig::min_outgoing_gas) and
+    /// [MAX_OUTGOING_GAS](CongestionControlConfig::max_outgoing_gas),
+    /// based on the incoming congestion of the local shard.
+    /// Additionally, transactions can be rejected if the receiving
+    /// remote shard is congested more than
+    /// [REJECT_TX_CONGESTION_THRESHOLD](CongestionControlConfig::reject_tx_congestion_threshold)
+    /// based on their general congestion level.
     pub min_tx_gas: Gas,
 
     /// How much congestion a shard can tolerate before it stops all shards from
     /// accepting new transactions with the receiver set to the congested shard.
     pub reject_tx_congestion_threshold: f64,
+
+    /// The standard size limit for outgoing receipts aimed at a single shard.
+    /// This limit is pretty small to keep the size of source_receipt_proofs under control.
+    /// It limits the total sum of outgoing receipts, not individual receipts.
+    pub outgoing_receipts_usual_size_limit: u64,
+
+    /// Large size limit for outgoing receipts to a shard, used when it's safe
+    /// to send a lot of receipts without making the state witness too large.
+    /// It limits the total sum of outgoing receipts, not individual receipts.
+    pub outgoing_receipts_big_size_limit: u64,
 }
 
 // The Eq cannot be automatically derived for this class because it contains a
@@ -204,6 +222,8 @@ impl CongestionControlConfig {
             max_tx_gas: max_value,
             min_tx_gas: max_value,
             reject_tx_congestion_threshold: 2.0,
+            outgoing_receipts_usual_size_limit: max_value,
+            outgoing_receipts_big_size_limit: max_value,
         }
     }
 }

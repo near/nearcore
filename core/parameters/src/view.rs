@@ -185,7 +185,7 @@ impl From<crate::RuntimeConfig> for RuntimeConfigView {
                     .fees
                     .pessimistic_gas_price_inflation_ratio,
             },
-            wasm_config: VMConfigView::from(config.wasm_config),
+            wasm_config: VMConfigView::from(crate::vm::Config::clone(&config.wasm_config)),
             account_creation_config: AccountCreationConfigView {
                 min_allowed_top_level_account_length: config
                     .account_creation_config
@@ -210,27 +210,30 @@ pub struct VMConfigView {
     /// Gas cost of a regular operation.
     pub regular_op_cost: u32,
 
-    /// See [`VMConfig::vm_kind`].
+    /// See [VMConfig::vm_kind](crate::vm::Config::vm_kind).
     pub vm_kind: crate::vm::VMKind,
-    /// See [`VMConfig::disable_9393_fix`].
+    /// See [VMConfig::disable_9393_fix](crate::vm::Config::disable_9393_fix).
     pub disable_9393_fix: bool,
-    /// See [`VMConfig::flat_storage_reads`].
+    /// See [VMConfig::discard_custom_sections](crate::vm::Config::discard_custom_sections).
+    pub discard_custom_sections: bool,
+
+    /// See [VMConfig::storage_get_mode](crate::vm::Config::storage_get_mode).
     pub storage_get_mode: crate::vm::StorageGetMode,
-    /// See [`VMConfig::fix_contract_loading_cost`].
+    /// See [VMConfig::fix_contract_loading_cost](crate::vm::Config::fix_contract_loading_cost).
     pub fix_contract_loading_cost: bool,
-    /// See [`VMConfig::implicit_account_creation`].
+    /// See [VMConfig::implicit_account_creation](crate::vm::Config::implicit_account_creation).
     pub implicit_account_creation: bool,
-    /// See [`VMConfig::math_extension`].
+    /// See [VMConfig::math_extension](crate::vm::Config::math_extension).
     pub math_extension: bool,
-    /// See [`VMConfig::ed25519_verify`].
+    /// See [VMConfig::ed25519_verify](crate::vm::Config::ed25519_verify).
     pub ed25519_verify: bool,
-    /// See [`VMConfig::alt_bn128`].
+    /// See [VMConfig::alt_bn128](crate::vm::Config::alt_bn128).
     pub alt_bn128: bool,
-    /// See [`VMConfig::function_call_weight`].
+    /// See [VMConfig::function_call_weight](crate::vm::Config::function_call_weight).
     pub function_call_weight: bool,
-    /// See [`VMConfig::eth_implicit_accounts`].
+    /// See [VMConfig::eth_implicit_accounts](crate::vm::Config::eth_implicit_accounts).
     pub eth_implicit_accounts: bool,
-    /// See [`VMConfig::yield_resume_host_functions`].
+    /// See [VMConfig::yield_resume_host_functions](`crate::vm::Config::yield_resume_host_functions).
     pub yield_resume_host_functions: bool,
 
     /// Describes limits for VM and Runtime.
@@ -247,6 +250,7 @@ impl From<crate::vm::Config> for VMConfigView {
             grow_mem_cost: config.grow_mem_cost,
             regular_op_cost: config.regular_op_cost,
             disable_9393_fix: config.disable_9393_fix,
+            discard_custom_sections: config.discard_custom_sections,
             limit_config: config.limit_config,
             storage_get_mode: config.storage_get_mode,
             fix_contract_loading_cost: config.fix_contract_loading_cost,
@@ -269,6 +273,7 @@ impl From<VMConfigView> for crate::vm::Config {
             grow_mem_cost: view.grow_mem_cost,
             regular_op_cost: view.regular_op_cost,
             disable_9393_fix: view.disable_9393_fix,
+            discard_custom_sections: view.discard_custom_sections,
             limit_config: view.limit_config,
             storage_get_mode: view.storage_get_mode,
             fix_contract_loading_cost: view.fix_contract_loading_cost,
@@ -451,7 +456,6 @@ pub struct ExtCostsConfigView {
     pub alt_bn128_pairing_check_base: Gas,
     /// Per element cost for pairing check
     pub alt_bn128_pairing_check_element: Gas,
-
     /// Base cost for creating a yield promise.
     pub yield_create_base: Gas,
     /// Per byte cost of arguments and method name.
@@ -460,6 +464,42 @@ pub struct ExtCostsConfigView {
     pub yield_resume_base: Gas,
     /// Per byte cost of resume payload.
     pub yield_resume_byte: Gas,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    pub bls12381_p1_sum_base: Gas,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    pub bls12381_p1_sum_element: Gas,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    pub bls12381_p2_sum_base: Gas,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    pub bls12381_p2_sum_element: Gas,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    pub bls12381_g1_multiexp_base: Gas,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    pub bls12381_g1_multiexp_element: Gas,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    pub bls12381_g2_multiexp_base: Gas,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    pub bls12381_g2_multiexp_element: Gas,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    pub bls12381_map_fp_to_g1_base: Gas,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    pub bls12381_map_fp_to_g1_element: Gas,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    pub bls12381_map_fp2_to_g2_base: Gas,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    pub bls12381_map_fp2_to_g2_element: Gas,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    pub bls12381_pairing_base: Gas,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    pub bls12381_pairing_element: Gas,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    pub bls12381_p1_decompress_base: Gas,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    pub bls12381_p1_decompress_element: Gas,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    pub bls12381_p2_decompress_base: Gas,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    pub bls12381_p2_decompress_element: Gas,
 }
 
 impl From<crate::ExtCostsConfig> for ExtCostsConfigView {
@@ -534,6 +574,45 @@ impl From<crate::ExtCostsConfig> for ExtCostsConfigView {
             yield_create_byte: config.gas_cost(ExtCosts::yield_create_byte),
             yield_resume_base: config.gas_cost(ExtCosts::yield_resume_base),
             yield_resume_byte: config.gas_cost(ExtCosts::yield_resume_byte),
+            #[cfg(feature = "protocol_feature_bls12381")]
+            bls12381_p1_sum_base: config.gas_cost(ExtCosts::bls12381_p1_sum_base),
+            #[cfg(feature = "protocol_feature_bls12381")]
+            bls12381_p1_sum_element: config.gas_cost(ExtCosts::bls12381_p1_sum_element),
+            #[cfg(feature = "protocol_feature_bls12381")]
+            bls12381_p2_sum_base: config.gas_cost(ExtCosts::bls12381_p2_sum_base),
+            #[cfg(feature = "protocol_feature_bls12381")]
+            bls12381_p2_sum_element: config.gas_cost(ExtCosts::bls12381_p2_sum_element),
+            #[cfg(feature = "protocol_feature_bls12381")]
+            bls12381_g1_multiexp_base: config.gas_cost(ExtCosts::bls12381_g1_multiexp_base),
+            #[cfg(feature = "protocol_feature_bls12381")]
+            bls12381_g1_multiexp_element: config.gas_cost(ExtCosts::bls12381_g1_multiexp_element),
+            #[cfg(feature = "protocol_feature_bls12381")]
+            bls12381_g2_multiexp_base: config.gas_cost(ExtCosts::bls12381_g2_multiexp_base),
+            #[cfg(feature = "protocol_feature_bls12381")]
+            bls12381_g2_multiexp_element: config.gas_cost(ExtCosts::bls12381_g2_multiexp_element),
+            #[cfg(feature = "protocol_feature_bls12381")]
+            bls12381_map_fp_to_g1_base: config.gas_cost(ExtCosts::bls12381_map_fp_to_g1_base),
+            #[cfg(feature = "protocol_feature_bls12381")]
+            bls12381_map_fp_to_g1_element: config.gas_cost(ExtCosts::bls12381_map_fp_to_g1_element),
+            #[cfg(feature = "protocol_feature_bls12381")]
+            bls12381_map_fp2_to_g2_base: config.gas_cost(ExtCosts::bls12381_map_fp2_to_g2_base),
+            #[cfg(feature = "protocol_feature_bls12381")]
+            bls12381_map_fp2_to_g2_element: config
+                .gas_cost(ExtCosts::bls12381_map_fp2_to_g2_element),
+            #[cfg(feature = "protocol_feature_bls12381")]
+            bls12381_pairing_base: config.gas_cost(ExtCosts::bls12381_pairing_base),
+            #[cfg(feature = "protocol_feature_bls12381")]
+            bls12381_pairing_element: config.gas_cost(ExtCosts::bls12381_pairing_element),
+            #[cfg(feature = "protocol_feature_bls12381")]
+            bls12381_p1_decompress_base: config.gas_cost(ExtCosts::bls12381_p1_decompress_base),
+            #[cfg(feature = "protocol_feature_bls12381")]
+            bls12381_p1_decompress_element: config
+                .gas_cost(ExtCosts::bls12381_p1_decompress_element),
+            #[cfg(feature = "protocol_feature_bls12381")]
+            bls12381_p2_decompress_base: config.gas_cost(ExtCosts::bls12381_p2_decompress_base),
+            #[cfg(feature = "protocol_feature_bls12381")]
+            bls12381_p2_decompress_element: config
+                .gas_cost(ExtCosts::bls12381_p2_decompress_element),
             // removed parameters
             contract_compile_base: 0,
             contract_compile_bytes: 0,
@@ -609,6 +688,42 @@ impl From<ExtCostsConfigView> for crate::ExtCostsConfig {
                 ExtCosts::yield_create_byte => view.yield_create_byte,
                 ExtCosts::yield_resume_base => view.yield_resume_base,
                 ExtCosts::yield_resume_byte => view.yield_resume_byte,
+                #[cfg(feature = "protocol_feature_bls12381")]
+                ExtCosts::bls12381_p1_sum_base => view.bls12381_p1_sum_base,
+                #[cfg(feature = "protocol_feature_bls12381")]
+                ExtCosts::bls12381_p1_sum_element => view.bls12381_p1_sum_element,
+                #[cfg(feature = "protocol_feature_bls12381")]
+                ExtCosts::bls12381_p2_sum_base => view.bls12381_p2_sum_base,
+                #[cfg(feature = "protocol_feature_bls12381")]
+                ExtCosts::bls12381_p2_sum_element => view.bls12381_p2_sum_element,
+                #[cfg(feature = "protocol_feature_bls12381")]
+                ExtCosts::bls12381_g1_multiexp_base => view.bls12381_g1_multiexp_base,
+                #[cfg(feature = "protocol_feature_bls12381")]
+                ExtCosts::bls12381_g1_multiexp_element => view.bls12381_g1_multiexp_element,
+                #[cfg(feature = "protocol_feature_bls12381")]
+                ExtCosts::bls12381_g2_multiexp_base => view.bls12381_g2_multiexp_base,
+                #[cfg(feature = "protocol_feature_bls12381")]
+                ExtCosts::bls12381_g2_multiexp_element => view.bls12381_g2_multiexp_element,
+                #[cfg(feature = "protocol_feature_bls12381")]
+                ExtCosts::bls12381_map_fp_to_g1_base => view.bls12381_map_fp_to_g1_base,
+                #[cfg(feature = "protocol_feature_bls12381")]
+                ExtCosts::bls12381_map_fp_to_g1_element => view.bls12381_map_fp_to_g1_element,
+                #[cfg(feature = "protocol_feature_bls12381")]
+                ExtCosts::bls12381_map_fp2_to_g2_base => view.bls12381_map_fp2_to_g2_base,
+                #[cfg(feature = "protocol_feature_bls12381")]
+                ExtCosts::bls12381_map_fp2_to_g2_element => view.bls12381_map_fp2_to_g2_element,
+                #[cfg(feature = "protocol_feature_bls12381")]
+                ExtCosts::bls12381_pairing_base => view.bls12381_pairing_base,
+                #[cfg(feature = "protocol_feature_bls12381")]
+                ExtCosts::bls12381_pairing_element => view.bls12381_pairing_element,
+                #[cfg(feature = "protocol_feature_bls12381")]
+                ExtCosts::bls12381_p1_decompress_base => view.bls12381_p1_decompress_base,
+                #[cfg(feature = "protocol_feature_bls12381")]
+                ExtCosts::bls12381_p1_decompress_element => view.bls12381_p1_decompress_element,
+                #[cfg(feature = "protocol_feature_bls12381")]
+                ExtCosts::bls12381_p2_decompress_base => view.bls12381_p2_decompress_base,
+                #[cfg(feature = "protocol_feature_bls12381")]
+                ExtCosts::bls12381_p2_decompress_element => view.bls12381_p2_decompress_element,
         }
         .map(|_, value| ParameterCost { gas: value, compute: value });
         Self { costs }
@@ -693,6 +808,16 @@ pub struct CongestionControlConfigView {
     /// How much congestion a shard can tolerate before it stops all shards from
     /// accepting new transactions with the receiver set to the congested shard.
     pub reject_tx_congestion_threshold: f64,
+
+    /// The standard size limit for outgoing receipts aimed at a single shard.
+    /// This limit is pretty small to keep the size of source_receipt_proofs under control.
+    /// It limits the total sum of outgoing receipts, not individual receipts.
+    pub outgoing_receipts_usual_size_limit: u64,
+
+    /// Large size limit for outgoing receipts to a shard, used when it's safe
+    /// to send a lot of receipts without making the state witness too large.
+    /// It limits the total sum of outgoing receipts, not individual receipts.
+    pub outgoing_receipts_big_size_limit: u64,
 }
 
 impl From<CongestionControlConfig> for CongestionControlConfigView {
@@ -708,6 +833,8 @@ impl From<CongestionControlConfig> for CongestionControlConfigView {
             max_tx_gas: other.max_tx_gas,
             min_tx_gas: other.min_tx_gas,
             reject_tx_congestion_threshold: other.reject_tx_congestion_threshold,
+            outgoing_receipts_usual_size_limit: other.outgoing_receipts_usual_size_limit,
+            outgoing_receipts_big_size_limit: other.outgoing_receipts_big_size_limit,
         }
     }
 }
@@ -725,6 +852,8 @@ impl From<CongestionControlConfigView> for CongestionControlConfig {
             max_tx_gas: other.max_tx_gas,
             min_tx_gas: other.min_tx_gas,
             reject_tx_congestion_threshold: other.reject_tx_congestion_threshold,
+            outgoing_receipts_usual_size_limit: other.outgoing_receipts_usual_size_limit,
+            outgoing_receipts_big_size_limit: other.outgoing_receipts_big_size_limit,
         }
     }
 }

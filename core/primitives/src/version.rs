@@ -67,6 +67,10 @@ pub const PROTOCOL_UPGRADE_SCHEDULE: Lazy<ProtocolUpgradeVotingSchedule> = Lazy:
     // that they are ordered by datetime and version, the last one is the
     // PROTOCOL_VERSION and that there is enough time between subsequent
     // upgrades.
+    //
+    // At most one protocol version upgrade vote can happen per epoch. If, by any
+    // chance, two or more votes get scheduled on the same epoch, the latest upgrades
+    // will be postponed.
 
     // e.g.
     // let v1_protocol_version = 50;
@@ -83,7 +87,13 @@ pub const PROTOCOL_UPGRADE_SCHEDULE: Lazy<ProtocolUpgradeVotingSchedule> = Lazy:
 /// Gives new clients an option to upgrade without announcing that they support
 /// the new version.  This gives non-validator nodes time to upgrade.  See
 /// <https://github.com/near/NEPs/issues/205>
-pub fn get_protocol_version(next_epoch_protocol_version: ProtocolVersion) -> ProtocolVersion {
-    let now = chrono::Utc::now();
-    PROTOCOL_UPGRADE_SCHEDULE.get_protocol_version(now, next_epoch_protocol_version)
+#[cfg(feature = "clock")]
+pub fn get_protocol_version(
+    next_epoch_protocol_version: ProtocolVersion,
+    clock: near_time::Clock,
+) -> ProtocolVersion {
+    let now = clock.now_utc();
+    let chrono = chrono::DateTime::from_timestamp(now.unix_timestamp(), now.nanosecond());
+    PROTOCOL_UPGRADE_SCHEDULE
+        .get_protocol_version(chrono.unwrap_or_default(), next_epoch_protocol_version)
 }

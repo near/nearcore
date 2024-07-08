@@ -1,6 +1,5 @@
 use crate::epoch_info::iterate_and_filter;
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_async::time::Clock;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use near_client::sync::external::{
     create_bucket_readonly, create_bucket_readwrite, external_storage_location,
@@ -18,6 +17,7 @@ use near_primitives::types::{EpochId, StateRoot};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{BlockHeight, EpochHeight, ShardId};
 use near_store::{PartialStorage, Store, Trie};
+use near_time::Clock;
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -270,7 +270,7 @@ impl EpochSelection {
                     epoch_info.epoch_height() == *epoch_height
                 });
                 assert_eq!(epoch_ids.len(), 1, "{:#?}", epoch_ids);
-                epoch_ids[0].clone()
+                epoch_ids[0]
             }
             EpochSelection::BlockHash { block_hash } => {
                 let block_hash = CryptoHash::from_str(block_hash).unwrap();

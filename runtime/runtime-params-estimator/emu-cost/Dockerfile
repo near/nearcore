@@ -1,5 +1,5 @@
 # our local base image
-FROM docker.io/rust:1.78.0
+FROM docker.io/rust:1.79.0
 
 LABEL description="Container for builds"
 

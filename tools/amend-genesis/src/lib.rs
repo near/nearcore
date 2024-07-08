@@ -280,6 +280,7 @@ pub struct GenesisChanges {
     pub max_inflation_rate: Option<Rational32>,
     pub block_producer_kickout_threshold: Option<u8>,
     pub chunk_producer_kickout_threshold: Option<u8>,
+    pub chunk_validator_only_kickout_threshold: Option<u8>,
     pub gas_limit: Option<u64>,
     pub min_gas_price: Option<Balance>,
     pub max_gas_price: Option<Balance>,
@@ -409,6 +410,9 @@ pub fn amend_genesis(
     if let Some(t) = genesis_changes.chunk_producer_kickout_threshold {
         genesis.config.chunk_producer_kickout_threshold = t;
     }
+    if let Some(t) = genesis_changes.chunk_validator_only_kickout_threshold {
+        genesis.config.chunk_validator_only_kickout_threshold = t;
+    }
     if let Some(l) = genesis_changes.gas_limit {
         genesis.config.gas_limit = l;
     }
@@ -426,7 +430,6 @@ pub fn amend_genesis(
 #[cfg(test)]
 mod test {
     use anyhow::Context;
-    use near_async::time::Clock;
     use near_chain_configs::{get_initial_supply, Genesis, GenesisConfig, NEAR_BASE};
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardLayout;
@@ -436,6 +439,7 @@ mod test {
     use near_primitives::version::PROTOCOL_VERSION;
     use near_primitives_core::account::{AccessKey, Account};
     use near_primitives_core::types::{Balance, StorageUsage};
+    use near_time::Clock;
     use num_rational::Rational32;
     use std::collections::{HashMap, HashSet};
     use std::str::FromStr;
@@ -641,6 +645,8 @@ mod test {
                     near_chain_configs::BLOCK_PRODUCER_KICKOUT_THRESHOLD,
                 chunk_producer_kickout_threshold:
                     near_chain_configs::CHUNK_PRODUCER_KICKOUT_THRESHOLD,
+                chunk_validator_only_kickout_threshold:
+                    near_chain_configs::CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD,
                 online_max_threshold: Rational32::new(99, 100),
                 online_min_threshold: Rational32::new(
                     near_chain_configs::BLOCK_PRODUCER_KICKOUT_THRESHOLD as i32,

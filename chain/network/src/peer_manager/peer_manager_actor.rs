@@ -601,7 +601,7 @@ impl PeerManagerActor {
                     let clock = self.clock.clone();
                     async move {
                         let result = async {
-                            let stream = tcp::Stream::connect(&peer_info, tcp::Tier::T2).await.context("tcp::Stream::connect()")?;
+                            let stream = tcp::Stream::connect(&peer_info, tcp::Tier::T2, &state.config.socket_options).await.context("tcp::Stream::connect()")?;
                             PeerActor::spawn_and_handshake(clock.clone(),stream,None,state.clone()).await.context("PeerActor::spawn()")?;
                             anyhow::Ok(())
                         }.await;
@@ -1025,6 +1025,14 @@ impl PeerManagerActor {
                 PeerManagerMessageResponse::NetworkResponses(
                     self.handle_msg_network_requests(msg, ctx),
                 )
+            }
+            PeerManagerMessageRequest::AdvertiseTier1Proxies => {
+                let state = self.state.clone();
+                let clock = self.clock.clone();
+                ctx.spawn(wrap_future(async move {
+                    state.tier1_advertise_proxies(&clock).await;
+                }));
+                PeerManagerMessageResponse::AdvertiseTier1Proxies
             }
             PeerManagerMessageRequest::OutboundTcpConnect(stream) => {
                 let peer_addr = stream.peer_addr;

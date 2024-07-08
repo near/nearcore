@@ -1,19 +1,18 @@
 use crate::cache::{CompiledContract, CompiledContractInfo, ContractRuntimeCache};
 use crate::errors::ContractPrecompilatonResult;
-use crate::imports::wasmer2::Wasmer2Imports;
 use crate::logic::errors::{
     CacheError, CompilationError, FunctionCallError, MethodResolveError, VMRunnerError, WasmTrap,
 };
 use crate::logic::gas_counter::FastGasCounter;
-use crate::logic::types::PromiseResult;
-use crate::logic::{Config, External, MemSlice, MemoryLike, VMContext, VMLogic, VMOutcome};
+use crate::logic::{
+    Config, ExecutionResultState, External, MemSlice, MemoryLike, VMContext, VMLogic, VMOutcome,
+};
 use crate::prepare;
 use crate::runner::VMResult;
 use crate::{get_contract_cache_key, imports, ContractCode};
 use memoffset::offset_of;
 use near_parameters::vm::VMKind;
 use near_parameters::RuntimeFeesConfig;
-use near_primitives_core::hash::CryptoHash;
 use std::borrow::Cow;
 use std::hash::Hash;
 use std::mem::size_of;
@@ -25,7 +24,8 @@ use wasmer_engine_universal::{
 };
 use wasmer_types::{FunctionIndex, InstanceConfig, MemoryType, Pages, WASM_PAGE_SIZE};
 use wasmer_vm::{
-    Artifact, Instantiatable, LinearMemory, LinearTable, Memory, MemoryStyle, TrapCode, VMMemory,
+    Artifact, ExportFunction, ExportFunctionMetadata, Instantiatable, LinearMemory, LinearTable,
+    Memory, MemoryStyle, Resolver, TrapCode, VMFunction, VMFunctionKind, VMMemory,
 };
 
 #[derive(Clone)]
@@ -229,12 +229,12 @@ pub(crate) fn wasmer2_vm_hash() -> u64 {
 pub(crate) type VMArtifact = Arc<wasmer_engine_universal::UniversalArtifact>;
 
 pub(crate) struct Wasmer2VM {
-    pub(crate) config: Config,
+    pub(crate) config: Arc<Config>,
     pub(crate) engine: UniversalEngine,
 }
 
 impl Wasmer2VM {
-    pub(crate) fn new_for_target(config: Config, target: wasmer_compiler::Target) -> Self {
+    pub(crate) fn new_for_target(config: Arc<Config>, target: wasmer_compiler::Target) -> Self {
         // We only support singlepass compiler at the moment.
         assert_eq!(WASMER2_CONFIG.compiler, WasmerCompiler::Singlepass);
         let compiler = Singlepass::new();
@@ -248,7 +248,7 @@ impl Wasmer2VM {
         }
     }
 
-    pub(crate) fn new(config: Config) -> Self {
+    pub(crate) fn new(config: Arc<Config>) -> Self {
         use wasmer_compiler::{CpuFeature, Target, Triple};
         let target_features = if cfg!(feature = "no_cpu_compatibility_checks") {
             let mut fs = CpuFeature::set();
@@ -563,62 +563,6 @@ impl wasmer_vm::Tunables for &Wasmer2VM {
 }
 
 impl crate::runner::VM for Wasmer2VM {
-    fn run(
-        &self,
-        _code_hash: CryptoHash,
-        code: Option<&ContractCode>,
-        method_name: &str,
-        ext: &mut dyn External,
-        context: &VMContext,
-        fees_config: &RuntimeFeesConfig,
-        promise_results: &[PromiseResult],
-        cache: Option<&dyn ContractRuntimeCache>,
-    ) -> Result<VMOutcome, VMRunnerError> {
-        let Some(code) = code else {
-            return Err(VMRunnerError::CacheError(CacheError::ReadError(std::io::Error::from(
-                std::io::ErrorKind::NotFound,
-            ))));
-        };
-        let mut memory = Wasmer2Memory::new(
-            self.config.limit_config.initial_memory_pages,
-            self.config.limit_config.max_memory_pages,
-        )
-        .expect("Cannot create memory for a contract call");
-
-        // FIXME: this mostly duplicates the `run_module` method.
-        // Note that we don't clone the actual backing memory, just increase the RC.
-        let vmmemory = memory.vm();
-        let mut logic =
-            VMLogic::new(ext, context, &self.config, fees_config, promise_results, &mut memory);
-
-        let result = logic.before_loading_executable(method_name, code.code().len() as u64);
-        if let Err(e) = result {
-            return Ok(VMOutcome::abort(logic, e));
-        }
-
-        let artifact = self.compile_and_load(code, cache)?;
-        let artifact = match artifact {
-            Ok(it) => it,
-            Err(err) => {
-                return Ok(VMOutcome::abort(logic, FunctionCallError::CompilationError(err)));
-            }
-        };
-
-        let result = logic.after_loading_executable(code.code().len() as u64);
-        if let Err(e) = result {
-            return Ok(VMOutcome::abort(logic, e));
-        }
-        let import = imports::wasmer2::build(vmmemory, &mut logic, artifact.engine());
-        let entrypoint = match get_entrypoint_index(&*artifact, method_name) {
-            Ok(index) => index,
-            Err(e) => return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(logic, e)),
-        };
-        match self.run_method(&artifact, import, entrypoint)? {
-            Ok(()) => Ok(VMOutcome::ok(logic)),
-            Err(err) => Ok(VMOutcome::abort(logic, err)),
-        }
-    }
-
     fn precompile(
         &self,
         code: &ContractCode,
@@ -631,9 +575,244 @@ impl crate::runner::VM for Wasmer2VM {
             .compile_and_cache(code, Some(cache))?
             .map(|_| ContractPrecompilatonResult::ContractCompiled))
     }
+
+    fn prepare(
+        self: Box<Self>,
+        ext: &dyn External,
+        context: &VMContext,
+        cache: Option<&dyn ContractRuntimeCache>,
+    ) -> Box<dyn crate::PreparedContract> {
+        type Result = VMResult<PreparedContract>;
+        let Some(code) = ext.get_contract() else {
+            return Box::new(Result::Err(VMRunnerError::ContractCodeNotPresent));
+        };
+        let mut result_state = ExecutionResultState::new(&context, Arc::clone(&self.config));
+        let result =
+            result_state.before_loading_executable(&context.method, code.code().len() as u64);
+        if let Err(e) = result {
+            return Box::new(Ok(PreparedContract::Outcome(VMOutcome::abort(result_state, e))));
+        }
+        let artifact = match self.compile_and_load(&code, cache) {
+            Ok(Ok(it)) => it,
+            Ok(Err(err)) => {
+                return Box::new(Ok(PreparedContract::Outcome(VMOutcome::abort(
+                    result_state,
+                    FunctionCallError::CompilationError(err),
+                ))));
+            }
+            Err(err) => {
+                return Box::new(Result::Err(err));
+            }
+        };
+        let result = result_state.after_loading_executable(code.code().len() as u64);
+        if let Err(e) = result {
+            return Box::new(Ok(PreparedContract::Outcome(VMOutcome::abort(result_state, e))));
+        }
+        let entrypoint = match get_entrypoint_index(&*artifact, &context.method) {
+            Ok(index) => index,
+            Err(e) => {
+                return Box::new(Ok(PreparedContract::Outcome(
+                    VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, e),
+                )))
+            }
+        };
+
+        let memory = Wasmer2Memory::new(
+            self.config.limit_config.initial_memory_pages,
+            self.config.limit_config.max_memory_pages,
+        )
+        .expect("Cannot create memory for a contract call");
+        Box::new(Ok(PreparedContract::Ready(ReadyContract {
+            vm: self,
+            memory,
+            result_state,
+            entrypoint,
+            artifact,
+        })))
+    }
 }
 
-#[test]
-fn test_memory_like() {
-    crate::logic::test_utils::test_memory_like(|| Box::new(Wasmer2Memory::new(1, 1).unwrap()));
+struct ReadyContract {
+    vm: Box<Wasmer2VM>,
+    memory: Wasmer2Memory,
+    result_state: ExecutionResultState,
+    entrypoint: FunctionIndex,
+    artifact: VMArtifact,
+}
+
+#[allow(clippy::large_enum_variant)]
+enum PreparedContract {
+    Outcome(VMOutcome),
+    Ready(ReadyContract),
+}
+
+impl crate::PreparedContract for VMResult<PreparedContract> {
+    fn run(
+        self: Box<Self>,
+        ext: &mut dyn External,
+        context: &VMContext,
+        fees_config: Arc<RuntimeFeesConfig>,
+    ) -> VMResult {
+        let ReadyContract { vm, memory, result_state, entrypoint, artifact } = match (*self)? {
+            PreparedContract::Outcome(outcome) => return Ok(outcome),
+            PreparedContract::Ready(r) => r,
+        };
+        // FIXME: this mostly duplicates the `run_module` method.
+        // Note that we don't clone the actual backing memory, just increase the RC.
+        let vmmemory = memory.vm();
+        let mut logic = VMLogic::new(ext, context, fees_config, result_state, memory);
+        let import = build_imports(vmmemory, &mut logic, Arc::clone(&vm.config), artifact.engine());
+        match vm.run_method(&artifact, import, entrypoint)? {
+            Ok(()) => Ok(VMOutcome::ok(logic.result_state)),
+            Err(err) => Ok(VMOutcome::abort(logic.result_state, err)),
+        }
+    }
+}
+
+pub(crate) struct Wasmer2Imports<'engine, 'vmlogic, 'vmlogic_refs> {
+    pub(crate) memory: VMMemory,
+    config: Arc<Config>,
+    // Note: this same object is also referenced by the `metadata` field!
+    pub(crate) vmlogic: &'vmlogic mut VMLogic<'vmlogic_refs>,
+    pub(crate) metadata: Arc<ExportFunctionMetadata>,
+    pub(crate) engine: &'engine UniversalEngine,
+}
+
+trait Wasmer2Type {
+    type Wasmer;
+    fn to_wasmer(self) -> Self::Wasmer;
+    fn ty() -> wasmer_types::Type;
+}
+macro_rules! wasmer_types {
+    ($($native:ty as $wasmer:ty => $type_expr:expr;)*) => {
+        $(impl Wasmer2Type for $native {
+            type Wasmer = $wasmer;
+            fn to_wasmer(self) -> $wasmer {
+                self as _
+            }
+            fn ty() -> wasmer_types::Type {
+                $type_expr
+            }
+        })*
+    }
+}
+wasmer_types! {
+    u32 as i32 => wasmer_types::Type::I32;
+    u64 as i64 => wasmer_types::Type::I64;
+}
+
+macro_rules! return_ty {
+    ($return_type: ident = [ ]) => {
+        type $return_type = ();
+        fn make_ret() -> () {}
+    };
+    ($return_type: ident = [ $($returns: ident),* ]) => {
+        #[repr(C)]
+        struct $return_type($(<$returns as Wasmer2Type>::Wasmer),*);
+        fn make_ret($($returns: $returns),*) -> Ret { Ret($($returns.to_wasmer()),*) }
+    }
+}
+
+impl<'e, 'l, 'lr> Resolver for Wasmer2Imports<'e, 'l, 'lr> {
+    fn resolve(&self, _index: u32, module: &str, field: &str) -> Option<wasmer_vm::Export> {
+        if module == "env" && field == "memory" {
+            return Some(wasmer_vm::Export::Memory(self.memory.clone()));
+        }
+
+        macro_rules! add_import {
+            (
+              $mod:ident / $name:ident : $func:ident <
+                [ $( $arg_name:ident : $arg_type:ident ),* ]
+                -> [ $( $returns:ident ),* ]
+              >
+            ) => {
+                return_ty!(Ret = [ $($returns),* ]);
+
+                extern "C" fn $name(env: *mut VMLogic<'_>, $( $arg_name: $arg_type ),* )
+                -> Ret {
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        const TRACE: bool = $crate::imports::should_trace_host_function(stringify!($name));
+                        let _span = TRACE.then(|| {
+                            tracing::trace_span!(target: "vm::host_function", stringify!($name)).entered()
+                        });
+
+                        // SAFETY: This code should only be executable within `'vmlogic`
+                        // lifetime and so it is safe to dereference the `env` pointer which is
+                        // known to be derived from a valid `&'vmlogic mut VMLogic<'_>` in the
+                        // first place.
+                        unsafe { (*env).$func( $( $arg_name, )* ) }
+                    }));
+                    // We want to ensure that the only kind of error that host function calls
+                    // return are VMLogicError. This is important because we later attempt to
+                    // downcast the `RuntimeError`s into `VMLogicError`.
+                    let result: Result<Result<_, crate::logic::VMLogicError>, _>  = result;
+                    #[allow(unused_parens)]
+                    match result {
+                        Ok(Ok(($($returns),*))) => make_ret($($returns),*),
+                        Ok(Err(trap)) => unsafe {
+                            // SAFETY: this can only be called by a WASM contract, so all the
+                            // necessary hooks are known to be in place.
+                            wasmer_vm::raise_user_trap(Box::new(trap))
+                        },
+                        Err(e) => unsafe {
+                            // SAFETY: this can only be called by a WASM contract, so all the
+                            // necessary hooks are known to be in place.
+                            wasmer_vm::resume_panic(e)
+                        },
+                    }
+                }
+                // TODO: a phf hashmap would probably work better here.
+                if module == stringify!($mod) && field == stringify!($name) {
+                    let args = [$(<$arg_type as Wasmer2Type>::ty()),*];
+                    let rets = [$(<$returns as Wasmer2Type>::ty()),*];
+                    let signature = wasmer_types::FunctionTypeRef::new(&args[..], &rets[..]);
+                    let signature = self.engine.register_signature(signature);
+                    return Some(wasmer_vm::Export::Function(ExportFunction {
+                        vm_function: VMFunction {
+                            address: $name as *const _,
+                            // SAFETY: here we erase the lifetime of the `vmlogic` reference,
+                            // but we believe that the lifetimes on `Wasmer2Imports` enforce
+                            // sufficiently that it isn't possible to call this exported
+                            // function when vmlogic is no loger live.
+                            vmctx: wasmer_vm::VMFunctionEnvironment {
+                                host_env: self.vmlogic as *const _ as *mut _
+                            },
+                            signature,
+                            kind: VMFunctionKind::Static,
+                            call_trampoline: None,
+                            instance_ref: None,
+                        },
+                        metadata: Some(Arc::clone(&self.metadata)),
+                    }));
+                }
+            };
+        }
+        imports::for_each_available_import!(self.config, add_import);
+        return None;
+    }
+}
+
+pub(crate) fn build_imports<'e, 'a, 'b>(
+    memory: VMMemory,
+    logic: &'a mut VMLogic<'b>,
+    config: Arc<Config>,
+    engine: &'e UniversalEngine,
+) -> Wasmer2Imports<'e, 'a, 'b> {
+    let metadata = unsafe {
+        // SAFETY: the functions here are thread-safe. We ensure that the lifetime of `VMLogic`
+        // is sufficiently long by tying the lifetime of VMLogic to the return type which
+        // contains this metadata.
+        ExportFunctionMetadata::new(logic as *mut _ as *mut _, None, |ptr| ptr, |_| {})
+    };
+    Wasmer2Imports { memory, config, vmlogic: logic, metadata: Arc::new(metadata), engine }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_memory_like() {
+        crate::logic::test_utils::test_memory_like(|| {
+            Box::new(super::Wasmer2Memory::new(1, 1).unwrap())
+        });
+    }
 }

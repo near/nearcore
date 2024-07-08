@@ -3,8 +3,9 @@ use crate::config::{Config, GasMetric};
 use crate::gas_cost::GasCost;
 use genesis_populate::get_account_id;
 use genesis_populate::state_dump::StateDump;
+use near_parameters::config::CongestionControlConfig;
 use near_parameters::{ExtCosts, RuntimeConfigStore};
-use near_primitives::congestion_info::ExtendedCongestionInfo;
+use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
@@ -123,11 +124,11 @@ impl<'c> EstimatorContext<'c> {
     fn make_apply_state(cache: FilesystemContractRuntimeCache) -> ApplyState {
         let mut runtime_config =
             RuntimeConfigStore::new(None).get_config(PROTOCOL_VERSION).as_ref().clone();
-        runtime_config.wasm_config.enable_all_features();
-        runtime_config.wasm_config.make_free();
-
+        let wasm_config = Arc::make_mut(&mut runtime_config.wasm_config);
+        wasm_config.enable_all_features();
+        wasm_config.make_free();
         // Override vm limits config to simplify block processing.
-        runtime_config.wasm_config.limit_config = LimitConfig {
+        wasm_config.limit_config = LimitConfig {
             max_total_log_length: u64::MAX,
             max_number_registers: u64::MAX,
             max_gas_burnt: u64::MAX,
@@ -141,11 +142,20 @@ impl<'c> EstimatorContext<'c> {
 
             max_total_prepaid_gas: u64::MAX,
 
-            ..runtime_config.wasm_config.limit_config
+            ..wasm_config.limit_config
         };
         runtime_config.account_creation_config.min_allowed_top_level_account_length = 0;
+        // Disable congestion control to simplify measuring large workloads.
+        runtime_config.congestion_control_config = CongestionControlConfig::test_disabled();
 
         let shard_id = ShardUId::single_shard().shard_id();
+        let congestion_info = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
+            [(shard_id, ExtendedCongestionInfo::default())].into()
+        } else {
+            Default::default()
+        };
+        let congestion_info = BlockCongestionInfo::new(congestion_info);
+
         ApplyState {
             apply_reason: None,
             // Put each runtime into a separate shard.
@@ -166,11 +176,7 @@ impl<'c> EstimatorContext<'c> {
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
-            congestion_info: if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-                HashMap::from([(shard_id, ExtendedCongestionInfo::default())])
-            } else {
-                HashMap::new()
-            },
+            congestion_info,
         }
     }
 
@@ -347,6 +353,11 @@ impl Testbed<'_> {
             .apply_to_flat_state(&mut store_update, shard_uid);
         store_update.commit().unwrap();
         self.apply_state.block_height += 1;
+        if let Some(congestion_info) = apply_result.congestion_info {
+            self.apply_state
+                .congestion_info
+                .insert(shard_uid.shard_id(), ExtendedCongestionInfo::new(congestion_info, 0));
+        }
 
         let mut total_burnt_gas = 0;
         if !allow_failures {

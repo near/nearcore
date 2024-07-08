@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 mod chunk_validator_stats;
 
-pub use chunk_validator_stats::ChunkValidatorStats;
+pub use chunk_validator_stats::ChunkStats;
 
 /// Hash used by to store state root.
 pub type StateRoot = CryptoHash;
@@ -480,6 +480,7 @@ impl StateRootNode {
 #[derive(
     Debug,
     Clone,
+    Copy,
     Default,
     Hash,
     Eq,
@@ -744,9 +745,8 @@ pub mod chunk_extra {
     use crate::types::StateRoot;
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_primitives_core::hash::CryptoHash;
-    use near_primitives_core::types::{Balance, Gas};
+    use near_primitives_core::types::{Balance, Gas, ProtocolVersion};
     use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
-    use near_vm_runner::logic::ProtocolVersion;
 
     pub use super::ChunkExtraV1;
 
@@ -996,10 +996,18 @@ pub struct ValidatorStats {
     pub expected: NumBlocks,
 }
 
+impl ValidatorStats {
+    /// Compare stats with threshold which is an expected percentage from 0 to
+    /// 100.
+    pub fn less_than(&self, threshold: u8) -> bool {
+        self.produced * 100 < u64::from(threshold) * self.expected
+    }
+}
+
 #[derive(Debug, BorshSerialize, BorshDeserialize, PartialEq, Eq)]
 pub struct BlockChunkValidatorStats {
     pub block_stats: ValidatorStats,
-    pub chunk_stats: ChunkValidatorStats,
+    pub chunk_stats: ChunkStats,
 }
 
 #[derive(serde::Deserialize, Debug, arbitrary::Arbitrary, PartialEq, Eq)]
@@ -1069,6 +1077,8 @@ pub enum ValidatorKickoutReason {
     },
     /// Enough stake but is not chosen because of seat limits.
     DidNotGetASeat,
+    /// Validator didn't produce enough chunk endorsements.
+    NotEnoughChunkEndorsements { produced: NumBlocks, expected: NumBlocks },
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -1080,7 +1090,7 @@ pub enum TransactionOrReceiptId {
 
 /// Provides information about current epoch validators.
 /// Used to break dependency between epoch manager and runtime.
-pub trait EpochInfoProvider {
+pub trait EpochInfoProvider: Send + Sync {
     /// Get current stake of a validator in the given epoch.
     /// If the account is not a validator, returns `None`.
     fn validator_stake(

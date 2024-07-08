@@ -10,8 +10,8 @@ use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::ShardId;
-use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 
 pub(crate) struct BoundedQueue<T> {
@@ -121,7 +121,7 @@ impl TrieCacheInner {
         let max_elements = total_size_limit.div_ceil(Self::PER_ENTRY_OVERHEAD);
         let max_elements = usize::try_from(max_elements).unwrap();
         Self {
-            cache: LruCache::new(max_elements),
+            cache: LruCache::new(NonZeroUsize::new(max_elements).unwrap()),
             deletions: BoundedQueue::new(deletions_queue_capacity),
             total_size: 0,
             total_size_limit,
@@ -142,7 +142,8 @@ impl TrieCacheInner {
     }
 
     pub(crate) fn put(&mut self, key: CryptoHash, value: Arc<[u8]>) {
-        while self.total_size > self.total_size_limit || self.cache.len() == self.cache.cap() {
+        while self.total_size > self.total_size_limit || self.cache.len() == self.cache.cap().get()
+        {
             // First, try to evict value using the key from deletions queue.
             match self.deletions.pop() {
                 Some(key) => match self.cache.pop(&key) {
@@ -280,7 +281,7 @@ impl TrieCache {
     }
 }
 
-pub trait TrieStorage {
+pub trait TrieStorage: Send + Sync {
     /// Get bytes of a serialized `TrieNode`.
     ///
     /// # Errors
@@ -305,7 +306,7 @@ pub trait TrieStorage {
 #[derive(Default)]
 pub struct TrieMemoryPartialStorage {
     pub(crate) recorded_storage: HashMap<CryptoHash, Arc<[u8]>>,
-    pub(crate) visited_nodes: RefCell<HashSet<CryptoHash>>,
+    pub(crate) visited_nodes: std::sync::RwLock<HashSet<CryptoHash>>,
 }
 
 impl TrieStorage for TrieMemoryPartialStorage {
@@ -316,7 +317,7 @@ impl TrieStorage for TrieMemoryPartialStorage {
                 *hash,
             ));
         if result.is_ok() {
-            self.visited_nodes.borrow_mut().insert(*hash);
+            self.visited_nodes.write().expect("write visited_nodes").insert(*hash);
         }
         result
     }
@@ -332,7 +333,7 @@ impl TrieMemoryPartialStorage {
     }
 
     pub fn partial_state(&self) -> PartialState {
-        let touched_nodes = self.visited_nodes.borrow();
+        let touched_nodes = self.visited_nodes.read().expect("read visited_nodes");
         let mut nodes: Vec<_> =
             self.recorded_storage
                 .iter()

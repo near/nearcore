@@ -246,7 +246,7 @@ fn apply_block_from_range(
                 ApplyChunkBlockContext::from_header(
                     block.header(),
                     prev_block.header().next_gas_price(),
-                    prev_block.shards_congestion_info(),
+                    prev_block.block_congestion_info(),
                 ),
                 &receipts,
                 chunk.transactions(),
@@ -272,7 +272,7 @@ fn apply_block_from_range(
                 ApplyChunkBlockContext::from_header(
                     block.header(),
                     block.header().next_gas_price(),
-                    block.shards_congestion_info(),
+                    block.block_congestion_info(),
                 ),
                 &[],
                 &[],
@@ -355,7 +355,7 @@ fn apply_block_from_range(
         let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
         let store_update = flat_storage.add_delta(delta).unwrap();
         store_update.commit().unwrap();
-        flat_storage.update_flat_head(&block_hash, true).unwrap();
+        flat_storage.update_flat_head(&block_hash).unwrap();
 
         // Apply trie changes to trie node caches.
         let mut fake_store_update = store.store_update();
@@ -607,13 +607,14 @@ mod test {
         let epoch_length = 4;
         let (store, genesis, mut env) = setup(epoch_length);
         let genesis_hash = *env.clients[0].chain.genesis().hash();
-        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+        let signer =
+            InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1").into();
         let tx = SignedTransaction::stake(
             1,
             "test1".parse().unwrap(),
             &signer,
             TESTING_INIT_STAKE,
-            signer.public_key.clone(),
+            signer.public_key(),
             genesis_hash,
         );
         assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -649,13 +650,14 @@ mod test {
         let epoch_length = 4;
         let (store, genesis, mut env) = setup(epoch_length);
         let genesis_hash = *env.clients[0].chain.genesis().hash();
-        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+        let signer =
+            InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1").into();
         let tx = SignedTransaction::stake(
             1,
             "test1".parse().unwrap(),
             &signer,
             TESTING_INIT_STAKE,
-            signer.public_key.clone(),
+            signer.public_key(),
             genesis_hash,
         );
         assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);

@@ -2,7 +2,6 @@ use actix_web::cookie::time::ext::InstantExt as _;
 use actix_web::{web, App, HttpServer};
 use anyhow::Context;
 pub use cli::PingCommand;
-use near_async::time;
 use near_network::raw::{ConnectError, Connection, DirectMessage, Message, RoutedMessage};
 use near_network::types::HandshakeFailureReason;
 use near_primitives::hash::CryptoHash;
@@ -26,16 +25,16 @@ struct PingStats {
     pongs_received: usize,
     // TODO: these latency stats could be separated into time to first byte
     // + time to last byte, etc.
-    min_latency: time::Duration,
-    max_latency: time::Duration,
-    average_latency: time::Duration,
+    min_latency: near_time::Duration,
+    max_latency: near_time::Duration,
+    average_latency: near_time::Duration,
 }
 
 impl PingStats {
-    fn pong_received(&mut self, latency: time::Duration) {
+    fn pong_received(&mut self, latency: near_time::Duration) {
         self.pongs_received += 1;
 
-        if self.min_latency == time::Duration::ZERO || self.min_latency > latency {
+        if self.min_latency == near_time::Duration::ZERO || self.min_latency > latency {
             self.min_latency = latency;
         }
         if self.max_latency < latency {
@@ -51,7 +50,7 @@ type Nonce = u64;
 #[derive(Debug, Eq, PartialEq)]
 struct PingTarget {
     peer_id: PeerId,
-    last_pinged: Option<time::Instant>,
+    last_pinged: Option<near_time::Instant>,
 }
 
 impl PartialOrd for PingTarget {
@@ -81,7 +80,7 @@ impl Ord for PingTarget {
 struct PingTimeout {
     peer_id: PeerId,
     nonce: u64,
-    timeout: time::Instant,
+    timeout: near_time::Instant,
 }
 
 impl PartialOrd for PingTimeout {
@@ -103,18 +102,18 @@ fn peer_str(peer_id: &PeerId, account_id: Option<&AccountId>) -> String {
 }
 
 const MAX_PINGS_IN_FLIGHT: usize = 10;
-const PING_TIMEOUT: time::Duration = time::Duration::seconds(100);
+const PING_TIMEOUT: near_time::Duration = near_time::Duration::seconds(100);
 
 #[derive(Debug)]
 struct PingState {
     stats: PingStats,
-    last_pinged: Option<time::Instant>,
+    last_pinged: Option<near_time::Instant>,
     account_id: Option<AccountId>,
 }
 
 struct PingTimes {
-    sent_at: time::Instant,
-    timeout: time::Instant,
+    sent_at: near_time::Instant,
+    timeout: near_time::Instant,
 }
 
 struct AppInfo {
@@ -148,7 +147,7 @@ impl AppInfo {
     }
 
     fn ping_sent(&mut self, peer_id: &PeerId, nonce: u64, chain_id: &str) {
-        let timestamp = time::Instant::now();
+        let timestamp = near_time::Instant::now();
         let timeout = timestamp + PING_TIMEOUT;
 
         let account_id = self.peer_id_to_account_id(&peer_id);
@@ -202,8 +201,8 @@ impl AppInfo {
         &mut self,
         peer_id: &PeerId,
         nonce: u64,
-        received_at: time::Instant,
-    ) -> Option<(time::Duration, Option<&AccountId>)> {
+        received_at: near_time::Instant,
+    ) -> Option<(near_time::Duration, Option<&AccountId>)> {
         match self.stats.get_mut(peer_id) {
             Some(state) => {
                 let pending_pings = self
@@ -316,7 +315,7 @@ impl AppInfo {
 fn handle_message(
     app_info: &mut AppInfo,
     msg: Message,
-    received_at: time::Instant,
+    received_at: near_time::Instant,
     latencies_csv: Option<&mut crate::csv::LatenciesCsv>,
 ) -> anyhow::Result<()> {
     match msg {
@@ -391,7 +390,7 @@ async fn ping_via_node(
 
     app_info.add_peer(peer_id.clone(), None);
 
-    let clock = time::Clock::real();
+    let clock = near_time::Clock::real();
 
     let mut peer = match Connection::connect(
         &clock,
@@ -402,7 +401,7 @@ async fn ping_via_node(
         genesis_hash,
         head_height,
         vec![0],
-        time::Duration::seconds(recv_timeout_seconds.into())).await {
+        near_time::Duration::seconds(recv_timeout_seconds.into())).await {
         Ok(p) => p,
         Err(ConnectError::HandshakeFailure(reason)) => {
             match reason {

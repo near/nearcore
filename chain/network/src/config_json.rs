@@ -1,4 +1,5 @@
 use crate::network_protocol::PeerAddr;
+use crate::rate_limits::messages_limits;
 use crate::stun;
 use near_async::time::Duration;
 
@@ -20,6 +21,13 @@ fn default_ideal_connections_lo() -> u32 {
 /// Upper bound of the ideal number of connections.
 fn default_ideal_connections_hi() -> u32 {
     35
+}
+/// Default socket options for peer connections.
+fn default_so_recv_buffer_size() -> Option<u32> {
+    Some(1000000)
+}
+fn default_so_send_buffer_size() -> Option<u32> {
+    Some(1000000)
 }
 /// Peers which last message is was within this period of time are considered active recent peers.
 fn default_peer_recent_time_window() -> Duration {
@@ -65,7 +73,7 @@ fn default_peer_expiration_duration() -> Duration {
 /// a centralized entity (and DNS used for domain resolution),
 /// prefer to set up your own STUN server, or (even better)
 /// use public_addrs instead.
-fn default_trusted_stun_servers() -> Vec<stun::ServerAddr> {
+pub(crate) fn default_trusted_stun_servers() -> Vec<stun::ServerAddr> {
     vec![
         "stun.l.google.com:19302".to_string(),
         "stun1.l.google.com:19302".to_string(),
@@ -104,6 +112,10 @@ pub struct Config {
     /// Upper bound of the ideal number of connections.
     #[serde(default = "default_ideal_connections_hi")]
     pub ideal_connections_hi: u32,
+    #[serde(default = "default_so_recv_buffer_size")]
+    pub so_recv_buffer_size: Option<u32>,
+    #[serde(default = "default_so_send_buffer_size")]
+    pub so_send_buffer_size: Option<u32>,
     /// Peers which last message is was within this period of time are considered active recent peers (in seconds).
     #[serde(default = "default_peer_recent_time_window")]
     #[serde(with = "near_async::time::serde_duration_as_std")]
@@ -274,6 +286,7 @@ pub struct NetworkConfigOverrides {
     pub accounts_data_broadcast_rate_limit_qps: Option<f64>,
     pub routing_table_update_rate_limit_burst: Option<u64>,
     pub routing_table_update_rate_limit_qps: Option<f64>,
+    pub received_messages_rate_limits: Option<messages_limits::OverrideConfig>,
 }
 
 impl Default for ExperimentalConfig {
@@ -301,6 +314,8 @@ impl Default for Config {
             minimum_outbound_peers: default_minimum_outbound_connections(),
             ideal_connections_lo: default_ideal_connections_lo(),
             ideal_connections_hi: default_ideal_connections_hi(),
+            so_recv_buffer_size: default_so_recv_buffer_size(),
+            so_send_buffer_size: default_so_send_buffer_size(),
             peer_recent_time_window: default_peer_recent_time_window(),
             safe_set_size: default_safe_set_size(),
             archival_peer_connections_lower_bound: default_archival_peer_connections_lower_bound(),

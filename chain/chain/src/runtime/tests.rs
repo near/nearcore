@@ -9,9 +9,11 @@ use near_epoch_manager::{EpochManager, RngSeed};
 use near_pool::{
     InsertTransactionResult, PoolIteratorWrapper, TransactionGroupIteratorWrapper, TransactionPool,
 };
+use near_primitives::action::FunctionCallAction;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::checked_feature;
-use near_primitives::congestion_info::ExtendedCongestionInfo;
+use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
+use near_primitives::receipt::{ActionReceipt, ReceiptV1};
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::version::PROTOCOL_VERSION;
@@ -21,8 +23,8 @@ use num_rational::Ratio;
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
 use near_chain_configs::{
-    default_produce_chunk_add_transactions_time_limit, Genesis, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
-    NEAR_BASE,
+    default_produce_chunk_add_transactions_time_limit, Genesis, MutableConfigValue,
+    DEFAULT_GC_NUM_EPOCHS_TO_KEEP, NEAR_BASE,
 };
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_o11y::testonly::init_test_logger;
@@ -45,110 +47,6 @@ use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use near_async::time::Clock;
 use near_primitives::trie_key::TrieKey;
 use primitive_types::U256;
-
-fn stake(
-    nonce: Nonce,
-    signer: &dyn Signer,
-    sender: &dyn ValidatorSigner,
-    stake: Balance,
-) -> SignedTransaction {
-    SignedTransaction::from_actions(
-        nonce,
-        sender.validator_id().clone(),
-        sender.validator_id().clone(),
-        &*signer,
-        vec![Action::Stake(Box::new(StakeAction { stake, public_key: sender.public_key() }))],
-        // runtime does not validate block history
-        CryptoHash::default(),
-        0,
-    )
-}
-
-impl NightshadeRuntime {
-    fn update(
-        &self,
-        state_root: &StateRoot,
-        shard_id: ShardId,
-        height: BlockHeight,
-        block_timestamp: u64,
-        prev_block_hash: &CryptoHash,
-        block_hash: &CryptoHash,
-        receipts: &[Receipt],
-        transactions: &[SignedTransaction],
-        last_validator_proposals: ValidatorStakeIter,
-        gas_price: Balance,
-        gas_limit: Gas,
-        challenges_result: &ChallengesResult,
-    ) -> (StateRoot, Vec<ValidatorStake>, Vec<Receipt>) {
-        // TODO(congestion_control): pass down prev block info and read congestion info from there
-        // For now, just use default.
-        let epoch_id =
-            self.epoch_manager.get_epoch_id_from_prev_block(block_hash).unwrap_or_default();
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
-        let congestion_info_map: HashMap<ShardId, ExtendedCongestionInfo> =
-            if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
-                HashMap::new()
-            } else {
-                let shard_ids = self.epoch_manager.shard_ids(&epoch_id).unwrap();
-                shard_ids
-                    .into_iter()
-                    .map(|shard_id| (shard_id, ExtendedCongestionInfo::default()))
-                    .collect()
-            };
-        let mut result = self
-            .apply_chunk(
-                RuntimeStorageConfig::new(*state_root, true),
-                ApplyChunkReason::UpdateTrackedShard,
-                ApplyChunkShardContext {
-                    shard_id,
-                    last_validator_proposals,
-                    gas_limit,
-                    is_new_chunk: true,
-                    is_first_block_with_chunk_of_version: false,
-                },
-                ApplyChunkBlockContext {
-                    height,
-                    block_hash: *block_hash,
-                    prev_block_hash: *prev_block_hash,
-                    block_timestamp,
-                    gas_price,
-                    challenges_result: challenges_result.clone(),
-                    random_seed: CryptoHash::default(),
-                    congestion_info: congestion_info_map,
-                },
-                receipts,
-                transactions,
-            )
-            .unwrap();
-        let mut store_update = self.store.store_update();
-        let flat_state_changes =
-            FlatStateChanges::from_state_changes(&result.trie_changes.state_changes());
-        result.trie_changes.insertions_into(&mut store_update);
-        result.trie_changes.state_changes_into(&mut store_update);
-
-        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &EpochId::default()).unwrap();
-        if let Some(flat_storage) =
-            self.get_flat_storage_manager().get_flat_storage_for_shard(shard_uid)
-        {
-            let delta = FlatStateDelta {
-                changes: flat_state_changes,
-                metadata: FlatStateDeltaMetadata {
-                    block: near_store::flat::BlockInfo {
-                        hash: *block_hash,
-                        height,
-                        prev_hash: *prev_block_hash,
-                    },
-                    prev_block_with_changes: None,
-                },
-            };
-            let new_store_update = flat_storage.add_delta(delta).unwrap();
-            store_update.merge(new_store_update);
-        }
-        store_update.commit().unwrap();
-
-        (result.new_root, result.validator_proposals, result.outgoing_receipts)
-    }
-}
 
 struct TestEnvConfig {
     epoch_length: BlockHeightDelta,
@@ -205,6 +103,8 @@ impl TestEnv {
         // No fees mode.
         genesis.config.epoch_length = config.epoch_length;
         genesis.config.chunk_producer_kickout_threshold =
+            genesis.config.block_producer_kickout_threshold;
+        genesis.config.chunk_validator_only_kickout_threshold =
             genesis.config.block_producer_kickout_threshold;
         if !config.has_reward {
             genesis.config.max_inflation_rate = Ratio::from_integer(0);
@@ -302,6 +202,111 @@ impl TestEnv {
         }
     }
 
+    pub fn apply_new_chunk(
+        &self,
+        shard_id: ShardId,
+        new_block_hash: CryptoHash,
+        transactions: &[SignedTransaction],
+        receipts: &[Receipt],
+        challenges_result: ChallengesResult,
+    ) -> ApplyChunkResult {
+        // TODO(congestion_control): pass down prev block info and read congestion info from there
+        // For now, just use default.
+        let prev_block_hash = self.head.last_block_hash;
+        let state_root = self.state_roots[shard_id as usize];
+        let gas_limit = u64::MAX;
+        let height = self.head.height + 1;
+        let block_timestamp = 0;
+        let epoch_id =
+            self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash).unwrap_or_default();
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
+        let gas_price = self.runtime.genesis_config.min_gas_price;
+        let congestion_info = if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
+            BlockCongestionInfo::default()
+        } else {
+            let shard_ids = self.epoch_manager.shard_ids(&epoch_id).unwrap();
+            let shards_congestion_info = shard_ids
+                .into_iter()
+                .map(|shard_id| (shard_id, ExtendedCongestionInfo::default()))
+                .collect();
+            BlockCongestionInfo::new(shards_congestion_info)
+        };
+        self.runtime
+            .apply_chunk(
+                RuntimeStorageConfig::new(state_root, true),
+                ApplyChunkReason::UpdateTrackedShard,
+                ApplyChunkShardContext {
+                    shard_id,
+                    last_validator_proposals: ValidatorStakeIter::new(
+                        self.last_shard_proposals.get(&shard_id).unwrap_or(&vec![]),
+                    ),
+                    gas_limit,
+                    is_new_chunk: true,
+                    is_first_block_with_chunk_of_version: false,
+                },
+                ApplyChunkBlockContext {
+                    height,
+                    block_hash: new_block_hash,
+                    prev_block_hash,
+                    block_timestamp,
+                    gas_price,
+                    challenges_result,
+                    random_seed: CryptoHash::default(),
+                    congestion_info,
+                },
+                receipts,
+                transactions,
+            )
+            .unwrap()
+    }
+
+    fn update_runtime(
+        &self,
+        shard_id: ShardId,
+        new_block_hash: CryptoHash,
+        transactions: &[SignedTransaction],
+        receipts: &[Receipt],
+        challenges_result: ChallengesResult,
+    ) -> (CryptoHash, Vec<ValidatorStake>, Vec<Receipt>) {
+        let mut apply_result = self.apply_new_chunk(
+            shard_id,
+            new_block_hash,
+            transactions,
+            receipts,
+            challenges_result,
+        );
+        let mut store_update = self.runtime.store().store_update();
+        let flat_state_changes =
+            FlatStateChanges::from_state_changes(&apply_result.trie_changes.state_changes());
+        apply_result.trie_changes.insertions_into(&mut store_update);
+        apply_result.trie_changes.state_changes_into(&mut store_update);
+
+        let prev_block_hash = self.head.last_block_hash;
+        let epoch_id =
+            self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash).unwrap_or_default();
+        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id).unwrap();
+        if let Some(flat_storage) =
+            self.runtime.get_flat_storage_manager().get_flat_storage_for_shard(shard_uid)
+        {
+            let delta = FlatStateDelta {
+                changes: flat_state_changes,
+                metadata: FlatStateDeltaMetadata {
+                    block: near_store::flat::BlockInfo {
+                        hash: new_block_hash,
+                        height: self.head.height + 1,
+                        prev_hash: prev_block_hash,
+                    },
+                    prev_block_with_changes: None,
+                },
+            };
+            let new_store_update = flat_storage.add_delta(delta).unwrap();
+            store_update.merge(new_store_update);
+        }
+        store_update.commit().unwrap();
+
+        (apply_result.new_root, apply_result.validator_proposals, apply_result.outgoing_receipts)
+    }
+
     pub fn step(
         &mut self,
         transactions: Vec<Vec<SignedTransaction>>,
@@ -315,21 +320,12 @@ impl TestEnv {
         let mut all_proposals = vec![];
         let mut all_receipts = vec![];
         for shard_id in shard_ids {
-            let (state_root, proposals, receipts) = self.runtime.update(
-                &self.state_roots[shard_id as usize],
+            let (state_root, proposals, receipts) = self.update_runtime(
                 shard_id,
-                self.head.height + 1,
-                0,
-                &self.head.last_block_hash,
-                &new_hash,
-                self.last_receipts.get(&shard_id).map_or(&[], |v| v.as_slice()),
+                new_hash,
                 &transactions[shard_id as usize],
-                ValidatorStakeIter::new(
-                    self.last_shard_proposals.get(&shard_id).unwrap_or(&vec![]),
-                ),
-                self.runtime.genesis_config.min_gas_price,
-                u64::max_value(),
-                &challenges_result,
+                self.last_receipts.get(&shard_id).map_or(&[], |v| v.as_slice()),
+                challenges_result.clone(),
             );
             self.state_roots[shard_id as usize] = state_root;
             all_receipts.extend(receipts);
@@ -436,13 +432,15 @@ fn test_validator_rotation() {
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
     let signer =
-        InMemorySigner::from_seed(validators[0].clone(), KeyType::ED25519, validators[0].as_ref());
+        InMemorySigner::from_seed(validators[0].clone(), KeyType::ED25519, validators[0].as_ref())
+            .into();
     // test1 doubles stake and the new account stakes the same, so test2 will be kicked out.`
     let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE * 2);
     let new_account = AccountId::try_from(format!("test{}", num_nodes + 1)).unwrap();
     let new_validator = create_test_signer(new_account.as_str());
-    let new_signer =
-        InMemorySigner::from_seed(new_account.clone(), KeyType::ED25519, new_account.as_ref());
+    let new_signer: Signer =
+        InMemorySigner::from_seed(new_account.clone(), KeyType::ED25519, new_account.as_ref())
+            .into();
     let create_account_transaction = SignedTransaction::create_account(
         2,
         block_producers[0].validator_id().clone(),
@@ -460,7 +458,8 @@ fn test_validator_rotation() {
             validators[1].clone(),
             KeyType::ED25519,
             validators[1].as_ref(),
-        );
+        )
+        .into();
         vec![
             staking_transaction,
             create_account_transaction,
@@ -522,7 +521,8 @@ fn test_validator_stake_change() {
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
     let signer =
-        InMemorySigner::from_seed(validators[0].clone(), KeyType::ED25519, validators[0].as_ref());
+        InMemorySigner::from_seed(validators[0].clone(), KeyType::ED25519, validators[0].as_ref())
+            .into();
 
     let desired_stake = 2 * TESTING_INIT_STAKE / 3;
     let staking_transaction = stake(1, &signer, &block_producers[0], desired_stake);
@@ -559,7 +559,7 @@ fn test_validator_stake_change_multiple_times() {
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
     let signers: Vec<_> = validators
         .iter()
-        .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
+        .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()).into())
         .collect();
 
     let staking_transaction = stake(1, &signers[0], &block_producers[0], TESTING_INIT_STAKE - 1);
@@ -654,7 +654,7 @@ fn test_stake_in_last_block_of_an_epoch() {
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
     let signers: Vec<_> = validators
         .iter()
-        .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
+        .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()).into())
         .collect();
     let staking_transaction =
         stake(1, &signers[0], &block_producers[0], TESTING_INIT_STAKE + TESTING_INIT_STAKE / 6);
@@ -715,7 +715,8 @@ fn test_state_sync() {
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
     let signer =
-        InMemorySigner::from_seed(validators[0].clone(), KeyType::ED25519, validators[0].as_ref());
+        InMemorySigner::from_seed(validators[0].clone(), KeyType::ED25519, validators[0].as_ref())
+            .into();
     let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE + 1);
     env.step_default(vec![staking_transaction]);
     env.step_default(vec![]);
@@ -804,7 +805,8 @@ fn test_get_validator_info() {
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
     let signer =
-        InMemorySigner::from_seed(validators[0].clone(), KeyType::ED25519, validators[0].as_ref());
+        InMemorySigner::from_seed(validators[0].clone(), KeyType::ED25519, validators[0].as_ref())
+            .into();
     let staking_transaction = stake(1, &signer, &block_producers[0], 0);
     let mut expected_blocks = [0, 0];
     let mut expected_chunks = [0, 0];
@@ -814,7 +816,7 @@ fn test_get_validator_info() {
          expected_blocks: &mut [u64; 2],
          expected_chunks: &mut [u64; 2],
          expected_endorsements: &mut [u64; 2]| {
-            let epoch_id = env.head.epoch_id.clone();
+            let epoch_id = env.head.epoch_id;
             let height = env.head.height;
             let em = env.runtime.epoch_manager.read();
             let bp = em.get_block_producer_info(&epoch_id, height).unwrap();
@@ -852,7 +854,7 @@ fn test_get_validator_info() {
     );
     assert!(env
         .epoch_manager
-        .get_validator_info(ValidatorInfoIdentifier::EpochId(env.head.epoch_id.clone()))
+        .get_validator_info(ValidatorInfoIdentifier::EpochId(env.head.epoch_id))
         .is_err());
     env.step_default(vec![]);
     update_validator_stats(
@@ -1045,7 +1047,8 @@ fn test_double_sign_challenge_not_all_slashed() {
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
 
     let signer =
-        InMemorySigner::from_seed(validators[2].clone(), KeyType::ED25519, validators[2].as_ref());
+        InMemorySigner::from_seed(validators[2].clone(), KeyType::ED25519, validators[2].as_ref())
+            .into();
     let staking_transaction = stake(1, &signer, &block_producers[2], TESTING_INIT_STAKE / 3);
     env.step(
         vec![vec![staking_transaction]],
@@ -1221,7 +1224,7 @@ fn test_fishermen_stake() {
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
     let signers: Vec<_> = validators
         .iter()
-        .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
+        .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()).into())
         .collect();
     let fishermen_stake = 3300 * NEAR_BASE + 1;
 
@@ -1288,7 +1291,7 @@ fn test_fishermen_unstake() {
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
     let signers: Vec<_> = validators
         .iter()
-        .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
+        .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()).into())
         .collect();
     let fishermen_stake = 3300 * NEAR_BASE + 1;
 
@@ -1365,7 +1368,7 @@ fn test_delete_account_after_unstake() {
         .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
         .collect();
 
-    let staking_transaction1 = stake(1, &signers[1], &block_producers[1], 0);
+    let staking_transaction1 = stake(1, &signers[1].clone().into(), &block_producers[1], 0);
     env.step_default(vec![staking_transaction1]);
     let account = env.view_account(block_producers[1].validator_id());
     assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
@@ -1373,7 +1376,7 @@ fn test_delete_account_after_unstake() {
     for _ in 2..=5 {
         env.step_default(vec![]);
     }
-    let staking_transaction2 = stake(2, &signers[1], &block_producers[1], 1);
+    let staking_transaction2 = stake(2, &signers[1].clone().into(), &block_producers[1], 1);
     env.step_default(vec![staking_transaction2]);
     for _ in 7..=13 {
         env.step_default(vec![]);
@@ -1385,7 +1388,7 @@ fn test_delete_account_after_unstake() {
         4,
         signers[1].account_id.clone(),
         signers[1].account_id.clone(),
-        &signers[1] as &dyn Signer,
+        &signers[1].clone().into(),
         vec![Action::DeleteAccount(DeleteAccountAction {
             beneficiary_id: signers[0].account_id.clone(),
         })],
@@ -1410,7 +1413,7 @@ fn test_proposal_deduped() {
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
     let signers: Vec<_> = validators
         .iter()
-        .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
+        .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()).into())
         .collect();
 
     let staking_transaction1 = stake(1, &signers[1], &block_producers[1], TESTING_INIT_STAKE - 100);
@@ -1431,7 +1434,7 @@ fn test_insufficient_stake() {
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
     let signers: Vec<_> = validators
         .iter()
-        .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
+        .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()).into())
         .collect();
 
     let staking_transaction1 = stake(1, &signers[1], &block_producers[1], 100);
@@ -1479,7 +1482,7 @@ fn test_trie_and_flat_state_equality() {
         4,
         signers[0].account_id.clone(),
         validators[1].clone(),
-        &signers[0] as &dyn Signer,
+        &signers[0].clone().into(),
         vec![Action::Transfer(TransferAction { deposit: 10 })],
         // runtime does not validate block history
         CryptoHash::default(),
@@ -1567,7 +1570,7 @@ fn generate_transaction_pool(
                 round.try_into().unwrap(),
                 signers[i].account_id.clone(),
                 signers[(i + round) % signer_count].account_id.clone(),
-                &signers[i] as &dyn Signer,
+                &signers[i].clone().into(),
                 round.try_into().unwrap(),
                 block_hash,
             );
@@ -1610,7 +1613,7 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
         ChainConfig::test(),
         None,
         Arc::new(RayonAsyncComputationSpawner),
-        None,
+        MutableConfigValue::new(None, "validator_signer"),
     )
     .unwrap();
 
@@ -1636,7 +1639,7 @@ fn prepare_transactions(
 ) -> Result<PreparedTransactions, Error> {
     let shard_id = 0;
     let block = chain.get_block(&env.head.prev_block_hash).unwrap();
-    let congestion_info = block.shards_congestion_info();
+    let congestion_info = block.block_congestion_info();
 
     env.runtime.prepare_transactions(
         storage_config,
@@ -1761,4 +1764,61 @@ fn test_prepare_transactions_empty_storage_proof() {
     );
 
     assert!(validation_result.is_err());
+}
+
+#[test]
+#[cfg_attr(not(feature = "test_features"), ignore)]
+fn test_storage_proof_garbage() {
+    if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+        return;
+    }
+    let shard_id = 0;
+    let signer = create_test_signer("test1");
+    let env = TestEnv::new(vec![vec![signer.validator_id().clone()]], 100, false);
+    let garbage_size_mb = 50usize;
+    let receipt = Receipt::V1(ReceiptV1 {
+        predecessor_id: signer.validator_id().clone(),
+        receiver_id: signer.validator_id().clone(),
+        receipt_id: CryptoHash::hash_bytes(&[42]),
+        receipt: near_primitives::receipt::ReceiptEnum::Action(ActionReceipt {
+            signer_id: signer.validator_id().clone(),
+            signer_public_key: signer.public_key(),
+            gas_price: env.runtime.genesis_config.min_gas_price,
+            output_data_receivers: vec![],
+            input_data_ids: vec![],
+            actions: vec![Action::FunctionCall(
+                FunctionCallAction {
+                    method_name: format!("internal_record_storage_garbage_{garbage_size_mb}"),
+                    args: vec![],
+                    gas: 300000000000000,
+                    deposit: 300000000000000,
+                }
+                .into(),
+            )],
+        }),
+        priority: 0,
+    });
+    let apply_result =
+        env.apply_new_chunk(shard_id, hash(&[42]), &[], &[receipt], ChallengesResult::default());
+    let PartialState::TrieValues(storage_proof) = apply_result.proof.unwrap().nodes;
+    let total_size: usize = storage_proof.iter().map(|v| v.len()).sum();
+    assert_eq!(total_size / 1000_000, garbage_size_mb);
+}
+
+fn stake(
+    nonce: Nonce,
+    signer: &Signer,
+    sender: &ValidatorSigner,
+    stake: Balance,
+) -> SignedTransaction {
+    SignedTransaction::from_actions(
+        nonce,
+        sender.validator_id().clone(),
+        sender.validator_id().clone(),
+        &*signer,
+        vec![Action::Stake(Box::new(StakeAction { stake, public_key: sender.public_key() }))],
+        // runtime does not validate block history
+        CryptoHash::default(),
+        0,
+    )
 }

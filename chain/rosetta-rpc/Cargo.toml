@@ -41,13 +41,12 @@ node-runtime.workspace = true
 [dev-dependencies]
 insta.workspace = true
 near-actix-test-utils.workspace = true
-near-async.workspace = true
+near-time.workspace = true
 
 [features]
 protocol_feature_nonrefundable_transfer_nep491 = []
 nightly_protocol = [
   "near-actix-test-utils/nightly_protocol",
-  "near-async/nightly_protocol",
   "near-chain-configs/nightly_protocol",
   "near-client-primitives/nightly_protocol",
   "near-client/nightly_protocol",
@@ -59,7 +58,6 @@ nightly_protocol = [
 ]
 nightly = [
   "near-actix-test-utils/nightly",
-  "near-async/nightly",
   "near-chain-configs/nightly",
   "near-client-primitives/nightly",
   "near-client/nightly",

@@ -100,6 +100,7 @@ impl ProtocolUpgradeVotingSchedule {
     }
 
     /// This method returns the protocol version that the node should vote for.
+    #[cfg(feature = "clock")]
     pub(crate) fn get_protocol_version(
         &self,
         now: DateTime<Utc>,
@@ -115,8 +116,9 @@ impl ProtocolUpgradeVotingSchedule {
         }
 
         // The datetime values in the schedule are sorted in ascending order.
-        // Find the last datetime value that is less than the current time. The
-        // schedule is sorted and the last value is the client_protocol_version
+        // Find the first datetime value that is less than the current time
+        // and higher than next_epoch_protocol_version.
+        // The schedule is sorted and the last value is the client_protocol_version
         // so we are guaranteed to find a correct protocol version.
         let mut result = next_epoch_protocol_version;
         for (time, version) in &self.schedule {
@@ -124,6 +126,9 @@ impl ProtocolUpgradeVotingSchedule {
                 break;
             }
             result = *version;
+            if *version > next_epoch_protocol_version {
+                break;
+            }
         }
 
         result
@@ -332,12 +337,54 @@ mod tests {
         let now = ProtocolUpgradeVotingSchedule::parse_datetime("2000-01-15 00:00:00").unwrap();
         assert_eq!(
             current_protocol_version + 2,
-            schedule.get_protocol_version(now, current_protocol_version)
+            schedule.get_protocol_version(now, current_protocol_version + 1)
         );
         let now = ProtocolUpgradeVotingSchedule::parse_datetime("2000-01-20 00:00:00").unwrap();
         assert_eq!(
             current_protocol_version + 2,
+            schedule.get_protocol_version(now, current_protocol_version + 1)
+        );
+    }
+
+    #[test]
+    fn test_upgrades_are_voted_one_at_a_time() {
+        let current_protocol_version = 100;
+        let client_protocol_version = 103;
+        let schedule = vec![
+            ("2000-01-10 00:00:00", current_protocol_version + 1),
+            ("2000-01-10 01:00:00", current_protocol_version + 2),
+            ("2000-01-10 02:00:00", current_protocol_version + 3),
+        ];
+
+        let schedule = make_voting_schedule(client_protocol_version, schedule);
+
+        // Test that the current version is returned before the first upgrade.
+        let now = ProtocolUpgradeVotingSchedule::parse_datetime("2000-01-05 00:00:00").unwrap();
+        assert_eq!(
+            current_protocol_version,
             schedule.get_protocol_version(now, current_protocol_version)
+        );
+
+        // Upgrades are scheduled very close to each other, but they should be voted on at a time.
+        // Test the first upgrade.
+        let now = ProtocolUpgradeVotingSchedule::parse_datetime("2000-01-10 10:00:00").unwrap();
+        assert_eq!(
+            current_protocol_version + 1,
+            schedule.get_protocol_version(now, current_protocol_version)
+        );
+
+        // Test the second upgrade.
+        let now = ProtocolUpgradeVotingSchedule::parse_datetime("2000-01-10 10:00:00").unwrap();
+        assert_eq!(
+            current_protocol_version + 2,
+            schedule.get_protocol_version(now, current_protocol_version + 1)
+        );
+
+        // Test the final upgrade.
+        let now = ProtocolUpgradeVotingSchedule::parse_datetime("2000-01-10 10:00:00").unwrap();
+        assert_eq!(
+            current_protocol_version + 3,
+            schedule.get_protocol_version(now, current_protocol_version + 2)
         );
     }
 

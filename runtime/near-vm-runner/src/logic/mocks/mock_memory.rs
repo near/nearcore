@@ -2,6 +2,7 @@ use crate::logic::{MemSlice, MemoryLike};
 
 use std::borrow::Cow;
 
+#[derive(Clone)]
 pub struct MockedMemory(Box<[u8]>);
 
 impl MockedMemory {

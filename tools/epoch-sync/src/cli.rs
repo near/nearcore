@@ -1,9 +1,6 @@
-#![cfg(feature = "new_epoch_sync")]
-
 use anyhow::Context;
 use clap;
 use near_chain::{ChainStore, ChainStoreAccess, ChainUpdate, DoomslugThresholdMode};
-use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
 use near_primitives::block::BlockHeader;
 use near_primitives::borsh::BorshDeserialize;
@@ -107,10 +104,6 @@ impl ValidateEpochSyncInfoCmd {
 
         let epoch_manager =
             EpochManager::new_arc_handle(storage.get_hot_store(), &config.genesis.config);
-        let shard_tracker = ShardTracker::new(
-            TrackedConfig::from_config(&config.client_config),
-            epoch_manager.clone(),
-        );
         let runtime = NightshadeRuntime::from_config(
             home_dir,
             storage.get_hot_store(),
@@ -121,7 +114,6 @@ impl ValidateEpochSyncInfoCmd {
         let chain_update = ChainUpdate::new(
             &mut chain_store,
             epoch_manager,
-            shard_tracker,
             runtime,
             DoomslugThresholdMode::TwoThirds,
             config.genesis.config.transaction_validity_period,
@@ -195,7 +187,7 @@ impl ValidateEpochSyncInfoCmd {
                     last_header.raw_timestamp(),
                 );
 
-                *last_block_info.epoch_id_mut() = last_header.epoch_id().clone();
+                *last_block_info.epoch_id_mut() = *last_header.epoch_id();
                 *last_block_info.epoch_first_block_mut() = first_block_hash;
 
                 let next_epoch_first_hash = hash_to_next_hash[last_header.hash()];

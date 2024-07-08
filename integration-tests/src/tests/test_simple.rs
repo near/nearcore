@@ -1,10 +1,11 @@
 //! Simply starts and runs testnet for a while.
 use crate::node::{create_nodes, sample_two_nodes, Node};
-use crate::test_helpers::{heavy_test, wait};
 use near_async::time::Clock;
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::transaction::SignedTransaction;
 use std::time::Duration;
+
+use super::test_helpers::{heavy_test, wait};
 
 fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str) {
     init_integration_logger();

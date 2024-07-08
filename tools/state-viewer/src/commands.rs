@@ -7,6 +7,7 @@ use crate::epoch_info::iterate_and_filter;
 use crate::state_dump::state_dump;
 use crate::state_dump::state_dump_redis;
 use crate::tx_dump::dump_tx_from_block;
+use crate::util::{load_trie, load_trie_stop_at_height, LoadTrieMode};
 use crate::{apply_chunk, epoch_info};
 use anyhow::Context;
 use bytesize::ByteSize;
@@ -25,7 +26,7 @@ use near_epoch_manager::EpochManagerHandle;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::account::id::AccountId;
 use near_primitives::apply::ApplyChunkReason;
-use near_primitives::block::{Block, BlockHeader};
+use near_primitives::block::Block;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -36,7 +37,7 @@ use near_primitives::state_record::state_record_to_account_id;
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY;
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, EpochId, ShardId, StateRoot};
+use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, EpochId, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::types::{Balance, EpochHeight, Gas};
 use near_store::flat::FlatStorageChunkView;
@@ -53,7 +54,6 @@ use std::collections::{BTreeMap, BinaryHeap};
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
 use std::sync::Arc;
 use yansi::Color::Red;
 
@@ -108,7 +108,7 @@ pub(crate) fn apply_block(
                 ApplyChunkBlockContext::from_header(
                     block.header(),
                     prev_block.header().next_gas_price(),
-                    prev_block.shards_congestion_info(),
+                    prev_block.block_congestion_info(),
                 ),
                 &receipts,
                 chunk.transactions(),
@@ -133,7 +133,7 @@ pub(crate) fn apply_block(
                 ApplyChunkBlockContext::from_header(
                     block.header(),
                     block.header().next_gas_price(),
-                    prev_block.shards_congestion_info(),
+                    prev_block.block_congestion_info(),
                 ),
                 &[],
                 &[],
@@ -518,7 +518,7 @@ fn chunk_extras_equal(l: &ChunkExtra, r: &ChunkExtra) -> bool {
     // edit with v3: To avoid too many explicit combinations, use wildcards for
     // versions >= 3. The compiler will still notice the missing `(v1, new_v)`
     // combinations.
-    match (l, r) {
+    match (&l, &r) {
         (ChunkExtra::V1(l), ChunkExtra::V1(r)) => return l == r,
         (ChunkExtra::V2(l), ChunkExtra::V2(r)) => return l == r,
         (ChunkExtra::V3(l), ChunkExtra::V3(r)) => return l == r,
@@ -615,7 +615,7 @@ pub(crate) fn print_chain(
                     chain_store.get_block_header(header.prev_hash()).unwrap().clone();
                 if let Ok(epoch_id) = epoch_manager.get_epoch_id_from_prev_block(header.prev_hash())
                 {
-                    cur_epoch_id = Some(epoch_id.clone());
+                    cur_epoch_id = Some(epoch_id);
                     match epoch_manager.is_next_block_epoch_start(header.prev_hash()) {
                         Ok(true) => {
                             println!("{:?}", account_id_to_blocks);
@@ -912,12 +912,10 @@ pub(crate) fn print_epoch_analysis(
     let epoch_infos: HashMap<EpochId, Arc<EpochInfo>> = HashMap::from_iter(
         epoch_ids
             .into_iter()
-            .map(|epoch_id| (epoch_id.clone(), epoch_manager.get_epoch_info(&epoch_id).unwrap())),
+            .map(|epoch_id| (epoch_id, epoch_manager.get_epoch_info(&epoch_id).unwrap())),
     );
     let epoch_heights_to_ids = BTreeMap::from_iter(
-        epoch_infos
-            .iter()
-            .map(|(epoch_id, epoch_info)| (epoch_info.epoch_height(), epoch_id.clone())),
+        epoch_infos.iter().map(|(epoch_id, epoch_info)| (epoch_info.epoch_height(), *epoch_id)),
     );
     let min_epoch_height = epoch_height;
     let max_stored_epoch_height = *epoch_heights_to_ids.keys().max().unwrap();
@@ -1098,7 +1096,7 @@ fn get_trie(store: Store, hash: CryptoHash, shard_id: u32, shard_version: u32) -
     let trie_config: TrieConfig = Default::default();
     let shard_cache = TrieCache::new(&trie_config, shard_uid, true);
     let trie_storage = TrieCachingStorage::new(store, shard_cache, shard_uid, true, None);
-    Trie::new(Rc::new(trie_storage), hash, None)
+    Trie::new(Arc::new(trie_storage), hash, None)
 }
 
 pub(crate) fn view_trie(
@@ -1148,91 +1146,6 @@ pub(crate) fn view_trie_leaves(
     Ok(())
 }
 
-enum LoadTrieMode {
-    /// Load latest state
-    Latest,
-    /// Load prev state at some height
-    Height(BlockHeight),
-    /// Load the prev state of the last final block from some height
-    LastFinalFromHeight(BlockHeight),
-}
-
-fn load_trie(
-    store: Store,
-    home_dir: &Path,
-    near_config: &NearConfig,
-) -> (Arc<EpochManagerHandle>, Arc<NightshadeRuntime>, Vec<StateRoot>, BlockHeader) {
-    load_trie_stop_at_height(store, home_dir, near_config, LoadTrieMode::Latest)
-}
-
-fn load_trie_stop_at_height(
-    store: Store,
-    home_dir: &Path,
-    near_config: &NearConfig,
-    mode: LoadTrieMode,
-) -> (Arc<EpochManagerHandle>, Arc<NightshadeRuntime>, Vec<StateRoot>, BlockHeader) {
-    let chain_store = ChainStore::new(
-        store.clone(),
-        near_config.genesis.config.genesis_height,
-        near_config.client_config.save_trie_changes,
-    );
-
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
-    let runtime =
-        NightshadeRuntime::from_config(home_dir, store, near_config, epoch_manager.clone())
-            .expect("could not create the transaction runtime");
-    let head = chain_store.head().unwrap();
-    let last_block = match mode {
-        LoadTrieMode::LastFinalFromHeight(height) => {
-            // find the first final block whose height is at least `height`.
-            let mut cur_height = height + 1;
-            loop {
-                if cur_height >= head.height {
-                    panic!("No final block with height >= {} exists", height);
-                }
-                let cur_block_hash = match chain_store.get_block_hash_by_height(cur_height) {
-                    Ok(hash) => hash,
-                    Err(_) => {
-                        cur_height += 1;
-                        continue;
-                    }
-                };
-                let last_final_block_hash =
-                    *chain_store.get_block_header(&cur_block_hash).unwrap().last_final_block();
-                let last_final_block = chain_store.get_block(&last_final_block_hash).unwrap();
-                if last_final_block.header().height() >= height {
-                    break last_final_block;
-                } else {
-                    cur_height += 1;
-                    continue;
-                }
-            }
-        }
-        LoadTrieMode::Height(height) => {
-            let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
-            chain_store.get_block(&block_hash).unwrap()
-        }
-        LoadTrieMode::Latest => chain_store.get_block(&head.last_block_hash).unwrap(),
-    };
-    let shard_layout = epoch_manager.get_shard_layout(&last_block.header().epoch_id()).unwrap();
-    let state_roots = last_block
-        .chunks()
-        .iter()
-        .map(|chunk| {
-            // ChunkExtra contains StateRoot after applying actions in the block.
-            let chunk_extra = chain_store
-                .get_chunk_extra(
-                    &head.last_block_hash,
-                    &ShardUId::from_shard_id_and_layout(chunk.shard_id(), &shard_layout),
-                )
-                .unwrap();
-            *chunk_extra.state_root()
-        })
-        .collect();
-
-    (epoch_manager, runtime, state_roots, last_block.header().clone())
-}
-
 fn format_hash(h: CryptoHash, show_full_hashes: bool) -> String {
     let mut hash = h.to_string();
     if !show_full_hashes {
@@ -1263,7 +1176,7 @@ pub(crate) fn contract_accounts(
         let storage = TrieDBStorage::new(store.clone(), shard_uid);
         // We don't need flat state to traverse all accounts.
         let flat_storage_chunk_view = None;
-        Trie::new(Rc::new(storage), state_root, flat_storage_chunk_view)
+        Trie::new(Arc::new(storage), state_root, flat_storage_chunk_view)
     });
 
     filter.write_header(&mut std::io::stdout().lock())?;
@@ -1547,7 +1460,7 @@ impl std::fmt::Debug for StateStatsAccount {
 #[cfg(test)]
 mod tests {
     use near_chain::types::RuntimeAdapter;
-    use near_chain_configs::Genesis;
+    use near_chain_configs::{Genesis, MutableConfigValue};
     use near_client::test_utils::TestEnv;
     use near_crypto::{InMemorySigner, KeyFile, KeyType};
     use near_epoch_manager::EpochManager;
@@ -1613,8 +1526,13 @@ mod tests {
         // Check that `send_money()` actually changed state.
         assert_ne!(chunk_extras[0].state_root(), chunk_extras[1].state_root());
 
-        let near_config =
-            NearConfig::new(Config::default(), genesis, KeyFile::from(&signer), None).unwrap();
+        let near_config = NearConfig::new(
+            Config::default(),
+            genesis,
+            KeyFile::from(&signer),
+            MutableConfigValue::new(None, "validator_signer"),
+        )
+        .unwrap();
         let (_epoch_manager, _runtime, state_roots, block_header) =
             crate::commands::load_trie(store, home_dir, &near_config);
         assert_eq!(&state_roots[0], chunk_extras[1].state_root());

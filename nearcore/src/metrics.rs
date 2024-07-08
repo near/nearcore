@@ -1,5 +1,4 @@
-use std::rc::Rc;
-
+use crate::NearConfig;
 use actix_rt::ArbiterHandle;
 use near_async::time::Duration;
 use near_chain::{Block, ChainStore, ChainStoreAccess};
@@ -9,12 +8,10 @@ use near_o11y::metrics::{
     try_create_int_gauge, try_create_int_gauge_vec, HistogramVec, IntCounterVec, IntGauge,
     IntGaugeVec,
 };
-
 use near_primitives::{shard_layout::ShardLayout, state_record::StateRecord, trie_key};
 use near_store::{ShardUId, Store, Trie, TrieDBStorage};
 use once_cell::sync::Lazy;
-
-use crate::NearConfig;
+use std::sync::Arc;
 
 pub(crate) static POSTPONED_RECEIPTS_COUNT: Lazy<IntGaugeVec> = Lazy::new(|| {
     try_create_int_gauge_vec(
@@ -160,7 +157,7 @@ fn get_postponed_receipt_count_for_shard(
     let chunk_extra = chain_store.get_chunk_extra(block.hash(), &shard_uid)?;
     let state_root = chunk_extra.state_root();
     let storage = TrieDBStorage::new(store.clone(), shard_uid);
-    let storage = Rc::new(storage);
+    let storage = Arc::new(storage);
     let flat_storage_chunk_view = None;
     let trie = Trie::new(storage, *state_root, flat_storage_chunk_view);
     get_postponed_receipt_count_for_trie(trie)

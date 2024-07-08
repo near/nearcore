@@ -1,5 +1,4 @@
 mod kv_runtime;
-pub mod test_loop;
 mod validator_schedule;
 
 use std::cmp::Ordering;
@@ -14,7 +13,7 @@ use crate::types::{AcceptedBlock, ChainConfig, ChainGenesis};
 use crate::DoomslugThresholdMode;
 use crate::{BlockProcessingArtifact, Provenance};
 use near_async::time::Clock;
-use near_chain_configs::Genesis;
+use near_chain_configs::{Genesis, MutableConfigValue};
 use near_chain_primitives::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
@@ -23,7 +22,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, NumBlocks, NumShards};
 use near_primitives::utils::MaybeValidated;
-use near_primitives::validator_signer::InMemoryValidatorSigner;
+use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
@@ -76,7 +75,7 @@ pub fn get_chain_with_epoch_length_and_num_shards(
         ChainConfig::test(),
         None,
         Arc::new(RayonAsyncComputationSpawner),
-        None,
+        MutableConfigValue::new(None, "validator_signer"),
     )
     .unwrap()
 }
@@ -120,7 +119,7 @@ pub fn process_block_sync(
 // TODO(#8190) Improve this testing API.
 pub fn setup(
     clock: Clock,
-) -> (Chain, Arc<EpochManagerHandle>, Arc<NightshadeRuntime>, Arc<InMemoryValidatorSigner>) {
+) -> (Chain, Arc<EpochManagerHandle>, Arc<NightshadeRuntime>, Arc<ValidatorSigner>) {
     setup_with_tx_validity_period(clock, 100, 1000)
 }
 
@@ -128,7 +127,7 @@ pub fn setup_with_tx_validity_period(
     clock: Clock,
     tx_validity_period: NumBlocks,
     epoch_length: u64,
-) -> (Chain, Arc<EpochManagerHandle>, Arc<NightshadeRuntime>, Arc<InMemoryValidatorSigner>) {
+) -> (Chain, Arc<EpochManagerHandle>, Arc<NightshadeRuntime>, Arc<ValidatorSigner>) {
     let store = create_test_store();
     let mut genesis = Genesis::test_sharded(
         clock.clone(),
@@ -160,7 +159,7 @@ pub fn setup_with_tx_validity_period(
         ChainConfig::test(),
         None,
         Arc::new(RayonAsyncComputationSpawner),
-        None,
+        MutableConfigValue::new(None, "validator_signer"),
     )
     .unwrap();
 

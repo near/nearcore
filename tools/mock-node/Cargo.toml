@@ -27,7 +27,7 @@ tokio.workspace = true
 tracing.workspace = true
 
 near-actix-test-utils.workspace = true
-near-async.workspace = true
+near-time.workspace = true
 near-chain.workspace = true
 near-chain-configs.workspace = true
 near-client.workspace = true

@@ -109,6 +109,8 @@ pub struct LimitConfig {
     pub max_contract_size: u64,
     /// Max transaction size
     pub max_transaction_size: u64,
+    /// Max receipt size
+    pub max_receipt_size: u64,
     /// Max storage key size
     pub max_length_storage_key: u64,
     /// Max storage value size
@@ -191,6 +193,9 @@ pub struct Config {
 
     /// Enable the `promise_yield_create` and `promise_yield_resume` host functions.
     pub yield_resume_host_functions: bool,
+
+    /// Whether to discard custom sections.
+    pub discard_custom_sections: bool,
 
     /// Describes limits for VM and Runtime.
     pub limit_config: LimitConfig,

@@ -33,6 +33,7 @@ fn test_not_process_height_twice() {
     duplicate_block.mut_header().get_mut().inner_rest.prev_validator_proposals = proposals;
     duplicate_block.mut_header().resign(&validator_signer);
     let dup_block_hash = *duplicate_block.hash();
+    let signer = env.clients[0].validator_signer.get();
     // we should have dropped the block before we even tried to process it, so the result should be ok
     env.clients[0]
         .receive_block_impl(
@@ -40,6 +41,7 @@ fn test_not_process_height_twice() {
             PeerId::new(PublicKey::empty(KeyType::ED25519)),
             false,
             None,
+            &signer,
         )
         .unwrap();
     // check that the second block is not being processed
@@ -65,6 +67,9 @@ fn test_bad_shard_id() {
     // modify chunk 0 to have shard_id 1
     let chunk = chunks.get(0).unwrap();
     let outgoing_receipts_root = chunks.get(1).unwrap().prev_outgoing_receipts_root();
+    let congestion_info = ProtocolFeature::CongestionControl
+        .enabled(PROTOCOL_VERSION)
+        .then_some(CongestionInfo::default());
     let mut modified_chunk = ShardChunkHeaderV3::new(
         PROTOCOL_VERSION,
         *chunk.prev_block_hash(),
@@ -80,7 +85,7 @@ fn test_bad_shard_id() {
         outgoing_receipts_root,
         chunk.tx_root(),
         chunk.prev_validator_proposals().collect(),
-        CongestionInfo::default(),
+        congestion_info,
         &validator_signer,
     );
     modified_chunk.height_included = 2;
@@ -109,9 +114,16 @@ fn test_bad_block_content_vrf() {
     let block = env.clients[0].produce_block(2).unwrap().unwrap();
     let mut bad_block = block.clone();
     bad_block.set_vrf_value(Value([0u8; 32]));
+    let signer = env.clients[0].validator_signer.get();
 
     let err = env.clients[0]
-        .receive_block_impl(bad_block, PeerId::new(PublicKey::empty(KeyType::ED25519)), false, None)
+        .receive_block_impl(
+            bad_block,
+            PeerId::new(PublicKey::empty(KeyType::ED25519)),
+            false,
+            None,
+            &signer,
+        )
         .unwrap_err();
     assert_matches!(err, near_chain::Error::InvalidSignature);
 
@@ -128,9 +140,16 @@ fn test_bad_block_signature() {
     let block = env.clients[0].produce_block(2).unwrap().unwrap();
     let mut bad_block = block.clone();
     bad_block.mut_header().get_mut().signature = Signature::default();
+    let signer = env.clients[0].validator_signer.get();
 
     let err = env.clients[0]
-        .receive_block_impl(bad_block, PeerId::new(PublicKey::empty(KeyType::ED25519)), false, None)
+        .receive_block_impl(
+            bad_block,
+            PeerId::new(PublicKey::empty(KeyType::ED25519)),
+            false,
+            None,
+            &signer,
+        )
         .unwrap_err();
     assert_matches!(err, near_chain::Error::InvalidSignature);
 
@@ -209,7 +228,7 @@ fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
         chunk.prev_outgoing_receipts_root(),
         chunk.tx_root(),
         chunk.prev_validator_proposals().collect(),
-        congestion_info,
+        Some(congestion_info),
         &validator_signer,
     );
     modified_chunk_header.height_included = 2;

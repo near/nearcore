@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use near_async::time::Clock;
-use near_crypto::{PublicKey, Signer};
+use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -13,6 +12,7 @@ use near_primitives::types::{
 };
 use near_primitives::utils::from_timestamp;
 use near_primitives::version::PROTOCOL_VERSION;
+use near_time::Clock;
 use num_rational::Rational32;
 
 use crate::{Genesis, GenesisConfig, GenesisContents, GenesisRecords};
@@ -41,6 +41,7 @@ pub struct TestGenesisBuilder {
     transaction_validity_period: Option<NumBlocks>,
     validators: Option<ValidatorsSpec>,
     minimum_validators_per_shard: Option<NumSeats>,
+    target_validator_mandates_per_shard: Option<NumSeats>,
     protocol_treasury_account: Option<String>,
     shuffle_shard_assignment_for_chunk_producers: Option<bool>,
     kickouts_config: Option<KickoutsConfig>,
@@ -50,13 +51,12 @@ pub struct TestGenesisBuilder {
 #[derive(Debug, Clone)]
 enum ValidatorsSpec {
     DesiredRoles {
-        block_producers: Vec<String>,
-        chunk_only_producers: Vec<String>,
+        block_and_chunk_producers: Vec<String>,
+        chunk_validators_only: Vec<String>,
     },
     Raw {
         validators: Vec<AccountInfo>,
         num_block_producer_seats: NumSeats,
-        num_chunk_only_producer_seats: NumSeats,
         num_chunk_producer_seats: NumSeats,
         num_chunk_validator_seats: NumSeats,
     },
@@ -66,6 +66,7 @@ enum ValidatorsSpec {
 struct KickoutsConfig {
     block_producer_kickout_threshold: u8,
     chunk_producer_kickout_threshold: u8,
+    chunk_validator_only_kickout_threshold: u8,
 }
 
 #[derive(Debug, Clone)]
@@ -167,12 +168,15 @@ impl TestGenesisBuilder {
     /// validators are selected as specified.
     pub fn validators_desired_roles(
         &mut self,
-        block_producers: &[&str],
-        chunk_only_producers: &[&str],
+        block_and_chunk_producers: &[&str],
+        chunk_validators_only: &[&str],
     ) -> &mut Self {
         self.validators = Some(ValidatorsSpec::DesiredRoles {
-            block_producers: block_producers.iter().map(|s| s.to_string()).collect(),
-            chunk_only_producers: chunk_only_producers.iter().map(|s| s.to_string()).collect(),
+            block_and_chunk_producers: block_and_chunk_producers
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+            chunk_validators_only: chunk_validators_only.iter().map(|s| s.to_string()).collect(),
         });
         self
     }
@@ -183,15 +187,15 @@ impl TestGenesisBuilder {
     pub fn validators_raw(
         &mut self,
         validators: Vec<AccountInfo>,
-        num_block_producer_seats: NumSeats,
-        num_chunk_only_producer_seats: NumSeats,
+        num_block_and_chunk_producer_seats: NumSeats,
+        num_chunk_validator_only_seats: NumSeats,
     ) -> &mut Self {
         self.validators = Some(ValidatorsSpec::Raw {
             validators,
-            num_block_producer_seats,
-            num_chunk_only_producer_seats,
-            num_chunk_producer_seats: num_block_producer_seats,
-            num_chunk_validator_seats: num_block_producer_seats + num_chunk_only_producer_seats,
+            num_block_producer_seats: num_block_and_chunk_producer_seats,
+            num_chunk_producer_seats: num_block_and_chunk_producer_seats,
+            num_chunk_validator_seats: num_block_and_chunk_producer_seats
+                + num_chunk_validator_only_seats,
         });
         self
     }
@@ -201,6 +205,14 @@ impl TestGenesisBuilder {
         minimum_validators_per_shard: NumSeats,
     ) -> &mut Self {
         self.minimum_validators_per_shard = Some(minimum_validators_per_shard);
+        self
+    }
+
+    pub fn target_validator_mandates_per_shard(
+        &mut self,
+        target_validator_mandates_per_shard: NumSeats,
+    ) -> &mut Self {
+        self.target_validator_mandates_per_shard = Some(target_validator_mandates_per_shard);
         self
     }
 
@@ -221,26 +233,28 @@ impl TestGenesisBuilder {
         self.kickouts_config = Some(KickoutsConfig {
             block_producer_kickout_threshold: 0,
             chunk_producer_kickout_threshold: 0,
+            chunk_validator_only_kickout_threshold: 0,
         });
         self
     }
 
-    pub fn kickouts_standard_90_percent(&mut self) -> &mut Self {
+    /// Validators with performance below 80% are kicked out, similarly to
+    /// mainnet as of 28 Jun 2024.
+    pub fn kickouts_standard_80_percent(&mut self) -> &mut Self {
         self.kickouts_config = Some(KickoutsConfig {
-            block_producer_kickout_threshold: 90,
-            chunk_producer_kickout_threshold: 90,
+            block_producer_kickout_threshold: 80,
+            chunk_producer_kickout_threshold: 80,
+            chunk_validator_only_kickout_threshold: 80,
         });
         self
     }
 
-    pub fn kickouts(
-        &mut self,
-        block_producer_kickout_threshold: u8,
-        chunk_producer_kickout_threshold: u8,
-    ) -> &mut Self {
+    /// Only chunk validator-only nodes can be kicked out.
+    pub fn kickouts_for_chunk_validators_only(&mut self) -> &mut Self {
         self.kickouts_config = Some(KickoutsConfig {
-            block_producer_kickout_threshold,
-            chunk_producer_kickout_threshold,
+            block_producer_kickout_threshold: 0,
+            chunk_producer_kickout_threshold: 0,
+            chunk_validator_only_kickout_threshold: 50,
         });
         self
     }
@@ -316,8 +330,8 @@ impl TestGenesisBuilder {
         });
         let validator_specs = self.validators.clone().unwrap_or_else(|| {
             let default = ValidatorsSpec::DesiredRoles {
-                block_producers: vec!["validator0".to_string()],
-                chunk_only_producers: vec![],
+                block_and_chunk_producers: vec!["validator0".to_string()],
+                chunk_validators_only: vec![],
             };
             tracing::warn!(
                 "Genesis validators not explicitly set, defaulting to a single validator setup {:?}.",
@@ -334,6 +348,15 @@ impl TestGenesisBuilder {
             );
             default
         });
+        let target_validator_mandates_per_shard =
+            self.target_validator_mandates_per_shard.unwrap_or_else(|| {
+                let default = 68;
+                tracing::warn!(
+                    "Genesis minimum_validators_per_shard not explicitly set, defaulting to {:?}.",
+                    default
+                );
+                default
+            });
         let protocol_treasury_account: AccountId = self
             .protocol_treasury_account
             .clone()
@@ -361,6 +384,7 @@ impl TestGenesisBuilder {
             let default = KickoutsConfig {
                 block_producer_kickout_threshold: 0,
                 chunk_producer_kickout_threshold: 0,
+                chunk_validator_only_kickout_threshold: 0,
             };
             tracing::warn!(
                 "Genesis kickouts_config not explicitly set, defaulting to disabling kickouts.",
@@ -452,6 +476,9 @@ impl TestGenesisBuilder {
             fishermen_threshold: 0,
             block_producer_kickout_threshold: kickouts_config.block_producer_kickout_threshold,
             chunk_producer_kickout_threshold: kickouts_config.chunk_producer_kickout_threshold,
+            chunk_validator_only_kickout_threshold: kickouts_config
+                .chunk_validator_only_kickout_threshold,
+            target_validator_mandates_per_shard,
             transaction_validity_period,
             protocol_version,
             protocol_treasury_account,
@@ -464,7 +491,7 @@ impl TestGenesisBuilder {
             max_kickout_stake_perc: 100,
             validators: derived_validator_setup.validators,
             num_block_producer_seats: derived_validator_setup.num_block_producer_seats,
-            num_chunk_only_producer_seats: derived_validator_setup.num_chunk_only_producer_seats,
+            num_chunk_only_producer_seats: 0,
             minimum_stake_ratio: derived_validator_setup.minimum_stake_ratio,
             minimum_validators_per_shard,
             minimum_stake_divisor: 10,
@@ -493,7 +520,6 @@ impl TestGenesisBuilder {
 struct DerivedValidatorSetup {
     validators: Vec<AccountInfo>,
     num_block_producer_seats: NumSeats,
-    num_chunk_only_producer_seats: NumSeats,
     num_chunk_producer_seats: NumSeats,
     num_chunk_validator_seats: NumSeats,
     minimum_stake_ratio: Rational32,
@@ -503,15 +529,15 @@ const ONE_NEAR: Balance = 1_000_000_000_000_000_000_000_000;
 
 fn derive_validator_setup(specs: ValidatorsSpec) -> DerivedValidatorSetup {
     match specs {
-        ValidatorsSpec::DesiredRoles { block_producers, chunk_only_producers } => {
-            let num_block_producer_seats = block_producers.len() as NumSeats;
-            let num_chunk_only_producer_seats = chunk_only_producers.len() as NumSeats;
+        ValidatorsSpec::DesiredRoles { block_and_chunk_producers, chunk_validators_only } => {
+            let num_block_and_chunk_producer_seats = block_and_chunk_producers.len() as NumSeats;
+            let num_chunk_validator_only_seats = chunk_validators_only.len() as NumSeats;
             // Set minimum stake ratio to zero; that way, we don't have to worry about
             // chunk producers not having enough stake to be selected as desired.
             let minimum_stake_ratio = Rational32::new(0, 1);
             let mut validators = Vec::new();
-            for i in 0..num_block_producer_seats as usize {
-                let account_id: AccountId = block_producers[i].parse().unwrap();
+            for i in 0..num_block_and_chunk_producer_seats as usize {
+                let account_id: AccountId = block_and_chunk_producers[i].parse().unwrap();
                 let account_info = AccountInfo {
                     public_key: create_test_signer(account_id.as_str()).public_key(),
                     account_id,
@@ -519,34 +545,33 @@ fn derive_validator_setup(specs: ValidatorsSpec) -> DerivedValidatorSetup {
                 };
                 validators.push(account_info);
             }
-            for i in 0..num_chunk_only_producer_seats as usize {
-                let account_id: AccountId = chunk_only_producers[i].parse().unwrap();
+            for i in 0..num_chunk_validator_only_seats as usize {
+                let account_id: AccountId = chunk_validators_only[i].parse().unwrap();
                 let account_info = AccountInfo {
                     public_key: create_test_signer(account_id.as_str()).public_key(),
                     account_id,
-                    amount: ONE_NEAR * (10000 - i as Balance - num_block_producer_seats as Balance),
+                    amount: ONE_NEAR
+                        * (10000 - i as Balance - num_block_and_chunk_producer_seats as Balance),
                 };
                 validators.push(account_info);
             }
             DerivedValidatorSetup {
                 validators,
-                num_block_producer_seats,
-                num_chunk_only_producer_seats,
-                num_chunk_producer_seats: num_block_producer_seats,
-                num_chunk_validator_seats: num_block_producer_seats + num_chunk_only_producer_seats,
+                num_block_producer_seats: num_block_and_chunk_producer_seats,
+                num_chunk_producer_seats: num_block_and_chunk_producer_seats,
+                num_chunk_validator_seats: num_block_and_chunk_producer_seats
+                    + num_chunk_validator_only_seats,
                 minimum_stake_ratio,
             }
         }
         ValidatorsSpec::Raw {
             validators,
             num_block_producer_seats,
-            num_chunk_only_producer_seats,
             num_chunk_producer_seats,
             num_chunk_validator_seats,
         } => DerivedValidatorSetup {
             validators,
             num_block_producer_seats,
-            num_chunk_only_producer_seats,
             num_chunk_producer_seats,
             num_chunk_validator_seats,
             minimum_stake_ratio: Rational32::new(160, 1000000),

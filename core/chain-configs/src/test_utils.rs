@@ -1,4 +1,3 @@
-use near_async::time::Clock;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
@@ -9,13 +8,15 @@ use near_primitives::types::{
 };
 use near_primitives::utils::{from_timestamp, generate_random_string};
 use near_primitives::version::PROTOCOL_VERSION;
+use near_time::Clock;
 use num_rational::Ratio;
 
 use crate::{
     Genesis, GenesisConfig, BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
-    FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE, INITIAL_GAS_LIMIT, MAX_INFLATION_RATE,
-    MIN_GAS_PRICE, NEAR_BASE, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE, PROTOCOL_TREASURY_ACCOUNT,
-    PROTOCOL_UPGRADE_STAKE_THRESHOLD, TRANSACTION_VALIDITY_PERIOD,
+    CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD, FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE,
+    INITIAL_GAS_LIMIT, MAX_INFLATION_RATE, MIN_GAS_PRICE, NEAR_BASE, NUM_BLOCKS_PER_YEAR,
+    PROTOCOL_REWARD_RATE, PROTOCOL_TREASURY_ACCOUNT, PROTOCOL_UPGRADE_STAKE_THRESHOLD,
+    TRANSACTION_VALIDITY_PERIOD,
 };
 
 /// Initial balance used in tests.
@@ -90,6 +91,8 @@ impl Genesis {
             gas_limit: INITIAL_GAS_LIMIT,
             gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
             block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
+            chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
+            chunk_validator_only_kickout_threshold: CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD,
             validators,
             protocol_reward_rate: PROTOCOL_REWARD_RATE,
             total_supply: get_initial_supply(&records),
@@ -97,7 +100,6 @@ impl Genesis {
             num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
             protocol_treasury_account: PROTOCOL_TREASURY_ACCOUNT.parse().unwrap(),
             transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
-            chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
             fishermen_threshold: FISHERMEN_THRESHOLD,
             min_gas_price: MIN_GAS_PRICE,
             shard_layout,

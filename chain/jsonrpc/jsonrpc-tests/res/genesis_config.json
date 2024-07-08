@@ -1,5 +1,5 @@
 {
-  "protocol_version": 67,
+  "protocol_version": 69,
   "genesis_time": "1970-01-01T00:00:00.000000000Z",
   "chain_id": "sample",
   "genesis_height": 0,
@@ -21,6 +21,8 @@
   "max_gas_price": "10000000000000000000000",
   "block_producer_kickout_threshold": 90,
   "chunk_producer_kickout_threshold": 90,
+  "chunk_validator_only_kickout_threshold": 80,
+  "target_validator_mandates_per_shard": 68,
   "online_min_threshold": [
     9,
     10

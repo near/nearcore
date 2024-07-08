@@ -10,6 +10,7 @@ use arbitrary::Arbitrary;
 use core::fmt;
 use near_parameters::vm::{ContractPrepareVersion, VMKind};
 use near_parameters::RuntimeFeesConfig;
+use std::sync::Arc;
 
 /// Finds a no-parameter exported function, something like `(func (export "entry-point"))`.
 pub fn find_entry_point(contract: &ContractCode) -> Option<String> {
@@ -38,13 +39,15 @@ pub fn find_entry_point(contract: &ContractCode) -> Option<String> {
     None
 }
 
-pub fn create_context(input: Vec<u8>) -> VMContext {
+pub fn create_context(method: &str, input: Vec<u8>) -> VMContext {
     VMContext {
         current_account_id: "alice".parse().unwrap(),
         signer_account_id: "bob".parse().unwrap(),
         signer_account_pk: vec![0, 1, 2, 3, 4],
         predecessor_account_id: "carol".parse().unwrap(),
+        method: method.into(),
         input,
+        promise_results: Vec::new().into(),
         block_height: 10,
         block_timestamp: 42,
         epoch_height: 1,
@@ -106,30 +109,21 @@ impl fmt::Debug for ArbitraryModule {
 }
 
 fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
-    let mut fake_external = MockedExternal::new();
-
-    let mut context = create_context(vec![]);
+    let mut fake_external = MockedExternal::with_code(code.clone_for_tests());
+    let method_name = find_entry_point(code).unwrap_or_else(|| "main".to_string());
+    let mut context = create_context(&method_name, vec![]);
     context.prepaid_gas = 10u64.pow(14);
 
     let mut config = test_vm_config();
     config.limit_config.wasmer2_stack_limit = i32::MAX; // If we can crash wasmer2 even without the secondary stack limit it's still good to know
     config.limit_config.contract_prepare_version = ContractPrepareVersion::V2;
 
-    let fees = RuntimeFeesConfig::test();
-
-    let promise_results = vec![];
-
-    let method_name = find_entry_point(code).unwrap_or_else(|| "main".to_string());
-    let mut res = vm_kind.runtime(config).unwrap().run(
-        *code.hash(),
-        Some(code),
-        &method_name,
-        &mut fake_external,
-        &context,
-        &fees,
-        &promise_results,
-        None,
-    );
+    let fees = Arc::new(RuntimeFeesConfig::test());
+    let mut res = vm_kind
+        .runtime(config.into())
+        .unwrap()
+        .prepare(&fake_external, &context, None)
+        .run(&mut fake_external, &context, Arc::clone(&fees));
 
     // Remove the VMError message details as they can differ between runtimes
     // TODO: maybe there's actually things we could check for equality here too?
@@ -178,7 +172,7 @@ fn near_vm_is_reproducible_fuzzer() {
 
     bolero::check!().with_arbitrary::<ArbitraryModule>().for_each(|module: &ArbitraryModule| {
         let code = ContractCode::new(module.0.module.to_bytes(), None);
-        let config = test_vm_config();
+        let config = std::sync::Arc::new(test_vm_config());
         let mut first_hash = None;
         for _ in 0..3 {
             let vm = NearVM::new(config.clone());

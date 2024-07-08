@@ -14,6 +14,7 @@ use near_chain::{Block, Chain};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
+use near_o11y::log_assert;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::{
     ChunkEndorsement, ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessSize,
@@ -35,8 +36,6 @@ const NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT: u64 = 5;
 /// witness is correct, and then send chunk endorsements to the block producer
 /// so that the chunk can be included in the block.
 pub struct ChunkValidator {
-    /// The signer for our own node, if we are a validator. If not, this is None.
-    my_signer: Option<Arc<dyn ValidatorSigner>>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     network_sender: Sender<PeerManagerMessageRequest>,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
@@ -53,7 +52,6 @@ pub struct ChunkValidator {
 
 impl ChunkValidator {
     pub fn new(
-        my_signer: Option<Arc<dyn ValidatorSigner>>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         network_sender: Sender<PeerManagerMessageRequest>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
@@ -63,7 +61,6 @@ impl ChunkValidator {
         panic_on_validation_error: bool,
     ) -> Self {
         Self {
-            my_signer,
             epoch_manager,
             network_sender,
             runtime_adapter,
@@ -81,11 +78,12 @@ impl ChunkValidator {
     /// happens in a separate thread.
     /// The chunk is validated asynchronously, if you want to wait for the processing to finish
     /// you can use the `processing_done_tracker` argument (but it's optional, it's safe to pass None there).
-    pub fn start_validating_chunk(
+    fn start_validating_chunk(
         &self,
         state_witness: ChunkStateWitness,
         chain: &Chain,
         processing_done_tracker: Option<ProcessingDoneTracker>,
+        signer: &Arc<ValidatorSigner>,
     ) -> Result<(), Error> {
         let prev_block_hash = state_witness.chunk_header.prev_block_hash();
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
@@ -105,7 +103,6 @@ impl ChunkValidator {
 
         let chunk_header = state_witness.chunk_header.clone();
         let network_sender = self.network_sender.clone();
-        let signer = self.my_signer.as_ref().ok_or(Error::NotAValidator)?.clone();
         let chunk_endorsement_tracker = self.chunk_endorsement_tracker.clone();
         let epoch_manager = self.epoch_manager.clone();
         // If we have the chunk extra for the previous block, we can validate the chunk without state witness.
@@ -134,7 +131,7 @@ impl ChunkValidator {
                     send_chunk_endorsement_to_block_producers(
                         &chunk_header,
                         epoch_manager.as_ref(),
-                        signer.as_ref(),
+                        signer,
                         &network_sender,
                         chunk_endorsement_tracker.as_ref(),
                     );
@@ -156,6 +153,7 @@ impl ChunkValidator {
 
         let runtime_adapter = self.runtime_adapter.clone();
         let cache = self.main_state_transition_result_cache.clone();
+        let signer = signer.clone();
         self.validation_spawner.spawn("stateless_validation", move || {
             // processing_done_tracker must survive until the processing is finished.
             let _processing_done_tracker_capture: Option<ProcessingDoneTracker> =
@@ -201,7 +199,7 @@ impl ChunkValidator {
 pub(crate) fn send_chunk_endorsement_to_block_producers(
     chunk_header: &ShardChunkHeader,
     epoch_manager: &dyn EpochManagerAdapter,
-    signer: &dyn ValidatorSigner,
+    signer: &ValidatorSigner,
     network_sender: &Sender<PeerManagerMessageRequest>,
     chunk_endorsement_tracker: &ChunkEndorsementTracker,
 ) {
@@ -249,6 +247,7 @@ impl Client {
         witness: ChunkStateWitness,
         raw_witness_size: ChunkStateWitnessSize,
         processing_done_tracker: Option<ProcessingDoneTracker>,
+        signer: Option<Arc<ValidatorSigner>>,
     ) -> Result<(), Error> {
         tracing::debug!(
             target: "client",
@@ -257,10 +256,18 @@ impl Client {
             "process_chunk_state_witness",
         );
 
+        // Chunk producers should not receive state witness from themselves.
+        log_assert!(
+            signer.is_some(),
+            "Received a chunk state witness but this is not a validator node. Witness={:?}",
+            witness
+        );
+        let signer = signer.unwrap();
+
         // Send the acknowledgement for the state witness back to the chunk producer.
         // This is currently used for network roundtrip time measurement, so we do not need to
         // wait for validation to finish.
-        self.send_state_witness_ack(&witness);
+        self.send_state_witness_ack(&witness, &signer);
 
         if self.config.save_latest_witnesses {
             self.chain.chain_store.save_latest_chunk_state_witness(&witness)?;
@@ -271,6 +278,7 @@ impl Client {
                 witness,
                 &block,
                 processing_done_tracker,
+                &signer,
             ),
             Err(Error::DBNotFoundErr(_)) => {
                 // Previous block isn't available at the moment, add this witness to the orphan pool.
@@ -281,7 +289,19 @@ impl Client {
         }
     }
 
-    fn send_state_witness_ack(&self, witness: &ChunkStateWitness) {
+    fn send_state_witness_ack(&self, witness: &ChunkStateWitness, signer: &Arc<ValidatorSigner>) {
+        // In production PartialWitnessActor does not forward a state witness to the chunk producer that
+        // produced the witness. However some tests bypass PartialWitnessActor, thus when a chunk producer
+        // receives its own state witness, we log a warning instead of panicking.
+        // TODO: Make sure all tests run with "test_features" and panic for non-test builds.
+        if signer.validator_id() == &witness.chunk_producer {
+            tracing::warn!(
+                "Validator {:?} received state witness from itself. Witness={:?}",
+                signer.validator_id(),
+                witness
+            );
+            return;
+        }
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::ChunkStateWitnessAck(
                 witness.chunk_producer.clone(),
@@ -295,6 +315,7 @@ impl Client {
         witness: ChunkStateWitness,
         prev_block: &Block,
         processing_done_tracker: Option<ProcessingDoneTracker>,
+        signer: &Arc<ValidatorSigner>,
     ) -> Result<(), Error> {
         if witness.chunk_header.prev_block_hash() != prev_block.hash() {
             return Err(Error::Other(format!(
@@ -304,6 +325,11 @@ impl Client {
             )));
         }
 
-        self.chunk_validator.start_validating_chunk(witness, &self.chain, processing_done_tracker)
+        self.chunk_validator.start_validating_chunk(
+            witness,
+            &self.chain,
+            processing_done_tracker,
+            signer,
+        )
     }
 }

@@ -1,4 +1,5 @@
 pub use self::iterator::TrieUpdateIterator;
+use super::accounting_cache::TrieAccountingCacheSwitch;
 use super::{OptimizedValueRef, Trie, TrieWithReadLock};
 use crate::trie::{KeyLookupMode, TrieChanges};
 use crate::{StorageError, TrieStorage};
@@ -10,7 +11,7 @@ use near_primitives::types::{
 };
 use near_vm_runner::ContractCode;
 use std::collections::BTreeMap;
-use std::rc::Rc;
+use std::sync::Arc;
 
 mod iterator;
 
@@ -19,11 +20,11 @@ mod iterator;
 /// requesting and compiling contracts, as any contract code read and
 /// compilation is a major bottleneck during chunk execution.
 struct ContractStorage {
-    storage: Rc<dyn TrieStorage>,
+    storage: Arc<dyn TrieStorage>,
 }
 
 impl ContractStorage {
-    fn new(storage: Rc<dyn TrieStorage>) -> Self {
+    fn new(storage: Arc<dyn TrieStorage>) -> Self {
         Self { storage }
     }
 
@@ -172,10 +173,18 @@ impl TrieUpdate {
     }
 
     pub fn remove(&mut self, trie_key: TrieKey) {
-        self.prospective.insert(trie_key.to_vec(), TrieKeyValueUpdate { trie_key, value: None });
+        // We count removals performed by the contracts and charge extra for them.
+        // A malicious contract could generate a lot of storage proof by a removal,
+        // charging extra provides a safe upper bound. (https://github.com/near/nearcore/issues/10890)
+        // This only applies to removals performed by the contracts. Removals performed
+        // by the runtime are assumed to be non-malicious and we don't charge extra for them.
         if let Some(recorder) = &self.trie.recorder {
-            recorder.borrow_mut().record_removal();
+            if matches!(trie_key, TrieKey::ContractData { .. }) {
+                recorder.borrow_mut().record_removal();
+            }
         }
+
+        self.prospective.insert(trie_key.to_vec(), TrieKeyValueUpdate { trie_key, value: None });
     }
 
     pub fn commit(&mut self, event: StateChangeCause) {
@@ -253,8 +262,18 @@ impl TrieUpdate {
         self.trie.get_root()
     }
 
-    pub fn set_trie_cache_mode(&self, state: TrieCacheMode) {
-        self.trie.accounting_cache.borrow_mut().set_enabled(state == TrieCacheMode::CachingChunk);
+    /// Returns a guard-style type that will reset the trie cache mode back to the initial state
+    /// once dropped.
+    ///
+    /// Only changes the cache mode if `mode` is `Some`. Will always restore the previous cache
+    /// mode upon drop. The type should not be `std::mem::forget`-ten, as it will leak memory.
+    pub fn with_trie_cache_mode(&self, mode: Option<TrieCacheMode>) -> TrieCacheModeGuard {
+        let switch = self.trie.accounting_cache.borrow().enable_switch();
+        let previous = switch.enabled();
+        if let Some(mode) = mode {
+            switch.set(mode == TrieCacheMode::CachingChunk);
+        }
+        TrieCacheModeGuard(previous, switch)
     }
 }
 
@@ -265,6 +284,13 @@ impl crate::TrieAccess for TrieUpdate {
 
     fn contains_key(&self, key: &TrieKey) -> Result<bool, StorageError> {
         TrieUpdate::contains_key(&self, key)
+    }
+}
+
+pub struct TrieCacheModeGuard(bool, TrieAccountingCacheSwitch);
+impl Drop for TrieCacheModeGuard {
+    fn drop(&mut self) {
+        self.1.set(self.0);
     }
 }
 

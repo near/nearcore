@@ -16,6 +16,7 @@ use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use nearcore::NightshadeRuntime;
 use std::io;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 pub struct ScenarioResult<T, E> {
@@ -38,8 +39,8 @@ impl Scenario {
         let clients = vec![accounts[0].clone()];
         let mut genesis = Genesis::test(accounts, 1);
         let mut runtime_config = near_parameters::RuntimeConfig::test();
-        runtime_config.wasm_config.limit_config.max_total_prepaid_gas =
-            self.runtime_config.max_total_prepaid_gas;
+        let wasm_config = Arc::make_mut(&mut runtime_config.wasm_config);
+        wasm_config.limit_config.max_total_prepaid_gas = self.runtime_config.max_total_prepaid_gas;
         genesis.config.epoch_length = self.runtime_config.epoch_length;
         genesis.config.gas_limit = self.runtime_config.gas_limit;
         let runtime_config_store = RuntimeConfigStore::with_one_config(runtime_config);
@@ -182,7 +183,7 @@ impl TransactionConfig {
             self.nonce,
             self.signer_id.clone(),
             self.receiver_id.clone(),
-            &self.signer,
+            &self.signer.clone().into(),
             self.actions.clone(),
             *last_block.hash(),
             0,

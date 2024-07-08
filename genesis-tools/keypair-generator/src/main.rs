@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use clap::{Arg, Command};
 
-use near_crypto::{InMemorySigner, KeyType, SecretKey, Signer};
+use near_crypto::{InMemorySigner, KeyType, SecretKey};
 use nearcore::get_default_home;
 
 fn generate_key_to_file(account_id: &str, key: SecretKey, path: &PathBuf) -> std::io::Result<()> {

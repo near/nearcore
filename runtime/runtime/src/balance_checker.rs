@@ -366,7 +366,6 @@ pub(crate) fn check_balance(
             incoming_receipts_balance,
             processed_delayed_receipts_balance,
             initial_postponed_receipts_balance,
-            #[cfg(feature = "nightly")]
             forwarded_buffered_receipts_balance,
             // Outputs
             final_accounts_balance,
@@ -375,7 +374,6 @@ pub(crate) fn check_balance(
             final_postponed_receipts_balance,
             tx_burnt_amount: stats.tx_burnt_amount,
             slashed_burnt_amount: stats.slashed_burnt_amount,
-            #[cfg(feature = "nightly")]
             new_buffered_receipts_balance,
             other_burnt_amount: stats.other_burnt_amount,
         }
@@ -569,7 +567,7 @@ mod tests {
             0,
             sender,
             receiver,
-            &signer,
+            &signer.into(),
             deposit,
             CryptoHash::default(),
         );

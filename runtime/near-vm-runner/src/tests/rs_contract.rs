@@ -7,6 +7,7 @@ use crate::ContractCode;
 use near_parameters::RuntimeFeesConfig;
 use near_primitives_core::types::Balance;
 use std::mem::size_of;
+use std::sync::Arc;
 
 use super::test_vm_config;
 use crate::runner::VMResult;
@@ -49,38 +50,27 @@ fn assert_run_result(result: VMResult, expected_value: u64) {
 
 #[test]
 pub fn test_read_write() {
-    let config = test_vm_config();
+    let config = Arc::new(test_vm_config());
+    let fees = Arc::new(RuntimeFeesConfig::test());
     with_vm_variants(&config, |vm_kind: VMKind| {
         let code = test_contract(vm_kind);
-        let mut fake_external = MockedExternal::new();
+        let mut fake_external = MockedExternal::with_code(code);
+        let context = create_context("write_key_value", encode(&[10u64, 20u64]));
 
-        let context = create_context(encode(&[10u64, 20u64]));
-        let fees = RuntimeFeesConfig::test();
-
-        let promise_results = vec![];
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
-        let result = runtime.run(
-            *code.hash(),
-            Some(&code),
-            "write_key_value",
+        let result = runtime.prepare(&fake_external, &context, None).run(
             &mut fake_external,
             &context,
-            &fees,
-            &promise_results,
-            None,
+            Arc::clone(&fees),
         );
         assert_run_result(result, 0);
 
-        let context = create_context(encode(&[10u64]));
-        let result = runtime.run(
-            *code.hash(),
-            Some(&code),
-            "read_value",
+        let context = create_context("read_value", encode(&[10u64]));
+        let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
+        let result = runtime.prepare(&fake_external, &context, None).run(
             &mut fake_external,
             &context,
-            &fees,
-            &promise_results,
-            None,
+            Arc::clone(&fees),
         );
         assert_run_result(result, 20);
     });
@@ -90,34 +80,34 @@ macro_rules! def_test_ext {
     ($name:ident, $method:expr, $expected:expr, $input:expr, $validator:expr) => {
         #[test]
         pub fn $name() {
-            let config = test_vm_config();
+            let config = Arc::new(test_vm_config());
             with_vm_variants(&config, |vm_kind: VMKind| {
-                run_test_ext(&config, $method, $expected, $input, $validator, vm_kind)
+                run_test_ext(Arc::clone(&config), $method, $expected, $input, $validator, vm_kind)
             });
         }
     };
     ($name:ident, $method:expr, $expected:expr, $input:expr) => {
         #[test]
         pub fn $name() {
-            let config = test_vm_config();
+            let config = Arc::new(test_vm_config());
             with_vm_variants(&config, |vm_kind: VMKind| {
-                run_test_ext(&config, $method, $expected, $input, vec![], vm_kind)
+                run_test_ext(Arc::clone(&config), $method, $expected, $input, vec![], vm_kind)
             });
         }
     };
     ($name:ident, $method:expr, $expected:expr) => {
         #[test]
         pub fn $name() {
-            let config = test_vm_config();
+            let config = Arc::new(test_vm_config());
             with_vm_variants(&config, |vm_kind: VMKind| {
-                run_test_ext(&config, $method, $expected, &[], vec![], vm_kind)
+                run_test_ext(Arc::clone(&config), $method, $expected, &[], vec![], vm_kind)
             })
         }
     };
 }
 
 fn run_test_ext(
-    config: &Config,
+    config: Arc<Config>,
     method: &str,
     expected: &[u8],
     input: &[u8],
@@ -125,15 +115,16 @@ fn run_test_ext(
     vm_kind: VMKind,
 ) {
     let code = test_contract(vm_kind);
-    let mut fake_external = MockedExternal::new();
+    let mut fake_external = MockedExternal::with_code(code);
     fake_external.validators =
         validators.into_iter().map(|(s, b)| (s.parse().unwrap(), b)).collect();
-    let fees = RuntimeFeesConfig::test();
-    let context = create_context(input.to_vec());
-    let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
+    let fees = Arc::new(RuntimeFeesConfig::test());
+    let context = create_context(method, input.to_vec());
+    let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
 
     let outcome = runtime
-        .run(*code.hash(), Some(&code), method, &mut fake_external, &context, &fees, &[], None)
+        .prepare(&fake_external, &context, None)
+        .run(&mut fake_external, &context, Arc::clone(&fees))
         .unwrap_or_else(|err| panic!("Failed execution: {:?}", err));
 
     assert_eq!(outcome.profile.action_gas(), 0);
@@ -164,7 +155,7 @@ def_test_ext!(ext_storage_usage, "ext_storage_usage", &12u64.to_le_bytes());
 
 #[test]
 pub fn ext_used_gas() {
-    let config = test_vm_config();
+    let config = Arc::new(test_vm_config());
     with_vm_variants(&config, |vm_kind: VMKind| {
         // Note, the used_gas is not a global used_gas at the beginning of method, but instead a
         // diff in used_gas for computing fib(30) in a loop
@@ -173,7 +164,7 @@ pub fn ext_used_gas() {
             crate::logic::ContractPrepareVersion::V1 => [111, 10, 200, 15, 0, 0, 0, 0],
             crate::logic::ContractPrepareVersion::V2 => [27, 180, 237, 15, 0, 0, 0, 0],
         };
-        run_test_ext(&config, "ext_used_gas", &expected, &[], vec![], vm_kind)
+        run_test_ext(Arc::clone(&config), "ext_used_gas", &expected, &[], vec![], vm_kind)
     })
 }
 
@@ -224,6 +215,7 @@ def_test_ext!(
 pub fn test_out_of_memory() {
     let mut config = test_vm_config();
     config.make_free();
+    let config = Arc::new(config);
     with_vm_variants(&config, |vm_kind: VMKind| {
         // TODO: currently we only run this test on Wasmer.
         match vm_kind {
@@ -232,24 +224,13 @@ pub fn test_out_of_memory() {
         }
 
         let code = test_contract(vm_kind);
-        let mut fake_external = MockedExternal::new();
-
-        let context = create_context(Vec::new());
-        let fees = RuntimeFeesConfig::free();
+        let mut fake_external = MockedExternal::with_code(code);
+        let context = create_context("out_of_memory", Vec::new());
+        let fees = Arc::new(RuntimeFeesConfig::free());
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
-
-        let promise_results = vec![];
         let result = runtime
-            .run(
-                *code.hash(),
-                Some(&code),
-                "out_of_memory",
-                &mut fake_external,
-                &context,
-                &fees,
-                &promise_results,
-                None,
-            )
+            .prepare(&fake_external, &context, None)
+            .run(&mut fake_external, &context, fees)
             .expect("execution failed");
         assert_eq!(
             result.aborted,
@@ -268,29 +249,22 @@ fn function_call_weight_contract() -> ContractCode {
 
 #[test]
 fn attach_unspent_gas_but_use_all_gas() {
-    let mut context = create_context(vec![]);
+    let mut context = create_context("attach_unspent_gas_but_use_all_gas", vec![]);
     context.prepaid_gas = 100 * 10u64.pow(12);
 
     let mut config = test_vm_config();
     config.limit_config.max_gas_burnt = context.prepaid_gas / 3;
+    let config = Arc::new(config);
 
     with_vm_variants(&config, |vm_kind: VMKind| {
         let code = function_call_weight_contract();
-        let mut external = MockedExternal::new();
-        let fees = RuntimeFeesConfig::test();
+        let mut external = MockedExternal::with_code(code);
+        let fees = Arc::new(RuntimeFeesConfig::test());
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
 
         let outcome = runtime
-            .run(
-                *code.hash(),
-                Some(&code),
-                "attach_unspent_gas_but_use_all_gas",
-                &mut external,
-                &context,
-                &fees,
-                &[],
-                None,
-            )
+            .prepare(&external, &context, None)
+            .run(&mut external, &context, fees)
             .unwrap_or_else(|err| panic!("Failed execution: {:?}", err));
 
         let err = outcome.aborted.as_ref().unwrap();

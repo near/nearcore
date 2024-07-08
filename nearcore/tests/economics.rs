@@ -80,7 +80,7 @@ fn test_burn_mint() {
                 1,
                 "test0".parse().unwrap(),
                 "test1".parse().unwrap(),
-                &signer,
+                &signer.into(),
                 1000,
                 genesis_hash,
             ),
