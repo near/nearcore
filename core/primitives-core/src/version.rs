@@ -220,7 +220,7 @@ impl ProtocolFeature {
             ProtocolFeature::SimpleNightshadeV3 => 65,
             ProtocolFeature::DecreaseFunctionCallBaseCost => 66,
             ProtocolFeature::YieldExecution => 67,
-            ProtocolFeature::CongestionControl => 68,
+            ProtocolFeature::CongestionControl => 80,
             // Stateless validation features.
             // TODO All of the stateless validation features should be collapsed
             // into a single protocol feature.
@@ -235,7 +235,7 @@ impl ProtocolFeature {
             | ProtocolFeature::NoChunkOnlyProducers
             | ProtocolFeature::ChangePartialWitnessDataPartsRequired
             | ProtocolFeature::BiggerCombinedTransactionLimit
-            | ProtocolFeature::HigherSendingCost => 69,
+            | ProtocolFeature::HigherSendingCost => 81,
 
             // This protocol version is reserved for use in resharding tests. An extra resharding
             // is simulated on top of the latest shard layout in production. Note that later
@@ -266,7 +266,7 @@ impl ProtocolFeature {
 /// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 69;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 81;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "statelessnet_protocol") {
