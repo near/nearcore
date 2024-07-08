@@ -186,6 +186,8 @@ pytest --timeout=120 sanity/resharding_error_handling.py
 pytest sanity/slow_chunk.py
 pytest sanity/slow_chunk.py --features nightly
 
+pytest sanity/large_witness.py --features nightly
+
 # Tests for congestion control
 # TODO(congestion_control) - enable pytest on stabilization
 # pytest sanity/congestion_control.py
