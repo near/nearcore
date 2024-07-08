@@ -97,6 +97,9 @@ pub enum StateViewerSubCommand {
     /// View head of the storage.
     #[clap(alias = "view_chain")]
     ViewChain(ViewChainCmd),
+    /// View genesis block and chunks built from the config and in the store.
+    #[clap(alias = "view_genesis")]
+    ViewGenesis(ViewGenesisCmd),
     /// View trie structure.
     #[clap(alias = "view_trie")]
     ViewTrie(ViewTrieCmd),
@@ -172,6 +175,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::StateParts(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::StateStats(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::ViewGenesis(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
             StateViewerSubCommand::TrieIterationBenchmark(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::StateWitness(cmd) => cmd.run(home_dir, near_config, store),
@@ -718,6 +722,22 @@ pub struct ViewChainCmd {
 impl ViewChainCmd {
     pub fn run(self, near_config: NearConfig, store: Store) {
         view_chain(self.height, self.block, self.chunk, near_config, store);
+    }
+}
+
+#[derive(clap::Parser)]
+pub struct ViewGenesisCmd {
+    /// If true, displays the genesis block built from the config.
+    #[clap(long)]
+    view_config: bool,
+    /// If true, displays the genesis block saved in the store.
+    #[clap(long)]
+    view_store: bool,
+}
+
+impl ViewGenesisCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        view_genesis(home_dir, near_config, store, self.view_config, self.view_store);
     }
 }
 

@@ -19,7 +19,7 @@ use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
     RuntimeStorageConfig,
 };
-use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, Error};
+use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, ChainStoreUpdate, Error};
 use near_chain_configs::GenesisChangeConfig;
 use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::EpochManagerHandle;
@@ -843,6 +843,63 @@ pub(crate) fn view_chain(
         for (shard_id, chunk) in chunks {
             println!("shard {}, chunk: {:#?}", shard_id, chunk);
         }
+    }
+}
+
+pub(crate) fn view_genesis(
+    home_dir: &Path,
+    near_config: NearConfig,
+    store: Store,
+    view_config: bool,
+    view_store: bool,
+) {
+    let chain_genesis = ChainGenesis::new(&near_config.genesis.config);
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let runtime_adapter = NightshadeRuntime::from_config(
+        home_dir,
+        store.clone(),
+        &near_config,
+        epoch_manager.clone(),
+    )
+    .unwrap();
+    let chain_store = ChainStore::new(
+        store,
+        near_config.genesis.config.genesis_height,
+        near_config.client_config.save_trie_changes,
+    );
+
+    if view_config {
+        let state_roots =
+            near_store::get_genesis_state_roots(chain_store.store()).unwrap().unwrap();
+        let (genesis_block, genesis_chunks) = Chain::make_genesis_block(
+            epoch_manager.as_ref(),
+            runtime_adapter.as_ref(),
+            &chain_genesis,
+            state_roots,
+        )
+        .unwrap();
+
+        println!("Genesis block from config: {:#?}", genesis_block);
+        for chunk in genesis_chunks {
+            println!("Genesis chunk from config at shard {}: {:#?}", chunk.shard_id(), chunk);
+        }
+
+        // Check that genesis in the store is the same as genesis given in the config.
+        let genesis_hash_in_storage =
+            chain_store.get_block_hash_by_height(chain_genesis.height).unwrap();
+        let genesis_hash_in_config = genesis_block.hash();
+        if &genesis_hash_in_storage == genesis_hash_in_config {
+            println!("Genesis in storage and config match.");
+        } else {
+            println!(
+                "Genesis mismatch between storage and config: {:?} vs {:?}",
+                genesis_hash_in_storage, genesis_hash_in_config
+            );
+        }
+    }
+
+    if view_store {
+        unimplemented!("Viewing genesis from config is not yet implemented")
     }
 }
 
