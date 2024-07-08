@@ -29,10 +29,15 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-/// A trait that abstracts the interface of the EpochManager.
-/// The two implementations are EpochManagerHandle and KeyValueEpochManager.
-/// Strongly prefer the former whenever possible. The latter is for legacy
-/// tests.
+/// A trait that abstracts the interface of the EpochManager. The two
+/// implementations are EpochManagerHandle and KeyValueEpochManager. Strongly
+/// prefer the former whenever possible. The latter is for legacy tests.
+///
+/// TODO - Most of the methods here take the epoch id as an argument but often
+/// the protocol version would be sufficient. Rename those methods by adding
+/// "_from_epoch_id" suffix and add the more precise methods using only the
+/// protocol version. This may simplify the usage of the EpochManagerAdapter in
+/// a few places where it's cumbersome to get the epoch id.
 pub trait EpochManagerAdapter: Send + Sync {
     /// Check if epoch exists.
     fn epoch_exists(&self, epoch_id: &EpochId) -> bool;

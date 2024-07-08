@@ -158,6 +158,12 @@ class InitFT(FunctionCall):
             "total_supply": str(10**33)
         }
 
+    def attached_gas(self) -> int:
+        """
+        Avoid attaching excess gas to prevent triggering false-positive congestion control.
+        """
+        return 10 * TGAS
+
     def sender_account(self) -> Account:
         return self.contract
 
@@ -174,6 +180,12 @@ class InitFTAccount(FunctionCall):
 
     def args(self) -> dict:
         return {"account_id": self.account.key.account_id}
+
+    def attached_gas(self) -> int:
+        """
+        Avoid attaching excess gas to prevent triggering false-positive congestion control.
+        """
+        return 10 * TGAS
 
     def sender_account(self) -> Account:
         return self.account
