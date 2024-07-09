@@ -158,8 +158,6 @@ pub enum ProtocolFeature {
     CongestionControl,
     /// Remove account with long storage key.
     RemoveAccountWithLongStorageKey,
-    // Stateless validation: Distribute state witness as reed solomon encoded parts
-    PartialEncodedStateWitness,
 }
 
 impl ProtocolFeature {
@@ -211,11 +209,7 @@ impl ProtocolFeature {
             ProtocolFeature::YieldExecution => 67,
             ProtocolFeature::CongestionControl
             | ProtocolFeature::RemoveAccountWithLongStorageKey => 68,
-            // Stateless validation features.
-            // TODO All of the stateless validation features should be collapsed
-            // into a single protocol feature.
-            ProtocolFeature::StatelessValidationV0
-            | ProtocolFeature::PartialEncodedStateWitness => 69,
+            ProtocolFeature::StatelessValidationV0 => 69,
 
             // This protocol version is reserved for use in resharding tests. An extra resharding
             // is simulated on top of the latest shard layout in production. Note that later
