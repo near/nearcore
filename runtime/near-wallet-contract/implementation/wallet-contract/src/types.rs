@@ -125,7 +125,7 @@ pub enum TransactionKind {
 
 #[must_use]
 pub enum EthEmulationKind {
-    EOABaseTokenTransfer { address_check: Option<Address> },
+    EOABaseTokenTransfer { address_check: Option<Address>, fee: NearToken },
     SelfBaseTokenTransfer,
     ERC20Balance,
     ERC20Transfer { receiver_id: AccountId },

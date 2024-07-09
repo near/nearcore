@@ -11,7 +11,7 @@ use crate::{
 use aurora_engine_transactions::{EthTransactionKind, NormalizedEthTransaction};
 use base64::Engine;
 use ethabi::{ethereum_types::U256, Address};
-use near_sdk::{env, AccountId};
+use near_sdk::{env, AccountId, NearToken};
 
 /// The chain ID is pulled from a file to allow this contract to be easily
 /// compiled with the appropriate value for the network it will be deployed on.
@@ -51,6 +51,17 @@ pub fn parse_rlp_tx_to_action(
     let tx: NormalizedEthTransaction = tx_kind.try_into()?;
     let target_kind = validate_tx_relayer_data(&tx, target, context, expected_nonce)?;
 
+    // Compute the fee based on the user's Ethereum transaction.
+    // This is sent as a refund to the relayer in the case of an emulated base token transfer.
+    // The reason for this refund is that it allows a user with $NEAR to use a relayer
+    // service from their wallet immediately without additional on-boarding.
+    let tx_fee = {
+        // Limit the cost by `VALUE_MAX` since we will convert this to a $NEAR amount.
+        // The call to `low_u128` is safe because `VALUE_MAX` is the largest accepted value.
+        let wei_amount = tx.max_fee_per_gas.saturating_mul(tx.gas_limit).min(VALUE_MAX).low_u128();
+        NearToken::from_yoctonear(wei_amount.saturating_mul(MAX_YOCTO_NEAR as u128))
+    };
+
     // The way an honest relayer assigns `target` is as follows:
     // 1. If the Ethereum transaction payload represents a Near action then use the receiver_id,
     // 2. If the payload looks like a supported Ethereum emulation then use the address registrar:
@@ -85,6 +96,7 @@ pub fn parse_rlp_tx_to_action(
                     Action::Transfer { receiver_id: target.to_string(), yocto_near: 0 },
                     TransactionKind::EthEmulation(EthEmulationKind::EOABaseTokenTransfer {
                         address_check: None,
+                        fee: tx_fee,
                     }),
                 )
             } else {
@@ -100,6 +112,7 @@ pub fn parse_rlp_tx_to_action(
                     Action::Transfer { receiver_id: target.to_string(), yocto_near: 0 },
                     TransactionKind::EthEmulation(EthEmulationKind::EOABaseTokenTransfer {
                         address_check: Some(address),
+                        fee: tx_fee,
                     }),
                 )
             } else {
@@ -118,6 +131,7 @@ pub fn parse_rlp_tx_to_action(
                         Action::Transfer { receiver_id: target.to_string(), yocto_near: 0 },
                         TransactionKind::EthEmulation(EthEmulationKind::EOABaseTokenTransfer {
                             address_check: None,
+                            fee: tx_fee,
                         }),
                     )
                 }

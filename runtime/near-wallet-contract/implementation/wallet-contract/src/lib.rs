@@ -350,11 +350,31 @@ fn inner_rlp_execute(
             // at a time.
             if let TransactionKind::EthEmulation(EthEmulationKind::EOABaseTokenTransfer {
                 address_check: Some(_),
+                ..
             }) = &transaction_kind
             {
             } else {
                 *nonce = nonce.saturating_add(1);
             }
+
+            // If the action is an emulated base token transfer with a non-zero fee then
+            // create a promise to send the refund to the relayer. This allows any relayer
+            // to safely serve base token transfers from any wallet without additional
+            // on-boarding because the relayer will receive some compensation for sending
+            // the transaction. Users should always verify the fee before signing a base token
+            // transfer. Relayers should also verify the fee before sending to make sure the
+            // user's signed transaction will refund enough to cover the relayer's gas costs.
+            if let TransactionKind::EthEmulation(EthEmulationKind::EOABaseTokenTransfer {
+                fee,
+                ..
+            }) = &transaction_kind
+            {
+                if !fee.is_zero() && context.predecessor_account_id != context.current_account_id {
+                    let refund_promise = env::promise_batch_create(&context.predecessor_account_id);
+                    env::promise_batch_action_transfer(refund_promise, *fee);
+                }
+            }
+
             (action, transaction_kind)
         }
         Err(err @ Error::User(_)) => {
@@ -383,6 +403,7 @@ fn inner_rlp_execute(
     let promise = match transaction_kind {
         TransactionKind::EthEmulation(EthEmulationKind::EOABaseTokenTransfer {
             address_check: Some(address),
+            ..
         }) => {
             let ext = WalletContract::ext(current_account_id).with_unused_gas_weight(1);
             let address_registrar = {

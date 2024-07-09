@@ -129,6 +129,76 @@ async fn test_base_token_transfer() -> anyhow::Result<()> {
     Ok(())
 }
 
+// Relayers are paid for base token transfers.
+#[tokio::test]
+async fn test_base_token_transfer_with_relayer_refund() -> anyhow::Result<()> {
+    const TRANSFER_AMOUNT: NearToken = NearToken::from_near(2);
+    const RELAYER_REFUND: NearToken = NearToken::from_millinear(1);
+    const GAS_LIMIT: u64 = 100_000;
+
+    let TestContext { worker, wallet_contract, wallet_sk, wallet_contract_bytes, .. } =
+        TestContext::new().await?;
+
+    let relayer = worker.root_account()?;
+
+    let (other_wallet, other_address) =
+        TestContext::deploy_wallet(&worker, &wallet_contract_bytes).await?;
+
+    let initial_relayer_balance = relayer.view_account().await?.balance;
+    let initial_wallet_balance = wallet_contract.inner.as_account().view_account().await?.balance;
+    let initial_other_balance = other_wallet.inner.as_account().view_account().await?.balance;
+
+    let transaction = aurora_engine_transactions::eip_2930::Transaction2930 {
+        nonce: 0.into(),
+        gas_price: (RELAYER_REFUND.as_yoctonear()
+            / ((GAS_LIMIT as u128) * (MAX_YOCTO_NEAR as u128)))
+            .into(),
+        gas_limit: GAS_LIMIT.into(),
+        to: Some(Address::new(other_address)),
+        value: Wei::new_u128(TRANSFER_AMOUNT.as_yoctonear() / u128::from(MAX_YOCTO_NEAR)),
+        data: Vec::new(),
+        chain_id: CHAIN_ID,
+        access_list: Vec::new(),
+    };
+    let signed_transaction = crypto::sign_transaction(transaction, &wallet_sk);
+
+    let result = wallet_contract
+        .rlp_execute_from(
+            &relayer,
+            other_wallet.inner.id().as_str(),
+            &signed_transaction,
+            NearToken::from_yoctonear(0),
+        )
+        .await?;
+
+    assert!(result.success);
+
+    let final_relayer_balance = relayer.view_account().await?.balance;
+    let final_wallet_balance = wallet_contract.inner.as_account().view_account().await?.balance;
+    let final_other_balance = other_wallet.inner.as_account().view_account().await?.balance;
+
+    // Receiver balance increases
+    assert_eq!(
+        final_other_balance.as_yoctonear(),
+        initial_other_balance.as_yoctonear() + TRANSFER_AMOUNT.as_yoctonear()
+    );
+
+    // Wallet balance decreases (round to milliNEAR to account for funds
+    // received for calling the contract).
+    assert_eq!(
+        final_wallet_balance.as_millinear(),
+        initial_wallet_balance.as_millinear()
+            - TRANSFER_AMOUNT.as_millinear()
+            - RELAYER_REFUND.as_millinear()
+    );
+
+    // Relayer balance stays the same (rounded to the nearest milliNEAR) since the
+    // wallet refunded the relayer approximately equal to the transaction gas cost.
+    assert_eq!(final_relayer_balance.as_millinear(), initial_relayer_balance.as_millinear());
+
+    Ok(())
+}
+
 // The Wallet Contract should understand the ERC-20 standard and map
 // it to NEP-141 function calls.
 #[tokio::test]
