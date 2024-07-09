@@ -1,7 +1,7 @@
 #!/bin/bash
 set -xeo pipefail
 
-release="${1:-neard-release}"
+release="${1:-release}"
 
 case "$release" in
   release|nightly-release|perf-release|assertions-release|test-features-release)
