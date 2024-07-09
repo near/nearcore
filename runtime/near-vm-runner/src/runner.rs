@@ -23,6 +23,15 @@ use std::sync::Arc;
 /// validators, even when a guest error occurs, or else their state will diverge.
 pub(crate) type VMResult<T = VMOutcome> = Result<T, VMRunnerError>;
 
+
+/// Prepare the contract for execution.
+///
+/// The returned value does some work in preparation to execute the contract, without executing any
+/// of the user code. The work done here may vary between runtimes, and as thus, any errors that
+/// may occur in preparation will not be reported until an attempt is made to run the prepared
+/// module.
+///
+/// Contract preparation and execution need not to be executed on the same thread.
 #[tracing::instrument(target = "vm", level = "debug", "prepare", skip_all, fields(
     code.hash = %ext.code_hash(),
     method_name,
@@ -62,19 +71,16 @@ pub fn prepare(
 #[tracing::instrument(target = "vm", level = "debug", "run", skip_all, fields(
     code.hash = %ext.code_hash(),
     method_name,
-    vm_kind = ?wasm_config.vm_kind,
     burnt_gas = tracing::field::Empty,
     compute_usage = tracing::field::Empty,
 ))]
 pub fn run(
+    prepared: Box<dyn crate::PreparedContract>,
     ext: &mut (dyn External + Send),
     context: &VMContext,
-    wasm_config: Arc<Config>,
     fees_config: Arc<RuntimeFeesConfig>,
-    cache: Option<&dyn ContractRuntimeCache>,
 ) -> VMResult {
     let span = tracing::Span::current();
-    let prepared = prepare(ext, context, wasm_config, cache);
     let outcome = prepared.run(ext, context, fees_config);
     let outcome = match outcome {
         Ok(o) => o,

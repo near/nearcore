@@ -103,13 +103,13 @@ pub(crate) fn execute_function_call(
         false => None,
     };
     let mode_guard = runtime_ext.trie_update.with_trie_cache_mode(mode);
-    let result = near_vm_runner::run(
+    let contract = near_vm_runner::prepare(
         runtime_ext,
         &context,
         Arc::clone(&config.wasm_config),
-        Arc::clone(&config.fees),
         apply_state.cache.as_deref(),
     );
+    let result = near_vm_runner::run(contract, runtime_ext, &context, Arc::clone(&config.fees));
     drop(mode_guard);
     near_vm_runner::report_metrics(
         &apply_state.shard_id.to_string(),
