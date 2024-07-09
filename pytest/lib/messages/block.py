@@ -293,8 +293,10 @@ class PartialEncodedStateWitness:
 class PartialEncodedStateWitnessInner:
     pass
 
+
 class SignatureDifferentiator:
     pass
+
 
 block_schema = [
     [
@@ -879,16 +881,6 @@ block_schema = [
         }
     ],
     [
-        ChunkEndorsementInner, {
-            'kind':
-                'struct',
-            'fields': [
-                ['chunk_hash', [32]],
-                ['signature_differentiator', ['u8']],
-            ]
-        }
-    ],
-    [
         ChunkEndorsement, {
             'kind':
                 'struct',
@@ -900,12 +892,19 @@ block_schema = [
         }
     ],
     [
-        ChunkStateWitnessAck, {
-            'kind': 
+        ChunkEndorsementInner, {
+            'kind':
                 'struct',
             'fields': [
                 ['chunk_hash', [32]],
+                ['signature_differentiator', SignatureDifferentiator],
             ]
+        }
+    ],
+    [
+        ChunkStateWitnessAck, {
+            'kind': 'struct',
+            'fields': [['chunk_hash', [32]],]
         }
     ],
     [
@@ -929,8 +928,12 @@ block_schema = [
                 ['part_ord', 'u64'],
                 ['part', ['u8']],
                 ['encoded_length', 'u64'],
-                ['signature_differentiator', ['u8']],
+                ['signature_differentiator', SignatureDifferentiator],
             ]
         }
     ],
+    [SignatureDifferentiator, {
+        'kind': 'struct',
+        'fields': [['0', 'string']]
+    }]
 ]

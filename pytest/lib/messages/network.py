@@ -356,22 +356,23 @@ network_schema = [
                 ['BlockApproval', Approval],
                 ['ForwardTx', SignedTransaction],
                 ['TxStatusRequest', ('string', [32])],
-                ['TxStatusResponse', None],  # TODO
-                ['QueryRequest', None],  # TODO
-                ['QueryResponse', None],  # TODO
-                ['ReceiptOutcomeRequest', [32]],
-                ['ReceiptOutcomeResponse', None],  # TODO
-                ['StateRequestHeader', ('u64', [32])],
-                ['StateRequestPart', ('u64', [32], 'u64')],
-                ['StateResponseInfo', StateResponseInfoV1],
+                ['TxStatusResponse', None],  # TODO: Implement this.
+                ['_UnusedQueryRequest', None],
+                ['_UnusedQueryResponse', None],
+                ['_UnusedReceiptOutcomeRequest', None],
+                ['_UnusedReceiptOutcomeResponse', None],
+                ['_UnusedStateRequestHeader', None],
+                ['_UnusedStateRequestPart', None],
+                ['StateResponse', StateResponseInfoV1],
                 ['PartialEncodedChunkRequest', PartialEncodedChunkRequestMsg],
                 ['PartialEncodedChunkResponse', PartialEncodedChunkResponseMsg],
-                ['PartialEncodedChunk', PartialEncodedChunkV1],
+                ['_UnusedPartialEncodedChunk', None],
                 ['Ping', PingPong],
                 ['Pong', PingPong],
                 ['VersionedPartialEncodedChunk', PartialEncodedChunk],
-                ['VersionedStateResponse', StateResponseInfo],
+                ['_UnusedVersionedStateResponse', None],
                 ['PartialEncodedChunkForward', PartialEncodedChunkForwardMsg],
+                ['_UnusedChunkStateWitness', None],
                 ['ChunkEndorsement', ChunkEndorsement],
                 ['ChunkStateWitnessAck', ChunkStateWitnessAck],
                 ['PartialEncodedStateWitness', PartialEncodedStateWitness],
