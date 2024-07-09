@@ -37,14 +37,8 @@ struct WalletContract {
 }
 
 impl WalletContract {
-    #[cfg(feature = "nightly")]
     const fn new(code: &'static [u8]) -> Self {
         Self { contract: OnceLock::new(), magic_bytes: OnceLock::new(), code }
-    }
-
-    #[cfg(not(feature = "nightly"))]
-    const fn new(_code: &'static [u8]) -> Self {
-        Self { contract: OnceLock::new(), magic_bytes: OnceLock::new(), code: &[] }
     }
 
     fn read_contract(&self) -> Arc<ContractCode> {
@@ -62,7 +56,6 @@ impl WalletContract {
     }
 }
 
-#[cfg(feature = "nightly")]
 #[cfg(test)]
 mod tests {
     use crate::{wallet_contract, wallet_contract_magic_bytes};
