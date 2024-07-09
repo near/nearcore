@@ -3,7 +3,7 @@ name = "near-structs-checker"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-description = "Structs checker"
+description = "ProtocolStruct macro implementation to check integrity of the protocol structs"
 repository.workspace = true
 license.workspace = true
 

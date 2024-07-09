@@ -3,6 +3,7 @@ name = "near-structs-checker-core"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
+description = "Helper for ProtocolStruct macro allowing to collect all protocol structs"
 rust-version.workspace = true
 repository.workspace = true
 license.workspace = true
