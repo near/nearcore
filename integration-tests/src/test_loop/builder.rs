@@ -294,6 +294,7 @@ impl TestLoopBuilder {
                 epoch_manager.clone(),
                 client_config.gc.clone(),
                 client_config.archive,
+                false,
             );
             // We don't send messages to `GCActor` so adapter is not needed.
             self.test_loop.register_actor_for_index(idx, gc_actor, None);

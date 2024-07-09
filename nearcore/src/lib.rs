@@ -377,6 +377,7 @@ pub fn start_with_config_and_synchronization(
         epoch_manager.clone(),
         config.client_config.gc.clone(),
         config.client_config.archive,
+        split_store.is_some(),
     ));
 
     let StartClientResult { client_actor, client_arbiter_handle, resharding_handle } = start_client(

@@ -20,6 +20,7 @@ pub struct GCActor {
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     gc_config: GCConfig,
     is_archive: bool,
+    has_cold_store: bool,
     /// In some tests we may want to temporarily disable GC
     no_gc: bool,
 }
@@ -32,6 +33,7 @@ impl GCActor {
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         gc_config: GCConfig,
         is_archive: bool,
+        has_cold_store: bool,
     ) -> Self {
         GCActor {
             store: ChainStore::new(store, genesis_height, true),
@@ -39,6 +41,7 @@ impl GCActor {
             gc_config,
             epoch_manager,
             is_archive,
+            has_cold_store,
             no_gc: false,
         }
     }
@@ -51,6 +54,15 @@ impl GCActor {
                 self.runtime_adapter.clone(),
                 self.epoch_manager.clone(),
             );
+        }
+
+        // If the node was started from genesis with no existing database and
+        // archive=true in the config, but no cold store was configured, then
+        // the node will only have a hot store, and will not create a cold
+        // store until that is configured explicitly. In this case we don't want
+        // to garbage collect anything
+        if !self.has_cold_store {
+            return Ok(());
         }
 
         // An archival node with split storage should perform garbage collection
