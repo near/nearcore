@@ -26,7 +26,7 @@ fn benchmark_large_chunk_production_time() {
     let mb = 1024usize.pow(2);
 
     let n_txes = 20;
-    let tx_size = if checked_feature!("stable", WitnessTransactionLimits, PROTOCOL_VERSION) {
+    let tx_size = if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
         mb / 2
     } else {
         3 * mb
@@ -67,7 +67,7 @@ fn benchmark_large_chunk_production_time() {
     if ProtocolFeature::BiggerCombinedTransactionLimit.enabled(PROTOCOL_VERSION) {
         assert!(6 * mb < size && size < 8 * mb, "{size}");
         assert_eq!(decoded_chunk.transactions().len(), 7); // 4MiB limit allows for 7 x 0.5MiB transactions
-    } else if ProtocolFeature::WitnessTransactionLimits.enabled(PROTOCOL_VERSION) {
+    } else if ProtocolFeature::StatelessValidationV0.enabled(PROTOCOL_VERSION) {
         assert!(2 * mb < size && size < 4 * mb, "{size}");
         assert_eq!(decoded_chunk.transactions().len(), 3); // 2MiB limit allows for 3 x 0.5MiB transactions
     } else {

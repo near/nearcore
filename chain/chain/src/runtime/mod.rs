@@ -829,7 +829,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
 
-            if checked_feature!("stable", WitnessTransactionLimits, protocol_version)
+            // Checking feature WitnessTransactionLimits
+            if checked_feature!("stable", StatelessValidationV0, protocol_version)
                 && state_update.trie.recorded_storage_size()
                     > runtime_config
                         .witness_config
@@ -841,8 +842,8 @@ impl RuntimeAdapter for NightshadeRuntime {
 
             // Take a single transaction from this transaction group
             while let Some(tx_peek) = transaction_group_iter.peek_next() {
-                // Stop adding transactions if the size limit would be exceeded
-                if checked_feature!("stable", WitnessTransactionLimits, protocol_version)
+                // WitnessTransactionLimits: Stop adding transactions if the size limit would be exceeded
+                if checked_feature!("stable", StatelessValidationV0, protocol_version)
                     && total_size.saturating_add(tx_peek.get_size()) > size_limit as u64
                 {
                     result.limited_by = Some(PrepareTransactionsLimit::Size);
@@ -1408,7 +1409,8 @@ fn calculate_transactions_size_limit(
     last_chunk_transactions_size: usize,
     transactions_gas_limit: Gas,
 ) -> u64 {
-    if checked_feature!("stable", WitnessTransactionLimits, protocol_version) {
+    // Checking feature WitnessTransactionLimits
+    if checked_feature!("stable", StatelessValidationV0, protocol_version) {
         // Sum of transactions in the previous and current chunks should not exceed the limit.
         // Witness keeps transactions from both previous and current chunk, so we have to limit the sum of both.
         runtime_config

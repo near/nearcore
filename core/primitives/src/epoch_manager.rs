@@ -265,7 +265,8 @@ impl AllEpochConfig {
             let shard_ids = config.shard_layout.shard_ids();
             // Decrease the number of block and chunk producers from 100 to 20.
             config.num_block_producer_seats = 20;
-            if checked_feature!("stable", NoChunkOnlyProducers, protocol_version) {
+            // Checking feature NoChunkOnlyProducers in stateless validation
+            if checked_feature!("stable", StatelessValidationV0, protocol_version) {
                 config.validator_selection_config.num_chunk_producer_seats = 20;
             }
             config.num_block_producer_seats_per_shard =
@@ -274,7 +275,8 @@ impl AllEpochConfig {
             config.validator_selection_config.num_chunk_only_producer_seats = 100;
         }
 
-        if checked_feature!("stable", NoChunkOnlyProducers, protocol_version) {
+        // Checking feature NoChunkOnlyProducers in stateless validation
+        if checked_feature!("stable", StatelessValidationV0, protocol_version) {
             // Make sure there is no chunk only producer in stateless validation
             config.validator_selection_config.num_chunk_only_producer_seats = 0;
         }
