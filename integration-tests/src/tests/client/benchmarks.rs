@@ -64,12 +64,9 @@ fn benchmark_large_chunk_production_time() {
 
     // Check that we limit the size of the chunk and not include all `n_txes`
     // transactions in the chunk.
-    if ProtocolFeature::BiggerCombinedTransactionLimit.enabled(PROTOCOL_VERSION) {
+    if ProtocolFeature::StatelessValidationV0.enabled(PROTOCOL_VERSION) {
         assert!(6 * mb < size && size < 8 * mb, "{size}");
         assert_eq!(decoded_chunk.transactions().len(), 7); // 4MiB limit allows for 7 x 0.5MiB transactions
-    } else if ProtocolFeature::StatelessValidationV0.enabled(PROTOCOL_VERSION) {
-        assert!(2 * mb < size && size < 4 * mb, "{size}");
-        assert_eq!(decoded_chunk.transactions().len(), 3); // 2MiB limit allows for 3 x 0.5MiB transactions
     } else {
         assert!(30 * mb < size && size < 40 * mb, "{size}");
     }

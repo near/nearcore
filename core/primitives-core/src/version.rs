@@ -160,10 +160,6 @@ pub enum ProtocolFeature {
     RemoveAccountWithLongStorageKey,
     // Stateless validation: Distribute state witness as reed solomon encoded parts
     PartialEncodedStateWitness,
-    /// Increase the `combined_transactions_size_limit` to 4MiB to allow higher throughput.
-    BiggerCombinedTransactionLimit,
-    /// Increase gas cost of sending receipt to another account to 50 TGas / MiB
-    HigherSendingCost,
 }
 
 impl ProtocolFeature {
@@ -219,9 +215,7 @@ impl ProtocolFeature {
             // TODO All of the stateless validation features should be collapsed
             // into a single protocol feature.
             ProtocolFeature::StatelessValidationV0
-            | ProtocolFeature::PartialEncodedStateWitness
-            | ProtocolFeature::BiggerCombinedTransactionLimit
-            | ProtocolFeature::HigherSendingCost => 69,
+            | ProtocolFeature::PartialEncodedStateWitness => 69,
 
             // This protocol version is reserved for use in resharding tests. An extra resharding
             // is simulated on top of the latest shard layout in production. Note that later
