@@ -36,9 +36,8 @@ fn test_in_memory_trie_node_consistency() {
     let mut genesis_builder = TestGenesisBuilder::new();
     genesis_builder
         .genesis_time_from_clock(&clock.clock())
-        // Use the latest protocol version. Otherwise, the version may be too
-        // old that e.g. blocks don't even store previous heights.
-        .protocol_version_latest()
+        // Use the protocol version without congestion control.
+        .protocol_version(79)
         // We'll test with 4 shards. This can be any number, but we want to test
         // the case when some shards are loaded into memory and others are not.
         // We pick the boundaries so that each shard would get some transactions.
