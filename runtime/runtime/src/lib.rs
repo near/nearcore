@@ -1796,7 +1796,7 @@ impl Runtime {
         // For now compute limit always matches the gas limit.
         let compute_limit = apply_state.gas_limit.unwrap_or(Gas::max_value());
         let proof_size_limit =
-            if checked_feature!("stable", StateWitnessSizeLimit, protocol_version) {
+            if checked_feature!("stable", StatelessValidationV0, protocol_version) {
                 Some(apply_state.config.witness_config.main_storage_proof_size_soft_limit)
             } else {
                 None
@@ -3466,7 +3466,7 @@ mod tests {
 
     #[test]
     fn test_main_storage_proof_size_soft_limit() {
-        if !checked_feature!("stable", StateWitnessSizeLimit, PROTOCOL_VERSION) {
+        if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
             return;
         }
         let (runtime, tries, root, mut apply_state, signer, epoch_info_provider) =

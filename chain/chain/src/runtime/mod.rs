@@ -751,11 +751,10 @@ impl RuntimeAdapter for NightshadeRuntime {
                 storage_config.use_flat_storage,
             ),
         };
-        // We need to start recording reads if the stateless validation is
-        // enabled in the next epoch. We need to save the state transition data
-        // in the current epoch to be able to produce the state witness in the
-        // next epoch.
-        if checked_feature!("stable", StateWitnessSizeLimit, next_protocol_version)
+        // StateWitnessSizeLimit: We need to start recording reads if the stateless validation is
+        // enabled in the next epoch. We need to save the state transition data in the current epoch
+        // to be able to produce the state witness in the next epoch.
+        if checked_feature!("stable", StatelessValidationV0, next_protocol_version)
             || cfg!(feature = "shadow_chunk_validation")
         {
             trie = trie.recording_reads();
@@ -969,11 +968,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         let next_protocol_version =
             self.epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
 
-        // We need to start recording reads if the stateless validation is
-        // enabled in the next epoch. We need to save the state transition data
-        // in the current epoch to be able to produce the state witness in the
-        // next epoch.
-        if checked_feature!("stable", StateWitnessSizeLimit, next_protocol_version)
+        // StateWitnessSizeLimit: We need to start recording reads if the stateless validation is
+        // enabled in the next epoch. We need to save the state transition data in the current epoch
+        // to be able to produce the state witness in the next epoch.
+        if checked_feature!("stable", StatelessValidationV0, next_protocol_version)
             || cfg!(feature = "shadow_chunk_validation")
         {
             trie = trie.recording_reads();

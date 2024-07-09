@@ -177,6 +177,7 @@ impl AllEpochConfig {
     }
 
     /// Configures statelessnet-specific features only.
+    /// TODO: Remove this function when statelessnet is no longer used.
     fn config_stateless_net(
         config: &mut EpochConfig,
         chain_id: &str,
@@ -187,7 +188,7 @@ impl AllEpochConfig {
         }
         // Lower the kickout threshold so the network is more stable while
         // we figure out issues with block and chunk production.
-        if checked_feature!("stable", LowerValidatorKickoutPercentForDebugging, protocol_version) {
+        if checked_feature!("stable", StatelessValidationV0, protocol_version) {
             config.block_producer_kickout_threshold = 50;
             config.chunk_producer_kickout_threshold = 50;
             config.chunk_validator_only_kickout_threshold = 50;

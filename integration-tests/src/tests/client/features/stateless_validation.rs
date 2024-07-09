@@ -318,8 +318,8 @@ fn test_chunk_validation_protocol_upgrade_mid_missing_prob() {
 fn test_protocol_upgrade_81() {
     init_integration_logger();
 
-    if !checked_feature!("stable", LowerValidatorKickoutPercentForDebugging, PROTOCOL_VERSION) {
-        println!("Test not applicable without LowerValidatorKickoutPercentForDebugging enabled");
+    if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+        println!("Test not applicable without StatelessValidation enabled");
         return;
     }
     for is_statelessnet in [true, false] {
