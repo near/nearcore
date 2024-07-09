@@ -1,3 +1,5 @@
+#![cfg_attr(feature = "protocol_schema", feature(const_type_id))]
+
 pub use near_primitives_core::account;
 pub use near_primitives_core::apply;
 pub use near_primitives_core::borsh;

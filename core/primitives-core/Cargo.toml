@@ -18,7 +18,7 @@ borsh.workspace = true
 bs58.workspace = true
 derive_more.workspace = true
 enum-map.workspace = true
-inventory = { workspace = true, optional = false }
+inventory = { workspace = true, optional = true }
 num-rational.workspace = true
 serde.workspace = true
 serde_repr.workspace = true
@@ -27,7 +27,7 @@ thiserror.workspace = true
 
 near-account-id.workspace = true
 near-structs-checker.workspace = true
-near-structs-checker-core.workspace = true
+near-structs-checker-core = { workspace = true, optional = true }
 
 [dev-dependencies]
 serde_json.workspace = true
@@ -40,7 +40,6 @@ protocol_feature_fix_staking_threshold = []
 protocol_feature_fix_contract_loading_cost = []
 protocol_feature_reject_blocks_with_outdated_protocol_version = []
 protocol_feature_nonrefundable_transfer_nep491 = []
-#check_protocol_structs = ["inventory", "near-structs-checker/check_protocol_structs"]
 
 nightly = [
   "nightly_protocol",
@@ -54,3 +53,8 @@ nightly_protocol = [
 ]
 
 statelessnet_protocol = []
+protocol_schema = [
+  "near-structs-checker/protocol_schema",
+  "near-structs-checker-core",
+  "inventory",
+]

@@ -23,7 +23,7 @@ derive_more.workspace = true
 easy-ext.workspace = true
 hex.workspace = true
 itertools = { workspace = true, optional = true }
-inventory = { workspace = true, optional = false }
+inventory = { workspace = true, optional = true }
 num-rational.workspace = true
 once_cell.workspace = true
 primitive-types.workspace = true
@@ -49,7 +49,7 @@ near-primitives-core.workspace = true
 near-rpc-error-macro.workspace = true
 near-parameters.workspace = true
 near-structs-checker.workspace = true
-near-structs-checker-core.workspace = true
+near-structs-checker-core = { workspace = true, optional = true }
 
 [features]
 sandbox = []
@@ -94,6 +94,11 @@ statelessnet_protocol = ["near-primitives-core/statelessnet_protocol"]
 
 new_epoch_sync = []
 default = ["near-primitives/rand"]
+protocol_schema = [
+  "near-primitives-core/protocol_schema",
+  "near-structs-checker-core",
+  "inventory"
+]
 
 calimero_zero_storage = []
 

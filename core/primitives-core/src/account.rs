@@ -5,7 +5,6 @@ use crate::serialize::dec_format;
 use crate::types::{Balance, Nonce, ProtocolVersion, StorageUsage};
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use near_account_id as id;
-use near_structs_checker::ProtocolStruct;
 use std::io;
 
 #[derive(

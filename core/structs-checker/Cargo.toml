@@ -13,12 +13,14 @@ proc-macro = true
 [dependencies]
 near-structs-checker-core = { path = "../structs-checker-core" }
 
-quote = { workspace = true, optional = false }
-syn = { workspace = true, optional = false }
-serde_json = { workspace = true, features = ["preserve_order"], optional = false }
-serde = { workspace = true, optional = false }
-inventory = { workspace = true, optional = false }
-proc-macro2 = "1.0.86"
+proc-macro2 = { workspace = true, optional = true }
+quote = { workspace = true, optional = true }
+syn = { workspace = true, optional = true }
 
 [features]
-#check_protocol_structs = ["inventory", "quote"]
+protocol_schema = [
+  "near-structs-checker-core/protocol_schema",
+  "proc-macro2",
+  "syn",
+  "quote"
+]

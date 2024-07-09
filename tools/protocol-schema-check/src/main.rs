@@ -1,78 +1,78 @@
-use near_primitives::hash::CryptoHash;
-use near_structs_checker::ProtocolStruct;
+#![allow(unused_imports)]
+// needed to register everything lol.
+use near_primitives::*;
+
 use near_structs_checker_core::ProtocolStructInfo;
+use std::any::TypeId;
 use std::collections::hash_map::DefaultHasher;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::hash::{Hash, Hasher};
-// #[derive(Copy, Clone, Debug, ProtocolStruct)]
-// pub struct CryptoHash(pub [u8; 33]);
+use std::path::Path;
 
 fn compute_hash(
     info: &ProtocolStructInfo,
-    structs: &HashMap<&'static str, &'static ProtocolStructInfo>,
-) -> u64 {
+    structs: &HashMap<TypeId, &'static ProtocolStructInfo>,
+) -> u32 {
     let mut hasher = DefaultHasher::new();
     match info {
-        ProtocolStructInfo::Struct { name, fields } => {
+        ProtocolStructInfo::Struct { name, type_id, fields } => {
             name.hash(&mut hasher);
-            for (field_name, field_type) in *fields {
+            type_id.hash(&mut hasher);
+            for (field_name, field_type_id) in *fields {
                 field_name.hash(&mut hasher);
-                compute_type_hash(field_type, structs, &mut hasher);
+                compute_type_hash(*field_type_id, structs, &mut hasher);
             }
         }
-        ProtocolStructInfo::Enum { name, variants } => {
+        ProtocolStructInfo::Enum { name, type_id, variants } => {
             name.hash(&mut hasher);
+            type_id.hash(&mut hasher);
             for (variant_name, variant_fields) in *variants {
                 variant_name.hash(&mut hasher);
                 if let Some(fields) = variant_fields {
-                    for (field_name, field_type) in *fields {
-                        // println!("Field: {} {}", field_name, field_type);
+                    for (field_name, field_type_id) in *fields {
                         field_name.hash(&mut hasher);
-                        compute_type_hash(field_type, structs, &mut hasher);
+                        compute_type_hash(*field_type_id, structs, &mut hasher);
                     }
                 }
             }
         }
     }
-    hasher.finish()
+    hasher.finish() as u32
 }
 
 fn compute_type_hash(
-    ty: &str,
-    structs: &HashMap<&'static str, &'static ProtocolStructInfo>,
+    type_id: TypeId,
+    structs: &HashMap<TypeId, &'static ProtocolStructInfo>,
     hasher: &mut DefaultHasher,
 ) {
-    // println!("Computing hash for {}", ty);
-    if let Some(nested_info) = structs.get(ty) {
+    if let Some(nested_info) = structs.get(&type_id) {
         compute_hash(nested_info, structs).hash(hasher);
     } else {
-        // Handle generic types
-        let parts: Vec<&str> = ty.split('<').collect();
-        parts[0].hash(hasher);
-        if parts.len() > 1 {
-            for part in parts[1].trim_end_matches('>').split(',') {
-                compute_type_hash(part.trim(), structs, hasher);
-            }
-        } else {
-            // println!("Warning: {} is primitive", ty);
-        }
+        type_id.hash(hasher);
     }
 }
 
 fn main() {
-    let stored_hashes: HashMap<String, u64> = serde_json::from_str(
-        &fs::read_to_string("protocol_structs.json").unwrap_or_else(|_| "{}".to_string()),
-    )
-    .unwrap();
+    let file_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("res").join("protocol_structs.toml");
 
-    let structs: HashMap<&'static str, &'static ProtocolStructInfo> =
-        inventory::iter::<ProtocolStructInfo>.into_iter().map(|info| (info.name(), info)).collect();
+    let stored_hashes: BTreeMap<String, u32> = if file_path.exists() {
+        toml::from_str(&fs::read_to_string(&file_path).unwrap_or_else(|_| "".to_string())).unwrap()
+    } else {
+        BTreeMap::new()
+    };
 
-    let mut current_hashes = HashMap::new();
-    for (name, info) in &structs {
+    let structs: HashMap<TypeId, &'static ProtocolStructInfo> =
+        inventory::iter::<ProtocolStructInfo>
+            .into_iter()
+            .map(|info| (info.type_id(), info))
+            .collect();
+    println!("Loaded {} structs", structs.len());
+
+    let mut current_hashes = BTreeMap::new();
+    for info in inventory::iter::<ProtocolStructInfo> {
         let hash = compute_hash(info, &structs);
-        current_hashes.insert((*name).to_string(), hash);
+        current_hashes.insert(info.name().to_string(), hash);
     }
 
     let mut has_changes = false;
@@ -98,9 +98,8 @@ fn main() {
     }
 
     if has_changes {
-        fs::write("protocol_structs.json", serde_json::to_string_pretty(&current_hashes).unwrap())
-            .unwrap();
-        println!("Updated protocol_structs.json");
+        fs::write(&file_path, toml::to_string_pretty(&current_hashes).unwrap()).unwrap();
+        println!("Updated {}", file_path.display());
     } else {
         println!("No changes detected in protocol structs");
     }

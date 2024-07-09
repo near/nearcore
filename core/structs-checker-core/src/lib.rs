@@ -1,20 +1,29 @@
-use once_cell::sync::Lazy;
-use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::any::TypeId;
 
-#[derive(Copy, Clone, Serialize)]
+pub type FieldName = &'static str;
+
+#[derive(Copy, Clone)]
 pub enum ProtocolStructInfo {
     Struct {
-        name: &'static str,
-        fields: &'static [(&'static str, &'static str)],
+        name: FieldName,
+        type_id: TypeId,
+        fields: &'static [(FieldName, TypeId)],
     },
     Enum {
-        name: &'static str,
-        variants: &'static [(&'static str, Option<&'static [(&'static str, &'static str)]>)],
+        name: FieldName,
+        type_id: TypeId,
+        variants: &'static [(FieldName, Option<&'static [(FieldName, TypeId)]>)],
     },
 }
 
 impl ProtocolStructInfo {
+    pub fn type_id(&self) -> TypeId {
+        match self {
+            ProtocolStructInfo::Struct { type_id, .. } => *type_id,
+            ProtocolStructInfo::Enum { type_id, .. } => *type_id,
+        }
+    }
+
     pub fn name(&self) -> &'static str {
         match self {
             ProtocolStructInfo::Struct { name, .. } => name,
@@ -23,6 +32,7 @@ impl ProtocolStructInfo {
     }
 }
 
+#[cfg(feature = "protocol_schema")]
 inventory::collect!(ProtocolStructInfo);
 
 pub trait ProtocolStruct {}

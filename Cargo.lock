@@ -4826,12 +4826,9 @@ dependencies = [
 name = "near-structs-checker"
 version = "0.0.0"
 dependencies = [
- "inventory",
  "near-structs-checker-core",
  "proc-macro2",
  "quote",
- "serde",
- "serde_json",
  "syn 2.0.68",
 ]
 
@@ -4840,9 +4837,6 @@ name = "near-structs-checker-core"
 version = "0.0.0"
 dependencies = [
  "inventory",
- "once_cell",
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -6205,8 +6199,8 @@ dependencies = [
  "near-primitives",
  "near-structs-checker",
  "near-structs-checker-core",
- "once_cell",
  "serde_json",
+ "toml",
 ]
 
 [[package]]

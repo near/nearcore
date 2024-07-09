@@ -1,3 +1,5 @@
+#![cfg_attr(feature = "protocol_schema", feature(const_type_id))]
+
 pub use borsh;
 pub use num_rational;
 
