@@ -2,9 +2,9 @@ use crate::congestion_control::ReceiptSink;
 use crate::ApplyState;
 use near_o11y::metrics::{
     exponential_buckets, linear_buckets, try_create_counter_vec, try_create_gauge_vec,
-    try_create_histogram_vec, try_create_histogram_with_buckets, try_create_int_counter,
-    try_create_int_counter_vec, try_create_int_gauge_vec, CounterVec, GaugeVec, Histogram,
-    HistogramVec, IntCounter, IntCounterVec, IntGaugeVec,
+    try_create_histogram_vec, try_create_int_counter, try_create_int_counter_vec,
+    try_create_int_gauge_vec, CounterVec, GaugeVec, HistogramVec, IntCounter, IntCounterVec,
+    IntGaugeVec,
 };
 use near_parameters::config::CongestionControlConfig;
 use near_primitives::congestion_info::CongestionInfo;
@@ -297,51 +297,57 @@ static CHUNK_TX_TGAS: Lazy<HistogramVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static RECEIPT_RECORDED_SIZE: Lazy<Histogram> = Lazy::new(|| {
-    try_create_histogram_with_buckets(
+pub static RECEIPT_RECORDED_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
         "near_receipt_recorded_size",
         "Size of storage proof recorded when executing a receipt",
-        buckets_for_receipt_storage_proof_size(),
+        &["shard_id"],
+        Some(buckets_for_receipt_storage_proof_size()),
     )
     .unwrap()
 });
-pub static RECEIPT_RECORDED_SIZE_UPPER_BOUND: Lazy<Histogram> = Lazy::new(|| {
-    try_create_histogram_with_buckets(
+pub static RECEIPT_RECORDED_SIZE_UPPER_BOUND: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
         "near_receipt_recorded_size_upper_bound",
         "Upper bound estimation (e.g with extra size added for deletes) of storage proof size recorded when executing a receipt",
-        buckets_for_receipt_storage_proof_size(),
+        &["shard_id"],
+        Some(buckets_for_receipt_storage_proof_size()),
     )
     .unwrap()
 });
-pub static RECEIPT_RECORDED_SIZE_UPPER_BOUND_RATIO: Lazy<Histogram> = Lazy::new(|| {
-    try_create_histogram_with_buckets(
+pub static RECEIPT_RECORDED_SIZE_UPPER_BOUND_RATIO: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
         "near_receipt_recorded_size_upper_bound_ratio",
         "Ratio of upper bound to true recorded size, calculated only for sizes larger than 100KB, equal to (near_receipt_recorded_size_upper_bound / near_receipt_recorded_size)",
-        buckets_for_storage_proof_size_ratio(),
+        &["shard_id"],
+        Some(buckets_for_storage_proof_size_ratio()),
     )
     .unwrap()
 });
-pub static CHUNK_RECORDED_SIZE: Lazy<Histogram> = Lazy::new(|| {
-    try_create_histogram_with_buckets(
+pub static CHUNK_RECORDED_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
         "near_chunk_recorded_size",
         "Total size of storage proof (recorded trie nodes for state witness, post-finalization) for a single chunk",
-        buckets_for_chunk_storage_proof_size(),
+        &["shard_id"],
+        Some(buckets_for_chunk_storage_proof_size()),
     )
     .unwrap()
 });
-pub static CHUNK_RECORDED_SIZE_UPPER_BOUND: Lazy<Histogram> = Lazy::new(|| {
-    try_create_histogram_with_buckets(
+pub static CHUNK_RECORDED_SIZE_UPPER_BOUND: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
         "near_chunk_recorded_size_upper_bound",
         "Upper bound of storage proof size (recorded trie nodes size + estimated charges, pre-finalization) for a single chunk",
-        buckets_for_chunk_storage_proof_size(),
+        &["shard_id"],
+        Some(buckets_for_chunk_storage_proof_size()),
     )
     .unwrap()
 });
-pub static CHUNK_RECORDED_SIZE_UPPER_BOUND_RATIO: Lazy<Histogram> = Lazy::new(|| {
-    try_create_histogram_with_buckets(
+pub static CHUNK_RECORDED_SIZE_UPPER_BOUND_RATIO: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
         "near_chunk_recorded_size_upper_bound_ratio",
         "Ratio of upper bound to true storage proof size, equal to (near_chunk_recorded_size_upper_bound / near_chunk_recorded_size)",
-        buckets_for_storage_proof_size_ratio(),
+        &["shard_id"],
+        Some(buckets_for_storage_proof_size_ratio()),
     )
     .unwrap()
 });
@@ -406,6 +412,15 @@ static CHUNK_RECORDED_TRIE_COLUMN_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
         "Size of data belonging to a specific trie column inside chunk's recorded storage proof",
         &["shard_id", "trie_column"],
         Some(buckets_for_recorded_trie_column_size()),
+    )
+    .unwrap()
+});
+
+pub(crate) static CHUNK_RECEIPTS_LIMITED_BY: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_chunk_receipts_limited_by",
+        "Number of chunks where the number of processed receipts was limited by a certain factor.",
+        &["shard_id", "limited_by"],
     )
     .unwrap()
 });

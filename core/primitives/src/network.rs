@@ -1,7 +1,7 @@
 use crate::hash::CryptoHash;
 use crate::types::{AccountId, EpochId};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
+use near_crypto::{PublicKey, Signature};
 use std::fmt;
 use std::hash::Hash;
 use std::sync::Arc;
@@ -32,8 +32,10 @@ impl PeerId {
 }
 
 impl PeerId {
+    #[cfg(feature = "rand")]
+
     pub fn random() -> Self {
-        PeerId::new(SecretKey::from_random(KeyType::ED25519).public_key())
+        PeerId::new(near_crypto::SecretKey::from_random(near_crypto::KeyType::ED25519).public_key())
     }
 }
 

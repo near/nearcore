@@ -3,7 +3,9 @@ mod genesis_config;
 pub mod genesis_validate;
 #[cfg(feature = "metrics")]
 mod metrics;
+#[cfg(feature = "test_genesis")]
 pub mod test_genesis;
+#[cfg(feature = "test_utils")]
 pub mod test_utils;
 mod updateable_config;
 
@@ -30,7 +32,7 @@ pub use genesis_config::{
 };
 use near_primitives::types::{Balance, BlockHeightDelta, Gas, NumBlocks, NumSeats};
 use num_rational::Rational32;
-pub use updateable_config::{MutableConfigValue, UpdateableClientConfig};
+pub use updateable_config::{MutableConfigValue, MutableValidatorSigner, UpdateableClientConfig};
 
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 

@@ -29,6 +29,8 @@ pub enum VMRunnerError {
     Nondeterministic(String),
     #[error("unknown error during contract execution: {debug_message}")]
     WasmUnknownError { debug_message: String },
+    #[error("account has no associated contract code")]
+    ContractCodeNotPresent,
 }
 
 /// Permitted errors that cause a function call to fail gracefully.
@@ -56,15 +58,16 @@ pub enum FunctionCallError {
 
 #[derive(Debug, thiserror::Error, strum::IntoStaticStr)]
 pub enum CacheError {
-    #[error("cache read error")]
+    #[error("cache read error: {0}")]
     ReadError(#[source] io::Error),
-    #[error("cache write error")]
+    #[error("cache write error: {0}")]
     WriteError(#[source] io::Error),
     #[error("cache deserialization error")]
     DeserializationError,
     #[error("cache serialization error")]
     SerializationError { hash: [u8; 32] },
 }
+
 /// A kind of a trap happened during execution of a binary
 #[derive(Debug, Clone, PartialEq, Eq, strum::IntoStaticStr)]
 pub enum WasmTrap {
@@ -105,6 +108,12 @@ pub enum CompilationError {
     /// We expect our runtime-independent preparation code to fully catch all invalid wasms,
     /// but, if it ever misses something we’ll emit this error
     WasmerCompileError {
+        msg: String,
+    },
+    /// This is for defense in depth.
+    /// We expect our runtime-independent preparation code to fully catch all invalid wasms,
+    /// but, if it ever misses something we’ll emit this error
+    WasmtimeCompileError {
         msg: String,
     },
 }
@@ -207,6 +216,9 @@ pub enum HostError {
     /// Invalid input to ed25519 signature verification function (e.g. signature cannot be
     /// derived from bytes).
     Ed25519VerifyInvalidInput { msg: String },
+    // Invalid input to bls12381 family of functions
+    #[cfg(feature = "protocol_feature_bls12381")]
+    BLS12381InvalidInput { msg: String },
     /// Yield payload length exceeds the maximum permitted.
     YieldPayloadLength { length: u64, limit: u64 },
     /// Yield resumption data id is malformed.
@@ -339,6 +351,9 @@ impl fmt::Display for CompilationError {
             CompilationError::WasmerCompileError { msg } => {
                 write!(f, "Wasmer compilation error: {}", msg)
             }
+            CompilationError::WasmtimeCompileError { msg } => {
+                write!(f, "Wasmtime compilation error: {}", msg)
+            }
         }
     }
 }
@@ -442,6 +457,8 @@ impl std::fmt::Display for HostError {
             Ed25519VerifyInvalidInput { msg } => {
                 write!(f, "ED25519 signature verification error: {}", msg)
             }
+            #[cfg(feature = "protocol_feature_bls12381")]
+            BLS12381InvalidInput { msg } => write!(f, "BLS12-381 invalid input: {}", msg),
             YieldPayloadLength { length, limit } => write!(
                 f,
                 "Yield resume payload is {length} bytes which exceeds the {limit} byte limit"

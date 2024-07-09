@@ -1,6 +1,11 @@
+use crate::tests::client::features::wallet_contract::{
+    create_rlp_execute_tx, view_balance, NearSigner,
+};
 use near_client::{ProcessTxResponse, ProduceChunkResult};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::account::id::AccountIdRef;
+use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
+use near_primitives::action::{Action, AddKeyAction, TransferAction};
 use near_primitives::stateless_validation::ChunkStateWitness;
 use near_primitives::version::ProtocolFeature;
 use near_store::test_utils::create_test_store;
@@ -11,7 +16,7 @@ use std::collections::HashSet;
 use near_chain::{Chain, Provenance};
 use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords};
 use near_client::test_utils::{create_chunk_with_transactions, TestEnv};
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::{InMemorySigner, KeyType, SecretKey};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::epoch_manager::AllEpochConfigTestOverrides;
 use near_primitives::num_rational::Rational32;
@@ -20,6 +25,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountInfo, EpochId};
+use near_primitives::utils::derive_eth_implicit_account_id;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::FinalExecutionStatus;
 use near_primitives_core::account::{AccessKey, Account};
@@ -405,7 +411,8 @@ fn test_chunk_state_witness_bad_shard_id() {
 
     // Client should reject this ChunkStateWitness and the error message should mention "shard"
     tracing::info!(target: "test", "Processing invalid ChunkStateWitness");
-    let res = env.clients[0].process_chunk_state_witness(witness, witness_size, None);
+    let signer = env.clients[0].validator_signer.get();
+    let res = env.clients[0].process_chunk_state_witness(witness, witness_size, None, signer);
     let error = res.unwrap_err();
     let error_message = format!("{}", error).to_lowercase();
     tracing::info!(target: "test", "error message: {}", error_message);
@@ -521,6 +528,7 @@ fn test_invalid_transactions() {
                     &prev_chunk_header,
                     &shard_chunk,
                     transactions_storage_proof,
+                    &client.validator_signer.get(),
                 )
                 .unwrap();
 
@@ -541,4 +549,169 @@ fn test_invalid_transactions() {
         }
         start_height += 3;
     }
+}
+
+/// Tests that eth-implicit accounts still work with stateless validation.
+#[test]
+fn test_eth_implicit_accounts() {
+    if !(checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION)
+        && checked_feature!("stable", EthImplicitAccounts, PROTOCOL_VERSION))
+    {
+        println!("Test not applicable without both StatelessValidation and eth-implicit accounts enabled");
+        return;
+    }
+
+    let accounts =
+        vec!["test0".parse().unwrap(), "test1".parse().unwrap(), "test2".parse().unwrap()];
+    let genesis = Genesis::test(accounts.clone(), 2);
+    let mut env = TestEnv::builder(&genesis.config)
+        .validators(accounts.clone())
+        .clients(accounts)
+        .nightshade_runtimes(&genesis)
+        .build();
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let signer = create_user_test_signer(AccountIdRef::new("test2").unwrap());
+
+    // 1. Create two eth-implicit accounts
+    let secret_key = SecretKey::from_seed(KeyType::SECP256K1, "test");
+    let public_key = secret_key.public_key();
+    let alice_eth_account = derive_eth_implicit_account_id(public_key.unwrap_as_secp256k1());
+    let bob_eth_account: AccountId = "0x0000000000000000000000000000000000000b0b".parse().unwrap();
+
+    let alice_init_balance = 3 * ONE_NEAR;
+    let create_alice_tx = SignedTransaction::send_money(
+        1,
+        signer.account_id.clone(),
+        alice_eth_account.clone(),
+        &signer.clone().into(),
+        alice_init_balance,
+        *genesis_block.hash(),
+    );
+
+    let bob_init_balance = 0;
+    let create_bob_tx = SignedTransaction::send_money(
+        2,
+        signer.account_id.clone(),
+        bob_eth_account.clone(),
+        &signer.clone().into(),
+        bob_init_balance,
+        *genesis_block.hash(),
+    );
+
+    assert_eq!(
+        env.clients[0].process_tx(create_alice_tx, false, false),
+        ProcessTxResponse::ValidTx
+    );
+    assert_eq!(env.clients[0].process_tx(create_bob_tx, false, false), ProcessTxResponse::ValidTx);
+
+    // Process some blocks to ensure the transactions are complete.
+    for _ in 0..10 {
+        produce_block(&mut env);
+    }
+
+    assert_eq!(view_balance(&env, &alice_eth_account), alice_init_balance);
+    assert_eq!(view_balance(&env, &bob_eth_account), bob_init_balance);
+
+    // 2. Add function call access key to one eth-implicit account
+    let relayer_account_id = signer.account_id.clone();
+    let mut relayer_signer = NearSigner { account_id: &relayer_account_id, signer };
+    let relayer_pk = relayer_signer.signer.public_key.clone();
+    let action = Action::AddKey(Box::new(AddKeyAction {
+        public_key: relayer_pk,
+        access_key: AccessKey {
+            nonce: 0,
+            permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                allowance: None,
+                receiver_id: alice_eth_account.to_string(),
+                method_names: vec!["rlp_execute".into()],
+            }),
+        },
+    }));
+    let signed_transaction = create_rlp_execute_tx(
+        &alice_eth_account,
+        action,
+        0,
+        &alice_eth_account,
+        &secret_key,
+        &mut relayer_signer,
+        &env,
+    );
+
+    assert_eq!(
+        env.clients[0].process_tx(signed_transaction, false, false),
+        ProcessTxResponse::ValidTx
+    );
+
+    for _ in 0..10 {
+        produce_block(&mut env);
+    }
+
+    // Now the relayer can sign transactions on behalf of the implicit account
+    relayer_signer.account_id = &alice_eth_account;
+
+    // 3. Use one implicit account to make a transfer to the other.
+    let transfer_amount = ONE_NEAR;
+    let action = Action::Transfer(TransferAction { deposit: transfer_amount });
+    let signed_transaction = create_rlp_execute_tx(
+        &bob_eth_account,
+        action,
+        1,
+        &alice_eth_account,
+        &secret_key,
+        &mut relayer_signer,
+        &env,
+    );
+
+    assert_eq!(
+        env.clients[0].process_tx(signed_transaction, false, false),
+        ProcessTxResponse::ValidTx
+    );
+
+    for _ in 0..10 {
+        produce_block(&mut env);
+    }
+
+    let alice_final_balance = view_balance(&env, &alice_eth_account);
+    let bob_final_balance = view_balance(&env, &bob_eth_account);
+
+    // Bob receives the transfer
+    assert_eq!(bob_final_balance, bob_init_balance + transfer_amount);
+
+    // The only tokens lost in the transaction are due to gas
+    let gas_cost =
+        (alice_init_balance + bob_init_balance) - (alice_final_balance + bob_final_balance);
+    assert_eq!(alice_final_balance, alice_init_balance - transfer_amount - gas_cost);
+    assert!(gas_cost < ONE_NEAR / 500);
+}
+
+/// Produce a block, apply it and propagate it through the network (including state witnesses).
+fn produce_block(env: &mut TestEnv) {
+    let heads = env
+        .clients
+        .iter()
+        .map(|client| client.chain.head().unwrap().last_block_hash)
+        .collect::<HashSet<_>>();
+    assert_eq!(heads.len(), 1, "All clients should have the same head");
+    let tip = env.clients[0].chain.head().unwrap();
+    let block_producer = env.get_block_producer_at_offset(&tip, 1);
+    let block = env.client(&block_producer).produce_block(tip.height + 1).unwrap().unwrap();
+
+    for i in 0..env.clients.len() {
+        let validator_id = env.get_client_id(i);
+        tracing::debug!(
+            target: "client",
+            "Applying block at height {} at {}", block.header().height(), validator_id
+        );
+        let blocks_processed =
+            env.clients[i].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
+        assert_eq!(blocks_processed, vec![*block.hash()]);
+    }
+
+    env.process_partial_encoded_chunks();
+    for j in 0..env.clients.len() {
+        env.process_shards_manager_responses_and_finish_processing_blocks(j);
+    }
+
+    env.propagate_chunk_state_witnesses(false);
+    env.propagate_chunk_endorsements(false);
 }

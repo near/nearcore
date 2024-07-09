@@ -2,11 +2,11 @@
 use crate::ExternalStorageLocation::GCS;
 use crate::MutableConfigValue;
 use bytesize::ByteSize;
-use near_async::time::Duration;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats, ShardId,
 };
 use near_primitives::version::Version;
+use near_time::Duration;
 use std::cmp::{max, min};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
@@ -48,7 +48,7 @@ pub struct GCConfig {
     pub gc_num_epochs_to_keep: u64,
 
     /// How often gc should be run
-    #[serde(with = "near_async::time::serde_duration_as_std")]
+    #[serde(with = "near_time::serde_duration_as_std")]
     pub gc_step_period: Duration,
 }
 
@@ -120,7 +120,7 @@ pub struct DumpConfig {
     /// Feel free to set to `None`, defaults are sensible.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
-    #[serde(with = "near_async::time::serde_opt_duration_as_std")]
+    #[serde(with = "near_time::serde_opt_duration_as_std")]
     pub iteration_delay: Option<Duration>,
     /// Location of a json file with credentials allowing write access to the bucket.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -192,23 +192,23 @@ pub struct ReshardingConfig {
     /// The delay between writing batches to the db. The batch delay can be
     /// increased if resharding is consuming too many resources and interfering
     /// with regular node operation.
-    #[serde(with = "near_async::time::serde_duration_as_std")]
+    #[serde(with = "near_time::serde_duration_as_std")]
     pub batch_delay: Duration,
 
     /// The delay between attempts to start resharding while waiting for the
     /// state snapshot to become available.
-    #[serde(with = "near_async::time::serde_duration_as_std")]
+    #[serde(with = "near_time::serde_duration_as_std")]
     pub retry_delay: Duration,
 
     /// The delay between the resharding request is received and when the actor
     /// actually starts working on it. This delay should only be used in tests.
-    #[serde(with = "near_async::time::serde_duration_as_std")]
+    #[serde(with = "near_time::serde_duration_as_std")]
     pub initial_delay: Duration,
 
     /// The maximum time that the actor will wait for the snapshot to be ready,
     /// before starting resharding. Do not wait indefinitely since we want to
     /// report error early enough for the node maintainer to have time to recover.
-    #[serde(with = "near_async::time::serde_duration_as_std")]
+    #[serde(with = "near_time::serde_duration_as_std")]
     pub max_poll_time: Duration,
 }
 
@@ -410,6 +410,8 @@ pub struct ClientConfig {
     pub gc: GCConfig,
     /// Accounts that this client tracks.
     pub tracked_accounts: Vec<AccountId>,
+    /// Track shards that should be tracked by given validator.
+    pub tracked_shadow_validator: Option<AccountId>,
     /// Shards that this client tracks.
     pub tracked_shards: Vec<ShardId>,
     /// Rotate between these sets of tracked shards.
@@ -539,6 +541,7 @@ impl ClientConfig {
             block_header_fetch_horizon: 50,
             gc: GCConfig { gc_blocks_limit: 100, ..GCConfig::default() },
             tracked_accounts: vec![],
+            tracked_shadow_validator: None,
             tracked_shards: vec![],
             tracked_shard_schedule: vec![],
             archive,

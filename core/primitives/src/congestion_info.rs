@@ -3,10 +3,8 @@ use std::collections::BTreeMap;
 use crate::errors::RuntimeError;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_parameters::config::CongestionControlConfig;
-use near_primitives_core::{
-    types::{Gas, ProtocolVersion, ShardId},
-    version::ProtocolFeature,
-};
+use near_primitives_core::types::{Gas, ShardId};
+use ordered_float::NotNan;
 
 /// This class combines the congestion control config, congestion info and
 /// missed chunks count. It contains the main congestion control logic and
@@ -114,9 +112,52 @@ impl CongestionControl {
     }
 
     /// Whether we can accept new transaction with the receiver set to this shard.
-    pub fn shard_accepts_transactions(&self) -> bool {
-        self.congestion_level() < self.config.reject_tx_congestion_threshold
+    ///
+    /// If the shard doesn't accept new transaction, provide the reason for
+    /// extra debugging information.
+    pub fn shard_accepts_transactions(&self) -> ShardAcceptsTransactions {
+        let incoming_congestion = self.incoming_congestion();
+        let outgoing_congestion = self.outgoing_congestion();
+        let memory_congestion = self.memory_congestion();
+        let missed_chunks_congestion = self.missed_chunks_congestion();
+
+        let congestion_level = incoming_congestion
+            .max(outgoing_congestion)
+            .max(memory_congestion)
+            .max(missed_chunks_congestion);
+
+        // Convert to NotNan here, if not possible, the max above is already meaningless.
+        let congestion_level =
+            NotNan::new(congestion_level).unwrap_or_else(|_| NotNan::new(1.0).unwrap());
+        if *congestion_level < self.config.reject_tx_congestion_threshold {
+            return ShardAcceptsTransactions::Yes;
+        }
+
+        let reason = if missed_chunks_congestion >= *congestion_level {
+            RejectTransactionReason::MissedChunks { missed_chunks: self.missed_chunks_count }
+        } else if incoming_congestion >= *congestion_level {
+            RejectTransactionReason::IncomingCongestion { congestion_level }
+        } else if outgoing_congestion >= *congestion_level {
+            RejectTransactionReason::OutgoingCongestion { congestion_level }
+        } else {
+            RejectTransactionReason::MemoryCongestion { congestion_level }
+        };
+        ShardAcceptsTransactions::No(reason)
     }
+}
+
+/// Result of [`CongestionControl::shard_accepts_transactions`].
+pub enum ShardAcceptsTransactions {
+    Yes,
+    No(RejectTransactionReason),
+}
+
+/// Detailed information for why a shard rejects new transactions.
+pub enum RejectTransactionReason {
+    IncomingCongestion { congestion_level: NotNan<f64> },
+    OutgoingCongestion { congestion_level: NotNan<f64> },
+    MemoryCongestion { congestion_level: NotNan<f64> },
+    MissedChunks { missed_chunks: u64 },
 }
 
 /// Stores the congestion level of a shard.
@@ -153,23 +194,13 @@ impl CongestionInfo {
     // information from the chunk extra.
     //
     // TODO(congestion_control) validate allowed shard
-    pub fn validate_extra_and_header(
-        extra_protocol_version: ProtocolVersion,
-        extra: &CongestionInfo,
-        header: &CongestionInfo,
-    ) -> bool {
+    pub fn validate_extra_and_header(extra: &CongestionInfo, header: &CongestionInfo) -> bool {
         match (extra, header) {
             (CongestionInfo::V1(extra), CongestionInfo::V1(header)) => {
-                let correct_allowed_shard =
-                    if ProtocolFeature::CongestionControl.enabled(extra_protocol_version) {
-                        extra.allowed_shard == header.allowed_shard
-                    } else {
-                        true
-                    };
                 extra.delayed_receipts_gas == header.delayed_receipts_gas
                     && extra.buffered_receipts_gas == header.buffered_receipts_gas
                     && extra.receipt_bytes == header.receipt_bytes
-                    && correct_allowed_shard
+                    && extra.allowed_shard == header.allowed_shard
             }
         }
     }
@@ -453,6 +484,16 @@ fn mix(left: u64, right: u64, ratio: f64) -> u64 {
     return total.round() as u64;
 }
 
+impl ShardAcceptsTransactions {
+    pub fn is_yes(&self) -> bool {
+        matches!(self, ShardAcceptsTransactions::Yes)
+    }
+
+    pub fn is_no(&self) -> bool {
+        !self.is_yes()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use near_parameters::RuntimeConfigStore;
@@ -535,7 +576,7 @@ mod tests {
         assert!(config.max_outgoing_gas.abs_diff(congestion_control.outgoing_gas_limit(0)) <= 1);
 
         assert!(config.max_tx_gas.abs_diff(congestion_control.process_tx_limit()) <= 1);
-        assert!(congestion_control.shard_accepts_transactions());
+        assert!(congestion_control.shard_accepts_transactions().is_yes());
     }
 
     #[test]
@@ -556,7 +597,7 @@ mod tests {
             assert_eq!(1.0, control.congestion_level());
             // fully congested, no more forwarding allowed
             assert_eq!(0, control.outgoing_gas_limit(1));
-            assert!(!control.shard_accepts_transactions());
+            assert!(control.shard_accepts_transactions().is_no());
             // processing to other shards is not restricted by memory congestion
             assert_eq!(config.max_tx_gas, control.process_tx_limit());
         }
@@ -572,7 +613,7 @@ mod tests {
                 control.outgoing_gas_limit(1)
             );
             // at 50%, still no new transactions are allowed
-            assert!(!control.shard_accepts_transactions());
+            assert!(control.shard_accepts_transactions().is_no());
         }
 
         // reduce congestion to 1/8
@@ -586,7 +627,7 @@ mod tests {
                 control.outgoing_gas_limit(1)
             );
             // at 12.5%, new transactions are allowed (threshold is 0.25)
-            assert!(control.shard_accepts_transactions());
+            assert!(control.shard_accepts_transactions().is_yes());
         }
     }
 
@@ -608,7 +649,7 @@ mod tests {
             assert_eq!(1.0, control.congestion_level());
             // fully congested, no more forwarding allowed
             assert_eq!(0, control.outgoing_gas_limit(1));
-            assert!(!control.shard_accepts_transactions());
+            assert!(control.shard_accepts_transactions().is_no());
             // processing to other shards is restricted by own incoming congestion
             assert_eq!(config.min_tx_gas, control.process_tx_limit());
         }
@@ -624,7 +665,7 @@ mod tests {
                 control.outgoing_gas_limit(1)
             );
             // at 50%, still no new transactions to us are allowed
-            assert!(!control.shard_accepts_transactions());
+            assert!(control.shard_accepts_transactions().is_no());
             // but we accept new transactions to other shards
             assert_eq!(
                 (0.5 * config.min_tx_gas as f64 + 0.5 * config.max_tx_gas as f64) as u64,
@@ -643,7 +684,7 @@ mod tests {
                 control.outgoing_gas_limit(1)
             );
             // at 12.5%, new transactions are allowed (threshold is 0.25)
-            assert!(control.shard_accepts_transactions());
+            assert!(control.shard_accepts_transactions().is_yes());
             assert_eq!(
                 (0.125 * config.min_tx_gas as f64 + 0.875 * config.max_tx_gas as f64) as u64,
                 control.process_tx_limit()
@@ -668,7 +709,7 @@ mod tests {
         assert_eq!(1.0, control.congestion_level());
         // fully congested, no more forwarding allowed
         assert_eq!(0, control.outgoing_gas_limit(1));
-        assert!(!control.shard_accepts_transactions());
+        assert!(control.shard_accepts_transactions().is_no());
         // processing to other shards is not restricted by own outgoing congestion
         assert_eq!(config.max_tx_gas, control.process_tx_limit());
 
@@ -681,7 +722,7 @@ mod tests {
             control.outgoing_gas_limit(1)
         );
         // at 50%, still no new transactions to us are allowed
-        assert!(!control.shard_accepts_transactions());
+        assert!(control.shard_accepts_transactions().is_no());
 
         // reduce congestion to 1/8
         info.remove_buffered_receipt_gas(3 * config.max_congestion_outgoing_gas / 8).unwrap();
@@ -693,7 +734,7 @@ mod tests {
             control.outgoing_gas_limit(1)
         );
         // at 12.5%, new transactions are allowed (threshold is 0.25)
-        assert!(control.shard_accepts_transactions());
+        assert!(control.shard_accepts_transactions().is_yes());
     }
 
     #[test]

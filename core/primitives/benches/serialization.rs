@@ -39,7 +39,15 @@ fn create_transaction() -> SignedTransaction {
 }
 
 fn create_block() -> Block {
-    let genesis_chunks = genesis_chunks(vec![StateRoot::new()], &[0], 1_000, 0, PROTOCOL_VERSION);
+    let shard_ids = vec![0];
+    let genesis_chunks = genesis_chunks(
+        vec![StateRoot::new()],
+        vec![Default::default(); shard_ids.len()],
+        &shard_ids,
+        1_000,
+        0,
+        PROTOCOL_VERSION,
+    );
     let genesis = Block::genesis(
         PROTOCOL_VERSION,
         genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
@@ -71,7 +79,8 @@ fn create_block() -> Block {
         &signer.into(),
         CryptoHash::default(),
         CryptoHash::default(),
-        Clock::real().now_utc(),
+        Clock::real(),
+        None,
     )
 }
 

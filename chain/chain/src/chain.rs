@@ -1,5 +1,5 @@
 use crate::block_processing_utils::{
-    BlockPreprocessInfo, BlockProcessingArtifact, BlocksInProcessing,
+    ApplyChunksDoneTracker, BlockPreprocessInfo, BlockProcessingArtifact, BlocksInProcessing,
 };
 use crate::blocks_delay_tracker::BlocksDelayTracker;
 use crate::chain_update::ChainUpdate;
@@ -39,7 +39,9 @@ use itertools::Itertools;
 use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::time::{Clock, Duration, Instant};
-use near_chain_configs::{MutableConfigValue, ReshardingConfig, ReshardingHandle};
+use near_chain_configs::{
+    MutableConfigValue, MutableValidatorSigner, ReshardingConfig, ReshardingHandle,
+};
 #[cfg(feature = "new_epoch_sync")]
 use near_chain_primitives::error::epoch_sync::EpochSyncInfoError;
 use near_chain_primitives::error::{BlockKnownError, Error, LogTransientStorageError};
@@ -97,7 +99,7 @@ use near_store::config::StateSnapshotType;
 use near_store::flat::{store_helper, FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::get_genesis_state_roots;
 use near_store::DBCol;
-use once_cell::sync::OnceCell;
+use node_runtime::bootstrap_congestion_info;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
@@ -319,8 +321,11 @@ impl Chain {
     ) -> Result<Block, Error> {
         let state_roots = get_genesis_state_roots(runtime_adapter.store())?
             .expect("genesis should be initialized.");
+        let congestion_infos =
+            get_genesis_congestion_infos(epoch_manager, runtime_adapter, &state_roots)?;
         let genesis_chunks = genesis_chunks(
             state_roots,
+            congestion_infos,
             &epoch_manager.shard_ids(&EpochId::default())?,
             chain_genesis.gas_limit,
             chain_genesis.height,
@@ -400,18 +405,19 @@ impl Chain {
         chain_config: ChainConfig,
         snapshot_callbacks: Option<SnapshotCallbacks>,
         apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
-        validator_account_id: Option<&AccountId>,
+        validator: MutableValidatorSigner,
     ) -> Result<Chain, Error> {
         // Get runtime initial state and create genesis block out of it.
         let state_roots = get_genesis_state_roots(runtime_adapter.store())?
             .expect("genesis should be initialized.");
-        let mut chain_store = ChainStore::new(
-            runtime_adapter.store().clone(),
-            chain_genesis.height,
-            chain_config.save_trie_changes,
-        );
+        let congestion_infos = get_genesis_congestion_infos(
+            epoch_manager.as_ref(),
+            runtime_adapter.as_ref(),
+            &state_roots,
+        )?;
         let genesis_chunks = genesis_chunks(
             state_roots.clone(),
+            congestion_infos,
             &epoch_manager.shard_ids(&EpochId::default())?,
             chain_genesis.gas_limit,
             chain_genesis.height,
@@ -430,6 +436,12 @@ impl Chain {
                 EpochId::default(),
                 &CryptoHash::default(),
             )?,
+        );
+
+        let mut chain_store = ChainStore::new(
+            runtime_adapter.store().clone(),
+            chain_genesis.height,
+            chain_config.save_trie_changes,
         );
 
         // Check if we have a head in the store, otherwise pick genesis block.
@@ -539,7 +551,7 @@ impl Chain {
             .iter()
             .filter(|shard_uid| {
                 shard_tracker.care_about_shard(
-                    validator_account_id,
+                    validator.get().map(|v| v.validator_id().clone()).as_ref(),
                     &tip.prev_block_hash,
                     shard_uid.shard_id(),
                     true,
@@ -987,8 +999,8 @@ impl Chain {
             if header.next_bp_hash()
                 != &Chain::compute_bp_hash(
                     self.epoch_manager.as_ref(),
-                    header.next_epoch_id().clone(),
-                    header.epoch_id().clone(),
+                    *header.next_epoch_id(),
+                    *header.epoch_id(),
                     header.prev_hash(),
                 )?
             {
@@ -1783,7 +1795,7 @@ impl Chain {
         let block = block.into_inner();
         let block_hash = *block.hash();
         let block_height = block.header().height();
-        let apply_chunks_done_marker = block_preprocess_info.apply_chunks_done.clone();
+        let apply_chunks_done_tracker = block_preprocess_info.apply_chunks_done_tracker.clone();
         self.blocks_in_processing.add(block, block_preprocess_info)?;
 
         // 3) schedule apply chunks, which will be executed in the rayon thread pool.
@@ -1791,7 +1803,7 @@ impl Chain {
             block_hash,
             block_height,
             apply_chunk_work,
-            apply_chunks_done_marker,
+            apply_chunks_done_tracker,
             apply_chunks_done_sender,
         );
 
@@ -1799,14 +1811,14 @@ impl Chain {
     }
 
     /// Applying chunks async by starting the work at the rayon thread pool
-    /// `apply_chunks_done_marker`: a marker that will be set to true once applying chunks is finished
+    /// `apply_chunks_done_tracker`: notifies the threads that wait for applying chunks is finished
     /// `apply_chunks_done_sender`: a sender to send a ApplyChunksDoneMessage message once applying chunks is finished
     fn schedule_apply_chunks(
         &self,
         block_hash: CryptoHash,
         block_height: BlockHeight,
         work: Vec<UpdateShardJob>,
-        apply_chunks_done_marker: Arc<OnceCell<()>>,
+        mut apply_chunks_done_tracker: ApplyChunksDoneTracker,
         apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) {
         let sc = self.apply_chunks_sender.clone();
@@ -1816,7 +1828,7 @@ impl Chain {
             // If we encounter error here, that means the receiver is deallocated and the client
             // thread is already shut down. The node is already crashed, so we can unwrap here
             sc.send((block_hash, res)).unwrap();
-            if let Err(_) = apply_chunks_done_marker.set(()) {
+            if let Err(_) = apply_chunks_done_tracker.set_done() {
                 // This should never happen, if it does, it means there is a bug in our code.
                 log_assert!(false, "apply chunks are called twice for block {block_hash:?}");
             }
@@ -1840,7 +1852,6 @@ impl Chain {
             self.should_produce_state_witness_for_this_or_next_epoch(me, block.header())?;
         let mut chain_update = self.chain_update();
         let new_head = chain_update.postprocess_block(
-            me,
             &block,
             block_preprocess_info,
             apply_results,
@@ -1900,47 +1911,53 @@ impl Chain {
                 Ok(new_head) => new_head,
             };
 
-        // Update flat storage head to be the last final block. Note that this update happens
-        // in a separate db transaction from the update from block processing. This is intentional
-        // because flat_storage need to be locked during the update of flat head, otherwise
-        // flat_storage is in an inconsistent state that could be accessed by the other
-        // apply chunks processes. This means, the flat head is not always the same as
-        // the last final block on chain, which is OK, because in the flat storage implementation
-        // we don't assume that.
         let epoch_id = block.header().epoch_id();
+        let mut shards_cares_this_or_next_epoch = vec![];
         for shard_id in self.epoch_manager.shard_ids(epoch_id)? {
+            let care_about_shard = self.shard_tracker.care_about_shard(
+                me.as_ref(),
+                block.header().prev_hash(),
+                shard_id,
+                true,
+            );
+            let will_care_about_shard = self.shard_tracker.will_care_about_shard(
+                me.as_ref(),
+                block.header().prev_hash(),
+                shard_id,
+                true,
+            );
+            let care_about_shard_this_or_next_epoch = care_about_shard || will_care_about_shard;
+            if care_about_shard_this_or_next_epoch {
+                let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id).unwrap();
+                shards_cares_this_or_next_epoch.push(shard_uid);
+            }
+
+            // Update flat storage head to be the last final block. Note that this update happens
+            // in a separate db transaction from the update from block processing. This is intentional
+            // because flat_storage need to be locked during the update of flat head, otherwise
+            // flat_storage is in an inconsistent state that could be accessed by the other
+            // apply chunks processes. This means, the flat head is not always the same as
+            // the last final block on chain, which is OK, because in the flat storage implementation
+            // we don't assume that.
             let need_flat_storage_update = if is_caught_up {
                 // If we already caught up this epoch, then flat storage exists for both shards which we already track
                 // and shards which will be tracked in next epoch, so we can update them.
-                self.shard_tracker.care_about_shard(
-                    me.as_ref(),
-                    block.header().prev_hash(),
-                    shard_id,
-                    true,
-                ) || self.shard_tracker.will_care_about_shard(
-                    me.as_ref(),
-                    block.header().prev_hash(),
-                    shard_id,
-                    true,
-                )
+                care_about_shard_this_or_next_epoch
             } else {
                 // If we didn't catch up, we can update only shards tracked right now. Remaining shards will be updated
                 // during catchup of this block.
-                self.shard_tracker.care_about_shard(
-                    me.as_ref(),
-                    block.header().prev_hash(),
-                    shard_id,
-                    true,
-                )
+                care_about_shard
             };
-            tracing::debug!(target: "chain", shard_id,need_flat_storage_update, "Updating flat storage");
+            tracing::debug!(target: "chain", shard_id, need_flat_storage_update, "Updating flat storage");
 
             if need_flat_storage_update {
-                let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
-                let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
-                flat_storage_manager.update_flat_storage_for_shard(shard_uid, &block)?;
-                self.garbage_collect_memtrie_roots(&block, shard_uid);
+                self.update_flat_storage_and_memtrie(&block, shard_id)?;
             }
+        }
+
+        if self.epoch_manager.is_next_block_epoch_start(block.header().prev_hash())? {
+            // Keep in memory only these tries that we care about this or next epoch.
+            self.runtime_adapter.get_tries().retain_mem_tries(&shards_cares_this_or_next_epoch);
         }
 
         if let Err(err) = self.garbage_collect_state_transition_data(&block) {
@@ -1989,7 +2006,65 @@ impl Chain {
         Ok(AcceptedBlock { hash: *block.hash(), status: block_status, provenance })
     }
 
-    fn garbage_collect_memtrie_roots(&self, block: &Block, shard_uid: ShardUId) {
+    /// Gets new flat storage head candidate for given `shard_id` and newly
+    /// processed `block`.
+    /// It will be `block.last_final_block().chunk(shard_id).prev_block_hash()`
+    /// if all necessary conditions are met.
+    /// This is required for `StateSnapshot` to be able to make snapshot of
+    /// flat storage at the epoch boundary.
+    fn get_new_flat_storage_head(
+        &self,
+        block: &Block,
+        shard_id: ShardId,
+    ) -> Result<Option<CryptoHash>, Error> {
+        let epoch_id = block.header().epoch_id();
+        let last_final_block_hash = *block.header().last_final_block();
+        // If final block doesn't exist yet, skip getting candidate.
+        if last_final_block_hash == CryptoHash::default() {
+            return Ok(None);
+        }
+
+        let last_final_block = self.get_block(&last_final_block_hash)?;
+        let last_final_block_epoch_id = last_final_block.header().epoch_id();
+        // If shard layout was changed, the update is impossible so we skip
+        // getting candidate.
+        if self.epoch_manager.get_shard_layout(last_final_block_epoch_id)
+            != self.epoch_manager.get_shard_layout(epoch_id)
+        {
+            return Ok(None);
+        }
+
+        let last_final_block_chunks = last_final_block.chunks();
+        let chunk_header = last_final_block_chunks
+            .iter()
+            .find(|chunk| chunk.shard_id() == shard_id)
+            .ok_or_else(|| Error::InvalidShardId(shard_id))?;
+        let new_flat_head = *chunk_header.prev_block_hash();
+        if new_flat_head == CryptoHash::default() {
+            return Ok(None);
+        }
+        Ok(Some(new_flat_head))
+    }
+
+    /// Update flat storage and memtrie for given `shard_id` and newly
+    /// processed `block`.
+    fn update_flat_storage_and_memtrie(
+        &self,
+        block: &Block,
+        shard_id: ShardId,
+    ) -> Result<(), Error> {
+        let epoch_id = block.header().epoch_id();
+        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
+
+        // Update flat storage.
+        let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
+        if flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_some() {
+            if let Some(new_flat_head) = self.get_new_flat_storage_head(block, shard_id)? {
+                flat_storage_manager.update_flat_storage_for_shard(shard_uid, new_flat_head)?;
+            }
+        }
+
+        // Garbage collect memtrie roots.
         let tries = self.runtime_adapter.get_tries();
         let last_final_block = block.header().last_final_block();
         if last_final_block != &CryptoHash::default() {
@@ -1998,6 +2073,7 @@ impl Chain {
                 tries.delete_memtrie_roots_up_to_height(shard_uid, prev_height);
             }
         }
+        Ok(())
     }
 
     /// Preprocess a block before applying chunks, verify that we have the necessary information
@@ -2023,7 +2099,7 @@ impl Chain {
         // Check that we know the epoch of the block before we try to get the header
         // (so that a block from unknown epoch doesn't get marked as an orphan)
         if !self.epoch_manager.epoch_exists(header.epoch_id()) {
-            return Err(Error::EpochOutOfBounds(header.epoch_id().clone()));
+            return Err(Error::EpochOutOfBounds(*header.epoch_id()));
         }
 
         if block.chunks().len() != self.epoch_manager.shard_ids(header.epoch_id())?.len() {
@@ -2171,7 +2247,7 @@ impl Chain {
                 challenges_result,
                 challenged_blocks,
                 provenance: provenance.clone(),
-                apply_chunks_done: Arc::new(OnceCell::new()),
+                apply_chunks_done_tracker: ApplyChunksDoneTracker::new(),
                 block_start_processing_time: block_received_time,
             },
         ))
@@ -2800,7 +2876,7 @@ impl Chain {
         num_parts: u64,
         state_parts_task_scheduler: &near_async::messaging::Sender<ApplyStatePartsRequest>,
     ) -> Result<(), Error> {
-        let epoch_id = self.get_block_header(&sync_hash)?.epoch_id().clone();
+        let epoch_id = *self.get_block_header(&sync_hash)?.epoch_id();
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
 
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
@@ -2904,7 +2980,7 @@ impl Chain {
         let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
         if let Some(flat_storage) = flat_storage_manager.get_flat_storage_for_shard(shard_uid) {
             let header = self.get_block_header(&sync_hash)?;
-            flat_storage.update_flat_head(header.prev_hash(), true).unwrap();
+            flat_storage.update_flat_head(header.prev_hash()).unwrap();
         }
 
         Ok(())
@@ -3109,10 +3185,7 @@ impl Chain {
                 shard_id,
                 true,
             ) {
-                let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
-                let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
-                flat_storage_manager.update_flat_storage_for_shard(shard_uid, &block)?;
-                self.garbage_collect_memtrie_roots(&block, shard_uid);
+                self.update_flat_storage_and_memtrie(&block, shard_id)?;
             }
         }
 
@@ -3850,6 +3923,89 @@ impl Chain {
     }
 }
 
+/// This method calculates the congestion info for the genesis chunks. It uses
+/// the congestion info bootstrapping logic. This method is just a wrapper
+/// around the [`get_genesis_congestion_infos_impl`]. It logs an error if one
+/// happens.
+pub fn get_genesis_congestion_infos(
+    epoch_manager: &dyn EpochManagerAdapter,
+    runtime: &dyn RuntimeAdapter,
+    state_roots: &Vec<CryptoHash>,
+) -> Result<Vec<Option<CongestionInfo>>, Error> {
+    get_genesis_congestion_infos_impl(epoch_manager, runtime, state_roots).map_err(|err| {
+        tracing::error!(target: "chain", ?err, "Failed to get the genesis congestion infos.");
+        err
+    })
+}
+
+fn get_genesis_congestion_infos_impl(
+    epoch_manager: &dyn EpochManagerAdapter,
+    runtime: &dyn RuntimeAdapter,
+    state_roots: &Vec<CryptoHash>,
+) -> Result<Vec<Option<CongestionInfo>>, Error> {
+    let genesis_prev_hash = CryptoHash::default();
+    let genesis_epoch_id = epoch_manager.get_epoch_id_from_prev_block(&genesis_prev_hash)?;
+    let genesis_protocol_version = epoch_manager.get_epoch_protocol_version(&genesis_epoch_id)?;
+    // If congestion control is not enabled at the genesis block, we return None (congestion info) for each shard.
+    if !ProtocolFeature::CongestionControl.enabled(genesis_protocol_version) {
+        return Ok(std::iter::repeat(None).take(state_roots.len()).collect());
+    }
+
+    // Since the congestion info is already bootstrapped in statelessnet, skip another bootstrap.
+    // TODO: This is temporary mitigation for the failing genesis congestion info due to garbage
+    // collected genesis state roots. It can be removed after the statelessnet network is turned down.
+    if let Ok(protocol_config) = runtime.get_protocol_config(&genesis_epoch_id) {
+        if protocol_config.genesis_config.chain_id == near_primitives::chains::STATELESSNET {
+            return Ok(std::iter::repeat(None).take(state_roots.len()).collect());
+        }
+    }
+
+    // Check we had already computed the congestion infos from the genesis state roots.
+    if let Some(saved_infos) = near_store::get_genesis_congestion_infos(runtime.store())? {
+        tracing::debug!(target: "chain", "Reading genesis congestion infos from database.");
+        return Ok(saved_infos.into_iter().map(Option::Some).collect());
+    }
+
+    let mut new_infos = vec![];
+    for (shard_id, &state_root) in state_roots.iter().enumerate() {
+        let shard_id = shard_id as ShardId;
+        let congestion_info = get_genesis_congestion_info(
+            runtime,
+            genesis_protocol_version,
+            &genesis_prev_hash,
+            shard_id,
+            state_root,
+        )?;
+        new_infos.push(congestion_info);
+    }
+
+    // Store it in DB so that we can read it later, instead of recomputing from genesis state roots.
+    // Note that this is necessary because genesis state roots will be garbage-collected and will not
+    // be available, for example, when the node restarts later.
+    tracing::debug!(target: "chain", "Saving genesis congestion infos to database.");
+    let mut store_update = runtime.store().store_update();
+    near_store::set_genesis_congestion_infos(&mut store_update, &new_infos);
+    store_update.commit()?;
+
+    Ok(new_infos.into_iter().map(Option::Some).collect())
+}
+
+fn get_genesis_congestion_info(
+    runtime: &dyn RuntimeAdapter,
+    protocol_version: ProtocolVersion,
+    prev_hash: &CryptoHash,
+    shard_id: ShardId,
+    state_root: StateRoot,
+) -> Result<CongestionInfo, Error> {
+    // Get the view trie because it's possible that the chain is ahead of
+    // genesis and doesn't have this block in flat state and memtrie.
+    let trie = runtime.get_view_trie_for_shard(shard_id, prev_hash, state_root)?;
+    let runtime_config = runtime.get_runtime_config(protocol_version)?;
+    let congestion_info = bootstrap_congestion_info(&trie, &runtime_config, shard_id)?;
+    tracing::debug!(target: "chain", ?shard_id, ?state_root, ?congestion_info, "Computed genesis congestion info.");
+    Ok(congestion_info)
+}
+
 fn shard_id_out_of_bounds(shard_id: ShardId) -> Error {
     Error::InvalidStateRequest(format!("shard_id {shard_id:?} out of bounds").into())
 }
@@ -3904,7 +4060,6 @@ impl Chain {
         ChainUpdate::new(
             &mut self.chain_store,
             self.epoch_manager.clone(),
-            self.shard_tracker.clone(),
             self.runtime_adapter.clone(),
             self.doomslug_threshold_mode,
             self.transaction_validity_period,
@@ -4197,12 +4352,6 @@ impl Chain {
         self.chain_store.get_chunk_extra(block_hash, shard_uid)
     }
 
-    /// Get destination shard id for a given receipt id.
-    #[inline]
-    pub fn get_shard_id_for_receipt_id(&self, receipt_id: &CryptoHash) -> Result<ShardId, Error> {
-        self.chain_store.get_shard_id_for_receipt_id(receipt_id)
-    }
-
     /// Get next block hash for which there is a new chunk for the shard.
     /// If sharding changes before we can find a block with a new chunk for the shard,
     /// find the first block that contains a new chunk for any of the shards that split from the
@@ -4213,13 +4362,13 @@ impl Chain {
         shard_id: ShardId,
     ) -> Result<Option<(CryptoHash, ShardId)>, Error> {
         let mut block_hash = *block_hash;
-        let mut epoch_id = self.get_block_header(&block_hash)?.epoch_id().clone();
+        let mut epoch_id = *self.get_block_header(&block_hash)?.epoch_id();
         let mut shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         // this corrects all the shard where the original shard will split to if sharding changes
         let mut shard_ids = vec![shard_id];
 
         while let Ok(next_block_hash) = self.chain_store.get_next_block_hash(&block_hash) {
-            let next_epoch_id = self.get_block_header(&next_block_hash)?.epoch_id().clone();
+            let next_epoch_id = *self.get_block_header(&next_block_hash)?.epoch_id();
             if next_epoch_id != epoch_id {
                 let next_shard_layout = self.epoch_manager.get_shard_layout(&next_epoch_id)?;
                 if next_shard_layout != shard_layout {

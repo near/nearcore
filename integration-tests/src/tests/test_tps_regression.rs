@@ -3,13 +3,14 @@
 //! no choking on transactions). The input tps -- is how fast the nodes can be accepting
 //! transactions. The output tps -- is how fast the nodes propagate transactions into the blocks.
 use crate::node::{create_nodes, sample_queryable_node, sample_two_nodes, Node};
-use crate::test_helpers::heavy_test;
 use near_primitives::transaction::SignedTransaction;
 use std::io::stdout;
 use std::io::Write;
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
+
+use super::test_helpers::heavy_test;
 
 /// Creates and sends a random transaction.
 /// Args:

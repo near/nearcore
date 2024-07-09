@@ -16,6 +16,8 @@ pub(crate) fn test_builder() -> TestBuilder {
         signer_account_pk: vec![0, 1, 2],
         predecessor_account_id: "carol".parse().unwrap(),
         input: Vec::new(),
+        promise_results: Vec::new().into(),
+        method: "main".into(),
         block_height: 10,
         block_timestamp: 42,
         epoch_height: 1,
@@ -37,7 +39,6 @@ pub(crate) fn test_builder() -> TestBuilder {
     TestBuilder {
         code: ContractCode::new(Vec::new(), None),
         context,
-        method: "main".to_string(),
         protocol_versions: vec![u32::MAX],
         skip,
         opaque_error: false,
@@ -49,7 +50,6 @@ pub(crate) struct TestBuilder {
     code: ContractCode,
     context: VMContext,
     protocol_versions: Vec<ProtocolVersion>,
-    method: String,
     skip: HashSet<VMKind>,
     opaque_error: bool,
     opaque_outcome: bool,
@@ -74,7 +74,7 @@ impl TestBuilder {
     }
 
     pub(crate) fn method(mut self, method: &str) -> Self {
-        self.method = method.to_string();
+        self.context.method = method.to_string();
         self
     }
 
@@ -212,28 +212,18 @@ impl TestBuilder {
                     continue;
                 }
 
-                let mut fake_external = MockedExternal::new();
+                let mut fake_external = MockedExternal::with_code(self.code.clone_for_tests());
                 let config = runtime_config.wasm_config.clone();
-                let fees = RuntimeFeesConfig::test();
+                let fees = Arc::new(RuntimeFeesConfig::test());
                 let context = self.context.clone();
-
-                let promise_results = vec![];
 
                 let Some(runtime) = vm_kind.runtime(config) else {
                     panic!("runtime for {:?} has not been compiled", vm_kind);
                 };
                 println!("Running {:?} for protocol version {}", vm_kind, protocol_version);
                 let outcome = runtime
-                    .run(
-                        *self.code.hash(),
-                        Some(&self.code),
-                        &self.method,
-                        &mut fake_external,
-                        &context,
-                        &fees,
-                        &promise_results,
-                        None,
-                    )
+                    .prepare(&fake_external, &context, None)
+                    .run(&mut fake_external, &context, fees)
                     .expect("execution failed");
 
                 let mut got = String::new();

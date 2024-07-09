@@ -1,5 +1,8 @@
 use crate::conversions::Convert;
 use crate::receipt_manager::ReceiptManager;
+use near_primitives::account::id::AccountType;
+use near_primitives::account::Account;
+use near_primitives::checked_feature;
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
@@ -11,17 +14,20 @@ use near_vm_runner::logic::errors::{AnyError, VMLogicError};
 use near_vm_runner::logic::types::ReceiptIndex;
 use near_vm_runner::logic::{External, StorageGetMode, ValuePtr};
 use near_vm_runner::ContractCode;
+use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
+use std::sync::Arc;
 
 pub struct RuntimeExt<'a> {
-    trie_update: &'a mut TrieUpdate,
+    pub(crate) trie_update: &'a mut TrieUpdate,
     pub(crate) receipt_manager: &'a mut ReceiptManager,
-    account_id: &'a AccountId,
-    action_hash: &'a CryptoHash,
+    account_id: AccountId,
+    account: Account,
+    action_hash: CryptoHash,
     data_count: u64,
-    epoch_id: &'a EpochId,
-    prev_block_hash: &'a CryptoHash,
-    last_block_hash: &'a CryptoHash,
-    epoch_info_provider: &'a dyn EpochInfoProvider,
+    epoch_id: EpochId,
+    prev_block_hash: CryptoHash,
+    last_block_hash: CryptoHash,
+    epoch_info_provider: &'a (dyn EpochInfoProvider),
     current_protocol_version: ProtocolVersion,
 }
 
@@ -57,18 +63,20 @@ impl<'a> RuntimeExt<'a> {
     pub fn new(
         trie_update: &'a mut TrieUpdate,
         receipt_manager: &'a mut ReceiptManager,
-        account_id: &'a AccountId,
-        action_hash: &'a CryptoHash,
-        epoch_id: &'a EpochId,
-        prev_block_hash: &'a CryptoHash,
-        last_block_hash: &'a CryptoHash,
-        epoch_info_provider: &'a dyn EpochInfoProvider,
+        account_id: AccountId,
+        account: Account,
+        action_hash: CryptoHash,
+        epoch_id: EpochId,
+        prev_block_hash: CryptoHash,
+        last_block_hash: CryptoHash,
+        epoch_info_provider: &'a (dyn EpochInfoProvider),
         current_protocol_version: ProtocolVersion,
     ) -> Self {
         RuntimeExt {
             trie_update,
             receipt_manager,
             account_id,
+            account,
             action_hash,
             data_count: 0,
             epoch_id,
@@ -80,20 +88,17 @@ impl<'a> RuntimeExt<'a> {
     }
 
     #[inline]
-    pub fn account_id(&self) -> &'a AccountId {
-        self.account_id
+    pub fn account_id(&self) -> &AccountId {
+        &self.account_id
     }
 
-    pub fn get_code(&self, code_hash: CryptoHash) -> Option<ContractCode> {
-        self.trie_update.get_code(self.account_id.clone(), code_hash)
+    #[inline]
+    pub fn account(&self) -> &Account {
+        &self.account
     }
 
     pub fn create_storage_key(&self, key: &[u8]) -> TrieKey {
         TrieKey::ContractData { account_id: self.account_id.clone(), key: key.to_vec() }
-    }
-
-    pub fn set_trie_cache_mode(&mut self, state: TrieCacheMode) {
-        self.trie_update.set_trie_cache_mode(state);
     }
 
     #[inline]
@@ -156,10 +161,10 @@ impl<'a> External for RuntimeExt<'a> {
     fn storage_remove_subtree(&mut self, prefix: &[u8]) -> ExtResult<()> {
         let data_keys = self
             .trie_update
-            .iter(&trie_key_parsers::get_raw_prefix_for_contract_data(self.account_id, prefix))
+            .iter(&trie_key_parsers::get_raw_prefix_for_contract_data(&self.account_id, prefix))
             .map_err(wrap_storage_error)?
             .map(|raw_key| {
-                trie_key_parsers::parse_data_key_from_contract_data_key(&raw_key?, self.account_id)
+                trie_key_parsers::parse_data_key_from_contract_data_key(&raw_key?, &self.account_id)
                     .map_err(|_e| {
                         StorageError::StorageInconsistentState(
                             "Can't parse data key from raw key for ContractData".to_string(),
@@ -179,9 +184,9 @@ impl<'a> External for RuntimeExt<'a> {
     fn generate_data_id(&mut self) -> CryptoHash {
         let data_id = create_receipt_id_from_action_hash(
             self.current_protocol_version,
-            self.action_hash,
-            self.prev_block_hash,
-            self.last_block_hash,
+            &self.action_hash,
+            &self.prev_block_hash,
+            &self.last_block_hash,
             self.data_count as usize,
         );
         self.data_count += 1;
@@ -203,13 +208,13 @@ impl<'a> External for RuntimeExt<'a> {
 
     fn validator_stake(&self, account_id: &AccountId) -> ExtResult<Option<Balance>> {
         self.epoch_info_provider
-            .validator_stake(self.epoch_id, self.prev_block_hash, account_id)
+            .validator_stake(&self.epoch_id, &self.prev_block_hash, account_id)
             .map_err(|e| ExternalError::ValidatorError(e).into())
     }
 
     fn validator_total_stake(&self) -> ExtResult<Balance> {
         self.epoch_info_provider
-            .validator_total_stake(self.epoch_id, self.prev_block_hash)
+            .validator_total_stake(&self.epoch_id, &self.prev_block_hash)
             .map_err(|e| ExternalError::ValidatorError(e).into())
     }
 
@@ -353,5 +358,28 @@ impl<'a> External for RuntimeExt<'a> {
 
     fn get_receipt_receiver(&self, receipt_index: ReceiptIndex) -> &AccountId {
         self.receipt_manager.get_receipt_receiver(receipt_index)
+    }
+
+    fn code_hash(&self) -> CryptoHash {
+        self.account.code_hash()
+    }
+
+    fn get_contract(&self) -> Option<Arc<ContractCode>> {
+        let account_id = self.account_id();
+        let code_hash = self.code_hash();
+        let version = self.current_protocol_version;
+        let chain_id = self.chain_id();
+        if checked_feature!("stable", EthImplicitAccounts, self.current_protocol_version)
+            && account_id.get_account_type() == AccountType::EthImplicitAccount
+            && &code_hash == wallet_contract_magic_bytes(&chain_id).hash()
+        {
+            return Some(wallet_contract(&chain_id));
+        }
+        let mode = match checked_feature!("stable", ChunkNodesCache, version) {
+            true => Some(TrieCacheMode::CachingShard),
+            false => None,
+        };
+        let _guard = self.trie_update.with_trie_cache_mode(mode);
+        self.trie_update.get_code(self.account_id.clone(), code_hash).map(Arc::new)
     }
 }

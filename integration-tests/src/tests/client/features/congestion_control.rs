@@ -34,7 +34,8 @@ fn setup_runtime(sender_id: AccountId, protocol_version: ProtocolVersion) -> Tes
 
     let mut config = RuntimeConfig::test();
     // Make 1 wasm op cost ~4 GGas, to let "loop_forever" finish more quickly.
-    config.wasm_config.regular_op_cost = u32::MAX;
+    let wasm_config = Arc::make_mut(&mut config.wasm_config);
+    wasm_config.regular_op_cost = u32::MAX;
     let runtime_configs = vec![RuntimeConfigStore::with_one_config(config)];
 
     TestEnv::builder(&genesis.config)
@@ -193,7 +194,7 @@ fn test_protocol_upgrade_simple() {
             .expect("chunk header must have congestion info after upgrade");
         let congestion_control = CongestionControl::new(config, congestion_info, 0);
         assert_eq!(congestion_control.congestion_level(), 0.0);
-        assert!(congestion_control.shard_accepts_transactions());
+        assert!(congestion_control.shard_accepts_transactions().is_yes());
     }
 
     let check_congested_protocol_upgrade = false;
@@ -204,7 +205,7 @@ fn head_congestion_control_config(
     env: &TestEnv,
 ) -> near_parameters::config::CongestionControlConfig {
     let block = env.clients[0].chain.get_head_block().unwrap();
-    let runtime_config = env.get_runtime_config(0, block.header().epoch_id().clone());
+    let runtime_config = env.get_runtime_config(0, *block.header().epoch_id());
     runtime_config.congestion_control_config
 }
 

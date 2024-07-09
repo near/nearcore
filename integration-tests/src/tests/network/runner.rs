@@ -6,7 +6,7 @@ use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::time::{self, Clock};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis};
-use near_chain_configs::{ClientConfig, Genesis, GenesisConfig};
+use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, MutableConfigValue};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::{start_client, PartialWitnessActor, SyncAdapter, ViewClientActorInner};
@@ -65,7 +65,10 @@ fn setup_network_node(
         &genesis.config,
         epoch_manager.clone(),
     );
-    let signer = Arc::new(create_test_signer(account_id.as_str()));
+    let validator_signer = MutableConfigValue::new(
+        Some(Arc::new(create_test_signer(account_id.as_str()))),
+        "validator_signer",
+    );
     let telemetry_actor =
         ActixWrapper::new(TelemetryActor::new(TelemetryConfig::default())).start();
 
@@ -100,7 +103,7 @@ fn setup_network_node(
         state_sync_adapter,
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
-        Some(signer.clone()),
+        validator_signer.clone(),
         telemetry_actor.with_auto_span_context().into_sender(),
         None,
         None,
@@ -113,7 +116,7 @@ fn setup_network_node(
     .client_actor;
     let view_client_addr = ViewClientActorInner::spawn_actix_actor(
         Clock::real(),
-        config.validator.as_ref().map(|v| v.account_id()),
+        validator_signer.clone(),
         chain_genesis,
         epoch_manager.clone(),
         shard_tracker.clone(),
@@ -127,7 +130,7 @@ fn setup_network_node(
         shard_tracker,
         network_adapter.as_sender(),
         client_actor.clone().with_auto_span_context().into_sender(),
-        Some(signer.validator_id().clone()),
+        validator_signer.clone(),
         runtime.store().clone(),
         client_config.chunk_request_retry_period,
     );
@@ -135,7 +138,7 @@ fn setup_network_node(
         Clock::real(),
         network_adapter.as_multi_sender(),
         client_actor.clone().with_auto_span_context().into_multi_sender(),
-        signer,
+        validator_signer,
         epoch_manager,
         runtime.store().clone(),
     ));
@@ -217,7 +220,7 @@ impl StateMachine {
                     debug!(target: "test", num_prev_actions, action = ?action_clone, "runner.rs: Action");
                     let pm = info.get_node(from)?.actix.addr.clone();
                     let peer_info = info.runner.test_config[to].peer_info();
-                    match tcp::Stream::connect(&peer_info, tcp::Tier::T2).await {
+                    match tcp::Stream::connect(&peer_info, tcp::Tier::T2, &config::SocketOptions::default()).await {
                         Ok(stream) => { pm.send(PeerManagerMessageRequest::OutboundTcpConnect(stream).with_span_context()).await?; },
                         Err(err) => tracing::debug!("tcp::Stream::connect({peer_info}): {err}"),
                     }

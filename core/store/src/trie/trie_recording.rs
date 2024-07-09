@@ -47,6 +47,14 @@ impl TrieRecorder {
         }
     }
 
+    /// Records value without increasing the recorded size.
+    /// This is used to bypass witness size checks in order to generate
+    /// large witness for testing.
+    #[cfg(feature = "test_features")]
+    pub fn record_unaccounted(&mut self, hash: &CryptoHash, node: Arc<[u8]>) {
+        self.recorded.insert(*hash, node);
+    }
+
     pub fn record(&mut self, hash: &CryptoHash, node: Arc<[u8]>) {
         let size = node.len();
         if self.recorded.insert(*hash, node).is_none() {
@@ -69,7 +77,6 @@ impl TrieRecorder {
     }
 
     pub fn recorded_storage_size(&self) -> usize {
-        debug_assert!(self.size == self.recorded.values().map(|v| v.len()).sum::<usize>());
         self.size
     }
 
@@ -500,7 +507,7 @@ mod trie_recording_tests {
             // Let's capture the baseline node counts - this is what will happen
             // in production.
             let trie = get_trie_for_shard(&tries, shard_uid, state_root, use_flat_storage);
-            trie.accounting_cache.borrow_mut().set_enabled(enable_accounting_cache);
+            trie.accounting_cache.borrow().enable_switch().set(enable_accounting_cache);
             for key in &keys_to_get {
                 assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
             }
@@ -520,7 +527,7 @@ mod trie_recording_tests {
             // we get are exactly the same.
             let trie = get_trie_for_shard(&tries, shard_uid, state_root, use_flat_storage)
                 .recording_reads();
-            trie.accounting_cache.borrow_mut().set_enabled(enable_accounting_cache);
+            trie.accounting_cache.borrow().enable_switch().set(enable_accounting_cache);
             for key in &keys_to_get {
                 assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
             }
@@ -545,7 +552,7 @@ mod trie_recording_tests {
             destructively_delete_in_memory_state_from_disk(&store, &data_in_trie);
             let trie = get_trie_for_shard(&tries, shard_uid, state_root, use_flat_storage)
                 .recording_reads();
-            trie.accounting_cache.borrow_mut().set_enabled(enable_accounting_cache);
+            trie.accounting_cache.borrow().enable_switch().set(enable_accounting_cache);
             for key in &keys_to_get {
                 assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
             }
@@ -571,7 +578,7 @@ mod trie_recording_tests {
             );
             let trie =
                 Trie::from_recorded_storage(partial_storage.clone(), state_root, use_flat_storage);
-            trie.accounting_cache.borrow_mut().set_enabled(enable_accounting_cache);
+            trie.accounting_cache.borrow().enable_switch().set(enable_accounting_cache);
             for key in &keys_to_get {
                 assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
             }
@@ -589,7 +596,7 @@ mod trie_recording_tests {
             // Build a Trie using recorded storage and enable recording_reads on this Trie
             let trie = Trie::from_recorded_storage(partial_storage, state_root, use_flat_storage)
                 .recording_reads();
-            trie.accounting_cache.borrow_mut().set_enabled(enable_accounting_cache);
+            trie.accounting_cache.borrow().enable_switch().set(enable_accounting_cache);
             for key in &keys_to_get {
                 assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
             }

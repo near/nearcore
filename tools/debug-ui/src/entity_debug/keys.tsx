@@ -48,7 +48,13 @@ export function parseEntityKey(keyType: EntityKeyType, input: string): EntityKey
         case 'receipt_id':
         case 'transaction_hash':
         case 'state_root':
-            if (input.length != 44) {
+            // Length of 32-byte array encoded in base58 is 43 or 44 characters,
+            // depending on whether we need additional character or not.
+            // 
+            // Short explanation: 32 bytes are 256 bits, each base58 character 
+            // encodes log2(58) ≈ 5.858 bits. Then length of 32-byte array
+            // encoded in base58 is ≈ 256 / 5.858 ≈ 43.7. 
+            if (![43, 44].includes(input.length)) {
                 return null;
             }
             return new StringEntityKey(keyType, input);

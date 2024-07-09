@@ -1,7 +1,10 @@
+use std::str::FromStr;
+
 use crate::config::Config;
 use near_jsonrpc::RpcConfig;
 use near_network::config_json::{ExperimentalConfig, NetworkConfigOverrides};
 use near_o11y::testonly::init_test_logger;
+use near_primitives::types::AccountId;
 use near_store::StoreConfig;
 use serde::ser::{
     SerializeMap, SerializeSeq, SerializeStruct, SerializeStructVariant, SerializeTuple,
@@ -40,6 +43,7 @@ fn test_config_duration_all_std() {
         rosetta_rpc: Some(Default::default()),
         save_trie_changes: Some(Default::default()),
         split_storage: Some(Default::default()),
+        tracked_shadow_validator: Some(AccountId::from_str("test").unwrap()),
         tracked_shard_schedule: Some(Default::default()),
         transaction_pool_size_limit: Some(Default::default()),
         state_sync: Some(Default::default()),
@@ -58,6 +62,9 @@ fn test_config_duration_all_std() {
                     routed_message_ttl: Some(0),
                     routing_table_update_rate_limit_burst: Some(0),
                     routing_table_update_rate_limit_qps: Some(0.0),
+                    received_messages_rate_limits: Some(
+                        near_network::MessagesLimitsOverrideConfig::default(),
+                    ),
                 },
                 ..Default::default()
             },

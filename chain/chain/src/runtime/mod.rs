@@ -17,7 +17,9 @@ use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::checked_feature;
-use near_primitives::congestion_info::{CongestionControl, ExtendedCongestionInfo};
+use near_primitives::congestion_info::{
+    CongestionControl, ExtendedCongestionInfo, RejectTransactionReason, ShardAcceptsTransactions,
+};
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
@@ -36,7 +38,7 @@ use near_primitives::types::{
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, ContractCodeView, QueryRequest, QueryResponse,
-    QueryResponseKind, ViewApplyState, ViewStateResult,
+    QueryResponseKind, ViewStateResult,
 };
 use near_store::config::StateSnapshotType;
 use near_store::flat::FlatStorageManager;
@@ -48,7 +50,7 @@ use near_store::{
 use near_vm_runner::ContractCode;
 use near_vm_runner::{precompile_contract, ContractRuntimeCache, FilesystemContractRuntimeCache};
 use node_runtime::adapter::ViewRuntimeAdapter;
-use node_runtime::state_viewer::TrieViewer;
+use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
     validate_transaction, verify_and_charge_transaction, ApplyState, Runtime,
     ValidatorAccountsUpdate,
@@ -495,7 +497,12 @@ impl NightshadeRuntime {
                 let contract_cache = compiled_contract_cache.as_deref();
                 let slot_sender = slot_sender.clone();
                 scope.spawn(move |_| {
-                    precompile_contract(&code, &runtime_config.wasm_config, contract_cache).ok();
+                    precompile_contract(
+                        &code,
+                        Arc::clone(&runtime_config.wasm_config),
+                        contract_cache,
+                    )
+                    .ok();
                     // If this fails, it just means there won't be any more attempts to recv the
                     // slots
                     let _ = slot_sender.send(());
@@ -654,12 +661,23 @@ impl RuntimeAdapter for NightshadeRuntime {
                 congestion_info.congestion_info,
                 congestion_info.missed_chunks_count,
             );
-            if !congestion_control.shard_accepts_transactions() {
+            if let ShardAcceptsTransactions::No(reason) =
+                congestion_control.shard_accepts_transactions()
+            {
                 let receiver_shard =
                     self.account_id_to_shard_uid(transaction.transaction.receiver_id(), epoch_id)?;
-                return Ok(Some(InvalidTxError::ShardCongested {
-                    shard_id: receiver_shard.shard_id,
-                }));
+                let shard_id = receiver_shard.shard_id;
+                let err = match reason {
+                    RejectTransactionReason::IncomingCongestion { congestion_level }
+                    | RejectTransactionReason::OutgoingCongestion { congestion_level }
+                    | RejectTransactionReason::MemoryCongestion { congestion_level } => {
+                        InvalidTxError::ShardCongested { shard_id, congestion_level }
+                    }
+                    RejectTransactionReason::MissedChunks { missed_chunks } => {
+                        InvalidTxError::ShardStuck { shard_id, missed_chunks }
+                    }
+                };
+                return Ok(Some(err));
             }
         }
 
@@ -769,20 +787,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         let delayed_receipts_indices: DelayedReceiptIndices =
             near_store::get(&state_update, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default();
         let min_fee = runtime_config.fees.fee(ActionCosts::new_action_receipt).exec_fee();
-        let new_receipt_count_limit = if min_fee > 0 {
-            // Round up to include at least one receipt.
-            let max_processed_receipts_in_chunk = (gas_limit + min_fee - 1) / min_fee;
-            // Allow at most 2 chunks worth of delayed receipts. This way under congestion,
-            // after processing a single chunk, we will still have at least 1 chunk worth of
-            // delayed receipts, ensuring the high throughput even if the next chunk producer
-            // does not include any receipts.
-            // This buffer size is a trade-off between the max queue size and system efficiency
-            // under congestion.
-            let delayed_receipt_count_limit = max_processed_receipts_in_chunk * 2;
-            delayed_receipt_count_limit.saturating_sub(delayed_receipts_indices.len()) as usize
-        } else {
-            usize::MAX
-        };
+        let new_receipt_count_limit =
+            get_new_receipt_count_limit(min_fee, gas_limit, delayed_receipts_indices);
 
         let size_limit: u64 = calculate_transactions_size_limit(
             protocol_version,
@@ -806,10 +812,11 @@ impl RuntimeAdapter for NightshadeRuntime {
                 break;
             }
             if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
+                // Local Congestion Control.
                 // Keep this for the upgrade phase, afterwards it can be
                 // removed. It does not need to be kept because it does not
                 // affect replayability.
-                // TODO: remove at release CongestionControl + 1 or later
+                // TODO(congestion_control): remove at release CongestionControl + 1 or later
                 if result.transactions.len() >= new_receipt_count_limit {
                     result.limited_by = Some(PrepareTransactionsLimit::ReceiptCount);
                     break;
@@ -843,31 +850,26 @@ impl RuntimeAdapter for NightshadeRuntime {
                     break 'add_txs_loop;
                 }
 
-                // Take the transaction out of the pool
+                // Take the transaction out of the pool. Please take note that
+                // the transaction may still be rejected in which case it will
+                // not be returned to the pool. Most notably this may happen
+                // under congestion.
                 let tx = transaction_group_iter
                     .next()
                     .expect("peek_next() returned Some, so next() should return Some as well");
                 num_checked_transactions += 1;
 
-                if ProtocolFeature::CongestionControl.enabled(protocol_version) {
-                    let receiving_shard = EpochManagerAdapter::account_id_to_shard_id(
-                        self.epoch_manager.as_ref(),
-                        tx.transaction.receiver_id(),
-                        &epoch_id,
-                    )?;
-                    if let Some(congestion_info) = prev_block.congestion_info.get(&receiving_shard)
-                    {
-                        let congestion_control = CongestionControl::new(
-                            runtime_config.congestion_control_config,
-                            congestion_info.congestion_info,
-                            congestion_info.missed_chunks_count,
-                        );
-                        if !congestion_control.shard_accepts_transactions() {
-                            tracing::trace!(target: "runtime", tx=?tx.get_hash(), "discarding transaction due to congestion");
-                            rejected_due_to_congestion += 1;
-                            continue;
-                        }
-                    }
+                if !congestion_control_accepts_transaction(
+                    self.epoch_manager.as_ref(),
+                    protocol_version,
+                    &runtime_config,
+                    &epoch_id,
+                    &prev_block,
+                    &tx,
+                )? {
+                    tracing::trace!(target: "runtime", tx=?tx.get_hash(), "discarding transaction due to congestion");
+                    rejected_due_to_congestion += 1;
+                    continue;
                 }
 
                 // Verifying the transaction is on the same chain and hasn't expired yet.
@@ -1298,6 +1300,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
+    fn get_runtime_config(
+        &self,
+        protocol_version: ProtocolVersion,
+    ) -> Result<RuntimeConfig, Error> {
+        let runtime_config = self.runtime_config_store.get_config(protocol_version);
+        Ok(runtime_config.as_ref().clone())
+    }
+
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
         let mut genesis_config = self.genesis_config.clone();
@@ -1346,6 +1356,27 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 }
 
+/// Get the limit on the number of new receipts imposed by the local congestion control.
+fn get_new_receipt_count_limit(
+    min_fee: u64,
+    gas_limit: u64,
+    delayed_receipts_indices: DelayedReceiptIndices,
+) -> usize {
+    if min_fee == 0 {
+        return usize::MAX;
+    }
+    // Round up to include at least one receipt.
+    let max_processed_receipts_in_chunk = (gas_limit + min_fee - 1) / min_fee;
+    // Allow at most 2 chunks worth of delayed receipts. This way under congestion,
+    // after processing a single chunk, we will still have at least 1 chunk worth of
+    // delayed receipts, ensuring the high throughput even if the next chunk producer
+    // does not include any receipts.
+    // This buffer size is a trade-off between the max queue size and system efficiency
+    // under congestion.
+    let delayed_receipt_count_limit = max_processed_receipts_in_chunk * 2;
+    delayed_receipt_count_limit.saturating_sub(delayed_receipts_indices.len()) as usize
+}
+
 /// How much gas of the next chunk we want to spend on converting new
 /// transactions to receipts.
 fn chunk_tx_gas_limit(
@@ -1355,28 +1386,22 @@ fn chunk_tx_gas_limit(
     shard_id: u64,
     gas_limit: u64,
 ) -> u64 {
-    if ProtocolFeature::CongestionControl.enabled(protocol_version) {
-        if let Some(own_congestion) = prev_block.congestion_info.get(&shard_id) {
-            let congestion_control = CongestionControl::new(
-                runtime_config.congestion_control_config,
-                own_congestion.congestion_info,
-                own_congestion.missed_chunks_count,
-            );
-            congestion_control.process_tx_limit()
-        } else {
-            // When a new shard is created, or when the feature is just being enabled.
-            // Using the default (no congestion) is a reasonable choice in this case.
-            let own_congestion = ExtendedCongestionInfo::default();
-            let congestion_control = CongestionControl::new(
-                runtime_config.congestion_control_config,
-                own_congestion.congestion_info,
-                own_congestion.missed_chunks_count,
-            );
-            congestion_control.process_tx_limit()
-        }
-    } else {
-        gas_limit / 2
+    if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
+        return gas_limit / 2;
     }
+
+    // The own congestion may be None when a new shard is created, or when the
+    // feature is just being enabled. Using the default (no congestion) is a
+    // reasonable choice in this case.
+    let own_congestion = prev_block.congestion_info.get(&shard_id).cloned();
+    let own_congestion = own_congestion.unwrap_or_default();
+
+    let congestion_control = CongestionControl::new(
+        runtime_config.congestion_control_config,
+        own_congestion.congestion_info,
+        own_congestion.missed_chunks_count,
+    );
+    congestion_control.process_tx_limit()
 }
 
 fn calculate_transactions_size_limit(
@@ -1402,11 +1427,43 @@ fn calculate_transactions_size_limit(
         // cost of roundtripping a byte of data through disk. For today's value
         // of parameters, this corresponds to about 13megs worth of
         // transactions.
-        let roundtripping_cost =
-            runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::storage_write_value_byte)
-                + runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::storage_read_value_byte);
+        let ext_costs_config = &runtime_config.wasm_config.ext_costs;
+        let write_cost = ext_costs_config.gas_cost(ExtCosts::storage_write_value_byte);
+        let read_cost = ext_costs_config.gas_cost(ExtCosts::storage_read_value_byte);
+        let roundtripping_cost = write_cost + read_cost;
         transactions_gas_limit / roundtripping_cost
     }
+}
+
+/// Returns true if the transaction passes the congestion control checks. The
+/// transaction will be accepted if the receiving shard is not congested or its
+/// congestion level is below the threshold.
+fn congestion_control_accepts_transaction(
+    epoch_manager: &dyn EpochManagerAdapter,
+    protocol_version: ProtocolVersion,
+    runtime_config: &RuntimeConfig,
+    epoch_id: &EpochId,
+    prev_block: &PrepareTransactionsBlockContext,
+    tx: &SignedTransaction,
+) -> Result<bool, Error> {
+    if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
+        return Ok(true);
+    }
+    let receiver_id = tx.transaction.receiver_id();
+    let receiving_shard = epoch_manager.account_id_to_shard_id(receiver_id, &epoch_id)?;
+
+    let congestion_info = prev_block.congestion_info.get(&receiving_shard);
+    let Some(congestion_info) = congestion_info else {
+        return Ok(true);
+    };
+
+    let congestion_control = CongestionControl::new(
+        runtime_config.congestion_control_config,
+        congestion_info.congestion_info,
+        congestion_info.missed_chunks_count,
+    );
+    let shard_accepts_transactions = congestion_control.shard_accepts_transactions();
+    Ok(shard_accepts_transactions.is_yes())
 }
 
 impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
@@ -1453,11 +1510,11 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             block_height: height,
             prev_block_hash: *prev_block_hash,
             block_hash: *block_hash,
-            epoch_id: epoch_id.clone(),
+            epoch_id: *epoch_id,
             epoch_height,
             block_timestamp,
             current_protocol_version,
-            cache: Some(Box::new(self.compiled_contract_cache.handle())),
+            cache: Some(self.compiled_contract_cache.handle()),
         };
         self.trie_viewer.call_function(
             state_update,

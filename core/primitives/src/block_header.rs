@@ -5,7 +5,7 @@ use crate::network::PeerId;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
 use crate::types::{AccountId, Balance, BlockHeight, EpochId, MerkleHash, NumBlocks};
 use crate::validator_signer::ValidatorSigner;
-use crate::version::{get_protocol_version, ProtocolVersion, PROTOCOL_VERSION};
+use crate::version::ProtocolVersion;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_time::Utc;
@@ -407,6 +407,7 @@ impl BlockHeader {
         combine_hash(&hash_inner, &prev_hash)
     }
 
+    #[cfg(feature = "clock")]
     pub fn new(
         this_epoch_protocol_version: ProtocolVersion,
         next_epoch_protocol_version: ProtocolVersion,
@@ -437,6 +438,7 @@ impl BlockHeader {
         next_bp_hash: CryptoHash,
         block_merkle_root: CryptoHash,
         prev_height: BlockHeight,
+        clock: near_time::Clock,
     ) -> Self {
         let inner_lite = BlockHeaderInnerLite {
             height,
@@ -475,7 +477,7 @@ impl BlockHeader {
                 last_final_block,
                 last_ds_final_block,
                 approvals,
-                latest_protocol_version: PROTOCOL_VERSION,
+                latest_protocol_version: crate::version::PROTOCOL_VERSION,
             };
             let (hash, signature) = signer.sign_block_header_parts(
                 prev_hash,
@@ -507,7 +509,7 @@ impl BlockHeader {
                 last_final_block,
                 last_ds_final_block,
                 approvals,
-                latest_protocol_version: PROTOCOL_VERSION,
+                latest_protocol_version: crate::version::PROTOCOL_VERSION,
             };
             let (hash, signature) = signer.sign_block_header_parts(
                 prev_hash,
@@ -539,7 +541,10 @@ impl BlockHeader {
                 prev_height,
                 epoch_sync_data_hash,
                 approvals,
-                latest_protocol_version: get_protocol_version(next_epoch_protocol_version),
+                latest_protocol_version: crate::version::get_protocol_version(
+                    next_epoch_protocol_version,
+                    clock,
+                ),
             };
             let (hash, signature) = signer.sign_block_header_parts(
                 prev_hash,
@@ -572,7 +577,10 @@ impl BlockHeader {
                 prev_height,
                 epoch_sync_data_hash,
                 approvals,
-                latest_protocol_version: get_protocol_version(next_epoch_protocol_version),
+                latest_protocol_version: crate::version::get_protocol_version(
+                    next_epoch_protocol_version,
+                    clock,
+                ),
             };
             let (hash, signature) = signer.sign_block_header_parts(
                 prev_hash,

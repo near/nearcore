@@ -833,7 +833,7 @@ impl EpochManager {
                     is_epoch_start = true;
                 } else {
                     // Same epoch as parent, copy epoch_id and epoch_start_height.
-                    *block_info.epoch_id_mut() = prev_block_info.epoch_id().clone();
+                    *block_info.epoch_id_mut() = *prev_block_info.epoch_id();
                     *block_info.epoch_first_block_mut() = *prev_block_info.epoch_first_block();
                 }
                 let epoch_info = self.get_epoch_info(block_info.epoch_id())?;
@@ -921,7 +921,7 @@ impl EpochManager {
         last_known_block_hash: &CryptoHash,
     ) -> Result<Arc<[(ValidatorStake, bool)]>, EpochError> {
         // TODO(3674): Revisit this when we enable slashing
-        self.epoch_validators_ordered.get_or_try_put(epoch_id.clone(), |epoch_id| {
+        self.epoch_validators_ordered.get_or_try_put(*epoch_id, |epoch_id| {
             let block_info = self.get_block_info(last_known_block_hash)?;
             let epoch_info = self.get_epoch_info(epoch_id)?;
             let result = epoch_info
@@ -944,7 +944,7 @@ impl EpochManager {
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
     ) -> Result<Arc<[(ValidatorStake, bool)]>, EpochError> {
-        self.epoch_validators_ordered_unique.get_or_try_put(epoch_id.clone(), |epoch_id| {
+        self.epoch_validators_ordered_unique.get_or_try_put(*epoch_id, |epoch_id| {
             let settlement =
                 self.get_all_block_producers_settlement(epoch_id, last_known_block_hash)?;
             let mut validators: HashSet<AccountId> = HashSet::default();
@@ -965,7 +965,7 @@ impl EpochManager {
         &self,
         epoch_id: &EpochId,
     ) -> Result<Arc<[ValidatorStake]>, EpochError> {
-        self.epoch_chunk_producers_unique.get_or_try_put(epoch_id.clone(), |epoch_id| {
+        self.epoch_chunk_producers_unique.get_or_try_put(*epoch_id, |epoch_id| {
             let mut producers: HashSet<u64> = HashSet::default();
 
             // Collect unique chunk producers.
@@ -987,7 +987,7 @@ impl EpochManager {
         shard_id: ShardId,
         height: BlockHeight,
     ) -> Result<Arc<ChunkValidatorAssignments>, EpochError> {
-        let cache_key = (epoch_id.clone(), shard_id, height);
+        let cache_key = (*epoch_id, shard_id, height);
         if let Some(chunk_validators) = self.chunk_validators_cache.get(&cache_key) {
             return Ok(chunk_validators);
         }
@@ -1001,7 +1001,7 @@ impl EpochManager {
                     (epoch_info.get_validator(validator_id).take_account_id(), assignment_weight)
                 })
                 .collect();
-            let cache_key = (epoch_id.clone(), shard_id as ShardId, height);
+            let cache_key = (*epoch_id, shard_id as ShardId, height);
             self.chunk_validators_cache
                 .put(cache_key, Arc::new(ChunkValidatorAssignments::new(chunk_validators)));
         }
@@ -1100,7 +1100,7 @@ impl EpochManager {
         let epoch_info = self.get_epoch_info(epoch_id)?;
         epoch_info
             .get_validator_by_account(account_id)
-            .ok_or_else(|| EpochError::NotAValidator(account_id.clone(), epoch_id.clone()))
+            .ok_or_else(|| EpochError::NotAValidator(account_id.clone(), *epoch_id))
     }
 
     /// Returns fisherman for given account id for given epoch.
@@ -1112,11 +1112,11 @@ impl EpochManager {
         let epoch_info = self.get_epoch_info(epoch_id)?;
         epoch_info
             .get_fisherman_by_account(account_id)
-            .ok_or_else(|| EpochError::NotAValidator(account_id.clone(), epoch_id.clone()))
+            .ok_or_else(|| EpochError::NotAValidator(account_id.clone(), *epoch_id))
     }
 
     pub fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
-        Ok(self.get_block_info(block_hash)?.epoch_id().clone())
+        Ok(*self.get_block_info(block_hash)?.epoch_id())
     }
 
     pub fn get_next_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
@@ -1136,6 +1136,25 @@ impl EpochManager {
     ) -> Result<Arc<EpochInfo>, EpochError> {
         let epoch_id = self.get_epoch_id(block_hash)?;
         self.get_epoch_info(&epoch_id)
+    }
+
+    pub fn cares_about_shard_in_epoch(
+        &self,
+        epoch_id: EpochId,
+        account_id: &AccountId,
+        shard_id: ShardId,
+    ) -> Result<bool, EpochError> {
+        let epoch_info = self.get_epoch_info(&epoch_id)?;
+        let chunk_producers_settlement = epoch_info.chunk_producers_settlement();
+        let chunk_producers = chunk_producers_settlement
+            .get(shard_id as usize)
+            .ok_or_else(|| EpochError::ShardingError(format!("invalid shard id {shard_id}")))?;
+        for validator_id in chunk_producers.iter() {
+            if epoch_info.validator_account_id(*validator_id) == account_id {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     pub fn cares_about_shard_from_prev_block(
@@ -1164,11 +1183,7 @@ impl EpochManager {
                 .get_children_shards_ids(shard_id)
                 .expect("all shard layouts expect the first one must have a split map");
             for next_shard_id in split_shards {
-                if self.cares_about_shard_in_epoch(
-                    next_epoch_id.clone(),
-                    account_id,
-                    next_shard_id,
-                )? {
+                if self.cares_about_shard_in_epoch(next_epoch_id, account_id, next_shard_id)? {
                     return Ok(true);
                 }
             }
@@ -1345,7 +1360,7 @@ impl EpochManager {
         epoch_identifier: ValidatorInfoIdentifier,
     ) -> Result<EpochValidatorInfo, EpochError> {
         let epoch_id = match epoch_identifier {
-            ValidatorInfoIdentifier::EpochId(ref id) => id.clone(),
+            ValidatorInfoIdentifier::EpochId(ref id) => *id,
             ValidatorInfoIdentifier::BlockHash(ref b) => self.get_epoch_id(b)?,
         };
         let cur_epoch_info = self.get_epoch_info(&epoch_id)?;
@@ -1614,7 +1629,7 @@ impl EpochManager {
             (Ok(index1), Ok(index2)) => Ok(index1.cmp(&index2)),
             (Ok(_), Err(_)) => self.get_epoch_info(other_epoch_id).map(|_| Ordering::Less),
             (Err(_), Ok(_)) => self.get_epoch_info(epoch_id).map(|_| Ordering::Greater),
-            (Err(_), Err(_)) => Err(EpochError::EpochOutOfBounds(epoch_id.clone())), // other_epoch_id may be out of bounds as well
+            (Err(_), Err(_)) => Err(EpochError::EpochOutOfBounds(*epoch_id)), // other_epoch_id may be out of bounds as well
         }
     }
 
@@ -1634,25 +1649,6 @@ impl EpochManager {
 
 /// Private utilities for EpochManager.
 impl EpochManager {
-    fn cares_about_shard_in_epoch(
-        &self,
-        epoch_id: EpochId,
-        account_id: &AccountId,
-        shard_id: ShardId,
-    ) -> Result<bool, EpochError> {
-        let epoch_info = self.get_epoch_info(&epoch_id)?;
-        let chunk_producers_settlement = epoch_info.chunk_producers_settlement();
-        let chunk_producers = chunk_producers_settlement
-            .get(shard_id as usize)
-            .ok_or_else(|| EpochError::ShardingError(format!("invalid shard id {shard_id}")))?;
-        for validator_id in chunk_producers.iter() {
-            if epoch_info.validator_account_id(*validator_id) == account_id {
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
-
     #[inline]
     pub(crate) fn block_producer_from_info(
         epoch_info: &EpochInfo,
@@ -1753,10 +1749,10 @@ impl EpochManager {
     }
 
     pub fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<Arc<EpochInfo>, EpochError> {
-        self.epochs_info.get_or_try_put(epoch_id.clone(), |epoch_id| {
+        self.epochs_info.get_or_try_put(*epoch_id, |epoch_id| {
             self.store
                 .get_ser(DBCol::EpochInfo, epoch_id.as_ref())?
-                .ok_or_else(|| EpochError::EpochOutOfBounds(epoch_id.clone()))
+                .ok_or_else(|| EpochError::EpochOutOfBounds(*epoch_id))
         })
     }
 
@@ -1775,7 +1771,7 @@ impl EpochManager {
         epoch_info: Arc<EpochInfo>,
     ) -> Result<(), EpochError> {
         store_update.set_ser(DBCol::EpochInfo, epoch_id.as_ref(), &epoch_info)?;
-        self.epochs_info.put(epoch_id.clone(), epoch_info);
+        self.epochs_info.put(*epoch_id, epoch_info);
         Ok(())
     }
 
@@ -1783,7 +1779,7 @@ impl EpochManager {
         // We don't use cache here since this query happens rarely and only for rpc.
         self.store
             .get_ser(DBCol::EpochValidatorInfo, epoch_id.as_ref())?
-            .ok_or_else(|| EpochError::EpochOutOfBounds(epoch_id.clone()))
+            .ok_or_else(|| EpochError::EpochOutOfBounds(*epoch_id))
     }
 
     // Note(#6572): beware, after calling `save_epoch_validator_info`,
@@ -1842,15 +1838,15 @@ impl EpochManager {
         store_update
             .set_ser(DBCol::EpochStart, epoch_id.as_ref(), &epoch_start)
             .map_err(EpochError::from)?;
-        self.epoch_id_to_start.put(epoch_id.clone(), epoch_start);
+        self.epoch_id_to_start.put(*epoch_id, epoch_start);
         Ok(())
     }
 
     fn get_epoch_start_from_epoch_id(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError> {
-        self.epoch_id_to_start.get_or_try_put(epoch_id.clone(), |epoch_id| {
+        self.epoch_id_to_start.get_or_try_put(*epoch_id, |epoch_id| {
             self.store
                 .get_ser(DBCol::EpochStart, epoch_id.as_ref())?
-                .ok_or_else(|| EpochError::EpochOutOfBounds(epoch_id.clone()))
+                .ok_or_else(|| EpochError::EpochOutOfBounds(*epoch_id))
         })
     }
 
@@ -1954,10 +1950,10 @@ impl EpochManager {
             );
         }
 
-        let epoch_id = self.get_block_info(block_hash)?.epoch_id().clone();
+        let epoch_id = *self.get_block_info(block_hash)?.epoch_id();
         let epoch_info = self.get_epoch_info(&epoch_id)?;
 
-        let mut aggregator = EpochInfoAggregator::new(epoch_id.clone(), *block_hash);
+        let mut aggregator = EpochInfoAggregator::new(epoch_id, *block_hash);
         let mut cur_hash = *block_hash;
         Ok(Some(loop {
             #[cfg(test)]
@@ -1985,7 +1981,7 @@ impl EpochManager {
             let prev_hash = *block_info.prev_hash();
             let prev_info = self.get_block_info(&prev_hash)?;
             let prev_height = prev_info.height();
-            let prev_epoch = prev_info.epoch_id().clone();
+            let prev_epoch = *prev_info.epoch_id();
 
             let block_info = self.get_block_info(&cur_hash)?;
             aggregator.update_tail(&block_info, &epoch_info, prev_height);
@@ -2032,11 +2028,11 @@ impl EpochManager {
         // if the genesis height is nonzero. It's easier to handle it manually.
         if tip.prev_block_hash == CryptoHash::default() {
             if tip.height == height {
-                return Ok(vec![tip.epoch_id.clone()]);
+                return Ok(vec![tip.epoch_id]);
             }
 
             if height > tip.height {
-                return Ok(vec![tip.next_epoch_id.clone()]);
+                return Ok(vec![tip.next_epoch_id]);
             }
 
             return Ok(vec![]);
@@ -2055,7 +2051,7 @@ impl EpochManager {
         // All blocks with height lower than the estimated end are guaranteed to reside in the current epoch.
         // The situation is clear here.
         if (current_epoch_start..current_epoch_estimated_end).contains(&height) {
-            return Ok(vec![tip.epoch_id.clone()]);
+            return Ok(vec![tip.epoch_id]);
         }
 
         // If the height is higher than the current epoch's estimated end, then it's
@@ -2064,7 +2060,7 @@ impl EpochManager {
         // past its estimated end, so the height might end up being in the current epoch,
         // even though its height is higher than the estimated end.
         if height >= current_epoch_estimated_end {
-            return Ok(vec![tip.epoch_id.clone(), tip.next_epoch_id.clone()]);
+            return Ok(vec![tip.epoch_id, tip.next_epoch_id]);
         }
 
         // Finally try the previous epoch.
@@ -2080,7 +2076,7 @@ impl EpochManager {
         if tip.epoch_id == EpochId(CryptoHash::default()) {
             let genesis_block_info = prev_epoch_last_block_info;
             if height == genesis_block_info.height() {
-                return Ok(vec![genesis_block_info.epoch_id().clone()]);
+                return Ok(vec![*genesis_block_info.epoch_id()]);
             } else {
                 return Ok(vec![]);
             }
@@ -2089,7 +2085,7 @@ impl EpochManager {
         if (prev_epoch_first_block_info.height()..=prev_epoch_last_block_info.height())
             .contains(&height)
         {
-            return Ok(vec![prev_epoch_last_block_info.epoch_id().clone()]);
+            return Ok(vec![*prev_epoch_last_block_info.epoch_id()]);
         }
 
         // The height doesn't belong to any of the epochs around the tip, return an empty Vec.

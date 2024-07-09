@@ -42,7 +42,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
-near-async.workspace = true
+near-time.workspace = true
 near-chain-configs = { workspace = true, features = ["metrics"] }
 near-crypto.workspace = true
 near-fmt.workspace = true
@@ -80,8 +80,8 @@ single_thread_rocksdb = [] # Deactivate RocksDB IO background threads
 test_features = ["near-vm-runner/test_features"]
 new_epoch_sync = []
 
+# TODO(#11639): extract metrics into separate feature
 nightly_protocol = [
-  "near-async/nightly_protocol",
   "near-chain-configs/nightly_protocol",
   "near-chain/nightly_protocol",
   "near-chunks/nightly_protocol",
@@ -92,7 +92,6 @@ nightly_protocol = [
   "near-vm-runner/nightly_protocol",
 ]
 nightly = [
-  "near-async/nightly",
   "near-chain-configs/nightly",
   "near-chain/nightly",
   "near-chunks/nightly",
@@ -103,3 +102,4 @@ nightly = [
   "near-vm-runner/nightly",
   "nightly_protocol",
 ]
+statelessnet_protocol = ["near-primitives/statelessnet_protocol"]

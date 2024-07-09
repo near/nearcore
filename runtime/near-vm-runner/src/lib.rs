@@ -8,8 +8,6 @@ mod imports;
 #[cfg(feature = "prepare")]
 mod instrument;
 pub mod logic;
-#[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
-mod memory;
 #[cfg(feature = "metrics")]
 mod metrics;
 #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
@@ -38,7 +36,7 @@ pub use code::ContractCode;
 #[cfg(feature = "metrics")]
 pub use metrics::{report_metrics, reset_metrics};
 pub use profile::ProfileDataV3;
-pub use runner::{run, VM};
+pub use runner::{run, PreparedContract, VM};
 
 /// This is public for internal experimentation use only, and should otherwise be considered an
 /// implementation detail of `near-vm-runner`.

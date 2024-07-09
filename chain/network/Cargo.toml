@@ -26,6 +26,7 @@ bytesize.workspace = true
 chrono.workspace = true
 crossbeam-channel.workspace = true
 derive_more.workspace = true
+enum-map.workspace = true
 futures-util.workspace = true
 futures.workspace = true
 im.workspace = true
@@ -54,6 +55,7 @@ time.workspace = true
 near-async.workspace = true
 near-fmt.workspace = true
 near-o11y.workspace = true
+near-chain-configs.workspace = true
 near-crypto.workspace = true
 near-performance-metrics.workspace = true
 near-performance-metrics-macros.workspace = true
@@ -70,10 +72,12 @@ rlimit.workspace = true
 tempfile.workspace = true
 turn.workspace = true
 webrtc-util.workspace = true
+serde_json.workspace = true
 
 [features]
 nightly_protocol = [
   "near-async/nightly_protocol",
+  "near-chain-configs/nightly_protocol",
   "near-fmt/nightly_protocol",
   "near-o11y/nightly_protocol",
   "near-primitives/nightly_protocol",
@@ -81,6 +85,7 @@ nightly_protocol = [
 ]
 nightly = [
   "near-async/nightly",
+  "near-chain-configs/nightly",
   "near-fmt/nightly",
   "near-o11y/nightly",
   "near-primitives/nightly",

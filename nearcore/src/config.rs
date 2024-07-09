@@ -20,12 +20,13 @@ use near_chain_configs::{
     default_tx_routing_height_horizon, default_view_client_threads,
     default_view_client_throttle_period, get_initial_supply, ChunkDistributionNetworkConfig,
     ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode, LogSummaryStyle,
-    MutableConfigValue, ReshardingConfig, StateSyncConfig, BLOCK_PRODUCER_KICKOUT_THRESHOLD,
-    CHUNK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD,
-    EXPECTED_EPOCH_LENGTH, FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE, GENESIS_CONFIG_FILENAME,
-    INITIAL_GAS_LIMIT, MAX_INFLATION_RATE, MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, NEAR_BASE,
-    NUM_BLOCKS_PER_YEAR, NUM_BLOCK_PRODUCER_SEATS, PROTOCOL_REWARD_RATE,
-    PROTOCOL_UPGRADE_STAKE_THRESHOLD, TRANSACTION_VALIDITY_PERIOD,
+    MutableConfigValue, MutableValidatorSigner, ReshardingConfig, StateSyncConfig,
+    BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
+    CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD, EXPECTED_EPOCH_LENGTH, FISHERMEN_THRESHOLD,
+    GAS_PRICE_ADJUSTMENT_RATE, GENESIS_CONFIG_FILENAME, INITIAL_GAS_LIMIT, MAX_INFLATION_RATE,
+    MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, NEAR_BASE, NUM_BLOCKS_PER_YEAR,
+    NUM_BLOCK_PRODUCER_SEATS, PROTOCOL_REWARD_RATE, PROTOCOL_UPGRADE_STAKE_THRESHOLD,
+    TRANSACTION_VALIDITY_PERIOD,
 };
 use near_config_utils::{ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey};
@@ -221,6 +222,7 @@ pub struct Config {
     pub network: near_network::config_json::Config,
     pub consensus: Consensus,
     pub tracked_accounts: Vec<AccountId>,
+    pub tracked_shadow_validator: Option<AccountId>,
     pub tracked_shards: Vec<ShardId>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tracked_shard_schedule: Option<Vec<Vec<ShardId>>>,
@@ -336,6 +338,7 @@ impl Default for Config {
             network: Default::default(),
             consensus: Consensus::default(),
             tracked_accounts: vec![],
+            tracked_shadow_validator: None,
             tracked_shards: vec![],
             tracked_shard_schedule: None,
             archive: false,
@@ -504,7 +507,10 @@ pub struct NearConfig {
     pub rosetta_rpc_config: Option<RosettaRpcConfig>,
     pub telemetry_config: TelemetryConfig,
     pub genesis: Genesis,
-    pub validator_signer: Option<Arc<ValidatorSigner>>,
+    /// Contains validator key for this node. This field is mutable and optional. Use with caution!
+    /// Lock the value of mutable validator signer for the duration of a request to ensure consistency.
+    /// Please note that the locked value should not be stored anywhere or passed through the thread boundary.
+    pub validator_signer: MutableValidatorSigner,
 }
 
 impl NearConfig {
@@ -512,7 +518,7 @@ impl NearConfig {
         config: Config,
         genesis: Genesis,
         network_key_pair: KeyFile,
-        validator_signer: Option<Arc<ValidatorSigner>>,
+        validator_signer: MutableValidatorSigner,
     ) -> anyhow::Result<Self> {
         Ok(NearConfig {
             config: config.clone(),
@@ -553,6 +559,7 @@ impl NearConfig {
                 doosmslug_step_period: config.consensus.doomslug_step_period,
                 tracked_accounts: config.tracked_accounts,
                 tracked_shards: config.tracked_shards,
+                tracked_shadow_validator: config.tracked_shadow_validator,
                 tracked_shard_schedule: config.tracked_shard_schedule.unwrap_or(vec![]),
                 archive: config.archive,
                 save_trie_changes: config.save_trie_changes.unwrap_or(!config.archive),
@@ -618,7 +625,7 @@ impl NearConfig {
 
         self.config.write_to_file(&dir.join(CONFIG_FILENAME)).expect("Error writing config");
 
-        if let Some(validator_signer) = &self.validator_signer {
+        if let Some(validator_signer) = &self.validator_signer.get() {
             validator_signer
                 .write_to_file(&dir.join(&self.config.validator_key_file))
                 .expect("Error writing validator key file");
@@ -1221,6 +1228,20 @@ impl From<NodeKeyFile> for KeyFile {
     }
 }
 
+pub fn load_validator_key(validator_file: &Path) -> anyhow::Result<Option<Arc<ValidatorSigner>>> {
+    if !validator_file.exists() {
+        return Ok(None);
+    }
+    match InMemoryValidatorSigner::from_file(&validator_file) {
+        Ok(signer) => Ok(Some(Arc::new(signer.into()))),
+        Err(_) => {
+            let error_message =
+                format!("Failed initializing validator signer from {}", validator_file.display());
+            Err(anyhow!(error_message))
+        }
+    }
+}
+
 pub fn load_config(
     dir: &Path,
     genesis_validation: GenesisValidationMode,
@@ -1234,21 +1255,13 @@ pub fn load_config(
         validation_errors.push_errors(e)
     };
 
-    let validator_file = dir.join(&config.validator_key_file);
-    let validator_signer = if validator_file.exists() {
-        match InMemoryValidatorSigner::from_file(&validator_file) {
-            Ok(signer) => Some(Arc::new(signer.into())),
-            Err(_) => {
-                let error_message = format!(
-                    "Failed initializing validator signer from {}",
-                    validator_file.display()
-                );
-                validation_errors.push_validator_key_file_error(error_message);
-                None
-            }
+    let validator_file: PathBuf = dir.join(&config.validator_key_file);
+    let validator_signer = match load_validator_key(&validator_file) {
+        Ok(validator_signer) => validator_signer,
+        Err(e) => {
+            validation_errors.push_validator_key_file_error(e.to_string());
+            None
         }
-    } else {
-        None
     };
 
     let node_key_path = dir.join(&config.node_key_file);
@@ -1309,7 +1322,7 @@ pub fn load_config(
         config,
         genesis.unwrap(),
         network_signer.unwrap().into(),
-        validator_signer,
+        MutableConfigValue::new(validator_signer, "validator_signer"),
     )?;
     Ok(near_config)
 }
@@ -1332,7 +1345,13 @@ pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -
         let validator_signer = Arc::new(create_test_signer(seed)) as Arc<ValidatorSigner>;
         (signer, Some(validator_signer))
     };
-    NearConfig::new(config, genesis, signer.into(), validator_signer).unwrap()
+    NearConfig::new(
+        config,
+        genesis,
+        signer.into(),
+        MutableConfigValue::new(validator_signer, "validator_signer"),
+    )
+    .unwrap()
 }
 
 #[cfg(test)]

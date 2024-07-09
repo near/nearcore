@@ -1,0 +1,73 @@
+# State Witness size limits.
+
+max_transaction_size: {old: 4_194_304, new: 1_572_864}
+
+per_receipt_storage_proof_size_limit: {old: 999_999_999_999_999, new: 4_000_000}
+main_storage_proof_size_soft_limit: {old: 999_999_999_999_999, new: 3_000_000}
+
+max_receipt_size: {old: 999_999_999_999_999, new: 4_194_304}
+new_transactions_validation_state_size_soft_limit: {old: 999_999_999_999_999, new: 572_864}
+
+# 100 kiB
+outgoing_receipts_usual_size_limit: {old: 999_999_999_999_999, new: 102_400}
+
+# 4.5 MiB
+outgoing_receipts_big_size_limit: {old: 999_999_999_999_999, new: 4_718_592}
+
+combined_transactions_size_limit: {old: 999_999_999_999_999, new: 4_194_304}
+
+
+# Change the cost of sending receipt to another account to 50 TGas / MiB
+
+action_deploy_contract_per_byte: {
+  old: {
+    send_sir: 6_812_999,
+    send_not_sir: 6_812_999,
+    execution: 64_572_944,
+  },
+  new: {
+    send_sir: 6_812_999,
+    send_not_sir: 47_683_715,
+    execution: 64_572_944,
+  }
+}
+action_function_call_per_byte: {
+  old: {
+    send_sir: 2_235_934,
+    send_not_sir: 2_235_934,
+    execution: 2_235_934,
+  },
+  new: {
+    send_sir: 2_235_934,
+    send_not_sir: 47_683_715,
+    execution: 2_235_934,
+  }
+}
+action_add_function_call_key_per_byte: {
+  old: {
+    send_sir: 1_925_331,
+    send_not_sir: 1_925_331,
+    execution: 1_925_331,
+  },
+  new: {
+    send_sir: 1_925_331,
+    send_not_sir: 47_683_715,
+    execution: 1_925_331,
+  }
+}
+data_receipt_creation_per_byte: {
+  old: {
+    send_sir: 17_212_011,
+    send_not_sir: 17_212_011,
+    execution: 17_212_011,
+  },
+  new: {
+    send_sir: 17_212_011,
+    send_not_sir: 47_683_715,
+    execution: 17_212_011,
+  }
+}
+wasm_yield_resume_byte: {
+  old: 17_212_011,
+  new: 47_683_715
+}
