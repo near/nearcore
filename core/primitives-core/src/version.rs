@@ -160,8 +160,6 @@ pub enum ProtocolFeature {
     RemoveAccountWithLongStorageKey,
     // Stateless validation: Distribute state witness as reed solomon encoded parts
     PartialEncodedStateWitness,
-    /// Decrease the ratio of data parts in the Reed Solomon encoding for partial witness distribution.
-    ChangePartialWitnessDataPartsRequired,
     /// Increase the `combined_transactions_size_limit` to 4MiB to allow higher throughput.
     BiggerCombinedTransactionLimit,
     /// Increase gas cost of sending receipt to another account to 50 TGas / MiB
@@ -222,7 +220,6 @@ impl ProtocolFeature {
             // into a single protocol feature.
             ProtocolFeature::StatelessValidationV0
             | ProtocolFeature::PartialEncodedStateWitness
-            | ProtocolFeature::ChangePartialWitnessDataPartsRequired
             | ProtocolFeature::BiggerCombinedTransactionLimit
             | ProtocolFeature::HigherSendingCost => 69,
 
