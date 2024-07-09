@@ -3,8 +3,6 @@
 import logging
 import pathlib
 import sys
-import jsonpickle  # pip install jsonpickle
-import json
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -196,14 +194,10 @@ class BinarySerializer:
         self.serialize_struct(obj)
         return bytes(self.array)
 
-    def dump(self, obj):
-        serialized = jsonpickle.encode(obj)
-        return (json.dumps(json.loads(serialized), indent=2))
-
     def deserialize(self, bytes_, type_):
         self.array = bytearray(bytes_)
         self.offset = 0
         ret = self.deserialize_field(type_)
-        assert self.offset == len(bytes_), "%s != %s, ret=%s" % (
-            self.offset, len(bytes_), self.dump(ret))
+        assert self.offset == len(bytes_), "%s != %s" % (self.offset,
+                                                         len(bytes_))
         return ret
