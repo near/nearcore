@@ -1,8 +1,10 @@
-use crate::PartialStorage;
+use crate::{NibbleSlice, PartialStorage, RawTrieNode, RawTrieNodeWithSize};
+use borsh::BorshDeserialize;
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
+use near_primitives::trie_key::col::ALL_COLUMNS_WITH_NAMES;
 use near_primitives::types::AccountId;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
 /// A simple struct to capture a state proof as it's being accumulated.
@@ -16,6 +18,22 @@ pub struct TrieRecorder {
     code_len_counter: usize,
     /// Account IDs for which the code should be recorded.
     pub codes_to_record: HashSet<AccountId>,
+}
+
+#[derive(Clone, Debug)]
+pub struct TrieRecorderStats {
+    pub items_count: usize,
+    pub total_size: usize,
+    pub removal_counter: usize,
+    pub code_len_counter: usize,
+    pub trie_column_sizes: Vec<TrieColumnSize>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct TrieColumnSize {
+    pub column: u8,
+    pub column_name: &'static str,
+    pub size: usize,
 }
 
 impl TrieRecorder {
@@ -72,6 +90,167 @@ impl TrieRecorder {
         self.recorded_storage_size()
             .saturating_add(removals_size)
             .saturating_add(self.code_len_counter)
+    }
+
+    /// Get statisitics about the recorded trie. Useful for observability and debugging.
+    /// This scans all of the recorded data, so could potentially be expensive to run.
+    pub fn get_stats(&self, trie_root: &CryptoHash) -> TrieRecorderStats {
+        let mut trie_column_sizes = Vec::new();
+        for (col, col_name) in ALL_COLUMNS_WITH_NAMES {
+            let subtree_size = self.get_subtree_size_by_key(trie_root, NibbleSlice::new(&[col]));
+            trie_column_sizes.push(TrieColumnSize {
+                column: col,
+                column_name: col_name,
+                size: subtree_size,
+            });
+        }
+        TrieRecorderStats {
+            items_count: self.recorded.len(),
+            total_size: self.size,
+            removal_counter: self.removal_counter,
+            code_len_counter: self.code_len_counter,
+            trie_column_sizes,
+        }
+    }
+
+    /// Get total size of all recorded nodes and values belonging to the subtree with the given key.
+    fn get_subtree_size_by_key(
+        &self,
+        trie_root: &CryptoHash,
+        subtree_key: NibbleSlice<'_>,
+    ) -> usize {
+        self.get_subtree_root_by_key(trie_root, subtree_key)
+            .map(|subtree_root| self.get_subtree_size(&subtree_root))
+            .unwrap_or(0)
+    }
+
+    /// Find the highest node whose trie key starts with `subtree_key`.
+    fn get_subtree_root_by_key(
+        &self,
+        trie_root: &CryptoHash,
+        mut subtree_key: NibbleSlice<'_>,
+    ) -> Option<CryptoHash> {
+        let mut cur_node_hash = *trie_root;
+
+        while !subtree_key.is_empty() {
+            let Some(raw_node_bytes) = self.recorded.get(&cur_node_hash) else {
+                // This node wasn't recorded.
+                return None;
+            };
+            let raw_node = match RawTrieNodeWithSize::try_from_slice(&raw_node_bytes) {
+                Ok(raw_node_with_size) => raw_node_with_size.node,
+                Err(_) => {
+                    tracing::error!(
+                        "get_subtree_root_by_key: failed to decode node, this shouldn't happen!"
+                    );
+                    return None;
+                }
+            };
+
+            match raw_node {
+                RawTrieNode::Leaf(_, _) => {
+                    return None;
+                }
+                RawTrieNode::BranchNoValue(children)
+                | RawTrieNode::BranchWithValue(_, children) => {
+                    let child = children[subtree_key.at(0)];
+                    match child {
+                        Some(child) => {
+                            cur_node_hash = child;
+                            subtree_key = subtree_key.mid(1);
+                        }
+                        None => return None,
+                    }
+                }
+                RawTrieNode::Extension(existing_key, child) => {
+                    let existing_key = NibbleSlice::from_encoded(&existing_key).0;
+                    if subtree_key.starts_with(&existing_key) {
+                        cur_node_hash = child;
+                        subtree_key = subtree_key.mid(existing_key.len());
+                    } else if existing_key.starts_with(&subtree_key) {
+                        // The `subtree_key` ends in the middle of this extension, result is the extension's child.
+                        return Some(child);
+                    } else {
+                        // No match.
+                        return None;
+                    }
+                }
+            }
+        }
+
+        Some(cur_node_hash)
+    }
+
+    /// Get size of all recorded nodes and values which are under `subtree_root` (including `subtree_root`).
+    fn get_subtree_size(&self, subtree_root: &CryptoHash) -> usize {
+        let mut subtree_size: usize = 0;
+
+        // Non recursive approach to avoid any potential stack overflows.
+        let mut queue: VecDeque<CryptoHash> = VecDeque::new();
+        queue.push_back(*subtree_root);
+
+        let mut seen_items: HashSet<CryptoHash> = HashSet::new();
+
+        while let Some(cur_node_hash) = queue.pop_front() {
+            if seen_items.contains(&cur_node_hash) {
+                // This node (or value with the same hash) has already been processed.
+                continue;
+            }
+
+            let Some(raw_node_bytes) = self.recorded.get(&cur_node_hash) else {
+                // This node wasn't recorded.
+                continue;
+            };
+            subtree_size = subtree_size.saturating_add(raw_node_bytes.len());
+            seen_items.insert(cur_node_hash);
+
+            let raw_node = match RawTrieNodeWithSize::try_from_slice(&raw_node_bytes) {
+                Ok(raw_node_with_size) => raw_node_with_size.node,
+                Err(_) => {
+                    tracing::error!(
+                        "get_subtree_size: failed to decode node, this shouldn't happen!"
+                    );
+                    continue;
+                }
+            };
+
+            match raw_node {
+                RawTrieNode::Leaf(_key, value) => {
+                    if let Some(value_bytes) = self.recorded.get(&value.hash) {
+                        if !seen_items.contains(&value.hash) {
+                            subtree_size = subtree_size.saturating_add(value_bytes.len());
+                            seen_items.insert(value.hash);
+                        }
+                    }
+                }
+                RawTrieNode::BranchNoValue(children) => {
+                    for child_opt in children.0 {
+                        if let Some(child) = child_opt {
+                            queue.push_back(child);
+                        }
+                    }
+                }
+                RawTrieNode::BranchWithValue(value, children) => {
+                    for child_opt in children.0 {
+                        if let Some(child) = child_opt {
+                            queue.push_back(child);
+                        }
+                    }
+
+                    if let Some(value_bytes) = self.recorded.get(&value.hash) {
+                        if !seen_items.contains(&value.hash) {
+                            subtree_size = subtree_size.saturating_add(value_bytes.len());
+                            seen_items.insert(value.hash);
+                        }
+                    }
+                }
+                RawTrieNode::Extension(_key, child) => {
+                    queue.push_back(child);
+                }
+            };
+        }
+
+        subtree_size
     }
 }
 
