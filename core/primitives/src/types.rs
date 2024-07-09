@@ -17,6 +17,7 @@ use std::sync::Arc;
 mod chunk_validator_stats;
 
 pub use chunk_validator_stats::ChunkStats;
+use near_structs_checker::ProtocolStruct;
 
 /// Hash used by to store state root.
 pub type StateRoot = CryptoHash;
@@ -1058,6 +1059,7 @@ pub enum ValidatorInfoIdentifier {
     Debug,
     PartialEq,
     Eq,
+    ProtocolStruct,
 )]
 pub enum ValidatorKickoutReason {
     /// Slashed validators are kicked out.

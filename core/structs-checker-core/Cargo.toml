@@ -9,4 +9,6 @@ license.workspace = true
 
 [dependencies]
 serde = { workspace = true, optional = false }
+serde_json = { workspace = true, features = ["preserve_order"], optional = false }
 once_cell = { workspace = true, optional = false }
+inventory = { workspace = true, optional = false }

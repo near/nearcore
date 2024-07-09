@@ -4619,6 +4619,7 @@ dependencies = [
  "expect-test",
  "hex",
  "insta",
+ "inventory",
  "itertools",
  "near-crypto",
  "near-fmt",
@@ -4627,6 +4628,8 @@ dependencies = [
  "near-primitives-core",
  "near-rpc-error-macro",
  "near-stdx",
+ "near-structs-checker",
+ "near-structs-checker-core",
  "near-time",
  "num-rational 0.3.2",
  "once_cell",
@@ -4823,7 +4826,9 @@ dependencies = [
 name = "near-structs-checker"
 version = "0.0.0"
 dependencies = [
+ "inventory",
  "near-structs-checker-core",
+ "proc-macro2",
  "quote",
  "serde",
  "serde_json",
@@ -4834,8 +4839,10 @@ dependencies = [
 name = "near-structs-checker-core"
 version = "0.0.0"
 dependencies = [
+ "inventory",
  "once_cell",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -6194,9 +6201,11 @@ dependencies = [
 name = "protocol-schema-check"
 version = "0.0.0"
 dependencies = [
- "near-chain",
+ "inventory",
  "near-primitives",
+ "near-structs-checker",
  "near-structs-checker-core",
+ "once_cell",
  "serde_json",
 ]
 

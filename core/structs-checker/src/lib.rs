@@ -1,70 +1,103 @@
 use proc_macro::TokenStream;
-use quote::quote;
-use syn::{parse_macro_input, Data, DeriveInput, Fields};
+use quote::ToTokens;
+use quote::{format_ident, quote};
+use syn::{parse_macro_input, Data, DeriveInput, Fields, FieldsNamed, FieldsUnnamed, Variant};
 
 #[proc_macro_derive(ProtocolStruct)]
 pub fn protocol_struct(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let name = &input.ident;
+    let info_name = format_ident!("{}_INFO", name);
 
-    // let fields = match &input.data {
-    //     Data::Struct(data) => &data.fields,
-    //     Data::Enum(_) => {
-    //         return TokenStream::from(quote! {
-    //             impl near_structs_checker_core::ProtocolStruct for #name {}
-    //         })
-    //     }
-    //     Data::Union(_) => panic!("ProtocolStruct cannot be derived for unions"),
-    // };
-    //
-    // let (field_infos, field_hashes) = match fields {
-    //     Fields::Named(fields) => {
-    //         fields.named.iter().map(|field| {
-    //             let field_name = field.ident.as_ref().unwrap().to_string();
-    //             let field_type = &field.ty;
-    //             let field_info = quote! {
-    //                 near_structs_checker_core::FieldInfo {
-    //                     name: #field_name.to_string(),
-    //                     type_name: <#field_type as near_structs_checker_core::ProtocolStruct>::type_name(),
-    //                     hash: <#field_type as near_structs_checker_core::ProtocolStruct>::calculate_hash(),
-    //                 }
-    //             };
-    //             let field_hash = quote! {
-    //                 <#field_type as near_structs_checker_core::ProtocolStruct>::calculate_hash().hash(&mut hasher);
-    //             };
-    //             (field_info, field_hash)
-    //         }).unzip()
-    //     },
-    //     Fields::Unnamed(_) => (vec![], vec![]),
-    //     Fields::Unit => (vec![], vec![]),
-    // };
-    //
-    // let expanded = quote! {
-    //     impl near_structs_checker_core::ProtocolStruct for #name {
-    //         fn calculate_hash() -> u64 {
-    //             let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    //             Self::type_name().hash(&mut hasher);
-    //             #(#field_hashes)*
-    //             hasher.finish()
-    //         }
-    //
-    //         fn get_info() -> near_structs_checker_core::ProtocolStructInfo {
-    //             near_structs_checker_core::ProtocolStructInfo {
-    //                 name: Self::type_name(),
-    //                 hash: Self::calculate_hash(),
-    //                 fields: vec![
-    //                     #(#field_infos),*
-    //                 ],
-    //             }
-    //         }
-    //     }
-    //
-    //     near_structs_checker_core::register_protocol_struct(<#name as near_structs_checker_core::ProtocolStruct>::get_info());
-    // };
+    let info = match &input.data {
+        Data::Struct(data_struct) => {
+            let fields = extract_struct_fields(&data_struct.fields);
+            quote! {
+                near_structs_checker_core::ProtocolStructInfo::Struct {
+                    name: stringify!(#name),
+                    fields: &[#(#fields),*],
+                }
+            }
+        }
+        Data::Enum(data_enum) => {
+            let variants = extract_enum_variants(&data_enum.variants);
+            quote! {
+                near_structs_checker_core::ProtocolStructInfo::Enum {
+                    name: stringify!(#name),
+                    variants: &[#(#variants),*],
+                }
+            }
+        }
+        Data::Union(_) => panic!("Unions are not supported"),
+    };
 
     let expanded = quote! {
+        #[allow(non_upper_case_globals)]
+        static #info_name: near_structs_checker_core::ProtocolStructInfo = #info;
+
+        inventory::submit!(#info_name);
+
         impl near_structs_checker_core::ProtocolStruct for #name {}
     };
 
     TokenStream::from(expanded)
+}
+
+fn extract_struct_fields(fields: &Fields) -> Vec<proc_macro2::TokenStream> {
+    match fields {
+        Fields::Named(FieldsNamed { named, .. }) => named
+            .iter()
+            .map(|f| {
+                let name = &f.ident;
+                let ty = &f.ty;
+                quote! { (stringify!(#name), stringify!(#ty)) }
+            })
+            .collect(),
+        Fields::Unnamed(FieldsUnnamed { unnamed, .. }) => unnamed
+            .iter()
+            .enumerate()
+            .map(|(i, f)| {
+                let ty = &f.ty;
+                quote! { (stringify!(#i), stringify!(#ty)) }
+            })
+            .collect(),
+        Fields::Unit => vec![],
+    }
+}
+
+fn extract_enum_variants(
+    variants: &syn::punctuated::Punctuated<Variant, syn::token::Comma>,
+) -> Vec<proc_macro2::TokenStream> {
+    variants
+        .iter()
+        .map(|v| {
+            let name = &v.ident;
+            let fields = match &v.fields {
+                Fields::Named(FieldsNamed { named, .. }) => {
+                    let fields: Vec<_> = named
+                        .iter()
+                        .map(|f| {
+                            let name = &f.ident;
+                            let ty = &f.ty;
+                            quote! { (stringify!(#name), stringify!(#ty)) }
+                        })
+                        .collect();
+                    quote! { Some(&[#(#fields),*]) }
+                }
+                Fields::Unnamed(FieldsUnnamed { unnamed, .. }) => {
+                    let fields: Vec<_> = unnamed
+                        .iter()
+                        .enumerate()
+                        .map(|(i, f)| {
+                            let ty = &f.ty;
+                            quote! { (stringify!(#i), stringify!(#ty)) }
+                        })
+                        .collect();
+                    quote! { Some(&[#(#fields),*]) }
+                }
+                Fields::Unit => quote! { None },
+            };
+            quote! { (stringify!(#name), #fields) }
+        })
+        .collect()
 }

@@ -617,6 +617,25 @@ impl BlockInfoV1 {
 )]
 pub struct ValidatorWeight(ValidatorId, u64);
 
+use near_structs_checker::ProtocolStruct;
+
+/// Information per epoch.
+#[derive(
+    BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, serde::Serialize, ProtocolStruct,
+)]
+pub enum EpochInfo {
+    V1(EpochInfoV1),
+    V2(epoch_info::EpochInfoV2),
+    V3(epoch_info::EpochInfoV3),
+    V4(epoch_info::EpochInfoV4),
+}
+
+impl Default for EpochInfo {
+    fn default() -> Self {
+        Self::V2(epoch_info::EpochInfoV2::default())
+    }
+}
+
 pub mod epoch_info {
     use crate::epoch_manager::ValidatorWeight;
     use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
@@ -632,6 +651,7 @@ pub mod epoch_info {
     use smart_default::SmartDefault;
     use std::collections::{BTreeMap, HashMap};
 
+    pub use super::EpochInfoV1;
     use crate::types::validator_stake::ValidatorStakeV1;
     use crate::{epoch_manager::RngSeed, rand::WeightedIndex};
     use near_primitives_core::{
@@ -639,23 +659,7 @@ pub mod epoch_info {
         hash::hash,
         types::{BlockHeight, ShardId},
     };
-
-    pub use super::EpochInfoV1;
-
-    /// Information per epoch.
-    #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, serde::Serialize)]
-    pub enum EpochInfo {
-        V1(EpochInfoV1),
-        V2(EpochInfoV2),
-        V3(EpochInfoV3),
-        V4(EpochInfoV4),
-    }
-
-    impl Default for EpochInfo {
-        fn default() -> Self {
-            Self::V2(EpochInfoV2::default())
-        }
-    }
+    use near_structs_checker::ProtocolStruct;
 
     // V1 -> V2: Use versioned ValidatorStake structure in validators and fishermen
     #[derive(
@@ -745,6 +749,7 @@ pub mod epoch_info {
         PartialEq,
         Eq,
         serde::Serialize,
+        ProtocolStruct,
     )]
     pub struct EpochInfoV4 {
         pub epoch_height: EpochHeight,
@@ -773,7 +778,7 @@ pub mod epoch_info {
         validator_mandates: ValidatorMandates,
     }
 
-    impl EpochInfo {
+    impl super::EpochInfo {
         pub fn new(
             epoch_height: EpochHeight,
             validators: Vec<ValidatorStake>,
@@ -1268,7 +1273,7 @@ pub mod epoch_info {
     }
 
     #[cfg(feature = "rand")]
-    impl EpochInfo {
+    impl super::EpochInfo {
         /// Returns a new RNG obtained from combining the provided `seed` and `height`.
         ///
         /// The returned RNG can be used to shuffle slices via [`rand::seq::SliceRandom`].
@@ -1366,7 +1371,7 @@ pub enum SlashState {
 pub mod epoch_sync {
     use crate::block_header::BlockHeader;
     use crate::epoch_manager::block_info::BlockInfo;
-    use crate::epoch_manager::epoch_info::EpochInfo;
+    use crate::epoch_manager::EpochInfo;
     use crate::errors::epoch_sync::{EpochSyncHashType, EpochSyncInfoError};
     use crate::types::EpochId;
     use borsh::{BorshDeserialize, BorshSerialize};
