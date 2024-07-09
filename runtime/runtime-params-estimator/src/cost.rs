@@ -605,6 +605,42 @@ pub enum Cost {
     AltBn128PairingCheckElement,
     AltBn128G1SumBase,
     AltBn128G1SumElement,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    Bls12381P1SumBase,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    Bls12381P1SumElement,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    Bls12381P2SumBase,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    Bls12381P2SumElement,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    Bls12381G1MultiexpBase,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    Bls12381G1MultiexpElement,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    Bls12381G2MultiexpBase,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    Bls12381G2MultiexpElement,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    Bls12381MapFpToG1Base,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    Bls12381MapFpToG1Element,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    Bls12381MapFp2ToG2Base,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    Bls12381MapFp2ToG2Element,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    Bls12381PairingBase,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    Bls12381PairingElement,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    Bls12381P1DecompressBase,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    Bls12381P1DecompressElement,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    Bls12381P2DecompressBase,
+    #[cfg(feature = "protocol_feature_bls12381")]
+    Bls12381P2DecompressElement,
 
     // Costs used only in estimator
     //

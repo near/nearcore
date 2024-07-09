@@ -10,6 +10,7 @@ from locust import events
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / 'lib'))
 
 import key
+from account import TGAS
 from common.base import Account, Deploy, NearNodeProxy, NearUser, FunctionCall, INIT_DONE
 
 
@@ -132,6 +133,15 @@ class TransferFT(FunctionCall):
             "amount": str(int(self.how_much)),
         }
 
+    def attached_gas(self) -> int:
+        """
+        We overwrite this setting to minimize effects on congestion control that relies on attached
+        gas to determine the capacity of delayed receipt queues. See
+        https://near.zulipchat.com/#narrow/stream/295306-contract-runtime/topic/ft_transfer.20benchmark/near/448814523
+        for more details.
+        """
+        return 10 * TGAS
+
     def sender_account(self) -> Account:
         return self.sender
 
@@ -147,6 +157,12 @@ class InitFT(FunctionCall):
             "owner_id": self.contract.key.account_id,
             "total_supply": str(10**33)
         }
+
+    def attached_gas(self) -> int:
+        """
+        Avoid attaching excess gas to prevent triggering false-positive congestion control.
+        """
+        return 10 * TGAS
 
     def sender_account(self) -> Account:
         return self.contract
@@ -164,6 +180,12 @@ class InitFTAccount(FunctionCall):
 
     def args(self) -> dict:
         return {"account_id": self.account.key.account_id}
+
+    def attached_gas(self) -> int:
+        """
+        Avoid attaching excess gas to prevent triggering false-positive congestion control.
+        """
+        return 10 * TGAS
 
     def sender_account(self) -> Account:
         return self.account

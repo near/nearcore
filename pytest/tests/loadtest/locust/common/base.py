@@ -133,11 +133,18 @@ class FunctionCall(Transaction):
         Return a single dict for `FunctionCall` but a list of dict for `MultiFunctionCall`.
         """
 
+    @abc.abstractmethod
+    def attached_gas(self) -> int:
+        """
+        How much gas will be attached to this function call. 
+        """
+        return 300 * TGAS
+
     def sign(self, block_hash) -> transaction.SignedTransaction:
         return transaction.sign_function_call_transaction(
             self.sender.key, self.receiver_id, self.method,
-            json.dumps(self.args()).encode('utf-8'), 300 * TGAS, self.balance,
-            self.sender.use_nonce(), block_hash)
+            json.dumps(self.args()).encode('utf-8'), self.attached_gas(),
+            self.balance, self.sender.use_nonce(), block_hash)
 
     def sender_account(self) -> Account:
         return self.sender
@@ -157,7 +164,7 @@ class MultiFunctionCall(FunctionCall):
 
     def sign(self, block_hash) -> transaction.SignedTransaction:
         all_args = self.args()
-        gas = 300 * TGAS // len(all_args)
+        gas = self.attached_gas() // len(all_args)
 
         def create_action(args):
             return transaction.create_function_call_action(
@@ -657,13 +664,31 @@ class ShardCongestedError(RpcError):
     def __init__(
         self,
         shard_id,
+        congestion_level,
     ):
         super().__init__(
             message="Shard congested",
             details=
-            f"Shard {shard_id} is currently congested and rejects new transactions"
+            f"Shard {shard_id} is currently at congestion level {congestion_level} and rejects new transactions"
         )
         self.shard_id = shard_id
+        self.congestion_level = congestion_level
+
+
+class ShardStuckError(RpcError):
+
+    def __init__(
+        self,
+        shard_id,
+        missed_chunks,
+    ):
+        super().__init__(
+            message="Shard stuck",
+            details=
+            f"Shard {shard_id} missed {missed_chunks} chunks and rejects new transactions"
+        )
+        self.shard_id = shard_id
+        self.missed_chunks = missed_chunks
 
 
 class TxError(NearError):
@@ -717,7 +742,12 @@ def evaluate_rpc_result(rpc_result):
                     err_description["InvalidNonce"]["ak_nonce"])
             elif "ShardCongested" in err_description:
                 raise ShardCongestedError(
-                    err_description["ShardCongested"]["shard_id"])
+                    err_description["ShardCongested"]["shard_id"],
+                    err_description["ShardCongested"]["congestion_level"])
+            elif "ShardStuck" in err_description:
+                raise ShardStuckError(
+                    err_description["ShardStuck"]["shard_id"],
+                    err_description["ShardStuck"]["missed_chunks"])
         raise RpcError(details=rpc_result["error"])
 
     result = rpc_result["result"]

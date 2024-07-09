@@ -131,6 +131,9 @@ pub enum ProtocolFeature {
     /// NEP: <https://github.com/near/NEPs/pull/491>
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
     NonrefundableStorage,
+    // NEP: https://github.com/near/NEPs/pull/488
+    #[cfg(feature = "protocol_feature_bls12381")]
+    BLS12381,
     RestrictTla,
     /// Increases the number of chunk producers.
     TestnetFewerBlockProducers,
@@ -157,6 +160,8 @@ pub enum ProtocolFeature {
     PerReceiptHardStorageProofLimit,
     /// Cross-shard congestion control according to <https://github.com/near/NEPs/pull/539>.
     CongestionControl,
+    /// Remove account with long storage key.
+    RemoveAccountWithLongStorageKey,
     // Stateless validation: Distribute state witness as reed solomon encoded parts
     PartialEncodedStateWitness,
     /// Size limits for transactions included in a ChunkStateWitness.
@@ -220,7 +225,8 @@ impl ProtocolFeature {
             ProtocolFeature::SimpleNightshadeV3 => 65,
             ProtocolFeature::DecreaseFunctionCallBaseCost => 66,
             ProtocolFeature::YieldExecution => 67,
-            ProtocolFeature::CongestionControl => 68,
+            ProtocolFeature::CongestionControl
+            | ProtocolFeature::RemoveAccountWithLongStorageKey => 68,
             // Stateless validation features.
             // TODO All of the stateless validation features should be collapsed
             // into a single protocol feature.
@@ -252,6 +258,8 @@ impl ProtocolFeature {
             ProtocolFeature::EthImplicitAccounts => 138,
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
             ProtocolFeature::NonrefundableStorage => 140,
+            #[cfg(feature = "protocol_feature_bls12381")]
+            ProtocolFeature::BLS12381 => 141,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
