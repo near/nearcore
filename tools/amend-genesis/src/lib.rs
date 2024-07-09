@@ -430,7 +430,6 @@ pub fn amend_genesis(
 #[cfg(test)]
 mod test {
     use anyhow::Context;
-    use near_async::time::Clock;
     use near_chain_configs::{get_initial_supply, Genesis, GenesisConfig, NEAR_BASE};
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardLayout;
@@ -440,6 +439,7 @@ mod test {
     use near_primitives::version::PROTOCOL_VERSION;
     use near_primitives_core::account::{AccessKey, Account};
     use near_primitives_core::types::{Balance, StorageUsage};
+    use near_time::Clock;
     use num_rational::Rational32;
     use std::collections::{HashMap, HashSet};
     use std::str::FromStr;

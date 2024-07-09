@@ -8,9 +8,9 @@ use near_primitives::challenge::{ChallengeBody, ChallengesResult};
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ReceiptProof, ShardChunkHeader, StateSyncInfo};
 use near_primitives::types::ShardId;
-use once_cell::sync::OnceCell;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::Duration;
 
 /// Max number of blocks that can be in the pool at once.
 /// This number will likely never be hit unless there are many forks in the chain.
@@ -24,10 +24,8 @@ pub(crate) struct BlockPreprocessInfo {
     pub(crate) challenges_result: ChallengesResult,
     pub(crate) challenged_blocks: Vec<CryptoHash>,
     pub(crate) provenance: Provenance,
-    /// This field will be set when the apply_chunks has finished.
-    /// This is used to provide a way for caller to wait for the finishing of applying chunks of
-    /// a block
-    pub(crate) apply_chunks_done: Arc<OnceCell<()>>,
+    /// Used to get notified when the applying chunks of a block finishes.
+    pub(crate) apply_chunks_done_tracker: ApplyChunksDoneTracker,
     /// This is used to calculate block processing time metric
     pub(crate) block_start_processing_time: Instant,
 }
@@ -129,7 +127,7 @@ impl BlocksInProcessing {
     /// Returns true if new blocks are done applying chunks
     pub(crate) fn wait_for_all_blocks(&self) -> bool {
         for (_, (_, block_preprocess_info)) in self.preprocessed_blocks.iter() {
-            let _ = block_preprocess_info.apply_chunks_done.wait();
+            let _ = block_preprocess_info.apply_chunks_done_tracker.wait_until_done();
         }
         !self.preprocessed_blocks.is_empty()
     }
@@ -144,8 +142,125 @@ impl BlocksInProcessing {
             .get(block_hash)
             .ok_or(BlockNotInPoolError)?
             .1
-            .apply_chunks_done
-            .wait();
+            .apply_chunks_done_tracker
+            .wait_until_done();
         Ok(())
+    }
+}
+
+/// This is used to for the thread that applies chunks to notify other waiter threads.
+/// The thread applying the chunks should call `set_done` to send the notification.
+/// The waiter threads should call `wait_until_done` to wait (blocked) for the notification.
+#[derive(Clone)]
+pub struct ApplyChunksDoneTracker(Arc<(Mutex<bool>, Condvar)>);
+
+impl ApplyChunksDoneTracker {
+    pub fn new() -> Self {
+        Self(Arc::new((Mutex::new(false), Condvar::new())))
+    }
+
+    /// Notifies all threads waiting on `wait_until_done` that apply chunks is done.
+    /// This should be called only once.
+    /// Returns an error if it is called more than once or the mutex used internally is poisoned.
+    pub fn set_done(&mut self) -> Result<(), &'static str> {
+        let (lock, cvar) = &*self.0;
+        match lock.lock() {
+            Ok(mut guard) => {
+                if *guard {
+                    Err("Apply chunks done marker is already set to true.")
+                } else {
+                    *guard = true;
+                    cvar.notify_all();
+                    Ok(())
+                }
+            }
+            Err(_poisoned) => Err("Mutex is poisoned."),
+        }
+    }
+
+    /// Blocks the current thread until the `set_done` is called after applying the chunks.
+    /// to indicate that apply chunks is done.
+    pub fn wait_until_done(&self) {
+        #[cfg(feature = "testloop")]
+        let mut testloop_total_wait_time = Duration::from_millis(0);
+
+        let (lock, cvar) = &*self.0;
+        match lock.lock() {
+            Ok(mut guard) => loop {
+                let done = *guard;
+                if done {
+                    break;
+                }
+                const WAIT_TIMEOUT: Duration = Duration::from_millis(100);
+                match cvar.wait_timeout(guard, WAIT_TIMEOUT) {
+                    Ok(result) => {
+                        guard = result.0;
+
+                        // Panics during testing (eg. due to assertion failures) cause the waiter
+                        // threads to miss the notification (see issue #11447). Thus, for testing only,
+                        // we limit the total wait time for waiting for the notification.
+                        #[cfg(feature = "testloop")]
+                        if result.1.timed_out() {
+                            const TESTLOOP_MAX_WAIT_TIME: Duration = Duration::from_millis(5000);
+                            testloop_total_wait_time += WAIT_TIMEOUT;
+                            if testloop_total_wait_time >= TESTLOOP_MAX_WAIT_TIME {
+                                break;
+                            }
+                        }
+                    }
+                    Err(_poisoned) => {
+                        tracing::error!("Mutex is poisoned.");
+                        break;
+                    }
+                }
+            },
+            Err(_poisoned) => {
+                tracing::error!("Mutex is poisoned.");
+                ()
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use super::ApplyChunksDoneTracker;
+
+    #[test]
+    fn test_apply_chunks_with_multiple_waiters() {
+        let shared_value: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+
+        let mut tracker = ApplyChunksDoneTracker::new();
+        let waiter1 = tracker.clone();
+        let waiter2 = tracker.clone();
+        let waiter3 = tracker.clone();
+
+        let (results_sender, results_receiver) = std::sync::mpsc::channel();
+
+        // Spawn waiter tasks
+        for waiter in [waiter1, waiter2, waiter3] {
+            let current_sender = results_sender.clone();
+            let current_shared_value = shared_value.clone();
+            std::thread::spawn(move || {
+                waiter.wait_until_done();
+                let read_value = current_shared_value.load(Ordering::Relaxed);
+                current_sender.send(read_value).unwrap();
+            });
+        }
+
+        // Wait 300ms then set the shared_value to true, and notify the waiters.
+        std::thread::sleep(Duration::from_millis(300));
+        shared_value.store(true, Ordering::Relaxed);
+        tracker.set_done().unwrap();
+
+        // Check values that waiters read
+        for _ in 0..3 {
+            let waiter_value = results_receiver.recv().unwrap();
+            assert_eq!(waiter_value, true);
+        }
     }
 }

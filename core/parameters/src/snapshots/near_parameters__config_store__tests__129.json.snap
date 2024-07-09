@@ -18,7 +18,7 @@ expression: config_view
       },
       "cost_per_byte": {
         "send_sir": 17212011,
-        "send_not_sir": 17212011,
+        "send_not_sir": 47683715,
         "execution": 17212011
       }
     },
@@ -35,7 +35,7 @@ expression: config_view
       },
       "deploy_contract_cost_per_byte": {
         "send_sir": 6812999,
-        "send_not_sir": 6812999,
+        "send_not_sir": 47683715,
         "execution": 64572944
       },
       "function_call_cost": {
@@ -45,7 +45,7 @@ expression: config_view
       },
       "function_call_cost_per_byte": {
         "send_sir": 2235934,
-        "send_not_sir": 2235934,
+        "send_not_sir": 47683715,
         "execution": 2235934
       },
       "transfer_cost": {
@@ -71,7 +71,7 @@ expression: config_view
         },
         "function_call_cost_per_byte": {
           "send_sir": 1925331,
-          "send_not_sir": 1925331,
+          "send_not_sir": 47683715,
           "execution": 1925331
         }
       },
@@ -178,6 +178,7 @@ expression: config_view
     "regular_op_cost": 822756,
     "vm_kind": "<REDACTED>",
     "disable_9393_fix": false,
+    "discard_custom_sections": false,
     "storage_get_mode": "FlatStorage",
     "fix_contract_loading_cost": true,
     "implicit_account_creation": true,

@@ -1,7 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use near_async::time::Clock;
 use near_chain::runtime::NightshadeRuntime;
 use near_chain::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use near_chain::{Chain, ChainGenesis, ChainStore, DoomslugThresholdMode};
@@ -10,6 +9,7 @@ use near_epoch_manager::EpochManager;
 use near_primitives::stateless_validation::ChunkStateWitness;
 use near_primitives::types::EpochId;
 use near_store::Store;
+use near_time::Clock;
 use nearcore::NearConfig;
 use nearcore::NightshadeRuntimeExt;
 

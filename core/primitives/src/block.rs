@@ -4,19 +4,17 @@ use crate::block::BlockValidityError::{
 };
 use crate::block_body::{BlockBody, BlockBodyV1, ChunkEndorsementSignatures};
 pub use crate::block_header::*;
-use crate::challenge::{Challenges, ChallengesResult};
+use crate::challenge::Challenges;
 use crate::checked_feature;
-use crate::congestion_info::{BlockCongestionInfo, CongestionInfo, ExtendedCongestionInfo};
-use crate::hash::{hash, CryptoHash};
+use crate::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
+use crate::hash::CryptoHash;
 use crate::merkle::{merklize, verify_path, MerklePath};
 use crate::num_rational::Rational32;
 use crate::sharding::{ChunkHashHeight, ShardChunkHeader, ShardChunkHeaderV1};
-use crate::types::{Balance, BlockHeight, EpochId, Gas, NumBlocks};
-use crate::validator_signer::ValidatorSigner;
+use crate::types::{Balance, BlockHeight, EpochId, Gas};
 use crate::version::{ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_crypto::Signature;
-use near_time::{Clock, Duration, Utc};
+use near_time::Utc;
 use primitive_types::U256;
 use std::collections::BTreeMap;
 use std::ops::Index;
@@ -92,7 +90,7 @@ type ShardChunkReedSolomon = reed_solomon_erasure::galois_8::ReedSolomon;
 #[cfg(feature = "solomon")]
 pub fn genesis_chunks(
     state_roots: Vec<crate::types::StateRoot>,
-    congestion_infos: Vec<Option<CongestionInfo>>,
+    congestion_infos: Vec<Option<crate::congestion_info::CongestionInfo>>,
     shard_ids: &[crate::types::ShardId],
     initial_gas_limit: Gas,
     genesis_height: BlockHeight,
@@ -143,7 +141,7 @@ fn genesis_chunk(
     initial_gas_limit: u64,
     shard_id: u64,
     state_root: CryptoHash,
-    congestion_info: Option<CongestionInfo>,
+    congestion_info: Option<crate::congestion_info::CongestionInfo>,
 ) -> crate::sharding::EncodedShardChunk {
     let (encoded_chunk, _) = crate::sharding::EncodedShardChunk::new(
         CryptoHash::default(),
@@ -276,30 +274,32 @@ impl Block {
     }
 
     /// Produces new block from header of previous block, current state root and set of transactions.
+    #[cfg(feature = "clock")]
     pub fn produce(
         this_epoch_protocol_version: ProtocolVersion,
         next_epoch_protocol_version: ProtocolVersion,
         prev: &BlockHeader,
         height: BlockHeight,
-        block_ordinal: NumBlocks,
+        block_ordinal: crate::types::NumBlocks,
         chunks: Vec<ShardChunkHeader>,
         chunk_endorsements: Vec<ChunkEndorsementSignatures>,
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         epoch_sync_data_hash: Option<CryptoHash>,
-        approvals: Vec<Option<Box<Signature>>>,
+        approvals: Vec<Option<Box<near_crypto::Signature>>>,
         gas_price_adjustment_rate: Rational32,
         min_gas_price: Balance,
         max_gas_price: Balance,
         minted_amount: Option<Balance>,
-        challenges_result: ChallengesResult,
+        challenges_result: crate::challenge::ChallengesResult,
         challenges: Challenges,
-        signer: &ValidatorSigner,
+        signer: &crate::validator_signer::ValidatorSigner,
         next_bp_hash: CryptoHash,
         block_merkle_root: CryptoHash,
-        clock: Clock,
-        sandbox_delta_time: Option<Duration>,
+        clock: near_time::Clock,
+        sandbox_delta_time: Option<near_time::Duration>,
     ) -> Self {
+        use crate::hash::hash;
         // Collect aggregate of validators and gas usage/limits from chunks.
         let mut prev_validator_proposals = vec![];
         let mut gas_used = 0;

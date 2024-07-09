@@ -957,6 +957,25 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(true)
     }
 
+    fn cares_about_shard_in_epoch(
+        &self,
+        epoch_id: EpochId,
+        account_id: &AccountId,
+        shard_id: ShardId,
+    ) -> Result<bool, EpochError> {
+        // This `unwrap` here tests that in all code paths we check that the epoch exists before
+        //    we check if we care about a shard. Please do not remove the unwrap, fix the logic of
+        //    the calling function.
+        let epoch_valset = self.get_valset_for_epoch(&epoch_id).unwrap();
+        let chunk_producers = self.get_chunk_producers(epoch_valset, shard_id);
+        for validator in chunk_producers {
+            if validator.account_id() == account_id {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     fn cares_about_shard_from_prev_block(
         &self,
         parent_hash: &CryptoHash,
@@ -1035,6 +1054,13 @@ impl EpochManagerAdapter for MockEpochManager {
 
     #[cfg(feature = "new_epoch_sync")]
     fn force_update_aggregator(&self, _epoch_id: &EpochId, _hash: &CryptoHash) {}
+
+    fn get_epoch_all_validators(
+        &self,
+        _epoch_id: &EpochId,
+    ) -> Result<Vec<ValidatorStake>, EpochError> {
+        Ok(self.validators.iter().map(|(_, v)| v.clone()).collect())
+    }
 }
 
 impl RuntimeAdapter for KeyValueRuntime {
@@ -1454,7 +1480,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     }
 
     fn get_protocol_config(&self, _epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {
-        unreachable!("get_protocol_config should not be called in KeyValueRuntime");
+        Err(Error::Other("get_protocol_config should not be used in KeyValueRuntime".into()))
     }
 
     fn get_runtime_config(

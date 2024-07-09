@@ -8,8 +8,7 @@ use near_primitives::block::Tip;
 use near_primitives::block_header::{Approval, ApprovalInner, BlockHeader};
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::EpochConfig;
-use near_primitives::epoch_manager::ShardConfig;
+use near_primitives::epoch_manager::{EpochConfig, ShardConfig};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout, ShardLayoutError};
@@ -30,10 +29,15 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-/// A trait that abstracts the interface of the EpochManager.
-/// The two implementations are EpochManagerHandle and KeyValueEpochManager.
-/// Strongly prefer the former whenever possible. The latter is for legacy
-/// tests.
+/// A trait that abstracts the interface of the EpochManager. The two
+/// implementations are EpochManagerHandle and KeyValueEpochManager. Strongly
+/// prefer the former whenever possible. The latter is for legacy tests.
+///
+/// TODO - Most of the methods here take the epoch id as an argument but often
+/// the protocol version would be sufficient. Rename those methods by adding
+/// "_from_epoch_id" suffix and add the more precise methods using only the
+/// protocol version. This may simplify the usage of the EpochManagerAdapter in
+/// a few places where it's cumbersome to get the epoch id.
 pub trait EpochManagerAdapter: Send + Sync {
     /// Check if epoch exists.
     fn epoch_exists(&self, epoch_id: &EpochId) -> bool;
@@ -186,6 +190,12 @@ pub trait EpochManagerAdapter: Send + Sync {
 
     /// Returns all the chunk producers for a given epoch.
     fn get_epoch_chunk_producers(
+        &self,
+        epoch_id: &EpochId,
+    ) -> Result<Vec<ValidatorStake>, EpochError>;
+
+    /// Returns all validators for a given epoch.
+    fn get_epoch_all_validators(
         &self,
         epoch_id: &EpochId,
     ) -> Result<Vec<ValidatorStake>, EpochError>;
@@ -415,6 +425,13 @@ pub trait EpochManagerAdapter: Send + Sync {
         &self,
         partial_witness: &PartialEncodedStateWitness,
     ) -> Result<bool, Error>;
+
+    fn cares_about_shard_in_epoch(
+        &self,
+        epoch_id: EpochId,
+        account_id: &AccountId,
+        shard_id: ShardId,
+    ) -> Result<bool, EpochError>;
 
     fn cares_about_shard_from_prev_block(
         &self,
@@ -1126,5 +1143,24 @@ impl EpochManagerAdapter for EpochManagerHandle {
     fn force_update_aggregator(&self, epoch_id: &EpochId, hash: &CryptoHash) {
         let mut epoch_manager = self.write();
         epoch_manager.epoch_info_aggregator = EpochInfoAggregator::new(*epoch_id, *hash);
+    }
+
+    /// Returns the set of chunk validators for a given epoch
+    fn get_epoch_all_validators(
+        &self,
+        epoch_id: &EpochId,
+    ) -> Result<Vec<ValidatorStake>, EpochError> {
+        let epoch_manager = self.read();
+        Ok(epoch_manager.get_epoch_info(epoch_id)?.validators_iter().collect::<Vec<_>>())
+    }
+
+    fn cares_about_shard_in_epoch(
+        &self,
+        epoch_id: EpochId,
+        account_id: &AccountId,
+        shard_id: ShardId,
+    ) -> Result<bool, EpochError> {
+        let epoch_manager = self.read();
+        epoch_manager.cares_about_shard_in_epoch(epoch_id, account_id, shard_id)
     }
 }

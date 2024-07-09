@@ -1,4 +1,5 @@
 mod client;
+mod dependencies;
 mod genesis_helpers;
 mod nearcore;
 mod nearcore_utils;

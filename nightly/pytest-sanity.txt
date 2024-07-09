@@ -114,6 +114,8 @@ pytest --timeout=240 sanity/validator_switch_key.py
 pytest --timeout=240 sanity/validator_switch_key.py --features nightly
 pytest --timeout=120 sanity/validator_switch_key_quick.py
 pytest --timeout=120 sanity/validator_switch_key_quick.py --features nightly
+pytest --timeout=60 sanity/shadow_tracking.py
+pytest --timeout=60 sanity/shadow_tracking.py --features nightly
 pytest sanity/proxy_simple.py
 pytest sanity/proxy_simple.py --features nightly
 pytest sanity/proxy_restart.py
@@ -188,7 +190,13 @@ pytest sanity/slow_chunk.py --features nightly
 # TODO(congestion_control) - enable pytest on stabilization
 # pytest sanity/congestion_control.py
 pytest sanity/congestion_control.py --features nightly
+pytest sanity/congestion_control_genesis_bootstrap.py
+pytest sanity/congestion_control_genesis_bootstrap.py --features nightly
 
 # Tests the correct operation of the view client without using memtries (#11312).
 pytest sanity/rpc_view_history.py
 pytest sanity/rpc_view_history.py --features nightly
+
+# Tests switching between memtries and disktries.
+pytest sanity/memtrie_disktrie_switch.py
+pytest sanity/memtrie_disktrie_switch.py --features nightly

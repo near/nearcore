@@ -3,8 +3,12 @@
 ## [unreleased]
 
 ### Protocol Changes
+* Congestion Control [NEP-0539](https://github.com/near/NEPs/pull/539)
+* Stateless Validation [NEP-0509](https://github.com/near/NEPs/pull/509)
 
 ### Non-protocol Changes
+
+* Enforce rate limits to received network messages [#11617](https://github.com/near/nearcore/issues/11617). Rate limits are configured by default, but they can be overridden through the experimental configuration option `received_messages_rate_limits`.
 
 ## 1.40.0
 

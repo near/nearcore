@@ -25,6 +25,7 @@ hex.workspace = true
 itertools = { workspace = true, optional = true }
 num-rational.workspace = true
 once_cell.workspace = true
+ordered-float.workspace = true
 primitive-types.workspace = true
 rand = { workspace = true, optional = true }
 rand_chacha = { workspace = true, optional = true }
@@ -41,7 +42,7 @@ tracing.workspace = true
 zstd.workspace = true
 enum-map.workspace = true
 
-near-time.workspace = true
+near-time = { workspace = true }
 near-crypto.workspace = true
 near-fmt.workspace = true
 near-primitives-core.workspace = true
