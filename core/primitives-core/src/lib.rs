@@ -1,4 +1,4 @@
-#![cfg_attr(feature = "protocol_schema", feature(const_type_id))]
+#![cfg_attr(all(feature = "protocol_schema", feature = "nightly"), feature(const_type_id))]
 
 pub use borsh;
 pub use num_rational;

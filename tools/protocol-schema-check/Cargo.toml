@@ -5,6 +5,10 @@ authors.workspace = true
 edition.workspace = true
 repository.workspace = true
 license.workspace = true
+publish = false
+
+[lints]
+workspace = true
 
 [dependencies]
 near-structs-checker.workspace = true
@@ -12,11 +16,15 @@ near-structs-checker-core.workspace = true
 near-primitives.workspace = true
 
 serde_json = { workspace = true, features = ["preserve_order"] }
-inventory.workspace = true
+inventory = { workspace = true, optional = true }
 toml.workspace = true
 
 [features]
+nightly = [
+  "near-primitives/nightly"
+]
 protocol_schema = [
+  "inventory",
   "near-structs-checker/protocol_schema",
   "near-structs-checker-core/protocol_schema",
   "near-primitives/protocol_schema",
