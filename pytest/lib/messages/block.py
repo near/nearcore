@@ -167,8 +167,7 @@ class ShardChunkHeaderV3:
             dict(block_schema + crypto_schema)).serialize(inner)
         inner_hash = hashlib.sha256(inner_serialized).digest()
 
-        return hashlib.sha256(inner_hash +
-                              inner.V2.encoded_merkle_root).digest()
+        return hashlib.sha256(inner_hash + inner.encoded_merkle_root).digest()
 
 
 class ShardChunkHeaderInner:
@@ -209,7 +208,13 @@ class PartialEncodedChunk:
             elif header_version == 'V2':
                 return header.V2.inner
             elif header_version == 'V3':
-                return header.V3.inner
+                v3_inner_version = header.V3.inner.enum
+                if v3_inner_version == 'V1':
+                    return header.V3.inner.V1
+                elif v3_inner_version == 'V2':
+                    return header.V3.inner.V2
+                elif v3_inner_version == 'V3':
+                    return header.V3.inner.V3
             assert False, "unknown header version"
 
     def header_version(self):
@@ -266,6 +271,30 @@ class CongestionInfo:
 
 
 class CongestionInfoV1:
+    pass
+
+
+class ChunkEndorsement:
+    pass
+
+
+class ChunkEndorsementInner:
+    pass
+
+
+class ChunkStateWitnessAck:
+    pass
+
+
+class PartialEncodedStateWitness:
+    pass
+
+
+class PartialEncodedStateWitnessInner:
+    pass
+
+
+class SignatureDifferentiator:
     pass
 
 
@@ -850,5 +879,61 @@ block_schema = [
                 ['allowed_shard', 'u16'],
             ]
         }
-    ]
+    ],
+    [
+        ChunkEndorsement, {
+            'kind':
+                'struct',
+            'fields': [
+                ['inner', ChunkEndorsementInner],
+                ['account_id', 'string'],
+                ['signature', Signature],
+            ]
+        }
+    ],
+    [
+        ChunkEndorsementInner, {
+            'kind':
+                'struct',
+            'fields': [
+                ['chunk_hash', [32]],
+                ['signature_differentiator', SignatureDifferentiator],
+            ]
+        }
+    ],
+    [
+        ChunkStateWitnessAck, {
+            'kind': 'struct',
+            'fields': [['chunk_hash', [32]],]
+        }
+    ],
+    [
+        PartialEncodedStateWitness, {
+            'kind':
+                'struct',
+            'fields': [
+                ['inner', PartialEncodedStateWitnessInner],
+                ['signature', Signature],
+            ]
+        }
+    ],
+    [
+        PartialEncodedStateWitnessInner, {
+            'kind':
+                'struct',
+            'fields': [
+                ['epoch_id', [32]],
+                ['shard_id', 'u64'],
+                ['height_created', 'u64'],
+                ['part_ord', 'u64'],
+                ['part', ['u8']],
+                ['encoded_length', 'u64'],
+                ['signature_differentiator', SignatureDifferentiator],
+            ]
+        }
+    ],
+    [SignatureDifferentiator, {
+        'kind': 'struct',
+        'fields': [['0', 'string']]
+    }]
 ]

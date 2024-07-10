@@ -53,23 +53,19 @@ class Handler(ProxyHandler):
                 self.hash_to_metadata[hash_] = (height, shard_id)
 
             if msg_kind == 'VersionedPartialEncodedChunk':
-                header = msg.Routed.body.VersionedPartialEncodedChunk.inner_header(
+                inner_header = msg.Routed.body.VersionedPartialEncodedChunk.inner_header(
                 )
                 header_version = msg.Routed.body.VersionedPartialEncodedChunk.header_version(
                 )
-                if header_version == 'V3':
-                    height = header.V2.height_created
-                    shard_id = header.V2.shard_id
-                else:
-                    height = header.height_created
-                    shard_id = header.shard_id
+                height = inner_header.height_created
+                shard_id = inner_header.shard_id
 
                 if header_version == 'V1':
-                    hash_ = ShardChunkHeaderV1.chunk_hash(header)
+                    hash_ = ShardChunkHeaderV1.chunk_hash(inner_header)
                 elif header_version == 'V2':
-                    hash_ = ShardChunkHeaderV2.chunk_hash(header)
+                    hash_ = ShardChunkHeaderV2.chunk_hash(inner_header)
                 elif header_version == 'V3':
-                    hash_ = ShardChunkHeaderV3.chunk_hash(header)
+                    hash_ = ShardChunkHeaderV3.chunk_hash(inner_header)
                 self.hash_to_metadata[hash_] = (height, shard_id)
 
             if msg_kind == 'PartialEncodedChunkRequest':
