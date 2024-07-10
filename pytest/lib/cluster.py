@@ -877,9 +877,8 @@ def init_cluster(num_nodes,
 
     # apply config changes for nodes marked as archival node.
     # for now, we do this only for local nodes (eg. nayduck tests).
-    if is_local:
-        for i, node_dir in enumerate(node_dirs):
-            configure_cold_storage_for_archival_node(node_dir)
+    for i, node_dir in enumerate(node_dirs):
+        configure_cold_storage_for_archival_node(node_dir)
 
     return near_root, node_dirs
 
@@ -896,8 +895,8 @@ def configure_cold_storage_for_archival_node(node_dir):
         config_json = json.load(fd)
 
     # Skip if this is not an archival node or cold storage is already configured.
-    is_archival_node = "archive" in config_json and config_json["archive"]
-    if not is_archival_node or config_json.get("cold_store") is not None:
+    if not config_json.get("archive",
+                           False) or config_json.get("cold_store") is not None:
         return
 
     logger.debug(f"Configuring cold storage for archival node: {node_dir.stem}")
@@ -922,15 +921,6 @@ def configure_cold_storage_for_archival_node(node_dir):
                 "nanos": 100000000
             },
         }
-
-    # If the hot storage directory exists, copy it to the cold storage directory.
-    # Hot storage will be under node_dir/data.
-    # Cold storage will be under node_dir/cold-data.
-    hot_store_path = node_dir / ("data" if hot_store_config["path"] is None else
-                                 hot_store_config["path"])
-    if os.path.exists(hot_store_path) and os.path.isdir(hot_store_path):
-        cold_store_path = node_dir / "cold-data"
-        shutil.copytree(hot_store_path, cold_store_path)
 
     with open(fname, 'w') as fd:
         json.dump(config_json, fd, indent=2)
