@@ -4,7 +4,7 @@ set -xeo pipefail
 release="${1:-release}"
 
 case "$release" in
-  release|nightly-release|perf-release|assertions-release)
+  release|nightly-release|perf-release|assertions-release|test-features-release)
     ;;
   *)  
     echo "Unsupported release type '$release'. Please provide no argument for normal release or provide nightly-release for nightly."
