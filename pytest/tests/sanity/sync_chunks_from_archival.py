@@ -117,6 +117,22 @@ if __name__ == '__main__':
     logging.basicConfig(format='%(asctime)s %(message)s', level=logging.INFO)
 
     config = load_config()
+
+    archival_node_config_changes = {
+        "archive": True,
+        # This makes the node track all shards.
+        "tracked_shards": [0],
+        "network": {
+            "ttl_account_id_router": {
+                "secs": 1,
+                "nanos": 0
+            }
+        },
+        # TODO(#11760): This disables the GC during the test. Re-enable GC by
+        # removing this line after this issue is resolved (eg. #11752 is merged).
+        "gc_num_epochs_to_keep": 1000,
+    }
+
     near_root, node_dirs = init_cluster(
         2,
         3,
@@ -142,41 +158,8 @@ if __name__ == '__main__':
             ],
             ["total_supply", "6120000000000000000000000000000000"]
         ],
-        {
-            4: {
-                "tracked_shards": [0, 1],
-                "archive": True,
-                # TODO(#11760): This disables the GC during the test. Re-enable GC by
-                # removing this line after this issue is resolved (eg. #11752 is merged).
-                "gc_num_epochs_to_keep": 1000,
-            },
-            3: {
-                "archive": True,
-                "tracked_shards": [1],
-                "network": {
-                    "ttl_account_id_router": {
-                        "secs": 1,
-                        "nanos": 0
-                    }
-                },
-                # TODO(#11760): This disables the GC during the test. Re-enable GC by
-                # removing this line after this issue is resolved (eg. #11752 is merged).
-                "gc_num_epochs_to_keep": 1000,
-            },
-            2: {
-                "archive": True,
-                "tracked_shards": [0],
-                "network": {
-                    "ttl_account_id_router": {
-                        "secs": 1,
-                        "nanos": 0
-                    }
-                },
-                # TODO(#11760): This disables the GC during the test. Re-enable GC by
-                # removing this line after this issue is resolved (eg. #11752 is merged).
-                "gc_num_epochs_to_keep": 1000,
-            }
-        })
+        # Configure node2, node3, and node4 to be an archival node.
+        {i: archival_node_config_changes for i in [2, 3, 4]})
 
     boot_node = spin_up_node(config, near_root, node_dirs[0], 0, proxy=proxy)
     node1 = spin_up_node(config,
