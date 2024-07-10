@@ -1,19 +1,12 @@
 use std::any::TypeId;
 
 pub type FieldName = &'static str;
+pub type EnumVariant = Option<&'static [(FieldName, TypeId)]>;
 
 #[derive(Copy, Clone)]
 pub enum ProtocolStructInfo {
-    Struct {
-        name: FieldName,
-        type_id: TypeId,
-        fields: &'static [(FieldName, TypeId)],
-    },
-    Enum {
-        name: FieldName,
-        type_id: TypeId,
-        variants: &'static [(FieldName, Option<&'static [(FieldName, TypeId)]>)],
-    },
+    Struct { name: FieldName, type_id: TypeId, fields: &'static [(FieldName, TypeId)] },
+    Enum { name: FieldName, type_id: TypeId, variants: &'static [(FieldName, EnumVariant)] },
 }
 
 impl ProtocolStructInfo {

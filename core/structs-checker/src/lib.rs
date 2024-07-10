@@ -59,19 +59,11 @@ mod helper {
     fn extract_struct_fields(fields: &Fields) -> TokenStream2 {
         match fields {
             Fields::Named(FieldsNamed { named, .. }) => {
-                let fields = named.iter().map(|f| {
-                    let name = &f.ident;
-                    let ty = &f.ty;
-                    quote! { (stringify!(#name), std::any::TypeId::of::<#ty>()) }
-                });
+                let fields = extract_from_named_fields(named);
                 quote! { &[#(#fields),*] }
             }
             Fields::Unnamed(FieldsUnnamed { unnamed, .. }) => {
-                let fields = unnamed.iter().enumerate().map(|(i, f)| {
-                    let index = syn::Index::from(i);
-                    let ty = &f.ty;
-                    quote! { (stringify!(#index), std::any::TypeId::of::<#ty>()) }
-                });
+                let fields = extract_from_unnamed_fields(unnamed);
                 quote! { &[#(#fields),*] }
             }
             Fields::Unit => quote! { &[] },
@@ -85,19 +77,11 @@ mod helper {
             let name = &v.ident;
             let fields = match &v.fields {
                 Fields::Named(FieldsNamed { named, .. }) => {
-                    let fields = named.iter().map(|f| {
-                        let name = &f.ident;
-                        let ty = &f.ty;
-                        quote! { (stringify!(#name), std::any::TypeId::of::<#ty>()) }
-                    });
+                    let fields = extract_from_named_fields(named);
                     quote! { Some(&[#(#fields),*]) }
                 }
                 Fields::Unnamed(FieldsUnnamed { unnamed, .. }) => {
-                    let fields = unnamed.iter().enumerate().map(|(i, f)| {
-                        let index = syn::Index::from(i);
-                        let ty = &f.ty;
-                        quote! { (stringify!(#index), std::any::TypeId::of::<#ty>()) }
-                    });
+                    let fields = extract_from_unnamed_fields(unnamed);
                     quote! { Some(&[#(#fields),*]) }
                 }
                 Fields::Unit => quote! { None },
@@ -105,6 +89,32 @@ mod helper {
             quote! { (stringify!(#name), #fields) }
         });
         quote! { &[#(#variants),*] }
+    }
+
+    fn extract_from_named_fields(
+        named: &syn::punctuated::Punctuated<syn::Field, syn::token::Comma>,
+    ) -> std::iter::Map<
+        syn::punctuated::Iter<syn::Field>,
+        fn(&syn::Field) -> proc_macro2::TokenStream,
+    > {
+        named.iter().map(|f| {
+            let name = &f.ident;
+            let ty = &f.ty;
+            quote! { (stringify!(#name), std::any::TypeId::of::<#ty>()) }
+        })
+    }
+
+    fn extract_from_unnamed_fields(
+        unnamed: &syn::punctuated::Punctuated<syn::Field, syn::token::Comma>,
+    ) -> std::iter::Map<
+        std::iter::Enumerate<syn::punctuated::Iter<syn::Field>>,
+        fn((usize, &syn::Field)) -> proc_macro2::TokenStream,
+    > {
+        unnamed.iter().enumerate().map(|(i, f)| {
+            let index = syn::Index::from(i);
+            let ty = &f.ty;
+            quote! { (stringify!(#index), std::any::TypeId::of::<#ty>()) }
+        })
     }
 }
 

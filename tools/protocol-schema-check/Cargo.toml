@@ -16,8 +16,7 @@ inventory.workspace = true
 toml.workspace = true
 
 [features]
-default = [
-  "near-primitives/default",
+protocol_schema = [
   "near-structs-checker/protocol_schema",
   "near-structs-checker-core/protocol_schema",
   "near-primitives/protocol_schema",
