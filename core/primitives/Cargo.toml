@@ -76,6 +76,7 @@ nightly = [
   "near-fmt/nightly",
   "near-parameters/nightly",
   "near-primitives-core/nightly",
+  "near-primitives/nightly",
   "nightly_protocol",
   "protocol_feature_fix_contract_loading_cost",
   "protocol_feature_fix_staking_threshold",

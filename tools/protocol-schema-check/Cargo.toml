@@ -20,8 +20,12 @@ inventory = { workspace = true, optional = true }
 toml.workspace = true
 
 [features]
+nightly_protocol = [
+  "near-primitives/nightly_protocol",
+]
 nightly = [
-  "near-primitives/nightly"
+  "near-primitives/nightly",
+  "nightly_protocol",
 ]
 protocol_schema = [
   "inventory",
