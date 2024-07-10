@@ -910,6 +910,19 @@ def configure_cold_storage_for_archival_node(node_dir):
     config_json["cold_store"] = cold_store_config
     config_json["save_trie_changes"] = True
 
+    if "split_storage" not in config_json:
+        config_json["split_storage"] = {
+            "enable_split_storage_view_client": True,
+            "cold_store_initial_migration_loop_sleep_duration": {
+                "secs": 0,
+                "nanos": 100000000
+            },
+            "cold_store_loop_sleep_duration": {
+                "secs": 0,
+                "nanos": 100000000
+            },
+        }
+
     # If the hot storage directory exists, copy it to the cold storage directory.
     # Hot storage will be under node_dir/data.
     # Cold storage will be under node_dir/cold-data.
