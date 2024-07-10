@@ -828,13 +828,15 @@ def spin_up_node(config,
     return node
 
 
-def init_cluster(num_nodes: int,
-                 num_observers: int,
-                 num_shards: int,
-                 config: Config,
-                 genesis_config_changes: GenesisConfigChanges,
-                 client_config_changes: ClientConfigChanges,
-                 prefix="test") -> typing.Tuple[str, typing.List[str]]:
+def init_cluster(
+    num_nodes: int,
+    num_observers: int,
+    num_shards: int,
+    config: Config,
+    genesis_config_changes: GenesisConfigChanges,
+    client_config_changes: ClientConfigChanges,
+    prefix="test",
+) -> typing.Tuple[str, typing.List[str]]:
     """
     Create cluster configuration
     """
@@ -969,13 +971,15 @@ def set_config_json(node_dir, config_json):
         json.dump(config_json, fd, indent=2)
 
 
-def start_cluster(num_nodes: int,
-                  num_observers: int,
-                  num_shards: int,
-                  config: typing.Optional[Config],
-                  genesis_config_changes: GenesisConfigChanges,
-                  client_config_changes: ClientConfigChanges,
-                  message_handler=None) -> typing.List[BaseNode]:
+def start_cluster(
+    num_nodes: int,
+    num_observers: int,
+    num_shards: int,
+    config: typing.Optional[Config],
+    genesis_config_changes: GenesisConfigChanges,
+    client_config_changes: ClientConfigChanges,
+    message_handler=None,
+) -> typing.List[BaseNode]:
     if not config:
         config = load_config()
 
