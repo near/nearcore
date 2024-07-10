@@ -727,8 +727,9 @@ pub fn report_recorded_column_sizes(trie: &Trie, apply_state: &ApplyState) {
 
     let shard_id_str = apply_state.shard_id.to_string();
     for column in trie_recorder_stats.trie_column_sizes.iter() {
+        let column_size = column.size.nodes_size.saturating_add(column.size.values_size);
         CHUNK_RECORDED_TRIE_COLUMN_SIZE
             .with_label_values(&[shard_id_str.as_str(), column.column_name])
-            .observe(column.size as f64);
+            .observe(column_size as f64);
     }
 }

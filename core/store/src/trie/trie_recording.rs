@@ -33,7 +33,15 @@ pub struct TrieRecorderStats {
 pub struct TrieColumnSize {
     pub column: u8,
     pub column_name: &'static str,
-    pub size: usize,
+    pub size: SubtreeSize,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SubtreeSize {
+    /// Size of trie nodes in a subtree.
+    pub nodes_size: usize,
+    /// Size of all values in a subtree.
+    pub values_size: usize,
 }
 
 impl TrieRecorder {
@@ -118,10 +126,10 @@ impl TrieRecorder {
         &self,
         trie_root: &CryptoHash,
         subtree_key: NibbleSlice<'_>,
-    ) -> usize {
+    ) -> SubtreeSize {
         self.get_subtree_root_by_key(trie_root, subtree_key)
             .map(|subtree_root| self.get_subtree_size(&subtree_root))
-            .unwrap_or(0)
+            .unwrap_or_default()
     }
 
     /// Find the highest node whose trie key starts with `subtree_key`.
@@ -182,8 +190,9 @@ impl TrieRecorder {
     }
 
     /// Get size of all recorded nodes and values which are under `subtree_root` (including `subtree_root`).
-    fn get_subtree_size(&self, subtree_root: &CryptoHash) -> usize {
-        let mut subtree_size: usize = 0;
+    fn get_subtree_size(&self, subtree_root: &CryptoHash) -> SubtreeSize {
+        let mut nodes_size: usize = 0;
+        let mut values_size: usize = 0;
 
         // Non recursive approach to avoid any potential stack overflows.
         let mut queue: VecDeque<CryptoHash> = VecDeque::new();
@@ -201,7 +210,7 @@ impl TrieRecorder {
                 // This node wasn't recorded.
                 continue;
             };
-            subtree_size = subtree_size.saturating_add(raw_node_bytes.len());
+            nodes_size = nodes_size.saturating_add(raw_node_bytes.len());
             seen_items.insert(cur_node_hash);
 
             let raw_node = match RawTrieNodeWithSize::try_from_slice(&raw_node_bytes) {
@@ -218,7 +227,7 @@ impl TrieRecorder {
                 RawTrieNode::Leaf(_key, value) => {
                     if let Some(value_bytes) = self.recorded.get(&value.hash) {
                         if !seen_items.contains(&value.hash) {
-                            subtree_size = subtree_size.saturating_add(value_bytes.len());
+                            values_size = values_size.saturating_add(value_bytes.len());
                             seen_items.insert(value.hash);
                         }
                     }
@@ -239,7 +248,7 @@ impl TrieRecorder {
 
                     if let Some(value_bytes) = self.recorded.get(&value.hash) {
                         if !seen_items.contains(&value.hash) {
-                            subtree_size = subtree_size.saturating_add(value_bytes.len());
+                            values_size = values_size.saturating_add(value_bytes.len());
                             seen_items.insert(value.hash);
                         }
                     }
@@ -250,7 +259,7 @@ impl TrieRecorder {
             };
         }
 
-        subtree_size
+        SubtreeSize { nodes_size, values_size }
     }
 }
 
