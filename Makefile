@@ -92,6 +92,10 @@ statelessnet-release: NEAR_RELEASE_BUILD=release
 statelessnet-release:
 	cargo build -p neard --release --features statelessnet_protocol
 
+test-features-release: NEAR_RELEASE_BUILD=release
+test-features-release:
+	cargo build -p neard --release --features test_features
+
 
 .PHONY: docker-nearcore docker-nearcore-nightly release neard debug
 .PHONY: perf-release perf-debug nightly-release nightly-debug assertions-release sandbox
