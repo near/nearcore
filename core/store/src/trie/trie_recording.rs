@@ -263,6 +263,15 @@ impl TrieRecorder {
     }
 }
 
+impl SubtreeSize {
+    pub fn saturating_add(self, other: Self) -> Self {
+        SubtreeSize {
+            nodes_size: self.nodes_size.saturating_add(other.nodes_size),
+            values_size: self.values_size.saturating_add(other.values_size),
+        }
+    }
+}
+
 #[cfg(test)]
 mod trie_recording_tests {
     use crate::db::refcount::decode_value_with_rc;
