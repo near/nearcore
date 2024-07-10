@@ -25,17 +25,17 @@ fn compute_hash(
 ) -> u32 {
     let mut hasher = DefaultHasher::new();
     match info {
-        ProtocolStructInfo::Struct { name, type_id: _, fields } => {
+        ProtocolStructInfo::Struct { name, type_id, fields } => {
             name.hash(&mut hasher);
-            // type_id.hash(&mut hasher);
+            type_id.hash(&mut hasher);
             for (field_name, field_type_id) in *fields {
                 field_name.hash(&mut hasher);
                 compute_type_hash(*field_type_id, structs, &mut hasher);
             }
         }
-        ProtocolStructInfo::Enum { name, type_id: _, variants } => {
+        ProtocolStructInfo::Enum { name, type_id, variants } => {
             name.hash(&mut hasher);
-            // type_id.hash(&mut hasher);
+            type_id.hash(&mut hasher);
             for (variant_name, variant_fields) in *variants {
                 variant_name.hash(&mut hasher);
                 if let Some(fields) = variant_fields {
@@ -61,8 +61,7 @@ fn compute_type_hash(
         // Likely a primitive or external type, hash the type_id directly.
         // TODO (#11755): proper implementation for generics. Or require a
         // separate type for them.
-        // type_id.hash(hasher);
-        0.hash(hasher);
+        type_id.hash(hasher);
     }
 }
 
@@ -80,13 +79,10 @@ fn main() {
             .into_iter()
             .map(|info| (info.type_id(), info))
             .collect();
-    // #[cfg(not(feature = "protocol_schema"))]
-    // let structs: BTreeMap<TypeId, &'static ProtocolStructInfo> = Default::default();
 
     println!("Loaded {} structs", structs.len());
 
     let mut current_hashes: BTreeMap<String, u32> = Default::default();
-    // #[cfg(feature = "protocol_schema")]
     for info in inventory::iter::<ProtocolStructInfo> {
         let hash = compute_hash(info, &structs);
         current_hashes.insert(info.name().to_string(), hash);
