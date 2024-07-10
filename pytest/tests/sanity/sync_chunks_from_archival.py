@@ -146,8 +146,8 @@ if __name__ == '__main__':
             4: {
                 "tracked_shards": [0, 1],
                 "archive": True,
-                # TODO: This disables the GC during the test. Re-enable it after #11752 is merged.
-                # For details see https://github.com/near/nearcore/pull/11752#issue-2399165473
+                # TODO(#11760): This disables the GC during the test. Re-enable GC by
+                # removing this line after this issue is resolved (eg. #11752 is merged).
                 "gc_num_epochs_to_keep": 1000,
             },
             3: {
@@ -159,8 +159,8 @@ if __name__ == '__main__':
                         "nanos": 0
                     }
                 },
-                # TODO: This disables the GC during the test. Re-enable it after #11752 is merged.
-                # For details see https://github.com/near/nearcore/pull/11752#issue-2399165473
+                # TODO(#11760): This disables the GC during the test. Re-enable GC by
+                # removing this line after this issue is resolved (eg. #11752 is merged).
                 "gc_num_epochs_to_keep": 1000,
             },
             2: {
@@ -172,8 +172,8 @@ if __name__ == '__main__':
                         "nanos": 0
                     }
                 },
-                # TODO: This disables the GC during the test. Re-enable it after #11752 is merged.
-                # For details see https://github.com/near/nearcore/pull/11752#issue-2399165473
+                # TODO(#11760): This disables the GC during the test. Re-enable GC by
+                # removing this line after this issue is resolved (eg. #11752 is merged).
                 "gc_num_epochs_to_keep": 1000,
             }
         })
