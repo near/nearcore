@@ -4,7 +4,6 @@ use near_async::messaging::SendAsync;
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_client::test_utils::test_loop::ClientQueries;
-use near_crypto::{KeyType, PublicKey};
 use near_network::client::ProcessTxRequest;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::create_user_test_signer;
@@ -93,68 +92,69 @@ pub(crate) fn execute_money_transfers(
     }
 }
 
-/// Deploy the test contracts to all of the provided accounts.
-pub(crate) fn deploy_contracts(
+/// Deploy the test contract to the provided contract_id account. The contract
+/// account should already exits. The contract will be deployed from the contract
+/// account itself.
+///
+/// This function does not wait until the transactions is executed.
+pub fn deploy_contract(
     test_loop: &mut TestLoopV2,
     node_datas: &[TestData],
-) -> Vec<CryptoHash> {
-    let block_hash = get_shared_block_hash(node_datas, test_loop);
-
-    let mut txs = vec![];
-    for node_data in node_datas {
-        let account = node_data.account_id.clone();
-
-        let contract = near_test_contracts::rs_contract();
-        let contract_id = format!("contract.{}", account);
-        let signer = create_user_test_signer(&account).into();
-        let public_key = PublicKey::from_seed(KeyType::ED25519, &contract_id);
-        let nonce = 1;
-
-        let transaction = SignedTransaction::create_contract(
-            nonce,
-            account,
-            contract_id.parse().unwrap(),
-            contract.to_vec(),
-            10 * ONE_NEAR,
-            public_key,
-            &signer,
-            block_hash,
-        );
-
-        txs.push(transaction.get_hash());
-
-        let process_tx_request =
-            ProcessTxRequest { transaction, is_forwarded: false, check_only: false };
-        let future = node_data.client_sender.clone().send_async(process_tx_request);
-        drop(future);
-
-        tracing::info!(target: "test", ?contract_id, "deployed contract");
-    }
-    txs
-}
-
-pub fn call_contract(
-    test_loop: &mut TestLoopV2,
-    node_datas: &[TestData],
-    account: &AccountId,
+    rpc_id: &AccountId,
+    contract_id: &AccountId,
 ) -> CryptoHash {
     let block_hash = get_shared_block_hash(node_datas, test_loop);
 
+    // TOOD make nonce an argument
+    let nonce = 1;
+    let signer = create_user_test_signer(&contract_id).into();
+
+    let code = near_test_contracts::rs_contract();
+    let code = code.to_vec();
+
+    let tx = SignedTransaction::deploy_contract(nonce, contract_id, code, &signer, block_hash);
+    let tx_hash = tx.get_hash();
+    let process_tx_request =
+        ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
+
+    let rpc_node_data = get_node_data(node_datas, rpc_id);
+    let rpc_node_data_sender = &rpc_node_data.client_sender.clone();
+
+    let future = rpc_node_data_sender.send_async(process_tx_request);
+    drop(future);
+
+    tracing::debug!(target: "test", ?contract_id, ?tx_hash, "deployed contract");
+    tx_hash
+}
+
+/// Call the contract deployed at contract id from the sender id.
+///
+/// This function does not wait until the transactions is executed.
+pub fn call_contract(
+    test_loop: &mut TestLoopV2,
+    node_datas: &[TestData],
+    sender_id: &AccountId,
+    contract_id: &AccountId,
+) -> CryptoHash {
+    let block_hash = get_shared_block_hash(node_datas, test_loop);
+
+    // TOOD make nonce an argument
     let nonce = 2;
-    let signer = create_user_test_signer(&account);
-    let contract_id = format!("contract.{}", account).parse().unwrap();
+    let signer = create_user_test_signer(sender_id);
 
     let burn_gas = 250 * TGAS;
     let attach_gas = 300 * TGAS;
 
     let deposit = 0;
+
+    // TODO make method and args arguments
     let method_name = "burn_gas_raw".to_owned();
     let args = burn_gas.to_le_bytes().to_vec();
 
-    let transaction = SignedTransaction::call(
+    let tx = SignedTransaction::call(
         nonce,
-        signer.account_id.clone(),
-        contract_id,
+        sender_id.clone(),
+        contract_id.clone(),
         &signer.into(),
         deposit,
         method_name,
@@ -163,16 +163,18 @@ pub fn call_contract(
         block_hash,
     );
 
-    let tx_hash = transaction.get_hash();
+    let tx_hash = tx.get_hash();
 
     let process_tx_request =
-        ProcessTxRequest { transaction, is_forwarded: false, check_only: false };
+        ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
     let future = node_datas[0].client_sender.clone().send_async(process_tx_request);
     drop(future);
 
+    tracing::debug!(target: "test", ?sender_id, ?contract_id, ?tx_hash, "called contract");
     tx_hash
 }
 
+/// Finds a block that all clients have on their chain and return its hash.
 fn get_shared_block_hash(node_datas: &[TestData], test_loop: &mut TestLoopV2) -> CryptoHash {
     let clients = node_datas
         .iter()
@@ -188,4 +190,14 @@ fn get_shared_block_hash(node_datas: &[TestData], test_loop: &mut TestLoopV2) ->
         .min_by_key(|&(height, _)| height)
         .unwrap();
     block_hash
+}
+
+/// Returns the test data of for the node with the given account id.
+pub fn get_node_data<'a>(node_datas: &'a [TestData], account_id: &AccountId) -> &'a TestData {
+    for node_data in node_datas {
+        if &node_data.account_id == account_id {
+            return node_data;
+        }
+    }
+    panic!("RPC client not found");
 }

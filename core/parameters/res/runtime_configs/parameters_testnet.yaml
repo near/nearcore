@@ -175,6 +175,25 @@ wasm_alt_bn128_pairing_check_base: 9_685_508_901_000
 wasm_alt_bn128_pairing_check_element: 26_575_188_546
 wasm_alt_bn128_g1_sum_base: 3_175_314_375
 wasm_alt_bn128_g1_sum_element: 76_218_543
+wasm_bls12381_p1_sum_base: 300_000_000_000_000
+wasm_bls12381_p1_sum_element: 300_000_000_000_000
+wasm_bls12381_p2_sum_base: 300_000_000_000_000
+wasm_bls12381_p2_sum_element: 300_000_000_000_000
+wasm_bls12381_g1_multiexp_base: 300_000_000_000_000
+wasm_bls12381_g1_multiexp_element: 300_000_000_000_000
+wasm_bls12381_g2_multiexp_base: 300_000_000_000_000
+wasm_bls12381_g2_multiexp_element: 300_000_000_000_000
+wasm_bls12381_map_fp_to_g1_base: 300_000_000_000_000
+wasm_bls12381_map_fp_to_g1_element: 300_000_000_000_000
+wasm_bls12381_map_fp2_to_g2_base: 300_000_000_000_000
+wasm_bls12381_map_fp2_to_g2_element: 300_000_000_000_000
+wasm_bls12381_pairing_base: 300_000_000_000_000
+wasm_bls12381_pairing_element: 300_000_000_000_000
+wasm_bls12381_p1_decompress_base: 300_000_000_000_000
+wasm_bls12381_p1_decompress_element: 300_000_000_000_000
+wasm_bls12381_p2_decompress_base: 300_000_000_000_000
+wasm_bls12381_p2_decompress_element: 300_000_000_000_000
+
 wasm_yield_create_base: 300_000_000_000_000
 wasm_yield_create_byte: 300_000_000_000_000
 wasm_yield_resume_base: 300_000_000_000_000
@@ -219,8 +238,9 @@ function_call_weight: false
 vm_kind: Wasmer0
 eth_implicit_accounts: false
 yield_resume: false
+discard_custom_sections: false
 
-# TODO What should be the config for testnet? 
+# TODO What should be the config for testnet?
 
 max_congestion_incoming_gas: 9_223_372_036_854_775_807
 max_congestion_outgoing_gas: 9_223_372_036_854_775_807
