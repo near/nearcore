@@ -1,5 +1,6 @@
 import atexit
 import base64
+import copy
 import json
 import os
 import pathlib
@@ -866,6 +867,7 @@ def init_cluster(num_nodes,
         len(node_dirs), num_nodes, num_observers)
 
     logger.info("Search for stdout and stderr in %s" % node_dirs)
+
     # apply config changes
     for i, node_dir in enumerate(node_dirs):
         apply_genesis_changes(node_dir, genesis_config_changes)
@@ -873,7 +875,52 @@ def init_cluster(num_nodes,
         if overrides:
             apply_config_changes(node_dir, overrides)
 
+    # apply config changes for nodes marked as archival node.
+    # for now, we do this only for local nodes (eg. nayduck tests).
+    if is_local:
+        for i, node_dir in enumerate(node_dirs):
+            configure_cold_storage_for_archival_node(node_dir)
+
     return near_root, node_dirs
+
+
+def configure_cold_storage_for_archival_node(node_dir):
+    """ If the node is marked as an archival node, configures the split storage.
+    
+    In particular, it assumes that the hot storage is already configured, and
+    it creates and configures the cold storage based on the hot storage.
+    """
+    node_dir = pathlib.Path(node_dir)
+    fname = node_dir / 'config.json'
+    with open(fname) as fd:
+        config_json = json.load(fd)
+
+    # Skip if this is not an archival node or cold storage is already configured.
+    is_archival_node = "archive" in config_json and config_json["archive"]
+    if not is_archival_node or config_json.get("cold_store") is not None:
+        return
+
+    logger.debug(f"Configuring cold storage for archival node: {node_dir.stem}")
+
+    hot_store_config = config_json.get("store")
+    assert hot_store_config is not None, "Hot storage is not configured"
+
+    cold_store_config = copy.deepcopy(hot_store_config)
+    cold_store_config["path"] = "cold-data"
+    config_json["cold_store"] = cold_store_config
+    config_json["save_trie_changes"] = True
+
+    # If the hot storage directory exists, copy it to the cold storage directory.
+    # Hot storage will be under node_dir/data.
+    # Cold storage will be under node_dir/cold-data.
+    hot_store_path = node_dir / ("data" if hot_store_config["path"] is None else
+                                 hot_store_config["path"])
+    if os.path.exists(hot_store_path) and os.path.isdir(hot_store_path):
+        cold_store_path = node_dir / "cold-data"
+        shutil.copytree(hot_store_path, cold_store_path)
+
+    with open(fname, 'w') as fd:
+        json.dump(config_json, fd, indent=2)
 
 
 def apply_genesis_changes(node_dir, genesis_config_changes):
