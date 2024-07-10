@@ -66,6 +66,9 @@ fn compute_type_hash(
 }
 
 fn main() {
+    #[cfg(all(const_type_id, feature = "protocol_schema"))]
+    println!("CONST TYPE ID ON");
+
     let file_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("res").join("protocol_structs.toml");
 
     let stored_hashes: BTreeMap<String, u32> = if file_path.exists() {
@@ -74,19 +77,18 @@ fn main() {
         BTreeMap::new()
     };
 
-    #[cfg(feature = "protocol_schema")]
     let structs: BTreeMap<TypeId, &'static ProtocolStructInfo> =
         inventory::iter::<ProtocolStructInfo>
             .into_iter()
             .map(|info| (info.type_id(), info))
             .collect();
-    #[cfg(not(feature = "protocol_schema"))]
-    let structs: BTreeMap<TypeId, &'static ProtocolStructInfo> = Default::default();
+    // #[cfg(not(feature = "protocol_schema"))]
+    // let structs: BTreeMap<TypeId, &'static ProtocolStructInfo> = Default::default();
 
     println!("Loaded {} structs", structs.len());
 
     let mut current_hashes: BTreeMap<String, u32> = Default::default();
-    #[cfg(feature = "protocol_schema")]
+    // #[cfg(feature = "protocol_schema")]
     for info in inventory::iter::<ProtocolStructInfo> {
         let hash = compute_hash(info, &structs);
         current_hashes.insert(info.name().to_string(), hash);
