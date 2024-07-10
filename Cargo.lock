@@ -465,7 +465,7 @@ checksum = "16e62a023e7c117e27523144c5d2459f4397fcc3cab0085af8e2224f643a0193"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.68",
+ "syn 2.0.70",
 ]
 
 [[package]]
@@ -476,7 +476,7 @@ checksum = "b9ccdd8f2a161be9bd5c023df56f1b2a0bd1d83872ae53b71a84a12c9bf6e842"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.68",
+ "syn 2.0.70",
 ]
 
 [[package]]
@@ -557,7 +557,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0137a412059ef8c93654805c6639229cd2e21ecd9bdabe2be2a912f7bb819b5"
 dependencies = [
  "base64 0.21.0",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "bs58 0.5.1",
  "hex",
  "primitive-types 0.12.2",
@@ -574,7 +574,7 @@ checksum = "3c87f3f15e7794432337fc718554eaa4dc8f04c9677a950ffe366f20a162ae42"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.68",
+ "syn 2.0.70",
 ]
 
 [[package]]
@@ -763,7 +763,7 @@ dependencies = [
  "regex",
  "rustc-hash",
  "shlex",
- "syn 2.0.68",
+ "syn 2.0.70",
 ]
 
 [[package]]
@@ -947,11 +947,11 @@ dependencies = [
 
 [[package]]
 name = "borsh"
-version = "1.0.0"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e6cb63579996213e822f6d828b0a47e1d23b1e8708f52d18a6b1af5670dd207"
+checksum = "bf617fabf5cdbdc92f774bfe5062d870f228b80056d41180797abf48bed4056e"
 dependencies = [
- "borsh-derive 1.0.0",
+ "borsh-derive 1.2.1",
  "cfg_aliases",
 ]
 
@@ -970,15 +970,15 @@ dependencies = [
 
 [[package]]
 name = "borsh-derive"
-version = "1.0.0"
+version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35b4db62e0515621636e47f425d78a40bdea94c2d23713428fb12194cf5459a4"
+checksum = "478b41ff04256c5c8330f3dfdaaae2a5cc976a8e75088bafa4625b0d0208de8c"
 dependencies = [
  "once_cell",
- "proc-macro-crate 1.3.1",
+ "proc-macro-crate 2.0.2",
  "proc-macro2",
  "quote",
- "syn 2.0.68",
+ "syn 2.0.70",
  "syn_derive",
 ]
 
@@ -1301,7 +1301,7 @@ dependencies = [
  "heck",
  "proc-macro2",
  "quote",
- "syn 2.0.68",
+ "syn 2.0.70",
 ]
 
 [[package]]
@@ -1357,7 +1357,7 @@ name = "cold-store-tool"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "clap",
  "near-chain-configs",
  "near-epoch-manager",
@@ -1815,7 +1815,7 @@ checksum = "f46882e17999c6cc590af592290432be3bce0428cb0d5f8b6715e4dc7b383eb3"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.68",
+ "syn 2.0.70",
 ]
 
 [[package]]
@@ -1842,7 +1842,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "scratch",
- "syn 2.0.68",
+ "syn 2.0.70",
 ]
 
 [[package]]
@@ -1859,7 +1859,7 @@ checksum = "2345488264226bf682893e25de0769f3360aac9957980ec49361b083ddaa5bc5"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.68",
+ "syn 2.0.70",
 ]
 
 [[package]]
@@ -1883,7 +1883,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "strsim",
- "syn 2.0.68",
+ "syn 2.0.70",
 ]
 
 [[package]]
@@ -1894,7 +1894,7 @@ checksum = "29a358ff9f12ec09c3e61fef9b5a9902623a695a46a917b07f269bff1445611a"
 dependencies = [
  "darling_core",
  "quote",
- "syn 2.0.68",
+ "syn 2.0.70",
 ]
 
 [[package]]
@@ -1935,7 +1935,7 @@ checksum = "62d671cc41a825ebabc75757b62d3d168c577f9149b2d49ece1dad1f72119d25"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.68",
+ "syn 2.0.70",
 ]
 
 [[package]]
@@ -1946,7 +1946,7 @@ checksum = "53e0efad4403bfc52dc201159c4b842a246a14b98c64b55dfd0f2d89729dfeb8"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.68",
+ "syn 2.0.70",
 ]
 
 [[package]]
@@ -2175,7 +2175,7 @@ dependencies = [
  "darling",
  "proc-macro2",
  "quote",
- "syn 2.0.68",
+ "syn 2.0.70",
 ]
 
 [[package]]
@@ -2649,7 +2649,7 @@ dependencies = [
 name = "genesis-populate"
 version = "0.0.0"
 dependencies = [
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "clap",
  "indicatif",
  "near-chain",
@@ -3144,7 +3144,7 @@ dependencies = [
  "assert_matches",
  "aurora-engine-transactions",
  "aurora-engine-types",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "bytesize",
  "chrono",
  "clap",
@@ -3784,7 +3784,7 @@ version = "1.0.0-alpha.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d10d45a9c49c3e975c362cf4d1dc1d7b72a716b30394bea56ee2a8fb225f50b7"
 dependencies = [
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "serde",
 ]
 
@@ -3802,7 +3802,7 @@ name = "near-amend-genesis"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "clap",
  "near-chain-configs",
  "near-crypto",
@@ -3844,7 +3844,7 @@ dependencies = [
  "pretty_assertions",
  "proc-macro2",
  "quote",
- "syn 2.0.68",
+ "syn 2.0.70",
 ]
 
 [[package]]
@@ -3862,7 +3862,7 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "assert_matches",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "bytesize",
  "chrono",
  "crossbeam-channel",
@@ -3946,7 +3946,7 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "assert_matches",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "chrono",
  "derive-enum-from-into",
  "derive_more",
@@ -3991,7 +3991,7 @@ dependencies = [
  "anyhow",
  "assert_matches",
  "async-trait",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "bytesize",
  "chrono",
  "cloud-storage",
@@ -4078,7 +4078,7 @@ version = "0.0.0"
 dependencies = [
  "blake2",
  "bolero",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "bs58 0.4.0",
  "curve25519-dalek",
  "derive_more",
@@ -4104,7 +4104,7 @@ name = "near-database-tool"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "bytesize",
  "clap",
  "indicatif",
@@ -4146,7 +4146,7 @@ dependencies = [
 name = "near-epoch-manager"
 version = "0.0.0"
 dependencies = [
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "chrono",
  "itertools",
  "near-cache",
@@ -4186,7 +4186,7 @@ name = "near-flat-storage"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "clap",
  "near-chain",
  "near-chain-configs",
@@ -4362,7 +4362,7 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "awc",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "futures",
  "near-actix-test-utils",
  "near-async",
@@ -4398,7 +4398,7 @@ dependencies = [
  "actix",
  "anyhow",
  "async-trait",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "bs58 0.4.0",
  "clap",
  "ed25519-dalek",
@@ -4444,7 +4444,7 @@ dependencies = [
  "assert_matches",
  "async-trait",
  "bolero",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "bytes",
  "bytesize",
  "chrono",
@@ -4530,7 +4530,7 @@ name = "near-parameters"
 version = "0.0.0"
 dependencies = [
  "assert_matches",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "clap",
  "enum-map",
  "insta",
@@ -4565,7 +4565,7 @@ name = "near-performance-metrics-macros"
 version = "0.0.0"
 dependencies = [
  "quote",
- "syn 2.0.68",
+ "syn 2.0.70",
 ]
 
 [[package]]
@@ -4591,7 +4591,7 @@ dependencies = [
 name = "near-pool"
 version = "0.0.0"
 dependencies = [
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "near-crypto",
  "near-o11y",
  "near-primitives",
@@ -4608,7 +4608,7 @@ dependencies = [
  "base64 0.21.0",
  "bencher",
  "bolero",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "bytes",
  "bytesize",
  "cfg-if 1.0.0",
@@ -4655,7 +4655,7 @@ version = "0.0.0"
 dependencies = [
  "arbitrary",
  "base64 0.21.0",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "bs58 0.4.0",
  "derive_more",
  "enum-map",
@@ -4713,7 +4713,7 @@ dependencies = [
  "quote",
  "serde",
  "serde_json",
- "syn 2.0.68",
+ "syn 2.0.70",
 ]
 
 [[package]]
@@ -4724,7 +4724,7 @@ dependencies = [
  "near-rpc-error-core",
  "serde",
  "serde_json",
- "syn 2.0.68",
+ "syn 2.0.70",
 ]
 
 [[package]]
@@ -4754,7 +4754,7 @@ dependencies = [
  "actix",
  "actix-web",
  "anyhow",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "clap",
  "cloud-storage",
  "near-client",
@@ -4783,7 +4783,7 @@ dependencies = [
  "anyhow",
  "assert_matches",
  "bencher",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "bytesize",
  "crossbeam",
  "derive-where",
@@ -4829,7 +4829,7 @@ dependencies = [
  "near-structs-checker-core",
  "proc-macro2",
  "quote",
- "syn 2.0.68",
+ "syn 2.0.70",
 ]
 
 [[package]]
@@ -4941,7 +4941,7 @@ dependencies = [
  "pretty_assertions",
  "proc-macro2",
  "quote",
- "syn 2.0.68",
+ "syn 2.0.70",
  "trybuild",
 ]
 
@@ -4976,7 +4976,7 @@ dependencies = [
  "assert_matches",
  "base64 0.21.0",
  "bolero",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "bytesize",
  "cov-mark",
  "ed25519-dalek",
@@ -5143,7 +5143,7 @@ dependencies = [
  "anyhow",
  "awc",
  "bencher",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "bytesize",
  "chrono",
  "cloud-storage",
@@ -5278,7 +5278,7 @@ name = "node-runtime"
 version = "0.0.0"
 dependencies = [
  "assert_matches",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "enum-map",
  "hex",
  "near-chain-configs",
@@ -5528,7 +5528,7 @@ checksum = "a948666b637a0f465e8564c73e89d4dde00d72d4d473cc972f390fc3dcee7d9c"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.68",
+ "syn 2.0.70",
 ]
 
 [[package]]
@@ -5941,7 +5941,7 @@ checksum = "2f38a4412a78282e09a2cf38d195ea5420d15ba0602cb375210efbc877243965"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.68",
+ "syn 2.0.70",
 ]
 
 [[package]]
@@ -6003,7 +6003,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ceca8aaf45b5c46ec7ed39fff75f57290368c1846d33d24a122ca81416ab058"
 dependencies = [
  "proc-macro2",
- "syn 2.0.68",
+ "syn 2.0.70",
 ]
 
 [[package]]
@@ -6133,7 +6133,7 @@ dependencies = [
  "itertools",
  "proc-macro2",
  "quote",
- "syn 2.0.68",
+ "syn 2.0.70",
 ]
 
 [[package]]
@@ -6619,7 +6619,7 @@ name = "runtime-params-estimator"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "bs58 0.4.0",
  "bytesize",
  "cfg-if 1.0.0",
@@ -6957,9 +6957,9 @@ checksum = "388a1df253eca08550bef6c72392cfe7c30914bf41df5269b68cbd6ff8f570a3"
 
 [[package]]
 name = "serde"
-version = "1.0.203"
+version = "1.0.204"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7253ab4de971e72fb7be983802300c30b5a7f0c2e56fab8abfc6a214307c0094"
+checksum = "bc76f558e0cbb2a839d37354c575f1dc3fdc6546b5be373ba43d95f231bf7c12"
 dependencies = [
  "serde_derive",
 ]
@@ -6997,13 +6997,13 @@ dependencies = [
 
 [[package]]
 name = "serde_derive"
-version = "1.0.203"
+version = "1.0.204"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "500cbc0ebeb6f46627f50f3f5811ccf6bf00643be300b4c3eabc0ef55dc5b5ba"
+checksum = "e0cd7e117be63d3c3678776753929474f3b04a43a080c744d6b0ae2a8c28e222"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.68",
+ "syn 2.0.70",
 ]
 
 [[package]]
@@ -7075,7 +7075,7 @@ dependencies = [
  "darling",
  "proc-macro2",
  "quote",
- "syn 2.0.68",
+ "syn 2.0.70",
 ]
 
 [[package]]
@@ -7305,7 +7305,7 @@ dependencies = [
 name = "speedy_sync"
 version = "0.0.0"
 dependencies = [
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "clap",
  "near-chain",
  "near-chain-configs",
@@ -7349,7 +7349,7 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "anyhow",
- "borsh 1.0.0",
+ "borsh 1.2.0",
  "bytesize",
  "chrono",
  "clap",
@@ -7492,9 +7492,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "2.0.68"
+version = "2.0.70"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "901fa70d88b9d6c98022e23b4136f9f3e54e4662c3bc1bd1d84a42a9a0f0c1e9"
+checksum = "2f0209b68b3613b093e0ec905354eccaedcfe83b8cb37cbdeae64026c3064c16"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -7510,7 +7510,7 @@ dependencies = [
  "proc-macro-error",
  "proc-macro2",
  "quote",
- "syn 2.0.68",
+ "syn 2.0.70",
 ]
 
 [[package]]
@@ -7627,7 +7627,7 @@ checksum = "266b2e40bc00e5a6c09c3584011e08b06f123c00362c92b975ba9843aaaa14b8"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.68",
+ "syn 2.0.70",
 ]
 
 [[package]]
@@ -7763,7 +7763,7 @@ checksum = "630bdcf245f78637c13ec01ffae6187cca34625e8c63150d424b59e55af2675e"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.68",
+ "syn 2.0.70",
 ]
 
 [[package]]
@@ -7950,7 +7950,7 @@ checksum = "34704c8d6ebcbc939824180af020566b01a7c01f80641264eba0999f6c2b6be7"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.68",
+ "syn 2.0.70",
 ]
 
 [[package]]
@@ -8249,7 +8249,7 @@ dependencies = [
  "once_cell",
  "proc-macro2",
  "quote",
- "syn 2.0.68",
+ "syn 2.0.70",
  "wasm-bindgen-shared",
 ]
 
@@ -8283,7 +8283,7 @@ checksum = "e94f17b526d0a461a191c78ea52bbce64071ed5c04c9ffe424dcb38f74171bb7"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.68",
+ "syn 2.0.70",
  "wasm-bindgen-backend",
  "wasm-bindgen-shared",
 ]
@@ -8773,7 +8773,7 @@ checksum = "09b5575a75e711ca6c36bb9ad647c93541cdc8e34218031acba5da3f35919dd3"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.68",
+ "syn 2.0.70",
 ]
 
 [[package]]
@@ -9146,7 +9146,7 @@ checksum = "b3c129550b3e6de3fd0ba67ba5c81818f9805e58b8d7fee80a3a59d2c9fc601a"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.68",
+ "syn 2.0.70",
 ]
 
 [[package]]
