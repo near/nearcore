@@ -173,8 +173,10 @@ impl<'a> PrepareContext<'a> {
                     self.func_validator_allocations = func_validator.into_allocations();
                 }
                 wp::Payload::CustomSection(reader) => {
-                    self.ensure_import_section();
-                    self.copy_section(SectionId::Custom, reader.range())?;
+                    if !self.config.discard_custom_sections {
+                        self.ensure_import_section();
+                        self.copy_section(SectionId::Custom, reader.range())?;
+                    }
                 }
 
                 // Extensions not supported.

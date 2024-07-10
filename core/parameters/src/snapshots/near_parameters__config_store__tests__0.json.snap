@@ -178,6 +178,7 @@ expression: config_view
     "regular_op_cost": 3856371,
     "vm_kind": "<REDACTED>",
     "disable_9393_fix": false,
+    "discard_custom_sections": false,
     "storage_get_mode": "Trie",
     "fix_contract_loading_cost": false,
     "implicit_account_creation": false,

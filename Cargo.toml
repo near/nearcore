@@ -123,6 +123,11 @@ actix-web = "4.1"
 anyhow = "1.0.62"
 arbitrary = { version = "1.2.3", features = ["derive"] }
 arc-swap = "1.5"
+ark-bls12-381 = "0.4.0"
+ark-ec = "0.4.0"
+ark-ff = "0.4.0"
+ark-serialize = "0.4.0"
+ark-std = "0.4.0"
 assert_matches = "1.5.0"
 async-trait = "0.1.58"
 aurora-engine-transactions = "1.1"
@@ -133,6 +138,7 @@ base64 = "0.21"
 bencher = "0.1.5"
 bitflags = "1.2"
 blake2 = { version = "0.10.6", features = ["reset"] }
+blst = { version = "0.3.11", features = ["portable"] }
 bn = { package = "zeropool-bn", version = "0.5.11", default-features = false }
 # TODO: remove this override when https://github.com/camshaft/bolero/issues/196 is fixed upstream
 # Currently the changes here are: https://github.com/camshaft/bolero/compare/master...Ekleog-NEAR:bolero:reduce-list-tests-run
@@ -286,6 +292,7 @@ opentelemetry = { version = "0.22.0", features = ["trace"] }
 opentelemetry_sdk = { version = "0.22.0", features = ["rt-tokio"] }
 opentelemetry-otlp = "0.15.0"
 opentelemetry-semantic-conventions = "0.14.0"
+ordered-float = { version = "4.2.0", features = ["serde", "borsh"] }
 paperclip = { version = "0.8.0", features = ["actix4"] }
 parity-wasm = { version = "0.42", default-features = false }
 parity-wasm_41 = { package = "parity-wasm", version = "0.41" }
