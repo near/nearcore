@@ -95,13 +95,13 @@ statelessnet_protocol = ["near-primitives-core/statelessnet_protocol"]
 
 new_epoch_sync = []
 default = ["near-primitives/rand"]
+calimero_zero_storage = []
+
 protocol_schema = [
   "near-primitives-core/protocol_schema",
   "near-structs-checker-core",
   "inventory"
 ]
-
-calimero_zero_storage = []
 
 [dev-dependencies]
 chrono = { workspace = true, features = ["clock"] }
@@ -117,3 +117,7 @@ regex.workspace = true
 [[bench]]
 name = "serialization"
 harness = false
+
+[package.metadata.cargo-udeps.ignore]
+# Protocol schema checks require external dependencies for sanity checker tool.
+normal = ["near-structs-checker-core", "inventory"]

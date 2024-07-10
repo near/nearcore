@@ -20,7 +20,7 @@ For context on why this tool is necessary, refer to [this pull request](https://
 ## Usage
 
 Run the tool locally using:
-`cargo +nightly run -p protocol-schema-check`
+`RUSTFLAGS="--cfg enable_const_type_id" cargo +nightly run -p protocol-schema-check`
 
 ## What To Do If It Fails
 

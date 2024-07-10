@@ -23,9 +23,14 @@ syn = { workspace = true, optional = true }
 near-structs-checker-core = { path = "../structs-checker-core" }
 
 [features]
+
 protocol_schema = [
   "near-structs-checker-core/protocol_schema",
   "proc-macro2",
   "syn",
   "quote"
 ]
+
+[package.metadata.cargo-udeps.ignore]
+# Protocol schema checks require external dependencies for sanity checker tool.
+normal = ["proc-macro2", "syn", "quote"]

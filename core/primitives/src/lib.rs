@@ -1,4 +1,4 @@
-#![cfg_attr(const_type_id, feature(const_type_id))]
+#![cfg_attr(enable_const_type_id, feature(const_type_id))]
 
 pub use near_primitives_core::account;
 pub use near_primitives_core::apply;

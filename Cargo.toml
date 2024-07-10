@@ -115,6 +115,8 @@ len_zero = "deny"
 or_fun_call = "deny"
 unnecessary_lazy_evaluations = "deny"
 
+[workspace.lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(enable_const_type_id)'] }
 
 [workspace.dependencies]
 actix = "0.13.0"

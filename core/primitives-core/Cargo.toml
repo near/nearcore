@@ -55,8 +55,13 @@ nightly_protocol = [
 ]
 
 statelessnet_protocol = []
+
 protocol_schema = [
   "near-structs-checker/protocol_schema",
   "near-structs-checker-core",
   "inventory",
 ]
+
+[package.metadata.cargo-udeps.ignore]
+# Protocol schema checks require external dependencies for sanity checker tool.
+normal = ["near-structs-checker-core", "inventory"]
