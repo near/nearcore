@@ -55,17 +55,11 @@ class Handler(ProxyHandler):
             if msg_kind == 'VersionedPartialEncodedChunk':
                 inner_header = msg.Routed.body.VersionedPartialEncodedChunk.inner_header(
                 )
-                header_version = msg.Routed.body.VersionedPartialEncodedChunk.header_version(
-                )
                 height = inner_header.height_created
                 shard_id = inner_header.shard_id
 
-                if header_version == 'V1':
-                    hash_ = ShardChunkHeaderV1.chunk_hash(inner_header)
-                elif header_version == 'V2':
-                    hash_ = ShardChunkHeaderV2.chunk_hash(inner_header)
-                elif header_version == 'V3':
-                    hash_ = ShardChunkHeaderV3.chunk_hash(inner_header)
+                hash_ = msg.Routed.body.VersionedPartialEncodedChunk.chunk_hash(
+                )
                 self.hash_to_metadata[hash_] = (height, shard_id)
 
             if msg_kind == 'PartialEncodedChunkRequest':
@@ -151,7 +145,10 @@ if __name__ == '__main__':
         {
             4: {
                 "tracked_shards": [0, 1],
-                "archive": True
+                "archive": True,
+                # TODO: This disables the GC during the test. Re-enable it after #11752 is merged.
+                # For details see https://github.com/near/nearcore/pull/11752#issue-2399165473
+                "gc_num_epochs_to_keep": 1000,
             },
             3: {
                 "archive": True,
@@ -161,7 +158,10 @@ if __name__ == '__main__':
                         "secs": 1,
                         "nanos": 0
                     }
-                }
+                },
+                # TODO: This disables the GC during the test. Re-enable it after #11752 is merged.
+                # For details see https://github.com/near/nearcore/pull/11752#issue-2399165473
+                "gc_num_epochs_to_keep": 1000,
             },
             2: {
                 "archive": True,
@@ -171,7 +171,10 @@ if __name__ == '__main__':
                         "secs": 1,
                         "nanos": 0
                     }
-                }
+                },
+                # TODO: This disables the GC during the test. Re-enable it after #11752 is merged.
+                # For details see https://github.com/near/nearcore/pull/11752#issue-2399165473
+                "gc_num_epochs_to_keep": 1000,
             }
         })
 
