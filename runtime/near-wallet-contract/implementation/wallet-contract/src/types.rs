@@ -128,7 +128,7 @@ pub enum EthEmulationKind {
     EOABaseTokenTransfer { address_check: Option<Address>, fee: NearToken },
     SelfBaseTokenTransfer,
     ERC20Balance,
-    ERC20Transfer { receiver_id: AccountId },
+    ERC20Transfer { receiver_id: AccountId, fee: NearToken },
     ERC20TotalSupply,
 }
 
@@ -153,7 +153,7 @@ pub enum ParsableTransactionKind {
 #[must_use]
 pub enum ParsableEthEmulationKind {
     ERC20Balance,
-    ERC20Transfer { receiver_id: AccountId },
+    ERC20Transfer { receiver_id: AccountId, fee: NearToken },
     ERC20TotalSupply,
 }
 
@@ -161,8 +161,8 @@ impl From<ParsableEthEmulationKind> for EthEmulationKind {
     fn from(value: ParsableEthEmulationKind) -> Self {
         match value {
             ParsableEthEmulationKind::ERC20Balance => Self::ERC20Balance,
-            ParsableEthEmulationKind::ERC20Transfer { receiver_id } => {
-                Self::ERC20Transfer { receiver_id }
+            ParsableEthEmulationKind::ERC20Transfer { receiver_id, fee } => {
+                Self::ERC20Transfer { receiver_id, fee }
             }
             ParsableEthEmulationKind::ERC20TotalSupply => Self::ERC20TotalSupply,
         }

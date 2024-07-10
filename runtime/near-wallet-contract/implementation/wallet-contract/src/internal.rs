@@ -52,9 +52,10 @@ pub fn parse_rlp_tx_to_action(
     let target_kind = validate_tx_relayer_data(&tx, target, context, expected_nonce)?;
 
     // Compute the fee based on the user's Ethereum transaction.
-    // This is sent as a refund to the relayer in the case of an emulated base token transfer.
-    // The reason for this refund is that it allows a user with $NEAR to use a relayer
-    // service from their wallet immediately without additional on-boarding.
+    // This is sent as a refund to the relayer in the case of an emulated base token
+    // transfer or ERC-20 transfer. The reason for this refund is that it allows a
+    // user with $NEAR to use a relayer service from their wallet immediately without
+    // additional on-boarding.
     let tx_fee = {
         // Limit the cost by `VALUE_MAX` since we will convert this to a $NEAR amount.
         // The call to `low_u128` is safe because `VALUE_MAX` is the largest accepted value.
@@ -79,7 +80,7 @@ pub fn parse_rlp_tx_to_action(
     // Note: the `TargetKind` is determined in `validate_tx_relayer_data` above, and that function
     // also confirms that the `target` is compatible with the user's `tx.to`.
 
-    let (action, transaction_kind) = match parse_tx_data(target, &tx, context) {
+    let (action, transaction_kind) = match parse_tx_data(target, &tx, tx_fee, context) {
         Ok((action, ParsableTransactionKind::NearNativeAction)) => {
             (action, TransactionKind::NearNativeAction)
         }
@@ -233,6 +234,7 @@ fn parse_target(target: &AccountId, current_address: Address) -> TargetKind<'_> 
 fn parse_tx_data(
     target: &AccountId,
     tx: &NormalizedEthTransaction,
+    fee: NearToken,
     context: &ExecutionContext,
 ) -> Result<(Action, ParsableTransactionKind), Error> {
     if tx.data.len() < 4 {
@@ -301,7 +303,7 @@ fn parse_tx_data(
             ))
         }
         _ => {
-            let (action, emulation_kind) = eth_emulation::try_emulation(target, tx, context)?;
+            let (action, emulation_kind) = eth_emulation::try_emulation(target, tx, fee, context)?;
             Ok((action, ParsableTransactionKind::EthEmulation(emulation_kind)))
         }
     }

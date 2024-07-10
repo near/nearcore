@@ -357,7 +357,7 @@ fn inner_rlp_execute(
                 *nonce = nonce.saturating_add(1);
             }
 
-            // If the action is an emulated base token transfer with a non-zero fee then
+            // If the action is an emulated base token or ERC-20 transfer with a non-zero fee then
             // create a promise to send the refund to the relayer. This allows any relayer
             // to safely serve base token transfers from any wallet without additional
             // on-boarding because the relayer will receive some compensation for sending
@@ -367,7 +367,9 @@ fn inner_rlp_execute(
             if let TransactionKind::EthEmulation(EthEmulationKind::EOABaseTokenTransfer {
                 fee,
                 ..
-            }) = &transaction_kind
+            })
+            | TransactionKind::EthEmulation(EthEmulationKind::ERC20Transfer { fee, .. }) =
+                &transaction_kind
             {
                 if !fee.is_zero() && context.predecessor_account_id != context.current_account_id {
                     let refund_promise = env::promise_batch_create(&context.predecessor_account_id);
@@ -420,7 +422,7 @@ fn inner_rlp_execute(
                 caller_deposit,
             ))
         }
-        TransactionKind::EthEmulation(EthEmulationKind::ERC20Transfer { receiver_id }) => {
+        TransactionKind::EthEmulation(EthEmulationKind::ERC20Transfer { receiver_id, .. }) => {
             // In the case of the emulated ERC-20 transfer, the receiving account
             // might not be registered with the NEP-141 contract (per the NEP-145)
             // storage standard. Therefore we must create a multi-step promise where

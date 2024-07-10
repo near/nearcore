@@ -9,7 +9,7 @@ use crate::{
 };
 use aurora_engine_transactions::NormalizedEthTransaction;
 use ethabi::{Address, ParamType};
-use near_sdk::{env, AccountId};
+use near_sdk::{env, AccountId, NearToken};
 
 const FIVE_TERA_GAS: u64 = near_sdk::Gas::from_tgas(5).as_gas();
 
@@ -27,6 +27,7 @@ pub const ERC20_TOTAL_SUPPLY_SELECTOR: &[u8] = &[0x18, 0x16, 0x0d, 0xdd];
 pub fn try_emulation(
     target: &AccountId,
     tx: &NormalizedEthTransaction,
+    fee: NearToken,
     context: &ExecutionContext,
 ) -> Result<(Action, ParsableEthEmulationKind), Error> {
     if tx.data.len() < 4 {
@@ -87,7 +88,7 @@ pub fn try_emulation(
                     gas: 2 * FIVE_TERA_GAS,
                     yocto_near: 1,
                 },
-                ParsableEthEmulationKind::ERC20Transfer { receiver_id },
+                ParsableEthEmulationKind::ERC20Transfer { receiver_id, fee },
             ))
         }
         ERC20_TOTAL_SUPPLY_SELECTOR => Ok((

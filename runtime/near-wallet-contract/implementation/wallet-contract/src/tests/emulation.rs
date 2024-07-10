@@ -205,6 +205,8 @@ async fn test_base_token_transfer_with_relayer_refund() -> anyhow::Result<()> {
 async fn test_erc20_emulation() -> anyhow::Result<()> {
     const MINT_AMOUNT: NearToken = NearToken::from_near(100);
     const TRANSFER_AMOUNT: NearToken = NearToken::from_near(32);
+    const RELAYER_REFUND: NearToken = NearToken::from_millinear(3);
+    const GAS_LIMIT: u64 = 100_000;
 
     let TestContext {
         worker,
@@ -362,6 +364,68 @@ async fn test_erc20_emulation() -> anyhow::Result<()> {
 
     let balance: U128 = serde_json::from_slice(result.success_value.as_ref().unwrap())?;
     assert_eq!(balance.0, MINT_AMOUNT.as_yoctonear());
+
+    // If an external relayer triggers the transaction then it is
+    // compensated for the Near gas.
+    let transaction = aurora_engine_transactions::eip_2930::Transaction2930 {
+        nonce: 4.into(),
+        gas_price: (RELAYER_REFUND.as_yoctonear()
+            / ((GAS_LIMIT as u128) * (MAX_YOCTO_NEAR as u128)))
+            .into(),
+        gas_limit: GAS_LIMIT.into(),
+        to: Some(Address::new(account_id_to_address(
+            &token_contract.contract.id().as_str().parse().unwrap(),
+        ))),
+        value: Wei::zero(),
+        data: [
+            crate::eth_emulation::ERC20_TRANSFER_SELECTOR.to_vec(),
+            ethabi::encode(&[
+                ethabi::Token::Address(other_address),
+                ethabi::Token::Uint(TRANSFER_AMOUNT.as_yoctonear().into()),
+            ]),
+        ]
+        .concat(),
+        chain_id: CHAIN_ID,
+        access_list: Vec::new(),
+    };
+    let signed_transaction = crypto::sign_transaction(transaction, &wallet_sk);
+
+    let relayer = worker.root_account()?;
+    let initial_relayer_balance = relayer.view_account().await?.balance;
+    let initial_wallet_balance = wallet_contract.inner.as_account().view_account().await?.balance;
+
+    let result = wallet_contract
+        .rlp_execute_from(
+            &relayer,
+            token_contract.contract.id().as_str(),
+            &signed_transaction,
+            NearToken::from_yoctonear(0),
+        )
+        .await?;
+
+    assert!(result.success);
+    assert_eq!(
+        MINT_AMOUNT.as_yoctonear() - (3 * TRANSFER_AMOUNT.as_yoctonear()),
+        token_contract.ft_balance_of(wallet_contract.inner.id()).await?
+    );
+    assert_eq!(
+        3 * TRANSFER_AMOUNT.as_yoctonear(),
+        token_contract.ft_balance_of(other_wallet.inner.id()).await?
+    );
+
+    let final_relayer_balance = relayer.view_account().await?.balance;
+    let final_wallet_balance = wallet_contract.inner.as_account().view_account().await?.balance;
+
+    // Relayer balance stays the same (rounded to the nearest milliNEAR) since the
+    // wallet refunded the relayer approximately equal to the transaction gas cost.
+    assert_eq!(final_relayer_balance.as_millinear(), initial_relayer_balance.as_millinear());
+
+    // Wallet balance decreases (round to milliNEAR to account for funds
+    // received for calling the contract).
+    assert_eq!(
+        final_wallet_balance.as_millinear(),
+        initial_wallet_balance.as_millinear() - RELAYER_REFUND.as_millinear()
+    );
 
     Ok(())
 }
