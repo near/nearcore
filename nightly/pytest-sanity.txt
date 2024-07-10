@@ -170,10 +170,10 @@ pytest --timeout=600 sanity/split_storage.py
 pytest --timeout=600 sanity/split_storage.py --features nightly
 
 # Tests for resharding
-# TODO(#11757)
 # TODO(resharding) Tests for resharding are disabled because resharding is not
 # compatible with stateless validation, state sync and congestion control.
 
+# TODO(#11757)
 # pytest --timeout=120 sanity/resharding.py
 # pytest --timeout=120 sanity/resharding_rpc_tx.py
 # pytest --timeout=120 sanity/resharding_restart.py
