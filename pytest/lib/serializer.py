@@ -164,10 +164,14 @@ class BinarySerializer:
             return ret
         elif structSchema['kind'] == 'enum':
             value_ord = self.deserialize_num(1)
+            if (value_ord < 0) or (len(structSchema['values']) <= value_ord):
+                raise IndexError(
+                    f"Unknown enum variant {value_ord} for {type_}, num variants: {len(structSchema['values'])}"
+                )
+
             logger.debug(
                 f"deserialize_struct {type_} {structSchema['kind']} enum value ord {value_ord} struct schema {len(structSchema['values'])}"
             )
-
             value_schema = structSchema['values'][value_ord]
             logger.debug(
                 f"deserialize_struct {type_} {structSchema['kind']} enum value sch {value_schema}"

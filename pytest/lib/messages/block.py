@@ -163,11 +163,24 @@ class ShardChunkHeaderV3:
         import hashlib
         from messages.crypto import crypto_schema
         from serializer import BinarySerializer
+
+        # We combine the hash of this inner object (of type ShardChunkHeaderInner)
+        # and the encoded merkle root obtained from the versioned-inner object
+        # inside the variants of this inner object.
+        encoded_merkle_root = None
+        if inner.enum == 'V1':
+            encoded_merkle_root = inner.V1.encoded_merkle_root
+        elif inner.enum == 'V2':
+            encoded_merkle_root = inner.V2.encoded_merkle_root
+        elif inner.enum == 'V3':
+            encoded_merkle_root = inner.V3.encoded_merkle_root
+        assert encoded_merkle_root is not None, f"Unknown ShardChunkHeaderV3 enum variant: {inner.enum}"
+
         inner_serialized = BinarySerializer(
             dict(block_schema + crypto_schema)).serialize(inner)
         inner_hash = hashlib.sha256(inner_serialized).digest()
 
-        return hashlib.sha256(inner_hash + inner.encoded_merkle_root).digest()
+        return hashlib.sha256(inner_hash + encoded_merkle_root).digest()
 
 
 class ShardChunkHeaderInner:
@@ -217,13 +230,20 @@ class PartialEncodedChunk:
                     return header.V3.inner.V3
             assert False, "unknown header version"
 
-    def header_version(self):
+    def chunk_hash(self):
         version = self.enum
         if version == 'V1':
-            return version
+            return ShardChunkHeaderV1.chunk_hash(self.V1.header.inner)
         elif version == 'V2':
-            return self.V2.header.enum
-        assert False, "unknown partial encoded chunk version"
+            header = self.V2.header
+            header_version = header.enum
+            if header_version == 'V1':
+                return ShardChunkHeaderV1.chunk_hash(header.V1.inner)
+            elif header_version == 'V2':
+                return ShardChunkHeaderV2.chunk_hash(header.V2.inner)
+            elif header_version == 'V3':
+                return ShardChunkHeaderV3.chunk_hash(header.V3.inner)
+            assert False, "unknown header version"
 
 
 class PartialEncodedChunkV1:

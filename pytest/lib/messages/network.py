@@ -40,7 +40,7 @@ class PeerChainInfoV2:
     pass
 
 
-class EdgeInfo:
+class PartialEdgeInfo:
     pass
 
 
@@ -52,7 +52,7 @@ class Edge:
     pass
 
 
-class SyncData:
+class RoutingTableUpdate:
     pass
 
 
@@ -132,6 +132,22 @@ class PartialSync:
     pass
 
 
+class SyncSnapshotHosts:
+    pass
+
+
+class SnapshotHostInfo:
+    pass
+
+
+class DistanceVector:
+    pass
+
+
+class AdvertisedPeerDistance:
+    pass
+
+
 network_schema = [
     [
         SocketAddr, {
@@ -151,9 +167,9 @@ network_schema = [
                 ['Handshake', Handshake],
                 ['HandshakeFailure', (PeerInfo, HandshakeFailureReason)],
                 ['LastEdge', Edge],
-                ['Sync', SyncData],
-                ['RequestUpdateNonce', EdgeInfo],
-                ['ResponseUpdateNonce', Edge],
+                ['SyncRoutingTable', RoutingTableUpdate],
+                ['RequestUpdateNonce', PartialEdgeInfo],
+                ['_UnusedResponseUpdateNonce', None],
                 ['PeersRequest', ()],
                 ['PeersResponse', [PeerInfo]],
                 ['BlockHeadersRequest', [[32]]],
@@ -162,19 +178,19 @@ network_schema = [
                 ['Block', Block],
                 ['Transaction', SignedTransaction],
                 ['Routed', RoutedMessage],
-                ['Disconnect'],
+                ['Disconnect', ()],
                 ['Challenge', None],  # TODO
-                ['HandshakeV2', HandshakeV2],
-                ['EpochSyncRequest', None],  # TODO
-                ['EpochSyncResponse', None],  # TODO
-                ['EpochSyncFinalizationRequest', None],  # TODO
-                ['EpochSyncFinalizationResponse', None],  # TODO
-                ['RoutingTableSyncV2', RoutingTableSyncV2],
-                ['DistanceVector', None],
-                ['StateRequestHeader', None],
-                ['StateRequestPart', None],
-                ['VersionedStateResponse', None],
-                ['SyncSnapshotHosts', None],
+                ['_UnusedHandshakeV2', None],
+                ['_UnusedEpochSyncRequest', None],
+                ['_UnusedEpochSyncResponse', None],
+                ['_UnusedEpochSyncFinalizationRequest', None],
+                ['_UnusedEpochSyncFinalizationResponse', None],
+                ['_UnusedRoutingTableSyncV2', RoutingTableSyncV2],
+                ['DistanceVector', DistanceVector],
+                ['StateRequestHeader', ('u64', [32])],
+                ['StateRequestPart', ('u64', [32], 'u64')],
+                ['VersionedStateResponse', None],  # TODO
+                ['SyncSnapshotHosts', SyncSnapshotHosts],
             ]
         }
     ],
@@ -192,7 +208,7 @@ network_schema = [
                     'type': 'u16'
                 }],
                 ['chain_info', PeerChainInfoV2],
-                ['edge_info', EdgeInfo],
+                ['edge_info', PartialEdgeInfo],
             ]
         }
     ],
@@ -210,7 +226,7 @@ network_schema = [
                     'type': 'u16'
                 }],
                 ['chain_info', PeerChainInfo],
-                ['edge_info', EdgeInfo],
+                ['edge_info', PartialEdgeInfo],
             ]
         }
     ],
@@ -284,7 +300,7 @@ network_schema = [
         }
     ],
     [
-        SyncData, {
+        RoutingTableUpdate, {
             'kind': 'struct',
             'fields': [
                 ['edges', [Edge]],
@@ -293,7 +309,7 @@ network_schema = [
         }
     ],
     [
-        EdgeInfo, {
+        PartialEdgeInfo, {
             'kind': 'struct',
             'fields': [
                 ['nonce', 'u64'],
@@ -559,6 +575,45 @@ network_schema = [
             'fields': [
                 ['ibf_level', 'u64'],
                 ['ibf', [IbfElem]],
+            ]
+        }
+    ],
+    [
+        SyncSnapshotHosts, {
+            'kind': 'struct',
+            'fields': [['hosts', [SnapshotHostInfo]],]
+        }
+    ],
+    [
+        SnapshotHostInfo, {
+            'kind':
+                'struct',
+            'fields': [
+                ['peer_id', PublicKey],
+                ['sync_hash', [32]],
+                ['epoch_height', 'u64'],
+                ['shards', ['u64']],
+                ['signature', Signature],
+            ]
+        }
+    ],
+    [
+        AdvertisedPeerDistance, {
+            'kind': 'struct',
+            'fields': [
+                ['destination', PublicKey],
+                ['distance', 'u32'],
+            ]
+        }
+    ],
+    [
+        DistanceVector, {
+            'kind':
+                'struct',
+            'fields': [
+                ['root', PublicKey],
+                ['distances', [AdvertisedPeerDistance]],
+                ['edges', [Edge]],
             ]
         }
     ]
