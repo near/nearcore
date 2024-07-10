@@ -17,7 +17,7 @@ use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
-    RuntimeStorageConfig,
+    RuntimeStorageConfig, StorageDataSource,
 };
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, Error};
 use near_chain_configs::GenesisChangeConfig;
@@ -37,6 +37,7 @@ use near_primitives::state_record::state_record_to_account_id;
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY;
 use near_primitives::trie_key::TrieKey;
+use near_primitives::types::ProtocolVersion;
 use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, EpochId, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::types::{Balance, EpochHeight, Gas};
@@ -64,6 +65,7 @@ pub(crate) fn apply_block(
     runtime: &dyn RuntimeAdapter,
     chain_store: &mut ChainStore,
     use_flat_storage: bool,
+    use_trie_for_free: bool,
 ) -> (Block, ApplyChunkResult) {
     let block = chain_store.get_block(&block_hash).unwrap();
     let height = block.header().height();
@@ -94,9 +96,15 @@ pub(crate) fn apply_block(
         )
         .unwrap();
 
+        let mut storage =
+            RuntimeStorageConfig::new(*chunk_inner.prev_state_root(), use_flat_storage);
+        if use_trie_for_free {
+            storage.source = StorageDataSource::DbTrieOnly;
+        }
+
         runtime
             .apply_chunk(
-                RuntimeStorageConfig::new(*chunk_inner.prev_state_root(), use_flat_storage),
+                storage,
                 ApplyChunkReason::UpdateTrackedShard,
                 ApplyChunkShardContext {
                     shard_id,
@@ -119,9 +127,14 @@ pub(crate) fn apply_block(
             chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap();
         let prev_block = chain_store.get_block(block.header().prev_hash()).unwrap();
 
+        let mut storage = RuntimeStorageConfig::new(*chunk_extra.state_root(), use_flat_storage);
+        if use_trie_for_free {
+            storage.source = StorageDataSource::DbTrieOnly;
+        }
+
         runtime
             .apply_chunk(
-                RuntimeStorageConfig::new(*chunk_extra.state_root(), use_flat_storage),
+                storage,
                 ApplyChunkReason::UpdateTrackedShard,
                 ApplyChunkShardContext {
                     shard_id,
@@ -147,6 +160,7 @@ pub(crate) fn apply_block_at_height(
     height: BlockHeight,
     shard_id: ShardId,
     use_flat_storage: bool,
+    use_trie_for_free: bool,
     home_dir: &Path,
     near_config: NearConfig,
     store: Store,
@@ -168,6 +182,7 @@ pub(crate) fn apply_block_at_height(
         runtime.as_ref(),
         &mut chain_store,
         use_flat_storage,
+        use_trie_for_free,
     );
     check_apply_block_result(
         &block,
@@ -185,6 +200,7 @@ pub(crate) fn apply_chunk(
     chunk_hash: ChunkHash,
     target_height: Option<u64>,
     use_flat_storage: bool,
+    use_trie_for_free: bool,
 ) -> anyhow::Result<()> {
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
     let runtime = NightshadeRuntime::from_config(
@@ -207,8 +223,14 @@ pub(crate) fn apply_chunk(
         target_height,
         None,
         use_flat_storage,
+        use_trie_for_free,
     )?;
-    println!("resulting chunk extra:\n{:?}", resulting_chunk_extra(&apply_result, gas_limit));
+    // Most probably `PROTOCOL_VERSION` won't work if the target_height points to a time
+    // before congestion control has been introduced.
+    println!(
+        "resulting chunk extra:\n{:?}",
+        resulting_chunk_extra(&apply_result, gas_limit, PROTOCOL_VERSION)
+    );
     Ok(())
 }
 
@@ -257,6 +279,7 @@ pub(crate) fn apply_receipt(
     store: Store,
     hash: CryptoHash,
     use_flat_storage: bool,
+    use_trie_for_free: bool,
 ) -> anyhow::Result<()> {
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
     let runtime = NightshadeRuntime::from_config(
@@ -273,6 +296,7 @@ pub(crate) fn apply_receipt(
         store,
         hash,
         use_flat_storage,
+        use_trie_for_free,
     )
     .map(|_| ())
 }
@@ -283,6 +307,7 @@ pub(crate) fn apply_tx(
     store: Store,
     hash: CryptoHash,
     use_flat_storage: bool,
+    use_trie_for_free: bool,
 ) -> anyhow::Result<()> {
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
     let runtime = NightshadeRuntime::from_config(
@@ -299,6 +324,7 @@ pub(crate) fn apply_tx(
         store,
         hash,
         use_flat_storage,
+        use_trie_for_free,
     )
     .map(|_| ())
 }
@@ -557,8 +583,12 @@ pub(crate) fn check_apply_block_result(
 ) -> anyhow::Result<()> {
     let height = block.header().height();
     let block_hash = block.header().hash();
-    let new_chunk_extra =
-        resulting_chunk_extra(apply_result, block.chunks()[shard_id as usize].gas_limit());
+    let protocol_version = block.header().latest_protocol_version();
+    let new_chunk_extra = resulting_chunk_extra(
+        apply_result,
+        block.chunks()[shard_id as usize].gas_limit(),
+        protocol_version,
+    );
     println!(
         "apply chunk for shard {} at height {}, resulting chunk extra {:?}",
         shard_id, height, &new_chunk_extra,
@@ -739,9 +769,11 @@ pub(crate) fn replay_chain(
     }
 }
 
-pub(crate) fn resulting_chunk_extra(result: &ApplyChunkResult, gas_limit: Gas) -> ChunkExtra {
-    // TODO(congestion_control): is it okay to use latest protocol version here for the chunk extra?
-    let protocol_version = PROTOCOL_VERSION;
+pub(crate) fn resulting_chunk_extra(
+    result: &ApplyChunkResult,
+    gas_limit: Gas,
+    protocol_version: ProtocolVersion,
+) -> ChunkExtra {
     let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&result.outcomes);
     ChunkExtra::new(
         protocol_version,
