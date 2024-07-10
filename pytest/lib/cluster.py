@@ -362,7 +362,7 @@ class BaseNode(object):
             "args_base64": args,
             "finality": finality
         },
-            timeout=timeout)
+                             timeout=timeout)
 
     def get_access_key_list(self, acc, finality='optimistic'):
         return self.json_rpc(
@@ -760,8 +760,7 @@ chmod +x neard
 
     def stop_network(self):
         rc.run(
-            f'gcloud compute firewall-rules create {
-                self.machine.name}-stop --direction=EGRESS --priority=1000 --network=default --action=DENY --rules=all --target-tags={self.machine.name}'
+            f'gcloud compute firewall-rules create {self.machine.name}-stop --direction=EGRESS --priority=1000 --network=default --action=DENY --rules=all --target-tags={self.machine.name}'
         )
 
     def resume_network(self):
@@ -848,8 +847,7 @@ def init_cluster(
         sys.exit(1)
 
     if not prefix.startswith("test"):
-        logger.critical(
-            f"The prefix must begin with 'test'. prefix = {prefix}")
+        logger.critical(f"The prefix must begin with 'test'. prefix = {prefix}")
         sys.exit(1)
 
     is_local = config['local']
@@ -924,8 +922,7 @@ def configure_cold_storage_for_archival_node(node_dir: str):
                            False) or config_json.get("cold_store") is not None:
         return
 
-    logger.debug(f"Configuring cold storage for archival node: {
-                 node_dir.stem}")
+    logger.debug(f"Configuring cold storage for archival node: {node_dir.stem}")
 
     hot_store_config = config_json.get("store")
     assert hot_store_config is not None, "Hot storage is not configured"
@@ -1050,8 +1047,7 @@ def start_cluster(
                                             genesis_config_changes,
                                             client_config_changes)
 
-    proxy = NodesProxy(
-        message_handler) if message_handler is not None else None
+    proxy = NodesProxy(message_handler) if message_handler is not None else None
     ret = []
 
     def spin_up_node_and_push(i: int, boot_node: BootNode) -> BaseNode:
