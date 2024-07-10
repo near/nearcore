@@ -146,11 +146,7 @@ mod tests {
     /// - This is an expensive test. We run it like any other test for now but
     ///   it might make sense to put it in a separate CI job.
     /// - QEMU based estimation is skipped - it would be too slow.
-    /// TODO(#11705) - This test is disabled due to errors in the congestion
-    /// control stack. It's likely due to missing congestion info boostrappng.
-    /// Fix the issue and re-enabled the test.
     #[test]
-    #[ignore]
     fn test_full_estimator() -> anyhow::Result<()> {
         let stats_path = Path::new("tmp_db.sqlite");
         let db = Db::open(stats_path)?;

@@ -26,6 +26,7 @@ itertools = { workspace = true, optional = true }
 inventory = { workspace = true, optional = true }
 num-rational.workspace = true
 once_cell.workspace = true
+ordered-float.workspace = true
 primitive-types.workspace = true
 rand = { workspace = true, optional = true }
 rand_chacha = { workspace = true, optional = true }

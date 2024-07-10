@@ -194,6 +194,9 @@ pub struct Config {
     /// Enable the `promise_yield_create` and `promise_yield_resume` host functions.
     pub yield_resume_host_functions: bool,
 
+    /// Whether to discard custom sections.
+    pub discard_custom_sections: bool,
+
     /// Describes limits for VM and Runtime.
     pub limit_config: LimitConfig,
 }
