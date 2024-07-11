@@ -64,7 +64,7 @@ use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
 use near_vm_runner::ProfileDataV3;
 use std::cmp::max;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use tracing::{debug, instrument};
 
@@ -1448,7 +1448,7 @@ impl Runtime {
         receipt_sink.forward_from_buffer(&mut processing_state.state_update, apply_state)?;
 
         // Step 3: process transactions.
-        let local_receipts = self.process_transactions(&mut processing_state, &mut receipt_sink)?;
+        self.process_transactions(&mut processing_state, &mut receipt_sink)?;
 
         // Step 4: process receipts.
         let process_receipts_result =
@@ -1521,7 +1521,7 @@ impl Runtime {
                 &mut processing_state.stats,
             )?;
             if receipt.receiver_id() == signed_transaction.transaction.signer_id() {
-                processing_state.local_receipts.push(receipt);
+                processing_state.local_receipts.push_back(receipt);
             } else {
                 receipt_sink.forward_or_buffer_receipt(
                     receipt,
@@ -1632,12 +1632,14 @@ impl Runtime {
         validator_proposals: &mut Vec<ValidatorStake>,
     ) -> Result<(), RuntimeError> {
         let local_processing_start = std::time::Instant::now();
+        let local_receipt_count = processing_state.local_receipts.len();
         if let Some(prefetcher) = &mut processing_state.prefetcher {
             // Prefetcher is allowed to fail
-            _ = prefetcher.prefetch_receipts_data(&processing_state.local_receipts);
+            let (front, back) = processing_state.local_receipts.as_slices();
+            _ = prefetcher.prefetch_receipts_data(front);
+            _ = prefetcher.prefetch_receipts_data(back);
         }
-        let local_receipts = std::mem::replace(&mut processing_state.local_receipts, Vec::new());
-        for receipt in local_receipts.iter() {
+        while let Some(receipt) = processing_state.next_local_receipt() {
             if processing_state.total.compute >= compute_limit
                 || proof_size_limit.is_some_and(|limit| {
                     processing_state.state_update.trie.recorded_storage_size_upper_bound() > limit
@@ -1645,14 +1647,14 @@ impl Runtime {
             {
                 processing_state.delayed_receipts.push(
                     &mut processing_state.state_update,
-                    receipt,
+                    &receipt,
                     &processing_state.apply_state.config,
                 )?;
             } else {
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
                 // the `verify_and_charge_transaction`.
                 self.process_receipt_with_metrics(
-                    receipt,
+                    &receipt,
                     &mut processing_state,
                     receipt_sink,
                     validator_proposals,
@@ -1660,7 +1662,7 @@ impl Runtime {
             }
         }
         processing_state.metrics.local_receipts_done(
-            local_receipts.len() as u64,
+            local_receipt_count as u64,
             local_processing_start.elapsed(),
             processing_state.total.gas,
             processing_state.total.compute,
@@ -2284,7 +2286,7 @@ impl<'a> ApplyProcessingState<'a> {
             stats: self.stats,
             outcomes: Vec::new(),
             metrics: metrics::ApplyMetrics::default(),
-            local_receipts: Vec::new(),
+            local_receipts: VecDeque::new(),
             incoming_receipts,
             delayed_receipts,
         }
@@ -2304,9 +2306,22 @@ struct ApplyProcessingReceiptState<'a> {
     stats: ApplyStats,
     outcomes: Vec<ExecutionOutcomeWithId>,
     metrics: ApplyMetrics,
-    local_receipts: Vec<Receipt>,
+    local_receipts: VecDeque<Receipt>,
     incoming_receipts: &'a [Receipt],
     delayed_receipts: DelayedReceiptQueueWrapper,
+}
+
+impl<'a> ApplyProcessingReceiptState<'a> {
+    /// Obtain the next receipt that should be executed.
+    fn next_local_receipt(&mut self) -> Option<Receipt> {
+        self.local_receipts.pop_front()
+    }
+
+    /// Observe the information about a receipt that would be processed `ahead` receipts later.
+    #[allow(dead_code)] // TODO
+    fn peek_receipt(&self, ahead: usize) -> Option<&Receipt> {
+        self.local_receipts.get(ahead)
+    }
 }
 
 #[cfg(test)]
