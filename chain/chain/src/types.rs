@@ -292,7 +292,7 @@ impl RuntimeStorageConfig {
     /// Flat storage is disabled because it is implied to be missing.
     ///
     /// This's meant to be used only to replay blocks.
-    pub fn with_db_trie_only(state_root: StateRoot) -> Self {
+    pub fn new_with_db_trie_only(state_root: StateRoot) -> Self {
         Self {
             state_root,
             use_flat_storage: false,

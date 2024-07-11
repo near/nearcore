@@ -195,7 +195,7 @@ impl StorageSource {
     pub fn create_runtime_storage(&self, state_root: StateRoot) -> RuntimeStorageConfig {
         match self {
             StorageSource::Trie => RuntimeStorageConfig::new(state_root, false),
-            StorageSource::TrieFree => RuntimeStorageConfig::with_db_trie_only(state_root),
+            StorageSource::TrieFree => RuntimeStorageConfig::new_with_db_trie_only(state_root),
             StorageSource::FlatStorage => RuntimeStorageConfig::new(state_root, true),
         }
     }
