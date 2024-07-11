@@ -21,7 +21,6 @@ class MintInscription(FunctionCall):
 
     def __init__(self, contract_account_id: str, sender: Account, tick: str,
                  amt: int):
-        # Attach exactly 1 yoctoNEAR according to NEP-141 to avoid calls from restricted access keys
         super().__init__(sender, contract_account_id, "inscribe", balance=0)
         self.sender = sender
         self.tick = tick
