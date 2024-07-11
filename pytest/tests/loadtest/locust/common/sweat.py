@@ -231,21 +231,15 @@ def on_locust_init(environment, **kwargs):
     # on master, register oracles for workers
     if isinstance(environment.runner, locust.runners.MasterRunner):
         num_oracles = int(environment.parsed_options.max_workers)
-        oracle_accounts = [
-            Account(
-                key.Key.from_seed_testonly(
-                    worker_oracle_id(id, run_id,
-                                     environment.master_funding_account)))
-            for id in range(num_oracles)
-        ]
-        node.prepare_accounts(oracle_accounts,
-                              environment.master_funding_account, 100000,
-                              "create contract account")
-        for oracle in oracle_accounts:
-            id = oracle.key.account_id
-            environment.sweat.top_up(node, id)
-            environment.sweat.register_oracle(node, id)
-            node.send_tx_retry(SweatAddOracle(sweat_claim_account, id),
+        for index in range(num_oracles):
+            account_id = worker_oracle_id(index, run_id,
+                                          environment.master_funding_account)
+            account = Account(key.Key.from_seed_testonly(account_id))
+            node.prepare_account(account, environment.master_funding_account,
+                                 100000, "create contract account")
+            environment.sweat.top_up(node, account_id)
+            environment.sweat.register_oracle(node, account_id)
+            node.send_tx_retry(SweatAddOracle(sweat_claim_account, account_id),
                                "add sweat.claim oracle")
 
 

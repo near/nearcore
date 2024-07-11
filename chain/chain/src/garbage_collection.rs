@@ -876,29 +876,6 @@ impl<'a> ChainStoreUpdate<'a> {
 
     fn gc_outgoing_receipts(&mut self, block_hash: &CryptoHash, shard_id: ShardId) {
         let mut store_update = self.store().store_update();
-        match self.get_outgoing_receipts(block_hash, shard_id).map(|receipts| {
-            receipts.iter().map(|receipt| *receipt.receipt_id()).collect::<Vec<_>>()
-        }) {
-            Ok(receipt_ids) => {
-                for receipt_id in receipt_ids {
-                    let key: Vec<u8> = receipt_id.into();
-                    store_update.decrement_refcount(DBCol::ReceiptIdToShardId, &key);
-                    self.chain_store().receipt_id_to_shard_id.pop(&key);
-                }
-            }
-            Err(error) => {
-                match error {
-                    Error::DBNotFoundErr(_) => {
-                        // Sometimes we don't save outgoing receipts. See the usages of save_outgoing_receipt.
-                        // The invariant is that DBCol::OutgoingReceipts has same receipts as DBCol::ReceiptIdToShardId.
-                    }
-                    _ => {
-                        tracing::error!(target: "chain", "Error getting outgoing receipts for block {}, shard {}: {:?}", block_hash, shard_id, error);
-                    }
-                }
-            }
-        }
-
         let key = get_block_shard_id(block_hash, shard_id);
         store_update.delete(DBCol::OutgoingReceipts, &key);
         self.chain_store().outgoing_receipts.pop(&key);
@@ -930,7 +907,7 @@ impl<'a> ChainStoreUpdate<'a> {
         let mut store_update = self.store().store_update();
         match col {
             DBCol::OutgoingReceipts => {
-                panic!("Must use gc_outgoing_receipts");
+                panic!("Outgoing receipts must be garbage collected by calling gc_outgoing_receipts");
             }
             DBCol::IncomingReceipts => {
                 store_update.delete(col, key);
@@ -972,9 +949,6 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::BlockRefCount => {
                 store_update.delete(col, key);
                 self.chain_store().block_refcounts.pop(key);
-            }
-            DBCol::ReceiptIdToShardId => {
-                panic!("Must use gc_outgoing_receipts");
             }
             DBCol::Transactions => {
                 store_update.decrement_refcount(col, key);
@@ -1072,6 +1046,7 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::FlatStateDeltaMetadata
             | DBCol::FlatStorageStatus
             | DBCol::Misc
+            | DBCol::_ReceiptIdToShardId
             => unreachable!(),
             #[cfg(feature = "new_epoch_sync")]
             DBCol::EpochSyncInfo => unreachable!(),

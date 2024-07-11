@@ -55,28 +55,22 @@ pub fn test_read_write() {
     with_vm_variants(&config, |vm_kind: VMKind| {
         let code = test_contract(vm_kind);
         let mut fake_external = MockedExternal::with_code(code);
-        let context = create_context(encode(&[10u64, 20u64]));
+        let context = create_context("write_key_value", encode(&[10u64, 20u64]));
 
-        let promise_results = [].into();
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
-        let result = runtime.run(
-            "write_key_value",
+        let result = runtime.prepare(&fake_external, &context, None).run(
             &mut fake_external,
             &context,
             Arc::clone(&fees),
-            Arc::clone(&promise_results),
-            None,
         );
         assert_run_result(result, 0);
 
-        let context = create_context(encode(&[10u64]));
-        let result = runtime.run(
-            "read_value",
+        let context = create_context("read_value", encode(&[10u64]));
+        let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
+        let result = runtime.prepare(&fake_external, &context, None).run(
             &mut fake_external,
             &context,
             Arc::clone(&fees),
-            promise_results,
-            None,
         );
         assert_run_result(result, 20);
     });
@@ -125,11 +119,12 @@ fn run_test_ext(
     fake_external.validators =
         validators.into_iter().map(|(s, b)| (s.parse().unwrap(), b)).collect();
     let fees = Arc::new(RuntimeFeesConfig::test());
-    let context = create_context(input.to_vec());
+    let context = create_context(method, input.to_vec());
     let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
 
     let outcome = runtime
-        .run(method, &mut fake_external, &context, Arc::clone(&fees), [].into(), None)
+        .prepare(&fake_external, &context, None)
+        .run(&mut fake_external, &context, Arc::clone(&fees))
         .unwrap_or_else(|err| panic!("Failed execution: {:?}", err));
 
     assert_eq!(outcome.profile.action_gas(), 0);
@@ -230,12 +225,12 @@ pub fn test_out_of_memory() {
 
         let code = test_contract(vm_kind);
         let mut fake_external = MockedExternal::with_code(code);
-        let context = create_context(Vec::new());
+        let context = create_context("out_of_memory", Vec::new());
         let fees = Arc::new(RuntimeFeesConfig::free());
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
-        let promise_results = [].into();
         let result = runtime
-            .run("out_of_memory", &mut fake_external, &context, fees, promise_results, None)
+            .prepare(&fake_external, &context, None)
+            .run(&mut fake_external, &context, fees)
             .expect("execution failed");
         assert_eq!(
             result.aborted,
@@ -254,7 +249,7 @@ fn function_call_weight_contract() -> ContractCode {
 
 #[test]
 fn attach_unspent_gas_but_use_all_gas() {
-    let mut context = create_context(vec![]);
+    let mut context = create_context("attach_unspent_gas_but_use_all_gas", vec![]);
     context.prepaid_gas = 100 * 10u64.pow(12);
 
     let mut config = test_vm_config();
@@ -268,14 +263,8 @@ fn attach_unspent_gas_but_use_all_gas() {
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
 
         let outcome = runtime
-            .run(
-                "attach_unspent_gas_but_use_all_gas",
-                &mut external,
-                &context,
-                fees,
-                [].into(),
-                None,
-            )
+            .prepare(&external, &context, None)
+            .run(&mut external, &context, fees)
             .unwrap_or_else(|err| panic!("Failed execution: {:?}", err));
 
         let err = outcome.aborted.as_ref().unwrap();

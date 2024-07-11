@@ -30,6 +30,27 @@ remote_nodes = []
 remote_nodes_lock = threading.Lock()
 cleanup_remote_nodes_atexit_registered = False
 
+Config = typing.Dict[str, typing.Any]
+
+# Example value: [
+#   ("num_block_producer_seats_per_shard", [100]),
+#   ("epoch_length", 100)
+# ]
+# Note that we also support using list instead of a tuple here, but that
+# should be discouraged
+GenesisConfigChanges = typing.List[typing.Tuple[str, typing.Any]]
+
+# Example value: {
+#   "tracked_shards": [],
+#   "consensus.min_block_production_delay": {
+#       "secs": 1,
+#       "nanos": 300000000
+#   }
+# }
+ClientConfigChange = typing.Dict[str, typing.Any]
+# Key represent the index of the node.
+ClientConfigChanges = typing.Dict[int, ClientConfigChange]
+
 
 # Return the session object that can be used for making http requests.
 #
@@ -774,9 +795,14 @@ def spin_up_node(config,
             "127.0.0.1:%s" % (24567 + 10 + bl_ordinal)
             for bl_ordinal in blacklist
         ]
-        node = LocalNode(24567 + 10 + ordinal, 3030 + 10 + ordinal,
-                         near_root, node_dir, blacklist,
-                         config.get('binary_name'), single_node)
+        node = LocalNode(24567 + 10 + ordinal,
+                         3030 + 10 + ordinal,
+                         near_root,
+                         node_dir,
+                         blacklist,
+                         config.get('binary_name'),
+                         single_node,
+                         ordinal=ordinal)
     else:
         # TODO: Figure out how to know IP address beforehand for remote deployment.
         assert len(
@@ -802,13 +828,15 @@ def spin_up_node(config,
     return node
 
 
-def init_cluster(num_nodes,
-                 num_observers,
-                 num_shards,
-                 config,
-                 genesis_config_changes,
-                 client_config_changes,
-                 prefix="test"):
+def init_cluster(
+    num_nodes: int,
+    num_observers: int,
+    num_shards: int,
+    config: Config,
+    genesis_config_changes: GenesisConfigChanges,
+    client_config_changes: ClientConfigChanges,
+    prefix="test",
+) -> typing.Tuple[str, typing.List[str]]:
     """
     Create cluster configuration
     """
@@ -871,7 +899,8 @@ def init_cluster(num_nodes,
     return near_root, node_dirs
 
 
-def apply_genesis_changes(node_dir, genesis_config_changes):
+def apply_genesis_changes(node_dir: str,
+                          genesis_config_changes: GenesisConfigChanges):
     # apply genesis.json changes
     fname = os.path.join(node_dir, 'genesis.json')
     with open(fname) as fd:
@@ -886,7 +915,8 @@ def apply_genesis_changes(node_dir, genesis_config_changes):
         json.dump(genesis_config, fd, indent=2)
 
 
-def apply_config_changes(node_dir, client_config_change):
+def apply_config_changes(node_dir: str,
+                         client_config_change: ClientConfigChange):
     # apply config.json changes
     fname = os.path.join(node_dir, 'config.json')
     with open(fname) as fd:
@@ -941,13 +971,15 @@ def set_config_json(node_dir, config_json):
         json.dump(config_json, fd, indent=2)
 
 
-def start_cluster(num_nodes,
-                  num_observers,
-                  num_shards,
-                  config,
-                  genesis_config_changes,
-                  client_config_changes,
-                  message_handler=None):
+def start_cluster(
+    num_nodes: int,
+    num_observers: int,
+    num_shards: int,
+    config: typing.Optional[Config],
+    genesis_config_changes: GenesisConfigChanges,
+    client_config_changes: ClientConfigChanges,
+    message_handler=None,
+) -> typing.List[BaseNode]:
     if not config:
         config = load_config()
 
@@ -968,16 +1000,18 @@ def start_cluster(num_nodes,
     proxy = NodesProxy(message_handler) if message_handler is not None else None
     ret = []
 
-    def spin_up_node_and_push(i, boot_node: BootNode):
+    def spin_up_node_and_push(i: int, boot_node: BootNode) -> BaseNode:
         single_node = (num_nodes == 1) and (num_observers == 0)
-        node = spin_up_node(config,
-                            near_root,
-                            node_dirs[i],
-                            i,
-                            boot_node=boot_node,
-                            proxy=proxy,
-                            skip_starting_proxy=True,
-                            single_node=single_node)
+        node = spin_up_node(
+            config,
+            near_root,
+            node_dirs[i],
+            ordinal=i,
+            boot_node=boot_node,
+            proxy=proxy,
+            skip_starting_proxy=True,
+            single_node=single_node,
+        )
         ret.append((i, node))
         return node
 
@@ -1009,7 +1043,7 @@ def get_near_root():
     return os.environ.get('NEAR_ROOT', str(default_root))
 
 
-DEFAULT_CONFIG = {
+DEFAULT_CONFIG: Config = {
     'local': True,
     'near_root': get_near_root(),
     'binary_name': 'neard',
@@ -1018,7 +1052,7 @@ DEFAULT_CONFIG = {
 CONFIG_ENV_VAR = 'NEAR_PYTEST_CONFIG'
 
 
-def load_config():
+def load_config() -> Config:
     config = DEFAULT_CONFIG
 
     config_file = os.environ.get(CONFIG_ENV_VAR, '')

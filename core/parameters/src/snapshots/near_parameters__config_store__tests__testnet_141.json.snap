@@ -18,7 +18,7 @@ expression: config_view
       },
       "cost_per_byte": {
         "send_sir": 17212011,
-        "send_not_sir": 17212011,
+        "send_not_sir": 47683715,
         "execution": 17212011
       }
     },
@@ -35,7 +35,7 @@ expression: config_view
       },
       "deploy_contract_cost_per_byte": {
         "send_sir": 6812999,
-        "send_not_sir": 6812999,
+        "send_not_sir": 47683715,
         "execution": 64572944
       },
       "function_call_cost": {
@@ -45,7 +45,7 @@ expression: config_view
       },
       "function_call_cost_per_byte": {
         "send_sir": 2235934,
-        "send_not_sir": 2235934,
+        "send_not_sir": 47683715,
         "execution": 2235934
       },
       "transfer_cost": {
@@ -71,7 +71,7 @@ expression: config_view
         },
         "function_call_cost_per_byte": {
           "send_sir": 1925331,
-          "send_not_sir": 1925331,
+          "send_not_sir": 47683715,
           "execution": 1925331
         }
       },
@@ -178,14 +178,15 @@ expression: config_view
     "regular_op_cost": 822756,
     "vm_kind": "<REDACTED>",
     "disable_9393_fix": false,
+    "discard_custom_sections": false,
     "storage_get_mode": "FlatStorage",
-    "fix_contract_loading_cost": false,
+    "fix_contract_loading_cost": true,
     "implicit_account_creation": true,
     "math_extension": true,
     "ed25519_verify": true,
     "alt_bn128": true,
     "function_call_weight": true,
-    "eth_implicit_accounts": false,
+    "eth_implicit_accounts": true,
     "yield_resume_host_functions": true,
     "limit_config": {
       "max_gas_burnt": 300000000000000,
@@ -226,7 +227,7 @@ expression: config_view
   },
   "congestion_control_config": {
     "max_congestion_incoming_gas": 20000000000000000,
-    "max_congestion_outgoing_gas": 2000000000000000,
+    "max_congestion_outgoing_gas": 10000000000000000,
     "max_congestion_memory_consumption": 1000000000,
     "max_congestion_missed_chunks": 5,
     "max_outgoing_gas": 300000000000000000,
@@ -234,7 +235,7 @@ expression: config_view
     "allowed_shard_outgoing_gas": 1000000000000000,
     "max_tx_gas": 500000000000000,
     "min_tx_gas": 20000000000000,
-    "reject_tx_congestion_threshold": 0.25,
+    "reject_tx_congestion_threshold": 0.5,
     "outgoing_receipts_usual_size_limit": 102400,
     "outgoing_receipts_big_size_limit": 4718592
   },

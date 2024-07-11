@@ -1,7 +1,6 @@
 use anyhow::Context;
 use clap;
 use near_chain::{ChainStore, ChainStoreAccess, ChainUpdate, DoomslugThresholdMode};
-use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
 use near_primitives::block::BlockHeader;
 use near_primitives::borsh::BorshDeserialize;
@@ -105,10 +104,6 @@ impl ValidateEpochSyncInfoCmd {
 
         let epoch_manager =
             EpochManager::new_arc_handle(storage.get_hot_store(), &config.genesis.config);
-        let shard_tracker = ShardTracker::new(
-            TrackedConfig::from_config(&config.client_config),
-            epoch_manager.clone(),
-        );
         let runtime = NightshadeRuntime::from_config(
             home_dir,
             storage.get_hot_store(),
@@ -119,7 +114,6 @@ impl ValidateEpochSyncInfoCmd {
         let chain_update = ChainUpdate::new(
             &mut chain_store,
             epoch_manager,
-            shard_tracker,
             runtime,
             DoomslugThresholdMode::TwoThirds,
             config.genesis.config.transaction_validity_period,

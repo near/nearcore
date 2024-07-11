@@ -2,6 +2,7 @@ import asyncio
 import concurrent
 import hashlib
 import struct
+import time
 
 import base58
 
@@ -127,7 +128,11 @@ def create_handshake(my_key_pair_nacl,
     handshake.chain_info.genesis_id.chain_id = 'moo'
     handshake.chain_info.genesis_id.hash = bytes([0] * 32)
 
-    handshake.edge_info.nonce = 1
+    nonce = int(time.time())
+    if nonce % 2 == 0:
+        nonce += 1
+    handshake.edge_info.nonce = nonce
+
     handshake.edge_info.signature = Signature()
 
     handshake.edge_info.signature.keyType = 0
