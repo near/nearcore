@@ -17,3 +17,8 @@ wget https://raw.githubusercontent.com/sweatco/sweat-near/main/res/sweat.wasm -O
 wget https://raw.githubusercontent.com/sweatco/sweat-near/main/res/sweat_claim.wasm -O ${TARGET_CONTRACTS_DIR}/sweat_claim.wasm
 ln -s ${SOURCE_CONTRACTS_DIR}/fungible_token.wasm ${TARGET_CONTRACTS_DIR}/fungible_token.wasm
 ln -s ${SOURCE_CONTRACTS_DIR}/backwards_compatible_rs_contract.wasm ${TARGET_CONTRACTS_DIR}/congestion.wasm
+
+# The `inscription.near` contract has been downloaded using:
+# ./neard view-state dump-code --account-id inscription.near --output inscription.wasm
+# from mainnet at block height 123138647
+echo "Reusing inscription.near contract downloaded from mainnet"
