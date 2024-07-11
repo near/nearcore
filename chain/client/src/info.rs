@@ -506,29 +506,20 @@ impl InfoHelper {
             (metrics::VALIDATORS_CHUNKS_EXPECTED
                 .with_label_values(&[stats.account_id.as_str()])
                 .set(stats.num_expected_chunks as i64));
-            for (
-                (((shard, chunks_expected), chunks_produced), endorsements_expected),
-                endorsements_produced,
-            ) in stats
-                .shards
-                .iter()
-                .zip(stats.num_expected_chunks_per_shard.iter())
-                .zip(stats.num_produced_chunks_per_shard.iter())
-                .zip(stats.num_expected_endorsements_per_shard.iter())
-                .zip(stats.num_produced_endorsements_per_shard.iter())
-            {
+            for i in 0..stats.shards.len() {
+                let shard = stats.shards[i];
                 (metrics::VALIDATORS_CHUNKS_EXPECTED_BY_SHARD
                     .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
-                    .set(*chunks_expected as i64));
+                    .set(*stats.num_expected_chunks_per_shard[i] as i64));
                 (metrics::VALIDATORS_CHUNKS_PRODUCED_BY_SHARD
                     .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
-                    .set(*chunks_produced as i64));
+                    .set(*stats.num_produced_chunks_per_shard[i] as i64));
                 (metrics::VALIDATORS_CHUNK_ENDORSEMENTS_EXPECTED_BY_SHARD
                     .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
-                    .set(*endorsements_expected as i64));
+                    .set(*stats.num_expected_endorsements_per_shard[i] as i64));
                 (metrics::VALIDATORS_CHUNK_ENDORSEMENTS_PRODUCED_BY_SHARD
                     .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
-                    .set(*endorsements_produced as i64));
+                    .set(*stats.num_produced_endorsements_per_shard[i] as i64));
             }
         }
     }
