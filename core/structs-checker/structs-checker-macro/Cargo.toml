@@ -26,3 +26,7 @@ protocol_schema = [
   "syn",
   "quote"
 ]
+
+[package.metadata.cargo-udeps.ignore]
+# Protocol schema checks require external dependencies for sanity checker tool.
+normal = ["proc-macro2", "syn", "quote"]
