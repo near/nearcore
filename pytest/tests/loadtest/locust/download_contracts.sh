@@ -21,3 +21,4 @@ ln -s ${SOURCE_CONTRACTS_DIR}/backwards_compatible_rs_contract.wasm ${TARGET_CON
 # The `inscription.near` contract has been downloaded using:
 # ./neard view-state dump-code --account-id inscription.near --output inscription.wasm
 # from mainnet at block height 123138647
+echo "Reusing inscription.near contract downloaded from mainnet"
