@@ -19,10 +19,11 @@ class MintInscriptionUser(NearUser):
     def mint(self):
         self.send_tx(MintInscription(self.contract_account_id,
                                      self.account,
-                                     "inscription-name-here",
+                                     self.tick,
                                      amt=100),
                      locust_name="Mint Inscription")
 
     def on_start(self):
         super().on_start()
         self.contract_account_id = self.environment.inscription_account_id
+        self.tick = self.environment.inscription_tick
