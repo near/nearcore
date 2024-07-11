@@ -536,13 +536,19 @@ impl NightshadeRuntime {
         let kind = self.store.get_db_kind()?;
         let cold_head = self.store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY)?;
 
-        if let (Some(DbKind::Hot), Some(cold_head)) = (kind, cold_head) {
-            let cold_head_hash = cold_head.last_block_hash;
-            let cold_epoch_first_block =
-                *epoch_manager.get_block_info(&cold_head_hash)?.epoch_first_block();
-            let cold_epoch_first_block_info =
-                epoch_manager.get_block_info(&cold_epoch_first_block)?;
-            return Ok(std::cmp::min(epoch_start_height, cold_epoch_first_block_info.height()));
+        if let Some(DbKind::Hot) = kind {
+            if let Some(cold_head) = cold_head {
+                let cold_head_hash = cold_head.last_block_hash;
+                let cold_epoch_first_block =
+                    *epoch_manager.get_block_info(&cold_head_hash)?.epoch_first_block();
+                let cold_epoch_first_block_info =
+                    epoch_manager.get_block_info(&cold_epoch_first_block)?;
+                return Ok(std::cmp::min(epoch_start_height, cold_epoch_first_block_info.height()));
+            } else {
+                // If kind is DbKind::Hot but cold_head is not set, it means the initial cold storage
+                // migration has not finished yet, in which case we should not garbage collect anything.
+                return Ok(0);
+            }
         }
         Ok(epoch_start_height)
     }
