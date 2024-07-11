@@ -3,6 +3,7 @@ name = "near-structs-checker-lib"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
+description = "ProtocolStruct macro allowing to check sanity of all protocol structs"
 repository.workspace = true
 license.workspace = true
 publish = true
