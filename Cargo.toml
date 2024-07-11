@@ -47,7 +47,9 @@ members = [
     "core/primitives",
     "core/primitives-core",
     "core/store",
-    "core/structs-checker",
+    "core/structs-checker/structs-checker-core",
+    "core/structs-checker/structs-checker-macro",
+    "core/structs-checker/structs-checker-lib",
     "core/time",
     "genesis-tools/genesis-csv-to-json",
     "genesis-tools/genesis-populate",
@@ -97,6 +99,7 @@ members = [
     "utils/fmt",
     "utils/mainnet-res",
     "utils/near-cache",
+    "utils/near-stable-hasher",
     "utils/stdx",
 ]
 exclude = ["tracing", "benchmarks"]
@@ -263,11 +266,13 @@ near-primitives-core = { path = "core/primitives-core" }
 near-rosetta-rpc = { path = "chain/rosetta-rpc" }
 near-rpc-error-core = { path = "tools/rpctypegen/core" }
 near-rpc-error-macro = { path = "tools/rpctypegen/macro" }
+near-stable-hasher = { path = "utils/near-stable-hasher" }
 near-state-parts = { path = "tools/state-parts" }
 near-state-parts-dump-check = { path = "tools/state-parts-dump-check" }
 near-state-viewer = { path = "tools/state-viewer", package = "state-viewer" }
-near-structs-checker = { path = "core/structs-checker" }
-near-structs-checker-core = { path = "core/structs-checker-core" }
+near-structs-checker-macro = { path = "core/structs-checker/structs-checker-macro" }
+near-structs-checker-core = { path = "core/structs-checker/structs-checker-core" }
+near-structs-checker-lib = { path = "core/structs-checker/structs-checker-lib" }
 near-store = { path = "core/store" }
 near-telemetry = { path = "chain/telemetry" }
 near-test-contracts = { path = "runtime/near-test-contracts" }

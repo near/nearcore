@@ -9,6 +9,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 /// Reexport primitive types
 pub use near_primitives_core::types::*;
+use near_structs_checker_lib::ProtocolStruct;
 use once_cell::sync::Lazy;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
@@ -17,7 +18,6 @@ use std::sync::Arc;
 mod chunk_validator_stats;
 
 pub use chunk_validator_stats::ChunkStats;
-use near_structs_checker::ProtocolStruct;
 
 /// Hash used by to store state root.
 pub type StateRoot = CryptoHash;

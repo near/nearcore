@@ -11,18 +11,17 @@ publish = false
 workspace = true
 
 [dependencies]
-near-structs-checker.workspace = true
-near-structs-checker-core.workspace = true
-near-primitives.workspace = true
+near-structs-checker-lib = { workspace = true, features = ["protocol_schema"] }
+near-primitives-core = { workspace = true, features = ["protocol_schema"] }
+near-primitives = { workspace = true, features = ["protocol_schema"] }
+near-stable-hasher.workspace = true
 
 serde_json = { workspace = true, features = ["preserve_order"] }
-inventory = { workspace = true, optional = true }
+inventory.workspace = true
 toml.workspace = true
 
 [features]
 default = [
-  "inventory",
-  "near-structs-checker/protocol_schema",
-  "near-structs-checker-core/protocol_schema",
-  "near-primitives/protocol_schema",
+    "near-primitives-core/protocol_schema",
+    "near-primitives/protocol_schema"
 ]

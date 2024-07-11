@@ -23,7 +23,6 @@ derive_more.workspace = true
 easy-ext.workspace = true
 hex.workspace = true
 itertools = { workspace = true, optional = true }
-inventory = { workspace = true, optional = true }
 num-rational.workspace = true
 once_cell.workspace = true
 ordered-float.workspace = true
@@ -49,8 +48,7 @@ near-fmt.workspace = true
 near-primitives-core.workspace = true
 near-rpc-error-macro.workspace = true
 near-parameters.workspace = true
-near-structs-checker.workspace = true
-near-structs-checker-core = { workspace = true, optional = true }
+near-structs-checker-lib.workspace = true
 
 [features]
 sandbox = []
@@ -98,9 +96,7 @@ default = ["near-primitives/rand"]
 calimero_zero_storage = []
 
 protocol_schema = [
-  "near-primitives-core/protocol_schema",
-  "near-structs-checker-core",
-  "inventory"
+  "near-structs-checker-lib/protocol_schema",
 ]
 
 [dev-dependencies]
@@ -117,7 +113,3 @@ regex.workspace = true
 [[bench]]
 name = "serialization"
 harness = false
-
-[package.metadata.cargo-udeps.ignore]
-# Protocol schema checks require external dependencies for sanity checker tool.
-normal = ["near-structs-checker-core", "inventory"]

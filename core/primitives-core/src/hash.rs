@@ -1,5 +1,5 @@
 use borsh::BorshSerialize;
-use near_structs_checker::ProtocolStruct;
+use near_structs_checker_lib::ProtocolStruct;
 use serde::{Deserializer, Serializer};
 use sha2::Digest;
 use std::fmt;

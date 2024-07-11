@@ -1,0 +1,24 @@
+[package]
+name = "near-structs-checker-lib"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+near-structs-checker-core.workspace = true
+near-structs-checker-macro.workspace = true
+inventory = { workspace = true, optional = true }
+
+[features]
+protocol_schema = [
+  "inventory",
+  "near-structs-checker-core/protocol_schema",
+  "near-structs-checker-macro/protocol_schema",
+]
+

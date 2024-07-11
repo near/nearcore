@@ -22,7 +22,7 @@ mod helper {
             Data::Struct(data_struct) => {
                 let fields = extract_struct_fields(&data_struct.fields);
                 quote! {
-                    near_structs_checker_core::ProtocolStructInfo::Struct {
+                    near_structs_checker_lib::ProtocolStructInfo::Struct {
                         name: stringify!(#name),
                         type_id: #type_id,
                         fields: #fields,
@@ -32,7 +32,7 @@ mod helper {
             Data::Enum(data_enum) => {
                 let variants = extract_enum_variants(&data_enum.variants);
                 quote! {
-                    near_structs_checker_core::ProtocolStructInfo::Enum {
+                    near_structs_checker_lib::ProtocolStructInfo::Enum {
                         name: stringify!(#name),
                         type_id: #type_id,
                         variants: #variants,
@@ -44,13 +44,13 @@ mod helper {
 
         let expanded = quote! {
             #[allow(non_upper_case_globals)]
-            pub static #info_name: near_structs_checker_core::ProtocolStructInfo = #info;
+            pub static #info_name: near_structs_checker_lib::ProtocolStructInfo = #info;
 
-            inventory::submit! {
+            near_structs_checker_lib::inventory::submit! {
                 #info_name
             }
 
-            impl near_structs_checker_core::ProtocolStruct for #name {}
+            impl near_structs_checker_lib::ProtocolStruct for #name {}
         };
 
         TokenStream::from(expanded)

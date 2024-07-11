@@ -4761,7 +4761,6 @@ dependencies = [
  "expect-test",
  "hex",
  "insta",
- "inventory",
  "itertools",
  "near-crypto",
  "near-fmt",
@@ -4770,8 +4769,7 @@ dependencies = [
  "near-primitives-core",
  "near-rpc-error-macro",
  "near-stdx",
- "near-structs-checker",
- "near-structs-checker-core",
+ "near-structs-checker-lib",
  "near-time",
  "num-rational 0.3.2",
  "once_cell",
@@ -4804,10 +4802,8 @@ dependencies = [
  "enum-map",
  "expect-test",
  "insta",
- "inventory",
  "near-account-id",
- "near-structs-checker",
- "near-structs-checker-core",
+ "near-structs-checker-lib",
  "num-rational 0.3.2",
  "serde",
  "serde_json",
@@ -4869,6 +4865,10 @@ dependencies = [
  "serde_json",
  "syn 2.0.70",
 ]
+
+[[package]]
+name = "near-stable-hasher"
+version = "0.0.0"
 
 [[package]]
 name = "near-state-parts"
@@ -4966,20 +4966,28 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-structs-checker"
-version = "0.0.0"
-dependencies = [
- "near-structs-checker-core",
- "proc-macro2",
- "quote",
- "syn 2.0.70",
-]
-
-[[package]]
 name = "near-structs-checker-core"
 version = "0.0.0"
 dependencies = [
  "inventory",
+]
+
+[[package]]
+name = "near-structs-checker-lib"
+version = "0.0.0"
+dependencies = [
+ "inventory",
+ "near-structs-checker-core",
+ "near-structs-checker-macro",
+]
+
+[[package]]
+name = "near-structs-checker-macro"
+version = "0.0.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.70",
 ]
 
 [[package]]
@@ -6350,8 +6358,9 @@ version = "0.0.0"
 dependencies = [
  "inventory",
  "near-primitives",
- "near-structs-checker",
- "near-structs-checker-core",
+ "near-primitives-core",
+ "near-stable-hasher",
+ "near-structs-checker-lib",
  "serde_json",
  "toml",
 ]

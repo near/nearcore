@@ -18,7 +18,6 @@ borsh.workspace = true
 bs58.workspace = true
 derive_more.workspace = true
 enum-map.workspace = true
-inventory = { workspace = true, optional = true }
 num-rational.workspace = true
 serde.workspace = true
 serde_repr.workspace = true
@@ -26,8 +25,7 @@ sha2.workspace = true
 thiserror.workspace = true
 
 near-account-id.workspace = true
-near-structs-checker.workspace = true
-near-structs-checker-core = { workspace = true, optional = true }
+near-structs-checker-lib.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
@@ -57,11 +55,5 @@ nightly_protocol = [
 statelessnet_protocol = []
 
 protocol_schema = [
-  "near-structs-checker/protocol_schema",
-  "near-structs-checker-core",
-  "inventory",
+  "near-structs-checker-lib/protocol_schema",
 ]
-
-[package.metadata.cargo-udeps.ignore]
-# Protocol schema checks require external dependencies for sanity checker tool.
-normal = ["near-structs-checker-core", "inventory"]

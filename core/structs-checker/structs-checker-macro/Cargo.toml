@@ -1,5 +1,5 @@
 [package]
-name = "near-structs-checker"
+name = "near-structs-checker-macro"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
@@ -19,18 +19,10 @@ proc-macro2 = { workspace = true, optional = true }
 quote = { workspace = true, optional = true }
 syn = { workspace = true, optional = true }
 
-[dev-dependencies]
-near-structs-checker-core = { path = "../structs-checker-core" }
-
 [features]
 
 protocol_schema = [
-  "near-structs-checker-core/protocol_schema",
   "proc-macro2",
   "syn",
   "quote"
 ]
-
-[package.metadata.cargo-udeps.ignore]
-# Protocol schema checks require external dependencies for sanity checker tool.
-normal = ["proc-macro2", "syn", "quote"]

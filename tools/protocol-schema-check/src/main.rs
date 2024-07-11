@@ -10,9 +10,9 @@
 #[allow(unused_imports)]
 use near_primitives::*;
 
-use near_structs_checker_core::ProtocolStructInfo;
+use near_stable_hasher::StableHasher;
+use near_structs_checker_lib::ProtocolStructInfo;
 use std::any::TypeId;
-use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::hash::{Hash, Hasher};
@@ -23,7 +23,7 @@ fn compute_hash(
     info: &ProtocolStructInfo,
     structs: &BTreeMap<TypeId, &'static ProtocolStructInfo>,
 ) -> u32 {
-    let mut hasher = DefaultHasher::new();
+    let mut hasher = StableHasher::new();
     match info {
         ProtocolStructInfo::Struct { name, type_id, fields } => {
             name.hash(&mut hasher);
@@ -53,7 +53,7 @@ fn compute_hash(
 fn compute_type_hash(
     type_id: TypeId,
     structs: &BTreeMap<TypeId, &'static ProtocolStructInfo>,
-    hasher: &mut DefaultHasher,
+    hasher: &mut StableHasher,
 ) {
     if let Some(nested_info) = structs.get(&type_id) {
         compute_hash(nested_info, structs).hash(hasher);
