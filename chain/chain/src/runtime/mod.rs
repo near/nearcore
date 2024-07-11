@@ -748,6 +748,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             StorageDataSource::DbTrieOnly => {
                 // If there is no flat storage on disk, use trie but simulate costs with enabled
                 // flat storage by not charging gas for trie nodes.
+                // WARNING: should never be used in production! Consider this option only for debugging or replaying blocks.
                 let mut trie = self.tries.get_trie_for_shard(shard_uid, storage_config.state_root);
                 trie.dont_charge_gas_for_trie_node_access();
                 trie
@@ -968,6 +969,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             StorageDataSource::DbTrieOnly => {
                 // If there is no flat storage on disk, use trie but simulate costs with enabled
                 // flat storage by not charging gas for trie nodes.
+                // WARNING: should never be used in production! Consider this option only for debugging or replaying blocks.
                 let mut trie = self.get_trie_for_shard(
                     shard_id,
                     &block.prev_block_hash,

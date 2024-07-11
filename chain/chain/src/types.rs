@@ -264,6 +264,7 @@ pub enum StorageDataSource {
     /// Trie is present in DB and flat storage is not.
     /// Used to reply past blocks and simulate gas costs as if flat storage
     /// was present.
+    /// WARNING: do not use this variant in production!
     DbTrieOnly,
     /// State data is supplied from state witness, there is no state data
     /// stored on disk.
