@@ -128,9 +128,6 @@ if __name__ == '__main__':
                 "nanos": 0
             }
         },
-        # TODO(#11760): This disables the GC during the test. Re-enable GC by
-        # removing this line after this issue is resolved (eg. #11752 is merged).
-        "gc_num_epochs_to_keep": 1000,
     }
 
     near_root, node_dirs = init_cluster(
