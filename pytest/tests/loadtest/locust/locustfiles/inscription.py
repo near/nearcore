@@ -12,11 +12,16 @@ from common.inscription import MintInscription
 
 logger = new_logger(level=logging.WARN)
 
+
 class MintInscriptionUser(NearUser):
 
     @task
     def mint(self):
-        self.send_tx(MintInscription(self.contract_account_id, self.account, "inscription-name-here", amt=100), locust_name="Mint Inscription")
+        self.send_tx(MintInscription(self.contract_account_id,
+                                     self.account,
+                                     "inscription-name-here",
+                                     amt=100),
+                     locust_name="Mint Inscription")
 
     def on_start(self):
         super().on_start()
