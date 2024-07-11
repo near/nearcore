@@ -5,12 +5,13 @@ use crate::rocksdb_stats::get_rocksdb_stats;
 use crate::trie_iteration_benchmark::TrieIterationBenchmarkCmd;
 
 use crate::latest_witnesses::StateWitnessCmd;
+use near_chain::types::RuntimeStorageConfig;
 use near_chain_configs::{GenesisChangeConfig, GenesisValidationMode};
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::trie_key::col;
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::types::{BlockHeight, ShardId, StateRoot};
 use near_primitives_core::types::EpochHeight;
 use near_store::{Mode, NodeStorage, Store, Temperature};
 use nearcore::{load_config, NearConfig};
@@ -180,18 +181,34 @@ impl StateViewerSubCommand {
     }
 }
 
+#[derive(clap::ValueEnum, Debug, Clone, Copy)]
+#[clap(rename_all = "kebab_case")]
+pub enum StorageSource {
+    Trie,
+    /// Use the data stored in trie, but without paying extra gas costs.
+    /// This could be used to simulate flat storage when the latter is not present.
+    TrieFree,
+    FlatStorage,
+}
+
+impl StorageSource {
+    pub fn create_runtime_storage(&self, state_root: StateRoot) -> RuntimeStorageConfig {
+        match self {
+            StorageSource::Trie => RuntimeStorageConfig::new(state_root, false),
+            StorageSource::TrieFree => RuntimeStorageConfig::with_db_trie_only(state_root),
+            StorageSource::FlatStorage => RuntimeStorageConfig::new(state_root, true),
+        }
+    }
+}
+
 #[derive(clap::Parser)]
 pub struct ApplyCmd {
     #[clap(long)]
     height: BlockHeight,
     #[clap(long)]
     shard_id: ShardId,
-    #[clap(long)]
-    use_flat_storage: bool,
-    /// Use the data stored in trie, but without paying extra gas costs.
-    /// This could be used to simulate flat storage when the latter is not present.
-    #[clap(long)]
-    use_trie_for_free: bool,
+    #[clap(long, default_value = "trie")]
+    storage: StorageSource,
 }
 
 impl ApplyCmd {
@@ -199,8 +216,7 @@ impl ApplyCmd {
         apply_block_at_height(
             self.height,
             self.shard_id,
-            self.use_flat_storage,
-            self.use_trie_for_free,
+            self.storage,
             home_dir,
             near_config,
             store,
@@ -215,27 +231,14 @@ pub struct ApplyChunkCmd {
     chunk_hash: String,
     #[clap(long)]
     target_height: Option<u64>,
-    #[clap(long)]
-    use_flat_storage: bool,
-    /// Use the data stored in trie, but without paying extra gas costs.
-    /// This could be used to simulate flat storage when the latter is not present.
-    #[clap(long)]
-    use_trie_for_free: bool,
+    #[clap(long, default_value = "trie")]
+    storage: StorageSource,
 }
 
 impl ApplyChunkCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         let hash = ChunkHash::from(CryptoHash::from_str(&self.chunk_hash).unwrap());
-        apply_chunk(
-            home_dir,
-            near_config,
-            store,
-            hash,
-            self.target_height,
-            self.use_flat_storage,
-            self.use_trie_for_free,
-        )
-        .unwrap()
+        apply_chunk(home_dir, near_config, store, hash, self.target_height, self.storage).unwrap()
     }
 }
 
@@ -268,12 +271,8 @@ pub struct ApplyRangeCmd {
     csv_file: Option<PathBuf>,
     #[clap(long)]
     only_contracts: bool,
-    #[clap(long)]
-    use_flat_storage: bool,
-    /// Use the data stored in trie, but without paying extra gas costs.
-    /// This could be used to simulate flat storage when the latter is not present.
-    #[clap(long)]
-    use_trie_for_free: bool,
+    #[clap(long, default_value = "trie")]
+    storage: StorageSource,
     #[clap(subcommand)]
     mode: ApplyRangeMode,
 }
@@ -291,8 +290,7 @@ impl ApplyRangeCmd {
             near_config,
             store,
             self.only_contracts,
-            self.use_flat_storage,
-            self.use_trie_for_free,
+            self.storage,
         );
     }
 }
@@ -301,26 +299,14 @@ impl ApplyRangeCmd {
 pub struct ApplyReceiptCmd {
     #[clap(long)]
     hash: String,
-    #[clap(long)]
-    use_flat_storage: bool,
-    /// Use the data stored in trie, but without paying extra gas costs.
-    /// This could be used to simulate flat storage when the latter is not present.
-    #[clap(long)]
-    use_trie_for_free: bool,
+    #[clap(long, default_value = "trie")]
+    storage: StorageSource,
 }
 
 impl ApplyReceiptCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         let hash = CryptoHash::from_str(&self.hash).unwrap();
-        apply_receipt(
-            home_dir,
-            near_config,
-            store,
-            hash,
-            self.use_flat_storage,
-            self.use_trie_for_free,
-        )
-        .unwrap();
+        apply_receipt(home_dir, near_config, store, hash, self.storage).unwrap();
     }
 }
 
@@ -328,19 +314,14 @@ impl ApplyReceiptCmd {
 pub struct ApplyTxCmd {
     #[clap(long)]
     hash: String,
-    #[clap(long)]
-    use_flat_storage: bool,
-    /// Use the data stored in trie, but without paying extra gas costs.
-    /// This could be used to simulate flat storage when the latter is not present.
-    #[clap(long)]
-    use_trie_for_free: bool,
+    #[clap(long, default_value = "trie")]
+    storage: StorageSource,
 }
 
 impl ApplyTxCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         let hash = CryptoHash::from_str(&self.hash).unwrap();
-        apply_tx(home_dir, near_config, store, hash, self.use_flat_storage, self.use_trie_for_free)
-            .unwrap();
+        apply_tx(home_dir, near_config, store, hash, self.storage).unwrap();
     }
 }
 

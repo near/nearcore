@@ -1,5 +1,5 @@
 use crate::apply_chain_range::apply_chain_range;
-use crate::cli::{ApplyRangeMode, EpochAnalysisMode};
+use crate::cli::{ApplyRangeMode, EpochAnalysisMode, StorageSource};
 use crate::contract_accounts::ContractAccount;
 use crate::contract_accounts::ContractAccountFilter;
 use crate::contract_accounts::Summary;
@@ -17,7 +17,6 @@ use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
-    RuntimeStorageConfig, StorageDataSource,
 };
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, Error};
 use near_chain_configs::GenesisChangeConfig;
@@ -64,13 +63,12 @@ pub(crate) fn apply_block(
     epoch_manager: &dyn EpochManagerAdapter,
     runtime: &dyn RuntimeAdapter,
     chain_store: &mut ChainStore,
-    use_flat_storage: bool,
-    use_trie_for_free: bool,
+    storage: StorageSource,
 ) -> (Block, ApplyChunkResult) {
     let block = chain_store.get_block(&block_hash).unwrap();
     let height = block.header().height();
     let shard_uid = epoch_manager.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
-    if use_flat_storage {
+    if matches!(storage, StorageSource::FlatStorage) {
         runtime.get_flat_storage_manager().create_flat_storage_for_shard(shard_uid).unwrap();
     }
     let apply_result = if block.chunks()[shard_id as usize].height_included() == height {
@@ -96,15 +94,9 @@ pub(crate) fn apply_block(
         )
         .unwrap();
 
-        let mut storage =
-            RuntimeStorageConfig::new(*chunk_inner.prev_state_root(), use_flat_storage);
-        if use_trie_for_free {
-            storage.source = StorageDataSource::DbTrieOnly;
-        }
-
         runtime
             .apply_chunk(
-                storage,
+                storage.create_runtime_storage(*chunk_inner.prev_state_root()),
                 ApplyChunkReason::UpdateTrackedShard,
                 ApplyChunkShardContext {
                     shard_id,
@@ -127,14 +119,9 @@ pub(crate) fn apply_block(
             chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap();
         let prev_block = chain_store.get_block(block.header().prev_hash()).unwrap();
 
-        let mut storage = RuntimeStorageConfig::new(*chunk_extra.state_root(), use_flat_storage);
-        if use_trie_for_free {
-            storage.source = StorageDataSource::DbTrieOnly;
-        }
-
         runtime
             .apply_chunk(
-                storage,
+                storage.create_runtime_storage(*chunk_extra.state_root()),
                 ApplyChunkReason::UpdateTrackedShard,
                 ApplyChunkShardContext {
                     shard_id,
@@ -159,8 +146,7 @@ pub(crate) fn apply_block(
 pub(crate) fn apply_block_at_height(
     height: BlockHeight,
     shard_id: ShardId,
-    use_flat_storage: bool,
-    use_trie_for_free: bool,
+    storage: StorageSource,
     home_dir: &Path,
     near_config: NearConfig,
     store: Store,
@@ -181,8 +167,7 @@ pub(crate) fn apply_block_at_height(
         epoch_manager.as_ref(),
         runtime.as_ref(),
         &mut chain_store,
-        use_flat_storage,
-        use_trie_for_free,
+        storage,
     );
     check_apply_block_result(
         &block,
@@ -199,8 +184,7 @@ pub(crate) fn apply_chunk(
     store: Store,
     chunk_hash: ChunkHash,
     target_height: Option<u64>,
-    use_flat_storage: bool,
-    use_trie_for_free: bool,
+    storage: StorageSource,
 ) -> anyhow::Result<()> {
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
     let runtime = NightshadeRuntime::from_config(
@@ -222,8 +206,7 @@ pub(crate) fn apply_chunk(
         chunk_hash,
         target_height,
         None,
-        use_flat_storage,
-        use_trie_for_free,
+        storage,
     )?;
     let protocol_version = if let Some(height) = target_height {
         // Retrieve the protocol version at the given height.
@@ -253,8 +236,7 @@ pub(crate) fn apply_range(
     near_config: NearConfig,
     store: Store,
     only_contracts: bool,
-    use_flat_storage: bool,
-    use_trie_for_free: bool,
+    storage: StorageSource,
 ) {
     let mut csv_file = csv_file.map(|filename| std::fs::File::create(filename).unwrap());
 
@@ -278,8 +260,7 @@ pub(crate) fn apply_range(
         verbose_output,
         csv_file.as_mut(),
         only_contracts,
-        use_flat_storage,
-        use_trie_for_free,
+        storage,
     );
 }
 
@@ -288,8 +269,7 @@ pub(crate) fn apply_receipt(
     near_config: NearConfig,
     store: Store,
     hash: CryptoHash,
-    use_flat_storage: bool,
-    use_trie_for_free: bool,
+    storage: StorageSource,
 ) -> anyhow::Result<()> {
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
     let runtime = NightshadeRuntime::from_config(
@@ -305,8 +285,7 @@ pub(crate) fn apply_receipt(
         runtime.as_ref(),
         store,
         hash,
-        use_flat_storage,
-        use_trie_for_free,
+        storage,
     )
     .map(|_| ())
 }
@@ -316,8 +295,7 @@ pub(crate) fn apply_tx(
     near_config: NearConfig,
     store: Store,
     hash: CryptoHash,
-    use_flat_storage: bool,
-    use_trie_for_free: bool,
+    storage: StorageSource,
 ) -> anyhow::Result<()> {
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
     let runtime = NightshadeRuntime::from_config(
@@ -333,8 +311,7 @@ pub(crate) fn apply_tx(
         runtime.as_ref(),
         store,
         hash,
-        use_flat_storage,
-        use_trie_for_free,
+        storage,
     )
     .map(|_| ())
 }
