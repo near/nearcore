@@ -246,6 +246,7 @@ pub(crate) fn apply_range(
     store: Store,
     only_contracts: bool,
     use_flat_storage: bool,
+    use_trie_for_free: bool,
 ) {
     let mut csv_file = csv_file.map(|filename| std::fs::File::create(filename).unwrap());
 
@@ -270,6 +271,7 @@ pub(crate) fn apply_range(
         csv_file.as_mut(),
         only_contracts,
         use_flat_storage,
+        use_trie_for_free,
     );
 }
 

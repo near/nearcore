@@ -242,14 +242,10 @@ impl ApplyChunkCmd {
 #[derive(clap::Parser, Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ApplyRangeMode {
     /// Applies chunks one after another in order of increasing heights.
-    /// TODO(#8741): doesn't work. Remove dependency on flat storage
-    /// by simulating correct costs. Consider reintroducing DbTrieOnly
-    /// read mode removed at #10490.
     Sequential,
     /// Applies chunks in parallel.
     /// Useful for quick correctness check of applying chunks by comparing
     /// results with `ChunkExtra`s.
-    /// TODO(#8741): doesn't work, same as above.
     Parallel,
     /// Sequentially applies chunks from flat storage head until chain
     /// final head, moving flat head forward. Use in combination with
@@ -274,6 +270,10 @@ pub struct ApplyRangeCmd {
     only_contracts: bool,
     #[clap(long)]
     use_flat_storage: bool,
+    /// Use the data stored in trie, but without paying extra gas costs.
+    /// This could be used to simulate flat storage when the latter is not present.
+    #[clap(long)]
+    use_trie_for_free: bool,
     #[clap(subcommand)]
     mode: ApplyRangeMode,
 }
@@ -292,6 +292,7 @@ impl ApplyRangeCmd {
             store,
             self.only_contracts,
             self.use_flat_storage,
+            self.use_trie_for_free,
         );
     }
 }
