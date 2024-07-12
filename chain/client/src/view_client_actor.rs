@@ -2,8 +2,8 @@
 //! Useful for querying from RPC.
 
 use crate::{
-    metrics, sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetStateChanges,
-    GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
+    metrics, sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetShardChunk,
+    GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
 };
 use actix::{Addr, SyncArbiter};
 use near_async::actix_wrapper::SyncActixWrapper;
@@ -748,6 +748,30 @@ fn get_chunk_from_block(
         )),
     )?;
     Ok(res)
+}
+
+impl Handler<GetShardChunk> for ViewClientActorInner {
+    #[perf]
+    fn handle(&mut self, msg: GetShardChunk) -> Result<ShardChunk, GetChunkError> {
+        tracing::debug!(target: "client", ?msg);
+        let _timer =
+            metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetShardChunk"]).start_timer();
+
+        match msg {
+            GetShardChunk::ChunkHash(chunk_hash) => {
+                let chunk = self.chain.get_chunk(&chunk_hash)?;
+                Ok(ShardChunk::clone(&chunk))
+            }
+            GetShardChunk::BlockHash(block_hash, shard_id) => {
+                let block = self.chain.get_block(&block_hash)?;
+                Ok(get_chunk_from_block(block, shard_id, &self.chain)?)
+            }
+            GetShardChunk::Height(height, shard_id) => {
+                let block = self.chain.get_block_by_height(height)?;
+                Ok(get_chunk_from_block(block, shard_id, &self.chain)?)
+            }
+        }
+    }
 }
 
 impl Handler<GetChunk> for ViewClientActorInner {
