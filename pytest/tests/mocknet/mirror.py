@@ -317,7 +317,7 @@ def status_cmd(args, traffic_generator, nodes):
 def reset_cmd(args, traffic_generator, nodes):
     if not args.yes:
         print(
-            'this will reset all nodes\' home dirs to their initial states right after test initialization finished. continue? [yes/no]'
+            'this will reset selected nodes\' home dirs to their initial states right after test initialization finished. continue? [yes/no]'
         )
         if sys.stdin.readline().strip() != 'yes':
             sys.exit()

@@ -225,10 +225,16 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
     let endorsement = ChunkEndorsement::new(chunk_header.chunk_hash(), signer);
     for block_producer in block_producers {
         if signer.validator_id() == &block_producer {
-            // Unwrap here as we always expect our own endorsements to be valid
-            chunk_endorsement_tracker
+            // Our own endorsements are not always valid (see issue #11750).
+            if let Err(err) = chunk_endorsement_tracker
                 .process_chunk_endorsement(chunk_header, endorsement.clone())
-                .unwrap();
+            {
+                tracing::warn!(
+                    target: "client",
+                    ?chunk_hash,
+                    ?endorsement,
+                    "Failed to process self chunk endorsement ({err:?})");
+            }
         } else {
             network_sender.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::ChunkEndorsement(block_producer, endorsement.clone()),

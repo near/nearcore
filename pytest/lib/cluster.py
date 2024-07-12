@@ -1,5 +1,6 @@
 import atexit
 import base64
+import copy
 import json
 import os
 import pathlib
@@ -569,7 +570,7 @@ class LocalNode(BaseNode):
         self.stdout_name = node_dir / 'stdout'
         self.stderr_name = node_dir / 'stderr'
         with open(self.stdout_name, 'ab') as stdout, \
-             open(self.stderr_name, 'ab') as stderr:
+                open(self.stderr_name, 'ab') as stderr:
             self._process = subprocess.Popen(cmd,
                                              stdin=subprocess.DEVNULL,
                                              stdout=stdout,
@@ -889,6 +890,7 @@ def init_cluster(
         len(node_dirs), num_nodes, num_observers)
 
     logger.info("Search for stdout and stderr in %s" % node_dirs)
+
     # apply config changes
     for i, node_dir in enumerate(node_dirs):
         apply_genesis_changes(node_dir, genesis_config_changes)
@@ -896,7 +898,55 @@ def init_cluster(
         if overrides:
             apply_config_changes(node_dir, overrides)
 
+    # apply config changes for nodes marked as archival node.
+    # for now, we do this only for local nodes (eg. nayduck tests).
+    for i, node_dir in enumerate(node_dirs):
+        configure_cold_storage_for_archival_node(node_dir)
+
     return near_root, node_dirs
+
+
+def configure_cold_storage_for_archival_node(node_dir: str):
+    """ If the node is marked as an archival node, configures the split storage.
+
+    In particular, it assumes that the hot storage is already configured, and
+    it creates and configures the cold storage based on the hot storage.
+    """
+    node_dir = pathlib.Path(node_dir)
+    fname = node_dir / 'config.json'
+    with open(fname) as fd:
+        config_json = json.load(fd)
+
+    # Skip if this is not an archival node or cold storage is already configured.
+    if not config_json.get("archive",
+                           False) or config_json.get("cold_store") is not None:
+        return
+
+    logger.debug(f"Configuring cold storage for archival node: {node_dir.stem}")
+
+    hot_store_config = config_json.get("store")
+    assert hot_store_config is not None, "Hot storage is not configured"
+
+    cold_store_config = copy.deepcopy(hot_store_config)
+    cold_store_config["path"] = "cold-data"
+    config_json["cold_store"] = cold_store_config
+    config_json["save_trie_changes"] = True
+
+    if "split_storage" not in config_json:
+        config_json["split_storage"] = {
+            "enable_split_storage_view_client": True,
+            "cold_store_initial_migration_loop_sleep_duration": {
+                "secs": 0,
+                "nanos": 100000000
+            },
+            "cold_store_loop_sleep_duration": {
+                "secs": 0,
+                "nanos": 100000000
+            },
+        }
+
+    with open(fname, 'w') as fd:
+        json.dump(config_json, fd, indent=2)
 
 
 def apply_genesis_changes(node_dir: str,
