@@ -110,6 +110,16 @@ Or optionally with `rust_log` setting to reduce logging on stdout:
 
 and invoke `sudo pkill -HUP neard`. Double check that the collector is running as well.
 
+Note that the `rust_log` log level has to be higher than the `opentelemetry` level. Traces won't be generated if the logs aren't emitted.\
+This wouldn't work because the default `rust_log` level doesn't emit debug logs for runtime:
+```json
+{ "opentelemetry": "info,runtime=debug,vm=debug"}
+```
+But this works:
+```json
+{ "opentelemetry": "info,runtime=debug,vm=debug", "rust_log": "info,runtime=debug,vm=debug" }
+```
+
 <blockquote style="background: rgba(255, 200, 0, 0.1); border: 5px solid rgba(255, 200, 0, 0.4);">
 
 **Good to know**: You can modify the event/span/log targets you’re interested in just like when
