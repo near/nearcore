@@ -547,7 +547,7 @@ impl NightshadeRuntime {
             } else {
                 // If kind is DbKind::Hot but cold_head is not set, it means the initial cold storage
                 // migration has not finished yet, in which case we should not garbage collect anything.
-                return Ok(0);
+                return Ok(self.genesis_config.genesis_height);
             }
         }
         Ok(epoch_start_height)
