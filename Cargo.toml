@@ -119,6 +119,7 @@ or_fun_call = "deny"
 unnecessary_lazy_evaluations = "deny"
 
 [workspace.lints.rust]
+# Will take effect since Rust 1.80, produces unused warning before it: https://github.com/rust-lang/cargo/pull/13913
 unexpected_cfgs = { level = "allow", check-cfg = ['cfg(enable_const_type_id)'] }
 
 [workspace.dependencies]
