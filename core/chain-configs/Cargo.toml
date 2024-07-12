@@ -49,4 +49,4 @@ nightly = [
 test_genesis = ["near-primitives/rand"]
 test_utils = ["near-primitives/rand"]
 default = []
-metrics = ["near-o11y"]
+metrics = ["near-o11y", "near-time/clock"]
