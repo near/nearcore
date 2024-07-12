@@ -478,12 +478,10 @@ fn sync_state_dump() {
 
                     match view_client1.send(GetBlock::latest().with_span_context()).await {
                         Ok(Ok(b)) if b.header.height >= genesis.config.epoch_length + 2 => {
-                            tracing::warn!("GOT BLOCK {}", b.header.height);
                             let mut view_client2_holder2 = view_client2_holder2.write().unwrap();
                             let mut arbiters_holder2 = arbiters_holder2.write().unwrap();
 
                             if view_client2_holder2.is_none() {
-                                tracing::warn!("STARTING NEAR2 {}", b.header.height);
                                 let mut near2 = load_test_config("test2", port2, genesis2);
                                 near2.network_config.peer_store.boot_nodes =
                                     convert_boot_nodes(vec![("test1", *port1)]);
@@ -565,7 +563,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
         for num_last_chunks_missing in 0..6 {
             assert!(num_last_chunks_missing < epoch_length);
 
-            tracing::warn!(
+            tracing::info!(
                 target: "test",
                 ?num_last_chunks_missing,
                 "starting test_dump_epoch_missing_chunk_in_last_block"
@@ -587,7 +585,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                     .into();
             let target_height = epoch_length + 1;
             for i in 1..=target_height {
-                tracing::warn!(
+                tracing::info!(
                     target: "test",
                     height=i,
                     "producing block"
@@ -605,13 +603,13 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                             Provenance::PRODUCED,
                         )
                         .unwrap();
-                    tracing::warn!(
+                    tracing::info!(
                         "Block {i}: {:?} -- produced no chunk",
                         block.header().epoch_id()
                     );
                 } else {
                     env.process_block(0, block.clone(), Provenance::PRODUCED);
-                    tracing::warn!(
+                    tracing::info!(
                         "Block {i}: {:?} -- also produced a chunk",
                         block.header().epoch_id()
                     );
@@ -631,7 +629,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
 
             // Simulate state sync
 
-            tracing::warn!(target: "test", "state sync - get parts");
+            tracing::info!(target: "test", "state sync - get parts");
             // No blocks were skipped, therefore we can compute the block height of the first block of the current epoch.
             let sync_hash_height = ((target_height / epoch_length) * epoch_length + 1) as usize;
             let sync_hash = *blocks[sync_hash_height].hash();
@@ -652,7 +650,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                 })
                 .collect();
 
-            tracing::warn!(target: "test", "state sync - apply parts");
+            tracing::info!(target: "test", "state sync - apply parts");
             env.clients[1].chain.reset_data_pre_state_sync(sync_hash).unwrap();
             let epoch_id = blocks.last().unwrap().header().epoch_id();
             for i in 0..num_parts {
@@ -668,7 +666,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                     .unwrap();
             }
 
-            tracing::warn!(target: "test", "state sync - set parts");
+            tracing::info!(target: "test", "state sync - set parts");
             env.clients[1].chain.set_state_header(0, sync_hash, state_sync_header).unwrap();
             for i in 0..num_parts {
                 env.clients[1]
@@ -709,10 +707,10 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                 }
             });
 
-            tracing::warn!(target: "test", "state sync - schedule");
+            tracing::info!(target: "test", "state sync - schedule");
             env.clients[1].chain.schedule_apply_state_parts(0, sync_hash, num_parts, &f).unwrap();
 
-            tracing::warn!(target: "test", "state sync - set state finalize");
+            tracing::info!(target: "test", "state sync - set state finalize");
             env.clients[1].chain.set_state_finalize(0, sync_hash).unwrap();
 
             let last_chunk_height = epoch_length - num_last_chunks_missing;
@@ -783,7 +781,7 @@ fn test_state_sync_headers() {
                     Some(x) => x,
                     None => return ControlFlow::Continue(()),
                 };
-                tracing::warn!(?epoch_id, "got epoch_id");
+                tracing::info!(?epoch_id, "got epoch_id");
 
                 let epoch_start_height = match view_client1
                     .send(
@@ -801,7 +799,7 @@ fn test_state_sync_headers() {
                     Some(x) => x,
                     None => return ControlFlow::Continue(()),
                 };
-                tracing::warn!(epoch_start_height, "got epoch_start_height");
+                tracing::info!(epoch_start_height, "got epoch_start_height");
 
                 let sync_hash_and_num_shards = match view_client1
                     .send(
@@ -817,7 +815,7 @@ fn test_state_sync_headers() {
                     Some(x) => x,
                     None => return ControlFlow::Continue(()),
                 };
-                tracing::warn!(?sync_hash, num_shards, "got sync_hash");
+                tracing::info!(?sync_hash, num_shards, "got sync_hash");
 
                 for shard_id in 0..num_shards {
                     // Make StateRequestHeader and expect that the response contains a header and `can_generate` is true.
@@ -841,7 +839,7 @@ fn test_state_sync_headers() {
                     assert!(state_response.part().is_none());
                     if let Some(_header) = state_response.take_header() {
                         if !can_generate {
-                            tracing::warn!(
+                            tracing::info!(
                                 ?sync_hash,
                                 shard_id,
                                 ?cached_parts,
@@ -850,7 +848,7 @@ fn test_state_sync_headers() {
                             );
                             return ControlFlow::Continue(());
                         }
-                        tracing::warn!(
+                        tracing::info!(
                             ?sync_hash,
                             shard_id,
                             ?cached_parts,
@@ -858,7 +856,7 @@ fn test_state_sync_headers() {
                             "got header"
                         );
                     } else {
-                        tracing::warn!(
+                        tracing::info!(
                             ?sync_hash,
                             shard_id,
                             ?cached_parts,
@@ -897,7 +895,7 @@ fn test_state_sync_headers() {
                             || cached_parts != Some(CachedParts::AllParts)
                             || part_id != 0
                         {
-                            tracing::warn!(
+                            tracing::info!(
                                 ?sync_hash,
                                 shard_id,
                                 ?cached_parts,
@@ -907,7 +905,7 @@ fn test_state_sync_headers() {
                             );
                             return ControlFlow::Continue(());
                         }
-                        tracing::warn!(
+                        tracing::info!(
                             ?sync_hash,
                             shard_id,
                             ?cached_parts,
@@ -916,7 +914,7 @@ fn test_state_sync_headers() {
                             "got part"
                         );
                     } else {
-                        tracing::warn!(
+                        tracing::info!(
                             ?sync_hash,
                             shard_id,
                             ?cached_parts,
@@ -998,7 +996,7 @@ fn test_state_sync_headers_no_tracked_shards() {
                     Some(x) => x,
                     None => return ControlFlow::Continue(()),
                 };
-                tracing::warn!(?epoch_id, "got epoch_id");
+                tracing::info!(?epoch_id, "got epoch_id");
 
                 let epoch_start_height = match view_client2
                     .send(
@@ -1016,7 +1014,7 @@ fn test_state_sync_headers_no_tracked_shards() {
                     Some(x) => x,
                     None => return ControlFlow::Continue(()),
                 };
-                tracing::warn!(epoch_start_height, "got epoch_start_height");
+                tracing::info!(epoch_start_height, "got epoch_start_height");
                 if epoch_start_height < 2 * epoch_length {
                     return ControlFlow::Continue(());
                 }
@@ -1035,7 +1033,7 @@ fn test_state_sync_headers_no_tracked_shards() {
                     Some(x) => x,
                     None => return ControlFlow::Continue(()),
                 };
-                tracing::warn!(?sync_hash, num_shards, "got sync_hash");
+                tracing::info!(?sync_hash, num_shards, "got sync_hash");
 
                 for shard_id in 0..num_shards {
                     // Make StateRequestHeader and expect that the response contains a header and `can_generate` is true.
@@ -1053,7 +1051,7 @@ fn test_state_sync_headers_no_tracked_shards() {
                         Some(x) => x,
                         None => return ControlFlow::Continue(()),
                     };
-                    tracing::warn!(?state_response_info, "got header state response");
+                    tracing::info!(?state_response_info, "got header state response");
                     let state_response = state_response_info.take_state_response();
                     assert_eq!(state_response.cached_parts(), &None);
                     assert!(!state_response.can_generate());
@@ -1079,7 +1077,7 @@ fn test_state_sync_headers_no_tracked_shards() {
                         Some(x) => x,
                         None => return ControlFlow::Continue(()),
                     };
-                    tracing::warn!(?state_response_info, "got state part response");
+                    tracing::info!(?state_response_info, "got state part response");
                     let state_response = state_response_info.take_state_response();
                     assert_eq!(state_response.cached_parts(), &None);
                     assert!(!state_response.can_generate());
