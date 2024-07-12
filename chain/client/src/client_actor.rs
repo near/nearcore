@@ -70,7 +70,7 @@ use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 #[cfg(feature = "test_features")]
 use near_store::DBCol;
@@ -317,6 +317,21 @@ impl ClientActorInner {
     ) -> Result<Self, Error> {
         if let Some(vs) = &client.validator_signer.get() {
             info!(target: "client", "Starting validator node: {}", vs.validator_id());
+            let head = client.chain.head()?;
+            let protocol_version = client
+                .epoch_manager
+                .get_epoch_protocol_version(&head.epoch_id)
+                .into_chain_error()?;
+            // Before stateless validation we require validators to track all shards, see
+            // https://github.com/near/nearcore/issues/7388
+            if !ProtocolFeature::StatelessValidationV0.enabled(protocol_version)
+                && config.tracked_shards.is_empty()
+                && matches!(
+                    config.chain_id.as_ref(),
+                    near_primitives::chains::MAINNET | near_primitives::chains::TESTNET
+                ) {
+                panic!("The `chain_id` field specified in genesis is among mainnet/betanet/testnet, so validator must track all shards. Please change `tracked_shards` field in config.json to be any non-empty vector");
+            }
         }
         let info_helper = InfoHelper::new(clock.clone(), telemetry_sender, &config);
 
