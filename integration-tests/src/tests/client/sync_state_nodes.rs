@@ -458,8 +458,12 @@ fn sync_state_dump() {
             near1.config.store.state_snapshot_enabled = true;
 
             let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
-            let near_node1 = //nearcore::NearNode { view_client: view_client1, .. } =
-                start_with_config(dir1.path(), near1).expect("start_with_config");
+            let nearcore::NearNode {
+                view_client: view_client1,
+                // State sync dumper should be kept in the scope to avoid dropping it, which stops the state dumper loop.
+                state_sync_dumper: _dumper,
+                ..
+            } = start_with_config(dir1.path(), near1).expect("start_with_config");
             let dir2 = tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap();
 
             let view_client2_holder = Arc::new(RwLock::new(None));
@@ -472,8 +476,7 @@ fn sync_state_dump() {
                     let arbiters_holder2 = arbiters_holder2.clone();
                     let genesis2 = genesis.clone();
 
-                    match near_node1.view_client.send(GetBlock::latest().with_span_context()).await
-                    {
+                    match view_client1.send(GetBlock::latest().with_span_context()).await {
                         Ok(Ok(b)) if b.header.height >= genesis.config.epoch_length + 2 => {
                             tracing::warn!("GOT BLOCK {}", b.header.height);
                             let mut view_client2_holder2 = view_client2_holder2.write().unwrap();
