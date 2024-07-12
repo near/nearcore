@@ -117,15 +117,15 @@ impl Config {
         // Some messages consume 1 token flat while for others the price depends on the payload.
         // See `get_key_and_token_cost` for more details.
 
-        rate_limits.insert(SyncRoutingTable, SingleMessageConfig::new(400_000, 4_000.0, None));
-        rate_limits.insert(DistanceVector, SingleMessageConfig::new(250_000, 2_500.0, None));
+        rate_limits.insert(SyncRoutingTable, SingleMessageConfig::new(500_000, 5_000.0, None));
+        rate_limits.insert(DistanceVector, SingleMessageConfig::new(400_000, 4_000.0, None));
         rate_limits.insert(RequestUpdateNonce, SingleMessageConfig::new(10, 0.1, None));
         rate_limits.insert(SyncAccountsData, SingleMessageConfig::new(25_000, 250.0, None));
         rate_limits.insert(PeersRequest, SingleMessageConfig::new(20, 0.2, None));
-        rate_limits.insert(PeersResponse, SingleMessageConfig::new(10_000, 100.0, None));
-        rate_limits.insert(BlockRequest, SingleMessageConfig::new(50, 0.5, None));
-        rate_limits.insert(Block, SingleMessageConfig::new(300, 3.0, None));
-        rate_limits.insert(SyncSnapshotHosts, SingleMessageConfig::new(1_000, 10.0, None));
+        rate_limits.insert(PeersResponse, SingleMessageConfig::new(15_000, 150.0, None));
+        rate_limits.insert(BlockRequest, SingleMessageConfig::new(100, 1.0, None));
+        rate_limits.insert(Block, SingleMessageConfig::new(500, 5.0, None));
+        rate_limits.insert(SyncSnapshotHosts, SingleMessageConfig::new(2_000, 20.0, None));
         rate_limits.insert(
             PartialEncodedChunkRequest,
             SingleMessageConfig::new(1_000_000, 10_000.0, None),
@@ -135,7 +135,7 @@ impl Config {
         rate_limits
             .insert(PartialEncodedChunkForward, SingleMessageConfig::new(25_000, 250.0, None));
         rate_limits.insert(VersionedPartialEncodedChunk, SingleMessageConfig::new(200, 2.0, None));
-        rate_limits.insert(ForwardTx, SingleMessageConfig::new(400, 4.0, None));
+        rate_limits.insert(ForwardTx, SingleMessageConfig::new(600, 6.0, None));
         rate_limits.insert(BlockApproval, SingleMessageConfig::new(200, 2.0, None));
         rate_limits.insert(TxStatusRequest, SingleMessageConfig::new(10, 0.1, None));
         rate_limits.insert(TxStatusResponse, SingleMessageConfig::new(10, 0.1, None));
