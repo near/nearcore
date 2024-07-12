@@ -309,7 +309,6 @@ apply_transactions shard_id=3 block=AUcauGxisMqNmZu5Ln7LLu8Li31H1sYD7wgd7AP6nQZR
 top-level:
   GET   8854 Block  981 BlockHeader  16556 BlockHeight  59155 BlockInfo  2 BlockMerkleTree  330009 BlockMisc  1 BlockOrdinal  31924 BlockPerHeight  863 BlockRefCount  1609 BlocksToCatchup  1557 ChallengedBlocks  4 ChunkExtra  5135 ChunkHashesByHeight  128788 Chunks  35 EpochInfo  1 EpochStart  98361 FlatState  1150 HeaderHashesByHeight  8113 InvalidChunks  263 NextBlockHashes  22 OutgoingReceipts  131114 PartialChunks  1116 ProcessedBlockHeights  968698 State  
   SET   865 BlockHeight  1026 BlockMerkleTree  12428 BlockMisc  1636 BlockOrdinal  865 BlockPerHeight  865 BlockRefCount  3460 ChunkExtra  3446 ChunkHashesByHeight  339142 FlatState  3460 FlatStateDeltas  3460 FlatStateMisc  865 HeaderHashesByHeight  3460 IncomingReceipts  865 NextBlockHashes  3442 OutcomeIds  3442 OutgoingReceipts  863 ProcessedBlockHeights  340093 StateChanges  3460 TrieChanges  
-  UPDATE_RC   13517 ReceiptIdToShardId  13526 Receipts  1517322 State  6059 Transactions  
 ```
 
 The output contains one `apply_transactions` for each chunk, with the block hash

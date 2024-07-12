@@ -368,11 +368,11 @@ impl<'a> External for RuntimeExt<'a> {
         let account_id = self.account_id();
         let code_hash = self.code_hash();
         let version = self.current_protocol_version;
+        let chain_id = self.chain_id();
         if checked_feature!("stable", EthImplicitAccounts, self.current_protocol_version)
             && account_id.get_account_type() == AccountType::EthImplicitAccount
+            && &code_hash == wallet_contract_magic_bytes(&chain_id).hash()
         {
-            let chain_id = self.chain_id();
-            assert!(&code_hash == wallet_contract_magic_bytes(&chain_id).hash());
             return Some(wallet_contract(&chain_id));
         }
         let mode = match checked_feature!("stable", ChunkNodesCache, version) {

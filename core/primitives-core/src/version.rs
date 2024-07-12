@@ -131,6 +131,9 @@ pub enum ProtocolFeature {
     /// NEP: <https://github.com/near/NEPs/pull/491>
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
     NonrefundableStorage,
+    // NEP: https://github.com/near/NEPs/pull/488
+    #[cfg(feature = "protocol_feature_bls12381")]
+    BLS12381,
     RestrictTla,
     /// Increases the number of chunk producers.
     TestnetFewerBlockProducers,
@@ -157,6 +160,8 @@ pub enum ProtocolFeature {
     PerReceiptHardStorageProofLimit,
     /// Cross-shard congestion control according to <https://github.com/near/NEPs/pull/539>.
     CongestionControl,
+    /// Remove account with long storage key.
+    RemoveAccountWithLongStorageKey,
     // Stateless validation: Distribute state witness as reed solomon encoded parts
     PartialEncodedStateWitness,
     /// Size limits for transactions included in a ChunkStateWitness.
@@ -220,11 +225,11 @@ impl ProtocolFeature {
             ProtocolFeature::SimpleNightshadeV3 => 65,
             ProtocolFeature::DecreaseFunctionCallBaseCost => 66,
             ProtocolFeature::YieldExecution => 67,
-
-            // Congestion control should be enabled BEFORE stateless validation, so it has a lower version.
-            ProtocolFeature::CongestionControl => 80,
-
+            ProtocolFeature::CongestionControl
+            | ProtocolFeature::RemoveAccountWithLongStorageKey => 68,
             // Stateless validation features.
+            // TODO All of the stateless validation features should be collapsed
+            // into a single protocol feature.
             ProtocolFeature::StatelessValidationV0
             | ProtocolFeature::LowerValidatorKickoutPercentForDebugging
             | ProtocolFeature::SingleShardTracking
@@ -235,8 +240,8 @@ impl ProtocolFeature {
             | ProtocolFeature::OutgoingReceiptsSizeLimit
             | ProtocolFeature::NoChunkOnlyProducers
             | ProtocolFeature::ChangePartialWitnessDataPartsRequired
-            | ProtocolFeature::BiggerCombinedTransactionLimit => 81,
-            ProtocolFeature::HigherSendingCost => 82,
+            | ProtocolFeature::BiggerCombinedTransactionLimit
+            | ProtocolFeature::HigherSendingCost => 69,
 
             // This protocol version is reserved for use in resharding tests. An extra resharding
             // is simulated on top of the latest shard layout in production. Note that later
@@ -253,6 +258,8 @@ impl ProtocolFeature {
             ProtocolFeature::EthImplicitAccounts => 138,
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
             ProtocolFeature::NonrefundableStorage => 140,
+            #[cfg(feature = "protocol_feature_bls12381")]
+            ProtocolFeature::BLS12381 => 141,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
@@ -267,11 +274,12 @@ impl ProtocolFeature {
 /// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 67;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 69;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "statelessnet_protocol") {
-    // Current StatelessNet protocol version.
+    // Please note that congestion control and stateless validation are now
+    // stabilized but statelessnet should remain at its own version.
     82
 } else if cfg!(feature = "nightly_protocol") {
     // On nightly, pick big enough version to support all features.

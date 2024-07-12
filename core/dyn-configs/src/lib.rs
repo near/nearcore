@@ -1,9 +1,9 @@
 #![doc = include_str!("../README.md")]
 
-use near_async::time::Clock;
 use near_chain_configs::UpdateableClientConfig;
 use near_o11y::log_config::LogConfig;
 use near_primitives::validator_signer::ValidatorSigner;
+use near_time::Clock;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::broadcast::Sender;

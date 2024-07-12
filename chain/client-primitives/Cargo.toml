@@ -22,7 +22,7 @@ time.workspace = true
 tracing.workspace = true
 yansi.workspace = true
 
-near-async.workspace = true
+near-time.workspace = true
 near-chain-primitives.workspace = true
 near-chain-configs.workspace = true
 near-chunks-primitives.workspace = true
@@ -31,17 +31,13 @@ near-primitives.workspace = true
 
 [features]
 nightly_protocol = [
-  "near-async/nightly_protocol",
   "near-chain-configs/nightly_protocol",
   "near-primitives/nightly_protocol",
 ]
 nightly = [
-  "near-async/nightly",
   "near-chain-configs/nightly",
   "near-primitives/nightly",
   "nightly_protocol",
 ]
 sandbox = []
-test_features = [
-  "near-primitives/test_features",
-]
+test_features = ["near-primitives/test_features"]

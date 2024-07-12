@@ -1,6 +1,5 @@
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{CacheError, CompilationError, VMRunnerError};
-use crate::logic::types::PromiseResult;
 use crate::logic::{External, VMContext, VMOutcome};
 use crate::{ContractCode, ContractRuntimeCache};
 use near_parameters::vm::{Config, VMKind};
@@ -23,6 +22,26 @@ use std::sync::Arc;
 /// Similarly, the gas values on `VMOutcome` must be the exact same on all
 /// validators, even when a guest error occurs, or else their state will diverge.
 pub(crate) type VMResult<T = VMOutcome> = Result<T, VMRunnerError>;
+
+#[tracing::instrument(target = "vm", level = "debug", "prepare", skip_all, fields(
+    code.hash = %ext.code_hash(),
+    method_name,
+    vm_kind = ?wasm_config.vm_kind,
+    burnt_gas = tracing::field::Empty,
+    compute_usage = tracing::field::Empty,
+))]
+pub fn prepare(
+    ext: &(dyn External + Send),
+    context: &VMContext,
+    wasm_config: Arc<Config>,
+    cache: Option<&dyn ContractRuntimeCache>,
+) -> Box<dyn crate::PreparedContract> {
+    let vm_kind = wasm_config.vm_kind;
+    let runtime = vm_kind
+        .runtime(wasm_config)
+        .unwrap_or_else(|| panic!("the {vm_kind:?} runtime has not been enabled at compile time"));
+    runtime.prepare(ext, context, cache)
+}
 
 /// Validate and run the specified contract.
 ///
@@ -48,20 +67,15 @@ pub(crate) type VMResult<T = VMOutcome> = Result<T, VMRunnerError>;
     compute_usage = tracing::field::Empty,
 ))]
 pub fn run(
-    method_name: &str,
     ext: &mut (dyn External + Send),
     context: &VMContext,
     wasm_config: Arc<Config>,
     fees_config: Arc<RuntimeFeesConfig>,
-    promise_results: std::sync::Arc<[PromiseResult]>,
     cache: Option<&dyn ContractRuntimeCache>,
 ) -> VMResult {
     let span = tracing::Span::current();
-    let vm_kind = wasm_config.vm_kind;
-    let runtime = vm_kind
-        .runtime(wasm_config)
-        .unwrap_or_else(|| panic!("the {vm_kind:?} runtime has not been enabled at compile time"));
-    let outcome = runtime.run(method_name, ext, context, fees_config, promise_results, cache);
+    let prepared = prepare(ext, context, wasm_config, cache);
+    let outcome = prepared.run(ext, context, fees_config);
     let outcome = match outcome {
         Ok(o) => o,
         e @ Err(_) => return e,
@@ -72,30 +86,38 @@ pub fn run(
     Ok(outcome)
 }
 
-pub trait VM {
-    /// Validate and run the specified contract.
+pub trait PreparedContract: Send {
+    /// Run the prepared contract.
     ///
-    /// This is the entry point for executing a NEAR protocol contract. Before
-    /// the entry point (as specified by the `method_name` argument) of the
-    /// contract code is executed, the contract will be validated (see
-    /// [`crate::prepare::prepare_contract`]), instrumented (e.g. for gas
-    /// accounting), and linked with the externs specified via the `ext`
-    /// argument.
+    /// This is the entry point for executing a NEAR protocol contract. The entry point (as
+    /// specified by the `VMContext::method` argument) of the contract code is executed.
     ///
-    /// [`VMContext::input`] will be passed to the contract entrypoint as an
-    /// argument.
-    ///
-    /// The gas cost for contract preparation will be subtracted by the VM
-    /// implementation.
+    /// [`VMContext::input`] will be made available to the contract.
     fn run(
-        &self,
-        method_name: &str,
+        self: Box<Self>,
         ext: &mut dyn External,
         context: &VMContext,
         fees_config: Arc<RuntimeFeesConfig>,
-        promise_results: std::sync::Arc<[PromiseResult]>,
-        cache: Option<&dyn ContractRuntimeCache>,
     ) -> VMResult;
+}
+
+pub trait VM {
+    /// Prepare a contract for execution.
+    ///
+    /// Work that goes into the preparation is runtime implementation specific, and depending on
+    /// the runtime may not do anything at all (and instead prepare everything when the contract is
+    /// `run`.)
+    ///
+    /// ## Return
+    ///
+    /// This method does not report any errors. If the contract is invalid in any way, the errors
+    /// will be reported when the returned value is `run`.
+    fn prepare(
+        self: Box<Self>,
+        ext: &dyn External,
+        context: &VMContext,
+        cache: Option<&dyn ContractRuntimeCache>,
+    ) -> Box<dyn PreparedContract>;
 
     /// Precompile a WASM contract to a VM specific format and store the result
     /// into the `cache`.

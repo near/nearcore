@@ -257,8 +257,7 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
                             <td>
                                 {drawProducedAndExpectedBar(
                                     validator.current?.endorsements ?? null,
-                                    maxExpectedChunks,
-                                    0.05
+                                    maxExpectedEndorsements
                                 )}
                             </td>
 
