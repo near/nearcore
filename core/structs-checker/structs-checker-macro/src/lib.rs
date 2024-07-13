@@ -94,17 +94,23 @@ mod helper {
     fn extract_type_info(ty: &syn::Type) -> TokenStream2 {
         match ty {
             syn::Type::Path(type_path) => {
-                let type_name = quote::format_ident!("{}", type_path.path.segments.last().unwrap().ident);
+                let type_name =
+                    quote::format_ident!("{}", type_path.path.segments.last().unwrap().ident);
                 let generic_params = &type_path.path.segments.last().unwrap().arguments;
                 match generic_params {
                     syn::PathArguments::AngleBracketed(params) => {
-                        let inner_types: Vec<_> = params.args.iter().take(4).map(|arg| {
-                            if let syn::GenericArgument::Type(ty) = arg {
-                                quote! { Some(std::any::TypeId::of::<#ty>()) }
-                            } else {
-                                quote! { None }
-                            }
-                        }).collect();
+                        let inner_types: Vec<_> = params
+                            .args
+                            .iter()
+                            .take(4)
+                            .map(|arg| {
+                                if let syn::GenericArgument::Type(ty) = arg {
+                                    quote! { Some(std::any::TypeId::of::<#ty>()) }
+                                } else {
+                                    quote! { None }
+                                }
+                            })
+                            .collect();
 
                         let assignments = inner_types.iter().enumerate().map(|(i, ty)| {
                             quote! { inner_types[#i] = #ty; }

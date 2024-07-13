@@ -675,6 +675,7 @@ pub mod epoch_info {
     use smart_default::SmartDefault;
     use std::collections::{BTreeMap, HashMap};
 
+    pub use super::EpochInfoV1;
     use crate::types::validator_stake::ValidatorStakeV1;
     use crate::{epoch_manager::RngSeed, rand::WeightedIndex};
     use near_primitives_core::{
@@ -682,7 +683,6 @@ pub mod epoch_info {
         hash::hash,
         types::{BlockHeight, ShardId},
     };
-    pub use super::EpochInfoV1;
 
     /// Information per epoch.
     #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, serde::Serialize)]

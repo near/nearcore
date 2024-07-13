@@ -10,8 +10,16 @@ pub type TypeInfo = (&'static str, [Option<TypeId>; 4]);
 
 #[derive(Copy, Clone)]
 pub enum ProtocolStructInfo {
-    Struct { name: FieldName, type_id: TypeId, fields: &'static [(FieldName, TypeInfo)] },
-    Enum { name: FieldName, type_id: TypeId, variants: &'static [(FieldName, Option<&'static [(FieldName, TypeInfo)]>)] },
+    Struct {
+        name: FieldName,
+        type_id: TypeId,
+        fields: &'static [(FieldName, TypeInfo)],
+    },
+    Enum {
+        name: FieldName,
+        type_id: TypeId,
+        variants: &'static [(FieldName, Option<&'static [(FieldName, TypeInfo)]>)],
+    },
 }
 
 impl ProtocolStructInfo {

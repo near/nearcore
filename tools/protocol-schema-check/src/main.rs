@@ -127,20 +127,27 @@ fn main() {
     current_hashes.clear();
 }
 
-
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-    use near_structs_checker_lib::ProtocolStruct;
     use super::*;
+    use near_structs_checker_lib::ProtocolStruct;
+    use std::collections::HashMap;
 
-    fn do_compute_type_hash(ty: TypeId, structs: &BTreeMap<TypeId, &'static ProtocolStructInfo>) -> u32 {
+    fn do_compute_type_hash(
+        ty: TypeId,
+        structs: &BTreeMap<TypeId, &'static ProtocolStructInfo>,
+    ) -> u32 {
         let mut hasher = StableHasher::new();
         compute_type_hash(ty, structs, &mut hasher);
         hasher.finish() as u32
     }
 
-    fn check_types(ty: TypeId, other_ty: TypeId, expect_equal: bool, structs: &BTreeMap<TypeId, &'static ProtocolStructInfo>) {
+    fn check_types(
+        ty: TypeId,
+        other_ty: TypeId,
+        expect_equal: bool,
+        structs: &BTreeMap<TypeId, &'static ProtocolStructInfo>,
+    ) {
         let hash = do_compute_type_hash(ty, structs);
         let other_hash = do_compute_type_hash(other_ty, structs);
         assert_eq!(hash == other_hash, expect_equal);
@@ -174,7 +181,12 @@ mod tests {
             b: String,
         }
 
-        check_types(TypeId::of::<TestStruct>(), TypeId::of::<TestStruct2>(), true, &collect_structs());
+        check_types(
+            TypeId::of::<TestStruct>(),
+            TypeId::of::<TestStruct2>(),
+            true,
+            &collect_structs(),
+        );
     }
 
     /// Checks that if identical structs have different field names, hashes are
@@ -188,10 +200,15 @@ mod tests {
             c: String,
         }
 
-        check_types(TypeId::of::<TestStruct>(), TypeId::of::<TestStruct2>(), false, &collect_structs());
+        check_types(
+            TypeId::of::<TestStruct>(),
+            TypeId::of::<TestStruct2>(),
+            false,
+            &collect_structs(),
+        );
     }
 
-    /// Checks that if identical structs have different type names, hashes are 
+    /// Checks that if identical structs have different type names, hashes are
     /// different.
     #[test]
     fn test_different_type_names() {
@@ -209,7 +226,12 @@ mod tests {
             b: String,
         }
 
-        check_types(TypeId::of::<TestStruct>(), TypeId::of::<TestStruct2>(), false, &collect_structs());
+        check_types(
+            TypeId::of::<TestStruct>(),
+            TypeId::of::<TestStruct2>(),
+            false,
+            &collect_structs(),
+        );
     }
 
     /// Checks that struct and enum have different hashes.
@@ -246,7 +268,12 @@ mod tests {
             a: u64,
         }
 
-        check_types(TypeId::of::<Unsigned>(), TypeId::of::<ShortUnsigned>(), false, &collect_structs());
+        check_types(
+            TypeId::of::<Unsigned>(),
+            TypeId::of::<ShortUnsigned>(),
+            false,
+            &collect_structs(),
+        );
     }
 
     /// Checks that if hashes can differentiate containers.
@@ -267,7 +294,12 @@ mod tests {
             a: HashMap<u32, u32>,
         }
 
-        check_types(TypeId::of::<Container>(), TypeId::of::<VecContainer>(), false, &collect_structs());
+        check_types(
+            TypeId::of::<Container>(),
+            TypeId::of::<VecContainer>(),
+            false,
+            &collect_structs(),
+        );
     }
 
     /// Checks that if hashes can differentiate nested containers.
@@ -288,6 +320,11 @@ mod tests {
             a: Vec<Vec<u32>>,
         }
 
-        check_types(TypeId::of::<Container>(), TypeId::of::<VecContainer>(), false, &collect_structs());
+        check_types(
+            TypeId::of::<Container>(),
+            TypeId::of::<VecContainer>(),
+            false,
+            &collect_structs(),
+        );
     }
 }
