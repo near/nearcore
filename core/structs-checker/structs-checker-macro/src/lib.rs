@@ -91,29 +91,60 @@ mod helper {
         quote! { &[#(#variants),*] }
     }
 
+    fn extract_type_info(ty: &syn::Type) -> TokenStream2 {
+        match ty {
+            syn::Type::Path(type_path) => {
+                let type_name = quote::format_ident!("{}", type_path.path.segments.last().unwrap().ident);
+                let generic_params = &type_path.path.segments.last().unwrap().arguments;
+                match generic_params {
+                    syn::PathArguments::AngleBracketed(params) => {
+                        let inner_types: Vec<_> = params.args.iter().take(4).map(|arg| {
+                            if let syn::GenericArgument::Type(ty) = arg {
+                                quote! { Some(std::any::TypeId::of::<#ty>()) }
+                            } else {
+                                quote! { None }
+                            }
+                        }).collect();
+
+                        let assignments = inner_types.iter().enumerate().map(|(i, ty)| {
+                            quote! { inner_types[#i] = #ty; }
+                        });
+
+                        quote! {
+                            {
+                                const ARRAY_REPEAT_VALUE: Option<std::any::TypeId> = None;
+                                let mut inner_types = [ARRAY_REPEAT_VALUE; 4];
+                                #(#assignments)*
+                                (stringify!(#type_name), inner_types)
+                            }
+                        }
+                    }
+                    _ => quote! { (stringify!(#type_name), [None; 4]) },
+                }
+            }
+            _ => quote! { (stringify!(#ty), [None; 4]) },
+        }
+    }
+
     fn extract_from_named_fields(
         named: &syn::punctuated::Punctuated<syn::Field, syn::token::Comma>,
-    ) -> std::iter::Map<
-        syn::punctuated::Iter<syn::Field>,
-        fn(&syn::Field) -> proc_macro2::TokenStream,
-    > {
+    ) -> impl Iterator<Item = TokenStream2> + '_ {
         named.iter().map(|f| {
             let name = &f.ident;
             let ty = &f.ty;
-            quote! { (stringify!(#name), std::any::TypeId::of::<#ty>()) }
+            let type_info = extract_type_info(ty);
+            quote! { (stringify!(#name), #type_info) }
         })
     }
 
     fn extract_from_unnamed_fields(
         unnamed: &syn::punctuated::Punctuated<syn::Field, syn::token::Comma>,
-    ) -> std::iter::Map<
-        std::iter::Enumerate<syn::punctuated::Iter<syn::Field>>,
-        fn((usize, &syn::Field)) -> proc_macro2::TokenStream,
-    > {
+    ) -> impl Iterator<Item = TokenStream2> + '_ {
         unnamed.iter().enumerate().map(|(i, f)| {
             let index = syn::Index::from(i);
             let ty = &f.ty;
-            quote! { (stringify!(#index), std::any::TypeId::of::<#ty>()) }
+            let type_info = extract_type_info(ty);
+            quote! { (stringify!(#index), #type_info) }
         })
     }
 }
