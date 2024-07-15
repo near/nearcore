@@ -51,6 +51,8 @@ node0_height, _ = utils.wait_for_blocks(nodes[0], target=TARGET_HEIGHT1)
 
 logger.info('Starting back node 1')
 nodes[1].start(boot_node=nodes[1])
+# State Sync makes the storage seem inconsistent.
+nodes[1].stop_checking_store()
 time.sleep(3)
 
 node1_height, _ = utils.wait_for_blocks(nodes[1], target=node0_height)
