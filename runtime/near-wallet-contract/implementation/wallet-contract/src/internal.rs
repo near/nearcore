@@ -15,7 +15,7 @@ use near_sdk::{env, AccountId, NearToken};
 
 /// The chain ID is pulled from a file to allow this contract to be easily
 /// compiled with the appropriate value for the network it will be deployed on.
-/// The chain ID for Near mainnet is [397](https://chainlist.org/chain/398)
+/// The chain ID for Near mainnet is [397](https://chainlist.org/chain/397)
 /// while the value for testnet is [398](https://chainlist.org/chain/398).
 pub const CHAIN_ID: u64 = std::include!("CHAIN_ID");
 const U64_MAX: U256 = U256([u64::MAX, 0, 0, 0]);
