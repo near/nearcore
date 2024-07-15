@@ -216,7 +216,7 @@ class ABExecutables(typing.NamedTuple):
     deploy: str
 
 
-def prepare_ab_test(chain_id: str = 'mainnet') -> ABExecutables:
+def prepare_ab_test(chain_id: str = 'testnet') -> ABExecutables:
     """Prepares executable at HEAD and latest deploy at given chain.
 
     Args:
