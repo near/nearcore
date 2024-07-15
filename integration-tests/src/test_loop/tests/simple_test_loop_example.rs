@@ -126,7 +126,6 @@ fn test_client_with_simple_test_loop() {
         test_loop.clock(),
         client,
         client_adapter.as_multi_sender(),
-        client_config,
         PeerId::random(),
         noop().into_multi_sender(),
         noop().into_sender(),
