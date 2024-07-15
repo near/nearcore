@@ -1,0 +1,18 @@
+[package]
+name = "near-structs-checker-core"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description = "Helper for ProtocolStruct macro allowing to collect all protocol structs"
+repository.workspace = true
+license.workspace = true
+publish = true
+
+[lints]
+workspace = true
+
+[dependencies]
+inventory = { workspace = true, optional = true }
+
+[features]
+protocol_schema = ["inventory"]

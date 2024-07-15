@@ -1207,6 +1207,11 @@ class NeardRunner:
         for file in ["config.json", "genesis.json", "node_key.json"]:
             shutil.copyfile(self.target_near_home_path(file),
                             os.path.join(backup_dir, file))
+        # Binaries can be replaced during a test.
+        # Save the binary that was used to make the backup to prevent db version incompatibility when restoring the backup.
+        neard_path = os.path.join(backup_dir, "neard")
+        shutil.copy2(self.data['current_neard_path'], neard_path)
+
         backups = self.data.get('backups', {})
         if name in backups:
             # shouldn't happen if we check this in do_make_backups(), but fine to be paranoid and at least warn here
@@ -1255,25 +1260,17 @@ class NeardRunner:
 
     def run_restore_from_backup_cmd(self, backup_path):
         logging.info(f'restoring data dir from backup at {backup_path}')
-        # Before using snapshots for backup we used to copy the 'data' folder.
-        # This is useful to be able to restore from backups done the old way.
-        if not os.path.exists(os.path.join(backup_path, 'data')):
-            # TODO: Remove this branch once we no longer support old backups
-            shutil.copytree(backup_path, self.target_near_home_path('data'))
-            logging.info(
-                f'data dir restored by copying files from {backup_path}')
-        else:
-            cmd = [
-                self.data['current_neard_path'], '--home', backup_path,
-                '--unsafe-fast-startup', 'database', 'make-snapshot',
-                '--destination',
-                self.target_near_home_path()
-            ]
-            logging.info(f'running {" ".join(cmd)}')
-            exit_code = subprocess.check_call(cmd)
-            logging.info(
-                f'snapshot restoration of {backup_path} terminated with code {exit_code}'
-            )
+        neard_path = os.path.join(backup_path, "neard")
+        cmd = [
+            neard_path, '--home', backup_path, '--unsafe-fast-startup',
+            'database', 'make-snapshot', '--destination',
+            self.target_near_home_path()
+        ]
+        logging.info(f'running {" ".join(cmd)}')
+        exit_code = subprocess.check_call(cmd)
+        logging.info(
+            f'snapshot restoration of {backup_path} terminated with code {exit_code}'
+        )
 
     def reset_near_home(self):
         backup_id = self.data['state_data']
