@@ -404,7 +404,6 @@ impl InfoHelper {
 
         let sync_status_log =
             Some(display_sync_status(sync_status, head, &client_config.state_sync.sync));
-        let catchup_status_log = display_catchup_status(catchup_status);
         let validator_info_log = validator_info.as_ref().map(|info| {
             format!(
                 " {}{} validator{}",
@@ -449,9 +448,7 @@ impl InfoHelper {
             paint(yansi::Color::Green, blocks_info_log),
             paint(yansi::Color::Blue, machine_info_log),
         );
-        if !catchup_status_log.is_empty() {
-            info!(target: "stats", "Catchups\n{}", catchup_status_log);
-        }
+        log_catchup_status(catchup_status);
         if let Some(config_updater) = &config_updater {
             config_updater.report_status();
         }
@@ -636,34 +633,30 @@ fn extra_telemetry_info(client_config: &ClientConfig) -> serde_json::Value {
     })
 }
 
-pub fn display_catchup_status(catchup_status: Vec<CatchupStatusView>) -> String {
-    catchup_status
-        .into_iter()
-        .map(|catchup_status| {
-            let shard_sync_string = catchup_status
-                .shard_sync_status
-                .iter()
-                .sorted_by_key(|x| x.0)
-                .map(|(shard_id, status_string)| format!("Shard {} {}", shard_id, status_string))
-                .join(", ");
-            let block_catchup_string = if !catchup_status.blocks_to_catchup.is_empty() {
-                "done".to_string()
-            } else {
-                catchup_status
-                    .blocks_to_catchup
-                    .iter()
-                    .map(|block_view| format!("{:?}@{:?}", block_view.hash, block_view.height))
-                    .join(", ")
-            };
-            format!(
-                "Sync block {:?}@{:?} \nShard sync status: {}\nNext blocks to catch up: {}",
-                catchup_status.sync_block_hash,
-                catchup_status.sync_block_height,
-                shard_sync_string,
-                block_catchup_string,
-            )
-        })
-        .join("\n")
+pub fn log_catchup_status(catchup_status: Vec<CatchupStatusView>) {
+    for catchup_status in &catchup_status {
+        let shard_sync_string = catchup_status
+            .shard_sync_status
+            .iter()
+            .sorted_by_key(|x| x.0)
+            .map(|(shard_id, status_string)| format!("Shard {} {}", shard_id, status_string))
+            .join(", ");
+        let block_catchup_string = catchup_status
+            .blocks_to_catchup
+            .iter()
+            .map(|block_view| format!("{:?}@{:?}", block_view.hash, block_view.height))
+            .join(", ");
+        let block_catchup_string =
+            if block_catchup_string.is_empty() { "done".to_string() } else { block_catchup_string };
+
+        tracing::info!(
+            sync_hash=?catchup_status.sync_block_hash,
+            sync_height=?catchup_status.sync_block_height,
+            "Catchup Status - shard sync status: {}, next blocks to catch up: {}",
+            shard_sync_string,
+            block_catchup_string,
+        )
+    }
 }
 
 pub fn display_sync_status(

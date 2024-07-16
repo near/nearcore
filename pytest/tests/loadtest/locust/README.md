@@ -141,6 +141,7 @@ Currently supported load types:
 | Sweat (normal load) | sweat.py | (`--sweat-wasm $WASM_PATH`) | Creates a single instance of the SWEAT contract. A mix of FT transfers and batch minting with batch sizes comparable to mainnet observations in summer 2023. |
 | Sweat (storage stress test) | sweat.py | `--tags=storage-stress-test` <br> (`--sweat-wasm $WASM_PATH`) | Creates a single instance of the SWEAT contract. Sends maximally large batches to mint more tokens, thereby touching many storage nodes per receipt. This load will take a while to initialize enough Sweat users on chain. |
 | Sweat (claim) | sweat.py | `--tags=claim-test` <br> (`--sweat-wasm $WASM_PATH`) <br> (`--sweat-claim-wasm $WASM_PATH`) | Creates a single instance of the SWEAT and SWEAT.CLAIM contract. Sends deferred batches to mint more tokens, thereby touching many storage nodes per receipt. Then calls balance checks that iterate through populated state. |
+| Minting inscriptions | inscription.py | (`--inscription-wasm $WASM_PATH`) | Creates a single insctance of the inscription contract and spawns multiple users who mint inscriptions using this contract. |
 
 ## Notes on Storage Stress Test
 
