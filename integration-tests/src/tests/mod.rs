@@ -2,6 +2,7 @@ mod client;
 mod dependencies;
 mod genesis_helpers;
 mod nearcore;
+mod nearcore_utils;
 mod network;
 mod runtime;
 mod standard_cases;
