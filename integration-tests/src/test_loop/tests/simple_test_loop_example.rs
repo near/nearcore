@@ -92,7 +92,7 @@ fn test_client_with_simple_test_loop() {
 
     let client = Client::new(
         test_loop.clock(),
-        client_config.clone(),
+        client_config,
         chain_genesis,
         epoch_manager.clone(),
         shard_tracker.clone(),

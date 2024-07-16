@@ -150,7 +150,7 @@ pub fn start_client(
     wait_until_genesis(&chain_genesis.time);
     let client = Client::new(
         clock.clone(),
-        client_config.clone(),
+        client_config,
         chain_genesis,
         epoch_manager.clone(),
         shard_tracker,
@@ -1188,9 +1188,8 @@ impl ClientActorInner {
                 &|validator_signer| self.client.update_validator_signer(validator_signer),
             );
             if update_result.validator_signer_updated {
-                if let Err(error) = check_validator_tracked_shards(&self.client) {
-                    error!(target: "client", ?error, "Could not check validator tracked shards");
-                }
+                check_validator_tracked_shards(&self.client)
+                    .expect("Could not check validator tracked shards");
                 // Request PeerManager to advertise tier1 proxies.
                 // It is needed to advertise that our validator key changed.
                 self.network_adapter.send(PeerManagerMessageRequest::AdvertiseTier1Proxies);
