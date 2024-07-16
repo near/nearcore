@@ -265,7 +265,6 @@ impl TestLoopBuilder {
             self.test_loop.clock(),
             client,
             client_adapter.as_multi_sender(),
-            client_config.clone(),
             PeerId::random(),
             network_adapter.as_multi_sender(),
             noop().into_sender(),
