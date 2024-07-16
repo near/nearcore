@@ -510,16 +510,16 @@ impl InfoHelper {
                 let shard = stats.shards[i];
                 (metrics::VALIDATORS_CHUNKS_EXPECTED_BY_SHARD
                     .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
-                    .set(*stats.num_expected_chunks_per_shard[i] as i64));
+                    .set(stats.num_expected_chunks_per_shard[i] as i64));
                 (metrics::VALIDATORS_CHUNKS_PRODUCED_BY_SHARD
                     .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
-                    .set(*stats.num_produced_chunks_per_shard[i] as i64));
+                    .set(stats.num_produced_chunks_per_shard[i] as i64));
                 (metrics::VALIDATORS_CHUNK_ENDORSEMENTS_EXPECTED_BY_SHARD
                     .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
-                    .set(*stats.num_expected_endorsements_per_shard[i] as i64));
+                    .set(stats.num_expected_endorsements_per_shard[i] as i64));
                 (metrics::VALIDATORS_CHUNK_ENDORSEMENTS_PRODUCED_BY_SHARD
                     .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
-                    .set(*stats.num_produced_endorsements_per_shard[i] as i64));
+                    .set(stats.num_produced_endorsements_per_shard[i] as i64));
             }
         }
     }
