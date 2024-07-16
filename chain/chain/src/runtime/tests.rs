@@ -1530,7 +1530,7 @@ fn test_genesis_hash() {
             .handle(),
         &genesis.config,
         epoch_manager.clone(),
-        RuntimeConfigStore::new(None),
+        RuntimeConfigStore::new(None, false),
         StateSnapshotType::EveryEpoch,
     );
 

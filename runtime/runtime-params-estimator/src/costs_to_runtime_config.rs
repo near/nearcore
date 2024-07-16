@@ -23,7 +23,7 @@ pub fn costs_to_runtime_config(cost_table: &CostTable) -> anyhow::Result<Runtime
     // Take latest VM limit config, because estimation doesn't affect it.
     // Note that if you run estimation against stable version, it doesn't catch updates of nightly
     // version.
-    let config_store = RuntimeConfigStore::new(None);
+    let config_store = RuntimeConfigStore::new(None, false);
     let latest_runtime_config = config_store.get_config(PROTOCOL_VERSION);
     let vm_limit_config = latest_runtime_config.wasm_config.limit_config.clone();
 
@@ -51,7 +51,7 @@ fn runtime_fees_config(cost_table: &CostTable) -> anyhow::Result<RuntimeFeesConf
         Ok(Fee { send_sir: total_gas / 2, send_not_sir: total_gas / 2, execution: total_gas / 2 })
     };
 
-    let config_store = RuntimeConfigStore::new(None);
+    let config_store = RuntimeConfigStore::new(None, false);
     let actual_fees_config = &config_store.get_config(PROTOCOL_VERSION).fees;
     let res = RuntimeFeesConfig {
         action_fees: enum_map::enum_map! {

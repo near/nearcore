@@ -26,7 +26,7 @@ fn test_storage_proof_size_limit() {
     let epoch_length = 100;
     let contract_account: AccountId = "test0".parse().unwrap();
     let user_account: AccountId = "test1".parse().unwrap();
-    let runtime_config_store = RuntimeConfigStore::new(None);
+    let runtime_config_store = RuntimeConfigStore::new(None, false);
     let mut env = {
         let mut genesis = Genesis::test(vec![contract_account.clone(), user_account.clone()], 1);
         genesis.config.epoch_length = epoch_length;

@@ -16,7 +16,7 @@ fn prepare_env_with_contract(
     let mut genesis = Genesis::test(vec![account.clone()], 1);
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = protocol_version;
-    let runtime_config = near_parameters::RuntimeConfigStore::new(None);
+    let runtime_config = near_parameters::RuntimeConfigStore::new(None, false);
     let mut env = TestEnv::builder(&genesis.config)
         .nightshade_runtimes_with_runtime_config_store(&genesis, vec![runtime_config])
         .build();

@@ -753,7 +753,7 @@ fn contract_compile_base_per_byte_v2(ctx: &mut EstimatorContext) -> (GasCost, Ga
 }
 
 fn pure_deploy_bytes(ctx: &mut EstimatorContext) -> GasCost {
-    let config_store = RuntimeConfigStore::new(None);
+    let config_store = RuntimeConfigStore::new(None, false);
     let vm_config = config_store.get_config(PROTOCOL_VERSION).wasm_config.clone();
     let small_code = generate_data_only_contract(0, &vm_config);
     let large_code = generate_data_only_contract(
@@ -773,7 +773,7 @@ fn action_function_call_base(ctx: &mut EstimatorContext) -> GasCost {
     if let Some(cost) = &ctx.cached.function_call_base {
         return cost.clone();
     }
-    let config_store = RuntimeConfigStore::new(None);
+    let config_store = RuntimeConfigStore::new(None, false);
     let vm_config = config_store.get_config(PROTOCOL_VERSION).wasm_config.clone();
     let n_actions = 100;
     let code = generate_data_only_contract(0, &vm_config);
@@ -833,7 +833,7 @@ fn contract_loading_base_per_byte(ctx: &mut EstimatorContext) -> (GasCost, GasCo
     (base, per_byte)
 }
 fn function_call_per_storage_byte(ctx: &mut EstimatorContext) -> GasCost {
-    let config_store = RuntimeConfigStore::new(None);
+    let config_store = RuntimeConfigStore::new(None, false);
     let vm_config = config_store.get_config(PROTOCOL_VERSION).wasm_config.clone();
     let n_actions = 5;
 
@@ -922,7 +922,7 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
 
     let code = ContractCode::new(code.to_vec(), None);
     let mut fake_external = MockedExternal::with_code(code.clone_for_tests());
-    let config_store = RuntimeConfigStore::new(None);
+    let config_store = RuntimeConfigStore::new(None, false);
     let config = config_store.get_config(PROTOCOL_VERSION).wasm_config.clone();
     let fees = Arc::new(RuntimeFeesConfig::test());
     let cache = MockContractRuntimeCache::default();

@@ -1,6 +1,7 @@
 use crate::config::{CongestionControlConfig, RuntimeConfig};
 use crate::parameter_table::{ParameterTable, ParameterTableDiff};
 use near_primitives_core::types::ProtocolVersion;
+use near_primitives_core::version::PROTOCOL_VERSION;
 use std::collections::BTreeMap;
 use std::ops::Bound;
 use std::sync::Arc;
@@ -50,9 +51,10 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (143, include_config!("143.yaml")),
 ];
 
+static BENCHMARKNET_DIFF: &str = include_config!("benchmarknet.yaml");
+
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters
 pub static INITIAL_TESTNET_CONFIG: &str = include_config!("parameters_testnet.yaml");
-
 /// Stores runtime config for each protocol version where it was updated.
 #[derive(Clone, Debug)]
 pub struct RuntimeConfigStore {
@@ -71,7 +73,12 @@ impl RuntimeConfigStore {
     /// storage_amount_per_byte to zero, to keep calimero private shards compatible with future
     /// protocol upgrades this is done for all protocol versions
     /// TODO #4775: introduce new protocol version to have the same runtime config for all chains
-    pub fn new(genesis_runtime_config: Option<&RuntimeConfig>) -> Self {
+    ///
+    /// is_benchmarknet flag is used by ft-benchmark (TODO: link to ft-benchmark here) and changes
+    /// some parameters for latest stable protocol version.
+    /// If you don't want config for ft-benchmark, set is_benchmarknet to false.
+    /// If you don't know what ft-benchmark is, set is_benchmarknet to false.
+    pub fn new(genesis_runtime_config: Option<&RuntimeConfig>, is_benchmarknet: bool) -> Self {
         let mut params: ParameterTable =
             BASE_CONFIG.parse().expect("Failed parsing base parameter file.");
 
@@ -105,6 +112,16 @@ impl RuntimeConfigStore {
                 store.insert(*protocol_version, Arc::new(runtime_config));
             }
         }
+        if is_benchmarknet {
+            let protocol_version = PROTOCOL_VERSION;
+            let diff_bytes = BENCHMARKNET_DIFF;
+            let diff :ParameterTableDiff= diff_bytes.parse().unwrap_or_else(|err| panic!("Failed parsing runtime parameters diff for version {protocol_version}. Error: {err}"));
+            params.apply_diff(diff).unwrap_or_else(|err| panic!("Failed applying diff to `RuntimeConfig` for version {protocol_version}. Error: {err}"));
+            store.insert(
+                protocol_version,
+                Arc::new(RuntimeConfig::new(&params).unwrap_or_else(|err| panic!("Failed generating `RuntimeConfig` from parameters for version {protocol_version}. Error: {err}"))),
+            );
+        }
 
         if let Some(runtime_config) = genesis_runtime_config {
             let mut fees = crate::RuntimeFeesConfig::clone(&runtime_config.fees);
@@ -135,9 +152,10 @@ impl RuntimeConfigStore {
         match chain_id {
             near_primitives_core::chains::TESTNET => {
                 let genesis_runtime_config = RuntimeConfig::initial_testnet_config();
-                Self::new(Some(&genesis_runtime_config))
+                Self::new(Some(&genesis_runtime_config), false)
             }
-            _ => Self::new(None),
+            near_primitives_core::chains::BENCHMARKNET => Self::new(None, true),
+            _ => Self::new(None, false),
         }
     }
 
@@ -219,7 +237,7 @@ mod tests {
 
     #[test]
     fn test_max_prepaid_gas() {
-        let store = RuntimeConfigStore::new(None);
+        let store = RuntimeConfigStore::new(None, false);
         for (protocol_version, config) in store.store.iter() {
             if *protocol_version >= DecreaseFunctionCallBaseCost.protocol_version() {
                 continue;
@@ -240,7 +258,7 @@ mod tests {
     #[test]
     #[cfg(not(feature = "calimero_zero_storage"))]
     fn test_lower_storage_cost() {
-        let store = RuntimeConfigStore::new(None);
+        let store = RuntimeConfigStore::new(None, false);
         let base_cfg = store.get_config(GENESIS_PROTOCOL_VERSION);
         let new_cfg = store.get_config(LowerStorageCost.protocol_version());
         assert!(base_cfg.storage_amount_per_byte() > new_cfg.storage_amount_per_byte());
@@ -249,7 +267,7 @@ mod tests {
     #[test]
     fn test_override_account_length() {
         // Check that default value is 32.
-        let base_store = RuntimeConfigStore::new(None);
+        let base_store = RuntimeConfigStore::new(None, false);
         let base_cfg = base_store.get_config(GENESIS_PROTOCOL_VERSION);
         assert_eq!(base_cfg.account_creation_config.min_allowed_top_level_account_length, 32);
 
@@ -257,14 +275,14 @@ mod tests {
         cfg.account_creation_config.min_allowed_top_level_account_length = 0;
 
         // Check that length was changed.
-        let new_store = RuntimeConfigStore::new(Some(&cfg));
+        let new_store = RuntimeConfigStore::new(Some(&cfg), false);
         let new_cfg = new_store.get_config(GENESIS_PROTOCOL_VERSION);
         assert_eq!(new_cfg.account_creation_config.min_allowed_top_level_account_length, 0);
     }
 
     #[test]
     fn test_lower_data_receipt_cost() {
-        let store = RuntimeConfigStore::new(None);
+        let store = RuntimeConfigStore::new(None, false);
         let base_cfg = store.get_config(LowerStorageCost.protocol_version());
         let new_cfg = store.get_config(LowerDataReceiptAndEcrecoverBaseCost.protocol_version());
         assert!(
@@ -282,7 +300,7 @@ mod tests {
     #[test]
     #[cfg(not(feature = "calimero_zero_storage"))]
     fn test_override_runtime_config() {
-        let store = RuntimeConfigStore::new(None);
+        let store = RuntimeConfigStore::new(None, false);
         let config = store.get_config(0);
 
         let mut base_params = BASE_CONFIG.parse().unwrap();
@@ -322,7 +340,7 @@ mod tests {
 
     #[test]
     fn test_lower_ecrecover_base_cost() {
-        let store = RuntimeConfigStore::new(None);
+        let store = RuntimeConfigStore::new(None, false);
         let base_cfg = store.get_config(LowerStorageCost.protocol_version());
         let new_cfg = store.get_config(LowerDataReceiptAndEcrecoverBaseCost.protocol_version());
         assert!(
@@ -333,7 +351,7 @@ mod tests {
 
     #[test]
     fn test_lower_max_length_storage_key() {
-        let store = RuntimeConfigStore::new(None);
+        let store = RuntimeConfigStore::new(None, false);
         let base_cfg = store.get_config(LowerStorageKeyLimit.protocol_version() - 1);
         let new_cfg = store.get_config(LowerStorageKeyLimit.protocol_version());
         assert!(
@@ -358,7 +376,7 @@ mod tests {
         use crate::view::RuntimeConfigView;
         use near_primitives_core::version::PROTOCOL_VERSION;
 
-        let store = RuntimeConfigStore::new(None);
+        let store = RuntimeConfigStore::new(None, false);
         let mut any_failure = false;
 
         for version in store.store.keys() {
@@ -393,7 +411,7 @@ mod tests {
         // Testnet initial config for old version was different, thus needs separate testing
         let params = INITIAL_TESTNET_CONFIG.parse().unwrap();
         let new_genesis_runtime_config = RuntimeConfig::new(&params).unwrap();
-        let testnet_store = RuntimeConfigStore::new(Some(&new_genesis_runtime_config));
+        let testnet_store = RuntimeConfigStore::new(Some(&new_genesis_runtime_config), false);
 
         for version in testnet_store.store.keys() {
             let snapshot_name = format!("testnet_{version}.json");
@@ -411,9 +429,16 @@ mod tests {
     #[test]
     #[cfg(feature = "calimero_zero_storage")]
     fn test_calimero_storage_costs_zero() {
-        let store = RuntimeConfigStore::new(None);
+        let store = RuntimeConfigStore::new(None, false);
         for (_, config) in store.store.iter() {
             assert_eq!(config.storage_amount_per_byte(), 0u128);
         }
+    }
+
+    #[test]
+    fn test_benchmarknet_config() {
+        let store = RuntimeConfigStore::new(None, true);
+        let config = store.get_config(PROTOCOL_VERSION);
+        assert_eq!(config.witness_config.main_storage_proof_size_soft_limit, 999_999_999_999_999);
     }
 }

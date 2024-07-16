@@ -20,7 +20,7 @@ fn test_deploy_cost_increased() {
     let new_protocol_version = ProtocolFeature::IncreaseDeploymentCost.protocol_version();
     let old_protocol_version = new_protocol_version - 1;
 
-    let config_store = RuntimeConfigStore::new(None);
+    let config_store = RuntimeConfigStore::new(None, false);
     let config = &config_store.get_config(PROTOCOL_VERSION).wasm_config;
     let contract_size = 1024 * 1024;
     let test_contract = near_test_contracts::sized_contract(contract_size);
@@ -36,7 +36,7 @@ fn test_deploy_cost_increased() {
         TestEnv::builder(&genesis.config)
             .nightshade_runtimes_with_runtime_config_store(
                 &genesis,
-                vec![RuntimeConfigStore::new(None)],
+                vec![RuntimeConfigStore::new(None, false)],
             )
             .build()
     };

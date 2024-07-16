@@ -191,7 +191,7 @@ fn assert_compute_limit_reached(
     let epoch_length = 100;
     let contract_account: AccountId = "test0".parse().unwrap();
     let user_account: AccountId = "test1".parse().unwrap();
-    let runtime_config_store = RuntimeConfigStore::new(None);
+    let runtime_config_store = RuntimeConfigStore::new(None, false);
     let old_config = runtime_config_store.get_config(old_protocol_version).clone();
     let new_config = runtime_config_store.get_config(new_protocol_version).clone();
     let mut env = {

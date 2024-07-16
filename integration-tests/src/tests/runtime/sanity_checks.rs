@@ -41,7 +41,7 @@ fn setup_runtime_node_with_contract(wasm_binary: &[u8]) -> RuntimeNode {
         Genesis::test(vec![alice_account(), bob_account(), "carol.near".parse().unwrap()], 3);
     add_test_contract(&mut genesis, &alice_account());
     add_test_contract(&mut genesis, &bob_account());
-    let runtime_config_store = RuntimeConfigStore::new(None);
+    let runtime_config_store = RuntimeConfigStore::new(None, false);
     let runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
     let node = RuntimeNode::new_from_genesis_and_config(
         &alice_account(),

@@ -378,7 +378,7 @@ impl ForkNetworkCommand {
             NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())
                 .context("could not create the transaction runtime")?;
 
-        let runtime_config_store = RuntimeConfigStore::new(None);
+        let runtime_config_store = RuntimeConfigStore::new(None, false);
         let runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
 
         let storage_mutator =

@@ -23,7 +23,7 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMOutcome {
     let method_name = find_entry_point(code).unwrap_or_else(|| "main".to_string());
     let mut context = create_context(&method_name, vec![]);
     context.prepaid_gas = 10u64.pow(14);
-    let config_store = RuntimeConfigStore::new(None);
+    let config_store = RuntimeConfigStore::new(None, false);
     let config = config_store.get_config(PROTOCOL_VERSION);
     let fees = Arc::clone(&config.fees);
     let mut wasm_config = near_parameters::vm::Config::clone(&config.wasm_config);

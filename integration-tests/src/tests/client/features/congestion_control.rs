@@ -420,7 +420,7 @@ fn test_transaction_limit_for_local_congestion() {
     if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
         return;
     }
-    let runtime_config_store = RuntimeConfigStore::new(None);
+    let runtime_config_store = RuntimeConfigStore::new(None, false);
     let config = runtime_config_store.get_config(PROTOCOL_VERSION);
     // We don't want to go into the TX rejection limit in this test.
     let upper_limit_congestion = config.congestion_control_config.reject_tx_congestion_threshold;
@@ -472,7 +472,7 @@ fn test_transaction_limit_for_remote_congestion() {
     if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
         return;
     }
-    let runtime_config_store = RuntimeConfigStore::new(None);
+    let runtime_config_store = RuntimeConfigStore::new(None, false);
     let config = runtime_config_store.get_config(PROTOCOL_VERSION);
     // We don't want to go into the TX rejection limit in this test.
     let upper_limit_congestion = config.congestion_control_config.reject_tx_congestion_threshold;
@@ -509,7 +509,7 @@ fn test_transaction_filtering() {
     if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
         return;
     }
-    let runtime_config_store = RuntimeConfigStore::new(None);
+    let runtime_config_store = RuntimeConfigStore::new(None, false);
     let config = runtime_config_store.get_config(PROTOCOL_VERSION);
     // This test should go beyond into the TX rejection limit in this test.
     let upper_limit_congestion =

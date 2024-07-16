@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 libfuzzer_sys::fuzz_target!(|module: ArbitraryModule| {
     let code = ContractCode::new(module.0.module.to_bytes(), None);
-    let config_store = RuntimeConfigStore::new(None);
+    let config_store = RuntimeConfigStore::new(None, false);
     let config = config_store.get_config(PROTOCOL_VERSION);
     let _result = run_fuzz(&code, Arc::clone(config));
 });

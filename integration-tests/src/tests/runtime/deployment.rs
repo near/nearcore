@@ -13,7 +13,7 @@ const ONE_NEAR: u128 = 10u128.pow(24);
 fn test_deploy_max_size_contract() {
     let account_id: AccountId = "alice.near".parse().unwrap();
     let test_contract_id: AccountId = "test_contract.alice.near".parse().unwrap();
-    let runtime_config_store = RuntimeConfigStore::new(None);
+    let runtime_config_store = RuntimeConfigStore::new(None, false);
     let config = runtime_config_store.get_config(PROTOCOL_VERSION);
 
     let genesis = Genesis::test(vec![account_id.clone()], 1);

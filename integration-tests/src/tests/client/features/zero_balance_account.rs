@@ -341,7 +341,7 @@ fn test_storage_usage_components() {
         borsh::object_length(&fn_access_key).unwrap()
     );
 
-    let config_store = RuntimeConfigStore::new(None);
+    let config_store = RuntimeConfigStore::new(None, false);
     let config = config_store.get_config(PROTOCOL_VERSION);
     let account_overhead = config.fees.storage_usage_config.num_bytes_account as usize;
     let record_overhead = config.fees.storage_usage_config.num_extra_bytes_record as usize;

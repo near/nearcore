@@ -244,7 +244,7 @@ fn test_protocol_config_rpc() {
             .await
             .unwrap();
 
-        let runtime_config_store = RuntimeConfigStore::new(None);
+        let runtime_config_store = RuntimeConfigStore::new(None, false);
         let intial_runtime_config = runtime_config_store.get_config(ProtocolVersion::MIN);
         let latest_runtime_config =
             runtime_config_store.get_config(near_primitives::version::PROTOCOL_VERSION);

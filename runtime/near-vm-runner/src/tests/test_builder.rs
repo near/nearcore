@@ -171,7 +171,7 @@ impl TestBuilder {
     }
 
     pub(crate) fn configs(&self) -> impl Iterator<Item = Arc<RuntimeConfig>> {
-        let runtime_config_store = RuntimeConfigStore::new(None);
+        let runtime_config_store = RuntimeConfigStore::new(None, false);
         self.protocol_versions
             .clone()
             .into_iter()
@@ -185,7 +185,7 @@ impl TestBuilder {
         I::IntoIter: ExactSizeIterator,
     {
         self.protocol_versions.sort();
-        let runtime_config_store = RuntimeConfigStore::new(None);
+        let runtime_config_store = RuntimeConfigStore::new(None, false);
         let wants = wants.into_iter();
         assert_eq!(
             wants.len(),

@@ -66,7 +66,7 @@ fn test_check_tx_error_log() {
 #[test]
 fn test_deliver_tx_error_log() {
     let node = start_node();
-    let runtime_config_store = RuntimeConfigStore::new(None);
+    let runtime_config_store = RuntimeConfigStore::new(None, false);
     let runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
     let fee_helper = testlib::fees_utils::FeeHelper::new(
         RuntimeConfig::clone(&runtime_config),

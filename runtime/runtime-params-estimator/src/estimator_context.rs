@@ -123,7 +123,7 @@ impl<'c> EstimatorContext<'c> {
 
     fn make_apply_state(cache: FilesystemContractRuntimeCache) -> ApplyState {
         let mut runtime_config =
-            RuntimeConfigStore::new(None).get_config(PROTOCOL_VERSION).as_ref().clone();
+            RuntimeConfigStore::new(None, false).get_config(PROTOCOL_VERSION).as_ref().clone();
         let wasm_config = Arc::make_mut(&mut runtime_config.wasm_config);
         wasm_config.enable_all_features();
         wasm_config.make_free();

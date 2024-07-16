@@ -1,0 +1,2 @@
+per_receipt_storage_proof_size_limit: {old: 4_000_000, new: 999_999_999_999_999}
+main_storage_proof_size_soft_limit: {old: 3_000_000, new: 999_999_999_999_999}

@@ -57,7 +57,7 @@ pub struct TrieViewer {
 
 impl Default for TrieViewer {
     fn default() -> Self {
-        let config_store = RuntimeConfigStore::new(None);
+        let config_store = RuntimeConfigStore::new(None, false);
         let latest_runtime_config = config_store.get_config(PROTOCOL_VERSION);
         let max_gas_burnt = latest_runtime_config.wasm_config.limit_config.max_gas_burnt;
         Self { state_size_limit: None, max_gas_burnt_view: max_gas_burnt }
@@ -212,7 +212,7 @@ impl TrieViewer {
             epoch_info_provider,
             view_state.current_protocol_version,
         );
-        let config_store = RuntimeConfigStore::new(None);
+        let config_store = RuntimeConfigStore::new(None, false);
         let config = config_store.get_config(PROTOCOL_VERSION);
         let apply_state = ApplyState {
             apply_reason: None,

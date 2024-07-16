@@ -45,7 +45,7 @@ fn protocol_upgrade() {
             .track_all_shards()
             .nightshade_runtimes_with_runtime_config_store(
                 &genesis,
-                vec![RuntimeConfigStore::new(None)],
+                vec![RuntimeConfigStore::new(None, false)],
             )
             .build();
 

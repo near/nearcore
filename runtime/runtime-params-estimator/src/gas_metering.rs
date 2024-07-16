@@ -127,7 +127,7 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     let warmup_repeats = config.warmup_iters_per_block;
     let cache_store = FilesystemContractRuntimeCache::test().unwrap();
     let cache: Option<&dyn ContractRuntimeCache> = Some(&cache_store);
-    let config_store = RuntimeConfigStore::new(None);
+    let config_store = RuntimeConfigStore::new(None, false);
     let runtime_config = config_store.get_config(PROTOCOL_VERSION).as_ref();
     let vm_config_gas = runtime_config.wasm_config.clone();
     let vm_config_free = Arc::new({

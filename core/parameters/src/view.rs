@@ -871,7 +871,7 @@ mod tests {
         use crate::RuntimeConfigStore;
         use near_primitives_core::version::PROTOCOL_VERSION;
 
-        let config_store = RuntimeConfigStore::new(None);
+        let config_store = RuntimeConfigStore::new(None, false);
         let config = config_store.get_config(PROTOCOL_VERSION);
         let view = RuntimeConfigView::from(RuntimeConfig::clone(config));
         insta::assert_json_snapshot!(&view, { ".wasm_config.vm_kind" => "<REDACTED>"});

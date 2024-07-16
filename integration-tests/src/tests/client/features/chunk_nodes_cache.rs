@@ -93,7 +93,7 @@ fn compare_node_counts() {
     let mut env = TestEnv::builder(&genesis.config)
         .nightshade_runtimes_with_runtime_config_store(
             &genesis,
-            vec![RuntimeConfigStore::new(None)],
+            vec![RuntimeConfigStore::new(None, false)],
         )
         .build();
 

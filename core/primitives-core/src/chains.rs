@@ -11,3 +11,6 @@ pub const STATELESSNET: &str = "statelessnet";
 
 /// Pre-release testing environment.
 pub const MOCKNET: &str = "mocknet";
+
+/// Used by ft-benchmark. TODO: Put link to ft-benchmark docs.
+pub const BENCHMARKNET: &str = "benchmarknet";

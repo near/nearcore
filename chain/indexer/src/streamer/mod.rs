@@ -84,7 +84,7 @@ pub async fn build_streamer_message(
     let num_shards = protocol_config_view.num_block_producer_seats_per_shard.len()
         as near_primitives::types::NumShards;
 
-    let runtime_config_store = near_parameters::RuntimeConfigStore::new(None);
+    let runtime_config_store = near_parameters::RuntimeConfigStore::new(None, false);
     let runtime_config = runtime_config_store.get_config(protocol_config_view.protocol_version);
 
     let mut shards_outcomes = fetch_outcomes(&client, block.header.hash).await?;

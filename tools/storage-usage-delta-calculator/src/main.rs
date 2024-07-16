@@ -19,7 +19,7 @@ async fn main() -> anyhow::Result<()> {
     let genesis = Genesis::from_file("output.json", GenesisValidationMode::Full)?;
     debug!(target: "storage-calculator", "Genesis read");
 
-    let config_store = RuntimeConfigStore::new(None);
+    let config_store = RuntimeConfigStore::new(None, false);
     let config = config_store.get_config(PROTOCOL_VERSION);
     let storage_usage_config = &config.fees.storage_usage_config;
     let storage_usage = compute_genesis_storage_usage(&genesis, storage_usage_config);

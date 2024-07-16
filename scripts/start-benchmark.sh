@@ -17,7 +17,7 @@ nearup stop
 make neard
 
 # Start neard
-nearup run localnet --binary-path target/release/ --num-nodes $NODES --num-shards $SHARDS --override
+nearup run localnet --binary-path target/release/ --num-nodes $NODES --num-shards $SHARDS
 
 # Prepare python environment
 python3 -m venv .venv

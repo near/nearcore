@@ -30,7 +30,7 @@ fn test_account_id_in_function_call_permission_upgrade() {
         TestEnv::builder(&genesis.config)
             .nightshade_runtimes_with_runtime_config_store(
                 &genesis,
-                vec![RuntimeConfigStore::new(None)],
+                vec![RuntimeConfigStore::new(None, false)],
             )
             .build()
     };
@@ -98,7 +98,7 @@ fn test_very_long_account_id() {
         TestEnv::builder(&genesis.config)
             .nightshade_runtimes_with_runtime_config_store(
                 &genesis,
-                vec![RuntimeConfigStore::new(None)],
+                vec![RuntimeConfigStore::new(None, false)],
             )
             .build()
     };
