@@ -291,7 +291,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "statelessnet_pr
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
 /// protocol version is lower than this.
-pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION - 2;
+pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION - 3;
 
 #[macro_export]
 macro_rules! checked_feature {
