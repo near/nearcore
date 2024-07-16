@@ -67,14 +67,6 @@ class Account:
                 logger=logger,
             )
 
-    def get_nonce_for_pk(self, node, account_id, pk):
-        return mocknet_helpers.get_nonce_for_pk(account_id,
-                                                pk,
-                                                finality='optimistic',
-                                                addr=node.rpc_addr()[0],
-                                                port=node.rpc_addr()[1],
-                                                logger=logger)
-
     def use_nonce(self):
         with self.current_nonce.get_lock():
             new_nonce = self.current_nonce.value + 1

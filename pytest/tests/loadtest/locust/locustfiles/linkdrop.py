@@ -36,9 +36,7 @@ class LinkdropUser(NearUser):
     def create_and_claim_drop(self):
         # Generate a random key pair
         keypair = key.Key.implicit_account()
-        public_keys = []
-        public_keys.append(keypair.pk)
-        tx = AddKey(self.linkdrop.account, self.account, public_keys,
+        tx = AddKey(self.linkdrop.account, self.account, keypair.pk,
                     self.drop_id)
         self.send_tx(tx, locust_name="Key added to the drop.")
         # Generate near name for the new account to be created via the claim.

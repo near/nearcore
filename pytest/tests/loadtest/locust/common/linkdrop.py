@@ -8,6 +8,7 @@ import time
 import json
 import ed25519
 import base58
+import logging
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / 'lib'))
 
@@ -15,6 +16,10 @@ import key
 from common.base import Account, Deploy, NearNodeProxy, NearUser, FunctionCall, INIT_DONE, Transaction
 import transaction
 from account import TGAS
+import mocknet_helpers
+from configured_logger import new_logger
+
+logger = new_logger(level=logging.WARN)
 
 
 class LinkdropContract:
@@ -94,7 +99,7 @@ class InitDrop(FunctionCall):
 
 class AddKey(FunctionCall):
 
-    def __init__(self, linkdrop: Account, sender: Account, public_keys,
+    def __init__(self, linkdrop: Account, sender: Account, public_key,
                  drop_id: str):
         super().__init__(sender,
                          linkdrop.key.account_id,
@@ -102,7 +107,7 @@ class AddKey(FunctionCall):
                          balance=int(15E22))
         self.linkdrop = linkdrop
         self.sender = sender
-        self.public_keys = public_keys
+        self.public_keys = [public_key]
         self.drop_id = drop_id
 
     def args(self) -> dict:
@@ -150,11 +155,16 @@ class ClaimDrop(Transaction):
         }
 
     def sign(self, block_hash) -> transaction.SignedTransaction:
+        nonce = mocknet_helpers.get_nonce_for_pk(self.sender.key.account_id,
+                                                 self.la_public_key,
+                                                 finality='optimistic',
+                                                 addr=self.node.rpc_addr()[0],
+                                                 port=self.node.rpc_addr()[1],
+                                                 logger=logger)
         return transaction.sign_function_call_transaction(
             self.sender.key, self.receiver_id, self.method,
             json.dumps(self.args()).encode('utf-8'), 100 * TGAS, self.balance,
-            self.sender.get_nonce_for_pk(self.node, self.sender.key.account_id,
-                                         self.la_public_key) + 1, block_hash)
+            nonce + 1, block_hash)
 
     def sender_account(self) -> Account:
         return self.sender
