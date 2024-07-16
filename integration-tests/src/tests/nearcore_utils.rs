@@ -129,7 +129,3 @@ pub fn setup_configs_with_epoch_length(
 
     (genesis, genesis_block, near1, near2)
 }
-
-pub fn setup_configs() -> (Genesis, Block, NearConfig, NearConfig) {
-    setup_configs_with_epoch_length(5)
-}
