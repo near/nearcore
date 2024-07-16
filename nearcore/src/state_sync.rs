@@ -169,7 +169,8 @@ impl Drop for StateSyncDumpHandle {
 }
 
 impl StateSyncDumpHandle {
-    pub fn stop(&mut self) {
+    fn stop(&mut self) {
+        tracing::warn!(target: "state_sync_dump", "Stopping state dumper");
         self.keep_running.store(false, std::sync::atomic::Ordering::Relaxed);
         self.handles.drain(..).for_each(|dropper| {
             dropper();

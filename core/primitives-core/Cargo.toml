@@ -25,6 +25,7 @@ sha2.workspace = true
 thiserror.workspace = true
 
 near-account-id.workspace = true
+near-structs-checker-lib.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
@@ -52,3 +53,7 @@ nightly_protocol = [
 ]
 
 statelessnet_protocol = []
+
+protocol_schema = [
+  "near-structs-checker-lib/protocol_schema",
+]

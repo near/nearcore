@@ -536,13 +536,19 @@ impl NightshadeRuntime {
         let kind = self.store.get_db_kind()?;
         let cold_head = self.store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY)?;
 
-        if let (Some(DbKind::Hot), Some(cold_head)) = (kind, cold_head) {
-            let cold_head_hash = cold_head.last_block_hash;
-            let cold_epoch_first_block =
-                *epoch_manager.get_block_info(&cold_head_hash)?.epoch_first_block();
-            let cold_epoch_first_block_info =
-                epoch_manager.get_block_info(&cold_epoch_first_block)?;
-            return Ok(std::cmp::min(epoch_start_height, cold_epoch_first_block_info.height()));
+        if let Some(DbKind::Hot) = kind {
+            if let Some(cold_head) = cold_head {
+                let cold_head_hash = cold_head.last_block_hash;
+                let cold_epoch_first_block =
+                    *epoch_manager.get_block_info(&cold_head_hash)?.epoch_first_block();
+                let cold_epoch_first_block_info =
+                    epoch_manager.get_block_info(&cold_epoch_first_block)?;
+                return Ok(std::cmp::min(epoch_start_height, cold_epoch_first_block_info.height()));
+            } else {
+                // If kind is DbKind::Hot but cold_head is not set, it means the initial cold storage
+                // migration has not finished yet, in which case we should not garbage collect anything.
+                return Ok(self.genesis_config.genesis_height);
+            }
         }
         Ok(epoch_start_height)
     }
@@ -744,6 +750,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut trie = match storage_config.source {
             StorageDataSource::Db => {
                 self.tries.get_trie_for_shard(shard_uid, storage_config.state_root)
+            }
+            StorageDataSource::DbTrieOnly => {
+                // If there is no flat storage on disk, use trie but simulate costs with enabled
+                // flat storage by not charging gas for trie nodes.
+                // WARNING: should never be used in production! Consider this option only for debugging or replaying blocks.
+                let mut trie = self.tries.get_trie_for_shard(shard_uid, storage_config.state_root);
+                trie.dont_charge_gas_for_trie_node_access();
+                trie
             }
             StorageDataSource::Recorded(storage) => Trie::from_recorded_storage(
                 storage,
@@ -958,6 +972,19 @@ impl RuntimeAdapter for NightshadeRuntime {
                 storage_config.state_root,
                 storage_config.use_flat_storage,
             )?,
+            StorageDataSource::DbTrieOnly => {
+                // If there is no flat storage on disk, use trie but simulate costs with enabled
+                // flat storage by not charging gas for trie nodes.
+                // WARNING: should never be used in production! Consider this option only for debugging or replaying blocks.
+                let mut trie = self.get_trie_for_shard(
+                    shard_id,
+                    &block.prev_block_hash,
+                    storage_config.state_root,
+                    false,
+                )?;
+                trie.dont_charge_gas_for_trie_node_access();
+                trie
+            }
             StorageDataSource::Recorded(storage) => Trie::from_recorded_storage(
                 storage,
                 storage_config.state_root,
