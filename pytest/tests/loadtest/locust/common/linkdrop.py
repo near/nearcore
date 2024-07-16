@@ -134,14 +134,9 @@ class ClaimDrop(Transaction):
         self.node = node
 
         #Create a new key pair, which would be a full access key to your account
-        private_key, public_key = ed25519.create_keypair()
-        # Convert keys to Base58 and add prefix
-        sk = 'ed25519:' + base58.b58encode(
-            private_key.to_bytes()).decode('ascii')
-        pk = 'ed25519:' + base58.b58encode(
-            public_key.to_bytes()).decode('ascii')
+        keypair = key.Key.implicit_account()
         #need it for functions args
-        self.pk = pk
+        self.pk = keypair.pk
 
         #Creating a signer with the limited access key
         self.sender.key.sk = la_secret_key
@@ -163,3 +158,46 @@ class ClaimDrop(Transaction):
 
     def sender_account(self) -> Account:
         return self.sender
+
+
+# Event listener for initializing Locust.
+from locust import events
+
+
+@events.init.add_listener
+def on_locust_init(environment, **kwargs):
+    INIT_DONE.wait()
+    node = NearNodeProxy(environment)
+    linkdrop_contract_code = environment.parsed_options.linkdrop_wasm
+    num_linkdrop_contracts = environment.parsed_options.num_linkdrop_contracts
+    funding_account = NearUser.funding_account
+    parent_id = funding_account.key.account_id
+    funding_account.refresh_nonce(node.node)
+
+    environment.linkdrop_contracts = []
+    # TODO: Create accounts in parallel
+    for i in range(num_linkdrop_contracts):
+        account_id = environment.account_generator.random_account_id(
+            parent_id, '_linkdrop')
+        contract_key = key.Key.from_random(account_id)
+        linkdrop_account = Account(contract_key)
+        linkdrop_contract = LinkdropContract(linkdrop_account, linkdrop_account,
+                                             linkdrop_contract_code)
+        linkdrop_contract.install(node, funding_account)
+        environment.linkdrop_contracts.append(linkdrop_contract)
+
+
+# Linkdrop specific CLI args
+@events.init_command_line_parser.add_listener
+def _(parser):
+    parser.add_argument("--linkdrop-wasm",
+                        default="res/keypom.wasm",
+                        help="Path to the compiled LinkDrop (Keypom) contract")
+    parser.add_argument(
+        "--num-linkdrop-contracts",
+        type=int,
+        required=False,
+        default=5,
+        help=
+        "How many different Linkdrop contracts to spawn from this worker (Linkdrop contracts are never shared between workers)"
+    )
