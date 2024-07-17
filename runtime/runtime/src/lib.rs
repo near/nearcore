@@ -1795,12 +1795,11 @@ impl Runtime {
         // TODO(#8859): Introduce a dedicated `compute_limit` for the chunk.
         // For now compute limit always matches the gas limit.
         let compute_limit = apply_state.gas_limit.unwrap_or(Gas::max_value());
-        let proof_size_limit =
-            if checked_feature!("stable", StatelessValidation, protocol_version) {
-                Some(apply_state.config.witness_config.main_storage_proof_size_soft_limit)
-            } else {
-                None
-            };
+        let proof_size_limit = if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
+            Some(apply_state.config.witness_config.main_storage_proof_size_soft_limit)
+        } else {
+            None
+        };
 
         // We first process local receipts. They contain staking, local contract calls, etc.
         self.process_local_receipts(

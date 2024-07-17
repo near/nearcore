@@ -8,7 +8,6 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::{create_chunk_on_height, TestEnv};
 use near_client::{ProcessTxResponse, ProduceChunkResult};
 use near_crypto::{InMemorySigner, KeyType};
-use near_primitives::checked_feature;
 use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
@@ -26,7 +25,7 @@ fn benchmark_large_chunk_production_time() {
     let mb = 1024usize.pow(2);
 
     let n_txes = 20;
-    let tx_size = if checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
+    let tx_size = if ProtocolFeature::StatelessValidation.enabled(PROTOCOL_VERSION) {
         mb / 2
     } else {
         3 * mb

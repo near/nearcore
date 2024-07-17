@@ -2196,7 +2196,7 @@ impl Chain {
 
         self.validate_chunk_headers(&block, &prev_block)?;
 
-        if checked_feature!("stable", StatelessValidation, protocol_version) {
+        if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
             self.validate_chunk_endorsements_in_block(&block)?;
         }
 

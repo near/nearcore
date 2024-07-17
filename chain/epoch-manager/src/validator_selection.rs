@@ -8,6 +8,7 @@ use near_primitives::types::{
     AccountId, Balance, NumShards, ProtocolVersion, ValidatorId, ValidatorKickoutReason,
 };
 use near_primitives::validator_mandates::{ValidatorMandates, ValidatorMandatesConfig};
+use near_primitives::version::ProtocolFeature;
 use num_rational::Ratio;
 use rand::seq::SliceRandom;
 use std::cmp::{self, Ordering};
@@ -203,7 +204,7 @@ pub fn proposals_to_epoch_info(
     // Select validators for the next epoch.
     // Returns unselected proposals, validator lists for all roles and stake
     // threshold to become a validator.
-    let validator_roles = if checked_feature!("stable", StatelessValidation, protocol_version) {
+    let validator_roles = if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
         select_validators_from_proposals(epoch_config, proposals, protocol_version)
     } else {
         old_validator_selection::select_validators_from_proposals(
@@ -239,7 +240,7 @@ pub fn proposals_to_epoch_info(
         all_validators,
         validator_to_index,
         mut chunk_producers_settlement,
-    } = if checked_feature!("stable", StatelessValidation, protocol_version) {
+    } = if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
         get_chunk_producers_assignment(
             epoch_config,
             rng_seed,
@@ -273,7 +274,7 @@ pub fn proposals_to_epoch_info(
         .collect();
 
     // Assign chunk validators to shards using validator mandates abstraction.
-    let validator_mandates = if checked_feature!("stable", StatelessValidation, protocol_version) {
+    let validator_mandates = if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
         // Default production value chosen to 68 based on calculations for the
         // security of the mainnet protocol.
         // With this number of mandates per shard and 6 shards, the theory calculations predict the
@@ -673,7 +674,7 @@ mod tests {
         assert_eq!(epoch_info.block_producers_settlement(), &[0, 1, 2]);
         assert_eq!(epoch_info.fishermen_iter().len(), 0);
 
-        if checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
+        if ProtocolFeature::StatelessValidation.enabled(PROTOCOL_VERSION) {
             // Validators are split between shards to balance number of validators.
             // Stakes don't matter for chunk producers.
             assert_eq!(epoch_info.chunk_producers_settlement(), &[vec![0, 2], vec![1]]);
