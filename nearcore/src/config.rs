@@ -36,7 +36,6 @@ use near_jsonrpc::RpcConfig;
 use near_network::config::NetworkConfig;
 use near_network::tcp;
 use near_o11y::log_config::LogConfig;
-use near_primitives::checked_feature;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_test_signer;
@@ -1334,19 +1333,6 @@ pub fn load_config(
             if let Err(e) = genesis.validate(genesis_validation) {
                 validation_errors.push_errors(e)
             };
-            // Before stateless validation we require validators to track all shards, see
-            // https://github.com/near/nearcore/issues/7388
-            if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION)
-                && validator_signer.is_some()
-                && matches!(
-                    genesis.config.chain_id.as_ref(),
-                    near_primitives::chains::MAINNET | near_primitives::chains::TESTNET
-                )
-                && config.tracked_shards.is_empty()
-            {
-                let error_message = "The `chain_id` field specified in genesis is among mainnet/betanet/testnet, so validator must track all shards. Please change `tracked_shards` field in config.json to be any non-empty vector";
-                validation_errors.push_cross_file_semantics_error(error_message.to_string());
-            }
             Some(genesis)
         }
         Err(error) => {

@@ -179,10 +179,6 @@ expensive integration-tests integration_tests tests::test_simple::test_4_10_mult
 expensive integration-tests integration_tests tests::test_simple::test_7_10_multiple_nodes
 expensive integration-tests integration_tests tests::test_simple::test_7_10_multiple_nodes --features nightly
 
-expensive integration-tests integration_tests tests::nearcore::sync_nodes::sync_after_sync_nodes
-expensive integration-tests integration_tests tests::nearcore::sync_nodes::sync_after_sync_nodes --features nightly
-expensive integration-tests integration_tests tests::nearcore::sync_nodes::sync_nodes
-expensive integration-tests integration_tests tests::nearcore::sync_nodes::sync_nodes --features nightly
 expensive integration-tests integration_tests tests::nearcore::sync_nodes::sync_state_stake_change
 expensive integration-tests integration_tests tests::nearcore::sync_nodes::sync_state_stake_change --features nightly
 
