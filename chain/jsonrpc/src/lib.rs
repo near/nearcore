@@ -291,11 +291,7 @@ impl JsonRpcHandler {
     async fn process(&self, message: Message) -> Message {
         let id = message.id();
         match message {
-            Message::Request(request) => self
-                .process_request(request)
-                .await
-                .map(|response| Message::response(id, Ok(response)))
-                .unwrap_or_else(Message::error),
+            Message::Request(request) => Message::response(id, self.process_request(request).await),
             _ => Message::error(RpcError::parse_error(
                 "JSON RPC Request format was expected".to_owned(),
             )),
