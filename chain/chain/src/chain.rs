@@ -2196,7 +2196,7 @@ impl Chain {
 
         self.validate_chunk_headers(&block, &prev_block)?;
 
-        if checked_feature!("stable", StatelessValidationV0, protocol_version) {
+        if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
             self.validate_chunk_endorsements_in_block(&block)?;
         }
 
@@ -3529,7 +3529,7 @@ impl Chain {
             self.epoch_manager.get_next_epoch_id_from_prev_block(block_header.prev_hash())?;
         let next_protocol_version =
             self.epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
-        if !checked_feature!("stable", StatelessValidationV0, next_protocol_version) {
+        if !checked_feature!("stable", StatelessValidation, next_protocol_version) {
             // Chunk validation not enabled yet.
             return Ok(false);
         }

@@ -6,13 +6,12 @@ use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::action::{Action, DeployContractAction, FunctionCallAction};
-use near_primitives::checked_feature;
 use near_primitives::errors::FunctionCallError;
 use near_primitives::errors::{ActionErrorKind, TxExecutionError};
 use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::FinalExecutionStatus;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
@@ -113,7 +112,8 @@ fn test_storage_proof_size_limit() {
     // Now perform a 20MB read (keys 0..20), which should fail due to the hard per-receipt storage proof size limit.
     let read20_tx = make_read_transaction(0, 20);
     let res = env.execute_tx(read20_tx).unwrap();
-    if checked_feature!("stable", PerReceiptHardStorageProofLimit, PROTOCOL_VERSION) {
+    // PerReceiptHardStorageProofLimit
+    if ProtocolFeature::StatelessValidation.enabled(PROTOCOL_VERSION) {
         assert_matches!(res.status, FinalExecutionStatus::Failure(_));
         let error_string = match res.status {
             FinalExecutionStatus::Failure(TxExecutionError::ActionError(action_error)) => {
@@ -170,7 +170,8 @@ fn test_storage_proof_size_limit() {
     let chunk = next_chunk();
     assert_eq!(chunk.transactions().len(), 0);
     assert_eq!(count_function_call_receipts(chunk.prev_outgoing_receipts()), 0);
-    if checked_feature!("stable", StateWitnessSizeLimit, PROTOCOL_VERSION) {
+    // PerReceiptHardStorageProofLimit
+    if ProtocolFeature::StatelessValidation.enabled(PROTOCOL_VERSION) {
         assert_eq!(count_transfer_receipts(chunk.prev_outgoing_receipts()), 2);
     } else {
         // Without soft limit the receipts are processed immediately.
@@ -181,7 +182,8 @@ fn test_storage_proof_size_limit() {
     let chunk = next_chunk();
     assert_eq!(chunk.transactions().len(), 0);
     assert_eq!(count_function_call_receipts(chunk.prev_outgoing_receipts()), 0);
-    if checked_feature!("stable", StateWitnessSizeLimit, PROTOCOL_VERSION) {
+    // PerReceiptHardStorageProofLimit
+    if ProtocolFeature::StatelessValidation.enabled(PROTOCOL_VERSION) {
         assert_eq!(count_transfer_receipts(chunk.prev_outgoing_receipts()), 1);
     } else {
         assert_eq!(count_transfer_receipts(chunk.prev_outgoing_receipts()), 0);
