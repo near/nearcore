@@ -209,6 +209,8 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
 
     // Send the chunk endorsement to the next NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT block producers.
     // It's possible we may reach the end of the epoch, in which case, ignore the error from get_block_producer.
+    // It is possible that the same validator appears multiple times in the upcoming block producers,
+    // thus we collect the block producers in a set.
     let block_height = chunk_header.height_created();
     let block_producers: HashSet<AccountId> = (0
         ..NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT)
