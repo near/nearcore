@@ -1079,7 +1079,7 @@ pub fn create_testnet_configs_from_seeds(
             config.archive = true;
             // Configure the cold-store for the archival node.
             config.cold_store.get_or_insert(config.store.clone()).path =
-                Some(PathBuf::from("cold-store"));
+                Some(PathBuf::from("cold-data"));
             config
                 .split_storage
                 .get_or_insert(Default::default())
@@ -1386,7 +1386,7 @@ pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -
 mod tests {
     use std::collections::HashSet;
     use std::io::Write;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use std::str::FromStr;
 
     use near_async::time::Duration;
@@ -1606,7 +1606,7 @@ mod tests {
         let prefix = "node";
         let local_ports = true;
 
-        let tracked_shards: Vec<u64> = vec![];
+        let empty_tracked_shards: Vec<u64> = vec![];
 
         let (configs, _validator_signers, _network_signers, genesis, _shard_keys) =
             create_testnet_configs(
@@ -1617,13 +1617,75 @@ mod tests {
                 local_ports,
                 HashSet::new(),
                 HashSet::new(),
-                tracked_shards.clone(),
+                empty_tracked_shards.clone(),
             );
         assert_eq!(configs.len() as u64, num_validator_seats + num_non_validator_seats);
 
         for config in configs {
             assert_eq!(config.archive, false);
-            assert_eq!(config.tracked_shards, tracked_shards);
+            assert_eq!(config.tracked_shards, empty_tracked_shards);
+        }
+
+        assert_eq!(genesis.config.validators.len() as u64, num_shards);
+        assert_eq!(genesis.config.shard_layout.shard_ids().count() as NumShards, num_shards);
+    }
+
+    #[test]
+    fn test_create_testnet_configs_with_archival_and_rpc_nodes() {
+        let num_shards = 4;
+        let num_validator_seats = 4;
+        let num_non_validator_seats = 4;
+        let prefix = "node";
+        let local_ports = true;
+
+        // Validators will track single shard but archival and RPC nodes will track all shards.
+        let empty_tracked_shards: Vec<u64> = vec![];
+
+        let (configs, _validator_signers, _network_signers, genesis, _shard_keys) =
+            create_testnet_configs(
+                num_shards,
+                num_validator_seats,
+                num_non_validator_seats,
+                prefix,
+                local_ports,
+                (4..6).collect(),
+                (6..8).collect(),
+                empty_tracked_shards.clone(),
+            );
+        assert_eq!(configs.len() as u64, num_validator_seats + num_non_validator_seats);
+
+        // Check validator nodes.
+        for i in 0..4 {
+            let config = &configs[i];
+            assert_eq!(config.archive, false);
+            assert!(config.cold_store.is_none());
+            assert!(config.split_storage.is_none());
+            assert_eq!(config.tracked_shards, empty_tracked_shards);
+        }
+
+        // Check archival nodes.
+        for i in 4..6 {
+            let config = &configs[i];
+            assert_eq!(config.archive, true);
+            assert_eq!(
+                config.cold_store.clone().unwrap().path.unwrap(),
+                PathBuf::from("cold-data")
+            );
+            assert_eq!(config.save_trie_changes.unwrap(), true);
+            assert_eq!(
+                config.split_storage.clone().unwrap().enable_split_storage_view_client,
+                true
+            );
+            assert_eq!(config.tracked_shards, (0..num_shards).collect::<Vec<_>>());
+        }
+
+        // Check RPC nodes.
+        for i in 6..8 {
+            let config = &configs[i];
+            assert_eq!(config.archive, false);
+            assert!(config.cold_store.is_none());
+            assert!(config.split_storage.is_none());
+            assert_eq!(config.tracked_shards, (0..num_shards).collect::<Vec<_>>());
         }
 
         assert_eq!(genesis.config.validators.len() as u64, num_shards);
