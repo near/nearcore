@@ -634,14 +634,14 @@ pub(super) struct LocalnetCmd {
     #[clap(short = 'v', long, alias = "v", default_value = "4")]
     validators: NumSeats,
     /// Comma-separated list of node ids (eg. "0,1,2") to configure as archival nodes,
-    /// or "all" to choose all nodes. Defaults to empty, so no node is marked as archival.
+    /// or "all" to choose all nodes. Defaults to "none" and no node is marked as archival.
     /// Non-validator archival nodes are configured to track all shards.
-    #[clap(long, default_value = "")]
+    #[clap(long, default_value = "none")]
     archival_nodes: String,
     /// Comma-separated list of node ids (eg. "0,1,2") to configure as RPC nodes,
-    /// or "all" to choose all nodes. Defaults to empty, so no node is marked as RPC.
+    /// or "all" to choose all nodes. Defaults to "none" and no node is marked as RPC.
     /// Non-validator RPC nodes are configured to track all shards.
-    #[clap(long, default_value = "")]
+    #[clap(long, default_value = "none")]
     rpc_nodes: String,
     /// Comma separated list of shards to track, the word 'all' to track all shards or the word 'none' to track no shards.
     #[clap(long, default_value = "all")]
@@ -673,8 +673,8 @@ impl LocalnetCmd {
             self.non_validators,
             &self.prefix,
             true,
-            parse_node_ids(self.archival_nodes.as_ref(), num_nodes),
-            parse_node_ids(self.rpc_nodes.as_ref(), num_nodes),
+            parse_node_ids("--archival-nodes", self.archival_nodes.as_ref(), num_nodes),
+            parse_node_ids("--rpc-nodes", self.rpc_nodes.as_ref(), num_nodes),
             tracked_shards,
         );
     }
@@ -682,32 +682,34 @@ impl LocalnetCmd {
 
 /// Parses a string flag (nodes) containing comma-separated list of node ids, "all", "none", or empty.
 /// Returns a (possibly empty) set of node ids between 0 (inclusive) and num_nodes (exclusive).
-/// If nodes contains "all", returns all node ids.
-/// If nodes is empty or contains "none", returns empty set.
-fn parse_node_ids(node_ids: &str, num_nodes: usize) -> HashSet<usize> {
+/// If `nodes` contains "all", returns all node ids. If `nodes`` contains "none", returns empty set.
+fn parse_node_ids(flag_name: &str, node_ids: &str, num_nodes: usize) -> HashSet<usize> {
     let node_ids = node_ids.trim().to_lowercase();
-    if node_ids.is_empty() || node_ids == "none" {
-        return HashSet::new();
+    if node_ids.is_empty() {
+        panic!("Flag {} should contain a non-empty list of node ids, 'all', or 'none'.", flag_name);
     }
-    if node_ids == "all" {
-        return (0..num_nodes).collect();
+    if node_ids == "none" {
+        HashSet::new()
+    } else if node_ids == "all" {
+        (0..num_nodes).collect()
+    } else {
+        node_ids
+            .split(',')
+            .map(|s| {
+                let id = s
+                    .trim()
+                    .parse::<usize>()
+                    .expect(format!("Expected integer node id, found {}", s.trim()).as_str());
+                assert!(
+                    id < num_nodes,
+                    "Invalid node id: {}, should be between 0 and {}",
+                    id,
+                    num_nodes - 1
+                );
+                id
+            })
+            .collect()
     }
-    node_ids
-        .split(',')
-        .map(|s| {
-            let id = s
-                .trim()
-                .parse::<usize>()
-                .expect(format!("Expected integer node id, found {}", s.trim()).as_str());
-            assert!(
-                id < num_nodes,
-                "Invalid node id: {}, should be between 0 and {}",
-                id,
-                num_nodes - 1
-            );
-            id
-        })
-        .collect()
 }
 
 #[derive(clap::Args)]
