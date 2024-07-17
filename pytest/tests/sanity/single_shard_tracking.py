@@ -112,7 +112,11 @@ def main():
     # In that case congestion control will reject transactions sent right after the network starts
     # because it counts as having missed several chunks in a row for every shard. So wait a bit before
     # starting to send txs.
-    time.sleep(10)
+    blocks_seen = 0
+    for _latest in utils.poll_blocks(nodes[0]):
+        blocks_seen += 1
+        if blocks_seen >= 3:
+            break
 
     latest_block_hash = nodes[0].get_latest_block().hash_bytes
     deploy_contract_tx = transaction.sign_deploy_contract_tx(
