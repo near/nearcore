@@ -6,6 +6,7 @@ use crate::types::{
     AccountId, Balance, BlockHeightDelta, EpochHeight, EpochId, NumSeats, ProtocolVersion,
     ValidatorId, ValidatorKickoutReason,
 };
+use crate::version::ProtocolFeature;
 use crate::version::PROTOCOL_VERSION;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::checked_feature;
@@ -13,9 +14,6 @@ use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::BlockHeight;
 use smart_default::SmartDefault;
 use std::collections::{BTreeMap, HashMap};
-
-#[cfg(feature = "nightly")]
-use crate::version::ProtocolFeature;
 
 pub type RngSeed = [u8; 32];
 
