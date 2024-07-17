@@ -18,6 +18,7 @@ use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::{
     ChunkEndorsement, ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessSize,
 };
+use near_primitives::types::AccountId;
 use near_primitives::validator_signer::ValidatorSigner;
 use orphan_witness_pool::OrphanStateWitnessPool;
 use std::collections::HashSet;
@@ -28,7 +29,7 @@ use std::sync::Arc;
 // h may be skipped and block producer at height h+1 picks up the chunk. We need to ensure
 // that these later block producers also receive the chunk endorsement.
 // Keeping a threshold of 5 block producers should be sufficient for most scenarios.
-const NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT: usize = 5;
+const NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT: u64 = 5;
 
 /// A module that handles chunk validation logic. Chunk validation refers to a
 /// critical process of stateless validation, where chunk validators (certain
@@ -208,16 +209,11 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
 
     // Send the chunk endorsement to the next NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT block producers.
     // It's possible we may reach the end of the epoch, in which case, ignore the error from get_block_producer.
-    let mut block_height = chunk_header.height_created();
-    let mut block_producers = HashSet::new();
-    while block_producers.len() < NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT {
-        if let Ok(block_producer) = epoch_manager.get_block_producer(&epoch_id, block_height) {
-            block_producers.insert(block_producer);
-        } else {
-            break;
-        }
-        block_height += 1;
-    }
+    let block_height = chunk_header.height_created();
+    let block_producers: HashSet<AccountId> = (0
+        ..NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT)
+        .map_while(|i| epoch_manager.get_block_producer(&epoch_id, block_height + i).ok())
+        .collect();
     assert!(!block_producers.is_empty());
 
     let chunk_hash = chunk_header.chunk_hash();
