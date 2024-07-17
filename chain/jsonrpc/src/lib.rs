@@ -288,7 +288,7 @@ struct JsonRpcHandler {
 }
 
 impl JsonRpcHandler {
-    pub async fn process(&self, message: Message) -> Message {
+    async fn process(&self, message: Message) -> Message {
         let id = message.id();
         match message {
             Message::Request(request) => self
