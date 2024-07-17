@@ -1051,7 +1051,7 @@ impl Client {
             let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block.hash())?;
             let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
             let last_chunk_transactions_size =
-                if checked_feature!("stable", StatelessValidationV0, protocol_version) {
+                if checked_feature!("stable", StatelessValidation, protocol_version) {
                     borsh::to_vec(last_chunk.transactions())
                         .map_err(|e| {
                             Error::ChunkProducer(format!("Failed to serialize transactions: {e}"))

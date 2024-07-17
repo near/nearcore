@@ -203,7 +203,7 @@ pub fn proposals_to_epoch_info(
     // Select validators for the next epoch.
     // Returns unselected proposals, validator lists for all roles and stake
     // threshold to become a validator.
-    let validator_roles = if checked_feature!("stable", StatelessValidationV0, protocol_version) {
+    let validator_roles = if checked_feature!("stable", StatelessValidation, protocol_version) {
         select_validators_from_proposals(epoch_config, proposals, protocol_version)
     } else {
         old_validator_selection::select_validators_from_proposals(
@@ -239,7 +239,7 @@ pub fn proposals_to_epoch_info(
         all_validators,
         validator_to_index,
         mut chunk_producers_settlement,
-    } = if checked_feature!("stable", StatelessValidationV0, protocol_version) {
+    } = if checked_feature!("stable", StatelessValidation, protocol_version) {
         get_chunk_producers_assignment(
             epoch_config,
             rng_seed,
@@ -273,8 +273,7 @@ pub fn proposals_to_epoch_info(
         .collect();
 
     // Assign chunk validators to shards using validator mandates abstraction.
-    let validator_mandates = if checked_feature!("stable", StatelessValidationV0, protocol_version)
-    {
+    let validator_mandates = if checked_feature!("stable", StatelessValidation, protocol_version) {
         // Default production value chosen to 68 based on calculations for the
         // security of the mainnet protocol.
         // With this number of mandates per shard and 6 shards, the theory calculations predict the
@@ -674,7 +673,7 @@ mod tests {
         assert_eq!(epoch_info.block_producers_settlement(), &[0, 1, 2]);
         assert_eq!(epoch_info.fishermen_iter().len(), 0);
 
-        if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+        if checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
             // Validators are split between shards to balance number of validators.
             // Stakes don't matter for chunk producers.
             assert_eq!(epoch_info.chunk_producers_settlement(), &[vec![0, 2], vec![1]]);
@@ -781,7 +780,7 @@ mod tests {
     fn test_validator_assignment_with_chunk_only_producers_with_shard_shuffling() {
         // Don't run test without stateless validation because it has slight
         // changes in validator epoch indexing.
-        if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+        if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
             return;
         }
 
@@ -1059,7 +1058,7 @@ mod tests {
     /// [`ValidatorMandates`].
     #[test]
     fn test_chunk_validators_sampling() {
-        if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+        if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
             return;
         }
 
@@ -1077,7 +1076,7 @@ mod tests {
 
     #[test]
     fn test_deterministic_chunk_validators_sampling() {
-        if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+        if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
             return;
         }
 

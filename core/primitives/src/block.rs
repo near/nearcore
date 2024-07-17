@@ -204,7 +204,7 @@ impl Block {
                 vrf_value: *body.vrf_value(),
                 vrf_proof: *body.vrf_proof(),
             }))
-        } else if !checked_feature!("stable", StatelessValidationV0, this_epoch_protocol_version) {
+        } else if !checked_feature!("stable", StatelessValidation, this_epoch_protocol_version) {
             // BlockV3 should only have BlockBodyV1
             match body {
                 BlockBody::V1(body) => Block::BlockV3(Arc::new(BlockV3 { header, body })),

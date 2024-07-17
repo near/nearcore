@@ -1126,7 +1126,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         while let Some(iter) = transaction_groups.next() {
             res.push(iter.next().unwrap());
         }
-        let storage_proof = if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION)
+        let storage_proof = if checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION)
             || cfg!(feature = "shadow_chunk_validation")
         {
             Some(Default::default())
@@ -1282,7 +1282,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         let state_root = hash(&data);
         self.state.write().unwrap().insert(state_root, state);
         self.state_size.write().unwrap().insert(state_root, state_size);
-        let storage_proof = if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION)
+        let storage_proof = if checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION)
             || cfg!(feature = "shadow_chunk_validation")
         {
             Some(Default::default())

@@ -188,7 +188,7 @@ impl AllEpochConfig {
         }
         // Lower the kickout threshold so the network is more stable while
         // we figure out issues with block and chunk production.
-        if checked_feature!("stable", StatelessValidationV0, protocol_version) {
+        if checked_feature!("stable", StatelessValidation, protocol_version) {
             config.block_producer_kickout_threshold = 50;
             config.chunk_producer_kickout_threshold = 50;
             config.chunk_validator_only_kickout_threshold = 50;
@@ -266,7 +266,7 @@ impl AllEpochConfig {
             // Decrease the number of block and chunk producers from 100 to 20.
             config.num_block_producer_seats = 20;
             // Checking feature NoChunkOnlyProducers in stateless validation
-            if checked_feature!("stable", StatelessValidationV0, protocol_version) {
+            if checked_feature!("stable", StatelessValidation, protocol_version) {
                 config.validator_selection_config.num_chunk_producer_seats = 20;
             }
             config.num_block_producer_seats_per_shard =
@@ -276,7 +276,7 @@ impl AllEpochConfig {
         }
 
         // Checking feature NoChunkOnlyProducers in stateless validation
-        if checked_feature!("stable", StatelessValidationV0, protocol_version) {
+        if checked_feature!("stable", StatelessValidation, protocol_version) {
             // Make sure there is no chunk only producer in stateless validation
             config.validator_selection_config.num_chunk_only_producer_seats = 0;
         }
@@ -806,7 +806,7 @@ pub mod epoch_info {
                 let block_producers_sampler = stake_weights(&block_producers_settlement);
                 let chunk_producers_sampler =
                     chunk_producers_settlement.iter().map(|vs| stake_weights(vs)).collect();
-                if checked_feature!("stable", StatelessValidationV0, protocol_version) {
+                if checked_feature!("stable", StatelessValidation, protocol_version) {
                     Self::V4(EpochInfoV4 {
                         epoch_height,
                         validators,

@@ -1845,7 +1845,7 @@ impl ShardsManagerActor {
         let current_chunk_height = partial_encoded_chunk.header.height_created();
 
         // SingleShardTracking: If enabled, we only forward the parts to the block producers
-        if checked_feature!("stable", StatelessValidationV0, protocol_version) {
+        if checked_feature!("stable", StatelessValidation, protocol_version) {
             let shard_id = partial_encoded_chunk.header.shard_id();
             let mut accounts_forwarded_to = HashSet::new();
             accounts_forwarded_to.insert(me.clone());

@@ -114,7 +114,7 @@ fn test_storage_proof_size_limit() {
     let read20_tx = make_read_transaction(0, 20);
     let res = env.execute_tx(read20_tx).unwrap();
     // PerReceiptHardStorageProofLimit
-    if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+    if checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
         assert_matches!(res.status, FinalExecutionStatus::Failure(_));
         let error_string = match res.status {
             FinalExecutionStatus::Failure(TxExecutionError::ActionError(action_error)) => {
@@ -172,7 +172,7 @@ fn test_storage_proof_size_limit() {
     assert_eq!(chunk.transactions().len(), 0);
     assert_eq!(count_function_call_receipts(chunk.prev_outgoing_receipts()), 0);
     // PerReceiptHardStorageProofLimit
-    if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+    if checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
         assert_eq!(count_transfer_receipts(chunk.prev_outgoing_receipts()), 2);
     } else {
         // Without soft limit the receipts are processed immediately.
@@ -184,7 +184,7 @@ fn test_storage_proof_size_limit() {
     assert_eq!(chunk.transactions().len(), 0);
     assert_eq!(count_function_call_receipts(chunk.prev_outgoing_receipts()), 0);
     // PerReceiptHardStorageProofLimit
-    if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+    if checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
         assert_eq!(count_transfer_receipts(chunk.prev_outgoing_receipts()), 1);
     } else {
         assert_eq!(count_transfer_receipts(chunk.prev_outgoing_receipts()), 0);
