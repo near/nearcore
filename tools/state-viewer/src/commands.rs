@@ -871,6 +871,7 @@ pub(crate) fn view_genesis(
     store: Store,
     view_config: bool,
     view_store: bool,
+    compare: bool,
 ) {
     let chain_genesis = ChainGenesis::new(&near_config.genesis.config);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
@@ -887,7 +888,7 @@ pub(crate) fn view_genesis(
         near_config.client_config.save_trie_changes,
     );
 
-    if view_config {
+    if view_config || compare {
         let state_roots =
             near_store::get_genesis_state_roots(chain_store.store()).unwrap().unwrap();
         let (genesis_block, genesis_chunks) = Chain::make_genesis_block(
@@ -898,22 +899,26 @@ pub(crate) fn view_genesis(
         )
         .unwrap();
 
-        println!("Genesis block from config: {:#?}", genesis_block);
-        for chunk in genesis_chunks {
-            println!("Genesis chunk from config at shard {}: {:#?}", chunk.shard_id(), chunk);
+        if view_config {
+            println!("Genesis block from config: {:#?}", genesis_block);
+            for chunk in genesis_chunks {
+                println!("Genesis chunk from config at shard {}: {:#?}", chunk.shard_id(), chunk);
+            }
         }
 
         // Check that genesis in the store is the same as genesis given in the config.
-        let genesis_hash_in_storage =
-            chain_store.get_block_hash_by_height(chain_genesis.height).unwrap();
-        let genesis_hash_in_config = genesis_block.hash();
-        if &genesis_hash_in_storage == genesis_hash_in_config {
-            println!("Genesis in storage and config match.");
-        } else {
-            println!(
-                "Genesis mismatch between storage and config: {:?} vs {:?}",
-                genesis_hash_in_storage, genesis_hash_in_config
-            );
+        if compare {
+            let genesis_hash_in_storage =
+                chain_store.get_block_hash_by_height(chain_genesis.height).unwrap();
+            let genesis_hash_in_config = genesis_block.hash();
+            if &genesis_hash_in_storage == genesis_hash_in_config {
+                println!("Genesis in storage and config match.");
+            } else {
+                println!(
+                    "Genesis mismatch between storage and config: {:?} vs {:?}",
+                    genesis_hash_in_storage, genesis_hash_in_config
+                );
+            }
         }
     }
 

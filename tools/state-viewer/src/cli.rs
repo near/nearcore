@@ -743,17 +743,26 @@ impl ViewChainCmd {
 
 #[derive(clap::Parser)]
 pub struct ViewGenesisCmd {
-    /// If true, displays the genesis block built from the config.
+    /// If true, displays the genesis block built from nearcore code that combines the
+    /// contents of the genesis config (JSON) file with some hard-coded logic to set some
+    /// fields of the genesis block. At any given time, the block built this way should match
+    /// the genesis block recorded in the store (to be displayed with the --view-store option).
     #[clap(long)]
     view_config: bool,
-    /// If true, displays the genesis block saved in the store.
+    /// If true, displays the genesis block saved in the store, when the genesis block is built
+    /// for the first time. At any given time, this saved block should match the genesis block
+    /// built by the code (to be displayed with the --view-config option).
     #[clap(long)]
     view_store: bool,
+    /// If true, compares the contents of the genesis block saved in the store with
+    /// the genesis block built from the genesis config (JSON) file.
+    #[clap(long, default_value = "false")]
+    compare: bool,
 }
 
 impl ViewGenesisCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
-        view_genesis(home_dir, near_config, store, self.view_config, self.view_store);
+        view_genesis(home_dir, near_config, store, self.view_config, self.view_store, self.compare);
     }
 }
 
