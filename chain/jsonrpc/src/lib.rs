@@ -288,16 +288,17 @@ struct JsonRpcHandler {
 }
 
 impl JsonRpcHandler {
-    pub async fn process(&self, message: Message) -> Result<Message, RpcError> {
+    pub async fn process(&self, message: Message) -> Message {
         let id = message.id();
         match message {
             Message::Request(request) => self
                 .process_request(request)
                 .await
-                .map(|response| Message::response(id, Ok(response))),
-            _ => Ok(Message::error(RpcError::parse_error(
+                .map(|response| Message::response(id, Ok(response)))
+                .unwrap_or_else(Message::error),
+            _ => Message::error(RpcError::parse_error(
                 "JSON RPC Request format was expected".to_owned(),
-            ))),
+            )),
         }
     }
 
@@ -1361,14 +1362,18 @@ fn rpc_handler(
     handler: web::Data<JsonRpcHandler>,
 ) -> impl Future<Output = HttpResponse> {
     let response = async move {
-        match handler.process(message.0).await {
-            Ok(message) => HttpResponse::Ok().json(&message),
-            Err(err) => match err.error_struct {
-                Some(RpcErrorKind::InternalError(_)) | Some(RpcErrorKind::HandlerError(_)) => {
-                    HttpResponse::InternalServerError().json(&Message::error(err))
-                }
-                _ => HttpResponse::Ok().json(&Message::error(err)),
+        let message = handler.process(message.0).await;
+        match message.clone() {
+            Message::Response(response) => match response.result {
+                Ok(_) => HttpResponse::Ok().json(message),
+                Err(err) => match err.error_struct {
+                    Some(RpcErrorKind::InternalError(_)) | Some(RpcErrorKind::HandlerError(_)) => {
+                        HttpResponse::InternalServerError().json(&Message::error(err))
+                    }
+                    _ => HttpResponse::Ok().json(&Message::error(err)),
+                },
             },
+            _ => HttpResponse::InternalServerError().finish(),
         }
     };
     response.boxed()
