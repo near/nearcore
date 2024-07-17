@@ -1217,11 +1217,17 @@ impl Handler<TxStatusRequest> for ViewClientActorInner {
 impl Handler<TxStatusResponse> for ViewClientActorInner {
     #[perf]
     fn handle(&mut self, msg: TxStatusResponse) {
-        tracing::debug!(target: "client", ?msg);
+        let TxStatusResponse(tx_result) = msg;
+        tracing::debug!(
+            target: "client",
+            tx_hash = %tx_result.transaction.hash, status = ?tx_result.status,
+            tx_outcome_status = ?tx_result.transaction_outcome.outcome.status,
+            num_receipt_outcomes = tx_result.receipts_outcome.len(),
+            "receive TxStatusResponse"
+        );
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["TxStatusResponse"])
             .start_timer();
-        let TxStatusResponse(tx_result) = msg;
         let tx_hash = tx_result.transaction_outcome.id;
         let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
         if request_manager.tx_status_requests.pop(&tx_hash).is_some() {
