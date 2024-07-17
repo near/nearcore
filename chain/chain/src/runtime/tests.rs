@@ -1534,8 +1534,15 @@ fn test_genesis_hash() {
         StateSnapshotType::EveryEpoch,
     );
 
-    let block = Chain::make_genesis_block(epoch_manager.as_ref(), runtime.as_ref(), &chain_genesis)
-        .unwrap();
+    let state_roots =
+        get_genesis_state_roots(runtime.store()).unwrap().expect("genesis should be initialized.");
+    let (block, _chunks) = Chain::make_genesis_block(
+        epoch_manager.as_ref(),
+        runtime.as_ref(),
+        &chain_genesis,
+        state_roots,
+    )
+    .unwrap();
     assert_eq!(block.header().hash().to_string(), "EPnLgE7iEq9s7yTkos96M3cWymH5avBAPm3qx3NXqR8H");
 
     let epoch_manager = EpochManager::new_from_genesis_config(store, &genesis.config).unwrap();

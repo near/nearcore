@@ -9,6 +9,7 @@ use near_o11y::metrics::{
 use near_parameters::config::CongestionControlConfig;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::types::ShardId;
+use near_store::trie::SubtreeSize;
 use near_store::Trie;
 use once_cell::sync::Lazy;
 use std::time::Duration;
@@ -416,6 +417,16 @@ static CHUNK_RECORDED_TRIE_COLUMN_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
     .unwrap()
 });
 
+static CHUNK_RECORDED_TRIE_NODES_VALUES_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_chunk_recorded_trie_nodes_values_size",
+        "Measures size of values and non-value nodes in the recorded trie. Allows to measure how much overhead there is from non-value nodes.",
+        &["shard_id", "trie_part"], // trie_part is either "values" or "nodes"
+        Some(buckets_for_chunk_storage_proof_size()),
+    )
+    .unwrap()
+});
+
 pub(crate) static CHUNK_RECEIPTS_LIMITED_BY: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_chunk_receipts_limited_by",
@@ -725,10 +736,22 @@ pub fn report_recorded_column_sizes(trie: &Trie, apply_state: &ApplyState) {
         return;
     };
 
+    let mut total_size = SubtreeSize::default();
+
     let shard_id_str = apply_state.shard_id.to_string();
     for column in trie_recorder_stats.trie_column_sizes.iter() {
+        let column_size = column.size.nodes_size.saturating_add(column.size.values_size);
         CHUNK_RECORDED_TRIE_COLUMN_SIZE
             .with_label_values(&[shard_id_str.as_str(), column.column_name])
-            .observe(column.size as f64);
+            .observe(column_size as f64);
+
+        total_size = total_size.saturating_add(column.size);
     }
+
+    CHUNK_RECORDED_TRIE_NODES_VALUES_SIZE
+        .with_label_values(&[shard_id_str.as_str(), "nodes"])
+        .observe(total_size.nodes_size as f64);
+    CHUNK_RECORDED_TRIE_NODES_VALUES_SIZE
+        .with_label_values(&[shard_id_str.as_str(), "values"])
+        .observe(total_size.values_size as f64);
 }

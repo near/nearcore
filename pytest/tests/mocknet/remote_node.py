@@ -95,11 +95,10 @@ class RemoteNeardRunner:
         return self.node.get_validators()
 
 
-def get_nodes(chain_id, start_height, unique_id):
-    pattern = chain_id + '-' + str(start_height) + '-' + unique_id
-    all_nodes = mocknet.get_nodes(pattern=pattern)
+def get_nodes(mocknet_id: str):
+    all_nodes = mocknet.get_nodes(pattern=mocknet_id)
     if len(all_nodes) < 1:
-        sys.exit(f'no known nodes matching {pattern}')
+        sys.exit(f'no known nodes matching {mocknet_id}')
 
     traffic_generator = None
     nodes = []

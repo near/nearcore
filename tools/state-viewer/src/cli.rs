@@ -5,12 +5,13 @@ use crate::rocksdb_stats::get_rocksdb_stats;
 use crate::trie_iteration_benchmark::TrieIterationBenchmarkCmd;
 
 use crate::latest_witnesses::StateWitnessCmd;
+use near_chain::types::RuntimeStorageConfig;
 use near_chain_configs::{GenesisChangeConfig, GenesisValidationMode};
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::trie_key::col;
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::types::{BlockHeight, ShardId, StateRoot};
 use near_primitives_core::types::EpochHeight;
 use near_store::{Mode, NodeStorage, Store, Temperature};
 use nearcore::{load_config, NearConfig};
@@ -97,6 +98,9 @@ pub enum StateViewerSubCommand {
     /// View head of the storage.
     #[clap(alias = "view_chain")]
     ViewChain(ViewChainCmd),
+    /// View genesis block and chunks built from the config and in the store.
+    #[clap(alias = "view_genesis")]
+    ViewGenesis(ViewGenesisCmd),
     /// View trie structure.
     #[clap(alias = "view_trie")]
     ViewTrie(ViewTrieCmd),
@@ -172,10 +176,31 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::StateParts(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::StateStats(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::ViewGenesis(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
             StateViewerSubCommand::TrieIterationBenchmark(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::StateWitness(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::CongestionControl(cmd) => cmd.run(home_dir, near_config, store),
+        }
+    }
+}
+
+#[derive(clap::ValueEnum, Debug, Clone, Copy)]
+#[clap(rename_all = "kebab_case")]
+pub enum StorageSource {
+    Trie,
+    /// Use the data stored in trie, but without paying extra gas costs.
+    /// This could be used to simulate flat storage when the latter is not present.
+    TrieFree,
+    FlatStorage,
+}
+
+impl StorageSource {
+    pub fn create_runtime_storage(&self, state_root: StateRoot) -> RuntimeStorageConfig {
+        match self {
+            StorageSource::Trie => RuntimeStorageConfig::new(state_root, false),
+            StorageSource::TrieFree => RuntimeStorageConfig::new_with_db_trie_only(state_root),
+            StorageSource::FlatStorage => RuntimeStorageConfig::new(state_root, true),
         }
     }
 }
@@ -186,8 +211,8 @@ pub struct ApplyCmd {
     height: BlockHeight,
     #[clap(long)]
     shard_id: ShardId,
-    #[clap(long)]
-    use_flat_storage: bool,
+    #[clap(long, default_value = "trie")]
+    storage: StorageSource,
 }
 
 impl ApplyCmd {
@@ -195,7 +220,7 @@ impl ApplyCmd {
         apply_block_at_height(
             self.height,
             self.shard_id,
-            self.use_flat_storage,
+            self.storage,
             home_dir,
             near_config,
             store,
@@ -210,29 +235,24 @@ pub struct ApplyChunkCmd {
     chunk_hash: String,
     #[clap(long)]
     target_height: Option<u64>,
-    #[clap(long)]
-    use_flat_storage: bool,
+    #[clap(long, default_value = "trie")]
+    storage: StorageSource,
 }
 
 impl ApplyChunkCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         let hash = ChunkHash::from(CryptoHash::from_str(&self.chunk_hash).unwrap());
-        apply_chunk(home_dir, near_config, store, hash, self.target_height, self.use_flat_storage)
-            .unwrap()
+        apply_chunk(home_dir, near_config, store, hash, self.target_height, self.storage).unwrap()
     }
 }
 
 #[derive(clap::Parser, Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ApplyRangeMode {
     /// Applies chunks one after another in order of increasing heights.
-    /// TODO(#8741): doesn't work. Remove dependency on flat storage
-    /// by simulating correct costs. Consider reintroducing DbTrieOnly
-    /// read mode removed at #10490.
     Sequential,
     /// Applies chunks in parallel.
     /// Useful for quick correctness check of applying chunks by comparing
     /// results with `ChunkExtra`s.
-    /// TODO(#8741): doesn't work, same as above.
     Parallel,
     /// Sequentially applies chunks from flat storage head until chain
     /// final head, moving flat head forward. Use in combination with
@@ -255,8 +275,8 @@ pub struct ApplyRangeCmd {
     csv_file: Option<PathBuf>,
     #[clap(long)]
     only_contracts: bool,
-    #[clap(long)]
-    use_flat_storage: bool,
+    #[clap(long, default_value = "trie")]
+    storage: StorageSource,
     #[clap(subcommand)]
     mode: ApplyRangeMode,
 }
@@ -274,7 +294,7 @@ impl ApplyRangeCmd {
             near_config,
             store,
             self.only_contracts,
-            self.use_flat_storage,
+            self.storage,
         );
     }
 }
@@ -283,14 +303,14 @@ impl ApplyRangeCmd {
 pub struct ApplyReceiptCmd {
     #[clap(long)]
     hash: String,
-    #[clap(long)]
-    use_flat_storage: bool,
+    #[clap(long, default_value = "trie")]
+    storage: StorageSource,
 }
 
 impl ApplyReceiptCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         let hash = CryptoHash::from_str(&self.hash).unwrap();
-        apply_receipt(home_dir, near_config, store, hash, self.use_flat_storage).unwrap();
+        apply_receipt(home_dir, near_config, store, hash, self.storage).unwrap();
     }
 }
 
@@ -298,14 +318,14 @@ impl ApplyReceiptCmd {
 pub struct ApplyTxCmd {
     #[clap(long)]
     hash: String,
-    #[clap(long)]
-    use_flat_storage: bool,
+    #[clap(long, default_value = "trie")]
+    storage: StorageSource,
 }
 
 impl ApplyTxCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         let hash = CryptoHash::from_str(&self.hash).unwrap();
-        apply_tx(home_dir, near_config, store, hash, self.use_flat_storage).unwrap();
+        apply_tx(home_dir, near_config, store, hash, self.storage).unwrap();
     }
 }
 
@@ -718,6 +738,31 @@ pub struct ViewChainCmd {
 impl ViewChainCmd {
     pub fn run(self, near_config: NearConfig, store: Store) {
         view_chain(self.height, self.block, self.chunk, near_config, store);
+    }
+}
+
+#[derive(clap::Parser)]
+pub struct ViewGenesisCmd {
+    /// If true, displays the genesis block built from nearcore code that combines the
+    /// contents of the genesis config (JSON) file with some hard-coded logic to set some
+    /// fields of the genesis block. At any given time, the block built this way should match
+    /// the genesis block recorded in the store (to be displayed with the --view-store option).
+    #[clap(long)]
+    view_config: bool,
+    /// If true, displays the genesis block saved in the store, when the genesis block is built
+    /// for the first time. At any given time, this saved block should match the genesis block
+    /// built by the code (to be displayed with the --view-config option).
+    #[clap(long)]
+    view_store: bool,
+    /// If true, compares the contents of the genesis block saved in the store with
+    /// the genesis block built from the genesis config (JSON) file.
+    #[clap(long, default_value = "false")]
+    compare: bool,
+}
+
+impl ViewGenesisCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        view_genesis(home_dir, near_config, store, self.view_config, self.view_store, self.compare);
     }
 }
 

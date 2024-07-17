@@ -107,6 +107,17 @@ def main():
     print("nodes started")
     contract = utils.load_test_contract()
 
+    # When localnets are started, there is a period at the beginning
+    # when there may be a few missed blocks, and the very first block often doesn't have any chunks.
+    # In that case congestion control will reject transactions sent right after the network starts
+    # because it counts as having missed several chunks in a row for every shard. So wait a bit before
+    # starting to send txs.
+    blocks_seen = 0
+    for _latest in utils.poll_blocks(nodes[0]):
+        blocks_seen += 1
+        if blocks_seen >= 3:
+            break
+
     latest_block_hash = nodes[0].get_latest_block().hash_bytes
     deploy_contract_tx = transaction.sign_deploy_contract_tx(
         nodes[0].signer_key, contract, 1, latest_block_hash)

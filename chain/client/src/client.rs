@@ -1684,13 +1684,12 @@ impl Client {
                 return;
             }
 
-            if provenance != Provenance::SYNC
-                && !self.sync_status.is_syncing()
-                && !skip_produce_chunk
-            {
+            let can_produce_with_provenance = provenance != Provenance::SYNC;
+            let can_produce_with_sync_status = !self.sync_status.is_syncing();
+            if can_produce_with_provenance && can_produce_with_sync_status && !skip_produce_chunk {
                 self.produce_chunks(&block, &signer);
             } else {
-                info!(target: "client", "not producing a chunk");
+                info!(target: "client", can_produce_with_provenance, can_produce_with_sync_status, skip_produce_chunk, "not producing a chunk");
             }
         }
 
