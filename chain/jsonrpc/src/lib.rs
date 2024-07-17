@@ -21,7 +21,7 @@ use near_client::{
 };
 use near_client_primitives::types::GetSplitStorageInfo;
 pub use near_jsonrpc_client as client;
-use near_jsonrpc_primitives::errors::RpcError;
+use near_jsonrpc_primitives::errors::{RpcError, RpcErrorKind};
 use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::config::{RpcProtocolConfigError, RpcProtocolConfigResponse};
 use near_jsonrpc_primitives::types::entity_debug::{EntityDebugHandler, EntityQuery};
@@ -288,12 +288,13 @@ struct JsonRpcHandler {
 }
 
 impl JsonRpcHandler {
-    pub async fn process(&self, message: Message) -> Result<Message, HttpError> {
+    pub async fn process(&self, message: Message) -> Result<Message, RpcError> {
         let id = message.id();
         match message {
-            Message::Request(request) => {
-                Ok(Message::response(id, self.process_request(request).await))
-            }
+            Message::Request(request) => self
+                .process_request(request)
+                .await
+                .map(|response| Message::response(id, Ok(response))),
             _ => Ok(Message::error(RpcError::parse_error(
                 "JSON RPC Request format was expected".to_owned(),
             ))),
@@ -1358,10 +1359,17 @@ impl JsonRpcHandler {
 fn rpc_handler(
     message: web::Json<Message>,
     handler: web::Data<JsonRpcHandler>,
-) -> impl Future<Output = Result<HttpResponse, HttpError>> {
+) -> impl Future<Output = HttpResponse> {
     let response = async move {
-        let message = handler.process(message.0).await?;
-        Ok(HttpResponse::Ok().json(&message))
+        match handler.process(message.0).await {
+            Ok(message) => HttpResponse::Ok().json(&message),
+            Err(err) => match err.error_struct {
+                Some(RpcErrorKind::InternalError(_)) | Some(RpcErrorKind::HandlerError(_)) => {
+                    HttpResponse::InternalServerError().json(&Message::error(err))
+                }
+                _ => HttpResponse::Ok().json(&Message::error(err)),
+            },
+        }
     };
     response.boxed()
 }
