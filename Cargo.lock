@@ -3344,6 +3344,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "inventory"
+version = "0.3.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f958d3d68f4167080a18141e10381e7634563984a537f2a49a30fd8e53ac5767"
+
+[[package]]
 name = "ipnet"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4763,6 +4769,7 @@ dependencies = [
  "near-primitives-core",
  "near-rpc-error-macro",
  "near-stdx",
+ "near-structs-checker-lib",
  "near-time",
  "num-rational 0.3.2",
  "once_cell",
@@ -4796,6 +4803,7 @@ dependencies = [
  "expect-test",
  "insta",
  "near-account-id",
+ "near-structs-checker-lib",
  "num-rational 0.3.2",
  "serde",
  "serde_json",
@@ -4857,6 +4865,10 @@ dependencies = [
  "serde_json",
  "syn 2.0.70",
 ]
+
+[[package]]
+name = "near-stable-hasher"
+version = "0.0.0"
 
 [[package]]
 name = "near-state-parts"
@@ -4951,6 +4963,31 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "near-structs-checker-core"
+version = "0.0.0"
+dependencies = [
+ "inventory",
+]
+
+[[package]]
+name = "near-structs-checker-lib"
+version = "0.0.0"
+dependencies = [
+ "inventory",
+ "near-structs-checker-core",
+ "near-structs-checker-macro",
+]
+
+[[package]]
+name = "near-structs-checker-macro"
+version = "0.0.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.70",
 ]
 
 [[package]]
@@ -6313,6 +6350,19 @@ version = "3.0.2"
 source = "git+https://github.com/near/rust-protobuf.git?branch=3.0.2-patch#86cdbf1ce1f085486b15ec94af1954c55c1e2862"
 dependencies = [
  "thiserror",
+]
+
+[[package]]
+name = "protocol-schema-check"
+version = "0.0.0"
+dependencies = [
+ "inventory",
+ "near-primitives",
+ "near-primitives-core",
+ "near-stable-hasher",
+ "near-structs-checker-lib",
+ "serde_json",
+ "toml",
 ]
 
 [[package]]

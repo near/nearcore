@@ -38,6 +38,7 @@ use near_store::flat::FlatStorageManager;
 use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
 use num_rational::Rational32;
 use std::collections::HashMap;
+use tracing::instrument;
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum BlockStatus {
@@ -125,10 +126,13 @@ pub struct ApplyChunkResult {
 
 impl ApplyChunkResult {
     /// Returns root and paths for all the outcomes in the result.
+    #[instrument(target = "runtime", level = "debug", "compute_outcomes_proof", skip_all, fields(
+        num_outcomes = outcomes.len()
+    ))]
     pub fn compute_outcomes_proof(
         outcomes: &[ExecutionOutcomeWithId],
     ) -> (MerkleHash, Vec<MerklePath>) {
-        let mut result = vec![];
+        let mut result = Vec::with_capacity(outcomes.len());
         for outcome_with_id in outcomes.iter() {
             result.push(outcome_with_id.to_hashes());
         }

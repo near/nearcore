@@ -50,22 +50,12 @@ impl WalletContract {
         Ok(result)
     }
 
-    pub async fn rlp_execute(
-        &self,
-        target: &str,
-        tx: &EthTransactionKind,
-    ) -> anyhow::Result<ExecuteResponse> {
-        let result: ExecuteResponse =
-            self.rlp_execute_with_receipts(target, tx).await?.into_result()?.json()?;
-
-        Ok(result)
-    }
-
-    pub async fn external_rlp_execute(
+    pub async fn rlp_execute_from(
         &self,
         caller: &Account,
         target: &str,
         tx: &EthTransactionKind,
+        attached_deposit: NearToken,
     ) -> anyhow::Result<ExecuteResponse> {
         let result: ExecuteResponse = caller
             .call(self.inner.id(), RLP_EXECUTE)
@@ -74,10 +64,22 @@ impl WalletContract {
                 "tx_bytes_b64": codec::encode_b64(&codec::rlp_encode(tx))
             }))
             .max_gas()
+            .deposit(attached_deposit)
             .transact()
             .await?
             .into_result()?
             .json()?;
+
+        Ok(result)
+    }
+
+    pub async fn rlp_execute(
+        &self,
+        target: &str,
+        tx: &EthTransactionKind,
+    ) -> anyhow::Result<ExecuteResponse> {
+        let result: ExecuteResponse =
+            self.rlp_execute_with_receipts(target, tx).await?.into_result()?.json()?;
 
         Ok(result)
     }

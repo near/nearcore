@@ -306,8 +306,14 @@ pub fn start_with_config_and_synchronization(
 
     let telemetry = ActixWrapper::new(TelemetryActor::new(config.telemetry_config.clone())).start();
     let chain_genesis = ChainGenesis::new(&config.genesis.config);
-    let genesis_block =
-        Chain::make_genesis_block(epoch_manager.as_ref(), runtime.as_ref(), &chain_genesis)?;
+    let state_roots = near_store::get_genesis_state_roots(runtime.store())?
+        .expect("genesis should be initialized.");
+    let (genesis_block, _genesis_chunks) = Chain::make_genesis_block(
+        epoch_manager.as_ref(),
+        runtime.as_ref(),
+        &chain_genesis,
+        state_roots,
+    )?;
     let genesis_id = GenesisId {
         chain_id: config.client_config.chain_id.clone(),
         hash: *genesis_block.header().hash(),
