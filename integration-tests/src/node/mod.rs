@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::RwLock;
 
@@ -146,15 +147,32 @@ fn near_configs_to_node_configs(
 }
 
 pub fn create_nodes(num_nodes: usize, prefix: &str) -> Vec<NodeConfig> {
-    let (configs, validator_signers, network_signers, genesis, _) =
-        create_testnet_configs(1, num_nodes as NumSeats, 0, prefix, true, false, vec![]);
+    let (configs, validator_signers, network_signers, genesis, _) = create_testnet_configs(
+        1,
+        num_nodes as NumSeats,
+        0,
+        prefix,
+        true,
+        HashSet::new(),
+        HashSet::new(),
+        vec![],
+    );
     near_configs_to_node_configs(configs, validator_signers, network_signers, genesis)
 }
 
 pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
     let code = near_test_contracts::rs_contract();
     let (configs, validator_signers, network_signers, mut genesis) =
-        create_testnet_configs_from_seeds(seeds.clone(), 1, 0, true, false, vec![]);
+        create_testnet_configs_from_seeds(
+            seeds.clone(),
+            1,
+            seeds.len() as NumSeats,
+            0,
+            true,
+            HashSet::new(),
+            HashSet::new(),
+            vec![],
+        );
     genesis.config.gas_price_adjustment_rate = Ratio::from_integer(0);
     for seed in seeds {
         let mut found_account_record = false;

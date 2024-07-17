@@ -699,7 +699,7 @@ fn parse_node_ids(flag_name: &str, node_ids: &str, num_nodes: usize) -> HashSet<
                 let id = s
                     .trim()
                     .parse::<usize>()
-                    .expect(format!("Expected integer node id, found {}", s.trim()).as_str());
+                    .unwrap_or_else(|_| panic!("Expected integer node id, found {}", s.trim()));
                 assert!(
                     id < num_nodes,
                     "Invalid node id: {}, should be between 0 and {}",

@@ -1028,7 +1028,11 @@ pub fn create_testnet_configs_from_seeds(
     rpc_nodes: HashSet<usize>,
     tracked_shards: Vec<u64>,
 ) -> (Vec<Config>, Vec<ValidatorSigner>, Vec<InMemorySigner>, Genesis) {
-    assert_eq!(num_validator_seats + num_non_validator_seats, seeds.len() as u64);
+    assert_eq!(
+        num_validator_seats + num_non_validator_seats,
+        seeds.len() as u64,
+        "Number of seeds should match the total number of nodes."
+    );
     let validator_signers =
         seeds.iter().map(|seed| create_test_signer(seed.as_str())).collect::<Vec<_>>();
     let network_signers = seeds
@@ -1394,6 +1398,7 @@ pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
     use std::io::Write;
     use std::path::Path;
     use std::str::FromStr;
@@ -1575,42 +1580,13 @@ mod tests {
     }
 
     #[test]
-    fn test_create_testnet_configs() {
+    fn test_create_testnet_configs_track_all_shards() {
         let num_shards = 4;
         let num_validator_seats = 4;
         let num_non_validator_seats = 8;
         let prefix = "node";
         let local_ports = true;
 
-        // Set all supported options to true and verify config and genesis.
-
-        let archive = true;
-        let tracked_shards: Vec<u64> = vec![0, 1, 3];
-
-        let (configs, _validator_signers, _network_signers, genesis, _shard_keys) =
-            create_testnet_configs(
-                num_shards,
-                num_validator_seats,
-                num_non_validator_seats,
-                prefix,
-                local_ports,
-                archive,
-                tracked_shards.clone(),
-            );
-
-        assert_eq!(configs.len() as u64, num_validator_seats + num_non_validator_seats);
-
-        for config in configs {
-            assert_eq!(config.archive, true);
-            assert_eq!(config.tracked_shards, tracked_shards);
-        }
-
-        assert_eq!(genesis.config.validators.len(), num_shards as usize);
-        assert_eq!(genesis.config.shard_layout.shard_ids().count() as NumShards, num_shards);
-
-        // Set all supported options to false and verify config and genesis.
-
-        let archive = false;
         let tracked_shards: Vec<u64> = vec![];
 
         let (configs, _validator_signers, _network_signers, genesis, _shard_keys) =
@@ -1620,7 +1596,41 @@ mod tests {
                 num_non_validator_seats,
                 prefix,
                 local_ports,
-                archive,
+                HashSet::new(),
+                HashSet::new(),
+                tracked_shards.clone(),
+            );
+
+        assert_eq!(configs.len() as u64, num_validator_seats + num_non_validator_seats);
+
+        for config in configs {
+            assert_eq!(config.archive, false);
+            assert_eq!(config.tracked_shards, tracked_shards);
+        }
+
+        assert_eq!(genesis.config.validators.len(), num_shards as usize);
+        assert_eq!(genesis.config.shard_layout.shard_ids().count() as NumShards, num_shards);
+    }
+
+    #[test]
+    fn test_create_testnet_configs_track_single_shard() {
+        let num_shards = 4;
+        let num_validator_seats = 4;
+        let num_non_validator_seats = 8;
+        let prefix = "node";
+        let local_ports = true;
+
+        let tracked_shards: Vec<u64> = vec![];
+
+        let (configs, _validator_signers, _network_signers, genesis, _shard_keys) =
+            create_testnet_configs(
+                num_shards,
+                num_validator_seats,
+                num_non_validator_seats,
+                prefix,
+                local_ports,
+                HashSet::new(),
+                HashSet::new(),
                 tracked_shards.clone(),
             );
         assert_eq!(configs.len() as u64, num_validator_seats + num_non_validator_seats);
