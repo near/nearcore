@@ -129,6 +129,7 @@ impl ViewClientActorInner {
         config: ClientConfig,
         adv: crate::adversarial::Controls,
     ) -> Addr<ViewClientActor> {
+        let request_manager = Arc::new(RwLock::new(ViewClientRequestManager::new()));
         SyncArbiter::start(config.view_client_threads, move || {
             // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
             let chain = Chain::new_for_view_client(
@@ -152,7 +153,7 @@ impl ViewClientActorInner {
                 runtime: runtime.clone(),
                 network_adapter: network_adapter.clone(),
                 config: config.clone(),
-                request_manager: Arc::new(RwLock::new(ViewClientRequestManager::new())),
+                request_manager: request_manager.clone(),
                 state_request_cache: Arc::new(Mutex::new(VecDeque::default())),
             };
             SyncActixWrapper::new(view_client_actor)
