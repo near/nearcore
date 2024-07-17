@@ -242,6 +242,7 @@ impl ProtocolFeature {
             | ProtocolFeature::ChangePartialWitnessDataPartsRequired
             | ProtocolFeature::BiggerCombinedTransactionLimit
             | ProtocolFeature::HigherSendingCost => 69,
+            ProtocolFeature::EthImplicitAccounts => 70,
 
             // This protocol version is reserved for use in resharding tests. An extra resharding
             // is simulated on top of the latest shard layout in production. Note that later
@@ -255,7 +256,6 @@ impl ProtocolFeature {
             ProtocolFeature::FixContractLoadingCost => 129,
             #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
             ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
-            ProtocolFeature::EthImplicitAccounts => 138,
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
             ProtocolFeature::NonrefundableStorage => 140,
             #[cfg(feature = "protocol_feature_bls12381")]
@@ -274,7 +274,7 @@ impl ProtocolFeature {
 /// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 69;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 70;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "statelessnet_protocol") {
@@ -291,7 +291,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "statelessnet_pr
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
 /// protocol version is lower than this.
-pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION - 2;
+pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION - 3;
 
 #[macro_export]
 macro_rules! checked_feature {

@@ -43,9 +43,9 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (68, include_config!("68.yaml")),
     // Stateless Validation.
     (69, include_config!("69.yaml")),
-    (129, include_config!("129.yaml")),
     // Introduce ETH-implicit accounts.
-    (138, include_config!("138.yaml")),
+    (70, include_config!("70.yaml")),
+    (129, include_config!("129.yaml")),
     (141, include_config!("141.yaml")),
     (143, include_config!("143.yaml")),
 ];
