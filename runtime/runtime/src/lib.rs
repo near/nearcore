@@ -1959,6 +1959,7 @@ impl Runtime {
         metrics::CHUNK_RECORDED_SIZE_UPPER_BOUND_RATIO
             .with_label_values(&[shard_id_str.as_str()])
             .observe(chunk_recorded_size_upper_bound / f64::max(1.0, chunk_recorded_size));
+        metrics::report_recorded_column_sizes(&trie, &apply_state);
         let proof = trie.recorded_storage();
         let processed_delayed_receipts = process_receipts_result.processed_delayed_receipts;
         let processed_yield_timeouts = promise_yield_result.processed_yield_timeouts;

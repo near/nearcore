@@ -40,6 +40,7 @@ use std::fmt::Write;
 use std::hash::Hash;
 use std::str;
 use std::sync::{Arc, RwLock, RwLockReadGuard};
+pub use trie_recording::{SubtreeSize, TrieRecorderStats};
 
 pub mod accounting_cache;
 mod config;
@@ -659,6 +660,11 @@ impl Trie {
         }
     }
 
+    /// Helper to simulate gas costs as if flat storage was present.
+    pub fn dont_charge_gas_for_trie_node_access(&mut self) {
+        self.charge_gas_for_trie_node_access = false;
+    }
+
     /// Makes a new trie that has everything the same except that access
     /// through that trie accumulates a state proof for all nodes accessed.
     pub fn recording_reads(&self) -> Self {
@@ -714,6 +720,12 @@ impl Trie {
         let mut trie = Self::new(storage, root, None);
         trie.charge_gas_for_trie_node_access = !flat_storage_used;
         trie
+    }
+
+    /// Get statisitics about the recorded trie. Useful for observability and debugging.
+    /// This scans all of the recorded data, so could potentially be expensive to run.
+    pub fn recorder_stats(&self) -> Option<TrieRecorderStats> {
+        self.recorder.as_ref().map(|recorder| recorder.borrow().get_stats(&self.root))
     }
 
     pub fn get_root(&self) -> &StateRoot {
