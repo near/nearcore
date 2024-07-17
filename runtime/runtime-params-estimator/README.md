@@ -47,7 +47,7 @@ Use this tool to measure the running time of elementary runtime operations that 
 
 3. **Continuous Estimation**: Take a look at [`estimator-warehouse/README.md`](./estimator-warehouse/README.md) to learn about the automated setup around the parameter estimator.
 
-Note, if you use the plotting functionality you would need to install [gnuplot](http://www.gnuplot.vt.edu/) to see the graphs.
+Note, if you use the plotting functionality you would need to install [gnuplot](http://www.gnuplot.info/) to see the graphs.
 
 ## Replaying IO traces
 
