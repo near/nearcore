@@ -29,6 +29,7 @@ use near_store::db::RocksDB;
 use near_store::Mode;
 use near_undo_block::cli::UndoBlockCommand;
 use serde_json::Value;
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::BufReader;
 use std::net::SocketAddr;
@@ -632,9 +633,16 @@ pub(super) struct LocalnetCmd {
     /// Number of validators to initialize the localnet with.
     #[clap(short = 'v', long, alias = "v", default_value = "4")]
     validators: NumSeats,
-    /// Whether to configure nodes as archival.
-    #[clap(long)]
-    archival_nodes: bool,
+    /// Comma-separated list of node ids (eg. "0,1,2") to configure as archival nodes,
+    /// or "all" to choose all nodes. Defaults to empty, so no node is marked as archival.
+    /// Non-validator archival nodes are configured to track all shards.
+    #[clap(long, default_value = "")]
+    archival_nodes: String,
+    /// Comma-separated list of node ids (eg. "0,1,2") to configure as RPC nodes,
+    /// or "all" to choose all nodes. Defaults to empty, so no node is marked as RPC.
+    /// Non-validator RPC nodes are configured to track all shards.
+    #[clap(long, default_value = "")]
+    rpc_nodes: String,
     /// Comma separated list of shards to track, the word 'all' to track all shards or the word 'none' to track no shards.
     #[clap(long, default_value = "all")]
     tracked_shards: String,
@@ -657,6 +665,7 @@ impl LocalnetCmd {
     pub(super) fn run(self, home_dir: &Path) {
         let tracked_shards = Self::parse_tracked_shards(&self.tracked_shards, self.shards);
 
+        let num_nodes: usize = (self.validators + self.non_validators).try_into().unwrap();
         nearcore::config::init_testnet_configs(
             home_dir,
             self.shards,
@@ -664,10 +673,41 @@ impl LocalnetCmd {
             self.non_validators,
             &self.prefix,
             true,
-            self.archival_nodes,
+            parse_node_ids(self.archival_nodes.as_ref(), num_nodes),
+            parse_node_ids(self.rpc_nodes.as_ref(), num_nodes),
             tracked_shards,
         );
     }
+}
+
+/// Parses a string flag (nodes) containing comma-separated list of node ids, "all", "none", or empty.
+/// Returns a (possibly empty) set of node ids between 0 (inclusive) and num_nodes (exclusive).
+/// If nodes contains "all", returns all node ids.
+/// If nodes is empty or contains "none", returns empty set.
+fn parse_node_ids(node_ids: &str, num_nodes: usize) -> HashSet<usize> {
+    let node_ids = node_ids.trim().to_lowercase();
+    if node_ids.is_empty() || node_ids == "none" {
+        return HashSet::new();
+    }
+    if node_ids == "all" {
+        return (0..num_nodes).collect();
+    }
+    node_ids
+        .split(',')
+        .map(|s| {
+            let id = s
+                .trim()
+                .parse::<usize>()
+                .expect(format!("Expected integer node id, found {}", s.trim()).as_str());
+            assert!(
+                id < num_nodes,
+                "Invalid node id: {}, should be between 0 and {}",
+                id,
+                num_nodes - 1
+            );
+            id
+        })
+        .collect()
 }
 
 #[derive(clap::Args)]

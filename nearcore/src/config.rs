@@ -54,6 +54,7 @@ use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use num_rational::Rational32;
+use std::collections::HashSet;
 use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -1020,12 +1021,14 @@ pub fn init_configs(
 pub fn create_testnet_configs_from_seeds(
     seeds: Vec<String>,
     num_shards: NumShards,
+    num_validator_seats: NumSeats,
     num_non_validator_seats: NumSeats,
     local_ports: bool,
-    archive: bool,
+    archival_nodes: HashSet<usize>,
+    rpc_nodes: HashSet<usize>,
     tracked_shards: Vec<u64>,
 ) -> (Vec<Config>, Vec<ValidatorSigner>, Vec<InMemorySigner>, Genesis) {
-    let num_validator_seats = (seeds.len() - num_non_validator_seats as usize) as NumSeats;
+    assert_eq!(num_validator_seats + num_non_validator_seats, seeds.len() as u64);
     let validator_signers =
         seeds.iter().map(|seed| create_test_signer(seed.as_str())).collect::<Vec<_>>();
     let network_signers = seeds
@@ -1065,8 +1068,36 @@ pub fn create_testnet_configs_from_seeds(
             };
             config.network.skip_sync_wait = num_validator_seats == 1;
         }
-        config.archive = archive;
-        config.tracked_shards.clone_from(&tracked_shards);
+
+        // Configure archival and RPC nodes.
+        let is_archival_node = archival_nodes.contains(&i);
+        if is_archival_node {
+            tracing::debug!("Configuring node {} as archival node", i);
+            config.archive = true;
+            // Configure the cold-store for the archival node.
+            config.cold_store.get_or_insert(config.store.clone()).path =
+                Some(PathBuf::from("cold-store"));
+            config
+                .split_storage
+                .get_or_insert(Default::default())
+                .enable_split_storage_view_client = true;
+            config.save_trie_changes = Some(true);
+        }
+        let is_rpc_node = rpc_nodes.contains(&i);
+        if is_rpc_node {
+            tracing::debug!("Configuring node {} as RPC node", i);
+            // NOTE: config.rpc.enable_debug_rpc is enabled by default for all nodes above.
+        }
+
+        // Make archival and RPC nodes that are non-validators to track all shards.
+        // Note that validator nodes may track all or some of the shards.
+        let is_validator = i < num_validator_seats as usize;
+        config.tracked_shards = if (is_archival_node || is_rpc_node) && !is_validator {
+            (0..num_shards).collect()
+        } else {
+            tracked_shards.clone()
+        };
+
         config.consensus.min_num_peers =
             std::cmp::min(num_validator_seats as usize - 1, config.consensus.min_num_peers);
         configs.push(config);
@@ -1082,7 +1113,8 @@ pub fn create_testnet_configs(
     num_non_validator_seats: NumSeats,
     prefix: &str,
     local_ports: bool,
-    archive: bool,
+    archival_nodes: HashSet<usize>,
+    rpc_nodes: HashSet<usize>,
     tracked_shards: Vec<u64>,
 ) -> (Vec<Config>, Vec<ValidatorSigner>, Vec<InMemorySigner>, Genesis, Vec<InMemorySigner>) {
     let shard_keys = vec![];
@@ -1091,9 +1123,11 @@ pub fn create_testnet_configs(
             .map(|i| format!("{}{}", prefix, i))
             .collect::<Vec<_>>(),
         num_shards,
+        num_validator_seats,
         num_non_validator_seats,
         local_ports,
-        archive,
+        archival_nodes,
+        rpc_nodes,
         tracked_shards,
     );
 
@@ -1107,7 +1141,8 @@ pub fn init_testnet_configs(
     num_non_validator_seats: NumSeats,
     prefix: &str,
     local_ports: bool,
-    archive: bool,
+    archival_nodes: HashSet<usize>,
+    rpc_nodes: HashSet<usize>,
     tracked_shards: Vec<u64>,
 ) {
     let (configs, validator_signers, network_signers, genesis, shard_keys) = create_testnet_configs(
@@ -1116,7 +1151,8 @@ pub fn init_testnet_configs(
         num_non_validator_seats,
         prefix,
         local_ports,
-        archive,
+        archival_nodes,
+        rpc_nodes,
         tracked_shards,
     );
     let log_config = LogConfig::default();
