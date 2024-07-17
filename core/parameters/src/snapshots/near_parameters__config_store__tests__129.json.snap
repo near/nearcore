@@ -186,7 +186,7 @@ expression: config_view
     "ed25519_verify": true,
     "alt_bn128": true,
     "function_call_weight": true,
-    "eth_implicit_accounts": false,
+    "eth_implicit_accounts": true,
     "yield_resume_host_functions": true,
     "limit_config": {
       "max_gas_burnt": 300000000000000,

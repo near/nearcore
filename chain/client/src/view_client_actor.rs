@@ -129,6 +129,7 @@ impl ViewClientActorInner {
         config: ClientConfig,
         adv: crate::adversarial::Controls,
     ) -> Addr<ViewClientActor> {
+        let request_manager = Arc::new(RwLock::new(ViewClientRequestManager::new()));
         SyncArbiter::start(config.view_client_threads, move || {
             // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
             let chain = Chain::new_for_view_client(
@@ -152,7 +153,7 @@ impl ViewClientActorInner {
                 runtime: runtime.clone(),
                 network_adapter: network_adapter.clone(),
                 config: config.clone(),
-                request_manager: Arc::new(RwLock::new(ViewClientRequestManager::new())),
+                request_manager: request_manager.clone(),
                 state_request_cache: Arc::new(Mutex::new(VecDeque::default())),
             };
             SyncActixWrapper::new(view_client_actor)
@@ -1216,11 +1217,17 @@ impl Handler<TxStatusRequest> for ViewClientActorInner {
 impl Handler<TxStatusResponse> for ViewClientActorInner {
     #[perf]
     fn handle(&mut self, msg: TxStatusResponse) {
-        tracing::debug!(target: "client", ?msg);
+        let TxStatusResponse(tx_result) = msg;
+        tracing::debug!(
+            target: "client",
+            tx_hash = %tx_result.transaction.hash, status = ?tx_result.status,
+            tx_outcome_status = ?tx_result.transaction_outcome.outcome.status,
+            num_receipt_outcomes = tx_result.receipts_outcome.len(),
+            "receive TxStatusResponse"
+        );
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["TxStatusResponse"])
             .start_timer();
-        let TxStatusResponse(tx_result) = msg;
         let tx_hash = tx_result.transaction_outcome.id;
         let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
         if request_manager.tx_status_requests.pop(&tx_hash).is_some() {

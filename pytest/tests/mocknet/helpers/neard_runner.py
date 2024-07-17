@@ -1210,7 +1210,7 @@ class NeardRunner:
         # Binaries can be replaced during a test.
         # Save the binary that was used to make the backup to prevent db version incompatibility when restoring the backup.
         neard_path = os.path.join(backup_dir, "neard")
-        shutil.copyfile(self.data['current_neard_path'], neard_path)
+        shutil.copy2(self.data['current_neard_path'], neard_path)
 
         backups = self.data.get('backups', {})
         if name in backups:
