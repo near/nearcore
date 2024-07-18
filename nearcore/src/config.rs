@@ -1062,33 +1062,11 @@ pub fn create_localnet_configs_from_seeds(
     );
     let mut configs = vec![];
 
-<<<<<<< HEAD
     // We assign the seeds to the nodes in the following order:
     // 1. Validators (num_validators)
     // 2. Non-validator archival nodes (num_non_validators_archival)
     // 3. Non-validator RPC nodes (num_non_validators_rpc)
     // 4. Non-validator nodes (num_non_validators)
-=======
-        // Configure archival and RPC nodes.
-        let is_archival_node = archival_nodes.contains(&i);
-        if is_archival_node {
-            tracing::debug!("Configuring node {} as archival node", i);
-            config.archive = true;
-            // Configure the cold-store for the archival node.
-            config.cold_store.get_or_insert(config.store.clone()).path =
-                Some(PathBuf::from("cold-data"));
-            config
-                .split_storage
-                .get_or_insert(Default::default())
-                .enable_split_storage_view_client = true;
-            config.save_trie_changes = Some(true);
-        }
-        let is_rpc_node = rpc_nodes.contains(&i);
-        if is_rpc_node {
-            tracing::debug!("Configuring node {} as RPC node", i);
-            // NOTE: config.rpc.enable_debug_rpc is enabled by default for all nodes above.
-        }
->>>>>>> a28f5be414e4a9194ddb139091fa5e7fcc8320e8
 
     // We use the first validator node as the boot node.
     assert!(num_validators > 0, "No validators were added");
@@ -1753,12 +1731,8 @@ mod tests {
         let num_non_validators = 2;
         let prefix = "node";
 
-<<<<<<< HEAD
         // Validators will track 2 shards and non-validators will track all shards.
         let tracked_shards: Vec<u64> = vec![1, 3];
-=======
-        let empty_tracked_shards: Vec<u64> = vec![];
->>>>>>> a28f5be414e4a9194ddb139091fa5e7fcc8320e8
 
         let (configs, _validator_signers, _network_signers, genesis, _shard_keys) =
             create_localnet_configs(
@@ -1768,14 +1742,7 @@ mod tests {
                 num_non_validators_rpc,
                 num_non_validators,
                 prefix,
-<<<<<<< HEAD
                 tracked_shards.clone(),
-=======
-                local_ports,
-                HashSet::new(),
-                HashSet::new(),
-                empty_tracked_shards.clone(),
->>>>>>> a28f5be414e4a9194ddb139091fa5e7fcc8320e8
             );
         assert_eq!(
             configs.len() as u64,
@@ -1789,56 +1756,12 @@ mod tests {
         for i in 0..4 {
             let config = &configs[i];
             assert_eq!(config.archive, false);
-<<<<<<< HEAD
             assert!(config.cold_store.is_none());
             assert!(config.split_storage.is_none());
             assert_eq!(config.tracked_shards, tracked_shards);
         }
 
         // Check non-validator archival nodes.
-=======
-            assert_eq!(config.tracked_shards, empty_tracked_shards);
-        }
-
-        assert_eq!(genesis.config.validators.len() as u64, num_shards);
-        assert_eq!(genesis.config.shard_layout.shard_ids().count() as NumShards, num_shards);
-    }
-
-    #[test]
-    fn test_create_testnet_configs_with_archival_and_rpc_nodes() {
-        let num_shards = 4;
-        let num_validator_seats = 4;
-        let num_non_validator_seats = 4;
-        let prefix = "node";
-        let local_ports = true;
-
-        // Validators will track single shard but archival and RPC nodes will track all shards.
-        let empty_tracked_shards: Vec<u64> = vec![];
-
-        let (configs, _validator_signers, _network_signers, genesis, _shard_keys) =
-            create_testnet_configs(
-                num_shards,
-                num_validator_seats,
-                num_non_validator_seats,
-                prefix,
-                local_ports,
-                (4..6).collect(),
-                (6..8).collect(),
-                empty_tracked_shards.clone(),
-            );
-        assert_eq!(configs.len() as u64, num_validator_seats + num_non_validator_seats);
-
-        // Check validator nodes.
-        for i in 0..4 {
-            let config = &configs[i];
-            assert_eq!(config.archive, false);
-            assert!(config.cold_store.is_none());
-            assert!(config.split_storage.is_none());
-            assert_eq!(config.tracked_shards, empty_tracked_shards);
-        }
-
-        // Check archival nodes.
->>>>>>> a28f5be414e4a9194ddb139091fa5e7fcc8320e8
         for i in 4..6 {
             let config = &configs[i];
             assert_eq!(config.archive, true);
@@ -1854,18 +1777,13 @@ mod tests {
             assert_eq!(config.tracked_shards, (0..num_shards).collect::<Vec<_>>());
         }
 
-<<<<<<< HEAD
         // Check non-validator RPC nodes.
-=======
-        // Check RPC nodes.
->>>>>>> a28f5be414e4a9194ddb139091fa5e7fcc8320e8
         for i in 6..8 {
             let config = &configs[i];
             assert_eq!(config.archive, false);
             assert!(config.cold_store.is_none());
             assert!(config.split_storage.is_none());
             assert_eq!(config.tracked_shards, (0..num_shards).collect::<Vec<_>>());
-<<<<<<< HEAD
         }
 
         // Check other non-validator nodes.
@@ -1875,8 +1793,6 @@ mod tests {
             assert!(config.cold_store.is_none());
             assert!(config.split_storage.is_none());
             assert_eq!(config.tracked_shards, tracked_shards);
-=======
->>>>>>> a28f5be414e4a9194ddb139091fa5e7fcc8320e8
         }
 
         assert_eq!(genesis.config.validators.len() as u64, num_shards);
