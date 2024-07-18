@@ -746,14 +746,14 @@ pub struct ViewGenesisCmd {
     /// If true, displays the genesis block built from nearcore code that combines the
     /// contents of the genesis config (JSON) file with some hard-coded logic to set some
     /// fields of the genesis block. At any given time, the block built this way should match
-    /// the genesis block recorded in the store (to be displayed with the --view-store option).
+    /// the genesis block recorded in the store (to be displayed with the --store option).
     #[clap(long)]
-    view_config: bool,
+    config: bool,
     /// If true, displays the genesis block saved in the store, when the genesis block is built
     /// for the first time. At any given time, this saved block should match the genesis block
-    /// built by the code (to be displayed with the --view-config option).
+    /// built by the code (to be displayed with the --config option).
     #[clap(long)]
-    view_store: bool,
+    store: bool,
     /// If true, compares the contents of the genesis block saved in the store with
     /// the genesis block built from the genesis config (JSON) file.
     #[clap(long, default_value = "false")]
@@ -762,7 +762,7 @@ pub struct ViewGenesisCmd {
 
 impl ViewGenesisCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
-        view_genesis(home_dir, near_config, store, self.view_config, self.view_store, self.compare);
+        view_genesis(home_dir, near_config, store, self.config, self.store, self.compare);
     }
 }
 
