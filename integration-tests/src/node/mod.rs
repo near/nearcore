@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::RwLock;
 
@@ -17,7 +16,7 @@ use near_primitives::types::{AccountId, Balance, NumSeats};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::views::AccountView;
 use near_vm_runner::ContractCode;
-use nearcore::config::{create_testnet_configs, create_testnet_configs_from_seeds, Config};
+use nearcore::config::{create_localnet_configs, create_localnet_configs_from_seeds, Config};
 use nearcore::NearConfig;
 use testlib::runtime_utils::{alice_account, bob_account};
 
@@ -147,30 +146,21 @@ fn near_configs_to_node_configs(
 }
 
 pub fn create_nodes(num_nodes: usize, prefix: &str) -> Vec<NodeConfig> {
-    let (configs, validator_signers, network_signers, genesis, _) = create_testnet_configs(
-        1,
-        num_nodes as NumSeats,
-        0,
-        prefix,
-        true,
-        HashSet::new(),
-        HashSet::new(),
-        vec![],
-    );
+    let (configs, validator_signers, network_signers, genesis, _) =
+        create_localnet_configs(1, num_nodes as NumSeats, 0, 0, 0, prefix, vec![]);
     near_configs_to_node_configs(configs, validator_signers, network_signers, genesis)
 }
 
 pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
     let code = near_test_contracts::rs_contract();
     let (configs, validator_signers, network_signers, mut genesis) =
-        create_testnet_configs_from_seeds(
+        create_localnet_configs_from_seeds(
             seeds.clone(),
             1,
             seeds.len() as NumSeats,
             0,
-            true,
-            HashSet::new(),
-            HashSet::new(),
+            0,
+            0,
             vec![],
         );
     genesis.config.gas_price_adjustment_rate = Ratio::from_integer(0);
