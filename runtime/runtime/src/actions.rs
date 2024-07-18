@@ -192,16 +192,15 @@ pub(crate) fn action_function_call(
     state_update: &mut TrieUpdate,
     apply_state: &ApplyState,
     account: &mut Account,
-    receipt: &Receipt,
     action_receipt: &ActionReceipt,
-    promise_results: Arc<[PromiseResult]>,
     result: &mut ActionResult,
     account_id: &AccountId,
     function_call: &FunctionCallAction,
     action_hash: &CryptoHash,
     config: &RuntimeConfig,
-    is_last_action: bool,
     epoch_info_provider: &(dyn EpochInfoProvider),
+    context: VMContext,
+    contract: Box<dyn PreparedContract>,
 ) -> Result<(), RuntimeError> {
     if account.amount().checked_add(function_call.deposit).is_none() {
         return Err(StorageError::StorageInconsistentState(
@@ -213,20 +212,6 @@ pub(crate) fn action_function_call(
     #[cfg(feature = "test_features")]
     apply_recorded_storage_garbage(function_call, state_update);
 
-    let (context, contract) = prepare_function_call(
-        state_update,
-        apply_state,
-        account,
-        receipt,
-        action_receipt,
-        promise_results,
-        account_id,
-        function_call,
-        action_hash,
-        config,
-        is_last_action,
-        epoch_info_provider,
-    );
     let mut receipt_manager = ReceiptManager::default();
     let mut runtime_ext = RuntimeExt::new(
         state_update,

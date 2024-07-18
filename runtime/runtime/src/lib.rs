@@ -434,20 +434,33 @@ impl Runtime {
                 )?;
             }
             Action::FunctionCall(function_call) => {
-                action_function_call(
+                let (context, contract) = prepare_function_call(
                     state_update,
                     apply_state,
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     receipt,
                     action_receipt,
-                    promise_results,
-                    &mut result,
+                    Arc::clone(&promise_results),
                     account_id,
                     function_call,
                     action_hash,
                     &apply_state.config,
                     action_index + 1 == actions.len(),
                     epoch_info_provider,
+                );
+                action_function_call(
+                    state_update,
+                    apply_state,
+                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
+                    action_receipt,
+                    &mut result,
+                    account_id,
+                    function_call,
+                    action_hash,
+                    &apply_state.config,
+                    epoch_info_provider,
+                    context,
+                    contract,
                 )?;
             }
             Action::Transfer(TransferAction { deposit }) => {
