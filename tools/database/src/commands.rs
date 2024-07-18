@@ -1,3 +1,4 @@
+use crate::accounts_iter::AccountsIterCommand;
 use crate::adjust_database::ChangeDbKindCommand;
 use crate::analyse_data_size_distribution::AnalyseDataSizeDistributionCommand;
 use crate::analyse_gas_usage::AnalyseGasUsageCommand;
@@ -59,6 +60,7 @@ enum SubCommand {
     AnalyzeDelayedReceipt(AnalyzeDelayedReceiptCommand),
     /// Analyze size of contracts present in the current state
     AnalyzeContractSizes(AnalyzeContractSizesCommand),
+    AccountsIter(AccountsIterCommand)
 }
 
 impl DatabaseCommand {
@@ -84,6 +86,7 @@ impl DatabaseCommand {
             SubCommand::HighLoadStats(cmd) => cmd.run(home),
             SubCommand::AnalyzeDelayedReceipt(cmd) => cmd.run(home),
             SubCommand::AnalyzeContractSizes(cmd) => cmd.run(home),
+            SubCommand::AccountsIter(cmd) => cmd.run(home),
         }
     }
 }

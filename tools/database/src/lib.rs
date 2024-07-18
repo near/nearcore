@@ -4,6 +4,7 @@ mod analyse_gas_usage;
 mod analyse_high_load;
 mod analyze_contract_sizes;
 mod analyze_delayed_receipt;
+mod accounts_iter;
 mod block_iterators;
 pub mod commands;
 mod compact;
