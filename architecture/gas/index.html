@@ -262,7 +262,7 @@ work. Notably, we charge that extra work even if the accounts are on the same
 shard. In terms of gas costs, each account is conceptually its own shard. This
 makes dynamic resharding possible without user-observable impact.</p>
 <p>When the send step is performed, the minimum required gas to start execution of
-that action is known. Thus, if the receipt has not enough gas, it can be aborted
+that action is known. Thus, if the receipt does not have enough gas, it can be aborted
 instead of forwarding it. Here we have to introduce the concept of used gas.</p>
 <p><code>gas_used</code> is different from <code>gas_burnt</code>. The former includes the gas that needs
 to be reserved for the execution step whereas the latter only includes the gas
@@ -288,7 +288,7 @@ costs of a transaction are tracked in nearcore.</p>
 smart contract) are charged only at the receiver. Thus, they have only one value
 to define them, in contrast to action costs.</p>
 <p>The most fundamental dynamic gas cost is <code>wasm_regular_op_cost</code>. It is
-multiplied with the exact number of WASM operations executed. You can read about
+multiplied by the exact number of WASM operations executed. You can read about
 <a href="https://nomicon.io/RuntimeSpec/Preparation#gas-instrumentation">Gas Instrumentation</a>
 if you are curious how we count WASM ops.</p>
 <p>Currently, all operations are charged the same, although it could be more

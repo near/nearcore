@@ -199,10 +199,10 @@ be needed in next epoch (X+2).</p>
 <p>The state sync of the parent shard, the resharing and the catchup of the children shards must all complete within a single epoch. </p>
 <h2 id="rollout"><a class="header" href="#rollout">Rollout</a></h2>
 <h3 id="flow"><a class="header" href="#flow">Flow</a></h3>
-<p>The resharding will be initiated by having it included in a dedicated protocol version together with neard . Here is the expected flow of events:</p>
+<p>The resharding will be initiated by having it included in a dedicated protocol version together with neard. Here is the expected flow of events:</p>
 <ul>
 <li>A new neard release is published and protocol version upgrade date is set to D, roughly a week from the release. </li>
-<li>All node operatores upgrade their binaries to the newly released version within the given timeframe, ideally as soon as possible but no later than D. </li>
+<li>All node operators upgrade their binaries to the newly released version within the given timeframe, ideally as soon as possible but no later than D. </li>
 <li>The protocol version upgrade voting takes place at D in an epoch E and nodes vote in favour of switching to the new protocol version in epoch E+2. </li>
 <li>The resharding begins at the beginning of epoch E+1. </li>
 <li>The network switches to the new shard layout in the first block of epoch E+2. </li>
@@ -250,8 +250,8 @@ be needed in next epoch (X+2).</p>
 <h3 id="throttling"><a class="header" href="#throttling">Throttling</a></h3>
 <p>The resharding process can be quite resource intensive and affect the regular operation of a node. In order to mitigate that as well as limit any need for increasing hardware specifications of the nodes throttling was added. Throttling slows down resharding to not have it impact other node operations. Throttling can be configured by adjusting the resharding_config in the node config file. </p>
 <ul>
-<li>batch_size - controls the size of batches in which resharding moves data around. Setting a smaller batch size will slow down the resharding process and make it less resource consuming.</li>
-<li>batch_delay - controls the delay between processing of batches. Setting a smaller batch delay will speed up the resharding process and make it more resource consuming. </li>
+<li>batch_size - controls the size of batches in which resharding moves data around. Setting a smaller batch size will slow down the resharding process and make it less resource-consuming.</li>
+<li>batch_delay - controls the delay between processing of batches. Setting a smaller batch delay will speed up the resharding process and make it more resource-consuming. </li>
 </ul>
 <p>The remaining fields in the ReshardingConfig are only intended for testing purposes and should remain set to their default values. </p>
 <p>The default configuration for ReshardingConfig should provide a good and safe setting for resharding in the production networks. There is no need for node operators to make any changes to it unless they observe issues. </p>
@@ -264,7 +264,7 @@ be needed in next epoch (X+2).</p>
 <p>The current implementation relies on having the shard layout determined offline and manually added to the node implementation. </p>
 <p>The dynamic resharding would mean that the network itself can automatically determine that resharding is needed, what should be the new shard layout and schedule the resharding.</p>
 <h3 id="support-different-changes-to-shard-layout"><a class="header" href="#support-different-changes-to-shard-layout">Support different changes to shard layout</a></h3>
-<p>The current implementation only supports splitting a shard. In the future we can consider adding support of other operations such as merging two shards or moving an existing boundary account. </p>
+<p>The current implementation only supports splitting a shard. In the future we can consider adding support for other operations such as merging two shards or moving an existing boundary account. </p>
 
                     </main>
 

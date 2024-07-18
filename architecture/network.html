@@ -511,7 +511,7 @@ validation in <code>EdgeVerifierActor</code>.</li>
 <p>This section describes different protocols of sending messages currently used in
 <code>Near</code>.</p>
 <h2 id="101-messages-between-actors"><a class="header" href="#101-messages-between-actors">10.1 Messages between Actors.</a></h2>
-<p><code>Near</code> is build on <code>Actix</code>'s <code>actor</code>
+<p><code>Near</code> is built on <code>Actix</code>'s <code>actor</code>
 <a href="https://actix.rs/docs/actix/actor">framework</a>. Usually each actor
 runs on its own dedicated thread. Some, like <code>PeerActor</code> have one thread per
 each instance. Only messages implementing <code>actix::Message</code>, can be sent
@@ -543,7 +543,7 @@ and convert into RoutedMessage (which also have things like TTL etc.).</p>
 <a href="#8-adding-new-edges-to-routing-tables">section 8</a>. </p>
 <p>When Peer receives this message (as <code>PeerMessage::Routed</code>), it will pass it to
 PeerManager (as <code>RoutedMessageFrom</code>), which would then check if the message is
-for the current <code>PeerActor</code>. (if yes, it would pass it for the client) and if
+for the current <code>PeerActor</code>. (if yes, it would pass it to the client) and if
 not - it would pass it along the network.</p>
 <p>All these messages are handled by <code>receive_client_message</code> in Peer.
 (<code>NetworkClientMessages</code>) - and transferred to <code>ClientActor</code> in

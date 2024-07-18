@@ -453,7 +453,7 @@ should be routed to <code>ClientActor</code> or <code>ViewClientActor</code>.</p
 <li>
 <p><code>ClientActor</code> - Client actor is the “core” of neard. It contains all the main
 logic including consensus, block and chunk processing, state transition, garbage
-collection, etc. Client actor is single threaded.</p>
+collection, etc. Client actor is single-threaded.</p>
 </li>
 <li>
 <p><code>ViewClientActor</code> - View client actor can be thought of as a read-only interface
@@ -490,7 +490,7 @@ chunks for all shards, it will request them from peers by parts.</li>
 <li>The chunk requests are sent and the node waits for enough chunk parts to be
 received to reconstruct the chunks. For each chunk, 1/3 of all the parts<!-- TODO: Is 100 the number of all the parts or one third of all the parts? -->
 (100) is sufficient to reconstruct a chunk. If new blocks arrive while waiting
-for chunk parts, they will be put into a <code>OrphanPool</code>, waiting to be processed.
+for chunk parts, they will be put into an <code>OrphanPool</code>, waiting to be processed.
 If a chunk part request is not responded to within <code>chunk_request_retry_period</code>,
 which is set to 400ms by default, then a request for the same chunk part
 would be sent again.</li>
@@ -1026,7 +1026,7 @@ producer’s mempool.</p>
 <p>In this article, we’ll cover what happens next:
 How it is changed into a receipt and executed, potentially creating even
 more receipts in the process.</p>
-<p>First, let’s look at the ‘high level view’:</p>
+<p>First, let’s look at the ‘high-level view’:</p>
 <p><img src="https://user-images.githubusercontent.com/1711539/198282472-3883dcc1-77ca-452c-b21e-0a7af1435ede.png" alt="image" /></p>
 <h2 id="transaction-vs-receipt"><a class="header" href="#transaction-vs-receipt">Transaction vs Receipt</a></h2>
 <p>As you can see from the image above:</p>
@@ -1035,7 +1035,7 @@ outside.</p>
 <p><strong>Receipts</strong> are used for ‘internal’ communication (cross shard, cross
 contract) - they are created by the block/chunk producers.</p>
 <h2 id="life-of-a-transaction"><a class="header" href="#life-of-a-transaction">Life of a Transaction</a></h2>
-<p>If we ‘zoom-in', the chunk producer's work looks like this:</p>
+<p>If we ‘zoom-in‘, the chunk producer's work looks like this:</p>
 <p><img src="https://user-images.githubusercontent.com/1711539/198282518-cdeb375e-8f1c-4634-842c-6490020ad9c0.png" alt="image" /></p>
 <h3 id="step-1-process-transaction-into-receipt"><a class="header" href="#step-1-process-transaction-into-receipt">Step 1: Process Transaction into receipt</a></h3>
 <p>Once a chunk producer is ready to produce a chunk, it will fetch the
@@ -2389,10 +2389,10 @@ be needed in next epoch (X+2).</p>
 <p>The state sync of the parent shard, the resharing and the catchup of the children shards must all complete within a single epoch. </p>
 <h2 id="rollout"><a class="header" href="#rollout">Rollout</a></h2>
 <h3 id="flow"><a class="header" href="#flow">Flow</a></h3>
-<p>The resharding will be initiated by having it included in a dedicated protocol version together with neard . Here is the expected flow of events:</p>
+<p>The resharding will be initiated by having it included in a dedicated protocol version together with neard. Here is the expected flow of events:</p>
 <ul>
 <li>A new neard release is published and protocol version upgrade date is set to D, roughly a week from the release. </li>
-<li>All node operatores upgrade their binaries to the newly released version within the given timeframe, ideally as soon as possible but no later than D. </li>
+<li>All node operators upgrade their binaries to the newly released version within the given timeframe, ideally as soon as possible but no later than D. </li>
 <li>The protocol version upgrade voting takes place at D in an epoch E and nodes vote in favour of switching to the new protocol version in epoch E+2. </li>
 <li>The resharding begins at the beginning of epoch E+1. </li>
 <li>The network switches to the new shard layout in the first block of epoch E+2. </li>
@@ -2440,8 +2440,8 @@ be needed in next epoch (X+2).</p>
 <h3 id="throttling"><a class="header" href="#throttling">Throttling</a></h3>
 <p>The resharding process can be quite resource intensive and affect the regular operation of a node. In order to mitigate that as well as limit any need for increasing hardware specifications of the nodes throttling was added. Throttling slows down resharding to not have it impact other node operations. Throttling can be configured by adjusting the resharding_config in the node config file. </p>
 <ul>
-<li>batch_size - controls the size of batches in which resharding moves data around. Setting a smaller batch size will slow down the resharding process and make it less resource consuming.</li>
-<li>batch_delay - controls the delay between processing of batches. Setting a smaller batch delay will speed up the resharding process and make it more resource consuming. </li>
+<li>batch_size - controls the size of batches in which resharding moves data around. Setting a smaller batch size will slow down the resharding process and make it less resource-consuming.</li>
+<li>batch_delay - controls the delay between processing of batches. Setting a smaller batch delay will speed up the resharding process and make it more resource-consuming. </li>
 </ul>
 <p>The remaining fields in the ReshardingConfig are only intended for testing purposes and should remain set to their default values. </p>
 <p>The default configuration for ReshardingConfig should provide a good and safe setting for resharding in the production networks. There is no need for node operators to make any changes to it unless they observe issues. </p>
@@ -2454,7 +2454,7 @@ be needed in next epoch (X+2).</p>
 <p>The current implementation relies on having the shard layout determined offline and manually added to the node implementation. </p>
 <p>The dynamic resharding would mean that the network itself can automatically determine that resharding is needed, what should be the new shard layout and schedule the resharding.</p>
 <h3 id="support-different-changes-to-shard-layout"><a class="header" href="#support-different-changes-to-shard-layout">Support different changes to shard layout</a></h3>
-<p>The current implementation only supports splitting a shard. In the future we can consider adding support of other operations such as merging two shards or moving an existing boundary account. </p>
+<p>The current implementation only supports splitting a shard. In the future we can consider adding support for other operations such as merging two shards or moving an existing boundary account. </p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="how-neard-will-work"><a class="header" href="#how-neard-will-work">How neard will work</a></h1>
 <p>The documents under this chapter are talking about the future of NEAR - what we're planning on improving and how.</p>
 <p>(This also means that they can get out of date quickly :-).</p>
@@ -2838,7 +2838,7 @@ paves the way for further improvements, as we have now a good understanding of
 all these seemingly-simple but actually-really-hard problems.</p>
 <h2 id="flat-state-for-writes"><a class="header" href="#flat-state-for-writes">Flat state for writes</a></h2>
 <p>How to use flat storage for writes is not fully designed, yet, but we have some
-rough ideas how to do it. But we don't know the performance we should expect.
+rough ideas on how to do it. But we don't know the performance we should expect.
 Algorithmically, it can only get worse but the speedup on RocksDB we found with
 the read-only flat storage is promising. But one has to wonder if there are not
 also simpler ways to achieve better data locality in RocksDB.</p>
@@ -2868,7 +2868,7 @@ shard for some set of blocks. It is shared by multiple threads, so it is guarded
 <li>View client (not fully decided)</li>
 </ul>
 <p>Requires ChainAccessForFlatStorage on creation because it needs to know the tree of blocks after
-the flat storage head, to support get queries correctly.</p>
+the flat storage head, to support getting queries correctly.</p>
 <h2 id="flatstoragemanager"><a class="header" href="#flatstoragemanager">FlatStorageManager</a></h2>
 <p>It holds all FlatStorages which NightshadeRuntime knows about and:</p>
 <ul>
@@ -3266,7 +3266,7 @@ validation in <code>EdgeVerifierActor</code>.</li>
 <p>This section describes different protocols of sending messages currently used in
 <code>Near</code>.</p>
 <h2 id="101-messages-between-actors"><a class="header" href="#101-messages-between-actors">10.1 Messages between Actors.</a></h2>
-<p><code>Near</code> is build on <code>Actix</code>'s <code>actor</code>
+<p><code>Near</code> is built on <code>Actix</code>'s <code>actor</code>
 <a href="https://actix.rs/docs/actix/actor">framework</a>. Usually each actor
 runs on its own dedicated thread. Some, like <code>PeerActor</code> have one thread per
 each instance. Only messages implementing <code>actix::Message</code>, can be sent
@@ -3298,7 +3298,7 @@ and convert into RoutedMessage (which also have things like TTL etc.).</p>
 <a href="architecture/network.html#8-adding-new-edges-to-routing-tables">section 8</a>. </p>
 <p>When Peer receives this message (as <code>PeerMessage::Routed</code>), it will pass it to
 PeerManager (as <code>RoutedMessageFrom</code>), which would then check if the message is
-for the current <code>PeerActor</code>. (if yes, it would pass it for the client) and if
+for the current <code>PeerActor</code>. (if yes, it would pass it to the client) and if
 not - it would pass it along the network.</p>
 <p>All these messages are handled by <code>receive_client_message</code> in Peer.
 (<code>NetworkClientMessages</code>) - and transferred to <code>ClientActor</code> in
@@ -3450,7 +3450,7 @@ work. Notably, we charge that extra work even if the accounts are on the same
 shard. In terms of gas costs, each account is conceptually its own shard. This
 makes dynamic resharding possible without user-observable impact.</p>
 <p>When the send step is performed, the minimum required gas to start execution of
-that action is known. Thus, if the receipt has not enough gas, it can be aborted
+that action is known. Thus, if the receipt does not have enough gas, it can be aborted
 instead of forwarding it. Here we have to introduce the concept of used gas.</p>
 <p><code>gas_used</code> is different from <code>gas_burnt</code>. The former includes the gas that needs
 to be reserved for the execution step whereas the latter only includes the gas
@@ -3476,7 +3476,7 @@ costs of a transaction are tracked in nearcore.</p>
 smart contract) are charged only at the receiver. Thus, they have only one value
 to define them, in contrast to action costs.</p>
 <p>The most fundamental dynamic gas cost is <code>wasm_regular_op_cost</code>. It is
-multiplied with the exact number of WASM operations executed. You can read about
+multiplied by the exact number of WASM operations executed. You can read about
 <a href="https://nomicon.io/RuntimeSpec/Preparation#gas-instrumentation">Gas Instrumentation</a>
 if you are curious how we count WASM ops.</p>
 <p>Currently, all operations are charged the same, although it could be more

@@ -251,7 +251,7 @@ paves the way for further improvements, as we have now a good understanding of
 all these seemingly-simple but actually-really-hard problems.</p>
 <h2 id="flat-state-for-writes"><a class="header" href="#flat-state-for-writes">Flat state for writes</a></h2>
 <p>How to use flat storage for writes is not fully designed, yet, but we have some
-rough ideas how to do it. But we don't know the performance we should expect.
+rough ideas on how to do it. But we don't know the performance we should expect.
 Algorithmically, it can only get worse but the speedup on RocksDB we found with
 the read-only flat storage is promising. But one has to wonder if there are not
 also simpler ways to achieve better data locality in RocksDB.</p>
@@ -281,7 +281,7 @@ shard for some set of blocks. It is shared by multiple threads, so it is guarded
 <li>View client (not fully decided)</li>
 </ul>
 <p>Requires ChainAccessForFlatStorage on creation because it needs to know the tree of blocks after
-the flat storage head, to support get queries correctly.</p>
+the flat storage head, to support getting queries correctly.</p>
 <h2 id="flatstoragemanager"><a class="header" href="#flatstoragemanager">FlatStorageManager</a></h2>
 <p>It holds all FlatStorages which NightshadeRuntime knows about and:</p>
 <ul>

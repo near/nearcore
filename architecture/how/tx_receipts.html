@@ -147,7 +147,7 @@ producer’s mempool.</p>
 <p>In this article, we’ll cover what happens next:
 How it is changed into a receipt and executed, potentially creating even
 more receipts in the process.</p>
-<p>First, let’s look at the ‘high level view’:</p>
+<p>First, let’s look at the ‘high-level view’:</p>
 <p><img src="https://user-images.githubusercontent.com/1711539/198282472-3883dcc1-77ca-452c-b21e-0a7af1435ede.png" alt="image" /></p>
 <h2 id="transaction-vs-receipt"><a class="header" href="#transaction-vs-receipt">Transaction vs Receipt</a></h2>
 <p>As you can see from the image above:</p>
@@ -156,7 +156,7 @@ outside.</p>
 <p><strong>Receipts</strong> are used for ‘internal’ communication (cross shard, cross
 contract) - they are created by the block/chunk producers.</p>
 <h2 id="life-of-a-transaction"><a class="header" href="#life-of-a-transaction">Life of a Transaction</a></h2>
-<p>If we ‘zoom-in', the chunk producer's work looks like this:</p>
+<p>If we ‘zoom-in‘, the chunk producer's work looks like this:</p>
 <p><img src="https://user-images.githubusercontent.com/1711539/198282518-cdeb375e-8f1c-4634-842c-6490020ad9c0.png" alt="image" /></p>
 <h3 id="step-1-process-transaction-into-receipt"><a class="header" href="#step-1-process-transaction-into-receipt">Step 1: Process Transaction into receipt</a></h3>
 <p>Once a chunk producer is ready to produce a chunk, it will fetch the

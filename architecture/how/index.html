@@ -176,7 +176,7 @@ should be routed to <code>ClientActor</code> or <code>ViewClientActor</code>.</p
 <li>
 <p><code>ClientActor</code> - Client actor is the “core” of neard. It contains all the main
 logic including consensus, block and chunk processing, state transition, garbage
-collection, etc. Client actor is single threaded.</p>
+collection, etc. Client actor is single-threaded.</p>
 </li>
 <li>
 <p><code>ViewClientActor</code> - View client actor can be thought of as a read-only interface
@@ -213,7 +213,7 @@ chunks for all shards, it will request them from peers by parts.</li>
 <li>The chunk requests are sent and the node waits for enough chunk parts to be
 received to reconstruct the chunks. For each chunk, 1/3 of all the parts<!-- TODO: Is 100 the number of all the parts or one third of all the parts? -->
 (100) is sufficient to reconstruct a chunk. If new blocks arrive while waiting
-for chunk parts, they will be put into a <code>OrphanPool</code>, waiting to be processed.
+for chunk parts, they will be put into an <code>OrphanPool</code>, waiting to be processed.
 If a chunk part request is not responded to within <code>chunk_request_retry_period</code>,
 which is set to 400ms by default, then a request for the same chunk part
 would be sent again.</li>
