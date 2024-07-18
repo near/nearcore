@@ -149,31 +149,40 @@ pub(crate) fn apply_block_at_height(
     storage: StorageSource,
     home_dir: &Path,
     near_config: NearConfig,
-    store: Store,
+    read_store: Store,
+    write_store: Option<Store>,
 ) -> anyhow::Result<()> {
-    let mut chain_store = ChainStore::new(
-        store.clone(),
+    let mut read_chain_store = ChainStore::new(
+        read_store.clone(),
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
     );
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(read_store.clone(), &near_config.genesis.config);
     let runtime =
-        NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())
+        NightshadeRuntime::from_config(home_dir, read_store, &near_config, epoch_manager.clone())
             .context("could not create the transaction runtime")?;
-    let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
+    let block_hash = read_chain_store.get_block_hash_by_height(height).unwrap();
     let (block, apply_result) = apply_block(
         block_hash,
         shard_id,
         epoch_manager.as_ref(),
         runtime.as_ref(),
-        &mut chain_store,
+        &mut read_chain_store,
         storage,
     );
     check_apply_block_result(
         &block,
         &apply_result,
         epoch_manager.as_ref(),
-        &mut chain_store,
+        &mut read_chain_store,
+        shard_id,
+    )?;
+    maybe_save_trie_changes(
+        write_store,
+        near_config.genesis.config.genesis_height,
+        apply_result,
+        height,
         shard_id,
     )
 }
@@ -234,23 +243,26 @@ pub(crate) fn apply_range(
     csv_file: Option<PathBuf>,
     home_dir: &Path,
     near_config: NearConfig,
-    store: Store,
+    read_store: Store,
+    write_store: Option<Store>,
     only_contracts: bool,
     storage: StorageSource,
 ) {
     let mut csv_file = csv_file.map(|filename| std::fs::File::create(filename).unwrap());
 
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(read_store.clone(), &near_config.genesis.config);
     let runtime = NightshadeRuntime::from_config(
         home_dir,
-        store.clone(),
+        read_store.clone(),
         &near_config,
         epoch_manager.clone(),
     )
     .expect("could not create the transaction runtime");
     apply_chain_range(
         mode,
-        store,
+        read_store,
+        write_store,
         &near_config.genesis,
         start_index,
         end_index,
@@ -1306,6 +1318,24 @@ pub(crate) fn print_state_stats(home_dir: &Path, store: Store, near_config: Near
     for shard_uid in shard_layout.shard_uids() {
         print_state_stats_for_shard_uid(&store, &flat_storage_manager, block_hash, shard_uid);
     }
+}
+
+/// Persists the trie changes expressed by `apply_result` in the given storage.
+pub(crate) fn maybe_save_trie_changes(
+    store: Option<Store>,
+    genesis_height: u64,
+    apply_result: ApplyChunkResult,
+    block_height: u64,
+    shard_id: u64,
+) -> anyhow::Result<()> {
+    if let Some(store) = store {
+        let mut chain_store = ChainStore::new(store, genesis_height, true);
+        let mut chain_store_update = chain_store.store_update();
+        chain_store_update.save_trie_changes(apply_result.trie_changes);
+        chain_store_update.commit()?;
+        println!("Trie changes persisted for block {block_height}, shard {shard_id}");
+    }
+    Ok(())
 }
 
 /// Prints the state statistics for a single shard.
