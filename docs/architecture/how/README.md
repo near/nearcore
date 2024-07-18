@@ -36,7 +36,7 @@ There are several important actors in neard:
 
 * `ClientActor` - Client actor is the “core” of neard. It contains all the main
   logic including consensus, block and chunk processing, state transition, garbage
-  collection, etc. Client actor is single threaded.
+  collection, etc. Client actor is single-threaded.
 
 * `ViewClientActor` - View client actor can be thought of as a read-only interface
   to **client**. It only accesses data stored in a node’s storage and does not mutate
@@ -80,7 +80,7 @@ do today):
    received to reconstruct the chunks. For each chunk, 1/3 of all the parts
    <!-- TODO: Is 100 the number of all the parts or one third of all the parts? -->
    (100) is sufficient to reconstruct a chunk. If new blocks arrive while waiting
-   for chunk parts, they will be put into a `OrphanPool`, waiting to be processed.
+   for chunk parts, they will be put into an `OrphanPool`, waiting to be processed.
    If a chunk part request is not responded to within `chunk_request_retry_period`,
    which is set to 400ms by default, then a request for the same chunk part
    would be sent again.
