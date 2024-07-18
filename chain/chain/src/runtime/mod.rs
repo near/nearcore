@@ -16,7 +16,6 @@ use near_parameters::{ActionCosts, ExtCosts, RuntimeConfig, RuntimeConfigStore};
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::apply::ApplyChunkReason;
-use near_primitives::checked_feature;
 use near_primitives::congestion_info::{
     CongestionControl, ExtendedCongestionInfo, RejectTransactionReason, ShardAcceptsTransactions,
 };
@@ -765,11 +764,10 @@ impl RuntimeAdapter for NightshadeRuntime {
                 storage_config.use_flat_storage,
             ),
         };
-        // We need to start recording reads if the stateless validation is
-        // enabled in the next epoch. We need to save the state transition data
-        // in the current epoch to be able to produce the state witness in the
-        // next epoch.
-        if checked_feature!("stable", StateWitnessSizeLimit, next_protocol_version)
+        // StateWitnessSizeLimit: We need to start recording reads if the stateless validation is
+        // enabled in the next epoch. We need to save the state transition data in the current epoch
+        // to be able to produce the state witness in the next epoch.
+        if ProtocolFeature::StatelessValidation.enabled(next_protocol_version)
             || cfg!(feature = "shadow_chunk_validation")
         {
             trie = trie.recording_reads();
@@ -844,7 +842,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
 
-            if checked_feature!("stable", WitnessTransactionLimits, protocol_version)
+            // Checking feature WitnessTransactionLimits
+            if ProtocolFeature::StatelessValidation.enabled(protocol_version)
                 && state_update.trie.recorded_storage_size()
                     > runtime_config
                         .witness_config
@@ -856,8 +855,8 @@ impl RuntimeAdapter for NightshadeRuntime {
 
             // Take a single transaction from this transaction group
             while let Some(tx_peek) = transaction_group_iter.peek_next() {
-                // Stop adding transactions if the size limit would be exceeded
-                if checked_feature!("stable", WitnessTransactionLimits, protocol_version)
+                // WitnessTransactionLimits: Stop adding transactions if the size limit would be exceeded
+                if ProtocolFeature::StatelessValidation.enabled(protocol_version)
                     && total_size.saturating_add(tx_peek.get_size()) > size_limit as u64
                 {
                     result.limited_by = Some(PrepareTransactionsLimit::Size);
@@ -996,11 +995,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         let next_protocol_version =
             self.epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
 
-        // We need to start recording reads if the stateless validation is
-        // enabled in the next epoch. We need to save the state transition data
-        // in the current epoch to be able to produce the state witness in the
-        // next epoch.
-        if checked_feature!("stable", StateWitnessSizeLimit, next_protocol_version)
+        // StateWitnessSizeLimit: We need to start recording reads if the stateless validation is
+        // enabled in the next epoch. We need to save the state transition data in the current epoch
+        // to be able to produce the state witness in the next epoch.
+        if ProtocolFeature::StatelessValidation.enabled(next_protocol_version)
             || cfg!(feature = "shadow_chunk_validation")
         {
             trie = trie.recording_reads();
@@ -1437,7 +1435,8 @@ fn calculate_transactions_size_limit(
     last_chunk_transactions_size: usize,
     transactions_gas_limit: Gas,
 ) -> u64 {
-    if checked_feature!("stable", WitnessTransactionLimits, protocol_version) {
+    // Checking feature WitnessTransactionLimits
+    if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
         // Sum of transactions in the previous and current chunks should not exceed the limit.
         // Witness keeps transactions from both previous and current chunk, so we have to limit the sum of both.
         runtime_config

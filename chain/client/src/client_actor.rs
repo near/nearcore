@@ -302,19 +302,28 @@ impl messaging::Actor for ClientActorInner {
 /// Before stateless validation we require validators to track all shards, see
 /// https://github.com/near/nearcore/issues/7388
 fn check_validator_tracked_shards(client: &Client) -> Result<(), Error> {
+    if !matches!(
+        client.config.chain_id.as_ref(),
+        near_primitives::chains::MAINNET | near_primitives::chains::TESTNET
+    ) {
+        return Ok(());
+    }
     let head = client.chain.head()?;
     let protocol_version =
         client.epoch_manager.get_epoch_protocol_version(&head.epoch_id).into_chain_error()?;
 
-    if !ProtocolFeature::StatelessValidationV0.enabled(protocol_version)
+    if !ProtocolFeature::StatelessValidation.enabled(protocol_version)
         && client.config.tracked_shards.is_empty()
-        && matches!(
-            client.config.chain_id.as_ref(),
-            near_primitives::chains::MAINNET | near_primitives::chains::TESTNET
-        )
     {
         panic!("The `chain_id` field specified in genesis is among mainnet/testnet, so validator must track all shards. Please change `tracked_shards` field in config.json to be any non-empty vector");
     }
+
+    if ProtocolFeature::StatelessValidation.enabled(protocol_version)
+        && !client.config.tracked_shards.is_empty()
+    {
+        panic!("The `chain_id` field specified in genesis is among mainnet/testnet, so validator must not track all shards. Please change `tracked_shards` field in config.json to be an empty vector");
+    }
+
     Ok(())
 }
 
