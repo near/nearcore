@@ -245,8 +245,8 @@ fn apply_block_from_range(
                 },
                 ApplyChunkBlockContext::from_header(
                     block.header(),
-                    prev_block.header().next_gas_price(),
-                    prev_block.block_congestion_info(),
+                    block.header().next_gas_price(),
+                    block.block_congestion_info(),
                 ),
                 &receipts,
                 chunk.transactions(),
