@@ -92,6 +92,8 @@ node4 = spin_up_node(config,
                      4,
                      boot_node=boot_node,
                      blacklist=[0, 1])
+# State Sync makes the storage seem inconsistent.
+node4.stop_checking_store()
 
 metrics4 = utils.MetricsTracker(node4)
 time.sleep(3)

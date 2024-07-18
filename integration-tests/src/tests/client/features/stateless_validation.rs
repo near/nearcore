@@ -44,7 +44,7 @@ fn run_chunk_validation_test(
 ) {
     init_integration_logger();
 
-    if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+    if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
         println!("Test not applicable without StatelessValidation enabled");
         return;
     }
@@ -290,7 +290,7 @@ fn test_chunk_validation_protocol_upgrade_no_missing() {
         42,
         0.0,
         0.0,
-        ProtocolFeature::StatelessValidationV0.protocol_version() - 1,
+        ProtocolFeature::StatelessValidation.protocol_version() - 1,
     );
 }
 
@@ -300,7 +300,7 @@ fn test_chunk_validation_protocol_upgrade_low_missing_prob() {
         42,
         0.2,
         0.1,
-        ProtocolFeature::StatelessValidationV0.protocol_version() - 1,
+        ProtocolFeature::StatelessValidation.protocol_version() - 1,
     );
 }
 
@@ -310,7 +310,7 @@ fn test_chunk_validation_protocol_upgrade_mid_missing_prob() {
         42,
         0.6,
         0.3,
-        ProtocolFeature::StatelessValidationV0.protocol_version() - 1,
+        ProtocolFeature::StatelessValidation.protocol_version() - 1,
     );
 }
 
@@ -318,8 +318,8 @@ fn test_chunk_validation_protocol_upgrade_mid_missing_prob() {
 fn test_protocol_upgrade_81() {
     init_integration_logger();
 
-    if !checked_feature!("stable", LowerValidatorKickoutPercentForDebugging, PROTOCOL_VERSION) {
-        println!("Test not applicable without LowerValidatorKickoutPercentForDebugging enabled");
+    if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
+        println!("Test not applicable without StatelessValidation enabled");
         return;
     }
     for is_statelessnet in [true, false] {
@@ -383,7 +383,7 @@ fn test_protocol_upgrade_81() {
 fn test_chunk_state_witness_bad_shard_id() {
     init_integration_logger();
 
-    if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+    if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
         println!("Test not applicable without StatelessValidation enabled");
         return;
     }
@@ -554,7 +554,7 @@ fn test_invalid_transactions() {
 /// Tests that eth-implicit accounts still work with stateless validation.
 #[test]
 fn test_eth_implicit_accounts() {
-    if !(checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION)
+    if !(checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION)
         && checked_feature!("stable", EthImplicitAccounts, PROTOCOL_VERSION))
     {
         println!("Test not applicable without both StatelessValidation and eth-implicit accounts enabled");

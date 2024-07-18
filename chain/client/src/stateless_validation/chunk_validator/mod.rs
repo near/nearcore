@@ -208,9 +208,12 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
 
     // Send the chunk endorsement to the next NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT block producers.
     // It's possible we may reach the end of the epoch, in which case, ignore the error from get_block_producer.
+    // It is possible that the same validator appears multiple times in the upcoming block producers,
+    // thus we collect the unique set of account ids.
     let block_height = chunk_header.height_created();
     let block_producers = (0..NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT)
         .map_while(|i| epoch_manager.get_block_producer(&epoch_id, block_height + i).ok())
+        .unique()
         .collect_vec();
     assert!(!block_producers.is_empty());
 

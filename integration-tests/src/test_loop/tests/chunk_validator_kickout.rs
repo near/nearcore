@@ -13,7 +13,7 @@ use near_primitives_core::version::PROTOCOL_VERSION;
 use std::string::ToString;
 
 fn run_test_chunk_validator_kickout(select_chunk_validator_only: bool) {
-    if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+    if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
         println!("Test not applicable without StatelessValidation enabled");
         return;
     }

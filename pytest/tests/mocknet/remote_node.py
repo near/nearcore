@@ -95,11 +95,10 @@ class RemoteNeardRunner:
         return self.node.get_validators()
 
 
-def get_nodes(chain_id, start_height, unique_id):
-    pattern = chain_id + '-' + str(start_height) + '-' + unique_id
-    all_nodes = mocknet.get_nodes(pattern=pattern)
+def get_nodes(mocknet_id: str):
+    all_nodes = mocknet.get_nodes(pattern=mocknet_id)
     if len(all_nodes) < 1:
-        sys.exit(f'no known nodes matching {pattern}')
+        sys.exit(f'no known nodes matching {mocknet_id}')
 
     traffic_generator = None
     nodes = []
@@ -115,16 +114,15 @@ def get_nodes(chain_id, start_height, unique_id):
 
     if traffic_generator is None:
         sys.exit(f'no traffic generator instance found')
-    # here we want the neard-runner home dir to be on the same disk as the target data dir since we'll be making backups
-    # on that disk
+    # Here we want the neard-runner home dir to be on the same disk as the target data dir since
+    # we'll be making backups on that disk.
     traffic_target_home = cmd_utils.run_cmd(
         traffic_generator,
         'cat /proc/mounts | grep "/home/ubuntu/.near" | grep -v "source" | head -n 1 | awk \'{print $2};\''
     ).stdout.strip()
-    if len(traffic_target_home) < 1:
-        sys.exit(
-            f'could not find any mounts in /home/ubuntu/.near on {traffic_generator.instance_name}'
-        )
+    # On Locust traffic generators, we don't need the data disk as we will not mirror the traffic.
+    if not traffic_target_home:
+        traffic_target_home = "/home/ubuntu/.near"
     traffic_runner_home = os.path.join(traffic_target_home, 'neard-runner')
     return NodeHandle(RemoteNeardRunner(traffic_generator, traffic_runner_home),
                       can_validate=False), [

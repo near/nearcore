@@ -1679,7 +1679,7 @@ fn prepare_transactions(
 /// Check that transactions validation works the same when using recorded storage proof instead of db.
 #[test]
 fn test_prepare_transactions_storage_proof() {
-    if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+    if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
         println!("Test not applicable without StatelessValidation enabled");
         return;
     }
@@ -1728,7 +1728,7 @@ fn test_prepare_transactions_storage_proof() {
 /// Check that transactions validation fails if provided empty storage proof.
 #[test]
 fn test_prepare_transactions_empty_storage_proof() {
-    if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+    if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
         println!("Test not applicable without StatelessValidation enabled");
         return;
     }
@@ -1776,7 +1776,7 @@ fn test_prepare_transactions_empty_storage_proof() {
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
 fn test_storage_proof_garbage() {
-    if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+    if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
         return;
     }
     let shard_id = 0;
