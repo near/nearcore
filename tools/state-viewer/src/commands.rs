@@ -884,7 +884,7 @@ pub(crate) fn view_genesis(
     .unwrap();
     let genesis_height = near_config.genesis.config.genesis_height;
     let chain_store =
-        ChainStore::new(store.clone(), genesis_height, near_config.client_config.save_trie_changes);
+        ChainStore::new(store, genesis_height, near_config.client_config.save_trie_changes);
 
     if view_config || compare {
         tracing::info!(target: "state_viewer", "Computing genesis from config...");
