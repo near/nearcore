@@ -77,11 +77,11 @@ use near_primitives::sharding::{
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, NumBlocks, ShardId};
+use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::{CatchupStatusView, DroppedReason};
-use near_primitives::{checked_feature, unwrap_or_return};
 use near_store::ShardUId;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::cmp::max;
@@ -1051,7 +1051,7 @@ impl Client {
             let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block.hash())?;
             let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
             let last_chunk_transactions_size =
-                if checked_feature!("stable", WitnessTransactionLimits, protocol_version) {
+                if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
                     borsh::to_vec(last_chunk.transactions())
                         .map_err(|e| {
                             Error::ChunkProducer(format!("Failed to serialize transactions: {e}"))
