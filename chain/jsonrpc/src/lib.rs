@@ -1357,22 +1357,24 @@ fn rpc_handler(
     message: web::Json<Message>,
     handler: web::Data<JsonRpcHandler>,
 ) -> impl Future<Output = HttpResponse> {
-    let response = async move {
+    async move {
         let message = handler.process(message.0).await;
-        match message.clone() {
-            Message::Response(response) => match response.result {
-                Ok(_) => HttpResponse::Ok().json(message),
+        let mut response = if let Message::Response(response) = &message {
+            match &response.result {
+                Ok(_) => HttpResponse::Ok(),
                 Err(err) => match err.error_struct {
                     Some(RpcErrorKind::InternalError(_)) | Some(RpcErrorKind::HandlerError(_)) => {
-                        HttpResponse::InternalServerError().json(&Message::error(err))
+                        HttpResponse::InternalServerError()
                     }
-                    _ => HttpResponse::Ok().json(&Message::error(err)),
+                    _ => HttpResponse::Ok(),
                 },
-            },
-            _ => HttpResponse::InternalServerError().finish(),
-        }
-    };
-    response.boxed()
+            }
+        } else {
+            HttpResponse::InternalServerError()
+        };
+        response.json(message)
+    }
+    .boxed()
 }
 
 fn status_handler(
