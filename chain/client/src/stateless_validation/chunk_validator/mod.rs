@@ -3,6 +3,7 @@ pub mod orphan_witness_pool;
 
 use crate::stateless_validation::chunk_endorsement_tracker::ChunkEndorsementTracker;
 use crate::Client;
+use itertools::Itertools;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{CanSend, Sender};
 use near_chain::stateless_validation::chunk_validation;
@@ -18,10 +19,8 @@ use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::{
     ChunkEndorsement, ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessSize,
 };
-use near_primitives::types::AccountId;
 use near_primitives::validator_signer::ValidatorSigner;
 use orphan_witness_pool::OrphanStateWitnessPool;
-use std::collections::HashSet;
 use std::sync::Arc;
 
 // After validating a chunk state witness, we ideally need to send the chunk endorsement
@@ -210,12 +209,12 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
     // Send the chunk endorsement to the next NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT block producers.
     // It's possible we may reach the end of the epoch, in which case, ignore the error from get_block_producer.
     // It is possible that the same validator appears multiple times in the upcoming block producers,
-    // thus we collect the block producers in a set.
+    // thus we collect the unique set of account ids.
     let block_height = chunk_header.height_created();
-    let block_producers: HashSet<AccountId> = (0
-        ..NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT)
+    let block_producers = (0..NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT)
         .map_while(|i| epoch_manager.get_block_producer(&epoch_id, block_height + i).ok())
-        .collect();
+        .unique()
+        .collect_vec();
     assert!(!block_producers.is_empty());
 
     let chunk_hash = chunk_header.chunk_hash();
