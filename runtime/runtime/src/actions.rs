@@ -127,10 +127,10 @@ pub(crate) fn execute_function_call(
 }
 
 pub(crate) fn prepare_function_call(
-    state_update: &mut TrieUpdate,
+    state_update: &TrieUpdate,
     apply_state: &ApplyState,
-    account: &mut Account,
-    receipt: &Receipt,
+    account: &Account,
+    predecessor_id: AccountId,
     action_receipt: &ActionReceipt,
     promise_results: Arc<[PromiseResult]>,
     account_id: &AccountId,
@@ -156,7 +156,7 @@ pub(crate) fn prepare_function_call(
         signer_account_id: action_receipt.signer_id.clone(),
         signer_account_pk: borsh::to_vec(&action_receipt.signer_public_key)
             .expect("Failed to serialize"),
-        predecessor_account_id: receipt.predecessor_id().clone(),
+        predecessor_account_id: predecessor_id,
         method: function_call.method_name.clone(),
         input: function_call.args.clone(),
         promise_results,

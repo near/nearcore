@@ -1,7 +1,7 @@
 use crate::actions::execute_function_call;
 use crate::ext::RuntimeExt;
 use crate::receipt_manager::ReceiptManager;
-use crate::ApplyState;
+use crate::{prepare_function_call, ApplyState};
 use near_crypto::{KeyType, PublicKey};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::account::{AccessKey, Account};
@@ -237,46 +237,19 @@ impl TrieViewer {
             gas: self.max_gas_burnt_view,
             deposit: 0,
         };
-        let output_data_receivers =
-            action_receipt.output_data_receivers.iter().map(|r| r.receiver_id.clone()).collect();
-        let random_seed = near_primitives::utils::create_random_seed(
-            apply_state.current_protocol_version,
-            empty_hash,
-            apply_state.random_seed,
-        );
-        let context = near_vm_runner::logic::VMContext {
-            current_account_id: contract_id.clone(),
-            signer_account_id: action_receipt.signer_id.clone(),
-            signer_account_pk: borsh::to_vec(&action_receipt.signer_public_key)
-                .expect("Failed to serialize"),
-            predecessor_account_id: originator_id.clone(),
-            method: function_call.method_name.clone(),
-            input: function_call.args.clone(),
-            promise_results: [].into(),
-            block_height: apply_state.block_height,
-            block_timestamp: apply_state.block_timestamp,
-            epoch_height: apply_state.epoch_height,
-            account_balance: account.amount(),
-            account_locked_balance: account.locked(),
-            storage_usage: account.storage_usage(),
-            attached_deposit: function_call.deposit,
-            prepaid_gas: function_call.gas,
-            random_seed,
-            view_config: None,
-            output_data_receivers,
-        };
-        let code_ext = crate::ext::RuntimeContractExt {
-            trie_update: &state_update,
-            account_id: contract_id,
-            account: &account,
-            chain_id: &epoch_info_provider.chain_id(),
-            current_protocol_version: apply_state.current_protocol_version,
-        };
-        let contract = near_vm_runner::prepare(
-            &code_ext,
-            &context,
-            Arc::clone(&config.wasm_config),
-            apply_state.cache.as_deref(),
+        let (context, contract) = prepare_function_call(
+            &state_update,
+            &apply_state,
+            &account,
+            originator_id.clone(),
+            &action_receipt,
+            [].into(),
+            contract_id,
+            &function_call,
+            &empty_hash,
+            config,
+            true,
+            epoch_info_provider,
         );
         let mut runtime_ext = RuntimeExt::new(
             &mut state_update,

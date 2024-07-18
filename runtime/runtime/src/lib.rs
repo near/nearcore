@@ -437,8 +437,8 @@ impl Runtime {
                 let (context, contract) = prepare_function_call(
                     state_update,
                     apply_state,
-                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
-                    receipt,
+                    account.as_ref().expect(EXPECT_ACCOUNT_EXISTS),
+                    receipt.predecessor_id().clone(),
                     action_receipt,
                     Arc::clone(&promise_results),
                     account_id,
