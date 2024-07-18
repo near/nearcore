@@ -340,7 +340,6 @@ fn test_client_with_multi_test_loop() {
                 .sender()
                 .for_index(idx)
                 .into_wrapped_multi_sender::<ClientSenderForClientMessage, _>(),
-            client_config.clone(),
             PeerId::random(),
             builder.sender().for_index(idx).into_multi_sender(),
             noop().into_sender(),

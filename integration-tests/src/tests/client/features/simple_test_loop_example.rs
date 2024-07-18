@@ -169,7 +169,6 @@ fn test_client_with_simple_test_loop() {
         builder.clock(),
         client,
         builder.sender().into_wrapped_multi_sender::<ClientSenderForClientMessage, _>(),
-        client_config,
         PeerId::random(),
         noop().into_multi_sender(),
         noop().into_sender(),
