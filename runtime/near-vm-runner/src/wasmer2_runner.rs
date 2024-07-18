@@ -7,9 +7,9 @@ use crate::logic::gas_counter::FastGasCounter;
 use crate::logic::{
     Config, ExecutionResultState, External, MemSlice, MemoryLike, VMContext, VMLogic, VMOutcome,
 };
-use crate::prepare;
 use crate::runner::VMResult;
 use crate::{get_contract_cache_key, imports, ContractCode};
+use crate::{prepare, Contract};
 use memoffset::offset_of;
 use near_parameters::vm::VMKind;
 use near_parameters::RuntimeFeesConfig;
@@ -578,12 +578,12 @@ impl crate::runner::VM for Wasmer2VM {
 
     fn prepare(
         self: Box<Self>,
-        ext: &dyn External,
+        contract: &dyn Contract,
         context: &VMContext,
         cache: Option<&dyn ContractRuntimeCache>,
     ) -> Box<dyn crate::PreparedContract> {
         type Result = VMResult<PreparedContract>;
-        let Some(code) = ext.get_contract() else {
+        let Some(code) = contract.get_code() else {
             return Box::new(Result::Err(VMRunnerError::ContractCodeNotPresent));
         };
         let mut result_state = ExecutionResultState::new(&context, Arc::clone(&self.config));

@@ -9,7 +9,7 @@ use crate::logic::{Config, ExecutionResultState, External, VMContext, VMLogic, V
 use crate::near_vm_runner::{NearVmCompiler, NearVmEngine};
 use crate::runner::VMResult;
 use crate::{
-    get_contract_cache_key, imports, CompiledContract, ContractCode, ContractRuntimeCache,
+    get_contract_cache_key, imports, CompiledContract, Contract, ContractCode, ContractRuntimeCache,
 };
 use crate::{prepare, NoContractRuntimeCache};
 use memoffset::offset_of;
@@ -211,7 +211,7 @@ impl NearVM {
     fn with_compiled_and_loaded(
         self: Box<Self>,
         cache: &dyn ContractRuntimeCache,
-        ext: &dyn External,
+        contract: &dyn Contract,
         context: &VMContext,
         closure: impl FnOnce(ExecutionResultState, &VMArtifact, Box<Self>) -> VMResult<PreparedContract>,
     ) -> VMResult<PreparedContract> {
@@ -221,7 +221,7 @@ impl NearVM {
         // To identify a cache hit from either in-memory and on-disk cache correctly, we first assume that we have a cache hit here,
         // and then we set it to false when we fail to find any entry and decide to compile (by calling compile_and_cache below).
         let mut is_cache_hit = true;
-        let code_hash = ext.code_hash();
+        let code_hash = contract.hash();
         let (wasm_bytes, artifact_result) = cache.memory_cache().try_lookup(
             code_hash,
             || {
@@ -235,7 +235,7 @@ impl NearVM {
                 let key = get_contract_cache_key(code_hash, &self.config);
                 let cache_record = cache.get(&key).map_err(CacheError::ReadError)?;
                 let Some(compiled_contract_info) = cache_record else {
-                    let Some(code) = ext.get_contract() else {
+                    let Some(code) = contract.get_code() else {
                         return Err(VMRunnerError::ContractCodeNotPresent);
                     };
                     let _span =
@@ -574,13 +574,16 @@ impl<'a> finite_wasm::wasmparser::VisitOperator<'a> for GasCostCfg {
 impl crate::runner::VM for NearVM {
     fn prepare(
         self: Box<Self>,
-        ext: &dyn External,
+        contract: &dyn Contract,
         context: &VMContext,
         cache: Option<&dyn ContractRuntimeCache>,
     ) -> Box<dyn crate::PreparedContract> {
         let cache = cache.unwrap_or(&NoContractRuntimeCache);
-        let prepd =
-            self.with_compiled_and_loaded(cache, ext, context, |result_state, artifact, vm| {
+        let prepd = self.with_compiled_and_loaded(
+            cache,
+            contract,
+            context,
+            |result_state, artifact, vm| {
                 let memory = NearVmMemory::new(
                     vm.config.limit_config.initial_memory_pages,
                     vm.config.limit_config.max_memory_pages,
@@ -601,7 +604,8 @@ impl crate::runner::VM for NearVM {
                     artifact: Arc::clone(artifact),
                     vm,
                 }))
-            });
+            },
+        );
         Box::new(prepd)
     }
 

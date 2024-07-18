@@ -7,8 +7,8 @@ use crate::logic::{Config, ExecutionResultState};
 use crate::logic::{External, MemSlice, MemoryLike, VMContext, VMLogic, VMOutcome};
 use crate::runner::VMResult;
 use crate::{
-    get_contract_cache_key, imports, prepare, CompiledContract, CompiledContractInfo, ContractCode,
-    ContractRuntimeCache, NoContractRuntimeCache,
+    get_contract_cache_key, imports, prepare, CompiledContract, CompiledContractInfo, Contract,
+    ContractCode, ContractRuntimeCache, NoContractRuntimeCache,
 };
 use near_parameters::vm::VMKind;
 use near_parameters::RuntimeFeesConfig;
@@ -186,11 +186,11 @@ impl WasmtimeVM {
     fn with_compiled_and_loaded(
         &self,
         cache: &dyn ContractRuntimeCache,
-        ext: &dyn External,
+        contract: &dyn Contract,
         context: &VMContext,
         closure: impl FnOnce(ExecutionResultState, Module) -> VMResult<PreparedContract>,
     ) -> VMResult<PreparedContract> {
-        let code_hash = ext.code_hash();
+        let code_hash = contract.hash();
         type MemoryCacheType = (u64, Result<Module, CompilationError>);
         let to_any = |v: MemoryCacheType| -> Box<dyn std::any::Any + Send> { Box::new(v) };
         let (wasm_bytes, module_result) = cache.memory_cache().try_lookup(
@@ -199,7 +199,7 @@ impl WasmtimeVM {
                 let key = get_contract_cache_key(code_hash, &self.config);
                 let cache_record = cache.get(&key).map_err(CacheError::ReadError)?;
                 let Some(compiled_contract_info) = cache_record else {
-                    let Some(code) = ext.get_contract() else {
+                    let Some(code) = contract.get_code() else {
                         return Err(VMRunnerError::ContractCodeNotPresent);
                     };
                     return Ok(to_any((
@@ -283,12 +283,12 @@ impl crate::runner::VM for WasmtimeVM {
 
     fn prepare(
         self: Box<Self>,
-        ext: &dyn External,
+        code: &dyn Contract,
         context: &VMContext,
         cache: Option<&dyn ContractRuntimeCache>,
     ) -> Box<dyn crate::PreparedContract> {
         let cache = cache.unwrap_or(&NoContractRuntimeCache);
-        let prepd = self.with_compiled_and_loaded(cache, ext, context, |result_state, module| {
+        let prepd = self.with_compiled_and_loaded(cache, code, context, |result_state, module| {
             match module.get_export(&context.method) {
                 Some(export) => match export {
                     Func(func_type) => {

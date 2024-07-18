@@ -23,7 +23,6 @@ use std::sync::Arc;
 /// validators, even when a guest error occurs, or else their state will diverge.
 pub(crate) type VMResult<T = VMOutcome> = Result<T, VMRunnerError>;
 
-
 /// Prepare the contract for execution.
 ///
 /// The returned value does some work in preparation to execute the contract, without executing any
@@ -33,14 +32,14 @@ pub(crate) type VMResult<T = VMOutcome> = Result<T, VMRunnerError>;
 ///
 /// Contract preparation and execution need not to be executed on the same thread.
 #[tracing::instrument(target = "vm", level = "debug", "prepare", skip_all, fields(
-    code.hash = %ext.code_hash(),
+    code.hash = %contract.hash(),
     method_name,
     vm_kind = ?wasm_config.vm_kind,
     burnt_gas = tracing::field::Empty,
     compute_usage = tracing::field::Empty,
 ))]
 pub fn prepare(
-    ext: &(dyn External + Send),
+    contract: &dyn Contract,
     context: &VMContext,
     wasm_config: Arc<Config>,
     cache: Option<&dyn ContractRuntimeCache>,
@@ -49,7 +48,7 @@ pub fn prepare(
     let runtime = vm_kind
         .runtime(wasm_config)
         .unwrap_or_else(|| panic!("the {vm_kind:?} runtime has not been enabled at compile time"));
-    runtime.prepare(ext, context, cache)
+    runtime.prepare(contract, context, cache)
 }
 
 /// Validate and run the specified contract.
@@ -69,7 +68,6 @@ pub fn prepare(
 /// The gas cost for contract preparation will be subtracted by the VM
 /// implementation.
 #[tracing::instrument(target = "vm", level = "debug", "run", skip_all, fields(
-    code.hash = %ext.code_hash(),
     method_name,
     burnt_gas = tracing::field::Empty,
     compute_usage = tracing::field::Empty,
@@ -107,6 +105,18 @@ pub trait PreparedContract: Send {
     ) -> VMResult;
 }
 
+/// Trait encapsulating access to the contract's WASM source code.
+pub trait Contract {
+    /// Hash of the contract for the current account.
+    fn hash(&self) -> near_primitives_core::hash::CryptoHash;
+
+    /// Get the contract code.
+    ///
+    /// The runtime might not call this if it finds e.g. a compiled contract inside the supplied
+    /// cache.
+    fn get_code(&self) -> Option<std::sync::Arc<crate::ContractCode>>;
+}
+
 pub trait VM {
     /// Prepare a contract for execution.
     ///
@@ -120,7 +130,7 @@ pub trait VM {
     /// will be reported when the returned value is `run`.
     fn prepare(
         self: Box<Self>,
-        ext: &dyn External,
+        ext: &dyn Contract,
         context: &VMContext,
         cache: Option<&dyn ContractRuntimeCache>,
     ) -> Box<dyn PreparedContract>;

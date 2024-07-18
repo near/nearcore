@@ -5,7 +5,7 @@ use crate::logic::errors::{
 };
 use crate::logic::{ExecutionResultState, External, VMContext, VMLogic, VMLogicError, VMOutcome};
 use crate::logic::{MemSlice, MemoryLike};
-use crate::prepare;
+use crate::{prepare, Contract};
 use crate::runner::VMResult;
 use crate::{get_contract_cache_key, imports, ContractCode};
 use near_parameters::vm::{Config, VMKind};
@@ -429,12 +429,12 @@ impl crate::runner::VM for Wasmer0VM {
 
     fn prepare(
         self: Box<Self>,
-        ext: &dyn External,
+        contract: &dyn Contract,
         context: &VMContext,
         cache: Option<&dyn ContractRuntimeCache>,
     ) -> Box<dyn crate::PreparedContract> {
         type Result = VMResult<PreparedContract>;
-        let Some(code) = ext.get_contract() else {
+        let Some(code) = contract.get_code() else {
             return Box::new(Result::Err(VMRunnerError::ContractCodeNotPresent));
         };
         if !cfg!(target_arch = "x86") && !cfg!(target_arch = "x86_64") {

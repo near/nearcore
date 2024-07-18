@@ -2,7 +2,7 @@ use crate::config::{
     safe_add_compute, safe_add_gas, total_prepaid_exec_fees, total_prepaid_gas,
     total_prepaid_send_fees,
 };
-use crate::ext::{ExternalError, RuntimeExt};
+use crate::ext::{ExternalError, RuntimeContractExt, RuntimeExt};
 use crate::receipt_manager::ReceiptManager;
 use crate::{metrics, ActionResult, ApplyState};
 use near_crypto::PublicKey;
@@ -46,51 +46,16 @@ use std::sync::Arc;
 
 /// Runs given function call with given context / apply state.
 pub(crate) fn execute_function_call(
+    contract: Box<dyn near_vm_runner::PreparedContract>,
+    context: &VMContext,
     apply_state: &ApplyState,
     runtime_ext: &mut RuntimeExt,
-    predecessor_id: &AccountId,
-    action_receipt: &ActionReceipt,
-    promise_results: Arc<[PromiseResult]>,
     function_call: &FunctionCallAction,
-    action_hash: &CryptoHash,
     config: &RuntimeConfig,
-    is_last_action: bool,
     view_config: Option<ViewConfig>,
 ) -> Result<VMOutcome, RuntimeError> {
     let account_id = runtime_ext.account_id().clone();
     tracing::debug!(target: "runtime", %account_id, "Calling the contract");
-    // Output data receipts are ignored if the function call is not the last action in the batch.
-    let output_data_receivers: Vec<_> = if is_last_action {
-        action_receipt.output_data_receivers.iter().map(|r| r.receiver_id.clone()).collect()
-    } else {
-        vec![]
-    };
-    let random_seed = create_random_seed(
-        apply_state.current_protocol_version,
-        *action_hash,
-        apply_state.random_seed,
-    );
-    let context = VMContext {
-        current_account_id: runtime_ext.account_id().clone(),
-        signer_account_id: action_receipt.signer_id.clone(),
-        signer_account_pk: borsh::to_vec(&action_receipt.signer_public_key)
-            .expect("Failed to serialize"),
-        predecessor_account_id: predecessor_id.clone(),
-        method: function_call.method_name.clone(),
-        input: function_call.args.clone(),
-        promise_results,
-        block_height: apply_state.block_height,
-        block_timestamp: apply_state.block_timestamp,
-        epoch_height: apply_state.epoch_height,
-        account_balance: runtime_ext.account().amount(),
-        account_locked_balance: runtime_ext.account().locked(),
-        storage_usage: runtime_ext.account().storage_usage(),
-        attached_deposit: function_call.deposit,
-        prepaid_gas: function_call.gas,
-        random_seed,
-        view_config: view_config.clone(),
-        output_data_receivers,
-    };
 
     // Enable caching chunk mode for the function call. This allows to charge for nodes touched in a chunk only once for
     // the first access time. Although nodes are accessed for other actions as well, we do it only here because we
@@ -103,12 +68,6 @@ pub(crate) fn execute_function_call(
         false => None,
     };
     let mode_guard = runtime_ext.trie_update.with_trie_cache_mode(mode);
-    let contract = near_vm_runner::prepare(
-        runtime_ext,
-        &context,
-        Arc::clone(&config.wasm_config),
-        apply_state.cache.as_deref(),
-    );
     let result = near_vm_runner::run(contract, runtime_ext, &context, Arc::clone(&config.fees));
     drop(mode_guard);
     near_vm_runner::report_metrics(
@@ -192,6 +151,51 @@ pub(crate) fn action_function_call(
     #[cfg(feature = "test_features")]
     apply_recorded_storage_garbage(function_call, state_update);
     let mut receipt_manager = ReceiptManager::default();
+    // Output data receipts are ignored if the function call is not the last action in the batch.
+    let output_data_receivers: Vec<_> = if is_last_action {
+        action_receipt.output_data_receivers.iter().map(|r| r.receiver_id.clone()).collect()
+    } else {
+        vec![]
+    };
+    let random_seed = create_random_seed(
+        apply_state.current_protocol_version,
+        *action_hash,
+        apply_state.random_seed,
+    );
+    let context = VMContext {
+        current_account_id: account_id.clone(),
+        signer_account_id: action_receipt.signer_id.clone(),
+        signer_account_pk: borsh::to_vec(&action_receipt.signer_public_key)
+            .expect("Failed to serialize"),
+        predecessor_account_id: receipt.predecessor_id().clone(),
+        method: function_call.method_name.clone(),
+        input: function_call.args.clone(),
+        promise_results,
+        block_height: apply_state.block_height,
+        block_timestamp: apply_state.block_timestamp,
+        epoch_height: apply_state.epoch_height,
+        account_balance: account.amount(),
+        account_locked_balance: account.locked(),
+        storage_usage: account.storage_usage(),
+        attached_deposit: function_call.deposit,
+        prepaid_gas: function_call.gas,
+        random_seed,
+        view_config: None,
+        output_data_receivers,
+    };
+    let code_ext = RuntimeContractExt {
+        trie_update: state_update,
+        account_id,
+        account,
+        chain_id: &epoch_info_provider.chain_id(),
+        current_protocol_version: apply_state.current_protocol_version,
+    };
+    let contract = near_vm_runner::prepare(
+        &code_ext,
+        &context,
+        Arc::clone(&config.wasm_config),
+        apply_state.cache.as_deref(),
+    );
     let mut runtime_ext = RuntimeExt::new(
         state_update,
         &mut receipt_manager,
@@ -205,15 +209,12 @@ pub(crate) fn action_function_call(
         apply_state.current_protocol_version,
     );
     let outcome = execute_function_call(
+        contract,
+        &context,
         apply_state,
         &mut runtime_ext,
-        receipt.predecessor_id(),
-        action_receipt,
-        promise_results,
         function_call,
-        action_hash,
         config,
-        is_last_action,
         None,
     )?;
 

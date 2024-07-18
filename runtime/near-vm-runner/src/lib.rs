@@ -36,7 +36,7 @@ pub use code::ContractCode;
 #[cfg(feature = "metrics")]
 pub use metrics::{report_metrics, reset_metrics};
 pub use profile::ProfileDataV3;
-pub use runner::{run, prepare, PreparedContract, VM};
+pub use runner::{run, prepare, PreparedContract, Contract, VM};
 
 /// This is public for internal experimentation use only, and should otherwise be considered an
 /// implementation detail of `near-vm-runner`.

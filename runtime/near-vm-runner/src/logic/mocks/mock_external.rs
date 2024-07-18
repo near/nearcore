@@ -320,12 +320,14 @@ impl External for MockedExternal {
             _ => panic!("not a valid receipt index!"),
         }
     }
+}
 
-    fn code_hash(&self) -> CryptoHash {
+impl crate::Contract for MockedExternal {
+    fn hash(&self) -> CryptoHash {
         self.code_hash
     }
 
-    fn get_contract(&self) -> Option<Arc<ContractCode>> {
+    fn get_code(&self) -> Option<Arc<ContractCode>> {
         self.code.clone()
     }
 }
