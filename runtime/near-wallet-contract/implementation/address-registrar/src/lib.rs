@@ -2,7 +2,7 @@ use near_sdk::{
     borsh::{BorshDeserialize, BorshSerialize},
     env, near_bindgen,
     store::{lookup_map::Entry, LookupMap},
-    AccountId, BorshStorageKey, PanicOnDefault,
+    AccountId, BorshStorageKey, NearToken, PanicOnDefault,
 };
 
 type Address = [u8; 20];
@@ -33,7 +33,33 @@ impl AddressRegistrar {
     /// previously registered one then the mapping is NOT updated and `None`
     /// is returned. Otherwise, the mapping is stored and the address is
     /// returned as a hex-encoded string with `0x` prefix.
+    #[payable]
     pub fn register(&mut self, account_id: AccountId) -> Option<String> {
+        // It is not allowed to register eth-implicit accounts because the purpose
+        // of the registry is to allow looking up the named account associated with
+        // an address obtained via hashing, but eth-implicit accounts are already
+        // parsable as addresses.
+        if is_eth_implicit(&account_id) {
+            let log_message = format!("Refuse to register eth-implicit account {account_id}");
+            env::log_str(&log_message);
+            return None;
+        }
+
+        // Must store the address and the account id
+        let bytes_to_store = 20 + (account_id.len() as u128);
+        let required_deposit =
+            NearToken::from_yoctonear(env::storage_byte_cost().as_yoctonear() * bytes_to_store);
+        let given_deposit = env::attached_deposit();
+        // The caller must pay for the storage cost of registering.
+        if given_deposit < required_deposit {
+            let message = format!(
+                "Insufficient deposit to cover storage cost. Given={} Expected={}",
+                given_deposit.as_yoctonear(),
+                required_deposit.as_yoctonear(),
+            );
+            env::panic_str(&message);
+        }
+
         let address = account_id_to_address(&account_id);
 
         match self.addresses.entry(address) {
@@ -51,6 +77,9 @@ impl AddressRegistrar {
                     account_id
                 );
                 env::log_str(&log_message);
+                // Transfer the deposit back to the caller since no storage was updated.
+                let refund_promise = env::promise_batch_create(&env::predecessor_account_id());
+                env::promise_batch_action_transfer(refund_promise, given_deposit);
                 None
             }
         }
@@ -87,4 +116,9 @@ fn account_id_to_address(account_id: &AccountId) -> Address {
     let mut result = [0u8; 20];
     result.copy_from_slice(&hash[12..32]);
     result
+}
+
+fn is_eth_implicit(account_id: &AccountId) -> bool {
+    let id = account_id.as_str();
+    id.len() == 42 && id.starts_with("0x") && id[2..].chars().all(|c| c.is_ascii_hexdigit())
 }

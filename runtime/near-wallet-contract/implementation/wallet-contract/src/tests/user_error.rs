@@ -4,8 +4,11 @@
 
 use crate::{
     error::{Error, UnsupportedAction, UserError},
-    internal::{account_id_to_address, CHAIN_ID},
-    tests::utils::{self, crypto, test_context::TestContext},
+    internal::{account_id_to_address, CHAIN_ID, MAX_YOCTO_NEAR},
+    tests::utils::{
+        self, crypto,
+        test_context::{TestContext, WalletContract},
+    },
     types::{Action, FUNCTION_CALL_SELECTOR},
 };
 use aurora_engine_types::types::{Address, Wei};
@@ -316,22 +319,31 @@ async fn test_bad_data() -> anyhow::Result<()> {
     Ok(())
 }
 
-// Test case where the action contains more than 1_000_000 yoctoNear directly.
+// Test case where the action contains greater than or equal to 1_000_000 yoctoNear directly.
 #[tokio::test]
 async fn test_excess_yocto() -> anyhow::Result<()> {
     let TestContext { wallet_contract, wallet_sk, .. } = TestContext::new().await?;
 
+    assert_excess_yocto_err(&wallet_contract, &wallet_sk, 0, MAX_YOCTO_NEAR).await?;
+    assert_excess_yocto_err(&wallet_contract, &wallet_sk, 1, MAX_YOCTO_NEAR + 1).await?;
+
+    Ok(())
+}
+
+async fn assert_excess_yocto_err(
+    wallet_contract: &WalletContract,
+    wallet_sk: &near_crypto::SecretKey,
+    nonce: u64,
+    yocto_near: u32,
+) -> anyhow::Result<()> {
     let account_id = "aurora";
-    let action = Action::Transfer {
-        receiver_id: account_id.into(),
-        yocto_near: crate::internal::MAX_YOCTO_NEAR + 1,
-    };
+    let action = Action::Transfer { receiver_id: account_id.into(), yocto_near };
     let signed_transaction = utils::create_signed_transaction(
-        0,
+        nonce,
         &account_id.parse().unwrap(),
         Wei::new_u64(1),
         action,
-        &wallet_sk,
+        wallet_sk,
     );
 
     let result = wallet_contract.rlp_execute(account_id, &signed_transaction).await?;

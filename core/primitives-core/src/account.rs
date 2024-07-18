@@ -5,6 +5,7 @@ use crate::serialize::dec_format;
 use crate::types::{Balance, Nonce, ProtocolVersion, StorageUsage};
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use near_account_id as id;
+use near_structs_checker_lib::ProtocolStruct;
 use std::io;
 
 #[derive(
@@ -46,7 +47,7 @@ impl TryFrom<u8> for AccountVersion {
     not(feature = "protocol_feature_nonrefundable_transfer_nep491"),
     derive(serde::Deserialize)
 )]
-#[derive(serde::Serialize, PartialEq, Eq, Debug, Clone)]
+#[derive(serde::Serialize, PartialEq, Eq, Debug, Clone, ProtocolStruct)]
 pub struct Account {
     /// The total not locked tokens.
     #[serde(with = "dec_format")]
@@ -181,7 +182,16 @@ impl Account {
 
 /// These accounts are serialized in merklized state.
 /// We keep old accounts in the old format to avoid migration of the MPT.
-#[derive(BorshSerialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Debug, Clone)]
+#[derive(
+    BorshSerialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Debug,
+    Clone,
+    ProtocolStruct,
+)]
 struct LegacyAccount {
     amount: Balance,
     locked: Balance,
@@ -190,7 +200,7 @@ struct LegacyAccount {
 }
 
 /// We only allow nonrefundable storage on new accounts (see `LegacyAccount`).
-#[derive(BorshSerialize, BorshDeserialize)]
+#[derive(BorshSerialize, BorshDeserialize, ProtocolStruct)]
 struct AccountV2 {
     amount: Balance,
     locked: Balance,
@@ -386,6 +396,7 @@ impl BorshSerialize for Account {
     Debug,
     serde::Serialize,
     serde::Deserialize,
+    ProtocolStruct,
 )]
 pub struct AccessKey {
     /// Nonce for this access key, used for tx nonce generation. When access key is created, nonce

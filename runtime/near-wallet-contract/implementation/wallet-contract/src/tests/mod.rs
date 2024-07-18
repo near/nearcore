@@ -1,4 +1,3 @@
-mod caller_error;
 mod emulation;
 mod relayer;
 mod sanity;

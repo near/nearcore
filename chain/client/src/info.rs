@@ -404,7 +404,6 @@ impl InfoHelper {
 
         let sync_status_log =
             Some(display_sync_status(sync_status, head, &client_config.state_sync.sync));
-        let catchup_status_log = display_catchup_status(catchup_status);
         let validator_info_log = validator_info.as_ref().map(|info| {
             format!(
                 " {}{} validator{}",
@@ -449,9 +448,7 @@ impl InfoHelper {
             paint(yansi::Color::Green, blocks_info_log),
             paint(yansi::Color::Blue, machine_info_log),
         );
-        if !catchup_status_log.is_empty() {
-            info!(target: "stats", "Catchups\n{}", catchup_status_log);
-        }
+        log_catchup_status(catchup_status);
         if let Some(config_updater) = &config_updater {
             config_updater.report_status();
         }
@@ -464,37 +461,7 @@ impl InfoHelper {
         (metrics::MEMORY_USAGE.set((memory_usage * 1024) as i64));
         (metrics::PROTOCOL_UPGRADE_BLOCK_HEIGHT.set(protocol_upgrade_block_height as i64));
 
-        // In case we can't get the list of validators for the current and the previous epoch,
-        // skip updating the per-validator metrics.
-        // Note that the metrics are set to 0 for previous epoch validators who are no longer
-        // validators.
-        for stats in validator_epoch_stats {
-            (metrics::VALIDATORS_BLOCKS_PRODUCED
-                .with_label_values(&[stats.account_id.as_str()])
-                .set(stats.num_produced_blocks as i64));
-            (metrics::VALIDATORS_BLOCKS_EXPECTED
-                .with_label_values(&[stats.account_id.as_str()])
-                .set(stats.num_expected_blocks as i64));
-            (metrics::VALIDATORS_CHUNKS_PRODUCED
-                .with_label_values(&[stats.account_id.as_str()])
-                .set(stats.num_produced_chunks as i64));
-            (metrics::VALIDATORS_CHUNKS_EXPECTED
-                .with_label_values(&[stats.account_id.as_str()])
-                .set(stats.num_expected_chunks as i64));
-            for ((shard, expected), produced) in stats
-                .shards
-                .iter()
-                .zip(stats.num_expected_chunks_per_shard.iter())
-                .zip(stats.num_produced_chunks_per_shard.iter())
-            {
-                (metrics::VALIDATORS_CHUNKS_EXPECTED_BY_SHARD
-                    .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
-                    .set(*expected as i64));
-                (metrics::VALIDATORS_CHUNKS_PRODUCED_BY_SHARD
-                    .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
-                    .set(*produced as i64));
-            }
-        }
+        Self::update_validator_metrics(validator_epoch_stats);
 
         self.started = self.clock.now();
         self.num_blocks_processed = 0;
@@ -515,6 +482,43 @@ impl InfoHelper {
             ),
         };
         self.telemetry_sender.send(telemetry_event);
+    }
+
+    /// Updates the prometheus metrics to track the block and chunk production and endorsement by validators.
+    fn update_validator_metrics(validator_epoch_stats: Vec<ValidatorProductionStats>) {
+        // In case we can't get the list of validators for the current and the previous epoch,
+        // skip updating the per-validator metrics.
+        // Note that the metrics are set to 0 for previous epoch validators who are no longer
+        // validators.
+        for stats in validator_epoch_stats {
+            (metrics::VALIDATORS_BLOCKS_PRODUCED
+                .with_label_values(&[stats.account_id.as_str()])
+                .set(stats.num_produced_blocks as i64));
+            (metrics::VALIDATORS_BLOCKS_EXPECTED
+                .with_label_values(&[stats.account_id.as_str()])
+                .set(stats.num_expected_blocks as i64));
+            (metrics::VALIDATORS_CHUNKS_PRODUCED
+                .with_label_values(&[stats.account_id.as_str()])
+                .set(stats.num_produced_chunks as i64));
+            (metrics::VALIDATORS_CHUNKS_EXPECTED
+                .with_label_values(&[stats.account_id.as_str()])
+                .set(stats.num_expected_chunks as i64));
+            for i in 0..stats.shards.len() {
+                let shard = stats.shards[i];
+                (metrics::VALIDATORS_CHUNKS_EXPECTED_BY_SHARD
+                    .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
+                    .set(stats.num_expected_chunks_per_shard[i] as i64));
+                (metrics::VALIDATORS_CHUNKS_PRODUCED_BY_SHARD
+                    .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
+                    .set(stats.num_produced_chunks_per_shard[i] as i64));
+                (metrics::VALIDATORS_CHUNK_ENDORSEMENTS_EXPECTED_BY_SHARD
+                    .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
+                    .set(stats.num_expected_endorsements_per_shard[i] as i64));
+                (metrics::VALIDATORS_CHUNK_ENDORSEMENTS_PRODUCED_BY_SHARD
+                    .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
+                    .set(stats.num_produced_endorsements_per_shard[i] as i64));
+            }
+        }
     }
 
     fn telemetry_info(
@@ -629,34 +633,30 @@ fn extra_telemetry_info(client_config: &ClientConfig) -> serde_json::Value {
     })
 }
 
-pub fn display_catchup_status(catchup_status: Vec<CatchupStatusView>) -> String {
-    catchup_status
-        .into_iter()
-        .map(|catchup_status| {
-            let shard_sync_string = catchup_status
-                .shard_sync_status
-                .iter()
-                .sorted_by_key(|x| x.0)
-                .map(|(shard_id, status_string)| format!("Shard {} {}", shard_id, status_string))
-                .join(", ");
-            let block_catchup_string = if !catchup_status.blocks_to_catchup.is_empty() {
-                "done".to_string()
-            } else {
-                catchup_status
-                    .blocks_to_catchup
-                    .iter()
-                    .map(|block_view| format!("{:?}@{:?}", block_view.hash, block_view.height))
-                    .join(", ")
-            };
-            format!(
-                "Sync block {:?}@{:?} \nShard sync status: {}\nNext blocks to catch up: {}",
-                catchup_status.sync_block_hash,
-                catchup_status.sync_block_height,
-                shard_sync_string,
-                block_catchup_string,
-            )
-        })
-        .join("\n")
+pub fn log_catchup_status(catchup_status: Vec<CatchupStatusView>) {
+    for catchup_status in &catchup_status {
+        let shard_sync_string = catchup_status
+            .shard_sync_status
+            .iter()
+            .sorted_by_key(|x| x.0)
+            .map(|(shard_id, status_string)| format!("Shard {} {}", shard_id, status_string))
+            .join(", ");
+        let block_catchup_string = catchup_status
+            .blocks_to_catchup
+            .iter()
+            .map(|block_view| format!("{:?}@{:?}", block_view.hash, block_view.height))
+            .join(", ");
+        let block_catchup_string =
+            if block_catchup_string.is_empty() { "done".to_string() } else { block_catchup_string };
+
+        tracing::info!(
+            sync_hash=?catchup_status.sync_block_hash,
+            sync_height=?catchup_status.sync_block_height,
+            "Catchup Status - shard sync status: {}, next blocks to catch up: {}",
+            shard_sync_string,
+            block_catchup_string,
+        )
+    }
 }
 
 pub fn display_sync_status(
@@ -846,6 +846,8 @@ pub struct ValidatorProductionStats {
     pub shards: Vec<ShardId>,
     pub num_produced_chunks_per_shard: Vec<NumBlocks>,
     pub num_expected_chunks_per_shard: Vec<NumBlocks>,
+    pub num_produced_endorsements_per_shard: Vec<NumBlocks>,
+    pub num_expected_endorsements_per_shard: Vec<NumBlocks>,
 }
 
 impl ValidatorProductionStats {
@@ -859,6 +861,8 @@ impl ValidatorProductionStats {
             shards: vec![],
             num_produced_chunks_per_shard: vec![],
             num_expected_chunks_per_shard: vec![],
+            num_produced_endorsements_per_shard: vec![],
+            num_expected_endorsements_per_shard: vec![],
         }
     }
     pub fn validator(info: CurrentEpochValidatorInfo) -> Self {
@@ -871,6 +875,8 @@ impl ValidatorProductionStats {
             shards: info.shards,
             num_produced_chunks_per_shard: info.num_produced_chunks_per_shard,
             num_expected_chunks_per_shard: info.num_expected_chunks_per_shard,
+            num_produced_endorsements_per_shard: info.num_produced_endorsements_per_shard,
+            num_expected_endorsements_per_shard: info.num_expected_endorsements_per_shard,
         }
     }
 }

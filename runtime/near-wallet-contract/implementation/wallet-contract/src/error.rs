@@ -6,7 +6,6 @@ pub enum Error {
     AccountId(AccountIdError),
     Relayer(RelayerError),
     User(UserError),
-    Caller(CallerError),
 }
 
 /// Errors that should never happen when the Eth Implicit accounts feature
@@ -39,6 +38,8 @@ pub enum RelayerError {
     InvalidTarget,
     /// Relayers should always check the transaction is signed with the correct chain id.
     InvalidChainId,
+    /// Relayers should always attach at least as much gas as the user requested.
+    InsufficientGas,
 }
 
 /// Errors that arise from problems in the data signed by the user
@@ -71,17 +72,6 @@ pub enum UnsupportedAction {
     Stake,
 }
 
-/// Errors that arise from external accounts calling the Wallet Contract.
-/// The `rlp_execute` function is intentionally public so that any account
-/// can pay for the fees on behalf of a Wallet Contract key holder.
-/// These errors are not a big deal from the perspective of the Wallet Contract
-/// because the cost for executing such erroneous transactions are paid for
-/// by that external caller.
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum CallerError {
-    InsufficientAttachedValue,
-}
-
 impl From<aurora_engine_transactions::Error> for Error {
     fn from(value: aurora_engine_transactions::Error) -> Self {
         Self::Relayer(RelayerError::TxParsing(value))
@@ -109,6 +99,7 @@ impl fmt::Display for RelayerError {
             }
             Self::InvalidNonce => f.write_str("Error: invalid nonce value"),
             Self::InvalidChainId => f.write_str("Error: invalid chain id value"),
+            Self::InsufficientGas => f.write_str("Error: insufficient prepaid gas"),
         }
     }
 }
@@ -142,16 +133,6 @@ impl fmt::Display for UserError {
     }
 }
 
-impl fmt::Display for CallerError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::InsufficientAttachedValue => {
-                f.write_str("Error: external calls must attach Near to pay for their transactions")
-            }
-        }
-    }
-}
-
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -159,7 +140,6 @@ impl fmt::Display for Error {
             Self::AccountId(e) => e.fmt(f),
             Self::Relayer(e) => e.fmt(f),
             Self::User(e) => e.fmt(f),
-            Self::Caller(e) => e.fmt(f),
         }
     }
 }
