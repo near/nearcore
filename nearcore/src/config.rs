@@ -1017,6 +1017,7 @@ pub fn init_configs(
 }
 
 /// Params specific to a localnet node, used for configuring the node for certain roles.
+/// The params are not mutually exclusive, both is_validator and is_archival may be set to true.
 struct LocalnetNodeParams {
     /// If true, this node is used as a boot node.
     is_boot: bool,
@@ -1027,6 +1028,36 @@ struct LocalnetNodeParams {
     // If true, this is an RPC node.
     is_rpc: bool,
 }
+
+impl LocalnetNodeParams {
+    fn new_validator(is_boot: bool) -> Self {
+        Self { is_boot, is_validator: true, is_archival: false, is_rpc: false }
+    }
+
+    fn new_non_validator_archival() -> Self {
+        Self { is_boot: false, is_validator: false, is_archival: true, is_rpc: false }
+    }
+
+    fn new_non_validator_rpc() -> Self {
+        Self { is_boot: false, is_validator: false, is_archival: false, is_rpc: true }
+    }
+
+    fn new_non_validator() -> Self {
+        Self { is_boot: false, is_validator: false, is_archival: false, is_rpc: false }
+    }
+}
+
+/// Creates configurations for a number of localnet nodes.
+///
+/// # Arguments
+///
+/// * `seeds` - Seeds to use for creating the signing keys for accounts
+/// * `num_shards` - Number of shards to partition the chain into
+/// * `num_validators` - Number of validator nodes to create
+/// * `num_non_validators_archival` - Number of non-validator nodes to create and configure as an archival node (storing full chain history)
+/// * `num_non_validators_rpc` - Number of non-validator nodes to create and configure as an RPC node (eg. for sending transactions)
+/// * `num_non_validators` - Number of additional non-validator nodes to create
+/// * `tracked_shards` - Shards to track by all nodes, except for archival and RPC nodes which track all shards
 
 pub fn create_localnet_configs_from_seeds(
     seeds: Vec<String>,
@@ -1072,64 +1103,52 @@ pub fn create_localnet_configs_from_seeds(
     assert!(num_validators > 0, "No validators were added");
     let boot_node_addr = tcp::ListenerAddr::reserve_for_test();
     for i in 0..num_validators {
-        configs.push(create_localnet_config(
+        let params = LocalnetNodeParams::new_validator(i == 0);
+        let config = create_localnet_config(
             num_shards,
             num_validators,
             &tracked_shards,
             &network_signers,
             &boot_node_addr,
-            LocalnetNodeParams {
-                is_boot: (i == 0),
-                is_validator: true,
-                is_archival: false,
-                is_rpc: false,
-            },
-        ));
+            params,
+        );
+        configs.push(config);
     }
     for _ in 0..num_non_validators_archival {
-        configs.push(create_localnet_config(
+        let params = LocalnetNodeParams::new_non_validator_archival();
+        let config = create_localnet_config(
             num_shards,
             num_validators,
             &tracked_shards,
             &network_signers,
             &boot_node_addr,
-            LocalnetNodeParams {
-                is_boot: false,
-                is_validator: false,
-                is_archival: true,
-                is_rpc: false,
-            },
-        ));
+            params,
+        );
+        configs.push(config);
     }
     for _ in 0..num_non_validators_rpc {
-        configs.push(create_localnet_config(
+        let params = LocalnetNodeParams::new_non_validator_rpc();
+        let config = create_localnet_config(
             num_shards,
             num_validators,
             &tracked_shards,
             &network_signers,
             &boot_node_addr,
-            LocalnetNodeParams {
-                is_boot: false,
-                is_validator: false,
-                is_archival: false,
-                is_rpc: true,
-            },
-        ));
+            params,
+        );
+        configs.push(config);
     }
     for _ in 0..num_non_validators {
-        configs.push(create_localnet_config(
+        let params = LocalnetNodeParams::new_non_validator();
+        let config = create_localnet_config(
             num_shards,
             num_validators,
             &tracked_shards,
             &network_signers,
             &boot_node_addr,
-            LocalnetNodeParams {
-                is_boot: false,
-                is_validator: false,
-                is_archival: false,
-                is_rpc: false,
-            },
-        ));
+            params,
+        );
+        configs.push(config);
     }
     (configs, validator_signers, network_signers, genesis)
 }
@@ -1188,6 +1207,17 @@ fn create_localnet_config(
 
 /// Create testnet configuration.
 /// Sets up new ports for all nodes except the first one and sets boot node to it.
+///
+/// # Arguments
+///
+/// * `dir` - Root directory in which node-specific directories are created
+/// * `num_shards` - Number of shards to partition the chain into
+/// * `num_validators` - Number of validator nodes to create
+/// * `num_non_validators_archival` - Number of non-validator nodes to create and configure as an archival node (storing full chain history)
+/// * `num_non_validators_rpc` - Number of non-validator nodes to create and configure as an RPC node (eg. for sending transactions)
+/// * `num_non_validators` - Number of additional non-validator nodes to create
+/// * `prefix` - Prefix for the directory name for each node with (e.g. ‘node’ results in ‘node0’, ‘node1’, ...)
+/// * `tracked_shards` - Shards to track by all nodes, except for archival and RPC nodes which track all shards
 pub fn create_localnet_configs(
     num_shards: NumShards,
     num_validators: NumSeats,
@@ -1215,6 +1245,18 @@ pub fn create_localnet_configs(
     (configs, validator_signers, network_signers, genesis, shard_keys)
 }
 
+/// Creates localnet configuration and initializes the local home directories for a number of nodes.
+///
+/// # Arguments
+///
+/// * `dir` - Root directory in which node-specific directories are created
+/// * `num_shards` - Number of shards to partition the chain into
+/// * `num_validators` - Number of validator nodes to create
+/// * `num_non_validators_archival` - Number of non-validator nodes to create and configure as an archival node (storing full chain history)
+/// * `num_non_validators_rpc` - Number of non-validator nodes to create and configure as an RPC node (eg. for sending transactions)
+/// * `num_non_validators` - Number of additional non-validator nodes to create
+/// * `prefix` - Prefix for the directory name for each node with (e.g. ‘node’ results in ‘node0’, ‘node1’, ...)
+/// * `tracked_shards` - Shards to track by all nodes, except for archival and RPC nodes which track all shards
 pub fn init_localnet_configs(
     dir: &Path,
     num_shards: NumShards,
