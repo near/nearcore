@@ -1329,7 +1329,7 @@ pub(crate) fn maybe_save_trie_changes(
     shard_id: u64,
 ) -> anyhow::Result<()> {
     if let Some(store) = store {
-        let mut chain_store = ChainStore::new(store, genesis_height, true);
+        let mut chain_store = ChainStore::new(store, genesis_height, false);
         let mut chain_store_update = chain_store.store_update();
         chain_store_update.save_trie_changes(apply_result.trie_changes);
         chain_store_update.commit()?;
