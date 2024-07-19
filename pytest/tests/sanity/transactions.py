@@ -81,7 +81,7 @@ last_balances = [x for x in ctx.expected_balances]
 step = 0
 sent_height = -1
 
-height, hash_ = utils.wait_for_blocks(nodes[4], target=1, check_storage=False)
+height, hash_ = utils.wait_for_blocks(nodes[4], target=5, check_storage=False)
 tx = sign_payment_tx(nodes[0].signer_key, 'test1', 100, 1,
                      base58.b58decode(hash_.encode('utf8')))
 nodes[4].send_tx(tx)
