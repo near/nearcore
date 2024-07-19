@@ -47,7 +47,8 @@ nightly = [
   "protocol_feature_reject_blocks_with_outdated_protocol_version",
 ]
 
-nightly_protocol = []
+nightly_protocol = [
+]
 
 statelessnet_protocol = []
 
