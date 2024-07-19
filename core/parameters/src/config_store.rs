@@ -1,6 +1,8 @@
 use crate::config::{CongestionControlConfig, RuntimeConfig};
 use crate::parameter_table::{ParameterTable, ParameterTableDiff};
+use crate::vm;
 use near_primitives_core::types::ProtocolVersion;
+use near_primitives_core::version::PROTOCOL_VERSION;
 use std::collections::BTreeMap;
 use std::ops::Bound;
 use std::sync::Arc;
@@ -134,7 +136,16 @@ impl RuntimeConfigStore {
         match chain_id {
             near_primitives_core::chains::TESTNET => {
                 let genesis_runtime_config = RuntimeConfig::initial_testnet_config();
-                Self::new(Some(&genesis_runtime_config))
+                let mut config_store = Self::new(Some(&genesis_runtime_config));
+                let mut config = RuntimeConfig::clone(config_store.get_config(PROTOCOL_VERSION));
+                config.congestion_control_config.max_tx_gas = 10u64.pow(8);
+                config.congestion_control_config.min_tx_gas = 10u64.pow(8);
+                config.witness_config.main_storage_proof_size_soft_limit = 999_999_999_999_999;
+                let mut wasm_config = vm::Config::clone(&config.wasm_config);
+                wasm_config.limit_config.per_receipt_storage_proof_size_limit = 999_999_999_999_999;
+                config.wasm_config = Arc::new(wasm_config);
+                config_store.store.insert(PROTOCOL_VERSION, Arc::new(config));
+                config_store
             }
             _ => Self::new(None),
         }
