@@ -91,8 +91,8 @@ logger.info('Sent tx at height %s' % height)
 sent_height = height
 
 height, hash = utils.wait_for_blocks(nodes[4],
-                                      target=sent_height + 6,
-                                      check_storage=False)
+                                     target=sent_height + 6,
+                                     check_storage=False)
 cur_balances = ctx.get_balances()
 assert cur_balances == ctx.expected_balances, "%s != %s" % (
     cur_balances, ctx.expected_balances)
