@@ -45,13 +45,6 @@ impl RuntimeConfig {
             .expect("Failed parsing initial testnet config")
     }
 
-    pub fn initial_benchmarknet_config() -> RuntimeConfig {
-        INITIAL_BENCHMARKNET_CONFIG
-            .parse()
-            .and_then(|params| RuntimeConfig::new(&params))
-            .expect("Failed parsing initial benchmarknet config")
-    }
-
     pub fn test() -> Self {
         let config_store = super::config_store::RuntimeConfigStore::new(None, false);
         let runtime_config = config_store.get_config(PROTOCOL_VERSION);
