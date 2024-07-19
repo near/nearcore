@@ -132,7 +132,6 @@ pub enum ProtocolFeature {
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
     NonrefundableStorage,
     // NEP: https://github.com/near/NEPs/pull/488
-    #[cfg(feature = "protocol_feature_bls12381")]
     BLS12381,
     RestrictTla,
     /// Increases the number of chunk producers.
@@ -211,6 +210,7 @@ impl ProtocolFeature {
             | ProtocolFeature::RemoveAccountWithLongStorageKey => 68,
             ProtocolFeature::StatelessValidation => 69,
             ProtocolFeature::EthImplicitAccounts => 70,
+            ProtocolFeature::BLS12381 => 71,
 
             // This protocol version is reserved for use in resharding tests. An extra resharding
             // is simulated on top of the latest shard layout in production. Note that later
@@ -226,8 +226,6 @@ impl ProtocolFeature {
             ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
             ProtocolFeature::NonrefundableStorage => 140,
-            #[cfg(feature = "protocol_feature_bls12381")]
-            ProtocolFeature::BLS12381 => 141,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
@@ -242,7 +240,7 @@ impl ProtocolFeature {
 /// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 70;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 71;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "statelessnet_protocol") {

@@ -7,7 +7,6 @@ use super::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use super::utils::split_method_names;
 use super::ValuePtr;
 use super::{HostError, VMLogicError};
-#[cfg(feature = "protocol_feature_bls12381")]
 use crate::bls12381_impl;
 use crate::ProfileDataV3;
 use near_crypto::Secp256K1Signature;
@@ -1056,7 +1055,6 @@ impl<'a> VMLogic<'a> {
         Ok(res as u64)
     }
 
-    #[cfg(feature = "protocol_feature_bls12381")]
     bls12381_impl!(
         r"Calculates the sum of signed elements on the BLS12-381 curve.
         It accepts an arbitrary number of pairs (sign_i, p_i),
@@ -1102,7 +1100,6 @@ impl<'a> VMLogic<'a> {
         p1_sum
     );
 
-    #[cfg(feature = "protocol_feature_bls12381")]
     bls12381_impl!(
         r"Calculates the sum of signed elements on the twisted BLS12-381 curve.
         It accepts an arbitrary number of pairs (sign_i, p_i),
@@ -1149,7 +1146,6 @@ impl<'a> VMLogic<'a> {
         p2_sum
     );
 
-    #[cfg(feature = "protocol_feature_bls12381")]
     bls12381_impl!(
         r"Calculates multiexp on BLS12-381 curve:
         accepts an arbitrary number of pairs (p_i, s_i),
@@ -1195,7 +1191,6 @@ impl<'a> VMLogic<'a> {
         g1_multiexp
     );
 
-    #[cfg(feature = "protocol_feature_bls12381")]
     bls12381_impl!(
         r"Calculates multiexp on twisted BLS12-381 curve:
         accepts an arbitrary number of pairs (p_i, s_i),
@@ -1242,7 +1237,6 @@ impl<'a> VMLogic<'a> {
         g2_multiexp
     );
 
-    #[cfg(feature = "protocol_feature_bls12381")]
     bls12381_impl!(
         r"Maps elements from Fp to the G1 subgroup of BLS12-381 curve.
 
@@ -1281,7 +1275,6 @@ impl<'a> VMLogic<'a> {
         map_fp_to_g1
     );
 
-    #[cfg(feature = "protocol_feature_bls12381")]
     bls12381_impl!(
         r"Maps elements from Fp^2 to the G2 subgroup of twisted BLS12-381 curve.
 
@@ -1358,7 +1351,6 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     /// `base + write_register_base + write_register_byte * num_bytes +
     ///   bls12381_pairing_base + bls12381_pairing_element * num_elements`
-    #[cfg(feature = "protocol_feature_bls12381")]
     pub fn bls12381_pairing_check(&mut self, value_len: u64, value_ptr: u64) -> Result<u64> {
         self.result_state.gas_counter.pay_base(bls12381_pairing_base)?;
 
@@ -1374,7 +1366,6 @@ impl<'a> VMLogic<'a> {
         super::bls12381::pairing_check(&data)
     }
 
-    #[cfg(feature = "protocol_feature_bls12381")]
     bls12381_impl!(
         r"Decompress points from BLS12-381 curve.
 
@@ -1419,7 +1410,6 @@ impl<'a> VMLogic<'a> {
         p1_decompress
     );
 
-    #[cfg(feature = "protocol_feature_bls12381")]
     bls12381_impl!(
         r"Decompress points from twisted BLS12-381 curve.
 
