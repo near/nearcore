@@ -673,8 +673,8 @@ class NeardRunner:
 
     # Updates the URL for the given epoch height or binary idx. adds a new one if the epoch height does not exit
     def update_binaries_url(self, neard_binary_url, epoch_height, binary_idx):
-        if neard_binary_url is not None and ((epoch_height is None)
-                                             != (binary_idx is None)):
+        if neard_binary_url is not None and ((epoch_height is None) !=
+                                             (binary_idx is None)):
             logging.info(
                 f'Updating binary list for height:{epoch_height} or idx:{binary_idx} with '
                 f'url: {neard_binary_url}')
@@ -895,7 +895,8 @@ class NeardRunner:
         out_path = os.path.join(self.neard_logs_dir, self.neard_logs_file_name)
         with open(out_path, 'ab') as out:
             if self.is_traffic_generator():
-                cmd = self.get_start_traffic_generator_cmd(batch_interval_millis)
+                cmd = self.get_start_traffic_generator_cmd(
+                    batch_interval_millis)
             else:
                 cmd = self.get_start_cmd()
 
