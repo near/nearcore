@@ -30,7 +30,7 @@ use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::sharding::ChunkHash;
+use near_primitives::sharding::{ChunkHash, ShardChunk};
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_record::state_record_to_account_id;
 use near_primitives::state_record::StateRecord;
@@ -882,13 +882,12 @@ pub(crate) fn view_genesis(
         epoch_manager.clone(),
     )
     .unwrap();
-    let chain_store = ChainStore::new(
-        store,
-        near_config.genesis.config.genesis_height,
-        near_config.client_config.save_trie_changes,
-    );
+    let genesis_height = near_config.genesis.config.genesis_height;
+    let chain_store =
+        ChainStore::new(store, genesis_height, near_config.client_config.save_trie_changes);
 
     if view_config || compare {
+        tracing::info!(target: "state_viewer", "Computing genesis from config...");
         let state_roots =
             near_store::get_genesis_state_roots(chain_store.store()).unwrap().unwrap();
         let (genesis_block, genesis_chunks) = Chain::make_genesis_block(
@@ -923,8 +922,41 @@ pub(crate) fn view_genesis(
     }
 
     if view_store {
-        unimplemented!("Viewing genesis from config is not yet implemented")
+        tracing::info!(target: "state_viewer", genesis_height, "Reading genesis from store...");
+        match read_genesis_from_store(&chain_store, genesis_height) {
+            Ok((genesis_block, genesis_chunks)) => {
+                println!("Genesis block from store: {:#?}", genesis_block);
+                for chunk in genesis_chunks {
+                    println!(
+                        "Genesis chunk from store at shard {}: {:#?}",
+                        chunk.shard_id(),
+                        chunk
+                    );
+                }
+            }
+            Err(error) => {
+                println!("Failed to read genesis block from store. Error: {}", error);
+                if !near_config.config.archive {
+                    println!("Hint: This is not an archival node. Try running this command from an archival node since genesis block may be garbage collected.");
+                }
+            }
+        }
     }
+}
+
+fn read_genesis_from_store(
+    chain_store: &ChainStore,
+    genesis_height: u64,
+) -> Result<(Block, Vec<Arc<ShardChunk>>), Error> {
+    let genesis_hash = chain_store.get_block_hash_by_height(genesis_height)?;
+    let genesis_block = chain_store.get_block(&genesis_hash)?;
+    let mut genesis_chunks = vec![];
+    for chunk_header in genesis_block.chunks().iter() {
+        if chunk_header.height_included() == genesis_height {
+            genesis_chunks.push(chain_store.get_chunk(&chunk_header.chunk_hash())?);
+        }
+    }
+    Ok((genesis_block, genesis_chunks))
 }
 
 pub(crate) fn check_block_chunk_existence(near_config: NearConfig, store: Store) {

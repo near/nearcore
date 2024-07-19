@@ -178,7 +178,7 @@ expression: config_view
     "regular_op_cost": 822756,
     "vm_kind": "<REDACTED>",
     "disable_9393_fix": false,
-    "discard_custom_sections": false,
+    "discard_custom_sections": true,
     "storage_get_mode": "FlatStorage",
     "fix_contract_loading_cost": false,
     "implicit_account_creation": true,
