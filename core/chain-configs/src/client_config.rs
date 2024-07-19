@@ -253,6 +253,10 @@ pub fn default_sync_check_period() -> Duration {
     Duration::seconds(10)
 }
 
+pub fn default_sync_max_block_requests() -> usize {
+    10
+}
+
 pub fn default_sync_step_period() -> Duration {
     Duration::milliseconds(10)
 }
@@ -372,6 +376,8 @@ pub struct ClientConfig {
     pub sync_step_period: Duration,
     /// Sync height threshold: below this difference in height don't start syncing.
     pub sync_height_threshold: BlockHeightDelta,
+    /// Maximum number of block requests to send to peers to sync
+    pub sync_max_block_requests: usize,
     /// How much time to wait after initial header sync
     pub header_sync_initial_timeout: Duration,
     /// How much time to wait after some progress is made in header sync
@@ -520,6 +526,7 @@ impl ClientConfig {
             sync_check_period: Duration::milliseconds(100),
             sync_step_period: Duration::milliseconds(10),
             sync_height_threshold: 1,
+            sync_max_block_requests: 10,
             header_sync_initial_timeout: Duration::seconds(10),
             header_sync_progress_timeout: Duration::seconds(2),
             header_sync_stall_ban_timeout: Duration::seconds(30),

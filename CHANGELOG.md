@@ -12,6 +12,8 @@
 
 * Enforce rate limits to received network messages [#11617](https://github.com/near/nearcore/issues/11617). Rate limits are configured by default, but they can be overridden through the experimental configuration option `received_messages_rate_limits`.
 
+* Increase sync blocks requested and make it configurable through a parameter in the client config [#11820](https://github.com/near/nearcore/pull/11820). Increase default max sync block requests to 10 from 5.
+
 ## 1.40.0
 
 ### Protocol Changes
