@@ -1057,42 +1057,42 @@ impl<'a> VMLogic<'a> {
 
     bls12381_impl!(
         r"Calculates the sum of signed elements on the BLS12-381 curve.
-        It accepts an arbitrary number of pairs (sign_i, p_i),
-        where p_i from E(Fp) and sign_i is 0 or 1.
-        It calculates sum_i (-1)^{sign_i} * p_i
+It accepts an arbitrary number of pairs (sign_i, p_i),
+where p_i from E(Fp) and sign_i is 0 or 1.
+It calculates sum_i (-1)^{sign_i} * p_i
 
-        # Arguments
+# Arguments
 
-        * `value` -  sequence of (sign:bool, p:E(Fp)), where
-          p is point (x:Fp, y:Fp) on BLS12-381,
-          BLS12-381 is Y^2 = X^3 + 4 curve over Fp.
+* `value` -  sequence of (sign:bool, p:E(Fp)), where
+  p is point (x:Fp, y:Fp) on BLS12-381,
+  BLS12-381 is Y^2 = X^3 + 4 curve over Fp.
 
-          `value` is encoded as packed `[(u8, ([u8;48], [u8;48]))]` slice.
-          `0u8` is positive sign, `1u8` -- negative.
-          Elements from Fp encoded as big-endian [u8;48].
+  `value` is encoded as packed `[(u8, ([u8;48], [u8;48]))]` slice.
+  `0u8` is positive sign, `1u8` -- negative.
+  Elements from Fp encoded as big-endian [u8;48].
 
-        # Output
+# Output
 
-        If the input data is correct returns 0 and the 96 bytes represent
-        the resulting points from E(Fp) which will be written to the register with
-        the register_id identifier
+If the input data is correct returns 0 and the 96 bytes represent
+the resulting points from E(Fp) which will be written to the register with
+the register_id identifier
 
-        If one of the points not on the curve,
-        the sign or points are incorrectly encoded then 1 will be returned
-        and nothing will be written to the register.
+If one of the points not on the curve,
+the sign or points are incorrectly encoded then 1 will be returned
+and nothing will be written to the register.
 
-        # Errors
+# Errors
 
-        If `value_len + value_ptr` points outside the memory or the registers
-        use more memory than the limit the function returns `MemoryAccessViolation`.
+If `value_len + value_ptr` points outside the memory or the registers
+use more memory than the limit the function returns `MemoryAccessViolation`.
 
-        If `value_len % 97 != 0`, the function returns `BLS12381InvalidInput`.
+If `value_len % 97 != 0`, the function returns `BLS12381InvalidInput`.
 
-        # Cost
+# Cost
 
-        `base + write_register_base + write_register_byte * num_bytes +
-        bls12381_p1_sum_base + bls12381_p1_sum_element * num_elements`
-        ",
+`base + write_register_base + write_register_byte * num_bytes +
+bls12381_p1_sum_base + bls12381_p1_sum_element * num_elements`
+",
         bls12381_p1_sum,
         97,
         bls12381_p1_sum_base,
@@ -1102,43 +1102,43 @@ impl<'a> VMLogic<'a> {
 
     bls12381_impl!(
         r"Calculates the sum of signed elements on the twisted BLS12-381 curve.
-        It accepts an arbitrary number of pairs (sign_i, p_i),
-        where p_i from E'(Fp^2) and sign_i is 0 or 1.
-        It calculates sum_i (-1)^{sign_i} * p_i
+It accepts an arbitrary number of pairs (sign_i, p_i),
+where p_i from E'(Fp^2) and sign_i is 0 or 1.
+It calculates sum_i (-1)^{sign_i} * p_i
 
-        # Arguments
+# Arguments
 
-        * `value` -  sequence of (sign:bool, p:E'(Fp^2)), where
-          p is point (x:Fp^2, y:Fp^2) on twisted BLS12-381,
-          twisted BLS12-381 is Y^2 = X^3 + 4(u + 1) curve over Fp^2.
+* `value` -  sequence of (sign:bool, p:E'(Fp^2)), where
+  p is point (x:Fp^2, y:Fp^2) on twisted BLS12-381,
+  twisted BLS12-381 is Y^2 = X^3 + 4(u + 1) curve over Fp^2.
 
-          `value` is encoded as packed `[(u8, ([u8;96], [u8;96]))]` slice.
-          `0u8` is positive, `1u8` is negative.
-          Elements q = c0 + c1 * u from Fp^2 encoded as concatenation of c1 and c0,
-          where c1 and c0 from Fp and encoded as big-endian [u8;48].
+`value` is encoded as packed `[(u8, ([u8;96], [u8;96]))]` slice.
+`0u8` is positive, `1u8` is negative.
+Elements q = c0 + c1 * u from Fp^2 encoded as concatenation of c1 and c0,
+where c1 and c0 from Fp and encoded as big-endian [u8;48].
 
-        # Output
+# Output
 
-        If the input data is correct returns 0 and the 192 bytes represent
-        the resulting points from E'(Fp^2) which will be written to the register with
-        the register_id identifier
+If the input data is correct returns 0 and the 192 bytes represent
+the resulting points from E'(Fp^2) which will be written to the register with
+the register_id identifier
 
-        If one of the points not on the curve,
-        the sign or points are incorrectly encoded then 1 will be returned
-        and nothing will be written to the register.
+If one of the points not on the curve,
+the sign or points are incorrectly encoded then 1 will be returned
+and nothing will be written to the register.
 
-        # Errors
+# Errors
 
-        If `value_len + value_ptr` points outside the memory or the registers
-        use more memory than the limit the function returns `MemoryAccessViolation`.
+If `value_len + value_ptr` points outside the memory or the registers
+use more memory than the limit the function returns `MemoryAccessViolation`.
 
-        If `value_len % 193 != 0`, the function returns `BLS12381InvalidInput`.
+If `value_len % 193 != 0`, the function returns `BLS12381InvalidInput`.
 
-        # Cost
+# Cost
 
-        `base + write_register_base + write_register_byte * num_bytes +
-        bls12381_p2_sum_base + bls12381_p2_sum_element * num_elements`
-        ",
+`base + write_register_base + write_register_byte * num_bytes +
+bls12381_p2_sum_base + bls12381_p2_sum_element * num_elements`
+",
         bls12381_p2_sum,
         193,
         bls12381_p2_sum_base,
@@ -1148,42 +1148,42 @@ impl<'a> VMLogic<'a> {
 
     bls12381_impl!(
         r"Calculates multiexp on BLS12-381 curve:
-        accepts an arbitrary number of pairs (p_i, s_i),
-        where p_i from G1 and s_i is a scalar and
-        calculates sum_i s_i*p_i
+accepts an arbitrary number of pairs (p_i, s_i),
+where p_i from G1 and s_i is a scalar and
+calculates sum_i s_i*p_i
 
-        # Arguments
+# Arguments
 
-        * `value` -  sequence of (p:E(Fp), s:u256), where
-          p is point (x:Fp, y:Fp) on BLS12-381,
-          BLS12-381 is Y^2 = X^3 + 4 curve over Fp.
+* `value` -  sequence of (p:E(Fp), s:u256), where
+   p is point (x:Fp, y:Fp) on BLS12-381,
+   BLS12-381 is Y^2 = X^3 + 4 curve over Fp.
 
-          `value` is encoded as packed `[(([u8;48], [u8;48]), [u8;32])]` slice.
-          Elements from Fp encoded as big-endian [u8;48].
-          Scalars encoded as little-endian [u8;32].
+   `value` is encoded as packed `[(([u8;48], [u8;48]), [u8;32])]` slice.
+   Elements from Fp encoded as big-endian [u8;48].
+   Scalars encoded as little-endian [u8;32].
 
-        # Output
+# Output
 
-        If the input data is correct returns 0 and the 96 bytes represent
-        the resulting points from G1 which will be written to the register with
-        the register_id identifier
+If the input data is correct returns 0 and the 96 bytes represent
+the resulting points from G1 which will be written to the register with
+the register_id identifier
 
-        If one of the points not from G1 subgroup
-        or points are incorrectly encoded then 1 will be returned
-        and nothing will be written to the register.
+If one of the points not from G1 subgroup
+or points are incorrectly encoded then 1 will be returned
+and nothing will be written to the register.
 
-        # Errors
+# Errors
 
-        If `value_len + value_ptr` points outside the memory or the registers
-        use more memory than the limit the function returns `MemoryAccessViolation`.
+If `value_len + value_ptr` points outside the memory or the registers
+use more memory than the limit the function returns `MemoryAccessViolation`.
 
-        If `value_len % 128 != 0`, the function returns `BLS12381InvalidInput`.
+If `value_len % 128 != 0`, the function returns `BLS12381InvalidInput`.
 
-        # Cost
+# Cost
 
-        `base + write_register_base + write_register_byte * num_bytes +
-         bls12381_g1_multiexp_base + bls12381_g1_multiexp_element * num_elements`
-        ",
+`base + write_register_base + write_register_byte * num_bytes +
+bls12381_g1_multiexp_base + bls12381_g1_multiexp_element * num_elements`
+",
         bls12381_g1_multiexp,
         128,
         bls12381_g1_multiexp_base,
@@ -1192,44 +1192,44 @@ impl<'a> VMLogic<'a> {
     );
 
     bls12381_impl!(
-        r"Calculates multiexp on twisted BLS12-381 curve:
-        accepts an arbitrary number of pairs (p_i, s_i),
-        where p_i from G2 and s_i is a scalar and
-        calculates sum_i s_i*p_i
+r"Calculates multiexp on twisted BLS12-381 curve:
+accepts an arbitrary number of pairs (p_i, s_i),
+where p_i from G2 and s_i is a scalar and
+calculates sum_i s_i*p_i
 
-        # Arguments
+# Arguments
 
-        * `value` -  sequence of (p:E'(Fp^2), s:u256), where
-          p is point (x:Fp^2, y:Fp^2) on twisted BLS12-381,
-          BLS12-381 is Y^2 = X^3 + 4(u + 1) curve over Fp^2.
+* `value` -  sequence of (p:E'(Fp^2), s:u256), where
+  p is point (x:Fp^2, y:Fp^2) on twisted BLS12-381,
+  BLS12-381 is Y^2 = X^3 + 4(u + 1) curve over Fp^2.
 
-          `value` is encoded as packed `[(([u8;96], [u8;96]), [u8;32])]` slice.
-          Elements q = c0 + c1 * u from Fp^2 encoded as concatenation of c1 and c0,
-          where c1 and c0 from Fp and encoded as big-endian [u8;48].
-          Scalars encoded as little-endian [u8;32].
+`value` is encoded as packed `[(([u8;96], [u8;96]), [u8;32])]` slice.
+Elements q = c0 + c1 * u from Fp^2 encoded as concatenation of c1 and c0,
+where c1 and c0 from Fp and encoded as big-endian [u8;48].
+Scalars encoded as little-endian [u8;32].
 
-        # Output
+# Output
 
-        If the input data is correct returns 0 and the 192 bytes represent
-        the resulting points from G2 which will be written to the register with
-        the register_id identifier
+If the input data is correct returns 0 and the 192 bytes represent
+the resulting points from G2 which will be written to the register with
+the register_id identifier
 
-        If one of the points not from G2 subgroup
-        or points are incorrectly encoded then 1 will be returned
-        and nothing will be written to the register.
+If one of the points not from G2 subgroup
+or points are incorrectly encoded then 1 will be returned
+and nothing will be written to the register.
 
-        # Errors
+# Errors
 
-        If `value_len + value_ptr` points outside the memory or the registers
-        use more memory than the limit the function returns `MemoryAccessViolation`.
+If `value_len + value_ptr` points outside the memory or the registers
+use more memory than the limit the function returns `MemoryAccessViolation`.
 
-        If `value_len % 224 != 0`, the function returns `BLS12381InvalidInput`.
+If `value_len % 224 != 0`, the function returns `BLS12381InvalidInput`.
 
-        # Cost
+# Cost
 
-        `base + write_register_base + write_register_byte * num_bytes +
-        bls12381_g2_multiexp_base + bls12381_g2_multiexp_element * num_elements`
-        ",
+`base + write_register_base + write_register_byte * num_bytes +
+bls12381_g2_multiexp_base + bls12381_g2_multiexp_element * num_elements`
+",
         bls12381_g2_multiexp,
         224,
         bls12381_g2_multiexp_base,
@@ -1240,34 +1240,34 @@ impl<'a> VMLogic<'a> {
     bls12381_impl!(
         r"Maps elements from Fp to the G1 subgroup of BLS12-381 curve.
 
-        # Arguments
+# Arguments
 
-        * `value` -  sequence of p from Fp.
+* `value` -  sequence of p from Fp.
 
-          `value` is encoded as packed `[[u8;48]]` slice.
-          Elements from Fp encoded as big-endian [u8;48].
+   `value` is encoded as packed `[[u8;48]]` slice.
+   Elements from Fp encoded as big-endian [u8;48].
 
-        # Output
+# Output
 
-        If the input data is correct returns 0 and the 96*num_elements bytes represent
-        the resulting points from G1 which will be written to the register with
-        the register_id identifier
+If the input data is correct returns 0 and the 96*num_elements bytes represent
+the resulting points from G1 which will be written to the register with
+the register_id identifier
 
-        If one of the element >= p, then 1 will be returned
-        and nothing will be written to the register.
+If one of the element >= p, then 1 will be returned
+and nothing will be written to the register.
 
-        # Errors
+# Errors
 
-        If `value_len + value_ptr` points outside the memory or the registers
-        use more memory than the limit the function returns `MemoryAccessViolation`.
+If `value_len + value_ptr` points outside the memory or the registers
+use more memory than the limit the function returns `MemoryAccessViolation`.
 
-        If `value_len % 48 != 0`, the function returns `BLS12381InvalidInput`.
+If `value_len % 48 != 0`, the function returns `BLS12381InvalidInput`.
 
-        # Cost
+# Cost
 
-        `base + write_register_base + write_register_byte * num_bytes +
-        bls12381_map_fp_to_g1_base + bls12381_map_fp_to_g1_element * num_elements`
-        ",
+`base + write_register_base + write_register_byte * num_bytes +
+bls12381_map_fp_to_g1_base + bls12381_map_fp_to_g1_element * num_elements`
+",
         bls12381_map_fp_to_g1,
         48,
         bls12381_map_fp_to_g1_base,
@@ -1278,34 +1278,34 @@ impl<'a> VMLogic<'a> {
     bls12381_impl!(
         r"Maps elements from Fp^2 to the G2 subgroup of twisted BLS12-381 curve.
 
-        # Arguments
+# Arguments
 
-        * `value` -  sequence of p from Fp^2.
+* `value` -  sequence of p from Fp^2.
 
-          `value` is encoded as packed `[[u8;96]]` slice.
-          Elements q = c0 + c1 * u from Fp^2 encoded as concatenation of c1 and c0,
-          where c1 and c0 from Fp and encoded as big-endian [u8;48].
+`value` is encoded as packed `[[u8;96]]` slice.
+Elements q = c0 + c1 * u from Fp^2 encoded as concatenation of c1 and c0,
+where c1 and c0 from Fp and encoded as big-endian [u8;48].
 
-        # Output
+# Output
 
-        If the input data is correct returns 0 and the 192*num_elements bytes represent
-        the resulting points from G2 which will be written to the register with
-        the register_id identifier
+If the input data is correct returns 0 and the 192*num_elements bytes represent
+the resulting points from G2 which will be written to the register with
+the register_id identifier
 
-        If one of the element not valid Fp^2, then 1 will be returned
-        and nothing will be written to the register.
+If one of the element not valid Fp^2, then 1 will be returned
+and nothing will be written to the register.
 
-        # Errors
+# Errors
 
-        If `value_len + value_ptr` points outside the memory or the registers
-        use more memory than the limit the function returns `MemoryAccessViolation`.
+If `value_len + value_ptr` points outside the memory or the registers
+use more memory than the limit the function returns `MemoryAccessViolation`.
 
-        If `value_len % 96 != 0`, the function returns `BLS12381InvalidInput`.
+If `value_len % 96 != 0`, the function returns `BLS12381InvalidInput`.
 
-        # Cost
-        `base + write_register_base + write_register_byte * num_bytes +
-          bls12381_map_fp2_to_g2_base + bls12381_map_fp2_to_g2_element * num_elements`
-        ",
+# Cost
+`base + write_register_base + write_register_byte * num_bytes +
+bls12381_map_fp2_to_g2_base + bls12381_map_fp2_to_g2_element * num_elements`
+",
         bls12381_map_fp2_to_g2,
         96,
         bls12381_map_fp2_to_g2_base,
@@ -1369,40 +1369,40 @@ impl<'a> VMLogic<'a> {
     bls12381_impl!(
         r"Decompress points from BLS12-381 curve.
 
-        # Arguments
+# Arguments
 
-        * `value` -  sequence of p:E(Fp), where
-           p is point in compressed format on BLS12-381,
-           BLS12-381 is Y^2 = X^3 + 4 curve over Fp.
+* `value` -  sequence of p:E(Fp), where
+   p is point in compressed format on BLS12-381,
+   BLS12-381 is Y^2 = X^3 + 4 curve over Fp.
 
-          `value` is encoded as packed `[[u8;48]]` slice.
-           Where points (x: Fp, y: Fp) from E(Fp) encoded as
-           [u8; 48] -- big-endian x: Fp. y determined by the formula y=+-sqrt(x^3 + 4)
+   `value` is encoded as packed `[[u8;48]]` slice.
+   Where points (x: Fp, y: Fp) from E(Fp) encoded as
+   [u8; 48] -- big-endian x: Fp. y determined by the formula y=+-sqrt(x^3 + 4)
 
-           The highest bit should be set as 1, the second-highest bit marks the point at infinity,
-           The third-highest bit represent the sign of y (0 for positive).
+   The highest bit should be set as 1, the second-highest bit marks the point at infinity,
+   The third-highest bit represent the sign of y (0 for positive).
 
-        # Output
+# Output
 
-        If the input data is correct returns 0 and the 96*num_elements bytes represent
-        the resulting uncompressed points from E(Fp) which will be written to the register with
-        the register_id identifier
+If the input data is correct returns 0 and the 96*num_elements bytes represent
+the resulting uncompressed points from E(Fp) which will be written to the register with
+the register_id identifier
 
-        If one of the points not on the curve
-        or points are incorrectly encoded then 1 will be returned
-        and nothing will be written to the register.
+If one of the points not on the curve
+or points are incorrectly encoded then 1 will be returned
+and nothing will be written to the register.
 
-        # Errors
+# Errors
 
-        If `value_len + value_ptr` points outside the memory or the registers
-        use more memory than the limit the function returns `MemoryAccessViolation`.
+If `value_len + value_ptr` points outside the memory or the registers
+use more memory than the limit the function returns `MemoryAccessViolation`.
 
-        If `value_len % 48 != 0`, the function returns `BLS12381InvalidInput`.
+If `value_len % 48 != 0`, the function returns `BLS12381InvalidInput`.
 
-        # Cost
-        `base + write_register_base + write_register_byte * num_bytes +
-         bls12381_p1_decompress_base + bls12381_p1_decompress_element * num_elements`
-        ",
+# Cost
+`base + write_register_base + write_register_byte * num_bytes +
+bls12381_p1_decompress_base + bls12381_p1_decompress_element * num_elements`
+",
         bls12381_p1_decompress,
         48,
         bls12381_p1_decompress_base,
@@ -1413,43 +1413,43 @@ impl<'a> VMLogic<'a> {
     bls12381_impl!(
         r"Decompress points from twisted BLS12-381 curve.
 
-        # Arguments
+# Arguments
 
-        * `value` -  sequence of p:E'(Fp^2), where
-           p is point in compressed format on twisted BLS12-381,
-           twisted BLS12-381 is Y^2 = X^3 + 4(u + 1) curve over Fp^2.
+* `value` -  sequence of p:E'(Fp^2), where
+   p is point in compressed format on twisted BLS12-381,
+   twisted BLS12-381 is Y^2 = X^3 + 4(u + 1) curve over Fp^2.
 
-          `value` is encoded as packed `[[u8;96]]` slice.
-           Where points (x: Fp^2, y: Fp^2) from E'(Fp^2) encoded as
-           [u8; 96] -- x: Fp^2. y determined by the formula y=+-sqrt(x^3 + 4(u + 1))
+   `value` is encoded as packed `[[u8;96]]` slice.
+   Where points (x: Fp^2, y: Fp^2) from E'(Fp^2) encoded as
+   [u8; 96] -- x: Fp^2. y determined by the formula y=+-sqrt(x^3 + 4(u + 1))
 
-           Elements q = c0 + c1 * u from Fp^2 encoded as concatenation of c1 and c0,
-           where c1 and c0 from Fp and encoded as big-endian [u8;48].
+   Elements q = c0 + c1 * u from Fp^2 encoded as concatenation of c1 and c0,
+   where c1 and c0 from Fp and encoded as big-endian [u8;48].
 
-           The highest bit should be set as 1, the second-highest bit marks the point at infinity,
-           The third-highest bit represent the sign of y (0 for positive).
+   The highest bit should be set as 1, the second-highest bit marks the point at infinity,
+   The third-highest bit represent the sign of y (0 for positive).
 
-       # Output
+# Output
 
-       If the input data is correct returns 0 and the 192*num_elements bytes represent
-       the resulting uncompressed points from E'(Fp^2) which will be written to the register with
-       the register_id identifier
+If the input data is correct returns 0 and the 192*num_elements bytes represent
+the resulting uncompressed points from E'(Fp^2) which will be written to the register with
+the register_id identifier
 
-       If one of the points not on the curve
-       or points are incorrectly encoded then 1 will be returned
-       and nothing will be written to the register.
+If one of the points not on the curve
+or points are incorrectly encoded then 1 will be returned
+and nothing will be written to the register.
 
-       # Errors
+# Errors
 
-       If `value_len + value_ptr` points outside the memory or the registers
-       use more memory than the limit the function returns `MemoryAccessViolation`.
+If `value_len + value_ptr` points outside the memory or the registers
+use more memory than the limit the function returns `MemoryAccessViolation`.
 
-       If `value_len % 96 != 0`, the function returns `BLS12381InvalidInput`.
+If `value_len % 96 != 0`, the function returns `BLS12381InvalidInput`.
 
-       # Cost
+# Cost
 
-       `base + write_register_base + write_register_byte * num_bytes +
-       bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
+`base + write_register_base + write_register_byte * num_bytes +
+bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         ",
         bls12381_p2_decompress,
         96,
