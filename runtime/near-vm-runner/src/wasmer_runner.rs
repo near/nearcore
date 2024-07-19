@@ -5,9 +5,9 @@ use crate::logic::errors::{
 };
 use crate::logic::{ExecutionResultState, External, VMContext, VMLogic, VMLogicError, VMOutcome};
 use crate::logic::{MemSlice, MemoryLike};
-use crate::{prepare, Contract};
 use crate::runner::VMResult;
 use crate::{get_contract_cache_key, imports, ContractCode};
+use crate::{prepare, Contract};
 use near_parameters::vm::{Config, VMKind};
 use near_parameters::RuntimeFeesConfig;
 use std::borrow::Cow;

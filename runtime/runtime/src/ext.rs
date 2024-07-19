@@ -1,4 +1,5 @@
-use crate::conversions::Convert; use crate::receipt_manager::ReceiptManager;
+use crate::conversions::Convert;
+use crate::receipt_manager::ReceiptManager;
 use near_primitives::account::id::AccountType;
 use near_primitives::account::Account;
 use near_primitives::checked_feature;
